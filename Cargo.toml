@@ -1,0 +1,26 @@
+[package]
+name = "grackle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+blake3 = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+comrak = "0.54"
+image = "0.25"
+similar = "2"
+globset = "0.4"
+grass = "0.13"
+ignore = "0.4"
+rayon = "1"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+serde_json = "1"
+toml = "0.8"
+walkdir = "2"
+
+[profile.release]
+opt-level = 3

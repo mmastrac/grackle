@@ -1,0 +1,354 @@
+//! Expansion of the liquid-shaped constructs that appear in post bodies and
+//! tree pages.
+//!
+//! A targeted expander, not a liquid implementation. Post bodies use exactly
+//! two tags — `{% image %}` (194 uses / 68 posts) and `{% post_url %}` (51) —
+//! plus `{{ site.baseurl }}` and its `| prepend:` form (12).
+//!
+//! `{% view %}` and `{% include %}` are grackle's own, added for `/` (§5c).
+//! Each is a whole recognised construct rather than a step toward a template
+//! language: `{% include %}` refuses parameters, and `{% view %}` dispatches to
+//! a layout kind rather than exposing rows for a template to iterate.
+//!
+//! Anything unrecognised is emitted verbatim, so an unimplemented construct
+//! shows up in the output instead of silently evaluating to nothing.
+
+use crate::db::SiteDb;
+use crate::render::{self, Site};
+use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+pub struct Ctx<'a> {
+    pub db: &'a SiteDb,
+    pub baseurl: &'a str,
+    /// Source path, for error messages that name the file.
+    pub source: String,
+    /// Where `{% include %}` resolves names. None disables the tag.
+    pub includes: Option<PathBuf>,
+    pub site: Option<&'a Site<'a>>,
+    /// `{% image %}` source path -> the thumbnail's published URL (§6b). When
+    /// absent, `{% image %}` falls back to linking the original at full size.
+    pub thumbs: Option<&'a HashMap<String, String>>,
+}
+
+impl<'a> Ctx<'a> {
+    pub fn new(db: &'a SiteDb, baseurl: &'a str, source: impl Into<String>) -> Self {
+        Ctx { db, baseurl, source: source.into(), includes: None, site: None, thumbs: None }
+    }
+}
+
+/// The source path in `{% image [left|right|inline] SRC %}`, mode stripped.
+/// The one place the mode-or-source parse lives, shared by rendering and the
+/// thumbnail pre-pass so the two cannot disagree on what a source is.
+fn image_src(arg: &str) -> Option<&str> {
+    let mut parts = arg.split_whitespace();
+    let first = parts.next()?;
+    let src = match first {
+        "left" | "right" | "inline" => parts.next()?,
+        other => other,
+    };
+    (!src.is_empty()).then_some(src)
+}
+
+/// Every `{% image %}` source in a body, for the thumbnail pre-pass (build.rs).
+/// Mirrors `expand`'s tag scan so it sees exactly the tags rendering will.
+pub fn image_sources(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = body;
+    while let Some(i) = rest.find("{%") {
+        let after = &rest[i + 2..];
+        let Some(end) = after.find("%}") else { break };
+        let inner = after[..end].trim();
+        if let Some(arg) = inner
+            .strip_prefix("image")
+            .filter(|a| a.starts_with(char::is_whitespace))
+        {
+            if let Some(src) = image_src(arg.trim()) {
+                out.push(src.to_string());
+            }
+        }
+        rest = &after[end + 2..];
+    }
+    out
+}
+
+/// `{% image [left|right|inline] path %}`
+///
+/// The anchor links the full-size original; the `<img>` shows the thumbnail
+/// (§6b) when the pre-pass generated one, else the original. The mode maps to a
+/// float class, which is the contract the theme styles against (§5a).
+fn image(arg: &str, cx: &Ctx) -> Result<String> {
+    let mut parts = arg.split_whitespace();
+    let first = parts.next().unwrap_or_default();
+    let (mode, src) = match first {
+        "left" => ("floatleft", parts.next().unwrap_or_default()),
+        "right" => ("floatright", parts.next().unwrap_or_default()),
+        "inline" => ("inline", parts.next().unwrap_or_default()),
+        other => ("standard", other),
+    };
+    if src.is_empty() {
+        bail!("{}: {{% image %}} with no source", cx.source);
+    }
+    let img_src = match cx.thumbs.and_then(|t| t.get(src)) {
+        Some(url) => url.clone(),
+        None => format!("{}/{}", cx.baseurl, src),
+    };
+    Ok(format!(
+        "<a class='image {mode}' href='{b}/{src}'><img src='{img_src}' alt=''></a>",
+        b = cx.baseurl,
+    ))
+}
+
+/// `{% post_url 2003-04-23-not-dead-yet %}` -> the post's URL.
+///
+/// A foreign key into the posts table: the argument is the filename stem, which
+/// is why `by_name` exists and is unique even though `slug` is not (§3).
+fn post_url(arg: &str, cx: &Ctx) -> Result<String> {
+    let name = arg.trim();
+    match cx.db.posts.by_name.get(name) {
+        Some(&i) => Ok(cx.db.posts.rows[i].url.clone()),
+        None => bail!("{}: {{% post_url {name} %}} matches no post", cx.source),
+    }
+}
+
+/// `{% view latest %}` -> a routeless view, rendered by its declared layout.
+///
+/// The seam between the database and the page (DESIGN.md §5c). The view owns
+/// the query and names a layout kind; this only looks the rows up and
+/// dispatches. Nothing here knows what "latest" means — change the filter in
+/// `grackle.toml` and this code does not move.
+fn view(name: &str, cx: &Ctx) -> Result<String> {
+    let name = name.trim();
+    let Some(v) = cx.db.views.get(name) else {
+        bail!(
+            "{}: {{% view {name} %}} matches no routeless view. \
+             A view with a route is materialized, not embedded.",
+            cx.source
+        );
+    };
+    let rows: Vec<&crate::db::Post> = v.members.iter().map(|&i| &cx.db.posts.rows[i]).collect();
+    let site = cx
+        .site
+        .ok_or_else(|| anyhow::anyhow!("{}: {{% view %}} needs a site context", cx.source))?;
+    match v.layout.as_deref() {
+        Some("link_list") => Ok(render::link_list(&rows, site)),
+        Some(other) => bail!(
+            "{}: view {name} has layout {other:?}, which is not embeddable",
+            cx.source
+        ),
+        None => bail!(
+            "{}: view {name} is query-only (no layout), so it cannot be embedded",
+            cx.source
+        ),
+    }
+}
+
+/// `{% include social.html %}` — parameterless only.
+///
+/// The layouts use the parameterised form (`{% include article.html
+/// margin_html=... %}`), and supporting that is the first step to writing a
+/// template engine. So arguments are a hard error rather than a quiet
+/// half-implementation (§5c).
+fn include(arg: &str, cx: &Ctx) -> Result<String> {
+    let arg = arg.trim();
+    if arg.contains('=') {
+        bail!(
+            "{}: {{% include {arg} %}} passes parameters, which are deliberately \
+             unsupported — parameterless includes only",
+            cx.source
+        );
+    }
+    let Some(dir) = &cx.includes else {
+        bail!("{}: {{% include {arg} %}} but no includes directory is configured", cx.source);
+    };
+    let path = dir.join(arg);
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("{}: {{% include {arg} %}} -> {}", cx.source, path.display()))?;
+    // Includes are expanded in their own right, so a partial may use the same
+    // tags a page can. Depth is bounded by the filesystem, not by a counter:
+    // an include cycle would recurse, which no partial in the corpus does.
+    let inner = Ctx {
+        db: cx.db,
+        baseurl: cx.baseurl,
+        source: path.display().to_string(),
+        includes: cx.includes.clone(),
+        site: cx.site,
+        thumbs: cx.thumbs,
+    };
+    expand(&text, &inner)
+}
+
+/// `{{ '/blog' | prepend: site.baseurl }}` -> `/blog`.
+///
+/// The other half of `site.baseurl`: 12 uses across the corpus, all of this
+/// exact shape. Recognised as a whole rather than by implementing liquid's
+/// filter pipeline.
+fn prepend_baseurl(inner: &str, cx: &Ctx) -> Option<String> {
+    let (lit, rest) = inner.split_once('|')?;
+    let lit = lit.trim();
+    let lit = lit.strip_prefix('\'')?.strip_suffix('\'')?;
+    let rest = rest.trim();
+    if rest != "prepend: site.baseurl" {
+        return None;
+    }
+    Some(format!("{}{lit}", cx.baseurl))
+}
+
+/// Expand the known tags. Anything else is left alone rather than guessed at.
+pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
+    let mut out = String::with_capacity(body.len() + 256);
+    let mut rest = body;
+
+    loop {
+        let tag = rest.find("{%");
+        let var = rest.find("{{");
+        let next = match (tag, var) {
+            (None, None) => break,
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (Some(a), Some(b)) => a.min(b),
+        };
+        let is_tag = rest[next..].starts_with("{%");
+        let close = if is_tag { "%}" } else { "}}" };
+        let Some(end) = rest[next..].find(close) else {
+            break;
+        };
+        let inner = rest[next + 2..next + end].trim().to_string();
+        out.push_str(&rest[..next]);
+
+        let replacement = if is_tag {
+            match inner.split_once(char::is_whitespace) {
+                Some(("image", arg)) => Some(image(arg.trim(), cx)?),
+                Some(("post_url", arg)) => Some(post_url(arg, cx)?),
+                Some(("view", arg)) => Some(view(arg, cx)?),
+                Some(("include", arg)) => Some(include(arg, cx)?),
+                _ => None,
+            }
+        } else if inner == "site.baseurl" {
+            Some(cx.baseurl.to_string())
+        } else {
+            prepend_baseurl(&inner, cx)
+        };
+
+        match replacement {
+            Some(r) => out.push_str(&r),
+            // Unknown construct: emit verbatim rather than silently dropping it.
+            None => out.push_str(&rest[next..next + end + close.len()]),
+        }
+        rest = &rest[next + end + close.len()..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx(db: &SiteDb) -> Ctx<'_> {
+        Ctx::new(db, "", "test.md")
+    }
+
+    #[test]
+    fn passes_through_plain_text() {
+        let db = SiteDb::default();
+        assert_eq!(expand("hello world", &ctx(&db)).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn expands_baseurl() {
+        let db = SiteDb::default();
+        let c = Ctx::new(&db, "/pre", "t");
+        assert_eq!(expand("a {{ site.baseurl }}/x b", &c).unwrap(), "a /pre/x b");
+    }
+
+    #[test]
+    fn image_modes_map_to_classes() {
+        let db = SiteDb::default();
+        let c = ctx(&db);
+        assert!(expand("{% image right a/b.png %}", &c).unwrap().contains("class='image floatright'"));
+        assert!(expand("{% image left a/b.png %}", &c).unwrap().contains("class='image floatleft'"));
+        assert!(expand("{% image a/b.png %}", &c).unwrap().contains("class='image standard'"));
+        // With no thumbnail map, the img falls back to the full-size original.
+        assert!(expand("{% image a/b.png %}", &c).unwrap().contains("src='/a/b.png'"));
+    }
+
+    #[test]
+    fn image_uses_thumbnail_url_when_present() {
+        let db = SiteDb::default();
+        let mut map = HashMap::new();
+        map.insert("a/b.png".to_string(), "/static/deadbeef.jpg".to_string());
+        let c = Ctx { thumbs: Some(&map), ..Ctx::new(&db, "", "t") };
+        let out = expand("{% image right a/b.png %}", &c).unwrap();
+        // Thumbnail in the <img>, full-size original still in the <a href>.
+        assert!(out.contains("<img src='/static/deadbeef.jpg'"), "{out}");
+        assert!(out.contains("href='/a/b.png'"), "{out}");
+    }
+
+    #[test]
+    fn image_sources_finds_every_tag_and_strips_mode() {
+        let body = "x {% image a.png %} y {% image left dir/b.jpg %} z {% image inline c.gif %}";
+        assert_eq!(image_sources(body), vec!["a.png", "dir/b.jpg", "c.gif"]);
+    }
+
+    #[test]
+    fn unknown_tags_survive_rather_than_vanish() {
+        let db = SiteDb::default();
+        let s = expand("x {% highlight ruby %} y", &ctx(&db)).unwrap();
+        assert!(s.contains("{% highlight ruby %}"), "{s}");
+    }
+
+    #[test]
+    fn prepend_baseurl_form_expands() {
+        let db = SiteDb::default();
+        let c = Ctx::new(&db, "/pre", "t");
+        assert_eq!(
+            expand("<a href=\"{{ '/blog' | prepend: site.baseurl }}\">x</a>", &c).unwrap(),
+            "<a href=\"/pre/blog\">x</a>"
+        );
+    }
+
+    /// An unrecognised filter pipeline must survive, not render half-right.
+    #[test]
+    fn other_filter_pipelines_are_left_alone() {
+        let db = SiteDb::default();
+        let s = expand("{{ page.title | escape }}", &ctx(&db)).unwrap();
+        assert!(s.contains("{{ page.title | escape }}"), "{s}");
+    }
+
+    #[test]
+    fn view_must_name_a_routeless_view() {
+        let db = SiteDb::default();
+        let e = expand("{% view nope %}", &ctx(&db)).unwrap_err().to_string();
+        assert!(e.contains("matches no routeless view"), "{e}");
+        assert!(e.contains("test.md"), "{e}");
+    }
+
+    /// The slippery slope guard: parameters are the first step to a template
+    /// engine, so they fail loudly rather than being half-supported.
+    #[test]
+    fn parameterised_include_is_a_hard_error() {
+        let db = SiteDb::default();
+        let c = ctx(&db);
+        let e = expand("{% include article.html margin_html=x %}", &c)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("deliberately"), "{e}");
+    }
+
+    #[test]
+    fn include_without_a_configured_dir_is_an_error() {
+        let db = SiteDb::default();
+        let e = expand("{% include social.html %}", &ctx(&db)).unwrap_err().to_string();
+        assert!(e.contains("no includes directory"), "{e}");
+    }
+
+    #[test]
+    fn dangling_post_url_is_an_error_naming_the_file() {
+        let db = SiteDb::default();
+        let e = expand("{% post_url nope %}", &ctx(&db)).unwrap_err().to_string();
+        assert!(e.contains("test.md"), "{e}");
+        assert!(e.contains("matches no post"), "{e}");
+    }
+}

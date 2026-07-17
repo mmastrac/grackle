@@ -1,0 +1,179 @@
+# Paths are relative to this file's directory.
+root = ".."
+
+# Marker files declare defaults for their directory and everything below it
+# (DESIGN.md §4b). The config says what a marker means; the tree says where.
+# Precedence: front matter > nearest marker > rule.
+[markers]
+".noindex" = { noindex = true }
+".hidden" = { hidden = true }
+".draft" = { draft = true }
+
+[site]
+url = "https://grack.com"
+baseurl = ""
+title = "grack.com"
+author = "Matt Mastracci"
+email = "matthew@mastracci.com"
+
+# ---------------------------------------------------------------- posts
+
+[collections.blog]
+kind = "posts"
+source = "_posts"
+# Tried in order. Measured: all 327 posts use the first form; the legacy
+# MM-DD-YYYY form that legacy_post_filename_dates.rb exists for is unused
+# in _posts, but the format list costs nothing to keep.
+filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
+
+  [[collections.blog.rules]]
+  match = "drafts/**"
+  defaults = { draft = true }
+  route = "/drafts/{slug}/"
+
+  [[collections.blog.rules]]
+  match = "hidden/**"
+  defaults = { hidden = true }
+
+  [[collections.blog.rules]]
+  match = "**"
+  defaults = { layout = "post" }
+  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+# ---------------------------------------------------------------- objects
+
+# Matched by extension anywhere in the tree; membership precedence is
+# posts -> objects -> tree (DESIGN.md §3), so these never collide with the
+# tree's passthrough rule.
+[collections.objects]
+kind = "objects"
+extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
+bucket = "assets"
+
+  [[collections.objects.rules]]
+  match = "**"
+  route = "/{path}"
+
+# ---------------------------------------------------------------- pages
+
+[collections.pages]
+kind = "tree"
+source = "."
+
+# Three layers, each doing what only it can:
+#
+#   1. .gitignore (top-level `gitignore = true`) covers every build artifact —
+#      _site*, _log*, vendor, _cache, grackle/target, .jekyll-cache, workspace,
+#      _tools/converter/target. All 10 verified already listed there, and they
+#      are exactly the expensive subtrees. Self-maintaining: add a line to
+#      .gitignore and grackle stops seeing it.
+#   2. Jekyll's implicit dot/underscore skip covers _posts, _layouts, _sass, ...
+#   3. This list, for what is tracked on purpose but still isn't content.
+#      Nothing here is gitignored, so nothing here is a duplicate.
+exclude = [
+  "docker/**", "scripts/**", "CHANGES/**", "grackle/**", "node_modules/**",
+  "Gemfile*", "*.sh", "TODO", "*.yml", "*.toml", "Rakefile", "LICENSE*",
+]
+# Re-added despite the dotfile rule (matches `include:` in _config.yml).
+include = [".well-known/**", ".htaccess"]
+
+  # An index file is served as its directory, whether it is rendered or static.
+  [[collections.pages.rules]]
+  match = "**/index.{html,md}"
+  route = "/{dir}/"
+
+  # Sass with front matter is compiled, so the output extension changes.
+  # css/main.scss -> /css/main.css, which the layout hardcodes.
+  [[collections.pages.rules]]
+  match = "**/*.{scss,sass}"
+  front_matter = true
+  route = "/{dir}/{stem}.css"
+
+  # Front matter is what makes a file a *page* in Jekyll; those get pretty
+  # URLs. Measured: index.html and blog/index.html have front matter, while
+  # everything under demos/, code/legacy/ and writing/school/ does not — which
+  # is exactly why /demos/mindstorms/alpharex_1.html keeps its extension.
+  [[collections.pages.rules]]
+  match = "**/*.{html,md}"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  # Everything else is copied verbatim at its literal path.
+  [[collections.pages.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# ---------------------------------------------------------------- views
+
+# The one named set. Jekyll had five hand-written `{% unless %}` clauses that
+# had drifted into three different opinions: atom.xml excluded only `hidden`
+# (so the feed shipped drafts), blog/index.html and tag_index.html excluded only
+# `draft` (so both listed hidden posts), and only monthly_archive.html and
+# index.html excluded both. Nobody decided that; it accreted. Transcribing it
+# faithfully also meant transcribing a bug — this file had monthly_archive as
+# `!draft`, dropping the `!hidden` its template actually had.
+#
+# Free to correct: the corpus has 0 drafts and 0 hidden posts, so no output
+# moves today. It moves the first time a draft exists, which is the point.
+[views.published]
+over = "blog"
+filter = "!draft && !hidden"
+
+# `blog/index.html` iterates `paginator.posts`: jekyll-paginate renders that one
+# file once per page. It is this view's template, not an independently routable
+# page — so the view owns both routes and the tree collection skips the file.
+[views.blog_index]
+over = "published"
+paginate = 5
+routes = ["/blog/", "/blog/page/{n}/"]
+template = "blog/index.html"
+
+[views.feed]
+over = "published"
+limit = 20
+route = "/atom.xml"
+template = "atom.xml"
+
+# No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
+# with `{% assign latest_count %}` because `site.posts | limit: 3` slices before
+# it filters, so hidden posts would eat the slots. `filter` and `limit` are
+# separate stages here, so this says what it means.
+[views.latest]
+over = "published"
+limit = 3
+layout = "link_list"
+
+# No source file: jekyll-sitemap generates this one outright.
+#
+# The filter is derived from the reference build, not from what jekyll-sitemap
+# looks like it should do. Measured over its 556 URLs: 524 pretty dirs, 30
+# .html, 2 .pdf — and nothing else. Specifically it does NOT respect `noindex`
+# (the noindex'd tag pages are listed) and does NOT drop paginated pages (all
+# 64 are listed), so keying on output type alone is the whole rule. Images,
+# .css, .txt and .xml fall out by extension, which is also what keeps
+# /atom.xml and /sitemap.xml itself off the list.
+#
+# `dir` is distinct from `ext == ""`: a directory URL outputs an index.html,
+# whereas an extensionless *file* (code/legacy/nnet/nnet) outputs itself and is
+# not a page. Keying on ext alone let four such binaries into the sitemap.
+[views.sitemap]
+over = "*"
+route = "/sitemap.xml"
+# `!draft && !hidden` closes the leak §4a flagged: without it a future draft —
+# routed into the main build today — lands in the most public URL there is,
+# which is exactly the crawling problem this project exists to fix. Latent now
+# (0 drafts/hidden), armed the moment one is written. `draft`/`hidden` are
+# carried onto every Route (false for non-posts) so the filter can say this.
+filter = '!draft && !hidden && (dir || ext == "html" || ext == "pdf")'
+
+[views.tag_index]
+over = "published"
+group_by = "tags"
+route = "/blog/tags/{key}/"
+layout = "tag_index"
+
+[views.monthly_archive]
+over = "published"
+group_by = "date.year_month"
+route = "/blog/{year}/{month:02}/"
+layout = "monthly_archive"

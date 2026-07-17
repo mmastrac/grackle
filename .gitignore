@@ -1,0 +1,11 @@
+# Rust build artifacts
+/target
+
+# The content-addressed derived-asset cache lives at the site root (_cache),
+# already ignored there; nothing grackle writes belongs in git.
+
+# rustfmt / editor backups
+**/*.rs.bk
+
+# MSVC debug info
+*.pdb
