@@ -6,6 +6,7 @@ mod filter;
 mod markdown;
 mod markers;
 mod render;
+mod serve;
 mod tags;
 mod thumbs;
 mod route;
@@ -58,6 +59,11 @@ enum Cmd {
     Build {
         #[arg(long, default_value = "_site-grackle")]
         out: PathBuf,
+    },
+    /// Serve the site from a resident database, rebuilding on change.
+    Serve {
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
     },
     /// Show the generated routes as a tree.
     Routes {
@@ -139,6 +145,7 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Cmd::Serve { port } => serve::serve(&cli.config, port)?,
         Cmd::Routes { depth, under } => routes_tree(&db, depth, under.as_deref()),
         Cmd::Diff { against, liquid_free, only, show } => {
             run_diff(&db, &against, liquid_free, only.as_deref(), show.as_deref())?

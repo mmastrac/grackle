@@ -2390,17 +2390,28 @@ That is the concrete argument for AST-level access — not a preference.
 
 ## 7. Clients of the database
 
-- **`grackle build`** — AOT materialization: pin one snapshot, evaluate every
-  routable row and view, write to staging, atomic swap. Feeds the existing
-  `publish.sh` rsync unchanged. Templates parse once to ASTs per run.
-- **`grackle serve`** — the database daemon. HTTP handler does
-  URL → reverse-index lookup → render on demand from the current snapshot
-  (with the stage caches making repeat hits ~free). No output directory in
-  dev. Browsers get an injected SSE snippet; the SSE stream is just another
-  subscriber to the replication stream — edit → new revision → ping →
-  browser re-requests → renders against the new snapshot. Edit-to-reload
-  should be single-digit milliseconds for a post edit (render one page),
-  not "rebuild the site" (Jekyll today: ~90s).
+Both `build` and `serve` are one render path: `build::render_site` produces the
+whole site as a `URL → bytes` map in memory, and the two clients differ only in
+what they do with it — `build` writes it to disk, `serve` holds it resident.
+(Verified: refactoring build onto the map left its disk output byte-identical
+save the feed's build-timestamp.)
+
+- **`grackle build`** — AOT materialization: render the map, write every entry
+  to a directory. Feeds the existing `publish.sh` rsync unchanged. Templates
+  parse once to ASTs per run.
+- **`grackle serve`** — 🟡 **built (v1).** The database daemon: raw `hyper`
+  (no axum, no TLS), the resident render map answering URL → bytes with no
+  output directory. A `notify` watcher rebuilds the whole world on any content
+  change (~0.3s) and bumps a version; an injected script polls it and reloads
+  the browser. The snapshot lives in a `keepcalm` RCU cell (`SharedMut::new_rcu`):
+  reads are lock-free clones that never contend with the writer, and the watcher
+  swaps a whole new snapshot with `set` — which skips even the RCU write-copy —
+  so a rebuild never blocks in-flight requests (verified: 20 concurrent reads
+  through a rebuild, all 200). **v1 is coarse on purpose** — the design's target is
+  URL → reverse-index → *render one page on demand* against an incrementally
+  invalidated snapshot (single-digit ms per edit); today it re-renders
+  everything (still sub-second) and polls rather than streaming SSE. Those are
+  the §2 upgrades, not yet built.
 - **`grackle query`** — REPL/CLI over the live DB (`urls`, `posts where
   tag=rust limit 5`, counts, `explain <url>` → row, deps, cache state).
   Doubles as the migration validator: compare counts/URL sets/tag sets
@@ -2683,6 +2694,10 @@ adds ~500 over the previous one-shot design).
 | `blake3` | 1.x | all cache keys | ✅ **in use** (thumbnail content keys). Fast, non-cryptographic use. **`md-5` is dropped**: it existed only to reproduce `_thumbs/{md5}-600-600`, and §11.12 frees those URLs. |
 | `lol_html` | 3.0 | `feed_images` rewriting; diff normalization | Cloudflare, active; the selector-based streaming rewriter maps 1:1 onto the plugin's nokogiri usage. |
 | `similar` | 3.1 | `grackle diff` | Active; the standard Rust diff library. |
+| `hyper` + `hyper-util` + `http-body-util` | 1 / 0.1 | `serve` HTTP | Raw hyper, no framework (no axum) — a `service_fn` per connection on `tokio`. |
+| `tokio` | 1 | `serve` async runtime | Only linked for `serve`; `build`/`query` stay sync. |
+| `notify` | 8.2 | `serve` file watcher | The replication stream (§2); the debouncer would batch save-storms further. |
+| `keepcalm` | 0.6 | `serve` snapshot cell | RCU `SharedMut`: lock-free reads, `set` replaces the whole snapshot without a copy — the read-mostly, wholesale-swap shape a resident site wants. Cleaner than a hand-rolled `Arc<RwLock<Arc<T>>>`. |
 | `chrono` | 0.4 | dates, strftime incl. `%-d` | Standard. |
 | `ignore` | 0.4 | tree walking, `.gitignore` | ripgrep's walker. Load-bearing, not a convenience: the marker scan has no other way to avoid `_site*`/`vendor` and costs 205ms without it (§4c). |
 | `toml`, `clap`, `anyhow`, `regex`, `globset`, `walkdir`, `camino`, `serde`/`serde_json` | — | config, CLI, errors, route-rule globs, flat dir walks, UTF-8 paths | Standard fare, all healthy. |
@@ -2780,7 +2795,7 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
 | **2a** | markdown-gap spike + `diff` | ✅ **done — the port is viable.** ~~90.7%~~ → **90.0% against an honest reference** (§8c): the original figure was measured against a build with highlighting disabled and was luck, not accuracy. 230 posts: 20 identical, 187 equivalent, 23 differ; 92.2% if smartypants is matched. The residue is parser-side. **Caveat: 97 of 327 posts are skipped as "contains liquid", many falsely** (§8c). |
 | 2b | render pipeline: §5a layers end-to-end | 🟢 **renders** — 327 posts + 164 listings (with **pagination nav**, §5d) + **40/40 pages** + 1025 assets + **260 thumbnails** + **feed + sitemap** in **~0.4s warm** (Jekyll: ~38s). All layout kinds and both themes work; post and page chrome byte-identical to live; **zero skipped pages**. Remaining: highlighting token spans (accepted-inexact §8) and the chrome gaps below — both deferred into the §5e presentation rewrite. |
 | 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by §11.12 (`/static/` by design). |
-| 4 | `serve`: on-demand render + SSE livereload | edit-to-reload imperceptible; `explain` shows expected invalidations |
+| 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
 
 ## 11. Open questions (to iterate on)

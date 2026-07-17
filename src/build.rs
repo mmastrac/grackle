@@ -1,13 +1,24 @@
-//! Materialize a snapshot of the database to disk (DESIGN.md §7).
+//! Render the database to a set of URL → bytes outputs (DESIGN.md §7).
+//!
+//! `render_site` produces the whole site in memory, keyed by URL. Both clients
+//! consume it: `build` writes the map to disk (AOT), and `serve` holds it
+//! resident and answers requests from it — the "no output directory in dev"
+//! the design calls for. One render path, two materializations.
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::db::{RouteKind, SiteDb};
 use crate::render::{self, Site, Theme};
 use crate::tags;
+
+/// The rendered site, keyed by URL (`/blog/`, `/atom.xml`, `/css/main.css`,
+/// `/static/{hash}.jpg`, …). A directory URL ends in `/` and, on disk, becomes
+/// that directory's `index.html`.
+pub type SiteOutput = BTreeMap<String, Vec<u8>>;
 
 pub struct Stats {
     pub posts: usize,
@@ -39,9 +50,21 @@ fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
+/// Write a rendered site to a directory (AOT). Thin wrapper over `render_site`.
 pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
+    let (map, stats) = render_site(cfg, db)?;
     let _ = std::fs::remove_dir_all(out);
     std::fs::create_dir_all(out)?;
+    for (url, bytes) in &map {
+        write(&out_path(out, url), bytes)?;
+    }
+    Ok(stats)
+}
+
+/// Render every routable URL into memory. Writes nothing to the output; the
+/// only disk it touches is the content-addressed `_cache/` (thumbnails, §6b).
+pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
+    let mut out_map: SiteOutput = BTreeMap::new();
 
     let css_url = format!("{}/css/main.css", cfg.site.baseurl);
     let site = Site {
@@ -93,12 +116,9 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
     for (src, t) in &thumbs {
         thumb_urls.insert(src.clone(), t.url.clone());
         if published.insert(t.rel.clone()) {
-            let dst = out.join(&t.rel);
-            if let Some(d) = dst.parent() {
-                std::fs::create_dir_all(d)?;
-            }
-            std::fs::copy(&t.cache_path, &dst)
-                .with_context(|| format!("publishing thumb {}", dst.display()))?;
+            let bytes = std::fs::read(&t.cache_path)
+                .with_context(|| format!("reading thumb {}", t.cache_path.display()))?;
+            out_map.insert(format!("/{}", t.rel), bytes);
             stats.thumbs += 1;
         }
     }
@@ -121,8 +141,8 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
             Ok((p.url.clone(), html))
         })
         .collect::<Result<Vec<_>>>()?;
-    for (url, html) in &rendered {
-        write(&out_path(out, url), html.as_bytes())?;
+    for (url, html) in rendered {
+        out_map.insert(url, html.into_bytes());
         stats.posts += 1;
     }
 
@@ -206,7 +226,7 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
         let main = render::listing(&rows, &title, tail.as_deref(), &site, pagination);
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
         let html = Theme::Default.shell(&head, &main, &site, " class=\"multipost\"");
-        write(&out_path(out, &r.url), html.as_bytes())?;
+        out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
 
@@ -230,7 +250,7 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
             .map(|p| (p, frags.get(p.url.as_str()).map(String::as_str).unwrap_or("")))
             .collect();
         let xml = render::feed(&site, &updated, &entries);
-        write(&out_path(out, &r.url), xml.as_bytes())?;
+        out_map.insert(r.url.clone(), xml.into_bytes());
         stats.serialized += 1;
     }
 
@@ -272,7 +292,7 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
             })
             .collect();
         let xml = render::sitemap(&entries);
-        write(&out_path(out, route_tmpl), xml.as_bytes())?;
+        out_map.insert(route_tmpl.clone(), xml.into_bytes());
         stats.serialized += 1;
     }
 
@@ -281,12 +301,9 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
         match r.kind {
             RouteKind::Static | RouteKind::Object => {
                 let Some(src) = &r.source else { continue };
-                let dst = out_path(out, &r.url);
-                if let Some(d) = dst.parent() {
-                    std::fs::create_dir_all(d)?;
-                }
-                std::fs::copy(src, &dst)
-                    .with_context(|| format!("copying {}", src.display()))?;
+                let bytes = std::fs::read(src)
+                    .with_context(|| format!("reading {}", src.display()))?;
+                out_map.insert(r.url.clone(), bytes);
                 stats.copied += 1;
             }
             RouteKind::Page => {
@@ -337,7 +354,7 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
                 };
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = theme.shell(&head, &main, &site, "");
-                write(&out_path(out, &r.url), html.as_bytes())?;
+                out_map.insert(r.url.clone(), html.into_bytes());
                 stats.pages += 1;
             }
             _ => {}
@@ -354,14 +371,14 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
         let opts = grass::Options::default().load_path(&sass_dir);
         match grass::from_string(flat, &opts) {
             Ok(css) => {
-                write(&out.join("css/main.css"), css.as_bytes())?;
                 stats.css = css.len();
+                out_map.insert("/css/main.css".to_string(), css.into_bytes());
             }
             Err(e) => eprintln!("scss: {e}"),
         }
     }
 
-    Ok(stats)
+    Ok((out_map, stats))
 }
 
 /// Ancestor pages of a URL, outermost first — the tree relation from §5a.
