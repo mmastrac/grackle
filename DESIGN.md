@@ -707,9 +707,15 @@ group_by = "tags"                       # one output row-group per tag value
 route    = "/blog/tags/{key}/"
 layout   = "tag_index"
 
+[views.yearly_archive]                  # new with grackle: /blog/2010/ was a
+over     = "blog"                       # 404 between /blog/ and /blog/2010/01/
+group_by = "date.year"
+route    = "/blog/{year}/"
+layout   = "yearly_archive"
+
 [views.monthly_archive]
-over     = "blog"
-group_by = "date.year_month"
+over     = "yearly_archive"             # subdivision (§5c): GROUP BY year, month;
+group_by = "date.month"                 # {year} comes from the parent's key
 route    = "/blog/{year}/{month:02}/"
 layout   = "monthly_archive"
 
@@ -1187,11 +1193,21 @@ Layout kinds (§5a) expose named slots — finer-grained regions:
 {% if page.github_link %}<a class="gh" href="{{ page.github_link }}">GitHub</a>{% endif %}
 ```
 
-**This is where liquid finally earns its place.** The hand-rolled expander
+~~**This is where liquid finally earns its place.** The hand-rolled expander
 (`tags.rs`) covers `{% image %}`/`{% post_url %}` because those are the only
 constructs in *bodies*. A slot fragment needs conditionals — real templating.
 §9a already chose the `liquid` crate; this is the use case that justifies it,
-rather than page templates, of which exactly one survives (`/`).
+rather than page templates, of which exactly one survives (`/`).~~
+
+**Superseded (§5e, binder built):** the conditional a slot fill needs *is*
+rule 2 of the hole algebra — an empty part deletes its element. The example
+above becomes `<a class="gh" data-slot-href="github_link">GitHub</a>`, no
+templating anywhere: absent `github_link`, the attribute hole stays empty and
+the element styles as a placeholder link, or the fill wraps it in an element
+slotted on the field and the whole thing collapses. `.slots/` files are
+binder fragments (`.html`) or markdown (`.md`) — see §5e "Tree-filled slots".
+With this, **liquid's last claimed use case is gone**; §5d's retirement of
+the crate is now total.
 
 ### Schema per subtree, and the payoff
 
@@ -1390,6 +1406,59 @@ remembering: **the reference build cannot be regenerated while this stands**, an
 §8b exists because a stale reference lied to us by 17 points. To refresh it,
 stash the change first.
 
+### Subdivision: `over` a grouped view refines its partition *(built 2026-07)*
+
+A grouped view is a partition of its base; a grouped view **`over` a grouped
+view is a finer partition of the parent's groups** — GROUP BY year, month,
+expressed compositionally:
+
+```toml
+[views.yearly_archive]
+over     = "published"
+group_by = "date.year"
+route    = "/blog/{year}/"
+title    = "{year}"
+
+[views.monthly_archive]
+over     = "yearly_archive"          # subdivision: year key comes from here
+group_by = "date.month"
+route    = "/blog/{year}/{month:02}/"
+title    = "{year} {month_name}"
+```
+
+Three consequences, none of them new machinery:
+
+1. **Group keys accumulate down the chain.** A month route carries
+   `year`/`month`/`month_name` params — the parent's key plus its own — and
+   the route template draws from all of them. Composite membership is
+   provably identical to flat `date.year_month` grouping (a partition of a
+   partition), which is how this landed under the byte-diff oracle.
+2. **Provenance is structural, not declared.** The month group (2022, 12)
+   has the year group (2022) as its parent *because that is how the query
+   nests* — no parent pointer, no second mechanism. The chain roots at the
+   **collection**, which carries its own crumb and index URL, so a
+   breadcrumb trail is a provenance walk: collection (Blog, `/blog/`) →
+   year (2022) → month (December) → row (16). This is what retires the
+   hardcoded `"Blog"`/`"/blog"` strings in the crumb producers — trails
+   become derived data. (Trail *content* changes — the year becoming a
+   clickable crumb — are chrome, gated to the §5e step-3 by-eye window; the
+   machinery already reproduces today's bytes.)
+3. **Naming is config, not code.** Views declare `title` and `crumb`
+   (defaulting to `title`) as templates over their group params — the same
+   placeholder language as routes, failing loudly on unknown tokens. The
+   `match layout { "tag_index" => format!("Posts Tagged …") … }` that
+   re-derived titles in the renderer is gone; `"Posts Tagged “{key}”"` lives
+   next to the query it names.
+
+Composition rules, enforced at load: `over` may name a query-only view
+(unchanged) or a **grouped, unpaginated** view — and the composer must then
+be grouped itself, because subdivision is the only defined meaning; a
+non-grouped view over a grouped one is an error. **Pagination × subdivision
+is deliberately punted** (open question 30): a year *could* paginate while
+months subdivide off the year's root, but `/blog/2022/page/2/` and child
+routes then share the year root's URL namespace, and that conflict deserves
+real thought rather than a rule chosen in passing.
+
 ## 5d. Templating: there is almost none, so don't build for it
 
 The recurring question — a real template language, or §5b's slots, or
@@ -1568,10 +1637,26 @@ that case resolves to a schema field too.
 
 ## 5e. The presentation synthesis: parts fill slots, CSS does the geometry
 
-**Status: designed, not built.** Unlike the sections above, nothing here is
-measured against a running implementation — the evidence is confined to what
-the current code demonstrably gets wrong. Read it as the target the
-presentation layer converges on, with §5a–§5d as the fossil record.
+**Status: step 1 built (part maps); the rest designed.** Layout kinds now emit
+part maps (`parts.rs`): named, typed parts — `Text`/`Html`/`Stream`/`Map`/
+`Flag` — in canonical order, names asserted against a per-kind `schema()`,
+producers never touching `Site` (URLs are root-relative; `baseurl` is
+presentation). A **legacy composer** (`legacy.rs`, scheduled to die with step
+3) replays the pre-§5e BEM markup from the maps, verified **byte-identical**
+across the whole site. Two findings from the extraction: (a) all three crumb
+markup shapes turned out to be *one uniform loop over `{label, url?}` crumbs*
+— the drift was only ever in the composer, exactly as predicted; (b)
+`body_class()` was already dead code (the violation lives as a hardcoded
+string at the listing call site). Steps 2–4 (binder, theme directory, null
+theme) remain the target below, with §5a–§5d as the fossil record.
+
+**Step 2 built (the binder).** `binder.rs`: strict fragment parser + the hole
+algebra (now four rules — see below; attribute holes were the one genuine
+addition the build forced) + complete load-time validation, ~450 lines
+including its 12 tests, standalone until the theme directory wires it in.
+The part schemas gained types (`PartType`: text/html/stream-of-kind/
+map-of-kind/flag) so holes are type-checked, not just name-checked, and
+producers assert their own conformance at `set()`.
 
 ### One law, already proven twice
 
@@ -1670,7 +1755,7 @@ themes/light/
 ```
 
 A fragment is straight-line HTML with holes, and the whole hole algebra is
-three rules:
+four rules (built: `binder.rs`):
 
 1. **A hole is `data-slot="name"`.** The element's content is replaced by the
    part. Scalar parts are escaped text; fragment parts are trusted HTML.
@@ -1678,10 +1763,32 @@ three rules:
    presence-conditional — the case §5d called "genuinely hard to model away"
    in the shell. `<footer data-slot="footer">` with nothing to say does not
    render a footer. No `{% if %}` exists because nothing needs one.
-3. **A stream maps a fragment over its items.** `<div data-slot="items"
-   data-fragment="summary">` renders `summary.html` once per row. The loop
-   lives in the engine; the fragment stays straight-line. This is how the
-   no-control-flow rule (§5d) scales past one level of nesting.
+3. **A stream maps a fragment over its items.** `<div data-slot="items">`
+   renders the fragment of the items' kind once per row — the child kind
+   comes from the part schema, so `data-fragment="…"` is an *override* (the
+   variant hook, open question 24), not a requirement. The loop lives in the
+   engine; the fragment stays straight-line. This is how the no-control-flow
+   rule (§5d) scales past one level of nesting.
+4. **An attribute hole is `data-slot-attr="name"`** — `<a data-slot-href=
+   "url">` sets `href` from a text part, escaped; an absent part omits the
+   attribute wholesale. The payoff is that HTML's own semantics absorb the
+   variants the old markup branched on: `<a>` with no `href` is the spec's
+   *placeholder link*, so "linked crumb vs inert tail" and "page number vs
+   current page" are one fragment plus `a:not([href])` in theme CSS — the
+   pagination component's three-way conditional dies at the platform level,
+   same move as `:has()` killing `body.multipost`.
+
+Implementation notes, measured against the built binder: the parser is
+deliberately strict (well-formed nesting, double-quoted attributes, raw-text
+`<script>`/`<style>`, comments/doctype verbatim) — a malformed fragment is a
+build error with file:line, not something to recover from. The emitted markup
+keeps `data-slot` (it *is* the CSS contract) and strips the authoring-only
+`data-fragment`/`data-slot-*`; the root element of every rendered fragment is
+stamped `data-kind` plus `data-<fact>` per true flag. All checks run at load
+— unknown slot, fact-as-content, content slot on a void element, scalar with
+`data-fragment`, attr hole naming a non-text part, stream slot whose child
+fragment is missing — each error naming the file, the line, and the known
+names. After load, rendering is infallible.
 
 **Every name is load-time checked** against the part schema of the kind the
 fragment is bound to — unknown slot, unfilled required slot, unknown fragment:
@@ -1830,6 +1937,61 @@ buckets (§6a). Slot fills join it:
 
 > **Nearest wins; first writer per key.**
 > front matter > tree overlay (`.slots/`, §5b) > layout kind > theme default.
+
+### Tree-filled slots: `.slots/` is a table *(settled 2026-07)*
+
+The precedence law's second clause, made concrete. A directory may carry a
+`.slots/` subdirectory; each file in it fills one slot for every row beneath —
+**filename = slot name = key, content = fill**. It is a table in the §3 sense:
+fills are rows (versioned, watched by serve, queryable), and resolution is
+positional — nearest `.slots/<name>.*` up the *source* path wins, the same
+ascent §6a uses for asset names and §4b uses for markers. Third user of one
+algorithm.
+
+**The motivating case is the shell.** The current shell hardcodes the section
+nav, and "© 1998-2026 Matt Mastracci — contact" — *content living in
+presentation*. Moving it into `shell.html` per theme would just fork it per
+theme (the copyright year drifts between copies). Instead the shell gets a
+part schema (`nav`, `copyright`, …) and the site root carries the content:
+
+```
+.slots/
+  copyright.md      # © 1998-2026 [Matt Mastracci](…) — [contact](/contact/)
+  nav.md            # the section list
+```
+
+Every theme places `<p data-slot="copyright">`; none of them owns the words.
+A second theme inherits the site's identity instead of copying it.
+Per-directory *config* stays where §5b put it (`.schema.toml` — "the config
+declares only the vocabulary"): TOML never carries prose.
+
+**Extension picks the pipeline.**
+
+- `.md` → tags + comrak, becomes an `Html` part.
+- `.html` → a binder fragment: holes allowed, validated at load against the
+  schemas like any theme fragment. This is what retires §5b's liquid case —
+  see below.
+
+**The block-arity rule.** A fill is checked against the content model of the
+slot element it lands in, at load:
+
+- Element takes only non-block content (`<p>`, `<h1>`–`<h6>`, `<span>`,
+  `<a>`, `<time>`, …): the fill must render to **exactly one block**, which
+  unwraps to its inline content. Zero or two-plus blocks is a **hard error**
+  naming the fill file and the count — never silent invalid nesting.
+- Element takes flow content (`<div>`, `<section>`, `<footer>`, `<nav>`, …):
+  any number of blocks, verbatim.
+
+**Typed fills are the target, `Html` is v1.** A slot declared
+`Stream("link")` should eventually parse a markdown *list of links* into link
+maps — the nav's content is then data in the tree while each theme maps its
+own fragment over it (`<h2>`s in one theme, a `<ul>` in another). Schema-
+directed parsing, the same move the filter language makes.
+
+Inherited wrinkle, restated from §5b: for posts the source tree is not the
+URL tree, so per-subtree fills only get interesting for posts once page
+bundles exist. Identity slots at the root — the actual motivating case — are
+unaffected.
 
 ### What it costs
 
@@ -2797,6 +2959,7 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
 | 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by §11.12 (`/static/` by design). |
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
+| **6** | §5e presentation synthesis | 🟡 **steps 1–2 done** — layout kinds emit part maps (`parts.rs`, typed per-kind schemas, canonical order); `legacy.rs` composes the old BEM markup from them **byte-identically** (whole-site diff vs pre-refactor build: only the atom.xml timestamp). The fragment binder (`binder.rs`) is built and standalone: strict parser, four-rule hole algebra incl. attribute holes, all names/types/child-fragments checked at load with file:line errors. **Also landed under the oracle**: yearly archives (`/blog/{year}/`, +16 routes), and §5c subdivision — `monthly_archive` is now `over = "yearly_archive"` (GROUP BY year, month compositionally), group params on routes, `title`/`crumb` as config templates (the renderer's title `match` is gone). Next: `themes/default/` + the one by-eye chrome cut + dark mode (step 3) — where trails split on provenance (year becomes a clickable crumb) — `light` as the null theme (step 4), `.slots/` tree fills. |
 
 ## 11. Open questions (to iterate on)
 
@@ -2956,3 +3119,28 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     keeps authored source portable, and stays inside the no-control-flow rule
     (arguments/conditionals are the tripwire back to templating). Small; the one
     structural addition is a paired tag in `tags.rs`.
+30. **Pagination × subdivision (§5c).** A grouped view can be subdivided; a
+    paginated one deliberately cannot *yet*. A year archive could plausibly
+    paginate (`/blog/2022/page/2/`) while months subdivide off the same root
+    (`/blog/2022/12/`) — the row-set semantics are coherent (subdivision
+    partitions the *whole* group, not one page of it), but the parent's
+    pagination URLs and its children's routes then share the year root's
+    namespace. **Subdivided collections may overlap if we aren't careful**,
+    and the overlap has two grades worth distinguishing:
+
+    - **Actual collision** — two routes materialize the same URL. The whole
+      route set exists at load, so this is checkable as a **hard error**
+      today (the database advantage: collisions are a query, not a 404
+      discovered in production).
+    - **Pattern-space overlap** — the *shapes* intersect but today's keys
+      don't: `/blog/2022/{page/N}` vs `/blog/2022/{month:02}/` can never
+      actually collide (`page` ≠ a two-digit month), and a paged year is
+      unlikely to run into a two-digit date on a low-traffic blog. This
+      grade should **warn**, with an explicit config acknowledgment
+      (something like `allow_overlap = true` on the child view) to silence
+      it where the author has judged the risk — warn-or-declare, the same
+      posture as the §4a leak checks.
+
+    Also parked here: crumb templates for paginated views (the `Page N`
+    trail entry is an engine rule for now). Punted until wanted; the config
+    check errors with a pointer to this question.

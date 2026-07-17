@@ -101,6 +101,13 @@ pub struct View {
     pub layout: Option<String>,
     pub limit: Option<usize>,
     pub template: Option<String>,
+    /// Listing title, as a template over the route's group params
+    /// (`"{year} {month_name}"`, `"Posts Tagged “{key}”"`). Same placeholder
+    /// language as routes, same load-time discipline.
+    pub title: Option<String>,
+    /// What this view contributes to descendants' breadcrumb trails.
+    /// Defaults to `title`.
+    pub crumb: Option<String>,
 }
 
 impl View {
@@ -161,9 +168,13 @@ impl Config {
     /// Flatten a view's `over` chain into a base collection plus every filter
     /// along the way.
     ///
-    /// `over` may only name a **query-only** view. That restriction is the
-    /// whole reason this is simple: composing over `blog_index` would raise
-    /// "is `paginate = 5` inherited?", and every answer surprises someone.
+    /// `over` may name a **query-only** view (nothing to inherit ambiguously)
+    /// or a **grouped, unpaginated** view — subdivision (§5c): the composer
+    /// refines the parent's partition, so it must itself be grouped, and the
+    /// parent's route/layout are *not* inherited (the child declares its own).
+    /// Composing over a paginated view is punted (open question 30): a
+    /// pageable year with months on its root raises a URL-namespace question
+    /// we haven't answered.
     pub fn query(&self, name: &str) -> Result<Query> {
         let mut filters = Vec::new();
         let mut seen: Vec<&str> = Vec::new();
@@ -195,11 +206,27 @@ impl Config {
                 });
             };
             if !next.is_query_only() {
-                anyhow::bail!(
-                    "view {name}: `over = {:?}` names a view that is not query-only. \
-                     Only views with no route/layout/paginate/limit/group_by may be composed over.",
-                    v.over
-                );
+                let subdividable = next.group_by.is_some()
+                    && next.paginate.is_none()
+                    && next.limit.is_none()
+                    && next.template.is_none();
+                if !subdividable {
+                    anyhow::bail!(
+                        "view {name}: `over = {:?}` names a view that is neither query-only \
+                         nor grouped. Only query-only views and grouped unpaginated views \
+                         (subdivision, §5c) may be composed over; pagination × subdivision \
+                         is punted (open question 30).",
+                        v.over
+                    );
+                }
+                if v.group_by.is_none() {
+                    anyhow::bail!(
+                        "view {name}: `over = {:?}` names a grouped view, but {name} has no \
+                         `group_by`. Composing over a grouped view means subdividing its \
+                         partition (§5c), so the composer must be grouped too.",
+                        v.over
+                    );
+                }
             }
             cur = &v.over;
         }
@@ -273,6 +300,63 @@ mod tests {
         "#);
         let e = c.query("latest").unwrap_err().to_string();
         assert!(e.contains("query-only"), "unexpected error: {e}");
+    }
+
+    /// Subdivision (§5c): a grouped view may compose over a grouped view —
+    /// the filters flatten straight through it.
+    #[test]
+    fn grouped_over_grouped_is_subdivision() {
+        let c = cfg(r#"
+            [views.yearly]
+            over = "blog"
+            filter = "!draft"
+            group_by = "date.year"
+            route = "/blog/{year}/"
+
+            [views.monthly]
+            over = "yearly"
+            group_by = "date.month"
+            route = "/blog/{year}/{month:02}/"
+        "#);
+        let q = c.query("monthly").unwrap();
+        assert_eq!(q.base, "blog");
+        assert_eq!(q.predicate().unwrap(), "!draft");
+    }
+
+    /// Only subdivision is defined: a non-grouped view over a grouped one
+    /// has no meaning (yet), and pagination × subdivision is punted (q30).
+    #[test]
+    fn non_grouped_over_grouped_is_an_error() {
+        let c = cfg(r#"
+            [views.yearly]
+            over = "blog"
+            group_by = "date.year"
+            route = "/blog/{year}/"
+
+            [views.latest]
+            over = "yearly"
+            limit = 3
+        "#);
+        let e = c.query("latest").unwrap_err().to_string();
+        assert!(e.contains("subdividing"), "unexpected error: {e}");
+    }
+
+    #[test]
+    fn subdividing_a_paginated_view_is_punted() {
+        let c = cfg(r#"
+            [views.yearly]
+            over = "blog"
+            group_by = "date.year"
+            paginate = 10
+            route = "/blog/{year}/"
+
+            [views.monthly]
+            over = "yearly"
+            group_by = "date.month"
+            route = "/blog/{year}/{month:02}/"
+        "#);
+        let e = c.query("monthly").unwrap_err().to_string();
+        assert!(e.contains("punted"), "unexpected error: {e}");
     }
 
     #[test]

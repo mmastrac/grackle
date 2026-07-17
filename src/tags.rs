@@ -14,7 +14,7 @@
 //! shows up in the output instead of silently evaluating to nothing.
 
 use crate::db::SiteDb;
-use crate::render::{self, Site};
+use crate::render::Site;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -132,7 +132,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
         .site
         .ok_or_else(|| anyhow::anyhow!("{}: {{% view %}} needs a site context", cx.source))?;
     match v.layout.as_deref() {
-        Some("link_list") => Ok(render::link_list(&rows, site)),
+        Some("link_list") => Ok(crate::legacy::compose(&crate::parts::link_list(&rows), site)),
         Some(other) => bail!(
             "{}: view {name} has layout {other:?}, which is not embeddable",
             cx.source

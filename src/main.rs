@@ -1,10 +1,13 @@
+mod binder;
 mod build;
 mod config;
 mod db;
 mod diff;
 mod filter;
 mod markdown;
+mod legacy;
 mod markers;
+mod parts;
 mod render;
 mod serve;
 mod tags;

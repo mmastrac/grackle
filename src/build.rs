@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::db::{RouteKind, SiteDb};
 use crate::render::{self, Site, Theme};
+use crate::{legacy, parts};
 use crate::tags;
 
 /// The rendered site, keyed by URL (`/blog/`, `/atom.xml`, `/css/main.css`,
@@ -136,7 +137,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let expanded = tags::expand(&p.body, &cx)?;
             let frag = crate::markdown::render(&expanded);
             let head = render::head_for_post(p, &site);
-            let main = render::document(db, p, &frag, &site);
+            let main = legacy::compose(&parts::document(db, p, &frag), &site);
             let html = Theme::Default.shell(&head, &main, &site, "");
             Ok((p.url.clone(), html))
         })
@@ -173,7 +174,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let Some(v) = cfg.views.get(view) else { continue };
         // Only the built-in listing kinds render here; feed/sitemap have their
         // own passes, and a view with no layout is embedded, not routed.
-        let Some(layout) = v.layout.as_deref().or(match view.as_str() {
+        let Some(_layout) = v.layout.as_deref().or(match view.as_str() {
             "blog_index" => Some("blog_index"),
             _ => None,
         }) else {
@@ -186,44 +187,49 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .map(|p| (p, frags.get(p.url.as_str()).cloned().unwrap_or_default()))
             .collect();
 
-        // Presentation, keyed on the declared layout kind rather than the view's
-        // name: layout kinds are code, view names are the user's.
-        let (title, tail) = match layout {
-            "tag_index" => (
-                format!("Posts Tagged \u{201C}{}\u{201D}", r.key.clone().unwrap_or_default()),
-                r.key.clone(),
-            ),
-            "monthly_archive" => {
-                let k = r.key.clone().unwrap_or_default();
-                let pretty = chrono::NaiveDate::parse_from_str(&format!("{k}-01"), "%Y-%m-%d")
-                    .map(|d| d.format("%Y %B").to_string())
-                    .unwrap_or(k);
-                (pretty.clone(), Some(pretty))
+        // Titles and crumb contributions come from the view's declared
+        // `title`/`crumb` templates, rendered over the route's group params
+        // (§5c) — this used to be a `match` on the layout kind re-deriving
+        // what the config already knew. Layout kinds are code; naming is the
+        // view's.
+        let param = |k: &str| r.params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let title = match &v.title {
+            Some(t) => crate::route::render(t, param)
+                .with_context(|| format!("view {view}: title"))?,
+            None => r.key.clone().unwrap_or_else(|| view.clone()),
+        };
+        let tail = match r.page {
+            // Paginated trails keep the engine's `Page N` rule for now —
+            // crumb templates for paginated views are punted with open
+            // question 30 (pagination × subdivision).
+            Some(p) => (p > 1).then(|| format!("Page {p}")),
+            None => {
+                let tmpl = v.crumb.as_ref().or(v.title.as_ref());
+                match tmpl {
+                    Some(t) => Some(crate::route::render(t, param)
+                        .with_context(|| format!("view {view}: crumb"))?),
+                    None => r.key.clone(),
+                }
             }
-            _ => (
-                "Blog".to_string(),
-                r.page.filter(|p| *p > 1).map(|p| format!("Page {p}")),
-            ),
         };
 
         // Pagination is emitted only for paginated routes (those carrying a
         // page number); grouped views (tags, archives) have `page: None`. The
         // total is this view's page count — general, though only `blog_index`
         // paginates today.
-        let pag = match r.page {
+        let pagination = match r.page {
             Some(cur) => {
                 let total = db
                     .routes
                     .iter()
                     .filter(|x| x.view == r.view && x.page.is_some())
                     .count();
-                render::pagination(cur, total, &site)
+                parts::pagination(cur, total)
             }
-            None => String::new(),
+            None => None,
         };
-        let pagination = (!pag.is_empty()).then_some(pag.as_str());
 
-        let main = render::listing(&rows, &title, tail.as_deref(), &site, pagination);
+        let main = legacy::compose(&parts::listing(&rows, &title, tail.as_deref(), pagination), &site);
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
         let html = Theme::Default.shell(&head, &main, &site, " class=\"multipost\"");
         out_map.insert(r.url.clone(), html.into_bytes());
@@ -346,11 +352,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 // The legacy `layout:` field selects a theme + a layout kind.
                 let theme = Theme::parse(layout);
                 let main = match layout {
-                    Some("page") | Some("post") => {
-                        render::document_page(&title, &frag, &r.url, &ancestors(db, &r.url), &site)
-                    }
+                    Some("page") | Some("post") => legacy::compose(
+                        &parts::document_tree(&title, &r.url, &ancestors(db, &r.url), &frag),
+                        &site,
+                    ),
                     // `default`, `light`, `null`: the row builds its own `main`.
-                    _ => render::raw(&frag),
+                    _ => legacy::compose(&parts::raw(&frag), &site),
                 };
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = theme.shell(&head, &main, &site, "");
