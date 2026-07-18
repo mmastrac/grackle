@@ -2,7 +2,7 @@
 title: Twelve rectangles
 tags: [photos, css]
 ---
-The [photo section](/photos/) holds twelve generated rectangles in six
+The [photo section](view:gallery) holds twelve generated rectangles in six
 aspect ratios. That is not much of a gallery, but it is exactly the shape
 masonry layout cares about: mixed ratios, known dimensions.
 

@@ -138,10 +138,29 @@ pub struct Doc {
 }
 
 pub fn render_doc(src: &str) -> Doc {
+    render_doc_with(src, &|_| Ok(None)).expect("no-op resolver cannot fail")
+}
+
+/// `render_doc` with a link resolver (§6a row/view links): every markdown
+/// link's destination is offered to `resolve`; `Ok(Some(url))` rewrites it,
+/// `Ok(None)` leaves it, and an error aborts the render — a broken source
+/// reference is a build error naming the file, not a shipped 404.
+pub fn render_doc_with(
+    src: &str,
+    resolve: &dyn Fn(&str) -> anyhow::Result<Option<String>>,
+) -> anyhow::Result<Doc> {
     let arena = Arena::new();
     let opts = options();
     let root = parse_document(&arena, src, &opts);
     rouge_code_blocks(root);
+    for node in root.descendants() {
+        let mut data = node.data.borrow_mut();
+        if let comrak::nodes::NodeValue::Link(ref mut link) = data.value {
+            if let Some(url) = resolve(&link.url)? {
+                link.url = url;
+            }
+        }
+    }
     let mut whole = String::new();
     format_html(root, &opts, &mut whole).expect("writing to a String cannot fail");
     let mut blocks = Vec::new();
@@ -150,7 +169,7 @@ pub fn render_doc(src: &str) -> Doc {
         format_html(child, &opts, &mut html).expect("writing to a String cannot fail");
         blocks.push(html);
     }
-    Doc { whole, blocks }
+    Ok(Doc { whole, blocks })
 }
 
 impl Doc {
@@ -261,6 +280,28 @@ fn unescape(s: &str) -> String {
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&amp;", "&")
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+
+    /// §6a row/view links: the resolver rewrites destinations, leaves
+    /// what it returns None for, and its errors abort the render.
+    #[test]
+    fn resolver_rewrites_and_fails_loud() {
+        let doc = render_doc_with("[a](x.md) and [b](https://e.com/)", &|href| {
+            Ok(match href {
+                "x.md" => Some("/x/".to_string()),
+                _ => None,
+            })
+        })
+        .unwrap();
+        assert!(doc.whole.contains(r#"href="/x/""#), "{}", doc.whole);
+        assert!(doc.whole.contains(r#"href="https://e.com/""#), "{}", doc.whole);
+        let err = render_doc_with("[a](nope.md)", &|_| anyhow::bail!("no such source"));
+        assert!(err.is_err());
+    }
 }
 
 #[cfg(test)]

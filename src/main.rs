@@ -5,6 +5,7 @@ mod db;
 mod diff;
 mod embed;
 mod filter;
+mod links;
 mod markdown;
 mod markers;
 mod outline;

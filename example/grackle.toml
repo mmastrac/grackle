@@ -69,6 +69,15 @@ exclude = ["themes/**", "*.toml"]
   match = "**/*"
   route = "/{path}"
 
+# ---------------------------------------------------------------- links
+
+# §6a row/view links: this site links rows by SOURCE PATH and views by
+# view: reference — URLs are derived values here (locales, slugs, route
+# templates), so raw internal URLs are load errors that answer with the
+# correct form.
+[links]
+policy = "strict"
+
 # ---------------------------------------------------------------- i18n
 
 # The locale axis (§6f). The suffix selector reads `dal.fr.md`: same rules,

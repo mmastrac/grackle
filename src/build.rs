@@ -118,8 +118,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         .context("loading themes")?;
     let thm = themes.get(None)?;
 
-    let bodies = render_bodies(cfg, db, &thumb_urls)?;
-    let page_bodies = render_page_bodies(cfg, db, &site, thm, &thumb_urls)?;
+    // §6a row/view links: the resolution space, once per build.
+    let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
+    let bodies = render_bodies(cfg, db, &thumb_urls, &linkspace)?;
+    let page_bodies = render_page_bodies(cfg, db, &site, thm, &thumb_urls, &linkspace)?;
 
     // ---- the link graph (q38): scan every rendered body once — posts and
     // pages alike — and invert. Backlinks are one more relations axis; the
@@ -716,7 +718,9 @@ fn render_bodies<'a>(
     cfg: &Config,
     db: &'a SiteDb,
     thumb_urls: &HashMap<String, String>,
+    linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<&'a str, Doc>> {
+    let root = cfg.root();
     db.posts
         .rows
         .par_iter()
@@ -727,7 +731,26 @@ fn render_bodies<'a>(
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let expanded = tags::expand(&p.body, &cx)?;
-            Ok((p.url.as_str(), crate::markdown::render_doc(&expanded)))
+            // §6a row/view links: destinations resolve against the
+            // database, relative to this post's source directory.
+            let dir = p
+                .path
+                .strip_prefix(&root)
+                .ok()
+                .and_then(|r| r.parent().map(Path::to_path_buf))
+                .unwrap_or_default();
+            let doc = crate::markdown::render_doc_with(&expanded, &|href| {
+                crate::links::resolve(
+                    cfg,
+                    linkspace,
+                    &dir,
+                    &p.url,
+                    &p.locale,
+                    &p.rel.to_string_lossy(),
+                    href,
+                )
+            })?;
+            Ok((p.url.as_str(), doc))
         })
         .collect()
 }
@@ -749,6 +772,7 @@ fn render_page_bodies(
     site: &Site,
     thm: &theme::Theme,
     thumb_urls: &HashMap<String, String>,
+    linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<String, PageBody>> {
     let mut out = HashMap::new();
     for r in &db.routes {
@@ -780,7 +804,17 @@ fn render_page_bodies(
             continue;
         }
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
-            let d = crate::markdown::render_doc(&expanded);
+            // §6a row/view links, same as post bodies. Raw-HTML pages are
+            // exempt v1 — the lol_html rewrite stage (§6d) is their seam.
+            let row = db.pages.rows.iter().find(|p| p.url == r.url);
+            let dir = row
+                .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
+                .unwrap_or_default();
+            let locale = row.map(|p| p.locale.as_str()).unwrap_or(&cfg.i18n.default);
+            let rel = row.map(|p| p.rel.to_string_lossy().to_string()).unwrap_or_default();
+            let d = crate::markdown::render_doc_with(&expanded, &|href| {
+                crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, href)
+            })?;
             (d.whole.clone(), Some(d))
         } else {
             (expanded, None)

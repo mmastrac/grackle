@@ -2475,6 +2475,48 @@ fighting:
   extraction happens (§6c), so this is one HTML rewrite stage doing four
   jobs, not four pipelines.
 
+### Row links and view links *(Matt's rule, built 2026-07)*
+
+The day the example grew locale prefixes, slugged tag routes and
+templated pagination, hand-typed URLs in content became lies waiting to
+happen — URLs are DERIVED values here. Matt's rule closes the gap, and
+it is this section's principle finishing its job: **authored links
+reference what the database owns.**
+
+1. **A link to a row references its source file** — relative to the
+   linking file (`carbonara.md`, `advanced/markers.md`) or
+   root-relative (`/recipes/carbonara.md`) — and the engine renders the
+   URL, exactly as `{% post_url %}` always did for posts. An unknown
+   source is a build error naming the file, with a closest-match
+   suggestion.
+2. **A link to a view uses `view:` syntax** — `view:gallery`,
+   `view:recipes_by_course/dinner` — rendered through the owning view's
+   route template (tag slugs applied, multi-level chains keyed
+   positionally), locale-aware (a French row links into its locale's
+   archive when it materialized), and verified against the route set: a
+   typo'd key errors LISTING the keys that exist.
+3. **`[links] policy`** grades enforcement. `strict` (the example)
+   errors on raw internal URLs, answering with the correct form —
+   `"link the source instead: /recipes/carbonara.md"`. `loose` (default;
+   the main site until cutover migration) resolves the new forms but
+   leaves raw URLs alone.
+
+Resolution is a comrak AST pass over Link nodes (`render_doc_with`),
+per-row, against a `LinkSpace` built once per build (source→URL over all
+three tables, the route set, and URL→suggested-form for the strict
+errors). The byte-oracle rule that made it safe on a 20-year corpus:
+**the engine rewrites only where the browser would get it wrong** — a
+relative link whose source-resolution and URL-resolution agree (the
+`downloads/foo.zip` idiom, 27 files' worth) ships byte-identical;
+`.md` references and cross-dir links get the engine's answer. Main site
+verified byte-identical under loose.
+
+Pending here: `.slots/` fills and raw-HTML pages bypass the resolver
+(the §6d `lol_html` rewrite stage is the seam for the latter); the
+closest-match suggester is stem-exact, not fuzzy; `{% post_url %}`
+could now dissolve into a plain source link; strict for the main site
+rides the publish-cutover migration.
+
 ## 6b. `_cache/`: one content-addressed store for every derived artifact
 
 > ✅ **Thumbnails built** (`thumbs.rs`). The `thumbs/` leg of the store below is

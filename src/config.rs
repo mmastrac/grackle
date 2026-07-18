@@ -45,6 +45,14 @@ pub struct Config {
     /// entry can set the route slug and per-locale display names.
     #[serde(default)]
     pub tags: BTreeMap<String, TagCfg>,
+    /// Internal-link policy (§6a, Matt's rule): links reference what the
+    /// database owns — rows by SOURCE PATH, views by `view:` reference —
+    /// because final URLs are derived values (locales, slugs, templates).
+    /// `strict` errors on raw internal URLs with the correct form as the
+    /// suggestion; `loose` (default) resolves the new forms but leaves raw
+    /// URLs alone — the migration posture for a legacy corpus.
+    #[serde(default)]
+    pub links: LinksCfg,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -193,6 +201,21 @@ impl I18nCfg {
             None => s.get(locale, &self.default),
         }
     }
+}
+
+/// Internal-link policy (§6a).
+#[derive(Debug, Deserialize, Default)]
+pub struct LinksCfg {
+    #[serde(default)]
+    pub policy: LinkPolicy,
+}
+
+#[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkPolicy {
+    #[default]
+    Loose,
+    Strict,
 }
 
 /// One tag record: route slug and display name(s). Both default to the id.

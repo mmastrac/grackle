@@ -1,0 +1,259 @@
+//! Row links and view links (§6a, Matt's rule): authored links reference
+//! what the database OWNS — a row by its source path, a view by name —
+//! because final URLs are derived values (locale prefixes, slugs, route
+//! templates). The engine renders the URL, exactly as it does for chrome.
+//!
+//! Resolution, per markdown link destination:
+//! - `view:name` / `view:name/key…` → the view's route template rendered
+//!   with the keys (tag slugs applied), locale-aware, verified against the
+//!   materialized route set — a typo'd key errors LISTING the keys.
+//! - a source path (relative to the linking file, or root-relative) → the
+//!   row's URL. Unknown source = error with a closest-match suggestion.
+//! - a raw internal URL: `loose` leaves it (the legacy-corpus posture);
+//!   `strict` errors, suggesting the correct source/`view:` form.
+//! External schemes, fragments and mailto pass through untouched.
+
+use anyhow::{bail, Result};
+use std::collections::{HashMap, HashSet};
+use std::path::{Component, Path, PathBuf};
+
+use crate::config::{Config, LinkPolicy};
+use crate::db::{RouteKind, SiteDb};
+
+/// Everything link resolution needs, computed once per build.
+pub struct LinkSpace {
+    /// Root-relative source path → the row's URL (posts, pages, objects).
+    source_to_url: HashMap<String, String>,
+    /// Every materialized URL.
+    routes: HashSet<String>,
+    /// URL → the form a strict-mode error suggests instead.
+    url_form: HashMap<String, String>,
+}
+
+impl LinkSpace {
+    pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
+        let mut source_to_url = HashMap::new();
+        for p in &db.posts.rows {
+            if let Ok(rel) = p.path.strip_prefix(root) {
+                source_to_url.insert(rel.to_string_lossy().to_string(), p.url.clone());
+            }
+        }
+        for p in &db.pages.rows {
+            source_to_url.insert(p.rel.to_string_lossy().to_string(), p.url.clone());
+        }
+        for o in &db.objects.rows {
+            source_to_url.insert(o.rel.to_string_lossy().to_string(), o.url.clone());
+        }
+        let mut routes = HashSet::new();
+        let mut url_form = HashMap::new();
+        for r in &db.routes {
+            routes.insert(r.url.clone());
+            let form = match r.kind {
+                RouteKind::View => r.view.as_ref().map(|v| match &r.key {
+                    Some(k) => format!("view:{v}/{k}"),
+                    None => format!("view:{v}"),
+                }),
+                _ => r.source.as_ref().and_then(|s| {
+                    s.strip_prefix(root)
+                        .ok()
+                        .map(|rel| format!("/{}", rel.to_string_lossy()))
+                }),
+            };
+            if let Some(f) = form {
+                url_form.insert(r.url.clone(), f);
+            }
+        }
+        LinkSpace { source_to_url, routes, url_form }
+    }
+}
+
+/// Normalize `.`/`..` without touching the filesystem.
+fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The closest source path to a miss, for the error's suggestion: same
+/// file name first, then same stem anywhere in the path.
+fn closest_source<'a>(space: &'a LinkSpace, wanted: &str) -> Option<&'a str> {
+    let name = Path::new(wanted).file_name()?.to_string_lossy().to_string();
+    let stem = Path::new(wanted).file_stem()?.to_string_lossy().to_string();
+    space
+        .source_to_url
+        .keys()
+        .find(|k| Path::new(k).file_name().is_some_and(|f| *f == *name))
+        .or_else(|| space.source_to_url.keys().find(|k| k.contains(&stem)))
+        .map(String::as_str)
+}
+
+/// Resolve one markdown link destination. `Ok(None)` = leave untouched.
+///
+/// `url_dir` is the linking PAGE's URL directory: when a relative source
+/// link resolves to the same URL the browser would reach anyway, the href
+/// is left byte-identical — the engine rewrites only where the browser
+/// would get it wrong (`.md` links, source-dir ≠ url-dir references).
+pub fn resolve(
+    cfg: &Config,
+    space: &LinkSpace,
+    linking_dir: &Path,
+    url_dir: &str,
+    locale: &str,
+    source: &str,
+    href: &str,
+) -> Result<Option<String>> {
+    // Not ours: external schemes, in-page fragments, protocol-relative.
+    if href.is_empty()
+        || href.starts_with('#')
+        || href.starts_with("//")
+        || href.contains("://")
+        || href.starts_with("mailto:")
+        || href.starts_with("data:")
+    {
+        return Ok(None);
+    }
+
+    if let Some(rest) = href.strip_prefix("view:") {
+        return view_link(cfg, space, locale, source, rest).map(Some);
+    }
+
+    // Split an anchor/query suffix off the path part.
+    let cut = href.find(['#', '?']).unwrap_or(href.len());
+    let (path_part, suffix) = href.split_at(cut);
+
+    // Source-path resolution: relative to the linking file, then
+    // root-relative. A hit that is ALSO a route URL (passthrough files)
+    // resolves to the identical string, so trying sources first is safe.
+    let mut candidates: Vec<(String, bool)> = Vec::new(); // (source path, was relative)
+    if !path_part.starts_with('/') {
+        candidates.push((
+            normalize(&linking_dir.join(path_part)).to_string_lossy().to_string(),
+            true,
+        ));
+    }
+    candidates.push((path_part.trim_start_matches('/').to_string(), false));
+    for (c, was_relative) in &candidates {
+        if let Some(url) = space.source_to_url.get(c) {
+            if *was_relative {
+                let browser = format!(
+                    "/{}",
+                    normalize(&Path::new(url_dir.trim_matches('/')).join(path_part))
+                        .to_string_lossy()
+                );
+                if browser == *url {
+                    return Ok(None); // the browser already gets it right
+                }
+            }
+            return Ok(Some(format!("{url}{suffix}")));
+        }
+    }
+
+    match cfg.links.policy {
+        LinkPolicy::Loose => Ok(None),
+        LinkPolicy::Strict => {
+            if space.routes.contains(path_part) {
+                match space.url_form.get(path_part) {
+                    Some(form) => bail!(
+                        "{source}: link {href:?} is a raw URL to routable content — \
+                         URLs are derived; link the source instead: {form:?}"
+                    ),
+                    None => Ok(None), // a route with no better form to offer
+                }
+            } else {
+                match closest_source(space, path_part) {
+                    Some(s) => bail!(
+                        "{source}: link {href:?} matches no source file or route \
+                         (closest source: {s:?})"
+                    ),
+                    None => bail!("{source}: link {href:?} matches no source file or route"),
+                }
+            }
+        }
+    }
+}
+
+/// `view:name[/key…]` → the view's route, rendered and verified.
+fn view_link(
+    cfg: &Config,
+    space: &LinkSpace,
+    locale: &str,
+    source: &str,
+    rest: &str,
+) -> Result<String> {
+    let mut parts = rest.split('/').filter(|s| !s.is_empty());
+    let name = parts.next().unwrap_or_default();
+    let keys: Vec<&str> = parts.collect();
+    let Some(v) = cfg.views.get(name) else {
+        let mut known: Vec<&str> = cfg.views.keys().map(String::as_str).collect();
+        known.sort_unstable();
+        bail!(
+            "{source}: view:{name} names no view (views: {})",
+            known.join(", ")
+        );
+    };
+    let chain = cfg.group_specs(name);
+    let url = if !chain.is_empty() {
+        if keys.len() != chain.len() {
+            bail!(
+                "{source}: view:{rest} — {name} groups by {} and needs {} key(s)",
+                chain.join(", "),
+                chain.len()
+            );
+        }
+        let tmpl = v
+            .route
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("{source}: view {name} has no route"))?;
+        // The same params grouped_routes exposes: each level's field name,
+        // `key` = the leaf, tag slugs on the URL (§6f).
+        let mut params: Vec<(String, String)> = Vec::new();
+        for (spec, key) in chain.iter().zip(&keys) {
+            let field = crate::views::spec_field(spec);
+            let value = if field == "tags" { cfg.tag_slug(key).to_string() } else { key.to_string() };
+            params.push((field.to_string(), value.clone()));
+            params.push(("key".to_string(), value));
+        }
+        crate::route::render(tmpl, |k| crate::route::param(&params, k))?
+    } else {
+        if !keys.is_empty() {
+            bail!("{source}: view:{rest} — {name} is not grouped; drop the key");
+        }
+        v.route
+            .as_deref()
+            .or_else(|| v.routes.first().map(String::as_str))
+            .ok_or_else(|| anyhow::anyhow!("{source}: view {name} has no route (is it embed-only?)"))?
+            .to_string()
+    };
+    // Locale-parallel views (§6f): a translated row links into its own
+    // locale's archive when that variant materialized.
+    let url = if locale != cfg.i18n.default {
+        let prefixed = format!("/{locale}{url}");
+        if space.routes.contains(&prefixed) { prefixed } else { url }
+    } else {
+        url
+    };
+    if !space.routes.contains(&url) {
+        let mut have: Vec<String> = space
+            .url_form
+            .iter()
+            .filter(|(_, f)| f.starts_with(&format!("view:{name}")))
+            .map(|(_, f)| f.clone())
+            .collect();
+        have.sort_unstable();
+        have.dedup();
+        bail!(
+            "{source}: view:{rest} renders {url:?}, which is not materialized \
+             (have: {})",
+            if have.is_empty() { "none".to_string() } else { have.join(", ") }
+        );
+    }
+    Ok(url)
+}
