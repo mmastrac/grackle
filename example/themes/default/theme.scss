@@ -1,0 +1,105 @@
+// The example theme: a shell and a stylesheet, nothing else. Every layout
+// kind renders through the canonical (null-theme) fallback — this theme is
+// the living proof that themes are partial by construction (§5e step 4).
+
+:root {
+	--bg: #fffdf8;
+	--fg: #2c2a26;
+	--muted: #7a746a;
+	--line: #e6e0d4;
+	--link: #9a5b2b;
+	--link-hover: #c07a3f;
+}
+
+html {
+	background: var(--bg);
+	color: var(--fg);
+}
+
+body {
+	margin: 0 auto;
+	padding: 0 1.25rem 4rem;
+	max-width: 46rem;
+	font: 16px/1.6 Georgia, "Times New Roman", serif;
+}
+
+a {
+	color: var(--link);
+}
+
+a:hover {
+	color: var(--link-hover);
+}
+
+.site-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	padding: 1.5rem 0 1rem;
+	border-bottom: 1px solid var(--line);
+	margin-bottom: 2rem;
+
+	.site-title {
+		font-size: 1.4rem;
+		font-weight: bold;
+		text-decoration: none;
+		color: var(--fg);
+	}
+
+	.site-nav ul {
+		list-style: none;
+		display: flex;
+		gap: 1rem;
+		margin: 0;
+		padding: 0;
+	}
+}
+
+.site-footer {
+	margin-top: 4rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+// Canonical markup (data-kind/data-slot) styled directly — the null theme
+// is the contract, so selectors key on it.
+[data-kind="summary"] {
+	margin: 2rem 0;
+	padding-bottom: 1.5rem;
+	border-bottom: 1px solid var(--line);
+
+	[data-slot="title"] {
+		font-size: 1.2rem;
+		font-weight: bold;
+		display: block;
+	}
+
+	[data-slot="date_pretty"] {
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
+}
+
+[data-kind="document"] > [data-slot="title"] {
+	font-size: 1.6rem;
+	font-weight: bold;
+	display: block;
+	margin-bottom: 0.5rem;
+}
+
+[data-kind="crumb"] {
+	font-size: 0.85rem;
+	color: var(--muted);
+}
+
+[data-kind="tag"] a,
+[data-kind="tag"] [data-slot="name"] {
+	font-size: 0.8rem;
+}
+
+.image img {
+	max-width: 100%;
+	height: auto;
+}

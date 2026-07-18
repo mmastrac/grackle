@@ -3000,6 +3000,52 @@ save the feed's build-timestamp.)
   HTML diff (whitespace/attribute-order-insensitive) per URL with a summary
   matrix (identical / equivalent / differs / missing). The iteration driver.
 
+## 7a. The example site: the falsifier for site-independence *(started 2026-07)*
+
+grackle has been developed against exactly one corpus, and §9b shows the
+cost: `"blog"` hardcodes, view-name policy, and a phase-1 gate survive
+*because nothing can contradict them*. The design already knows this
+argument — a boundary with a single implementation is untestable, which is
+why `light` exists (§5a) and why the null theme runs as a falsifier (§5e).
+**A second site is the same move one level up**: the falsifier for
+site-independence.
+
+`grackle/example/` is that site — self-contained (own `grackle.toml`, own
+theme, own `.slots/`, own `_cache/`), invisible to the main corpus (the
+`grackle/**` exclude already covers it), built and served like any site:
+
+```
+grackle --config example/grackle.toml serve --port 8081
+```
+
+It is deliberately a **kitchen sink**: each section exists to force a
+parked feature, in parallel rather than in sequence.
+
+| section | exists to force |
+|---|---|
+| `photos/` (varied aspect ratios) | object views (§5 audit gaps 1–3: object schema, `match`, `order_by`), `hero` (q23), variants (q24), dimension facts (q26), the masonry archetype (§5e) |
+| `manual/` (mdbook-style tree, `order:` in front matter) | §6e section trees, `.section` scope markers (q35), q27 index-less directories |
+| long posts with `##` headings, `toc:` front matter | §6e page outlines, the §5f `outline()` deriver |
+| `recipes/` (typed front matter: servings, prep time, course) | per-subtree schema (§5b — its long-missing second user), typed fields beyond the post schema, `group_by` over arbitrary schema fields (today: tags/dates only) |
+| a second theme, minimal | the partial-theme claim (shell + CSS, everything else canonical), and eventually the theme-name config key (§9b) |
+
+Two rules keep it honest:
+
+1. **The example never gets special-cased engine code.** Anything it needs
+   is a real feature or a real bug — the whole point is that its needs
+   contradict the main site's assumptions. Day one already produced two
+   contradictions on schedule: the posts collection must be *named*
+   `blog` (the phase-1 gate in `views.rs`, §9b's accepted asymmetry, now
+   with a corpus that objects), and a site without a theme directory
+   should be the null theme by §5e's own words ("needs no directory at
+   all") — the example sidesteps it by shipping a real minimal theme, but
+   the gap is now demonstrable.
+2. **It has no byte oracle, on purpose.** The main site is verified
+   against Jekyll; the example is verified by the engine's own invariants
+   (load-time constraints, the null-theme completeness falsifier, route
+   collision checks) — which is exactly the discipline a *new* grackle
+   site would live under, tested for the first time.
+
 ## 8. Known-inexact from day one (accepted, iterate later)
 
 | Area | Why | Plan |

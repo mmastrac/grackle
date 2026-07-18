@@ -1,0 +1,4 @@
+- [Notes](/blog/)
+- [Recipes](/recipes/)
+- [Manual](/manual/)
+- [Photos](/photos/)

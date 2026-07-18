@@ -1,0 +1,108 @@
+# The example site (DESIGN §7a): the falsifier for site-independence.
+# A kitchen sink — each section exists to force a parked feature:
+#   photos/   object views, hero, variants, dimension facts, masonry
+#   manual/   §6e section trees, .section markers, q27 index-less dirs
+#   recipes/  per-subtree schema (§5b), group_by over schema fields
+#   _posts/   page outlines (§6e), toc: front matter, summaries
+# Rule: this site never gets special-cased engine code.
+
+root = "."
+
+[site]
+url = "https://example.grack.com"
+baseurl = ""
+title = "Field Notes"
+author = "Example Author"
+
+# ---------------------------------------------------------------- posts
+
+# Named "blog" because the phase-1 gate in views.rs requires it — §7a
+# contradiction #1, kept visible on purpose.
+[collections.blog]
+kind = "posts"
+source = "_posts"
+crumb = "Notes"
+index = "/blog/"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.blog.rules]]
+  match = "**"
+  defaults = { layout = "post" }
+  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+# ---------------------------------------------------------------- objects
+
+[collections.objects]
+kind = "objects"
+extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+bucket = "assets"
+
+  [[collections.objects.rules]]
+  match = "**"
+  route = "/{path}"
+
+# ---------------------------------------------------------------- pages
+
+[collections.pages]
+kind = "tree"
+source = "."
+exclude = ["themes/**", "*.toml"]
+
+  [[collections.pages.rules]]
+  match = "**/index.{html,md}"
+  route = "/{dir}/"
+
+  [[collections.pages.rules]]
+  match = "**/*.{html,md}"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  [[collections.pages.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# ---------------------------------------------------------------- related
+
+[related]
+limit = 3
+min_score = 0.3
+
+# ---------------------------------------------------------------- views
+
+[views.published]
+over = "blog"
+filter = "!draft && !hidden"
+
+  [views.published.fields.summary]
+  truncate = { max_blocks = 3, max_chars = 500 }
+
+[views.blog_index]
+over = "published"
+paginate = 5
+routes = ["/blog/", "/blog/page/{n}/"]
+layout = "listing"
+title = "Notes"
+
+[views.latest]
+over = "published"
+limit = 3
+layout = "link_list"
+
+[views.tag_index]
+over = "published"
+group_by = "tags"
+route = "/blog/tags/{key}/"
+layout = "listing"
+title = "Notes tagged “{key}”"
+crumb = "{key}"
+
+[views.feed]
+over = "published"
+limit = 20
+route = "/atom.xml"
+template = "atom.xml"
+
+[views.sitemap]
+over = "*"
+route = "/sitemap.xml"
+filter = '!draft && !hidden && (dir || ext == "html")'
