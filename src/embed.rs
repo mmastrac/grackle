@@ -133,6 +133,9 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Relate
             .iter()
             .enumerate()
             .filter(|(j, vj)| *j != i && vj.is_some())
+            // §6f: similarity stays within a locale — a translation is the
+            // SAME text, so it would otherwise top its original's list.
+            .filter(|(j, _)| db.posts.rows[*j].locale == db.posts.rows[i].locale)
             .filter_map(|(j, vj)| {
                 let gap = match (year(i), year(j)) {
                     (Some(a), Some(b)) => (a - b).abs(),

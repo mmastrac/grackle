@@ -110,6 +110,44 @@ main {
 		border-top: 1px dashed var(--muted);
 	}
 
+	// The language switcher (§6f): the translations axis relocated to the
+	// card's top-right corner by CSS — same move as the default theme,
+	// wearing this kitchen's chip.
+	position: relative;
+
+	.relation[data-axis="translations"] {
+		position: absolute;
+		top: 1.4rem;
+		right: 2.25rem;
+
+		.relation-label {
+			display: none;
+		}
+
+		.neighbor {
+			display: inline-block;
+			padding: 0.15em 0.8em;
+			border: 1.5px solid var(--accent);
+			border-radius: 999px;
+			font-size: 0.75rem;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			color: var(--accent);
+			text-decoration: none;
+
+			&::before {
+				content: "\1F310  ";
+			}
+		}
+	}
+
+	.relations:not(:has(.relation:not([data-axis="translations"]))) {
+		margin-top: 0;
+		padding-top: 0;
+		border-top: none;
+	}
+
 	.relation-label {
 		margin: 0 0 0.35rem;
 		font-size: 0.75rem;

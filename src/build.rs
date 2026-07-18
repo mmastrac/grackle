@@ -170,9 +170,30 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 Vec::new()
             };
             let bl = backlinks.get(&p.url).map(Vec::as_slice).unwrap_or(&[]);
-            let main = thm
-                .fragments
-                .render(&parts::document(db, p, whole, trail, &rel, bl, outline));
+            // §6f: this row in other locales, labelled by language.
+            let translations: Vec<(String, String)> = db
+                .posts
+                .by_logical
+                .get(&p.logical)
+                .map(|sibs| {
+                    sibs.iter()
+                        .map(|&j| &db.posts.rows[j])
+                        .filter(|s| s.url != p.url)
+                        .map(|s| (cfg.i18n.name_of(&s.locale).to_string(), s.url.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let main = thm.fragments.render(&parts::document(
+                cfg,
+                db,
+                p,
+                whole,
+                trail,
+                &rel,
+                bl,
+                outline,
+                &translations,
+            ));
             let dir = p.path.parent().unwrap_or(&root);
             let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, dir, None)?;
             Ok((p.url.clone(), html))
@@ -249,7 +270,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
         let main = thm
             .fragments
-            .render_with(&parts::listing(&rows, &title, trail, pagination), v.variant.as_deref());
+            .render_with(&parts::listing(cfg, &rows, &title, trail, pagination), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
         let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
         out_map.insert(r.url.clone(), html.into_bytes());
@@ -491,7 +512,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     .map(|sec| {
                         let tree = section_trees
                             .entry(sec.to_path_buf())
-                            .or_insert_with(|| crate::outline::section_tree(db, sec));
+                            .or_insert_with(|| crate::outline::section_tree(db, sec, &cfg.i18n.default));
                         crate::outline::to_parts(tree, &r.url)
                     })
                     .unwrap_or_default();
@@ -537,6 +558,18 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     ),
                     Theme::Default => {
                         let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
+                        // §6f: this page in other locales.
+                        let translations: Vec<(String, String)> = row
+                            .and_then(|p| db.pages.by_logical.get(&p.logical).map(|sibs| {
+                                sibs.iter()
+                                    .map(|&j| &db.pages.rows[j])
+                                    .filter(|s| s.url != p.url)
+                                    .map(|s| {
+                                        (cfg.i18n.name_of(&s.locale).to_string(), s.url.clone())
+                                    })
+                                    .collect()
+                            }))
+                            .unwrap_or_default();
                         let main = match layout {
                             Some("page") | Some("post") => row_thm.fragments.render(
                                 &parts::document_tree(
@@ -548,6 +581,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                         outline,
                                         hero,
                                         backlinks: bl,
+                                        translations: &translations,
                                     },
                                     frag,
                                 ),

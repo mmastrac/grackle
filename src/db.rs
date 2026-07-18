@@ -43,6 +43,12 @@ pub struct Post {
     pub noindex: bool,
     /// Render the heading outline (§6e); front matter or cascaded default.
     pub toc: bool,
+    /// The locale axis (§6f): assigned by the path selector at load.
+    pub locale: String,
+    /// The locale-stripped identity shared by a row and its translations
+    /// (collection-relative, no extension). Pairing key for `by_logical`.
+    #[serde(skip)]
+    pub logical: String,
     pub url: String,
     pub body_bytes: usize,
     #[serde(skip)]
@@ -108,6 +114,11 @@ pub struct Page {
     /// Feeds the thumb pass and the `hero` part (q23).
     #[serde(skip)]
     pub images: BTreeMap<String, String>,
+    /// The locale axis (§6f): assigned by the path selector at load.
+    pub locale: String,
+    /// The locale-stripped identity shared by a row and its translations.
+    #[serde(skip)]
+    pub logical: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -151,6 +162,12 @@ pub struct PostsTable {
     pub by_year_month: BTreeMap<(i32, u32), Vec<usize>>,
     #[serde(skip)]
     pub by_url: HashMap<String, usize>,
+    /// §6f: logical identity -> every locale variant (default included).
+    /// The ONLY index that sees translations — `order`/`by_key`/`by_tag`/
+    /// `by_year_month` admit default-locale rows only, which is what keeps
+    /// every listing, feed and archive single-locale by construction.
+    #[serde(skip)]
+    pub by_logical: HashMap<String, Vec<usize>>,
 }
 
 impl PostsTable {
@@ -168,6 +185,9 @@ impl PostsTable {
 #[derive(Debug, Default, Serialize)]
 pub struct TreeTable {
     pub rows: Vec<Page>,
+    /// §6f: logical identity -> every locale variant, rendered rows only.
+    #[serde(skip)]
+    pub by_logical: HashMap<String, Vec<usize>>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -222,6 +242,10 @@ pub struct Route {
     /// the view's `title`/`crumb` templates from these.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<(String, String)>,
+    /// §6f: set only for non-default-locale rows (a translation's route);
+    /// None means the default locale, and filters see Null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
     /// The source row's flags, carried onto the route so a `*` view (the
     /// sitemap) can exclude them. Only post rows can be flagged, so this is
     /// false for every other route. Without it the sitemap's filter language
@@ -255,6 +279,7 @@ impl Route {
             rows: None,
             page: None,
             params: Vec::new(),
+            locale: None,
             draft: false,
             hidden: false,
             members: Vec::new(),
@@ -308,6 +333,10 @@ pub fn route_schema() -> filter::Schema {
     // thing at both layers (e.g. keeping listing-shaped index pages out
     // of a search shell's row set).
     s.insert("stem", Str);
+    // §6f: the row's locale for translation routes; Null for the default
+    // locale (and every sourceless route). `locale != "fr"` keeps French
+    // rows out of a star view; Null passes `!=` by the filter's rule.
+    s.insert("locale", Str);
     s
 }
 
@@ -335,7 +364,23 @@ impl filter::Row for Route {
                 .source
                 .as_deref()
                 .and_then(|p| p.file_stem())
-                .map_or(V::Null, |s| V::Str(s.to_string_lossy().into_owned())),
+                .map_or(V::Null, |s| {
+                    // §6f: the logical stem — a suffix-selected locale is
+                    // not part of a row's identity (`index.fr` is `index`).
+                    let s = s.to_string_lossy();
+                    let logical = match &self.locale {
+                        Some(l) => s
+                            .strip_suffix(l.as_str())
+                            .and_then(|rest| rest.strip_suffix('.'))
+                            .unwrap_or(s.as_ref()),
+                        None => s.as_ref(),
+                    };
+                    V::Str(logical.to_owned())
+                }),
+            "locale" => match &self.locale {
+                Some(l) => V::Str(l.clone()),
+                None => V::Null,
+            },
             _ => V::Null,
         }
     }
@@ -535,8 +580,11 @@ fn build_posts(
 
     let mut rows: Vec<Post> = Vec::with_capacity(raws.len());
     for raw in raws {
-        let stem: String = raw
-            .path
+        // §6f: the path selector strips the locale first, so filename
+        // parsing, rules and routing all see the logical path — a
+        // translation rides the same machinery as its original.
+        let (logical_rel, locale) = cfg.i18n.split(&raw.rel);
+        let stem: String = logical_rel
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or_default()
@@ -548,6 +596,7 @@ fn build_posts(
             .with_extension("")
             .to_string_lossy()
             .to_string();
+        let logical = logical_rel.with_extension("").to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
         let date = match &key {
             Some(k) => Some(
@@ -562,7 +611,7 @@ fn build_posts(
             .map(|k| k.slug.clone())
             .unwrap_or_else(|| stem.clone());
 
-        let (route_tmpl, rule_defaults) = apply_rules(&rules, &raw.rel, true);
+        let (route_tmpl, rule_defaults) = apply_rules(&rules, &logical_rel, true);
         // Precedence (§4b): front matter > nearest marker > rule. Markers are
         // inserted first so `or_insert` cannot let a rule override them.
         let root_rel = raw.path.strip_prefix(&root).unwrap_or(&raw.rel).to_path_buf();
@@ -626,6 +675,9 @@ fn build_posts(
             })
             .with_context(|| format!("routing {}", raw.path.display()))?
         };
+        // §6f: a translation lands at the locale-prefixed twin of its
+        // original's URL.
+        let url = if locale != cfg.i18n.default { format!("/{locale}{url}") } else { url };
 
         rows.push(Post {
             path: raw.path,
@@ -643,6 +695,8 @@ fn build_posts(
             hidden,
             noindex,
             toc,
+            locale,
+            logical,
             url,
             body_bytes: raw.body.len(),
             body: raw.body,
@@ -651,7 +705,11 @@ fn build_posts(
 
     rows.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let mut order: Vec<usize> = (0..rows.len()).collect();
+    // §6f: `order` drives views, feeds, archives and adjacency — it admits
+    // the default locale only, which makes every one of them single-locale
+    // in one place. Translations render as pages and live in `by_logical`.
+    let mut order: Vec<usize> =
+        (0..rows.len()).filter(|&i| rows[i].locale == cfg.i18n.default).collect();
     order.sort_by(|&a, &b| {
         match (rows[a].date, rows[b].date) {
             (Some(x), Some(y)) => y.cmp(&x),
@@ -668,6 +726,30 @@ fn build_posts(
     };
 
     for (i, p) in rows.iter().enumerate() {
+        // Identity indexes span all locales: URLs are globally unique, and
+        // `name` (physical path) keeps `{% post_url %}` unambiguous.
+        if let Some(prev) = table.by_name.insert(p.name.clone(), i) {
+            bail!(
+                "duplicate post name {:?} ({{% post_url %}} would be ambiguous):\n  {}\n  {}",
+                p.name,
+                rows[prev].path.display(),
+                p.path.display()
+            );
+        }
+        if let Some(prev) = table.by_url.insert(p.url.clone(), i) {
+            bail!(
+                "route collision at {}:\n  {}\n  {}",
+                p.url,
+                rows[prev].path.display(),
+                p.path.display()
+            );
+        }
+        table.by_logical.entry(p.logical.clone()).or_default().push(i);
+        // Query indexes are single-locale, like `order` (§6f): a
+        // translation shares its original's (date, slug) by design.
+        if p.locale != cfg.i18n.default {
+            continue;
+        }
         if let Some(prev) = table.by_key.insert((p.date, p.slug.clone()), i) {
             bail!(
                 "duplicate (date, slug) key ({}, {:?}):\n  {}\n  {}",
@@ -677,23 +759,7 @@ fn build_posts(
                 p.path.display()
             );
         }
-        if let Some(prev) = table.by_name.insert(p.name.clone(), i) {
-            bail!(
-                "duplicate post name {:?} ({{% post_url %}} would be ambiguous):\n  {}\n  {}",
-                p.name,
-                rows[prev].path.display(),
-                p.path.display()
-            );
-        }
         table.by_slug.entry(p.slug.clone()).or_default().push(i);
-        if let Some(prev) = table.by_url.insert(p.url.clone(), i) {
-            bail!(
-                "route collision at {}:\n  {}\n  {}",
-                p.url,
-                rows[prev].path.display(),
-                p.path.display()
-            );
-        }
         for t in &p.tags {
             table.by_tag.entry(t.clone()).or_default().push(i);
         }
@@ -777,15 +843,25 @@ fn build_tree_and_objects(
             .unwrap_or_default();
         let is_object = is_obj(&f.rel);
 
+        // §6f: rendered pages carry the locale axis; objects (images) are
+        // shared across locales and skip the selector.
+        let (logical_rel, locale) = if is_object {
+            (f.rel.clone(), cfg.i18n.default.clone())
+        } else {
+            cfg.i18n.split(&f.rel)
+        };
+
         let rules = if is_object { &obj_rules } else { &tree_rules };
-        let (tmpl, defaults) = apply_rules(rules, &f.rel, f.has_front_matter);
+        let (tmpl, defaults) = apply_rules(rules, &logical_rel, f.has_front_matter);
         let Some(tmpl) = tmpl else {
             bail!("no rule supplies a route for {}", f.path.display());
         };
         let url = tidy(
-            route::render(tmpl, |k| path_tokens(&f.rel, k))
+            route::render(tmpl, |k| path_tokens(&logical_rel, k))
                 .with_context(|| format!("routing {}", f.path.display()))?,
         );
+        let url =
+            if locale != cfg.i18n.default { format!("/{locale}{url}") } else { url };
 
         if is_object {
             let name = f
@@ -816,8 +892,10 @@ fn build_tree_and_objects(
             };
             // §5b: a governed row's extra front matter is validated — an
             // undeclared key or wrong type fails the load naming the file.
-            // Ungoverned rows stay as tolerant as they always were.
-            let parent = f.rel.parent().unwrap_or(Path::new("")).to_path_buf();
+            // Ungoverned rows stay as tolerant as they always were. Schema
+            // governance follows the LOGICAL path (§6f): a translation is
+            // governed by the same .schema.toml as its original.
+            let parent = logical_rel.parent().unwrap_or(Path::new("")).to_path_buf();
             let checked = match schemas.resolve(&parent) {
                 Some(schema) if f.has_front_matter => {
                     crate::schema::validate(&schema, &fm.extra, &f.path)?
@@ -832,6 +910,10 @@ fn build_tree_and_objects(
                     .and_then(|v| v.as_str())
                     .map(String::from)
             });
+            let logical = logical_rel.to_string_lossy().to_string();
+            if f.has_front_matter {
+                pages.by_logical.entry(logical.clone()).or_default().push(pages.rows.len());
+            }
             pages.rows.push(Page {
                 path: f.path,
                 rel: f.rel,
@@ -847,6 +929,8 @@ fn build_tree_and_objects(
                 theme,
                 fields: checked.values,
                 images: checked.images,
+                locale,
+                logical,
             });
         }
     }
@@ -890,6 +974,8 @@ pub fn post_schema() -> filter::Schema {
     s.insert("day", Int);
     s.insert("body_bytes", Int);
     s.insert("tags", List);
+    // §6f: the row's locale, always set (the default when no selector fired).
+    s.insert("locale", Str);
     s
 }
 
@@ -920,6 +1006,7 @@ impl filter::Row for Post {
             "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
             "body_bytes" => V::Int(self.body_bytes as i64),
             "tags" => V::List(self.tags.clone()),
+            "locale" => V::Str(self.locale.clone()),
             _ => V::Null,
         }
     }
@@ -941,6 +1028,8 @@ pub fn page_schema() -> filter::Schema {
     s.insert("rendered", Bool);
     s.insert("toc", Bool);
     s.insert("order", Int);
+    // §6f: the row's locale, always set (the default when no selector fired).
+    s.insert("locale", Str);
     s
 }
 
@@ -961,8 +1050,10 @@ impl filter::Row for Page {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
             ),
-            "stem" => self
-                .rel
+            // §6f: the LOGICAL stem — `red-lentil-dal.fr.md` is still
+            // `red-lentil-dal`, so `stem != "index"` means the same thing
+            // in every locale.
+            "stem" => Path::new(&self.logical)
                 .file_stem()
                 .map_or(V::Null, |s| V::Str(s.to_string_lossy().to_string())),
             "layout" => opt(&self.layout),
@@ -970,6 +1061,7 @@ impl filter::Row for Page {
             "rendered" => V::Bool(self.rendered),
             "toc" => V::Bool(self.toc),
             "order" => self.order.map_or(V::Null, V::Int),
+            "locale" => V::Str(self.locale.clone()),
             // Schema fields (§5b) resolve after the base names.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
@@ -1075,11 +1167,15 @@ impl SiteDb {
 
         // Unified route list.
         let t = std::time::Instant::now();
+        let route_locale = |l: &str| {
+            (l != cfg.i18n.default).then(|| l.to_string())
+        };
         for p in &db.posts.rows {
             db.routes.push(Route {
                 source: Some(p.path.clone()),
                 draft: p.draft,
                 hidden: p.hidden,
+                locale: route_locale(&p.locale),
                 ..Route::new(p.url.clone(), RouteKind::Post)
             });
         }
@@ -1087,6 +1183,7 @@ impl SiteDb {
             let kind = if p.rendered { RouteKind::Page } else { RouteKind::Static };
             db.routes.push(Route {
                 source: Some(p.path.clone()),
+                locale: route_locale(&p.locale),
                 ..Route::new(p.url.clone(), kind)
             });
         }

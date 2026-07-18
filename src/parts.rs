@@ -351,7 +351,7 @@ pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
     Part::Stream(trail.into_iter().map(|(l, u)| crumb(l, u)).collect())
 }
 
-fn tag_stream(p: &Post) -> Option<Part> {
+fn tag_stream(cfg: &crate::config::Config, p: &Post) -> Option<Part> {
     if p.tags.is_empty() {
         return None;
     }
@@ -359,13 +359,38 @@ fn tag_stream(p: &Post) -> Option<Part> {
         .tags
         .iter()
         .map(|t| {
+            // §6f tag records: display name follows the row's locale,
+            // the route slug is locale-independent. No record = id.
             let mut m = PartMap::new("tag");
-            m.set("name", Part::Text(t.clone()));
-            m.set("url", Part::Text(format!("/blog/tags/{t}/")));
+            m.set("name", Part::Text(cfg.tag_name(t, &p.locale).to_string()));
+            m.set("url", Part::Text(format!("/blog/tags/{}/", cfg.tag_slug(t))));
             m
         })
         .collect();
     Some(Part::Stream(v))
+}
+
+/// The `translations` relations group (§6f): this row in other locales,
+/// as dateless neighbors labelled by language — the language switcher is
+/// one more axis, not a new mechanism.
+pub fn translations_group(translations: &[(String, String)]) -> Option<PartMap> {
+    if translations.is_empty() {
+        return None;
+    }
+    let items = translations
+        .iter()
+        .map(|(label, url)| {
+            let mut nm = PartMap::new("neighbor");
+            nm.set("url", Part::Text(url.clone()));
+            nm.set("title", Part::Text(label.clone()));
+            nm
+        })
+        .collect();
+    let mut g = PartMap::new("relation");
+    g.set("axis", Part::Text("translations".into()));
+    g.set("label", Part::Text("Translations".into()));
+    g.set("items", Part::Stream(items));
+    Some(g)
 }
 
 /// One dated row, full content: the `document` kind for a post. Temporal
@@ -395,6 +420,7 @@ fn linked_from_group(backlinks: &[(String, String)]) -> Option<PartMap> {
 }
 
 pub fn document(
+    cfg: &crate::config::Config,
     db: &SiteDb,
     p: &Post,
     content: &str,
@@ -402,12 +428,13 @@ pub fn document(
     related: &[usize],
     backlinks: &[(String, String)],
     outline: Vec<PartMap>,
+    translations: &[(String, String)],
 ) -> PartMap {
     let mut m = PartMap::new("document");
     m.set("title", Part::Text(p.title.clone()));
     m.set("url", Part::Text(p.url.clone()));
     m.set("crumbs", crumb_stream(trail));
-    if let Some(t) = tag_stream(p) {
+    if let Some(t) = tag_stream(cfg, p) {
         m.set("tags", t);
     }
     if !outline.is_empty() {
@@ -441,6 +468,7 @@ pub fn document(
         Some(g)
     };
     let mut relations = Vec::new();
+    relations.extend(translations_group(translations));
     let similar: Vec<PartMap> = related.iter().filter_map(|&j| neighbor(j)).collect();
     relations.extend(group("similar", "Related", similar));
     relations.extend(linked_from_group(backlinks));
@@ -477,6 +505,8 @@ pub struct TreeDoc<'a> {
     pub hero: Option<PartMap>,
     /// Pages that link here (q38) — `(title, url)`.
     pub backlinks: &'a [(String, String)],
+    /// This row in other locales (§6f) — `(language label, url)`.
+    pub translations: &'a [(String, String)],
 }
 
 pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartMap {
@@ -500,14 +530,17 @@ pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartM
         m.set("outline", Part::Stream(d.outline));
     }
     m.set("content", Part::Html(content.to_string()));
-    if let Some(g) = linked_from_group(d.backlinks) {
-        m.set("relations", Part::Stream(vec![g]));
+    let mut relations = Vec::new();
+    relations.extend(translations_group(d.translations));
+    relations.extend(linked_from_group(d.backlinks));
+    if !relations.is_empty() {
+        m.set("relations", Part::Stream(relations));
     }
     m
 }
 
 
-fn summary(p: &Post, content: &str, truncated: bool) -> PartMap {
+fn summary(cfg: &crate::config::Config, p: &Post, content: &str, truncated: bool) -> PartMap {
     let mut m = PartMap::new("summary");
     m.set("title", Part::Text(p.title.clone()));
     m.set("url", Part::Text(p.url.clone()));
@@ -518,7 +551,7 @@ fn summary(p: &Post, content: &str, truncated: bool) -> PartMap {
     if truncated {
         m.set("truncated", Part::Flag(true));
     }
-    if let Some(t) = tag_stream(p) {
+    if let Some(t) = tag_stream(cfg, p) {
         m.set("tags", t);
     }
     m.set("content", Part::Html(content.to_string()));
@@ -528,6 +561,7 @@ fn summary(p: &Post, content: &str, truncated: bool) -> PartMap {
 /// N rows, summarised. The trail is the route's provenance chain (§5c),
 /// computed by the caller.
 pub fn listing(
+    cfg: &crate::config::Config,
     rows: &[(&Post, String, bool)],
     title: &str,
     trail: Vec<(String, Option<String>)>,
@@ -538,7 +572,7 @@ pub fn listing(
     m.set("crumbs", crumb_stream(trail));
     m.set(
         "items",
-        Part::Stream(rows.iter().map(|(p, c, t)| summary(p, c, *t)).collect()),
+        Part::Stream(rows.iter().map(|(p, c, t)| summary(cfg, p, c, *t)).collect()),
     );
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
@@ -797,7 +831,7 @@ mod tests {
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone(), None),
             ];
-            let m = document(&db, p, &p.body, trail, &[], &[], Vec::new());
+            let m = document(&cfg, &db, p, &p.body, trail, &[], &[], Vec::new(), &[]);
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -816,6 +850,7 @@ mod tests {
                 })
                 .collect();
             let m = listing(
+                &cfg,
                 &rows,
                 r.key.as_deref().unwrap_or("listing"),
                 vec![("Home".to_string(), Some("/".to_string()))],

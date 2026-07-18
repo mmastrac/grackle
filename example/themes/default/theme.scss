@@ -252,6 +252,52 @@ a[data-kind="tag"] {
 	border-top: 1px solid var(--line);
 }
 
+// The language switcher (§6f) is the translations AXIS, relocated by
+// theme CSS — geometry, not a new mechanism. The axis stays with its
+// siblings in reading order (and for screen readers); visually it
+// becomes chips in the document's top-right corner.
+.doc {
+	position: relative;
+}
+
+.doc .relation[data-axis="translations"] {
+	position: absolute;
+	top: 0;
+	right: 0;
+	margin: 0;
+
+	.relation-label {
+		display: none;
+	}
+
+	.neighbor {
+		display: inline-block;
+		padding: 0.1em 0.7em;
+		border: 1px solid var(--line);
+		border-radius: 999px;
+		font-size: 0.8rem;
+		color: var(--muted);
+
+		&::before {
+			content: "\1F310  ";
+			font-size: 0.9em;
+		}
+
+		&:hover {
+			color: var(--fg);
+			border-color: var(--muted);
+		}
+	}
+}
+
+// When translations was the only axis, the footer rule would underline
+// nothing — drop it. (:has is fine: §5e's modern-CSS baseline.)
+.doc .relations:not(:has(.relation:not([data-axis="translations"]))) {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: none;
+}
+
 .relation {
 	margin-bottom: 1.5rem;
 

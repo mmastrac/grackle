@@ -36,6 +36,15 @@ pub struct Config {
     /// its stdout bytes land at the view's route verbatim.
     #[serde(default)]
     pub shells: BTreeMap<String, ShellDef>,
+    /// i18n (§6f): the locale axis. Absent = a monolingual site; every row
+    /// carries the default locale and nothing changes.
+    #[serde(default)]
+    pub i18n: I18nCfg,
+    /// Tag records (§6f): enum-style config records keyed by tag id. A tag
+    /// used in front matter needs no entry — id is slug is name — but an
+    /// entry can set the route slug and per-locale display names.
+    #[serde(default)]
+    pub tags: BTreeMap<String, TagCfg>,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -52,6 +61,105 @@ fn default_true() -> bool {
 #[derive(Debug, Deserialize)]
 pub struct ShellDef {
     pub command: String,
+}
+
+/// The locale axis (§6f). The *path selector* assigns each row its locale
+/// at load: `suffix` reads `dal.fr.md`, `prefix` reads `fr/recipes/dal.md`.
+/// Everything downstream — rules, globs, route tokens, schema resolution —
+/// sees the LOGICAL path (locale stripped), so a translation rides the same
+/// rule as its original and lands at the locale-prefixed URL.
+#[derive(Debug, Deserialize)]
+pub struct I18nCfg {
+    #[serde(default = "default_locale")]
+    pub default: String,
+    /// Non-default locales a path may declare. Empty = i18n off.
+    #[serde(default)]
+    pub locales: Vec<String>,
+    #[serde(default)]
+    pub selector: Selector,
+    /// Display names for the translations axis (`fr = "Français"`);
+    /// a missing entry falls back to the locale code.
+    #[serde(default)]
+    pub names: BTreeMap<String, String>,
+}
+
+fn default_locale() -> String {
+    "en".to_string()
+}
+
+impl Default for I18nCfg {
+    fn default() -> Self {
+        I18nCfg {
+            default: default_locale(),
+            locales: Vec::new(),
+            selector: Selector::default(),
+            names: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Selector {
+    #[default]
+    Suffix,
+    Prefix,
+}
+
+impl I18nCfg {
+    pub fn enabled(&self) -> bool {
+        !self.locales.is_empty()
+    }
+
+    /// Split a collection-relative path into (logical path, locale).
+    pub fn split(&self, rel: &Path) -> (PathBuf, String) {
+        if self.enabled() {
+            match self.selector {
+                Selector::Suffix => {
+                    if let Some(stem) = rel.file_stem().and_then(|s| s.to_str()) {
+                        if let Some((base, loc)) = stem.rsplit_once('.') {
+                            if loc != self.default && self.locales.iter().any(|l| l == loc) {
+                                let fname = match rel.extension().and_then(|e| e.to_str()) {
+                                    Some(ext) => format!("{base}.{ext}"),
+                                    None => base.to_string(),
+                                };
+                                return (rel.with_file_name(fname), loc.to_string());
+                            }
+                        }
+                    }
+                }
+                Selector::Prefix => {
+                    let mut it = rel.iter();
+                    if let Some(first) = it.next().and_then(|c| c.to_str()) {
+                        if first != self.default && self.locales.iter().any(|l| l == first) {
+                            return (it.as_path().to_path_buf(), first.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        (rel.to_path_buf(), self.default.clone())
+    }
+
+    /// The label a locale wears in the translations axis.
+    pub fn name_of<'a>(&'a self, locale: &'a str) -> &'a str {
+        self.names.get(locale).map(String::as_str).unwrap_or(locale)
+    }
+}
+
+/// One tag record: route slug and display name(s). Both default to the id.
+#[derive(Debug, Deserialize)]
+pub struct TagCfg {
+    pub slug: Option<String>,
+    pub name: Option<NameSpec>,
+}
+
+/// A name, or a name per locale — the lang axis on a config record.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum NameSpec {
+    One(String),
+    PerLocale(BTreeMap<String, String>),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -285,6 +393,22 @@ impl Config {
                 );
             }
         }
+        // §6f: a tag record's per-locale names may only name declared locales
+        // — a typo'd locale key is a load error, not a silently unused name.
+        for (id, t) in &cfg.tags {
+            if let Some(NameSpec::PerLocale(m)) = &t.name {
+                for loc in m.keys() {
+                    if *loc != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == loc) {
+                        anyhow::bail!(
+                            "tag {id}: name declares locale {loc:?}, which is neither the \
+                             default ({:?}) nor in i18n.locales {:?}",
+                            cfg.i18n.default,
+                            cfg.i18n.locales
+                        );
+                    }
+                }
+            }
+        }
         for (vname, v) in &cfg.views {
             if let Some(s) = v.shell.as_deref() {
                 if !matches!(s, "atom" | "sitemap" | "search") && !cfg.shells.contains_key(s) {
@@ -425,6 +549,25 @@ impl Config {
     pub fn root(&self) -> PathBuf {
         let joined = self.dir.join(&self.root);
         std::fs::canonicalize(&joined).unwrap_or(joined)
+    }
+
+    /// The slug a tag uses in routes (§6f). Defaults to the id.
+    pub fn tag_slug<'a>(&'a self, id: &'a str) -> &'a str {
+        self.tags.get(id).and_then(|t| t.slug.as_deref()).unwrap_or(id)
+    }
+
+    /// The display name a tag wears for a locale (§6f). Per-locale map
+    /// falls back to the default locale's entry, then the id.
+    pub fn tag_name<'a>(&'a self, id: &'a str, locale: &str) -> &'a str {
+        match self.tags.get(id).and_then(|t| t.name.as_ref()) {
+            Some(NameSpec::One(s)) => s,
+            Some(NameSpec::PerLocale(m)) => m
+                .get(locale)
+                .or_else(|| m.get(&self.i18n.default))
+                .map(String::as_str)
+                .unwrap_or(id),
+            None => id,
+        }
     }
 }
 
@@ -592,5 +735,49 @@ mod tests {
         let c = cfg("[views.a]\nover = \"b\"\n\n[views.b]\nover = \"a\"\n");
         let e = c.query("a").unwrap_err().to_string();
         assert!(e.contains("cyclic"), "unexpected error: {e}");
+    }
+
+    /// §6f: the path selector assigns locales; everything else sees the
+    /// logical path. Disabled i18n must be a perfect no-op.
+    #[test]
+    fn i18n_selectors_split_paths() {
+        use std::path::Path;
+        let mut i = I18nCfg { locales: vec!["fr".into()], ..Default::default() };
+
+        // suffix: dal.fr.md -> (dal.md, fr); dal.md untouched.
+        let (l, loc) = i.split(Path::new("recipes/dal.fr.md"));
+        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "fr"));
+        let (l, loc) = i.split(Path::new("recipes/dal.md"));
+        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "en"));
+        // an undeclared locale-looking suffix is just a dotted filename
+        let (l, loc) = i.split(Path::new("a/jquery.min.js"));
+        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("a/jquery.min.js", "en"));
+
+        // prefix: fr/recipes/dal.md -> (recipes/dal.md, fr).
+        i.selector = Selector::Prefix;
+        let (l, loc) = i.split(Path::new("fr/recipes/dal.md"));
+        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "fr"));
+        let (l, loc) = i.split(Path::new("recipes/dal.md"));
+        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "en"));
+
+        // i18n off: nothing fires, ever.
+        let off = I18nCfg::default();
+        let (l, loc) = off.split(Path::new("recipes/dal.fr.md"));
+        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.fr.md", "en"));
+    }
+
+    /// §6f tag records: slug and display names default to the id; a
+    /// per-locale name falls back default-locale, then id.
+    #[test]
+    fn tag_records_default_to_id() {
+        let c = cfg(
+            "[tags.contes]\nslug = \"fairy-tales\"\nname = { en = \"Fairy tales\", fr = \"Contes\" }\n\n[i18n]\nlocales = [\"fr\"]\n",
+        );
+        assert_eq!(c.tag_slug("contes"), "fairy-tales");
+        assert_eq!(c.tag_slug("rust"), "rust");
+        assert_eq!(c.tag_name("contes", "fr"), "Contes");
+        assert_eq!(c.tag_name("contes", "en"), "Fairy tales");
+        assert_eq!(c.tag_name("contes", "de"), "Fairy tales");
+        assert_eq!(c.tag_name("rust", "fr"), "rust");
     }
 }

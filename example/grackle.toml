@@ -67,6 +67,25 @@ exclude = ["themes/**", "*.toml"]
   match = "**/*"
   route = "/{path}"
 
+# ---------------------------------------------------------------- i18n
+
+# The locale axis (§6f). The suffix selector reads `dal.fr.md`: same rules,
+# same schema, same theme as the original — the URL gains /fr/, the pair
+# links through the `translations` relations axis, and every listing, feed
+# and archive stays default-locale by construction.
+[i18n]
+default = "en"
+locales = ["fr"]
+
+[i18n.names]
+en = "English"
+fr = "Français"
+
+# Tag records (§6f): enum-style config records. Slug and name default to
+# the id; `name` may carry the lang axis.
+[tags.meta]
+name = { en = "meta", fr = "méta" }
+
 # ---------------------------------------------------------------- related
 
 [related]

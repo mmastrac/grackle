@@ -3159,6 +3159,84 @@ reason there is no `{% for %}`.
   options (depth, ordering), markers grow a payload — or the §5b
   `.schema.toml`-style per-directory config does it. That choice is q35.
 
+## 6f. i18n: the locale axis *(Matt's direction, first slice built 2026-07)*
+
+q41 called this the one classic SSG feature the model lacked outright.
+The slice that exists follows Matt's framing — **path selectors tell us
+which language variant to select, and that is configurable** — and the
+model absorbed it with less machinery than the survey feared, because
+every hard part mapped onto something already built.
+
+```toml
+[i18n]
+default = "en"
+locales = ["fr"]
+# selector = "suffix" (default: dal.fr.md) | "prefix" (fr/recipes/dal.md)
+
+[i18n.names]
+fr = "Français"        # what the translations axis calls the locale
+
+[tags.meta]            # tag records: enum-style config records (§6f)
+name = { en = "meta", fr = "méta" }   # display name carries the lang axis
+# slug = "…"           # route slug, defaults to the id
+```
+
+The design, piece by piece:
+
+- **The selector splits every row's path into (logical path, locale) at
+  load** (`I18nCfg::split`, both selectors pinned by test). Rules, globs,
+  route tokens, schema governance and theme rules all see the LOGICAL
+  path — so `red-lentil-dal.fr.md` rides the same rule, the same
+  `.schema.toml`, the same recipes theme (subtheme included) as its
+  original, and lands at `/fr/recipes/red-lentil-dal/`: the default
+  route, locale-prefixed. i18n off = the selector never fires = the main
+  site is a byte-identical no-op (verified against the oracle).
+- **A translation is a row, not a copy of the site.** Rows sharing a
+  logical path pair through `by_logical` — the ONLY index that sees
+  translations. `order`, `by_key`, `by_tag`, `by_year_month` and tree-view
+  collection admit default-locale rows only, which makes every listing,
+  feed, archive, section tree and embedding single-locale **in one place
+  each**, not as N scattered filters.
+- **The language switcher is a relations axis.** `translations` joins
+  similar/earlier/later/linked-from: dateless neighbors labelled via
+  `[i18n.names]`, both directions, zero fragment changes in any theme —
+  the §6b axes design absorbing its fifth member. And **the visible
+  switcher is theme CSS geometry**, not a mechanism: the relation
+  fragment already stamps `data-axis`, so both example themes lift
+  `.relation[data-axis="translations"]` out of the relations footer and
+  absolute-position it as a chip in the document's top-right corner
+  (label hidden, 🌐 prefix, `:has()` drops the footer rule when
+  translations was the only axis). Reading order — and screen readers —
+  keep it with its sibling axes; §5e's law held: a new UI affordance
+  cost zero engine changes. One true fix fell out of building it:
+  embedding similarity ranks within a locale now (a translation is the
+  same text — it would top its original's Related list; pinned in
+  `embed::rank`).
+- **Tag records** are the first enum-style config records: `[tags.id]`
+  with `slug` (route-facing, locale-independent, defaults to id) and
+  `name` (string or per-locale map; fallback locale → default → id). The
+  French note's pill reads *méta* and links to the shared `/blog/tags/
+  meta/`; slugging happens at exactly one seam (`grouped_routes`'
+  `route_value`) so keys, params and titles keep the id. A typo'd locale
+  key in a record is a load error. The shape q40's records will extend.
+- **Filters see the axis**: `locale` joined the post, page and route
+  schemas (route: Null = default locale, passing `!=` by the Null rule).
+  The example's search deliberately declares nothing about locale — French
+  rows are searchable ("lentilles" finds the French dal), which is the
+  right default for a bilingual site and one filter clause to change.
+
+**Honest edges, named now**: a localized row's breadcrumb trail is
+currently `Home › self` (the URL-walk finds no `/fr/…` ancestors; walking
+the default-locale ancestors is probably right — pending). Chrome
+(`.slots/` nav, engine labels like "Translations"/"Later post", listing
+titles) is not localized. There are no locale-parallel listings
+(`/fr/blog/` does not exist — a `locale = "fr"` view field is the natural
+extension when wanted). Localized group *keys* (a French course name)
+are q40-adjacent. `{% post_url %}` targets the physical name, so a French
+body can cite `…hello-field-notes.fr`. The markers walk uses physical
+paths — irrelevant for suffix, a known caveat for the prefix selector,
+which is built and tested but not yet exercised by a corpus.
+
 ## 7. Clients of the database
 
 Both `build` and `serve` are one render path: `build::render_site` produces the
@@ -3956,12 +4034,15 @@ the drift is only ever invisible *until* it isn't.
     "string", name="string"}}`-ish) for ingredient lists, podcast
     chapters, cast lists — plus a schema.org/JSON-LD emission deriver
     fed by it. Extends §5b without changing its shape.
-41. **i18n (§7b).** No locale axis exists: parallel translated trees
-    with cross-routing and a language switcher (docs.astro,
-    solar.lowtechmagazine). Needs row-level translation *pairing* (same
-    logical row, N locale files), locale-prefixed route templates, and
-    a `translations` relations axis. The one classic SSG feature the
-    model lacks outright; big enough to spec properly before building.
+41. ~~i18n (§7b)~~ — **first slice built (2026-07), promoted to §6f**,
+    which carries the design. Everything this entry predicted it would
+    need turned out to already exist in the model: pairing is one more
+    index (`by_logical`), locale-prefixed routes are the default route
+    prefixed, and the `translations` axis is the §6b design absorbing
+    one more member. Tag records (`[tags.id]` slug + per-locale names,
+    Matt's enum-style-records direction) rode along. Still open in §6f:
+    localized trails/chrome, locale-parallel listings, localized group
+    keys, the prefix selector's first real corpus.
 42. **Client-side faceted filtering (§7b).** Combinable facets (diet ×
     cuisine × season) can't be enumerated as static views. The
     search.bin architecture generalizes: ship a typed facet index, run

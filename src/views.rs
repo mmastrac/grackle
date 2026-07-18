@@ -144,11 +144,16 @@ pub(crate) fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<Gro
 
 /// Materialize one route per composite group key. Shared by every base
 /// table — grouping never cared what a post or a page was.
+///
+/// `route_value` maps a `{param}` to the value the URL wears — the seam
+/// where a tag's route slug (§6f, `[tags.x] slug`) diverges from its id.
+/// Group keys, params and titles keep the id; only the URL is slugged.
 fn grouped_routes(
     name: &str,
     tmpl: &str,
     chain: &[String],
     rows: &[(usize, &dyn filter::Row)],
+    route_value: &dyn Fn(&str, &str) -> String,
 ) -> Result<Vec<Route>> {
     let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<usize>)> = BTreeMap::new();
     for &(i, row) in rows {
@@ -165,7 +170,8 @@ fn grouped_routes(
     }
     let mut out = Vec::new();
     for (sort, (params, members)) in groups {
-        let url = route::render(tmpl, |k| route::param(&params, k))?;
+        let url =
+            route::render(tmpl, |k| route::param(&params, k).map(|v| route_value(k, &v)))?;
         let key = sort.iter().map(SortKey::display).collect::<Vec<_>>().join("-");
         out.push(Route {
             view: Some(name.to_string()),
@@ -254,7 +260,17 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .iter()
                 .map(|&i| (i, &posts.rows[i] as &dyn filter::Row))
                 .collect();
-            let routes = grouped_routes(name, tmpl, &chain, &rows)?;
+            // §6f: tag URLs wear the record's slug; keys and titles keep
+            // the id. Chains without a tags level pass values through.
+            let has_tags = chain.iter().any(|s| spec_field(s) == "tags");
+            let route_value = |k: &str, v: &str| -> String {
+                if has_tags && matches!(k, "key" | "tags") {
+                    cfg.tag_slug(v).to_string()
+                } else {
+                    v.to_string()
+                }
+            };
+            let routes = grouped_routes(name, tmpl, &chain, &rows, &route_value)?;
             db.routes.extend(routes);
             continue;
         }
@@ -432,6 +448,9 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
         .iter()
         .enumerate()
         .filter(|(_, p)| p.rendered)
+        // §6f: views see the default locale, like posts' `order`.
+        // Translations render as pages; they don't join listings.
+        .filter(|(_, p)| p.locale == cfg.i18n.default)
         .filter(|(_, p)| scope.as_ref().is_none_or(|m| m.is_match(&p.rel)))
         .filter(|(_, p)| pred.eval(*p))
         .map(|(i, _)| i)
@@ -460,7 +479,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
                 .iter()
                 .map(|&i| (i, &db.pages.rows[i] as &dyn filter::Row))
                 .collect();
-            grouped_routes(name, tmpl, &chain, &rows)?
+            grouped_routes(name, tmpl, &chain, &rows, &|_, v| v.to_string())?
         };
         db.routes.extend(routes);
         return Ok(());
@@ -650,6 +669,8 @@ mod grouping_tests {
             theme: None,
             fields: Default::default(),
             images: Default::default(),
+            locale: "en".into(),
+            logical: "recipes/carbonara.md".into(),
         };
         p.fields.insert("course".into(), filter::Value::Str("dinner".into()));
         let combos = key_combos(&p, &["course".into()]);

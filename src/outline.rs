@@ -81,11 +81,14 @@ impl Dir {
 /// root's own index first, then the nested pages and directories beneath.
 /// Derived once per section per build; `current` moves per page in
 /// `to_parts`.
-pub fn section_tree(db: &SiteDb, root: &Path) -> Vec<Node> {
+pub fn section_tree(db: &SiteDb, root: &Path, default_locale: &str) -> Vec<Node> {
     let mut top = Dir::default();
     let mut root_index: Option<Node> = None;
 
-    for p in db.pages.rows.iter().filter(|p| p.rendered) {
+    // §6f: a section tree is single-locale like every other derived set —
+    // a translation shares its original's logical rel and would otherwise
+    // collide with it node-for-node.
+    for p in db.pages.rows.iter().filter(|p| p.rendered && p.locale == default_locale) {
         let Ok(rest) = p.rel.strip_prefix(root) else { continue };
         let comps: Vec<String> = rest
             .iter()
@@ -197,6 +200,8 @@ mod tests {
             theme: None,
             fields: Default::default(),
             images: Default::default(),
+            locale: "en".into(),
+            logical: rel.to_string(),
         }
     }
 
@@ -219,7 +224,7 @@ mod tests {
             // outside the section: absent.
             page("recipes/index.md", "/recipes/", Some("Recipes"), None),
         ]);
-        let t = section_tree(&db, Path::new("manual"));
+        let t = section_tree(&db, Path::new("manual"), "en");
         let labels: Vec<&str> = t.iter().map(|n| n.label.as_str()).collect();
         // Root index first, then declared order, then the unordered dir.
         assert_eq!(labels, vec!["Manual", "Install", "Configuration", "Themes", "advanced"]);
@@ -235,7 +240,7 @@ mod tests {
             page("m/index.md", "/m/", Some("M"), None),
             page("m/a/x.md", "/m/a/x/", Some("X"), None),
         ]);
-        let t = section_tree(&db, Path::new("m"));
+        let t = section_tree(&db, Path::new("m"), "en");
         let parts = to_parts(&t, "/m/a/x/");
         // The dir node "a" carries X as a child; X is current.
         let a = &parts[1];
