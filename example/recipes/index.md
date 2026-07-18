@@ -2,9 +2,9 @@
 title: Recipes
 layout: page
 ---
-Recipes are rows: typed fields (servings, minutes, course) wearing prose.
-Today the engine tolerates the fields and ignores them; the point of this
-section is the day it stops ignoring them.
+Recipes are rows: typed fields (servings, minutes, course) declared by
+`.schema.toml`, validated at load, queried by views. Browse by course:
+[dinner](/courses/dinner/) · [baking](/courses/baking/).
 
 - [Spaghetti carbonara](/recipes/carbonara/) — dinner, serves 2, 25 min
 - [Overnight focaccia](/recipes/focaccia/) — baking, serves 8, 40 min

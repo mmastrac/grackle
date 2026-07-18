@@ -134,6 +134,10 @@ pub struct View {
     /// kind's base fragment. How `/books/` gets cards while `/blog/`
     /// stays textual, both being listings.
     pub variant: Option<String>,
+    /// Fill the listing's `featured` slot with the first row (q36) — the
+    /// book-of-the-month shape. Most listings leave it off.
+    #[serde(default)]
+    pub featured: bool,
     pub limit: Option<usize>,
     pub template: Option<String>,
     /// Listing title, as a template over the route's group params

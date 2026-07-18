@@ -39,51 +39,94 @@ impl SortKey {
     }
 }
 
-/// The group keys a row holds under one spec. Empty means the row is absent
-/// from this partition (an undated row under a date grouping).
-fn group_keys(p: &Post, spec: &str) -> Result<Vec<GroupKey>> {
-    use chrono::Datelike;
-    Ok(match spec {
-        "tags" => p
-            .tags
-            .iter()
-            .map(|t| GroupKey {
-                sort: SortKey::Str(t.clone()),
-                params: vec![("key".into(), t.clone())],
-            })
-            .collect(),
-        "date.year" => p
-            .date
+/// The canonical spelling of a `group_by` spec. The date specs were always
+/// aliases for schema fields the filter language already had — grouping by
+/// tags, by year, by course is ONE operation: group by a typed field.
+fn spec_field(spec: &str) -> &str {
+    match spec {
+        "date.year" => "year",
+        "date.month" => "month",
+        s => s,
+    }
+}
+
+const MONTH_NAMES: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June", "July",
+    "August", "September", "October", "November", "December",
+];
+
+/// The group keys a row holds under one spec, read through the same typed
+/// field access filters use: a `List` field multi-keys (one group per
+/// item), scalars single-key, `Null` means the row is absent from this
+/// partition (an undated row under a year grouping; a course-less recipe
+/// under a course grouping). Every key exposes `{key}` plus a param named
+/// after the field; `month` keeps its display derivative (`{month_name}`)
+/// until §5f formatters give it a proper home.
+fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
+    let field = spec_field(spec);
+    let mk = |sort: SortKey, display: String| {
+        let mut params = vec![("key".to_string(), display.clone())];
+        if field != "key" {
+            params.push((field.to_string(), display));
+        }
+        if field == "month" {
+            if let SortKey::Int(m) = sort {
+                if (1..=12).contains(&m) {
+                    params.push(("month_name".into(), MONTH_NAMES[(m - 1) as usize].into()));
+                }
+            }
+        }
+        GroupKey { sort, params }
+    };
+    match row.field(field) {
+        filter::Value::List(items) => items
             .into_iter()
-            .map(|d| GroupKey {
-                sort: SortKey::Int(d.year() as i64),
-                params: vec![("year".into(), d.year().to_string())],
-            })
+            .map(|t| mk(SortKey::Str(t.clone()), t))
             .collect(),
-        "date.month" => p
-            .date
-            .into_iter()
-            .map(|d| GroupKey {
-                sort: SortKey::Int(d.month() as i64),
-                params: vec![
-                    ("month".into(), d.month().to_string()),
-                    ("month_name".into(), d.format("%B").to_string()),
-                ],
-            })
-            .collect(),
-        other => bail!("unsupported group_by {other:?} (have: tags, date.year, date.month)"),
-    })
+        filter::Value::Str(s) => vec![mk(SortKey::Str(s.clone()), s)],
+        filter::Value::Int(i) => vec![mk(SortKey::Int(i), i.to_string())],
+        filter::Value::Bool(b) => vec![mk(SortKey::Str(b.to_string()), b.to_string())],
+        filter::Value::Null => Vec::new(),
+    }
+}
+
+/// Load-time check for a view's group chain: every spec must name a field
+/// of the base schema (pages also see `.schema.toml` declarations, §5b) —
+/// the `order_by` discipline applied to grouping, so a typo cannot produce
+/// an empty partition silently.
+fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> Result<()> {
+    for spec in chain {
+        let field = spec_field(spec);
+        let mut known: Vec<&str> = match kind {
+            Kind::Posts => post_schema().keys().copied().collect(),
+            Kind::Objects => object_schema().keys().copied().collect(),
+            Kind::Tree => {
+                let mut v: Vec<&str> = crate::db::page_schema().keys().copied().collect();
+                v.extend(db.schemas.declared().keys().copied());
+                v
+            }
+        };
+        if !known.contains(&field) {
+            known.sort_unstable();
+            bail!(
+                "view {name}: group_by names unknown field {field:?}\n  known fields: {}",
+                known.join(", ")
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The composite keys a row belongs to under a subdivision chain — the
-/// cartesian product across levels (`tags` can multi-key a row; date specs
-/// contribute at most one each). Empty when the row is absent at any level.
-pub(crate) fn key_combos(p: &Post, chain: &[String]) -> Result<Vec<Vec<GroupKey>>> {
+/// cartesian product across levels (a list field can multi-key a row;
+/// scalar fields contribute at most one each). Empty when the row is
+/// absent at any level.
+pub(crate) fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>> {
     let mut combos: Vec<Vec<GroupKey>> = vec![Vec::new()];
     for spec in chain {
-        let keys = group_keys(p, spec)?;
+        let keys = group_keys(row, spec);
         if keys.is_empty() {
-            return Ok(Vec::new());
+            return Vec::new();
         }
         combos = combos
             .into_iter()
@@ -96,7 +139,44 @@ pub(crate) fn key_combos(p: &Post, chain: &[String]) -> Result<Vec<Vec<GroupKey>
             })
             .collect();
     }
-    Ok(combos)
+    combos
+}
+
+/// Materialize one route per composite group key. Shared by every base
+/// table — grouping never cared what a post or a page was.
+fn grouped_routes(
+    name: &str,
+    tmpl: &str,
+    chain: &[String],
+    rows: &[(usize, &dyn filter::Row)],
+) -> Result<Vec<Route>> {
+    let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<usize>)> = BTreeMap::new();
+    for &(i, row) in rows {
+        for combo in key_combos(row, chain) {
+            let sort: Vec<SortKey> = combo.iter().map(|k| k.sort.clone()).collect();
+            groups
+                .entry(sort)
+                .or_insert_with(|| {
+                    (combo.iter().flat_map(|k| k.params.clone()).collect(), Vec::new())
+                })
+                .1
+                .push(i);
+        }
+    }
+    let mut out = Vec::new();
+    for (sort, (params, members)) in groups {
+        let url = route::render(tmpl, |k| route::param(&params, k))?;
+        let key = sort.iter().map(SortKey::display).collect::<Vec<_>>().join("-");
+        out.push(Route {
+            view: Some(name.to_string()),
+            key: Some(key),
+            rows: Some(members.len()),
+            params,
+            members,
+            ..Route::new(url, RouteKind::View)
+        });
+    }
+    Ok(out)
 }
 
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
@@ -169,40 +249,13 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
             let chain = cfg.group_specs(name);
-            // Composite key → (template params, members). BTreeMap on the
-            // typed sort key keeps years/months numeric and tags lexical.
-            let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<usize>)> =
-                BTreeMap::new();
-            for &i in &visible {
-                for combo in key_combos(&posts.rows[i], &chain)? {
-                    let sort: Vec<SortKey> = combo.iter().map(|k| k.sort.clone()).collect();
-                    groups
-                        .entry(sort)
-                        .or_insert_with(|| {
-                            let params =
-                                combo.iter().flat_map(|k| k.params.clone()).collect();
-                            (params, Vec::new())
-                        })
-                        .1
-                        .push(i);
-                }
-            }
-            for (sort, (params, members)) in groups {
-                let url = route::render(tmpl, |k| route::param(&params, k))?;
-                let key = sort
-                    .iter()
-                    .map(SortKey::display)
-                    .collect::<Vec<_>>()
-                    .join("-");
-                db.routes.push(Route {
-                    view: Some(name.clone()),
-                    key: Some(key),
-                    rows: Some(members.len()),
-                    params,
-                    members,
-                    ..Route::new(url, RouteKind::View)
-                });
-            }
+            check_group_chain(db, name, &chain, Kind::Posts)?;
+            let rows: Vec<(usize, &dyn filter::Row)> = visible
+                .iter()
+                .map(|&i| (i, &posts.rows[i] as &dyn filter::Row))
+                .collect();
+            let routes = grouped_routes(name, tmpl, &chain, &rows)?;
+            db.routes.extend(routes);
             continue;
         }
 
@@ -339,9 +392,9 @@ fn value_cmp(a: &filter::Value, b: &filter::Value) -> std::cmp::Ordering {
 /// page schema, `order_by` is required (`field` or `-field` for descending —
 /// a base page field or one declared by any `.schema.toml`, §5b), and only
 /// *rendered* pages are rows — static passthrough is not content.
-fn build_tree_view(_cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Query) -> Result<()> {
-    if v.group_by.is_some() || v.paginate.is_some() {
-        bail!("view {name}: group_by/paginate on tree views is not supported yet");
+fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Query) -> Result<()> {
+    if v.paginate.is_some() {
+        bail!("view {name}: paginate on tree views is not supported yet");
     }
     let order = v
         .order_by
@@ -391,6 +444,27 @@ fn build_tree_view(_cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Que
         ord.then_with(|| x.rel.cmp(&y.rel))
     });
     members.truncate(v.limit.unwrap_or(usize::MAX));
+
+    // Grouped tree views — recipes by course — through the same general
+    // machinery as every other grouping (one route per composite key,
+    // subdivision chains included).
+    if v.group_by.is_some() {
+        let tmpl = v
+            .route
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
+        let chain = cfg.group_specs(name);
+        check_group_chain(db, name, &chain, Kind::Tree)?;
+        let routes = {
+            let rows: Vec<(usize, &dyn filter::Row)> = members
+                .iter()
+                .map(|&i| (i, &db.pages.rows[i] as &dyn filter::Row))
+                .collect();
+            grouped_routes(name, tmpl, &chain, &rows)?
+        };
+        db.routes.extend(routes);
+        return Ok(());
+    }
 
     if !v.is_materialized() {
         db.views.insert(
@@ -520,7 +594,7 @@ mod grouping_tests {
     fn subdivision_chain_accumulates_params() {
         let p = post(Some("2022-03-16"), &[]);
         let chain = vec!["date.year".to_string(), "date.month".to_string()];
-        let combos = key_combos(&p, &chain).unwrap();
+        let combos = key_combos(&p, &chain);
         assert_eq!(combos.len(), 1);
         let params: Vec<(String, String)> =
             combos[0].iter().flat_map(|k| k.params.clone()).collect();
@@ -535,15 +609,15 @@ mod grouping_tests {
     #[test]
     fn undated_rows_are_absent_from_date_partitions() {
         let p = post(None, &["rust"]);
-        assert!(key_combos(&p, &["date.year".into()]).unwrap().is_empty());
+        assert!(key_combos(&p, &["date.year".into()]).is_empty());
         // ...but present in the tag partition.
-        assert_eq!(key_combos(&p, &["tags".into()]).unwrap().len(), 1);
+        assert_eq!(key_combos(&p, &["tags".into()]).len(), 1);
     }
 
     #[test]
     fn tags_multi_key_a_row() {
         let p = post(Some("2022-03-16"), &["c", "rust"]);
-        let combos = key_combos(&p, &["tags".into()]).unwrap();
+        let combos = key_combos(&p, &["tags".into()]);
         assert_eq!(combos.len(), 2);
     }
 
@@ -552,5 +626,50 @@ mod grouping_tests {
         assert!(SortKey::Int(3) < SortKey::Int(12));
         assert_eq!(SortKey::Int(3).display(), "03");
         assert_eq!(SortKey::Int(2022).display(), "2022");
+    }
+
+    /// The generalization: grouping by a schema field is the same operation
+    /// as grouping by tags — Str single-keys, Null is absent.
+    #[test]
+    fn any_typed_field_groups() {
+        use crate::db::Page;
+        use std::path::PathBuf;
+        let mut p = Page {
+            path: PathBuf::new(),
+            rel: PathBuf::from("recipes/carbonara.md"),
+            version: 0,
+            url: "/recipes/carbonara/".into(),
+            rendered: true,
+            size: 0,
+            title: Some("Carbonara".into()),
+            layout: None,
+            description: None,
+            order: None,
+            toc: false,
+            theme: None,
+            fields: Default::default(),
+            images: Default::default(),
+        };
+        p.fields.insert("course".into(), filter::Value::Str("dinner".into()));
+        let combos = key_combos(&p, &["course".into()]);
+        assert_eq!(combos.len(), 1);
+        let params = &combos[0][0].params;
+        assert!(params.contains(&("key".into(), "dinner".into())), "{params:?}");
+        assert!(params.contains(&("course".into(), "dinner".into())), "{params:?}");
+
+        // No course: absent from the partition, same as undated-under-year.
+        p.fields.clear();
+        assert!(key_combos(&p, &["course".into()]).is_empty());
+    }
+
+    #[test]
+    fn date_specs_are_field_aliases() {
+        assert_eq!(spec_field("date.year"), "year");
+        assert_eq!(spec_field("date.month"), "month");
+        assert_eq!(spec_field("course"), "course");
+        // The month display derivative survives the generalization.
+        let p = post(Some("2022-12-16"), &[]);
+        let keys = group_keys(&p, "date.month");
+        assert!(keys[0].params.contains(&("month_name".into(), "December".into())));
     }
 }

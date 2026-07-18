@@ -610,22 +610,28 @@ pub fn card(c: &CardRow) -> PartMap {
     m
 }
 
-/// N rows as previews with the first featured — the book-of-the-month
-/// shape, as a `listing` whose `featured` slot is filled (q36: card_list
-/// was just a listing wearing a costume).
+/// N rows as previews, optionally with the first featured — the
+/// book-of-the-month shape when `featured` (q36: card_list was just a
+/// listing wearing a costume); a plain card/preview listing otherwise.
 pub fn featured_listing(
     rows: &[CardRow],
+    featured: bool,
     title: &str,
     trail: Vec<(String, Option<String>)>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
-    if let Some(first) = rows.first() {
-        m.set("featured", Part::Map(card(first)));
-    }
-    if rows.len() > 1 {
-        m.set("items", Part::Stream(rows[1..].iter().map(card).collect()));
+    let items: &[CardRow] = if featured {
+        if let Some(first) = rows.first() {
+            m.set("featured", Part::Map(card(first)));
+        }
+        rows.get(1..).unwrap_or(&[])
+    } else {
+        rows
+    };
+    if !items.is_empty() {
+        m.set("items", Part::Stream(items.iter().map(card).collect()));
     }
     m
 }

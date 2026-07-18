@@ -1427,6 +1427,27 @@ remembering: **the reference build cannot be regenerated while this stands**, an
 §8b exists because a stale reference lied to us by 17 points. To refresh it,
 stash the change first.
 
+### Grouping is one operation *(generalized 2026-07)*
+
+"Isn't group_by just the same thing as tag?" (Matt) — yes, and the
+question deleted two-thirds of the mechanism. `group_keys` had three
+hardcoded specs (`tags`, `date.year`, `date.month`); they were one
+operation — **group by a typed schema field**, read through the same
+`filter::Row` access filters use — instantiated three times: a `List`
+field multi-keys (one group per item), scalars single-key, `Null` means
+absent from the partition (an undated row under a year grouping ≡ a
+course-less recipe under a course grouping). The date specs survive as
+aliases for the `year`/`month` fields the filter schema always had.
+Proven the strong way: the main site's three groupings are
+**byte-identical through the general path**. Every grouping now exposes
+`{key}` plus a param named after the field; group chains are load-checked
+against the base schema (the `order_by` discipline applied to grouping);
+and grouped views work over any base — `group_by = "course"` on the
+example's recipes materializes `/courses/{key}/` with the same machinery,
+subdivision chains included. Residue, kept knowingly: `month_name` is a
+display derivative special-cased on the `month` field until §5f
+formatters give it a home.
+
 ### Subdivision: `over` a grouped view refines its partition *(built 2026-07)*
 
 A grouped view is a partition of its base; a grouped view **`over` a grouped

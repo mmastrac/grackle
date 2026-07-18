@@ -130,7 +130,23 @@ order_by = "-month"
 route = "/books/"
 layout = "listing"
 variant = "cards"
+featured = true
 title = "Book of the Month"
+
+# Recipes grouped by a schema field — group_by = "course" is the SAME
+# operation as group_by = "tags": group by a typed field. The date specs
+# were always aliases for the year/month fields.
+[views.recipes_by_course]
+over = "pages"
+match = "recipes/**"
+filter = 'stem != "index"'
+group_by = "course"
+order_by = "title"
+route = "/courses/{key}/"
+layout = "listing"
+variant = "cards"
+title = "Recipes: {key}"
+crumb = "{key}"
 
 # Routeless, embedded on the homepage: the same query language, composed
 # across tables — posts (latest), pages (recipes, the current book).

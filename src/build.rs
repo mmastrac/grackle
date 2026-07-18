@@ -313,9 +313,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
             })
             .collect();
-        let main = thm
-            .fragments
-            .render_with(&parts::featured_listing(&rows, &title, trail), v.variant.as_deref());
+        let main = thm.fragments.render_with(
+            &parts::featured_listing(&rows, v.featured, &title, trail),
+            v.variant.as_deref(),
+        );
         let head = render::head_simple(&title, &r.url, &site, false);
         let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
@@ -792,7 +793,7 @@ fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
         for name in cfg.grouped_chain(trail_view) {
             let Some(v) = cfg.views.get(&name) else { continue };
             let specs = cfg.group_specs(&name);
-            let Ok(combos) = crate::views::key_combos(p, &specs) else { continue };
+            let combos = crate::views::key_combos(p, &specs);
             let Some(combo) = combos.first() else { break }; // undated: no trail
             let params: Vec<(String, String)> =
                 combo.iter().flat_map(|k| k.params.clone()).collect();
