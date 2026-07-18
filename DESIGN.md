@@ -4527,9 +4527,19 @@ the drift is only ever invisible *until* it isn't.
     `collection.index` naming a view, and whether a landing may
     declare `parent =` when nesting lies.
 
-    Narrowed but open: (a)'s non-nested half (above); theme
-    provenance for bare/intro landings (content rows bring their
-    rule-derived theme; should a view declare one?); orphaned
+    **Theme provenance settled by Matt's observation** ("the courses
+    didn't inherit the recipe theme"): theme is a ROW attribute
+    (§5a), so a tree-backed listing whose members unanimously wear
+    one theme NAME wears it too — the course archives render through
+    the recipes theme because every row they list does, using its
+    listing/summary fragments and stylesheet. Subtheme tokens
+    (`recipes:spicy`) are one row's dress and never lift to a
+    listing (the spicy dal doesn't spice the dinner archive); mixed
+    or theme-less members keep the default, and posts/objects carry
+    no theme, so the main site is untouched by construction. No new
+    config: derived, like everything else about a projection.
+
+    Narrowed but open: (a)'s non-nested half (above); orphaned
     translations (`index.fr.md` with no French rows has nowhere to
     render → warn); whether mode-B prose is searchable (landing
     routes are structurally excluded — leaning keep them out until

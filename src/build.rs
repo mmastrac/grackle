@@ -370,13 +370,32 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .collect();
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
-        let main = thm.fragments.render_with(
+        // q45 theme provenance, settled by Matt's observation ("the
+        // courses didn't inherit the recipe theme"): theme is a ROW
+        // attribute (§5a), so a listing whose members unanimously wear
+        // one theme NAME wears it too — the course archive renders
+        // through the recipes theme because every row it lists does.
+        // Subtheme tokens (`recipes:spicy`) are one row's dress and
+        // never lift to a listing. Mixed or theme-less members keep the
+        // default; posts and objects carry no theme, so only
+        // tree-backed listings can inherit.
+        let theme_name = {
+            let mut names = r.members.iter().map(|&i| {
+                db.pages.rows[i].theme.as_deref().map(|s| theme::split_spec(s).0)
+            });
+            match names.next().flatten() {
+                Some(first) if names.all(|n| n == Some(first)) => Some(first),
+                _ => None,
+            }
+        };
+        let row_thm = themes.get(theme_name)?;
+        let main = row_thm.fragments.render_with(
             &parts::featured_listing(&rows, v.featured, &title, trail, intro),
             v.variant.as_deref(),
         );
         let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(
-            render::head_html(&head, &css_of(None)),
+        let html = row_thm.page(
+            render::head_html(&head, &css_of(theme_name)),
             &cfg.site.title,
             main,
             &root,
