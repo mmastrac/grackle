@@ -257,3 +257,47 @@ fn view_link(
     }
     Ok(url)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{Route, RouteKind};
+
+    /// §6f × §6a, pinned: a view link resolves to the LINKING ROW's locale
+    /// when that locale's variant materialized, and falls back to the
+    /// default when it didn't. This is the invariant, not an accident.
+    #[test]
+    fn view_links_are_locale_aware() {
+        let cfg: Config = toml::from_str(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [i18n]\nlocales = [\"fr\"]\n\
+             [views.published]\nover = \"blog\"\n\
+             [views.tag_index]\nover = \"published\"\ngroup_by = \"tags\"\n\
+             route = \"/blog/tags/{key}/\"\nlayout = \"listing\"\n",
+        )
+        .unwrap();
+        let mut db = SiteDb::default();
+        for url in ["/blog/tags/meta/", "/fr/blog/tags/meta/", "/blog/tags/rust/"] {
+            db.routes.push(Route::new(url.to_string(), RouteKind::View));
+        }
+        let space = LinkSpace::new(&cfg, &db, Path::new("."));
+        let go = |locale: &str, href: &str| {
+            resolve(&cfg, &space, Path::new(""), "/", locale, "test.md", href)
+        };
+
+        // A French row's view link lands in the French archive…
+        let url = go("fr", "view:tag_index/meta").unwrap().unwrap();
+        assert_eq!(url, "/fr/blog/tags/meta/");
+        // …an English row's in the default one…
+        let url = go("en", "view:tag_index/meta").unwrap().unwrap();
+        assert_eq!(url, "/blog/tags/meta/");
+        // …and a locale with no materialized variant falls back to the
+        // default archive rather than linking a 404.
+        let url = go("fr", "view:tag_index/rust").unwrap().unwrap();
+        assert_eq!(url, "/blog/tags/rust/");
+        // A key that exists in NO locale errors, listing what does.
+        let err = format!("{:#}", go("en", "view:tag_index/nope").unwrap_err());
+        assert!(err.contains("not materialized"), "{err}");
+    }
+}

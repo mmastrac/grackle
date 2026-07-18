@@ -119,22 +119,28 @@ impl Theme {
     /// `source_dir` anchors identity-slot resolution (rows deeper in the
     /// tree can override the site's identity, nearest wins); `subtheme`
     /// is the row's `theme:` colon suffix, if any.
+    /// `resolve_link` sees every markdown link in a fill, with the fill's
+    /// OWNER directory as its relative base (§6a) — this is how one nav.md
+    /// with `view:` links serves every locale: resolution runs per page.
     pub fn page(
         &self,
         head_html: String,
         site_title: &str,
         main: String,
         source_dir: &Path,
+        locale: &str,
+        resolve_link: &dyn Fn(&Path, &str) -> Result<Option<String>>,
         subtheme: Option<&str>,
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
         m.set("site_title", Part::Text(site_title.to_string()));
         for (name, phrasing) in &self.identity {
-            if let Some(fill) = self.fills.resolve(&self.root, source_dir, name) {
+            if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, locale) {
+                let rendered = fill.render(&|href| resolve_link(&fill.owner, href))?;
                 let html = if *phrasing {
-                    SlotFills::inline_or_err(fill)?.to_string()
+                    SlotFills::inline_or_err(&rendered)?.to_string()
                 } else {
-                    fill.blocks.clone()
+                    rendered.blocks
                 };
                 m.set(name, Part::Html(html));
             }

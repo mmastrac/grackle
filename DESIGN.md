@@ -2511,8 +2511,15 @@ relative link whose source-resolution and URL-resolution agree (the
 `.md` references and cross-dir links get the engine's answer. Main site
 verified byte-identical under loose.
 
-Pending here: `.slots/` fills and raw-HTML pages bypass the resolver
-(the §6d `lol_html` rewrite stage is the seam for the latter); the
+**`.slots/` fills now render THROUGH the resolver, per consuming page**
+(2026-07, same day): fills store raw source and render at page time with
+the page's locale, so one `nav.md` of `view:`/source links serves every
+locale — `view:blog_index` is `/blog/` on an English page and
+`/fr/blog/` on a French one — and `nav.fr.md` (the row suffix
+convention, no config) exists only to translate labels, winning within
+its nearest-wins level. Main site byte-identical: raw-URL fills under
+loose resolve to themselves. Pending here: raw-HTML pages bypass the
+resolver (the §6d `lol_html` rewrite stage is their seam); the
 closest-match suggester is stem-exact, not fuzzy; `{% post_url %}`
 could now dissolve into a plain source link; strict for the main site
 rides the publish-cutover migration.
@@ -3320,8 +3327,9 @@ PAGES still walk URL ancestors and find no `/fr/…` pages (default-locale
 ancestors are probably right — pending), and `collection.index` is a
 literal URL, so an index view that opted out of locales would leave the
 prefixed crumb dangling — `index` naming a VIEW would close that,
-q32-adjacent. `.slots/` fills are content, not config — the natural move is
-the same path selector (`nav.fr.md` beside `nav.md`), unbuilt.
+q32-adjacent. `.slots/` fills localize by the same suffix convention
+(`nav.fr.md` beside `nav.md` — built, and their view links resolve per
+consuming page's locale, §6a).
 `month_name` in group params is computed at route build, locale-free —
 localizing it belongs to the locale-parallel-views work. The search
 overlay's strings live in `/search.js` (client-side, engine asset) —

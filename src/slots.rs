@@ -14,10 +14,26 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// One fill, in both shapes the arity rule can demand. `inline` is present
-/// iff the rendered fill is exactly one block.
+/// One fill, RAW: rendering happens per consuming page (§6a row/view
+/// links resolve against the page's locale, so `view:blog_index` in a nav
+/// fill lands on /blog/ or /fr/blog/ depending on who is asking).
 #[derive(Debug)]
 pub struct Fill {
+    /// The authored source, unrendered.
+    pub raw: String,
+    /// "md" renders through comrak (links resolved); "html" is verbatim.
+    pub ext: String,
+    /// The directory whose `.slots/` owns this fill — relative source
+    /// links in the fill resolve from here.
+    pub owner: PathBuf,
+    /// Source path, for error messages.
+    pub file: PathBuf,
+}
+
+/// A fill rendered for one consumer, in both shapes the arity rule can
+/// demand. `inline` is present iff the rendered fill is exactly one block.
+#[derive(Debug)]
+pub struct RenderedFill {
     /// The rendered fill, blocks intact — what a flow element receives.
     pub blocks: String,
     /// The single block's inner HTML — what a phrasing element receives.
@@ -27,6 +43,27 @@ pub struct Fill {
     pub block_count: usize,
     /// Source path, for error messages.
     pub file: PathBuf,
+}
+
+impl Fill {
+    /// Render this fill for one consumer. `resolve` sees each markdown
+    /// link destination (§6a); `.html` fills are verbatim — their seam is
+    /// the §6d rewrite stage.
+    pub fn render(
+        &self,
+        resolve: &dyn Fn(&str) -> anyhow::Result<Option<String>>,
+    ) -> Result<RenderedFill> {
+        let html = match self.ext.as_str() {
+            "md" => {
+                crate::markdown::render_doc_with(self.raw.trim(), resolve)
+                    .with_context(|| format!("slot fill {}", self.file.display()))?
+                    .whole
+            }
+            _ => self.raw.trim().to_string(),
+        };
+        let (block_count, inline) = block_shape(&html);
+        Ok(RenderedFill { blocks: html, inline, block_count, file: self.file.clone() })
+    }
 }
 
 /// All `.slots/` fills in the tree, keyed by (directory, slot name).
@@ -47,12 +84,21 @@ impl SlotFills {
     }
 
     /// Resolve a slot for a row whose source lives in `dir`: nearest
-    /// `.slots/<name>.*` ascending from `dir` to the root wins.
-    pub fn resolve(&self, root: &Path, dir: &Path, slot: &str) -> Option<&Fill> {
+    /// `.slots/<name>.*` ascending from `dir` to the root wins. Within a
+    /// directory, the row's locale wins (§6f): `nav.fr.md` beside `nav.md`
+    /// is the same suffix convention rows use, needing no config — the
+    /// dotted stem simply IS the localized slot name. The base file is the
+    /// default locale, so a page's chrome follows its language exactly as
+    /// its trail does, and a locale with no localized fill inherits the
+    /// default one.
+    pub fn resolve(&self, root: &Path, dir: &Path, slot: &str, locale: &str) -> Option<&Fill> {
+        let localized = format!("{slot}.{locale}");
         let mut cur = dir;
         loop {
-            if let Some(f) = self.by_dir.get(cur).and_then(|m| m.get(slot)) {
-                return Some(f);
+            if let Some(m) = self.by_dir.get(cur) {
+                if let Some(f) = m.get(&localized).or_else(|| m.get(slot)) {
+                    return Some(f);
+                }
             }
             if cur == root {
                 return None;
@@ -63,7 +109,7 @@ impl SlotFills {
 
     /// The fill for a phrasing-only element: exactly one block, unwrapped.
     /// Zero or several blocks is the hard error the rule promises.
-    pub fn inline_or_err(fill: &Fill) -> Result<&str> {
+    pub fn inline_or_err(fill: &RenderedFill) -> Result<&str> {
         fill.inline.as_deref().ok_or_else(|| {
             anyhow::anyhow!(
                 "{}: fills a phrasing-only slot element, so it must be exactly one \
@@ -110,20 +156,17 @@ fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()>
         };
         let text = std::fs::read_to_string(&p)
             .with_context(|| format!("reading slot fill {}", p.display()))?;
-        let html = match ext.as_str() {
-            "md" => crate::markdown::render(text.trim()),
-            "html" => text.trim().to_string(),
-            other => bail!(
-                "{}: unknown slot fill extension .{other} (md renders, html is verbatim)",
+        if !matches!(ext.as_str(), "md" | "html") {
+            bail!(
+                "{}: unknown slot fill extension .{ext} (md renders, html is verbatim)",
                 p.display()
-            ),
-        };
-        let (block_count, inline) = block_shape(&html);
+            );
+        }
         fills
             .by_dir
             .entry(owner.to_path_buf())
             .or_default()
-            .insert(stem, Fill { blocks: html, inline, block_count, file: p });
+            .insert(stem, Fill { raw: text, ext, owner: owner.to_path_buf(), file: p });
     }
     Ok(())
 }

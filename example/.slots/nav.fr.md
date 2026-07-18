@@ -1,0 +1,5 @@
+- [Notes](view:blog_index)
+- [Recettes](/recipes/index.md)
+- [Manuel](/manual/index.md)
+- [Photos](view:gallery)
+- [Livres](view:books)

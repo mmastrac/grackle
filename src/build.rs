@@ -197,7 +197,15 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 &translations,
             ));
             let dir = p.path.parent().unwrap_or(&root);
-            let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, dir, None)?;
+            let html = thm.page(
+                render::head_html(&head, &css_of(None)),
+                &cfg.site.title,
+                main,
+                dir,
+                &p.locale,
+                &fill_link_resolver(cfg, &linkspace, &p.locale),
+                None,
+            )?;
             Ok((p.url.clone(), html))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -296,7 +304,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .fragments
             .render_with(&parts::listing(cfg, &rows, &title, trail, pagination), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
-        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let html = thm.page(
+            render::head_html(&head, &css_of(None)),
+            &cfg.site.title,
+            main,
+            &root,
+            loc,
+            &fill_link_resolver(cfg, &linkspace, loc),
+            None,
+        )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -336,7 +353,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .fragments
             .render_with(&parts::gallery(&items, &title, trail), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let html = thm.page(
+            render::head_html(&head, &css_of(None)),
+            &cfg.site.title,
+            main,
+            &root,
+            loc,
+            &fill_link_resolver(cfg, &linkspace, loc),
+            None,
+        )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -371,7 +397,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             v.variant.as_deref(),
         );
         let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let html = thm.page(
+            render::head_html(&head, &css_of(None)),
+            &cfg.site.title,
+            main,
+            &root,
+            loc,
+            &fill_link_resolver(cfg, &linkspace, loc),
+            None,
+        )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -626,6 +661,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                             &cfg.site.title,
                             main,
                             dir,
+                            row_locale,
+                            &fill_link_resolver(cfg, &linkspace, row_locale),
                             subtheme.as_deref(),
                         )?
                     }
@@ -1111,6 +1148,29 @@ fn css_pass(
 fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
     let base = cfg.query(view).ok()?.base;
     Some(cfg.collections.get(&base)?.kind)
+}
+
+/// The link resolver a page hands its slot fills (§6a): the fill's owner
+/// directory is the relative base, and the consuming page's locale drives
+/// view links — one nav.md serves every locale. The impossible `url_dir`
+/// disables the browser-agreement bypass: fills are shared across pages,
+/// so the canonical URL is the only correct answer.
+fn fill_link_resolver<'a>(
+    cfg: &'a Config,
+    space: &'a crate::links::LinkSpace,
+    locale: &'a str,
+) -> impl Fn(&Path, &str) -> Result<Option<String>> + 'a {
+    move |owner: &Path, href: &str| {
+        crate::links::resolve(
+            cfg,
+            space,
+            owner,
+            "\u{0}",
+            locale,
+            &format!("{}/.slots", owner.display()),
+            href,
+        )
+    }
 }
 
 /// The URL "Home" means for a locale (§6f): the locale's own homepage
