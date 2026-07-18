@@ -179,24 +179,6 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("content", Html),
             ("relations", Stream("relation")),
         ],
-        // One row previewed as a picture + a line of text — what a
-        // book-of-the-month or a card grid is made of (q23).
-        "card" => &[
-            ("title", Text),
-            ("url", Url),
-            ("src", Url),
-            ("width", Text),
-            ("height", Text),
-            ("note", Text),
-        ],
-        // N rows as cards, the first one featured large — the club index:
-        // this month's book leads, the back catalogue follows.
-        "card_list" => &[
-            ("title", Text),
-            ("crumbs", Stream("crumb")),
-            ("featured", Map("card")),
-            ("items", Stream("card")),
-        ],
         // §6e: the ONE recursive kind — hierarchy on either axis (headings
         // or paths) renders through it. An entry with no `url` is an
         // index-less directory's unlinked label (q27); `current` carries
@@ -207,20 +189,31 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("current", Text),
             ("children", Stream("outline_entry")),
         ],
-        // N rows, summarised; the view supplied query, filter and title.
+        // N rows, previewed; the view supplied query, filter and title.
+        // `featured` is the first row shown large (the book-of-the-month
+        // shape); most listings never fill it.
         "listing" => &[
             ("title", Text),
             ("crumbs", Stream("crumb")),
+            ("featured", Map("summary")),
             ("items", Stream("summary")),
             ("pagination", Map("pagination")),
         ],
-        // `truncated`: the summary is a prefix of the document (§6d) — the
+        // ONE preview kind (q36): a summary and a card are the same thing —
+        // a view's projection of a row — differing only in what the row HAS
+        // (posts: dates/tags/content blocks; books: a hero and a note).
+        // Presence is schema-driven, §5a's document argument one level down.
+        // `truncated`: the content is a prefix of the document (§6d) — the
         // fact the theme gates the ★ on, stamped as `data-truncated`.
         "summary" => &[
             ("title", Text),
             ("url", Url),
             ("date", Text),
             ("date_pretty", Text),
+            ("src", Url),
+            ("width", Text),
+            ("height", Text),
+            ("note", Text),
             ("truncated", Flag),
             ("tags", Stream("tag")),
             ("content", Html),
@@ -589,8 +582,9 @@ pub fn gallery(items: &[Figure], title: &str, trail: Vec<(String, Option<String>
     m
 }
 
-/// One card-shaped row preview (q23): title + link, optionally a hero
-/// image (with dimensions) and a one-line note.
+/// A card-shaped row preview (q23/q36): title + link, optionally a hero
+/// image (with dimensions) and a one-line note. Produces a `summary` map —
+/// there is one preview kind, and this is its picture-first face.
 pub struct CardRow {
     pub title: String,
     pub url: String,
@@ -600,7 +594,7 @@ pub struct CardRow {
 }
 
 pub fn card(c: &CardRow) -> PartMap {
-    let mut m = PartMap::new("card");
+    let mut m = PartMap::new("summary");
     m.set("title", Part::Text(c.title.clone()));
     m.set("url", Part::Text(c.url.clone()));
     if let Some(s) = &c.src {
@@ -616,14 +610,15 @@ pub fn card(c: &CardRow) -> PartMap {
     m
 }
 
-/// N rows as cards, the first featured — the book-of-the-month shape:
-/// this month leads large, the back catalogue follows.
-pub fn card_list(
+/// N rows as previews with the first featured — the book-of-the-month
+/// shape, as a `listing` whose `featured` slot is filled (q36: card_list
+/// was just a listing wearing a costume).
+pub fn featured_listing(
     rows: &[CardRow],
     title: &str,
     trail: Vec<(String, Option<String>)>,
 ) -> PartMap {
-    let mut m = PartMap::new("card_list");
+    let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
     if let Some(first) = rows.first() {

@@ -3657,20 +3657,23 @@ the drift is only ever invisible *until* it isn't.
     dimension facts. The card kinds consume the same source. **Still
     open**: the first-image-block fallback, and the mindstorms group-hero
     (`cover.*` file) — both arrive with their consumers.
-36. **Unify `summary` and `card` into one preview kind (Matt, 2026-07).**
-    A card is a view's *projection* of a row, and so is a summary — they
-    differ by what the row *has* (posts: date/tags/blocks; books:
-    cover/note), not by what they are. That is §5a's document argument
-    (post/page unified because relations are schema-driven) one level
-    down, so the leaning is yes: one preview kind whose parts are
-    presence-driven, with `card_list` folding into `listing` (a
-    `featured` slot any listing may fill). Costs a main-site chrome pass
-    (`summary.html` reworks), so it lands as its own change under the
-    by-eye budget — not as a rider. Related nuance found en route: the
-    canonical fallback is all-or-nothing per subtree (canonical rendering
-    never consults child fragments — a theme with `link.html` but no
-    `link_list.html` still gets canonical links), which the unification
-    review should either fix or document as the rule.
+36. ~~Unify `summary` and `card` into one preview kind (Matt, 2026-07)~~ —
+    **settled, built (2026-07)**: a card is a view's *projection* of a
+    row, and so is a summary — they differ by what the row *has* (posts:
+    date/tags/blocks; books: cover/note), not by what they are: §5a's
+    document argument one level down. `summary` is the one preview kind
+    (its schema gained `src`/`width`/`height`/`note`, presence-driven);
+    `card`/`card_list` are deleted; `card_list` folded into `listing` as
+    a `featured` slot any listing may fill. The predicted main-site
+    chrome cost turned out to be **zero** — the surviving kind kept the
+    name `summary`, the new parts are absent on posts, and the byte
+    oracle stayed clean; renaming `summary` → something projection-y is
+    bundled into the parked micro-kind naming question. The unification
+    forced q24 (variants) with it, exactly as its gate predicted.
+    Documented as the rule, not fixed: the canonical fallback is
+    all-or-nothing per subtree (canonical rendering never consults child
+    fragments) — a theme opts into per-kind fragments from the parent
+    down.
 37. **The `board` kind: composition of views as content *(specced,
     deliberately pending)*.** The example's homepage reproduces the shape
     §5c diagnosed on the old `/` — a hand-written wrapper
@@ -3691,11 +3694,15 @@ the drift is only ever invisible *until* it isn't.
     (c) whether a board can materialize a route or is embed-only;
     (d) boards-in-boards (leaning no — the §5d tripwire); (e) whether a
     board's items ride the q36 preview kind or stay opaque fragments.
-24. **Per-view fragment variants (§5e).** `variant = "gallery"` on a view →
-    `listing--gallery.html` with fallback to `listing.html`, load-time
-    checked. Needed the day one view wants cards while another wants
-    summaries; before that it is speculative machinery. Gate on the second
-    look, like §5b gated slots.
+24. ~~Per-view fragment variants (§5e)~~ — **settled, built (2026-07),
+    forced by q36 exactly as predicted** ("needed the day one view wants
+    cards while another wants summaries" — that day was the unification).
+    A fragment file's stem is its *name*; the stem before `--` is its
+    *kind* (`summary--card.html` binds `summary`). A view declares
+    `variant = "cards"`; rendering tries `{kind}--{variant}`, falls back
+    to the base fragment, then canonical — partial themes throughout. In
+    fragments, `data-fragment` selects a variant for stream/map children,
+    and being explicit it must resolve at load, to the right kind.
 25. **Per-block facts (§5e).** A block-level directive (kramdown IAL
     `{:.full-bleed}` or similar) surviving as a `data-` attribute on the
     block, so a theme can span it. Needs a decided authoring syntax — IALs

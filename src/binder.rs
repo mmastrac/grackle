@@ -70,23 +70,31 @@ enum Attr {
     Slot(String, String),
 }
 
-/// One parsed fragment file, bound to the layout kind its filename names.
+/// One parsed fragment file. The file stem is its NAME; the part of the
+/// stem before `--` is the KIND it binds to (q24 variants: `summary.html`
+/// and `summary--card.html` both bind `summary`; a view's `variant`
+/// selects between them).
 #[derive(Debug)]
 pub struct Fragment {
     pub kind: String,
     nodes: Vec<Node>,
 }
 
-/// A theme's fragment set, keyed by kind. Loading validates every fragment
-/// against the part schemas; after that, `render` cannot fail.
+/// A theme's fragment set, keyed by fragment NAME. Loading validates every
+/// fragment against the part schemas; after that, `render` cannot fail.
 #[derive(Debug, Default)]
 pub struct Fragments {
     map: BTreeMap<String, Fragment>,
 }
 
+/// `summary--card` → the `summary` schema.
+fn kind_of_name(name: &str) -> &str {
+    name.split_once("--").map(|(k, _)| k).unwrap_or(name)
+}
+
 impl Fragments {
-    /// Load every `*.html` in a theme directory. The file stem names the kind
-    /// it binds to (`summary.html` → the `summary` part schema).
+    /// Load every `*.html` in a theme directory. The file stem names the
+    /// fragment; its prefix names the kind it binds to.
     pub fn load_dir(dir: &Path) -> Result<Fragments> {
         let mut sources = Vec::new();
         let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
@@ -102,25 +110,26 @@ impl Fragments {
         Self::load(sources)
     }
 
-    /// Load from `(kind, source, display-name)` triples — the testable core.
+    /// Load from `(name, source, display-name)` triples — the testable core.
     /// Parse everything first, then validate: cross-fragment checks (a stream
     /// slot needs its child fragment) need the whole set present.
     pub fn load(sources: Vec<(String, String, String)>) -> Result<Fragments> {
         let mut f = Fragments::default();
         let mut files = Vec::new();
-        for (kind, text, file) in &sources {
-            if crate::parts::schema(kind).is_none() {
+        for (name, text, file) in &sources {
+            let kind = kind_of_name(name).to_string();
+            if crate::parts::schema(&kind).is_none() {
                 bail!(
                     "{file}: fragment names no layout kind `{kind}` — kinds are: {}",
                     known_kinds()
                 );
             }
             let nodes = Parser::new(text, file).parse_all()?;
-            f.map.insert(kind.clone(), Fragment { kind: kind.clone(), nodes });
-            files.push((kind.clone(), file.clone()));
+            f.map.insert(name.clone(), Fragment { kind, nodes });
+            files.push((name.clone(), file.clone()));
         }
-        for (kind, file) in &files {
-            f.validate(&f.map[kind], file)?;
+        for (name, file) in &files {
+            f.validate(&f.map[name], file)?;
         }
         Ok(f)
     }
@@ -173,16 +182,26 @@ impl Fragments {
                                 el.tag
                             );
                         }
-                        // A theme without a fragment for the child kind gets
-                        // the canonical (null-theme) rendering — themes are
-                        // partial by design (§5e step 4).
-                        let target = el.fragment.as_deref().unwrap_or(child);
-                        if target != child {
-                            bail!(
-                                "{file}:{}: `{slot}` holds `{child}` maps, but \
-                                 data-fragment=\"{target}\" binds a different kind",
-                                el.line
-                            );
+                        // Default child rendering falls back to canonical
+                        // when the theme has no fragment (partial themes,
+                        // §5e step 4) — but an EXPLICIT data-fragment must
+                        // resolve, and to the right kind (q24 variants).
+                        if let Some(target) = el.fragment.as_deref() {
+                            match self.map.get(target) {
+                                None => bail!(
+                                    "{file}:{}: data-fragment=\"{target}\" names no \
+                                     fragment — have: {}",
+                                    el.line,
+                                    self.known_fragments()
+                                ),
+                                Some(frag) if frag.kind != child => bail!(
+                                    "{file}:{}: `{slot}` holds `{child}` maps, but \
+                                     data-fragment=\"{target}\" binds kind `{}`",
+                                    el.line,
+                                    frag.kind
+                                ),
+                                Some(_) => {}
+                            }
                         }
                     }
                 }
@@ -215,6 +234,11 @@ impl Fragments {
         Ok(())
     }
 
+    fn known_fragments(&self) -> String {
+        let v: Vec<&str> = self.map.keys().map(String::as_str).collect();
+        if v.is_empty() { "(none)".into() } else { v.join(", ") }
+    }
+
     /// `(slot name, element tag)` for every content hole in a fragment — the
     /// block-arity rule (§5e tree-filled slots) needs to know whether a slot
     /// element takes flow content or only phrasing.
@@ -234,7 +258,17 @@ impl Fragments {
     /// null theme, and it needs no directory at all. Infallible once `load`
     /// has validated.
     pub fn render(&self, m: &PartMap) -> String {
-        match self.map.get(m.kind) {
+        self.render_with(m, None)
+    }
+
+    /// Render through a variant's fragment when the theme has one (q24):
+    /// `{kind}--{variant}` → the kind's base fragment → canonical. The
+    /// view declares the variant; the theme opts in by shipping the file.
+    pub fn render_with(&self, m: &PartMap, variant: Option<&str>) -> String {
+        let frag = variant
+            .and_then(|v| self.map.get(&format!("{}--{v}", m.kind)))
+            .or_else(|| self.map.get(m.kind));
+        match frag {
             Some(frag) => {
                 let mut out = String::new();
                 self.render_nodes(&frag.nodes, m, &mut out, true);
@@ -314,16 +348,22 @@ impl Fragments {
             Some(Part::Html(s)) => out.push_str(s),
             Some(Part::Stream(v)) => {
                 for item in v {
-                    match self.map.get(item.kind) {
+                    // data-fragment picks the variant (q24); default is the
+                    // child kind's base fragment, else canonical.
+                    let name = el.fragment.as_deref().unwrap_or(item.kind);
+                    match self.map.get(name) {
                         Some(child) => self.render_nodes(&child.nodes, item, out, true),
                         None => out.push_str(&crate::parts::canonical(item)),
                     }
                 }
             }
-            Some(Part::Map(sub)) => match self.map.get(sub.kind) {
-                Some(child) => self.render_nodes(&child.nodes, sub, out, true),
-                None => out.push_str(&crate::parts::canonical(sub)),
-            },
+            Some(Part::Map(sub)) => {
+                let name = el.fragment.as_deref().unwrap_or(sub.kind);
+                match self.map.get(name) {
+                    Some(child) => self.render_nodes(&child.nodes, sub, out, true),
+                    None => out.push_str(&crate::parts::canonical(sub)),
+                }
+            }
             Some(Part::Flag(_)) => unreachable!("flags cannot fill content (validated)"),
             None => self.render_nodes(&el.children, m, out, false),
         }
@@ -361,9 +401,8 @@ fn known_parts(kind: &str) -> String {
 }
 
 fn known_kinds() -> &'static str {
-    "document, listing, summary, gallery, figure, card, card_list, \
-     outline_entry, link_list, link, crumb, tag, relation, neighbor, \
-     pagination, page_link, raw"
+    "document, listing, summary, gallery, figure, outline_entry, link_list, \
+     link, crumb, tag, relation, neighbor, pagination, page_link, raw"
 }
 
 // ------------------------------------------------------------------ parser
@@ -761,5 +800,53 @@ mod tests {
     fn unknown_kind_filename_is_a_load_error() {
         let e = frags(&[("sidebar", "<div></div>")]).unwrap_err();
         assert!(format!("{e}").contains("no layout kind `sidebar`"), "{e}");
+    }
+
+    /// q24: `summary--card.html` binds the `summary` schema; the view's
+    /// variant picks it, unknown variants fall back to the base fragment.
+    #[test]
+    fn variants_bind_their_base_kind_and_render_by_choice() {
+        let f = frags(&[
+            ("summary", r#"<article><h2 data-slot="title"></h2></article>"#),
+            ("summary--card", r#"<a data-slot-href="url" data-slot="title"></a>"#),
+        ])
+        .unwrap();
+        let mut m = PartMap::new("summary");
+        m.set("title", Part::Text("T".into()));
+        m.set("url", Part::Text("/x/".into()));
+        assert!(f.render_with(&m, Some("card")).starts_with(r#"<a href="/x/""#));
+        assert!(f.render_with(&m, None).starts_with("<article"));
+        assert!(f.render_with(&m, Some("nope")).starts_with("<article"));
+    }
+
+    /// data-fragment names a variant for a stream's children — and being
+    /// explicit, it must resolve, to the right kind.
+    #[test]
+    fn data_fragment_selects_a_variant_and_must_resolve() {
+        let f = frags(&[
+            ("listing", r#"<div data-slot="items" data-fragment="summary--card"></div>"#),
+            ("summary--card", r#"<a data-slot-href="url" data-slot="title"></a>"#),
+        ])
+        .unwrap();
+        let mut m = PartMap::new("listing");
+        let mut s = PartMap::new("summary");
+        s.set("title", Part::Text("T".into()));
+        s.set("url", Part::Text("/x/".into()));
+        m.set("items", Part::Stream(vec![s]));
+        assert!(f.render(&m).contains(r#"<a href="/x/""#), "{}", f.render(&m));
+
+        let e = frags(&[(
+            "listing",
+            r#"<div data-slot="items" data-fragment="summary--nope"></div>"#,
+        )])
+        .unwrap_err();
+        assert!(format!("{e}").contains("names no fragment"), "{e}");
+
+        let e = frags(&[
+            ("listing", r#"<div data-slot="items" data-fragment="crumb"></div>"#),
+            ("crumb", r#"<span data-slot="label"></span>"#),
+        ])
+        .unwrap_err();
+        assert!(format!("{e}").contains("binds kind"), "{e}");
     }
 }

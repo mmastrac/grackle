@@ -239,7 +239,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             None => None,
         };
 
-        let main = thm.fragments.render(&parts::listing(&rows, &title, trail, pagination));
+        let main = thm
+            .fragments
+            .render_with(&parts::listing(&rows, &title, trail, pagination), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
         let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
@@ -277,7 +279,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
             })
             .collect();
-        let main = thm.fragments.render(&parts::gallery(&items, &title, trail));
+        let main = thm
+            .fragments
+            .render_with(&parts::gallery(&items, &title, trail), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, false);
         let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
@@ -309,7 +313,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
             })
             .collect();
-        let main = thm.fragments.render(&parts::card_list(&rows, &title, trail));
+        let main = thm
+            .fragments
+            .render_with(&parts::featured_listing(&rows, &title, trail), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, false);
         let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());

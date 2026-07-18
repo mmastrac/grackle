@@ -120,14 +120,16 @@ layout = "gallery"
 title = "Photos"
 
 # The book-of-the-month club (§7a): a view over TREE rows with typed
-# fields (books/.schema.toml). Newest month leads — the card_list kind
-# features the first member large.
+# fields (books/.schema.toml). Newest month leads (the listing's
+# `featured` slot); `variant` picks the theme's card face (q24/q36) —
+# /books/ and /blog/ are both listings, wearing different fragments.
 [views.books]
 over = "pages"
 match = "books/**"
 order_by = "-month"
 route = "/books/"
-layout = "card_list"
+layout = "listing"
+variant = "cards"
 title = "Book of the Month"
 
 # Routeless, embedded on the homepage: the same query language, composed
@@ -146,6 +148,7 @@ match = "books/**"
 order_by = "-month"
 limit = 1
 layout = "card"
+variant = "card"
 
 [views.sitemap]
 over = "*"

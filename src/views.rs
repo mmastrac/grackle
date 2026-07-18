@@ -149,6 +149,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 name.clone(),
                 ViewRows {
                     layout: v.layout.clone(),
+                    variant: v.variant.clone(),
                     rows: members.len(),
                     table: Kind::Posts,
                     members,
@@ -396,6 +397,7 @@ fn build_tree_view(_cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Que
             name.to_string(),
             ViewRows {
                 layout: v.layout.clone(),
+                variant: v.variant.clone(),
                 rows: members.len(),
                 table: Kind::Tree,
                 members,

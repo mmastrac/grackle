@@ -357,6 +357,8 @@ pub struct SiteDb {
 pub struct ViewRows {
     /// None means query-only: a named set, not something renderable.
     pub layout: Option<String>,
+    /// Fragment variant (q24), for embedded rendering.
+    pub variant: Option<String>,
     pub rows: usize,
     /// Which table `members` index — embedded views span collections now
     /// (`{% view latest_recipes %}` ranges over pages).
@@ -368,7 +370,13 @@ pub struct ViewRows {
 
 impl Default for ViewRows {
     fn default() -> Self {
-        ViewRows { layout: None, rows: 0, table: Kind::Posts, members: Vec::new() }
+        ViewRows {
+            layout: None,
+            variant: None,
+            rows: 0,
+            table: Kind::Posts,
+            members: Vec::new(),
+        }
     }
 }
 

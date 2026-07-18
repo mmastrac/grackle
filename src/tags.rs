@@ -192,7 +192,9 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                 dims: None,
                 note: p.description.clone(),
             };
-            Ok(theme.fragments.render(&crate::parts::card(&c)))
+            Ok(theme
+                .fragments
+                .render_with(&crate::parts::card(&c), v.variant.as_deref()))
         }
         Some(other) => bail!(
             "{}: view {name} has layout {other:?}, which is not embeddable",

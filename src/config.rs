@@ -129,6 +129,11 @@ pub struct View {
     #[serde(default)]
     pub routes: Vec<String>,
     pub layout: Option<String>,
+    /// Fragment variant (q24): the theme renders this view through
+    /// `{kind}--{variant}.html` when it ships one, falling back to the
+    /// kind's base fragment. How `/books/` gets cards while `/blog/`
+    /// stays textual, both being listings.
+    pub variant: Option<String>,
     pub limit: Option<usize>,
     pub template: Option<String>,
     /// Listing title, as a template over the route's group params
