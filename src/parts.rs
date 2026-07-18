@@ -179,11 +179,14 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("items", Stream("summary")),
             ("pagination", Map("pagination")),
         ],
+        // `truncated`: the summary is a prefix of the document (§6d) — the
+        // fact the theme gates the ★ on, stamped as `data-truncated`.
         "summary" => &[
             ("title", Text),
             ("url", Url),
             ("date", Text),
             ("date_pretty", Text),
+            ("truncated", Flag),
             ("tags", Stream("tag")),
             ("content", Html),
         ],
@@ -383,13 +386,16 @@ pub fn document_tree(
 }
 
 
-fn summary(p: &Post, content: &str) -> PartMap {
+fn summary(p: &Post, content: &str, truncated: bool) -> PartMap {
     let mut m = PartMap::new("summary");
     m.set("title", Part::Text(p.title.clone()));
     m.set("url", Part::Text(p.url.clone()));
     if let Some(d) = p.date {
         m.set("date", Part::Text(d.format("%Y-%m-%d").to_string()));
         m.set("date_pretty", Part::Text(d.format("%-d %B %Y").to_string()));
+    }
+    if truncated {
+        m.set("truncated", Part::Flag(true));
     }
     if let Some(t) = tag_stream(p) {
         m.set("tags", t);
@@ -401,7 +407,7 @@ fn summary(p: &Post, content: &str) -> PartMap {
 /// N rows, summarised. The trail is the route's provenance chain (§5c),
 /// computed by the caller.
 pub fn listing(
-    rows: &[(&Post, String)],
+    rows: &[(&Post, String, bool)],
     title: &str,
     trail: Vec<(String, Option<String>)>,
     pagination: Option<PartMap>,
@@ -411,7 +417,7 @@ pub fn listing(
     m.set("crumbs", crumb_stream(trail));
     m.set(
         "items",
-        Part::Stream(rows.iter().map(|(p, c)| summary(p, c)).collect()),
+        Part::Stream(rows.iter().map(|(p, c, t)| summary(p, c, *t)).collect()),
     );
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
@@ -574,12 +580,12 @@ mod tests {
             if r.view.is_none() || r.members.is_empty() {
                 continue;
             }
-            let rows: Vec<(&Post, String)> = r
+            let rows: Vec<(&Post, String, bool)> = r
                 .members
                 .iter()
                 .map(|&i| {
                     let p = &db.posts.rows[i];
-                    (p, p.body.clone())
+                    (p, p.body.clone(), i % 2 == 0)
                 })
                 .collect();
             let m = listing(

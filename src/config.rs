@@ -121,6 +121,32 @@ pub struct View {
     /// What this view contributes to descendants' breadcrumb trails.
     /// Defaults to `title`.
     pub crumb: Option<String>,
+    /// Computed fields (§6d): columns this view adds to its rows, each
+    /// defined by a deriver. Views composed `over` this one inherit them —
+    /// fields flow with rows through query composition the way filters do —
+    /// and redeclaring a name overrides (nearest wins). The field named
+    /// `summary` is what listing previews consume.
+    #[serde(default)]
+    pub fields: BTreeMap<String, Field>,
+}
+
+/// One computed field: exactly one deriver names how the value is computed
+/// from the row. `deny_unknown_fields` makes an unknown deriver a parse
+/// error naming the known ones.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Field {
+    /// The row's content blocks, kept until a budget runs out (block
+    /// granularity, at least one block; `max_chars` counts visible text).
+    /// Carries a `truncated` fact for the theme's ★.
+    pub truncate: Option<Truncate>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Truncate {
+    pub max_blocks: Option<usize>,
+    pub max_chars: Option<usize>,
 }
 
 impl View {
@@ -175,6 +201,16 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        for (vname, v) in &cfg.views {
+            for (fname, f) in &v.fields {
+                if f.truncate.is_none() {
+                    anyhow::bail!(
+                        "view {vname}: field {fname:?} declares no deriver \
+                         (have: truncate)"
+                    );
+                }
+            }
+        }
         for (name, tmpl) in &cfg.widgets {
             if !tmpl.contains("{body}") {
                 anyhow::bail!(
@@ -251,6 +287,24 @@ impl Config {
             }
             cur = &v.over;
         }
+    }
+
+    /// The computed-field set a view's rows carry: the union along the
+    /// `over` chain, nearest declaration winning per name — fields compose
+    /// exactly as filters do (§5c). Declaring `fields.summary` once on a
+    /// shared query view (`published`) covers every listing composed over
+    /// it; a view wanting different budgets redeclares the field. The chain
+    /// is acyclic because `query()` validated it at load.
+    pub fn fields_for(&self, view: &str) -> BTreeMap<&str, &Field> {
+        let mut out: BTreeMap<&str, &Field> = BTreeMap::new();
+        let mut cur = view;
+        while let Some(v) = self.views.get(cur) {
+            for (name, f) in &v.fields {
+                out.entry(name.as_str()).or_insert(f);
+            }
+            cur = &v.over;
+        }
+        out
     }
 
     /// Site root, resolved relative to the config file's directory.
@@ -378,6 +432,35 @@ mod tests {
         "#);
         let e = c.query("monthly").unwrap_err().to_string();
         assert!(e.contains("punted"), "unexpected error: {e}");
+    }
+
+    /// Computed fields flow with rows through composition (§6d): declared
+    /// once on a shared query view, visible to everything over it; nearest
+    /// redeclaration wins.
+    #[test]
+    fn fields_inherit_along_over_nearest_wins() {
+        let c = cfg(r#"
+            [views.published]
+            over = "blog"
+            [views.published.fields.summary]
+            truncate = { max_blocks = 4 }
+
+            [views.blog_index]
+            over = "published"
+            paginate = 5
+            routes = ["/blog/"]
+
+            [views.tag_index]
+            over = "published"
+            group_by = "tags"
+            route = "/blog/tags/{key}/"
+            [views.tag_index.fields.summary]
+            truncate = { max_blocks = 1 }
+        "#);
+        let inherited = c.fields_for("blog_index");
+        assert_eq!(inherited["summary"].truncate.unwrap().max_blocks, Some(4));
+        let overridden = c.fields_for("tag_index");
+        assert_eq!(overridden["summary"].truncate.unwrap().max_blocks, Some(1));
     }
 
     #[test]

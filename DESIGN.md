@@ -2382,6 +2382,44 @@ doing it rather than a reason not to.
 
 ## 6d. Blocks and rewrites: two ways into the rendered markdown
 
+**Status: blocks built (stage A, 2026-07); notes and rewrites remain.**
+`markdown::render_doc` parses once and yields both the whole render (posts
+and the feed use it unchanged — post pages verified byte-identical) and the
+top-level block sequence, in one render pass where the old pipeline rendered
+every post twice. **The summary is a computed field on the view's rows** —
+a derived column, not a rendering attribute:
+
+```toml
+[views.published.fields.summary]
+truncate = { max_blocks = 4, max_chars = 700 }
+```
+
+`Doc::truncate` is mechanism only (blocks kept until a budget runs out,
+block granularity, at least one always kept, `max_chars` counting visible
+text); the *deriver* (`truncate`) discriminates the field definition and is
+validated at load — no deriver, or an unknown one, errors naming the known
+set. **Fields flow with rows through `over` composition** the way filters
+do: declared once on `published`, every listing composed over it inherits
+the column; redeclaring the name overrides, nearest wins. The deriver's
+fact (`truncated`) rides along, feeding `data-truncated`. Listing previews
+consume the field named `summary` by convention; no summary field in the
+chain means rows ship whole. This is also where the §5e archetype gaps
+land later: `hero` (open q23) and `lede` are more derivers producing more
+columns. **Marked not-quite-right (open q31)**: deriver-as-struct-key is a
+stopgap shape — if the config grows *functions*, a field wants to be an
+expression (`summary = truncate(content, max_blocks=4)`), and this gets
+revisited rather than extended. (Two wrong altitudes were corrected in one session getting here:
+the cut rule started as engine code — policy belongs in config — and then
+as a view *attribute* — a summary is a property of the rows, not of the
+view's rendering.) **Measured: `/blog/` 160 KB →
+15.7 KB, `/blog/tags/rust/` 180 KB → 11.3 KB (93.8%).** The nth-of-type
+truncation CSS is deleted; `truncated` is a schema fact stamped
+`data-truncated` (★ settled, q17); concat-equals-whole is a corpus test
+pinning the footnote post as the only exception. Deferred to stage B with
+reasons: the **notes stream** (needs its consumer — sidenotes want a third
+grid column, q18) and the **rewrite stage** (its five use cases are mostly
+unbuilt subsystems: §6a names, §6c styles).
+
 Markdown is currently an opaque blob: `content` goes into a `<section>` and
 nobody can touch it. Two mechanisms open it up, and they are **not
 alternatives** — they solve different problems and compose.
@@ -3033,6 +3071,7 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
 | **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** |
+| **7** | content intelligence: §6d blocks | 🟡 **stage A done** — `render_doc` (one parse: whole + blocks), **the summary is a computed field** (`[views.published.fields.summary] truncate = {…}` — a derived column inheriting along `over`, nearest wins; `Doc::truncate` is mechanism, the deriver validated at load; `hero`/`lede` (q23) are future derivers), `truncated` fact → `data-truncated` → ★ (q17 settled), nth-of-type CSS deleted, concat==whole pinned as a corpus test (footnote post the sole exception). **Measured: `/blog/` 160→15.7 KB; `/blog/tags/rust/` 180→11.3 KB (93.8%).** Post pages and feed byte-identical; the double render is gone. Stage B: notes stream + sidenotes (q18), the `lol_html` rewrite stage; also `{% callout %}` widgets landed (q29). |
 
 ## 11. Open questions (to iterate on)
 
@@ -3103,12 +3142,11 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     met by AST mutation + `HtmlBlock`/`HtmlInline` escape hatches, per node type,
     incrementally. **Tripwire**: revisit if the escape-hatch list exceeds ~⅓ of
     node types.
-17. **The ★ (§6d).** Blocks are not visually neutral: 79 of 327 summaries show
-    the truncation star today; build-time truncation would give it to 321. Emit
-    `class="truncated"` and gate the star on it (correct, and a visible change
-    to the site), or drop the star? **Needs sign-off before blocks ship.**
-    §5e gives the fix its vocabulary: `data-truncated` as a schema fact, star
-    gated in theme CSS.
+17. ~~The ★ (§6d)~~ — **settled, signed off, built** (§6d stage A): truncation
+    is a `truncated` Flag on the summary part map, stamped `data-truncated`
+    by the binder, star gated in theme CSS — below the fade mask so the mask
+    can never swallow it. It marks exactly the genuinely-cut summaries for
+    the first time (all 5 on `/blog/` page 1; 5 of 10 in the 1998 archive).
 18. **Sidenotes need a third grid column (§6d).** The post grid is
     `8.75rem | content` with the content escaping leftward — there is no right
     margin to render notes into. Is the theme change worth it, or do footnotes
@@ -3211,3 +3249,16 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     Also parked here: crumb templates for paginated views (the `Page N`
     trail entry is an engine rule for now). Punted until wanted; the config
     check errors with a pointer to this question.
+31. **Computed fields want functions (§6d).** The current shape — a field
+    is a table whose single deriver key names the computation
+    (`[views.x.fields.summary] truncate = { max_blocks = 4 }`) — is **not
+    quite right**, and known to be. It hardcodes one implicit source (the
+    row's content blocks), can't compose (truncate of a rewrite? lede of a
+    section?), and each new deriver grows a struct rather than a
+    vocabulary. If the config grows a function/expression form, a field
+    becomes `summary = truncate(content, max_blocks = 4, max_chars = 700)`
+    — explicit source, named args, composable, and validated the way the
+    filter language already is. Revisit rather than extend: adding a second
+    deriver to the struct shape deepens the wrong groove. Inheritance
+    semantics (fields flow with rows along `over`, nearest wins) are right
+    and survive the change.

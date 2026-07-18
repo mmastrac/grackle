@@ -119,6 +119,110 @@ pub fn render(src: &str) -> String {
     out
 }
 
+// ------------------------------------------------------------------ blocks
+
+/// A rendered document as its top-level block sequence (§6d). `whole` is the
+/// exact `render()` output — documents and the feed use it unchanged, so the
+/// byte oracle survives. `blocks` is the same tree formatted per top-level
+/// child; a summary is a literal *prefix* of the document.
+///
+/// The invariant `concat(blocks) == whole` holds for 326/327 posts — the
+/// exception is footnotes, whose definitions comrak relocates at parse time
+/// (they are annotations addressed by identity, not blocks; §6d models them
+/// as a second stream, deferred until sidenotes give it a consumer). The
+/// corpus test below pins the exception set.
+pub struct Doc {
+    pub whole: String,
+    pub blocks: Vec<Block>,
+}
+
+pub struct Block {
+    pub html: String,
+    /// Lowercased tag of the block's first element (`p`, `h2`, `div`, …), or
+    /// `#text` — what the summary cut counts, mirroring `:nth-of-type`.
+    pub tag: String,
+}
+
+pub fn render_doc(src: &str) -> Doc {
+    let arena = Arena::new();
+    let opts = options();
+    let root = parse_document(&arena, src, &opts);
+    rouge_code_blocks(root);
+    let mut whole = String::new();
+    format_html(root, &opts, &mut whole).expect("writing to a String cannot fail");
+    let mut blocks = Vec::new();
+    for child in root.children() {
+        let mut html = String::new();
+        format_html(child, &opts, &mut html).expect("writing to a String cannot fail");
+        let tag = tag_of(&html);
+        blocks.push(Block { html, tag });
+    }
+    Doc { whole, blocks }
+}
+
+fn tag_of(html: &str) -> String {
+    let h = html.trim_start();
+    if !h.starts_with('<') {
+        return "#text".into();
+    }
+    h[1..]
+        .split(|c: char| c.is_whitespace() || c == '>' || c == '/')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
+}
+
+impl Doc {
+    /// A truncated projection of the document: blocks kept until either
+    /// budget runs out, plus whether anything was cut (the `truncated` fact
+    /// the theme gates the ★ on).
+    ///
+    /// This is **mechanism only** — the numbers are policy, and policy lives
+    /// in the view that asks for the projection (`summary = { max_blocks,
+    /// max_chars }` in config, §6d). `max_chars` counts *visible text*, not
+    /// markup, so a rouge-wrapped code block doesn't blow the budget with
+    /// spans; the block that would exceed it is dropped whole (block
+    /// granularity), but at least one block is always kept.
+    pub fn truncate(&self, max_blocks: Option<usize>, max_chars: Option<usize>) -> (String, bool) {
+        let mut cut = self.blocks.len();
+        let mut chars = 0usize;
+        for (i, b) in self.blocks.iter().enumerate() {
+            if let Some(mb) = max_blocks {
+                if i >= mb {
+                    cut = i;
+                    break;
+                }
+            }
+            if let Some(mc) = max_chars {
+                chars += text_len(&b.html);
+                if chars > mc && i > 0 {
+                    cut = i;
+                    break;
+                }
+            }
+        }
+        let html: String = self.blocks[..cut].iter().map(|b| b.html.as_str()).collect();
+        (html, cut < self.blocks.len())
+    }
+}
+
+/// Visible text length of an HTML fragment: characters outside tags.
+/// Entity-naive (`&amp;` counts as 5), which errs on the side of keeping
+/// summaries short — fine for a budget, wrong for typography.
+fn text_len(html: &str) -> usize {
+    let mut n = 0;
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => n += 1,
+            _ => {}
+        }
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,99 +244,90 @@ mod tests {
     }
 }
 
-// ---- spike: is a document the concatenation of its top-level blocks?
+// The §6d spike, promoted: the invariant it measured is now pinned over the
+// corpus on every test run.
 #[cfg(test)]
-mod block_spike {
+mod block_tests {
     use super::*;
 
-    /// Render each top-level child on its own, exactly as `render()` would.
-    fn split(src: &str) -> (Vec<String>, String) {
-        let arena = Arena::new();
-        let opts = options();
-        let root = parse_document(&arena, src, &opts);
-        rouge_code_blocks(root);
-        let mut blocks = Vec::new();
-        for child in root.children() {
-            let mut out = String::new();
-            format_html(child, &opts, &mut out).unwrap();
-            blocks.push(out);
-        }
-        (blocks, render(src))
+    #[test]
+    fn truncate_by_block_budget() {
+        let d = render_doc("one\n\ntwo\n\nthree");
+        let (html, truncated) = d.truncate(Some(2), None);
+        assert!(html.contains("two") && !html.contains("three"), "{html}");
+        assert!(truncated);
     }
 
-    /// Direct translation of the CSS rule in `_sass/_style.scss:34`:
-    ///   `> p:nth-of-type(2), > :nth-of-type(4) { ~ * { display: none } }`
-    /// Note `:nth-of-type(4)` counts per TAG NAME, not "4th child".
-    fn visible_cut(kinds: &[String]) -> usize {
-        let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        let mut cut = kinds.len();
-        for (i, k) in kinds.iter().enumerate() {
-            let n = seen.entry(k.as_str()).or_insert(0);
-            *n += 1;
-            if (k == "p" && *n == 2) || *n == 4 {
-                cut = i + 1;
-                break;
-            }
-        }
-        cut
+    #[test]
+    fn truncate_by_char_budget_at_block_granularity() {
+        let d = render_doc("aaaa aaaa\n\nbbbb bbbb\n\ncccc");
+        // ~9 visible chars per paragraph: a 12-char budget keeps one block.
+        let (html, truncated) = d.truncate(None, Some(12));
+        assert!(html.contains("aaaa") && !html.contains("bbbb"), "{html}");
+        assert!(truncated);
     }
 
-    fn tag_of(html: &str) -> String {
-        let h = html.trim_start();
-        if !h.starts_with('<') {
-            return "#text".into();
-        }
-        h[1..]
-            .split(|c: char| c.is_whitespace() || c == '>' || c == '/')
-            .next()
-            .unwrap_or("")
-            .to_lowercase()
+    #[test]
+    fn char_budget_counts_text_not_markup() {
+        // A rouge code block is markup-heavy; the budget sees only its text.
+        let d = render_doc("    code\n\nnext");
+        let (html, _) = d.truncate(None, Some(30));
+        assert!(html.contains("next"), "markup counted against budget: {html}");
     }
 
+    #[test]
+    fn first_block_survives_any_char_budget() {
+        let d = render_doc("a paragraph longer than the tiny budget");
+        let (html, truncated) = d.truncate(None, Some(1));
+        assert_eq!(html, d.whole);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn no_budgets_means_no_truncation() {
+        let d = render_doc("one\n\ntwo");
+        let (html, truncated) = d.truncate(None, None);
+        assert_eq!(html, d.whole);
+        assert!(!truncated);
+    }
+
+    /// §6d's load-bearing invariant, pinned: every post's block concatenation
+    /// is byte-identical to its whole render — a summary is a literal prefix
+    /// of the document — with footnote posts as the *only* tolerated
+    /// exception (comrak relocates their definitions at parse time; §6d
+    /// models notes as a second stream, deferred to the sidenote pass).
     #[test]
     fn concat_equals_whole_over_corpus() {
         let root = std::path::Path::new("..");
         let mut n = 0;
-        let mut bad: Vec<(String, usize, usize)> = Vec::new();
-        let mut counts = Vec::new();
-        let mut cuts: Vec<usize> = Vec::new();
-        let (mut kept_bytes, mut total_bytes) = (0usize, 0usize);
-        let (mut untouched, mut star) = (0usize, 0usize);
+        let mut mismatched: Vec<String> = Vec::new();
         for e in walkdir::WalkDir::new(root.join("_posts")).into_iter().flatten() {
-            if !e.file_type().is_file() { continue; }
-            if e.path().extension().is_none_or(|x| x != "md") { continue; }
+            if !e.file_type().is_file() {
+                continue;
+            }
+            if e.path().extension().is_none_or(|x| x != "md") {
+                continue;
+            }
             let text = std::fs::read_to_string(e.path()).unwrap();
             let body = match text.strip_prefix("---") {
-                Some(r) => match r.find("\n---") { Some(i) => &r[i + 4..], None => &text },
+                Some(r) => match r.find("\n---") {
+                    Some(i) => &r[i + 4..],
+                    None => &text,
+                },
                 None => &text,
             };
-            let (blocks, whole) = split(body);
+            let d = render_doc(body);
             n += 1;
-            counts.push(blocks.len());
-            let kinds: Vec<String> = blocks.iter().map(|b| tag_of(b)).collect();
-            let cut = visible_cut(&kinds);
-            kept_bytes += blocks[..cut].iter().map(|b| b.len()).sum::<usize>();
-            total_bytes += whole.len();
-            cuts.push(cut);
-            if cut == blocks.len() { untouched += 1; }
-            if kinds.get(cut - 1).is_some_and(|k| k == "p") { star += 1; }
-            let cat = blocks.concat();
-            if cat != whole {
-                bad.push((e.path().display().to_string(), cat.len(), whole.len()));
+            let cat: String = d.blocks.iter().map(|b| b.html.as_str()).collect();
+            if cat != d.whole {
+                mismatched.push(e.path().file_name().unwrap().to_string_lossy().into());
             }
         }
-        counts.sort();
-        cuts.sort();
-        eprintln!("cut blocks: min {} median {} max {}", cuts[0], cuts[cuts.len()/2], cuts[cuts.len()-1]);
-        eprintln!("summary bytes if truncated at build: {} of {} ({:.1}% saved)",
-            kept_bytes, total_bytes, 100.0 - 100.0 * kept_bytes as f64 / total_bytes as f64);
-        eprintln!("summaries not truncated at all (star visible today): {untouched} of {n}");
-        eprintln!("summaries whose last KEPT block is a <p> (star appears if we truncate): {star} of {n}");
-        eprintln!("posts: {n}, mismatched: {}", bad.len());
-        eprintln!("blocks/post: min {} median {} max {}", counts[0], counts[counts.len()/2], counts[counts.len()-1]);
-        for (p, a, b) in bad.iter().take(8) {
-            eprintln!("  MISMATCH {p}: concat {a} bytes vs whole {b}");
-        }
-        assert!(n > 100, "corpus not found");
+        assert!(n > 300, "corpus not found ({n} posts)");
+        assert_eq!(
+            mismatched,
+            vec!["2026-06-11-life-before-main.md".to_string()],
+            "the footnote post is the only tolerated concat mismatch"
+        );
     }
 }

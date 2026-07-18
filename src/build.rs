@@ -130,22 +130,37 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let thm = theme::Theme::load(&root.join("themes/default"), &root)
         .context("loading themes/default")?;
 
-    // ---- posts: render -> document parts -> theme fragments -> shell
-    let rendered: Vec<(String, String)> = db
+    // ---- bodies: ONE render per post (§6d). Expand + parse once; the same
+    // parse yields the whole document (posts, feed — byte-identical to the
+    // old double-render) and the block sequence each listing view projects
+    // its summaries from. This replaces two separate expand-and-render
+    // passes, and the Doc is kept whole because truncation is VIEW policy
+    // (`summary = { max_blocks, max_chars }`), not a property of the body.
+    let bodies: std::collections::HashMap<&str, crate::markdown::Doc> = db
         .posts
         .rows
         .par_iter()
-        .map(|p| -> Result<(String, String)> {
+        .map(|p| -> Result<(&str, crate::markdown::Doc)> {
             let cx = tags::Ctx {
                 thumbs: Some(&thumb_urls),
                 widgets: Some(&cfg.widgets),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let expanded = tags::expand(&p.body, &cx)?;
-            let frag = crate::markdown::render(&expanded);
+            Ok((p.url.as_str(), crate::markdown::render_doc(&expanded)))
+        })
+        .collect::<Result<_>>()?;
+
+    // ---- posts: document parts -> theme fragments -> shell
+    let rendered: Vec<(String, String)> = db
+        .posts
+        .rows
+        .par_iter()
+        .map(|p| -> Result<(String, String)> {
             let head = render::head_for_post(p, &site);
             let trail = post_trail(cfg, p);
-            let main = thm.fragments.render(&parts::document(db, p, &frag, trail));
+            let whole = bodies[p.url.as_str()].whole.as_str();
+            let main = thm.fragments.render(&parts::document(db, p, whole, trail));
             let dir = p.path.parent().unwrap_or(&root);
             let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?;
             Ok((p.url.clone(), html))
@@ -155,22 +170,6 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         out_map.insert(url, html.into_bytes());
         stats.posts += 1;
     }
-
-    // Body fragments, reused by every listing that includes this post.
-    let frags: std::collections::HashMap<&str, String> = db
-        .posts
-        .rows
-        .par_iter()
-        .map(|p| {
-            let cx = tags::Ctx {
-                thumbs: Some(&thumb_urls),
-                widgets: Some(&cfg.widgets),
-                ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
-            };
-            let e = tags::expand(&p.body, &cx).unwrap_or_else(|_| p.body.clone());
-            (p.url.as_str(), crate::markdown::render(&e))
-        })
-        .collect();
 
     // ---- listing views: one layout kind, the view supplies the query
     //
@@ -190,11 +189,27 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         }) else {
             continue;
         };
-        let rows: Vec<(&crate::db::Post, String)> = r
+        // The preview is the row's computed `summary` field (§6d): a
+        // derived column the view declares (or inherits along `over` — the
+        // field set flows with rows through composition). The 93% that CSS
+        // used to hide never leaves the build; `truncated` rides along as
+        // the deriver's fact, gating the theme's ★. No summary field in the
+        // chain = rows ship whole.
+        let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
+        let rows: Vec<(&crate::db::Post, String, bool)> = r
             .members
             .iter()
             .map(|&i| &db.posts.rows[i])
-            .map(|p| (p, frags.get(p.url.as_str()).cloned().unwrap_or_default()))
+            .map(|p| match bodies.get(p.url.as_str()) {
+                Some(d) => match summary_field {
+                    Some(t) => {
+                        let (html, truncated) = d.truncate(t.max_blocks, t.max_chars);
+                        (p, html, truncated)
+                    }
+                    None => (p, d.whole.clone(), false),
+                },
+                None => (p, String::new(), false),
+            })
             .collect();
 
         // Titles and crumb contributions come from the view's declared
@@ -286,7 +301,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .members
             .iter()
             .map(|&i| &db.posts.rows[i])
-            .map(|p| (p, frags.get(p.url.as_str()).map(String::as_str).unwrap_or("")))
+            .map(|p| (p, bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or("")))
             .collect();
         let xml = render::feed(&site, &updated, &entries);
         out_map.insert(r.url.clone(), xml.into_bytes());
