@@ -4496,14 +4496,25 @@ the drift is only ever invisible *until* it isn't.
     in the prose would still count the day the landing bodies join
     the scan.
 
-    Narrowed but open: (a) stands (parent derivation for the trail
-    chain — `/books/` members still lack a Books crumb, the one
-    symptom this slice leaves); theme provenance for bare/intro
-    landings (content rows bring their rule-derived theme; should
-    a view declare one?); orphaned translations (`index.fr.md`
-    with no French rows has nowhere to render → warn); whether
-    mode-B prose is searchable (landing routes are structurally
-    excluded — leaning keep them out until someone misses it);
+    **The chain's first slice followed (Matt: "since there's a
+    default page listing those books, shouldn't breadcrumbs pick it
+    up?")**: `ancestors()` falls back to a materialized landing
+    route when no page row owns the parent URL — the view's crumb
+    (else title) at the route's locale. A book's trail now climbs
+    `Home › Book of the Month › The Typed Kitchen`; mode-B landings
+    never reach the fallback (the claimed row matches first, row
+    title winning as everywhere). URL nesting IS the parent
+    derivation for tree rows; what remains of (a) is only the
+    non-nested half: `collection.index` naming a view, and whether
+    a landing may declare `parent =` when nesting lies.
+
+    Narrowed but open: (a)'s non-nested half (above); theme
+    provenance for bare/intro landings (content rows bring their
+    rule-derived theme; should a view declare one?); orphaned
+    translations (`index.fr.md` with no French rows has nowhere to
+    render → warn); whether mode-B prose is searchable (landing
+    routes are structurally excluded — leaning keep them out until
+    someone misses it);
     and, noticed while tasting: a variant fragment lacking a hole
     drops that part silently (`listing--cards.html` swallowed the
     books intro until it grew the slot) — "never ship what a theme

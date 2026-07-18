@@ -1621,6 +1621,24 @@ fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> {
             if let Some(t) = &p.title {
                 out.push((parent, t.clone()));
             }
+        } else if let Some(r) = db.routes.iter().find(|r| {
+            r.kind == RouteKind::View
+                && r.url == parent
+                && r.key.is_none()
+                && r.page.is_none_or(|n| n == 1)
+        }) {
+            // q45, the landing chain's first slice: a materialized landing
+            // above this URL is an ancestor like any index page — /books/
+            // lists the books, so a book's trail climbs through it. The
+            // crumb is the view's own (crumb, else title), resolved at the
+            // route's locale; a mode-B landing never reaches here (its
+            // claimed row matched above, and the row's title wins).
+            if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
+                if let Some(t) = v.crumb.as_ref().or(v.title.as_ref()) {
+                    let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+                    out.push((parent, cfg.i18n.text(t, loc).to_string()));
+                }
+            }
         }
     }
     out.reverse();
