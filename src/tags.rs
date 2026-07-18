@@ -135,6 +135,7 @@ fn post_url(arg: &str, cx: &Ctx) -> Result<String> {
 /// dispatches. Nothing here knows what "latest" means — change the filter in
 /// `grackle.toml` and this code does not move.
 fn view(name: &str, cx: &Ctx) -> Result<String> {
+    use crate::config::Kind;
     let name = name.trim();
     let Some(v) = cx.db.views.get(name) else {
         bail!(
@@ -143,17 +144,55 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
             cx.source
         );
     };
-    let rows: Vec<&crate::db::Post> = v.members.iter().map(|&i| &cx.db.posts.rows[i]).collect();
-    let site = cx
-        .site
-        .ok_or_else(|| anyhow::anyhow!("{}: {{% view %}} needs a site context", cx.source))?;
+    let theme = cx.theme.ok_or_else(|| {
+        anyhow::anyhow!("{}: {{% view {name} %}} needs a theme context", cx.source)
+    })?;
     match v.layout.as_deref() {
+        // Bare titled links — posts and pages embed alike.
         Some("link_list") => {
-            let _ = site;
-            let theme = cx.theme.ok_or_else(|| {
-                anyhow::anyhow!("{}: {{% view {name} %}} needs a theme context", cx.source)
-            })?;
-            Ok(theme.fragments.render(&crate::parts::link_list(&rows)))
+            let pairs: Vec<(String, String)> = match v.table {
+                Kind::Posts => v
+                    .members
+                    .iter()
+                    .map(|&i| {
+                        let p = &cx.db.posts.rows[i];
+                        (p.title.clone(), p.url.clone())
+                    })
+                    .collect(),
+                Kind::Tree => v
+                    .members
+                    .iter()
+                    .map(|&i| {
+                        let p = &cx.db.pages.rows[i];
+                        (p.title.clone().unwrap_or_default(), p.url.clone())
+                    })
+                    .collect(),
+                Kind::Objects => bail!(
+                    "{}: view {name} ranges over objects, which link_list cannot show",
+                    cx.source
+                ),
+            };
+            Ok(theme.fragments.render(&crate::parts::link_list(&pairs)))
+        }
+        // One featured row as a card — the homepage's book of the month.
+        Some("card") => {
+            if v.table != Kind::Tree {
+                bail!("{}: view {name}: card embedding is for tree rows", cx.source);
+            }
+            let Some(&i) = v.members.first() else { return Ok(String::new()) };
+            let p = &cx.db.pages.rows[i];
+            let src = p
+                .hero_source()
+                .and_then(|s| cx.thumbs.and_then(|t| t.get(s)))
+                .cloned();
+            let c = crate::parts::CardRow {
+                title: p.title.clone().unwrap_or_default(),
+                url: p.url.clone(),
+                src,
+                dims: None,
+                note: p.description.clone(),
+            };
+            Ok(theme.fragments.render(&crate::parts::card(&c)))
         }
         Some(other) => bail!(
             "{}: view {name} has layout {other:?}, which is not embeddable",

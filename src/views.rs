@@ -122,7 +122,8 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 continue;
             }
             Kind::Tree => {
-                bail!("view {name}: views over tree collections are not supported yet")
+                build_tree_view(cfg, db, name, v, &q)?;
+                continue;
             }
         }
         // Parsed and type-checked once per view, not per row: a bad filter is a
@@ -149,6 +150,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 ViewRows {
                     layout: v.layout.clone(),
                     rows: members.len(),
+                    table: Kind::Posts,
                     members,
                 },
             );
@@ -306,6 +308,104 @@ fn build_object_view(
         let (x, y) = (&db.objects.rows[a], &db.objects.rows[b]);
         x.name.cmp(&y.name).then_with(|| x.rel.cmp(&y.rel))
     });
+    db.routes.push(Route {
+        view: Some(name.to_string()),
+        rows: Some(members.len()),
+        members,
+        ..Route::new(route.to_string(), RouteKind::View)
+    });
+    Ok(())
+}
+
+/// Order two field values: same-type natural order, Null last. Mixed types
+/// cannot occur under a validated `order_by` (the key has one declared type).
+fn value_cmp(a: &filter::Value, b: &filter::Value) -> std::cmp::Ordering {
+    use filter::Value as V;
+    use std::cmp::Ordering::*;
+    match (a, b) {
+        (V::Str(x), V::Str(y)) => x.cmp(y),
+        (V::Int(x), V::Int(y)) => x.cmp(y),
+        (V::Bool(x), V::Bool(y)) => x.cmp(y),
+        (V::Null, V::Null) => Equal,
+        (V::Null, _) => Greater,
+        (_, V::Null) => Less,
+        _ => Equal,
+    }
+}
+
+/// Materialize (or resolve, for the routeless/embeddable shape) a view over
+/// the tree table: `match` scopes by glob, filters type-check against the
+/// page schema, `order_by` is required (`field` or `-field` for descending —
+/// a base page field or one declared by any `.schema.toml`, §5b), and only
+/// *rendered* pages are rows — static passthrough is not content.
+fn build_tree_view(_cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Query) -> Result<()> {
+    if v.group_by.is_some() || v.paginate.is_some() {
+        bail!("view {name}: group_by/paginate on tree views is not supported yet");
+    }
+    let order = v
+        .order_by
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("view {name}: tree views need an order_by"))?;
+    let (key, desc) = match order.strip_prefix('-') {
+        Some(k) => (k, true),
+        None => (order, false),
+    };
+    if !crate::db::page_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+        let mut known: Vec<&str> = crate::db::page_schema().keys().copied().collect();
+        known.extend(db.schemas.declared().keys().copied());
+        known.sort_unstable();
+        bail!(
+            "view {name}: order_by names unknown field {key:?}\n  known fields: {}",
+            known.join(", ")
+        );
+    }
+    let scope = match &v.scope {
+        Some(g) => Some(
+            globset::Glob::new(g)
+                .with_context(|| format!("view {name}: match {g:?}"))?
+                .compile_matcher(),
+        ),
+        None => None,
+    };
+    let pred = match q.predicate() {
+        Some(src) => filter::Filter::parse(&src, &crate::db::page_schema())
+            .with_context(|| format!("view {name}: filter {src:?}"))?,
+        None => filter::Filter::always(),
+    };
+    let mut members: Vec<usize> = db
+        .pages
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.rendered)
+        .filter(|(_, p)| scope.as_ref().is_none_or(|m| m.is_match(&p.rel)))
+        .filter(|(_, p)| pred.eval(*p))
+        .map(|(i, _)| i)
+        .collect();
+    members.sort_by(|&a, &b| {
+        use crate::filter::Row as _;
+        let (x, y) = (&db.pages.rows[a], &db.pages.rows[b]);
+        let ord = value_cmp(&x.field(key), &y.field(key));
+        let ord = if desc { ord.reverse() } else { ord };
+        ord.then_with(|| x.rel.cmp(&y.rel))
+    });
+    members.truncate(v.limit.unwrap_or(usize::MAX));
+
+    if !v.is_materialized() {
+        db.views.insert(
+            name.to_string(),
+            ViewRows {
+                layout: v.layout.clone(),
+                rows: members.len(),
+                table: Kind::Tree,
+                members,
+            },
+        );
+        return Ok(());
+    }
+    let Some(route) = v.route.as_deref() else {
+        bail!("view {name} needs a route");
+    };
     db.routes.push(Route {
         view: Some(name.to_string()),
         rows: Some(members.len()),

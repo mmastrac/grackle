@@ -191,8 +191,12 @@ mod tests {
             size: 0,
             title: title.map(String::from),
             layout: Some("page".into()),
+            description: None,
             order,
             toc: false,
+            theme: None,
+            fields: Default::default(),
+            images: Default::default(),
         }
     }
 

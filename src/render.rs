@@ -54,7 +54,6 @@ pub struct Site<'a> {
     pub title: &'a str,
     pub author: &'a str,
     pub email: Option<&'a str>,
-    pub css: &'a str,
 }
 
 pub fn head_for_post(p: &Post, site: &Site) -> Head {
@@ -142,8 +141,10 @@ const FAVICONS: &str = r#"
 
 /// The computed head facts as the shell's `head` part (§5a: a theme renders
 /// the subset it wants; today's default takes them all). This fills
-/// `<head data-slot="head">` in the theme's shell fragment.
-pub fn head_html(head: &Head, site: &Site) -> String {
+/// `<head data-slot="head">` in the theme's shell fragment. `css` is the
+/// rendering theme's stylesheet URL — themes are per row (§5a), so the
+/// link is too.
+pub fn head_html(head: &Head, css: &str) -> String {
     let mut h = String::with_capacity(2048);
     let _ = write!(h, "\n\t<title>{}</title>\n", esc(&head.title));
     let _ = write!(h, "\t<meta property=\"og:title\" content=\"{}\">\n", esc(&head.title));
@@ -164,7 +165,7 @@ pub fn head_html(head: &Head, site: &Site) -> String {
     }
     h.push_str("\t<meta charset=\"utf-8\">\n");
     h.push_str("\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-    let _ = write!(h, "\t<link href='{}' rel='stylesheet' type='text/css'>\n", site.css);
+    let _ = write!(h, "\t<link href='{css}' rel='stylesheet' type='text/css'>\n");
     h.push_str(FAVICONS);
     if head.noindex {
         h.push_str("\n\t<meta name=\"robots\" content=\"noindex,follow\">");

@@ -7,10 +7,20 @@ layout: default
 	<p>An example site that exists to argue with its engine. Each section
 	forces a feature the main corpus never needed: a <a href="/photos/">photo
 	gallery</a> (object views, masonry), a <a href="/manual/">manual</a>
-	(section trees), <a href="/recipes/">recipes</a> (typed schema), and
-	<a href="/blog/">notes</a> long enough to want tables of contents.</p>
-	<section>
-		<h2>Latest notes</h2>
-		{% view latest %}
-	</section>
+	(section trees), <a href="/recipes/">recipes</a> (typed schema, their own
+	theme), and <a href="/books/">a book club</a> (heroes on database rows).</p>
+	<div class="home-grid">
+		<section>
+			<h2>Latest notes</h2>
+			{% view latest %}
+		</section>
+		<section>
+			<h2>From the kitchen</h2>
+			{% view latest_recipes %}
+		</section>
+		<section>
+			<h2>Book of the month</h2>
+			{% view book_of_the_month %}
+		</section>
+	</div>
 </article>

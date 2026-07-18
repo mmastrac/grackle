@@ -168,6 +168,9 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("tree", Flag),
             ("crumbs", Stream("crumb")),
             ("tags", Stream("tag")),
+            // The row's hero image (q23): an image-typed schema field,
+            // thumbnailed, dimension facts attached. The book page's cover.
+            ("hero", Map("figure")),
             // §6e's path axis: the enclosing `.section` unit's page tree,
             // with this row marked current. Absent outside sections.
             ("section", Stream("outline_entry")),
@@ -175,6 +178,24 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("outline", Stream("outline_entry")),
             ("content", Html),
             ("relations", Stream("relation")),
+        ],
+        // One row previewed as a picture + a line of text — what a
+        // book-of-the-month or a card grid is made of (q23).
+        "card" => &[
+            ("title", Text),
+            ("url", Url),
+            ("src", Url),
+            ("width", Text),
+            ("height", Text),
+            ("note", Text),
+        ],
+        // N rows as cards, the first one featured large — the club index:
+        // this month's book leads, the back catalogue follows.
+        "card_list" => &[
+            ("title", Text),
+            ("crumbs", Stream("crumb")),
+            ("featured", Map("card")),
+            ("items", Stream("card")),
         ],
         // §6e: the ONE recursive kind — hierarchy on either axis (headings
         // or paths) renders through it. An entry with no `url` is an
@@ -425,29 +446,35 @@ pub fn document(
 /// because the *schema* differs (§5a). Ancestors instead of a date trail, the
 /// `tree` fact instead of temporal neighbors, and — inside a `.section` unit
 /// (§6e) — the section's page tree with this row marked current.
-pub fn document_tree(
-    title: &str,
-    url: &str,
-    ancestors: &[(String, String)],
-    section: Vec<PartMap>,
-    outline: Vec<PartMap>,
-    content: &str,
-) -> PartMap {
+/// Everything a tree document carries besides its identity — the positional
+/// list outgrew itself when §6e and q23 landed.
+#[derive(Default)]
+pub struct TreeDoc<'a> {
+    pub ancestors: &'a [(String, String)],
+    pub section: Vec<PartMap>,
+    pub outline: Vec<PartMap>,
+    pub hero: Option<PartMap>,
+}
+
+pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartMap {
     let mut m = PartMap::new("document");
     m.set("title", Part::Text(title.to_string()));
     m.set("url", Part::Text(url.to_string()));
     m.set("tree", Part::Flag(true));
     let mut v = vec![("Home".to_string(), Some("/".to_string()))];
-    for (u, t) in ancestors {
+    for (u, t) in d.ancestors {
         v.push((t.clone(), Some(u.clone())));
     }
     v.push((title.to_string(), None));
     m.set("crumbs", crumb_stream(v));
-    if !section.is_empty() {
-        m.set("section", Part::Stream(section));
+    if let Some(h) = d.hero {
+        m.set("hero", Part::Map(h));
     }
-    if !outline.is_empty() {
-        m.set("outline", Part::Stream(outline));
+    if !d.section.is_empty() {
+        m.set("section", Part::Stream(d.section));
+    }
+    if !d.outline.is_empty() {
+        m.set("outline", Part::Stream(d.outline));
     }
     m.set("content", Part::Html(content.to_string()));
     m
@@ -539,39 +566,85 @@ pub struct Figure {
     pub alt: String,
 }
 
+/// One `figure` map — a picture with q26's dimension facts attached.
+pub fn figure(f: &Figure) -> PartMap {
+    let mut fm = PartMap::new("figure");
+    fm.set("url", Part::Text(f.url.clone()));
+    fm.set("src", Part::Text(f.src.clone()));
+    if let Some((w, h)) = f.dims {
+        fm.set("width", Part::Text(w.to_string()));
+        fm.set("height", Part::Text(h.to_string()));
+    }
+    fm.set("alt", Part::Text(f.alt.clone()));
+    fm
+}
+
 /// N object rows as pictures. Dimensions ride as attribute holes so the
 /// theme's `<img>` gets `width`/`height` and the page never shifts (q26).
 pub fn gallery(items: &[Figure], title: &str, trail: Vec<(String, Option<String>)>) -> PartMap {
     let mut m = PartMap::new("gallery");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
-    let v = items
-        .iter()
-        .map(|f| {
-            let mut fm = PartMap::new("figure");
-            fm.set("url", Part::Text(f.url.clone()));
-            fm.set("src", Part::Text(f.src.clone()));
-            if let Some((w, h)) = f.dims {
-                fm.set("width", Part::Text(w.to_string()));
-                fm.set("height", Part::Text(h.to_string()));
-            }
-            fm.set("alt", Part::Text(f.alt.clone()));
-            fm
-        })
-        .collect();
-    m.set("items", Part::Stream(v));
+    m.set("items", Part::Stream(items.iter().map(figure).collect()));
     m
 }
 
-/// N rows as bare titled links — the smallest listing kind.
-pub fn link_list(rows: &[&Post]) -> PartMap {
+/// One card-shaped row preview (q23): title + link, optionally a hero
+/// image (with dimensions) and a one-line note.
+pub struct CardRow {
+    pub title: String,
+    pub url: String,
+    pub src: Option<String>,
+    pub dims: Option<(u32, u32)>,
+    pub note: Option<String>,
+}
+
+pub fn card(c: &CardRow) -> PartMap {
+    let mut m = PartMap::new("card");
+    m.set("title", Part::Text(c.title.clone()));
+    m.set("url", Part::Text(c.url.clone()));
+    if let Some(s) = &c.src {
+        m.set("src", Part::Text(s.clone()));
+    }
+    if let Some((w, h)) = c.dims {
+        m.set("width", Part::Text(w.to_string()));
+        m.set("height", Part::Text(h.to_string()));
+    }
+    if let Some(n) = &c.note {
+        m.set("note", Part::Text(n.clone()));
+    }
+    m
+}
+
+/// N rows as cards, the first featured — the book-of-the-month shape:
+/// this month leads large, the back catalogue follows.
+pub fn card_list(
+    rows: &[CardRow],
+    title: &str,
+    trail: Vec<(String, Option<String>)>,
+) -> PartMap {
+    let mut m = PartMap::new("card_list");
+    m.set("title", Part::Text(title.to_string()));
+    m.set("crumbs", crumb_stream(trail));
+    if let Some(first) = rows.first() {
+        m.set("featured", Part::Map(card(first)));
+    }
+    if rows.len() > 1 {
+        m.set("items", Part::Stream(rows[1..].iter().map(card).collect()));
+    }
+    m
+}
+
+/// N rows as bare titled links — the smallest listing kind. Items are
+/// `(title, url)`, so posts and pages embed alike.
+pub fn link_list(items: &[(String, String)]) -> PartMap {
     let mut m = PartMap::new("link_list");
-    let v = rows
+    let v = items
         .iter()
-        .map(|p| {
+        .map(|(title, url)| {
             let mut lm = PartMap::new("link");
-            lm.set("title", Part::Text(p.title.clone()));
-            lm.set("url", Part::Text(p.url.clone()));
+            lm.set("title", Part::Text(title.clone()));
+            lm.set("url", Part::Text(url.clone()));
             lm
         })
         .collect();
@@ -725,9 +798,10 @@ mod tests {
             let m = document_tree(
                 &title,
                 &pg.url,
-                &[("/code/".to_string(), "Code".to_string())],
-                Vec::new(),
-                Vec::new(),
+                TreeDoc {
+                    ancestors: &[("/code/".to_string(), "Code".to_string())],
+                    ..Default::default()
+                },
                 "<p>body</p>",
             );
             let out = canonical(&m);

@@ -88,13 +88,17 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
 pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let mut out_map: SiteOutput = BTreeMap::new();
 
-    let css_url = format!("{}/css/main.css", cfg.site.baseurl);
     let site = Site {
         url: &cfg.site.url,
         title: &cfg.site.title,
         author: &cfg.site.author,
         email: cfg.site.email.as_deref(),
-        css: &css_url,
+    };
+    // Each theme compiles its own stylesheet; `default` keeps /css/main.css
+    // (URL parity with the reference), others get /css/{name}.css.
+    let css_of = |theme: Option<&str>| match theme {
+        None | Some("default") => format!("{}/css/main.css", cfg.site.baseurl),
+        Some(n) => format!("{}/css/{n}.css", cfg.site.baseurl),
     };
 
     let mut stats = Stats::default();
@@ -106,11 +110,13 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let thumb_urls: HashMap<String, String> =
         thumbs.iter().map(|(k, t)| (k.clone(), t.url.clone())).collect();
 
-    // ---- theme: fragments + tree slot fills, loaded once (§5e). All theme
-    // errors — malformed fragment, unknown slot, arity violation — surface
-    // here, before anything renders.
-    let thm = theme::Theme::load(&theme_dir, &root)
-        .with_context(|| format!("loading {}", theme_dir.display()))?;
+    // ---- themes: every directory under themes/, loaded once (§5e). All
+    // theme errors — malformed fragment, unknown slot, arity violation —
+    // surface here, before anything renders. Theme is chosen per ROW (§5a);
+    // everything not a tree page renders through the default.
+    let themes = theme::Themes::load_all(&root.join("themes"), &root)
+        .context("loading themes")?;
+    let thm = themes.get(None)?;
 
     let bodies = render_bodies(cfg, db, &thumb_urls)?;
 
@@ -160,7 +166,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let main =
                 thm.fragments.render(&parts::document(db, p, whole, trail, &rel, outline));
             let dir = p.path.parent().unwrap_or(&root);
-            let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?;
+            let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, dir)?;
             Ok((p.url.clone(), html))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -235,7 +241,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
         let main = thm.fragments.render(&parts::listing(&rows, &title, trail, pagination));
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
-        let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, &root)?;
+        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -273,7 +279,39 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .collect();
         let main = thm.fragments.render(&parts::gallery(&items, &title, trail));
         let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, &root)?;
+        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
+        out_map.insert(r.url.clone(), html.into_bytes());
+        stats.listings += 1;
+    }
+
+    // ---- card lists: tree-backed views (§5b rows + q23 heroes). The first
+    // member is featured — the book of the month leads large, the back
+    // catalogue follows as cards.
+    for r in &db.routes {
+        let Some(view) = &r.view else { continue };
+        if view_base_kind(cfg, view) != Some(Kind::Tree) {
+            continue;
+        }
+        let Some(v) = cfg.views.get(view) else { continue };
+        let (title, trail) = listing_title_and_trail(cfg, view, v, r)?;
+        let rows: Vec<parts::CardRow> = r
+            .members
+            .iter()
+            .map(|&i| &db.pages.rows[i])
+            .map(|p| {
+                let t = p.hero_source().and_then(|s| thumbs.get(s));
+                parts::CardRow {
+                    title: p.title.clone().unwrap_or_default(),
+                    url: p.url.clone(),
+                    src: t.map(|t| t.url.clone()),
+                    dims: t.and_then(|t| t.dims),
+                    note: p.description.clone(),
+                }
+            })
+            .collect();
+        let main = thm.fragments.render(&parts::card_list(&rows, &title, trail));
+        let head = render::head_simple(&title, &r.url, &site, false);
+        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -418,7 +456,26 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     })
                     .unwrap_or_default();
 
-                // The legacy `layout:` field selects a theme + a layout kind.
+                // The hero (q23): an image-typed schema field, thumbnailed,
+                // dimension facts attached.
+                let hero = row
+                    .and_then(|p| p.hero_source())
+                    .map(|s| {
+                        let t = thumbs.get(s);
+                        parts::figure(&parts::Figure {
+                            url: format!("{}/{s}", cfg.site.baseurl),
+                            src: t.map(|t| t.url.clone())
+                                .unwrap_or_else(|| format!("{}/{s}", cfg.site.baseurl)),
+                            dims: t.and_then(|t| t.dims),
+                            alt: title.clone(),
+                        })
+                    });
+
+                // The legacy `layout:` field selects a layout kind; the
+                // row's `theme:` (front matter or rule default) selects the
+                // theme — per row, §5a.
+                let row_thm = themes.get(row.and_then(|p| p.theme.as_deref()))?;
+                let row_css = css_of(row.and_then(|p| p.theme.as_deref()));
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = match Theme::parse(layout) {
                     // `light` IS the null theme (§5e step 4): the minimal
@@ -428,13 +485,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     }
                     Theme::Default => {
                         let main = match layout {
-                            Some("page") | Some("post") => thm.fragments.render(
+                            Some("page") | Some("post") => row_thm.fragments.render(
                                 &parts::document_tree(
                                     &title,
                                     &r.url,
-                                    &ancestors(db, &r.url),
-                                    section,
-                                    outline,
+                                    parts::TreeDoc {
+                                        ancestors: &ancestors(db, &r.url),
+                                        section,
+                                        outline,
+                                        hero,
+                                    },
                                     &frag,
                                 ),
                             ),
@@ -442,7 +502,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                             _ => frag.clone(),
                         };
                         let dir = src.parent().unwrap_or(&root);
-                        thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?
+                        row_thm.page(
+                            render::head_html(&head, &row_css),
+                            &cfg.site.title,
+                            main,
+                            dir,
+                        )?
                     }
                 };
                 out_map.insert(r.url.clone(), html.into_bytes());
@@ -453,7 +518,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     }
 
     search_pass(db, &bodies, &theme_dir, &mut out_map, &mut stats);
-    css_pass(&theme_dir, &mut out_map, &mut stats)?;
+    // Every theme compiles its own stylesheet to its own URL.
+    css_pass(&theme_dir, "/css/main.css", &mut out_map, &mut stats)?;
+    for name in themes.names().filter(|n| *n != "default") {
+        css_pass(
+            &root.join("themes").join(name),
+            &format!("/css/{name}.css"),
+            &mut out_map,
+            &mut stats,
+        )?;
+    }
 
     Ok((out_map, stats))
 }
@@ -476,6 +550,11 @@ fn thumbs_pass(
     let mut img_sources: Vec<String> = Vec::new();
     for p in &db.posts.rows {
         img_sources.extend(tags::image_sources(&p.body));
+    }
+    // Image-typed schema fields (§5b) — covers and the like — thumbnail
+    // too: they are what heroes and cards render (q23).
+    for p in &db.pages.rows {
+        img_sources.extend(p.images.values().cloned());
     }
     for r in &db.routes {
         if r.kind == RouteKind::Page {
@@ -591,9 +670,14 @@ fn search_pass(
     }
 }
 
-/// The theme owns its stylesheet (§5e) — `theme.scss` compiles to the same
-/// /css/main.css URL the shell links.
-fn css_pass(theme_dir: &Path, out_map: &mut SiteOutput, stats: &mut Stats) -> Result<()> {
+/// A theme owns its stylesheet (§5e) — `theme.scss` compiles to the URL the
+/// theme's pages link (`default` keeps /css/main.css for parity).
+fn css_pass(
+    theme_dir: &Path,
+    url: &str,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) -> Result<()> {
     let scss = theme_dir.join("theme.scss");
     if !scss.exists() {
         return Ok(());
@@ -604,8 +688,8 @@ fn css_pass(theme_dir: &Path, out_map: &mut SiteOutput, stats: &mut Stats) -> Re
     let opts = grass::Options::default().load_path(theme_dir);
     match grass::from_string(flat, &opts) {
         Ok(css) => {
-            stats.css = css.len();
-            out_map.insert("/css/main.css".to_string(), css.into_bytes());
+            stats.css += css.len();
+            out_map.insert(url.to_string(), css.into_bytes());
         }
         Err(e) => eprintln!("scss: {e}"),
     }

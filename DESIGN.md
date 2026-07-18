@@ -1112,6 +1112,18 @@ embeddings — share one content-addressed cache; see §6b.
 
 ## 5b. Tree overlays: styles, slots and schema declared by position
 
+> ✅ **The schema leg is built** (2026-07, `schema.rs`, forced by §7a's
+> recipes and books): `.schema.toml` declares typed fields
+> (string/int/bool/list/**image**) for its subtree, resolution accumulates
+> nearest-wins like markers, and a governed row's extra front matter is
+> *validated* — undeclared key or wrong type is a load error naming the
+> file and the knowns, exactly the payoff promised below. Image-typed
+> fields feed the thumb pass and the `hero` part (q23). Ungoverned rows
+> stay as tolerant as ever. The `.style.scss` and `.slots/`-overlay legs
+> remain as specced; per-row **themes** landed separately (a `theme:`
+> field cascading via rule defaults — §5a's "theme is chosen per row",
+> real at last, with a theme registry and per-theme stylesheets).
+
 **This is the marker pattern (§4b) again**, which is the argument for it: the
 tree declares *where*, the config declares only the vocabulary. A directory
 already sets defaults for its subtree; the proposal is that it can also carry
@@ -3047,9 +3059,9 @@ parked feature, in parallel rather than in sequence.
 | `photos/` (varied aspect ratios) | ✅ **forced it** — object views (§5 audit gaps 1–3), dimension facts (q26), CSS-columns masonry; still open here: variants (q24) |
 | `manual/` (mdbook-style tree, `order:` in front matter) | ✅ **forced it** — §6e section trees, `.section` markers (q35 settled), q27 unlinked labels |
 | long posts with `##` headings, `toc:` front matter | ✅ **forced it** — §6e page outlines |
-| `recipes/` (typed front matter: servings, prep time, course) | per-subtree schema (§5b — its long-missing second user), typed fields beyond the post schema, `group_by` over arbitrary schema fields (today: tags/dates only) |
-| `books/` (planned: a book-of-the-month club) | `hero` (q23) *and* database-rows-as-content in one fixture: books are typed rows (author, month, `cover:`) whose index features the newest row large, and each book page shows its cover large — hero-from-a-schema-field is q23's "explicit beats derived" precedence with the §5b schema work attached |
-| a second theme, minimal | ✅ partial themes proven (shell + CSS at first; per-kind fragments added only as features needed them); still open: the theme-name config key (§9b) |
+| `recipes/` (typed front matter: servings, prep time, course) | ✅ **forced it** — `.schema.toml` validation (§5b), *and* a deliberately alien second theme selected by one rule default (`theme = "recipes"`): §5a's per-row themes, real. Still open: `group_by` over schema fields |
+| `books/` (a book-of-the-month club) | ✅ **forced it** — tree views (`over = "pages"`, `match`, `order_by = "-month"` over a schema field), the `card`/`card_list` kinds (newest featured large), `hero` on document pages (q23: `cover:` beats `image:`), and cross-table embedding: the homepage shows latest posts, latest recipes, and the current book side by side — three tables, one query language |
+| a second theme, minimal | ✅ partial themes proven twice over: the default grew fragments only as features needed them, and the recipes theme is shell + CSS styling *canonical* markup |
 
 Two rules keep it honest:
 
@@ -3503,9 +3515,11 @@ the drift is only ever invisible *until* it isn't.
 - ~~`post_trail` hardcodes `"blog"`~~ — **generalized (2026-07)**: the posts
   collection is found by kind. Still single-posts-table; a second posts
   collection remains future work.
-- `themes/default` is one hardcoded path in `build.rs` (down from four):
-  the theme *name* isn't config yet. One key, whenever a second theme
-  exists.
+- ~~`themes/default` hardcoded~~ — **dissolved (2026-07)**: `themes/*` is a
+  registry, theme is per row (`theme:` front matter or rule default), each
+  theme compiles its own stylesheet, and a site with no themes directory
+  is the null theme. What remains: `default` as the conventional default
+  name, and search assets living in the default theme.
 - The CLI's `query search` indexes raw markdown where build indexes
   rendered HTML — documented at `search_docs`; a deliberately cheap smoke
   query, not an inconsistency to fix.
@@ -3637,11 +3651,26 @@ the drift is only ever invisible *until* it isn't.
     everywhere else. The mindstorms audit (§5) adds a third source for
     *group* heroes: a designated cover file (`cover.*`, matching the existing
     `alpharex_1.jpg` covers) beats first-item — explicit beats derived again,
-    expressed positionally. **Planned fixture (§7a): the example's
-    book-of-the-month club** — the club index features the newest book's
-    cover large, each book page shows it large; hero-from-a-schema-field
-    (`cover:`) plus the two fallbacks, on rows that are also the §5b typed-
-    schema case. One section forces both questions.
+    expressed positionally. ✅ **Built via the book club (2026-07)**:
+    `hero` is a `Map("figure")` on `document`, sourced from the image-typed
+    schema field named `cover` (beats `image`; §5b), thumbnailed with
+    dimension facts. The card kinds consume the same source. **Still
+    open**: the first-image-block fallback, and the mindstorms group-hero
+    (`cover.*` file) — both arrive with their consumers.
+36. **Unify `summary` and `card` into one preview kind (Matt, 2026-07).**
+    A card is a view's *projection* of a row, and so is a summary — they
+    differ by what the row *has* (posts: date/tags/blocks; books:
+    cover/note), not by what they are. That is §5a's document argument
+    (post/page unified because relations are schema-driven) one level
+    down, so the leaning is yes: one preview kind whose parts are
+    presence-driven, with `card_list` folding into `listing` (a
+    `featured` slot any listing may fill). Costs a main-site chrome pass
+    (`summary.html` reworks), so it lands as its own change under the
+    by-eye budget — not as a rider. Related nuance found en route: the
+    canonical fallback is all-or-nothing per subtree (canonical rendering
+    never consults child fragments — a theme with `link.html` but no
+    `link_list.html` still gets canonical links), which the unification
+    review should either fix or document as the rule.
 24. **Per-view fragment variants (§5e).** `variant = "gallery"` on a view →
     `listing--gallery.html` with fallback to `listing.html`, load-time
     checked. Needed the day one view wants cards while another wants

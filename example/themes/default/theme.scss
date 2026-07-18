@@ -157,6 +157,96 @@ a:hover {
 	}
 }
 
+// Cards (q23): the book club. The featured card is this month's selection,
+// large; the grid is the back catalogue. width/height attrs come from the
+// engine's dimension facts, so covers reserve their space.
+.card {
+	display: block;
+	text-decoration: none;
+
+	img {
+		width: 100%;
+		height: auto;
+		display: block;
+		border-radius: 4px;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+	}
+
+	.card-title {
+		display: block;
+		font-weight: bold;
+		margin-top: 0.5rem;
+		color: var(--fg);
+	}
+
+	.card-note {
+		display: block;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+}
+
+.card-list {
+	.featured .card {
+		display: grid;
+		grid-template-columns: minmax(180px, 260px) 1fr;
+		grid-template-rows: auto 1fr;
+		column-gap: 1.5rem;
+		align-items: start;
+
+		img {
+			grid-row: 1 / span 2;
+		}
+
+		.card-title {
+			font-size: 1.3rem;
+			margin-top: 0;
+		}
+	}
+
+	.card-grid {
+		margin-top: 2.5rem;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+		gap: 1.25rem;
+
+		// Rule 2 deletes this whole element when there is no backlist, so
+		// the label lives here, not as a literal heading.
+		&::before {
+			content: "Previous selections";
+			grid-column: 1 / -1;
+			font-weight: bold;
+			border-top: 1px solid var(--line);
+			padding-top: 1rem;
+		}
+	}
+}
+
+// The book page's cover (q23's hero): shown beside the opening prose.
+.doc-hero .figure {
+	float: right;
+	width: min(40%, 220px);
+	margin: 0 0 1rem 1.5rem;
+
+	img {
+		width: 100%;
+		height: auto;
+		border-radius: 4px;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+	}
+}
+
+// The homepage's three-up.
+.home-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 1.5rem;
+
+	.card img {
+		max-width: 160px;
+	}
+}
+
 // The gallery: CSS-columns masonry (the §5e interim — native masonry is
 // not Baseline yet). width/height attributes come from the engine's
 // dimension facts (q26), so the browser reserves space and nothing shifts.

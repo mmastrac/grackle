@@ -22,7 +22,64 @@ pub struct Theme {
     identity: Vec<(&'static str, bool)>,
 }
 
+/// Every theme under `themes/`, keyed by directory name. Theme is chosen
+/// per row (§5a): a row names one (`theme:` front matter, cascadable via
+/// rule defaults); the site default is `default`; a site with no themes at
+/// all gets the null theme — §5e's "needs no directory" made literal.
+pub struct Themes {
+    map: std::collections::BTreeMap<String, Theme>,
+    null: Theme,
+}
+
+impl Themes {
+    pub fn load_all(themes_dir: &Path, site_root: &Path) -> Result<Themes> {
+        let mut map = std::collections::BTreeMap::new();
+        if let Ok(rd) = std::fs::read_dir(themes_dir) {
+            for e in rd.filter_map(|e| e.ok()) {
+                if e.path().is_dir() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    map.insert(name, Theme::load(&e.path(), site_root)?);
+                }
+            }
+        }
+        Ok(Themes { map, null: Theme::null(site_root)? })
+    }
+
+    /// Resolve a row's theme. None = the site default (`default`, or the
+    /// null theme when no theme directory exists at all); a *named* theme
+    /// that doesn't exist is an error listing the knowns — a row asked for
+    /// it explicitly.
+    pub fn get(&self, name: Option<&str>) -> Result<&Theme> {
+        match name {
+            None | Some("default") => Ok(self.map.get("default").unwrap_or(&self.null)),
+            Some(n) => self.map.get(n).ok_or_else(|| {
+                let known: Vec<&str> = self.map.keys().map(String::as_str).collect();
+                anyhow::anyhow!(
+                    "no theme named {n:?} — themes: {}",
+                    if known.is_empty() { "(none)".into() } else { known.join(", ") }
+                )
+            }),
+        }
+    }
+
+    /// The theme directories, for per-theme stylesheet compilation.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.map.keys().map(String::as_str)
+    }
+}
+
 impl Theme {
+    /// The null theme as a value: no fragments, identity fills still
+    /// resolved from the tree.
+    pub fn null(site_root: &Path) -> Result<Theme> {
+        Ok(Theme {
+            fragments: Fragments::default(),
+            fills: SlotFills::load(site_root)?,
+            root: site_root.to_path_buf(),
+            identity: Vec::new(),
+        })
+    }
+
     pub fn load(theme_dir: &Path, site_root: &Path) -> Result<Theme> {
         let fragments = Fragments::load_dir(theme_dir)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;

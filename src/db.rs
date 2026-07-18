@@ -56,6 +56,18 @@ impl Post {
     }
 }
 
+impl Page {
+    /// The hero image source (q23): the explicit `cover:` field beats
+    /// `image:`; both must be image-typed schema fields (§5b). The
+    /// first-image-block fallback remains open.
+    pub fn hero_source(&self) -> Option<&str> {
+        self.images
+            .get("cover")
+            .or_else(|| self.images.get("image"))
+            .map(String::as_str)
+    }
+}
+
 /// `2022-03-16` — sortable; the machine-readable date everywhere.
 pub fn iso_date(d: NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
@@ -80,10 +92,22 @@ pub struct Page {
     /// now selects a *theme* plus a layout kind.
     pub title: Option<String>,
     pub layout: Option<String>,
+    pub description: Option<String>,
     /// Declared position within a section tree (§6e).
     pub order: Option<i64>,
     /// Render the heading outline (§6e).
     pub toc: bool,
+    /// Which theme renders this row (§5a) — front matter beats rule
+    /// defaults; None means the site default.
+    pub theme: Option<String>,
+    /// Typed extra fields, validated against the governing `.schema.toml`
+    /// (§5b). Empty for ungoverned rows.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, filter::Value>,
+    /// The image-typed subset: field name → root-relative source path.
+    /// Feeds the thumb pass and the `hero` part (q23).
+    #[serde(skip)]
+    pub images: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -322,17 +346,30 @@ pub struct SiteDb {
     /// each roots a section tree its rendered rows carry. Engine vocabulary
     /// like `.slots/` — no config entry names it.
     pub sections: Vec<PathBuf>,
+    /// Per-subtree field declarations (§5b), from `.schema.toml` files.
+    #[serde(skip)]
+    pub schemas: crate::schema::Schemas,
     pub stats: LoadStats,
 }
 
 /// A routeless view's resolved rows.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ViewRows {
     /// None means query-only: a named set, not something renderable.
     pub layout: Option<String>,
     pub rows: usize,
+    /// Which table `members` index — embedded views span collections now
+    /// (`{% view latest_recipes %}` ranges over pages).
+    #[serde(skip)]
+    pub table: Kind,
     #[serde(skip)]
     pub members: Vec<usize>,
+}
+
+impl Default for ViewRows {
+    fn default() -> Self {
+        ViewRows { layout: None, rows: 0, table: Kind::Posts, members: Vec::new() }
+    }
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -661,6 +698,7 @@ fn build_tree_and_objects(
     tree_c: Option<&Collection>,
     obj_c: Option<&Collection>,
     markers: &Markers,
+    schemas: &crate::schema::Schemas,
 ) -> Result<(TreeTable, ObjectsTable)> {
     let Some(tree_c) = tree_c else {
         return Ok((TreeTable::default(), ObjectsTable::default()));
@@ -722,7 +760,7 @@ fn build_tree_and_objects(
         let is_object = is_obj(&f.rel);
 
         let rules = if is_object { &obj_rules } else { &tree_rules };
-        let (tmpl, _defaults) = apply_rules(rules, &f.rel, f.has_front_matter);
+        let (tmpl, defaults) = apply_rules(rules, &f.rel, f.has_front_matter);
         let Some(tmpl) = tmpl else {
             bail!("no rule supplies a route for {}", f.path.display());
         };
@@ -754,10 +792,28 @@ fn build_tree_and_objects(
         } else {
             // Only rendered rows have schema; 41 files, so parsing is cheap.
             let fm = if f.has_front_matter {
-                read_page_schema(&f.path)
+                read_page_schema(&f.path)?
             } else {
                 Default::default()
             };
+            // §5b: a governed row's extra front matter is validated — an
+            // undeclared key or wrong type fails the load naming the file.
+            // Ungoverned rows stay as tolerant as they always were.
+            let parent = f.rel.parent().unwrap_or(Path::new("")).to_path_buf();
+            let checked = match schemas.resolve(&parent) {
+                Some(schema) if f.has_front_matter => {
+                    crate::schema::validate(&schema, &fm.extra, &f.path)?
+                }
+                _ => Default::default(),
+            };
+            // Theme is chosen per row (§5a): front matter beats the rule
+            // default, so one rule can restyle a subtree.
+            let theme = fm.theme.clone().or_else(|| {
+                defaults
+                    .get("theme")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            });
             pages.rows.push(Page {
                 path: f.path,
                 rel: f.rel,
@@ -767,8 +823,12 @@ fn build_tree_and_objects(
                 size: f.size,
                 title: fm.title,
                 layout: fm.layout,
+                description: fm.description,
                 order: fm.order,
                 toc: fm.toc.unwrap_or(false),
+                theme,
+                fields: checked.values,
+                images: checked.images,
             });
         }
     }
@@ -776,12 +836,15 @@ fn build_tree_and_objects(
 }
 
 /// Front matter of a tree page: presentation reads its fields directly.
-fn read_page_schema(path: &Path) -> crate::store::FrontMatter {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Default::default();
-    };
+/// A parse failure is a LOAD ERROR naming the file — this used to swallow
+/// bad YAML into an empty schema, and an unquoted `title: A: B` shipped a
+/// silently titleless page. Loud beats lenient (§4's constraint ethos).
+fn read_page_schema(path: &Path) -> Result<crate::store::FrontMatter> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
     let (yaml, _) = store::split_front_matter(&text);
-    serde_yaml_ng::from_str(yaml).unwrap_or_default()
+    serde_yaml_ng::from_str(yaml)
+        .with_context(|| format!("front matter of {}", path.display()))
 }
 
 // ------------------------------------------------------------------ views
@@ -844,6 +907,57 @@ impl filter::Row for Post {
     }
 }
 
+/// Fields a filter may reference on a page (tree) row. Base fields only:
+/// per-subtree schema fields (§5b) vary by directory, so they join through
+/// `order_by` and — later — a per-view environment, not this global schema.
+pub fn page_schema() -> filter::Schema {
+    use filter::Type::*;
+    let mut s = filter::Schema::new();
+    s.insert("title", Str);
+    s.insert("url", Str);
+    s.insert("path", Str);
+    s.insert("dir", Str);
+    s.insert("stem", Str);
+    s.insert("layout", Str);
+    s.insert("description", Str);
+    s.insert("rendered", Bool);
+    s.insert("toc", Bool);
+    s.insert("order", Int);
+    s
+}
+
+impl filter::Row for Page {
+    fn field(&self, name: &str) -> filter::Value {
+        use filter::Value as V;
+        let opt = |o: &Option<String>| match o {
+            Some(s) => V::Str(s.clone()),
+            None => V::Null,
+        };
+        match name {
+            "title" => opt(&self.title),
+            "url" => V::Str(self.url.clone()),
+            "path" => V::Str(self.rel.to_string_lossy().to_string()),
+            "dir" => V::Str(
+                self.rel
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
+            "stem" => self
+                .rel
+                .file_stem()
+                .map_or(V::Null, |s| V::Str(s.to_string_lossy().to_string())),
+            "layout" => opt(&self.layout),
+            "description" => opt(&self.description),
+            "rendered" => V::Bool(self.rendered),
+            "toc" => V::Bool(self.toc),
+            "order" => self.order.map_or(V::Null, V::Int),
+            // Schema fields (§5b) resolve after the base names.
+            other => self.fields.get(other).cloned().unwrap_or(V::Null),
+        }
+    }
+}
+
 /// Fields a filter may reference on an object row (§5 audit gap 1: objects
 /// had no schema, so `over = "objects"` couldn't type-check a filter).
 /// Dimensions are deliberately absent: they are render-time facts from the
@@ -897,17 +1011,24 @@ impl SiteDb {
         db.stats.markers_ms = t_m.elapsed().as_secs_f64() * 1000.0;
         db.stats.markers = markers.found;
 
-        // §6e scope markers: a `.section` file roots a section tree. A
-        // name-only walk with the same .gitignore defence as the marker scan.
+        // The engine-vocabulary walk: `.section` scope markers (§6e) and
+        // `.schema.toml` field declarations (§5b) — positional names like
+        // `.slots/`, no config entries. One name-only pass with the same
+        // .gitignore defence as the marker scan.
         let mut b = store::walker(&root, cfg.gitignore);
         b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
         for entry in b.build().filter_map(|e| e.ok()) {
-            if entry.file_type().is_some_and(|t| t.is_file()) && entry.file_name() == ".section" {
-                if let Ok(rel) = entry.path().strip_prefix(&root) {
-                    if let Some(dir) = rel.parent() {
-                        db.sections.push(dir.to_path_buf());
-                    }
-                }
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
+                continue;
+            }
+            let Ok(rel) = entry.path().strip_prefix(&root) else { continue };
+            let Some(dir) = rel.parent() else { continue };
+            if entry.file_name() == ".section" {
+                db.sections.push(dir.to_path_buf());
+            } else if entry.file_name() == ".schema.toml" {
+                let text = std::fs::read_to_string(entry.path())
+                    .with_context(|| format!("reading {}", entry.path().display()))?;
+                db.schemas.add(dir, &text, rel)?;
             }
         }
         db.sections.sort();
@@ -928,7 +1049,8 @@ impl SiteDb {
         }
 
         let t = std::time::Instant::now();
-        let (pages, objects) = build_tree_and_objects(cfg, tree_c, obj_c, &markers)?;
+        let (pages, objects) =
+            build_tree_and_objects(cfg, tree_c, obj_c, &markers, &db.schemas)?;
         db.pages = pages;
         db.objects = objects;
         db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;

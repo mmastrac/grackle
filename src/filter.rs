@@ -41,7 +41,8 @@ impl fmt::Display for Type {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(untagged)]
 pub enum Value {
     Bool(bool),
     Int(i64),

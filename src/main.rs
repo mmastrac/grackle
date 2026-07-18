@@ -16,6 +16,7 @@ mod serve;
 mod tags;
 mod thumbs;
 mod route;
+mod schema;
 mod store;
 mod views;
 

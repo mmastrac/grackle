@@ -2,3 +2,4 @@
 - [Recipes](/recipes/)
 - [Manual](/manual/)
 - [Photos](/photos/)
+- [Books](/books/)

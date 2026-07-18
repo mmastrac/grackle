@@ -48,6 +48,12 @@ kind = "tree"
 source = "."
 exclude = ["themes/**", "*.toml"]
 
+  # Theme is chosen per row (§5a); a rule default restyles a subtree —
+  # the recipes section deliberately looks nothing like the rest.
+  [[collections.pages.rules]]
+  match = "recipes/**"
+  defaults = { theme = "recipes" }
+
   [[collections.pages.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
@@ -112,6 +118,34 @@ order_by = "name"
 route = "/photos/"
 layout = "gallery"
 title = "Photos"
+
+# The book-of-the-month club (§7a): a view over TREE rows with typed
+# fields (books/.schema.toml). Newest month leads — the card_list kind
+# features the first member large.
+[views.books]
+over = "pages"
+match = "books/**"
+order_by = "-month"
+route = "/books/"
+layout = "card_list"
+title = "Book of the Month"
+
+# Routeless, embedded on the homepage: the same query language, composed
+# across tables — posts (latest), pages (recipes, the current book).
+[views.latest_recipes]
+over = "pages"
+match = "recipes/**"
+filter = 'stem != "index"'
+order_by = "title"
+limit = 3
+layout = "link_list"
+
+[views.book_of_the_month]
+over = "pages"
+match = "books/**"
+order_by = "-month"
+limit = 1
+layout = "card"
 
 [views.sitemap]
 over = "*"

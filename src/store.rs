@@ -27,6 +27,14 @@ pub struct FrontMatter {
     /// "render directive" example. Cascades from markers/rules like any
     /// default.
     pub toc: Option<bool>,
+    /// Which theme renders this row (§5a: theme is chosen per row).
+    /// Cascades from rules, so a subtree changes look with one rule.
+    pub theme: Option<String>,
+    /// Everything else: captured for per-subtree schema validation (§5b).
+    /// Ungoverned rows tolerate unknown keys exactly as before; a row under
+    /// a `.schema.toml` gets them checked.
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }
 
 /// `tags:` is a YAML sequence in all 44 posts that have it, but Jekyll also

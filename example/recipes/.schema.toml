@@ -1,0 +1,5 @@
+# §5b: typed fields for every row beneath this directory. An undeclared
+# front-matter key under here is now a load error naming the file.
+course = { type = "string" }
+servings = { type = "int" }
+minutes = { type = "int" }

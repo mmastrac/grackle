@@ -361,8 +361,9 @@ fn known_parts(kind: &str) -> String {
 }
 
 fn known_kinds() -> &'static str {
-    "document, listing, summary, gallery, figure, outline_entry, link_list, \
-     link, crumb, tag, relation, neighbor, pagination, page_link, raw"
+    "document, listing, summary, gallery, figure, card, card_list, \
+     outline_entry, link_list, link, crumb, tag, relation, neighbor, \
+     pagination, page_link, raw"
 }
 
 // ------------------------------------------------------------------ parser
