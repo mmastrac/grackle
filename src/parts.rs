@@ -152,12 +152,11 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         // The outer skeleton. `head` is the computed head facts (§5a);
         // `nav`/`copyright` are site identity, filled from `.slots/` so no
         // theme owns the words; `main` is the rendered layout kind.
+        // BODY chrome only (§5g): the engine owns the root HTML shell
+        // (doctype/<html>/<head>/<body>) that every theme inherits — a
+        // theme's shell.html is the chrome inside <body>. `head` and the
+        // subtheme attribute live on the engine root, not here.
         "shell" => &[
-            ("head", Html),
-            // Subtheme tokens from `theme: "name:sub[:sub…]"` (§5a),
-            // space-joined; themes place them as an attribute hole on
-            // <html> and CSS subselects via [data-subtheme~="…"].
-            ("subtheme", Text),
             ("nav", Html),
             ("site_title", Text),
             ("main", Html),

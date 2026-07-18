@@ -261,6 +261,20 @@ impl Fragments {
         self.render_with(m, None)
     }
 
+    /// Render a map as BODY content (§5g): like `render`, but the fragment
+    /// root is not stamped — the engine's root HTML shell carries
+    /// `data-kind`/`data-subtheme` on `<html>` itself.
+    pub fn render_body(&self, m: &PartMap) -> String {
+        match self.map.get(m.kind) {
+            Some(frag) => {
+                let mut out = String::new();
+                self.render_nodes(&frag.nodes, m, &mut out, false);
+                out
+            }
+            None => crate::parts::canonical(m),
+        }
+    }
+
     /// Render through a variant's fragment when the theme has one (q24):
     /// `{kind}--{variant}` → the kind's base fragment → canonical. The
     /// view declares the variant; the theme opts in by shipping the file.

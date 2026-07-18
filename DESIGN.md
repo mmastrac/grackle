@@ -2242,6 +2242,66 @@ evaluating any expression not written by the site's author.
   signal to swap in a CEL crate, not to keep growing; the contract exists
   precisely so the swap is cheap.
 
+## 5g. Shells: the outermost serialization *(Matt, 2026-07; html root + atom/sitemap built)*
+
+**Shell is its own axis**, distinct from layout (which parts a row emits)
+and theme (which fragments arrange them): the shell is what the arranged
+parts are *serialized into*. A page is parts in the HTML shell; the feed
+is the same rows in the atom shell; the sitemap is routes in the sitemap
+shell. Views declare `shell = "atom" | "sitemap"` (built — this retired
+q33's template-filename match), and the HTML shell got the treatment the
+idea deserved:
+
+### The root HTML shell: themes inherit, never write, the skeleton
+
+Built. The engine owns `root_shell`: doctype, `<html lang data-kind=
+"shell" [data-subtheme]>`, `<head>` from the computed facts, `<body>`
+around the theme's chrome. A theme's `shell.html` is now **body chrome
+only** — no theme writes a skeleton, and three duplicated skeletons (main
+theme, two example themes) plus the Rust `light_shell` all collapsed into
+one function. What this bought, each previously a defect:
+
+- **A fragmentless theme yields a valid document.** The null theme used
+  to render the shell as `<section data-kind="shell">` — not a page. Now
+  canonical body chrome sits inside a real skeleton; "a theme needs no
+  directory at all" is finally true all the way down.
+- **`light` dissolved**: a minimal head (title + robots) in the same
+  root shell as everything else, not a third skeleton.
+- **`subtheme` moved to the engine root** — no attribute-hole opt-in per
+  theme; `theme: "recipes:spicy"` stamps `<html data-subtheme="spicy">`
+  everywhere, unconditionally.
+- The migration was **accounted byte-for-byte**: 547 changed main-site
+  files, 545 explained by `<head data-slot="head">` → `<head>`, 2 (the
+  light pages) by the shell stamp plus one trimmed blank line. Nothing
+  else moved.
+
+Pending here: a theme that wants to ADD head content (fonts) lost its
+former ability to write into the skeleton's head — the mechanism when
+wanted is an optional `head.html` theme fragment appended after the
+computed facts.
+
+### The md shell *(specced; consumer named)*
+
+A markdown serialization of part maps, and its forcing consumer is
+**`/llms.txt`**: a view over published rows, shell `md` — titles, URLs
+and summaries as a markdown listing, which is pure scalar parts and
+serializes trivially. The open half is full-text export (`llms-full.txt`
+-style): `content` parts are rendered HTML, so a body-markdown shell
+needs either the source markdown carried alongside the Doc (cheap —
+grackle has it in hand at render) or an HTML→md downconversion (build
+machinery for a worse result). Leaning: carry the source. Deliberately
+pending until built: whether `md` is view-only or a row can request it
+(`/post-slug.md` twins), and how widgets serialize (expanded HTML in md,
+or unexpanded source?).
+
+### Still open (q44)
+
+Row-level shells — `layout: light` still conflates "minimal shell" with
+a theme choice; a `shell:` row field (`html`/`light`/`none`-bytes) would
+split them — and the atom/sitemap serializers becoming true part-map
+consumers (a feed entry IS a document-parts subset), and a `json` shell
+when something wants one.
+
 ## 6a. Object references: paths and names
 
 ### The measurements that shape this
@@ -3965,18 +4025,14 @@ the drift is only ever invisible *until* it isn't.
     `view != "blog_index"`, the `blog_index` fallback layout match, and
     the sitemap filter's second evaluation (star routes carry no
     members).
-44. **Built-in shell types (Matt, 2026-07; the atom/sitemap slice is
-    built).** A page is parts in the HTML shell; the feed is parts in
-    the atom shell; a bare page is parts in a minimal shell — "shell" is
-    an axis of its own, distinct from layout (which parts) and theme
-    (which fragments). Built: `shell = "atom" | "sitemap"` on views.
-    The rest of the generalization, deliberately pending: (a) row-level
-    shells — `layout: light` today conflates "minimal shell" with a
-    theme choice, and a `shell:` row field would split them cleanly
-    (`html` / `light` / `none`-bytes); (b) whether the atom/sitemap
-    serializers become part-map consumers proper (a feed entry IS a
-    document-parts subset) rather than bespoke XML writers; (c) a
-    `json` shell (JSON Feed / index exports) once something wants it.
+44. **Built-in shell types (Matt, 2026-07)** — promoted to **§5g**, which
+    carries the design: the root HTML shell all themes inherit is BUILT
+    (null theme yields valid documents, `light_shell` dissolved,
+    `subtheme` engine-placed), atom/sitemap view shells are built, the
+    md shell is specced with `/llms.txt` as its forcing consumer.
+    Remaining pending, per §5g: row-level `shell:` (splitting `layout:
+    light`'s conflation), theme `head.html` extras, serializers as
+    part-map consumers, a `json` shell.
 34. **Three "not content" lists (§9b).** §4c's three layers govern the tree
     walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`) carry
     private skip lists that duplicate — and can silently drift from —

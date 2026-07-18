@@ -119,16 +119,31 @@ impl Theme {
     }
 }
 
-/// The `light` shell (§5e step 4): the null theme's minimal wrapper — title
-/// and robots around the canonical rendering, nothing else.
-pub fn light_shell(head: &Head, main: &str) -> String {
+/// §5g: the engine-owned ROOT HTML SHELL every theme inherits — doctype,
+/// `<html>` stamped with the shell kind and any subtheme tokens, `<head>`
+/// from the computed facts, `<body>` from the theme's body chrome. Themes
+/// never write the skeleton, and a fragmentless (null) theme still
+/// produces a valid document.
+pub fn root_shell(head: &str, subtheme: Option<&str>, body: &str) -> String {
+    let sub = subtheme
+        .map(|s| format!(" data-subtheme=\"{}\"", esc(s)))
+        .unwrap_or_default();
+    format!(
+        "<!doctype html>\n<html lang=\"en\" data-kind=\"shell\"{sub}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
+        body.trim_end()
+    )
+}
+
+/// The `light` head (§5e step 4): title and robots, nothing else — the
+/// minimal facts subset, wrapped by the same root shell as everything.
+pub fn light_head(head: &Head) -> String {
     let robots = if head.noindex {
         "\n\t<meta name=\"robots\" content=\"noindex,follow\">"
     } else {
         ""
     };
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n\t<title>{}</title>{robots}\n\t<meta charset=\"utf-8\">\n</head>\n<body>\n{main}\n</body>\n</html>\n",
+        "\n\t<title>{}</title>{robots}\n\t<meta charset=\"utf-8\">\n",
         esc(&head.title)
     )
 }

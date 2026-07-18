@@ -101,7 +101,7 @@ impl Theme {
         let fills = SlotFills::load(site_root)?;
         // Identity slots = shell slots the engine does not provide, matched
         // back to the schema so the names stay 'static and checked.
-        let engine = ["head", "main", "site_title"];
+        let engine = ["main", "site_title"];
         let mut identity = Vec::new();
         for (slot, tag) in fragments.slot_tags("shell") {
             if engine.contains(&slot.as_str()) {
@@ -128,10 +128,6 @@ impl Theme {
         subtheme: Option<&str>,
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
-        m.set("head", Part::Html(head_html));
-        if let Some(s) = subtheme {
-            m.set("subtheme", Part::Text(s.to_string()));
-        }
         m.set("site_title", Part::Text(site_title.to_string()));
         for (name, phrasing) in &self.identity {
             if let Some(fill) = self.fills.resolve(&self.root, source_dir, name) {
@@ -144,7 +140,11 @@ impl Theme {
             }
         }
         m.set("main", Part::Html(main));
-        Ok(self.fragments.render(&m))
+        // The theme renders BODY chrome; the engine's root shell (§5g)
+        // supplies doctype/<html>/<head>/<body> around it — so even a
+        // theme with no shell fragment yields a valid document.
+        let body = self.fragments.render_body(&m);
+        Ok(crate::render::root_shell(&head_html, subtheme, &body))
     }
 }
 

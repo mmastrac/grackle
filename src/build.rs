@@ -485,10 +485,13 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = match Theme::parse(layout) {
                     // `light` IS the null theme (§5e step 4): the minimal
-                    // shell (title + robots) around the canonical rendering.
-                    Theme::Light => {
-                        render::light_shell(&head, &parts::canonical(&parts::raw(&frag)))
-                    }
+                    // head (title + robots) in the same root shell (§5g)
+                    // as everything, around the canonical rendering.
+                    Theme::Light => render::root_shell(
+                        &render::light_head(&head),
+                        None,
+                        &parts::canonical(&parts::raw(frag)),
+                    ),
                     Theme::Default => {
                         let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
                         let main = match layout {
