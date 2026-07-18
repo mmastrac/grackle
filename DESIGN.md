@@ -3108,6 +3108,86 @@ Two rules keep it honest:
    collision checks) — which is exactly the discipline a *new* grackle
    site would live under, tested for the first time.
 
+## 7b. The backtest: 36 real sites against the model *(surveyed 2026-07)*
+
+Method: 12 parallel survey agents, each auditing 3 sites against a compact
+model card — personal/systems/dev blogs, longform, linkblogs, food sites,
+portfolios, docs, digital gardens, unusual-static, magazines/podcasts.
+35/36 fetched (rachelbythebay blocks this egress; judged from known
+structure). **90 reported misses: 14 structural, 33 moderate, 43 minor.**
+Raw reports are in the session archive; what follows is the synthesis.
+
+### The headline: the core model holds
+
+Every blog-shaped site backtests cleanly — danluu, jvns, matklad,
+macwright, simonwillison, seths, sive.rs, paulgraham, the linkblogs:
+collections + route templates + views + part maps cover them without
+strain, and several agents noted the archive/grouping/feed machinery maps
+"textbook". Two reported misses were **false** — full-body listings (jvns
+TIL, seths.blog) are exactly §6d's "no summary field in the chain = rows
+ship whole", and prev/next navigation is the earlier/later relations axes
+— which says the *model card under-communicated*, not that the model
+missed. (One true triviality fell out: matklad's per-post "fix typo"
+GitHub link wants the row's repo-relative source path as a document fact —
+storage is literally git, the fact is free.)
+
+### The gap clusters, ranked (→ new open questions)
+
+1. **The link graph** (→ q38). Digital gardens live on backlinks
+   (andymatuschak, maggieappleton, gwern) and the model's only
+   cross-page signal is embedding similarity. But the shape is already
+   built: scan bodies for internal links at load, invert, and backlinks
+   are one more **relations axis** — the §6b axes design absorbing its
+   first non-temporal, non-similarity member. Transclusion ("render row
+   X inline here") is the harder half.
+2. **Set-scoped computed fields** (→ q39). Meal plans rolling up
+   ingredients across referenced recipes, subtree photo/day counts
+   (paulstamatiou), calendar widgets with per-day counts, term indexes
+   (diataxis): all *aggregation over a view's members*, where §5f fields
+   are row-scoped. The expression language wants `count()`/`sum(field)`
+   over member sets.
+3. **Structured record fields** (→ q40). Ingredient lists with
+   qty/unit/name/cost, podcast chapters with time+label, schema.org
+   Recipe emission: `.schema.toml` stops at scalar-and-list; a
+   list-of-records type feeds all three.
+4. **i18n** (→ q41). docs.astro (locale-prefixed parallel trees) and
+   solar.lowtechmagazine (12 languages with cross-links): no
+   translation axis exists on rows. The one classic SSG feature the
+   model simply lacks.
+5. **Client-side faceted filtering** (→ q42). Recipe sites and gardens
+   combine facets at request time (diet × cuisine × season); declared
+   views can't enumerate the combinations. The architecture already
+   exists in miniature: ship a facet index the way `/search.bin` ships
+   tf-idf, filter in the client — a *client-side view*.
+6. **Media beyond image** (→ q43). Audio/video field types (sive.rs's
+   250 interviews, two podcast sites), RSS enclosures, srcset/multi-
+   format renditions (fasterthanli.me), externally-hosted originals
+   (macwright's CDN): the §6b image pipeline generalized.
+7. **Per-row scoped assets** — ciechanowski's per-article JS/CSS pairs
+   are §5b's unbuilt `.style.scss` leg plus its obvious script sibling;
+   already specced in shape. The *interactive-widget* half of
+   ciechanowski (stateful WebGL islands as the site's identity) stays
+   honestly out: raw HTML passthrough + per-row assets carries the
+   delivery, the engine never models the widget.
+8. **External/live data** — trending ranks, HN counts, live solar
+   charge: not expressible from a git tree, and the honest answer is an
+   ETL that *writes* git-tracked data before build (order_by then works
+   on it). Kottke's "vintage post today" is the benign case: a
+   date-seeded deterministic pick is fine for a daily build. Noted, not
+   questioned — the model's answer is "commit the data".
+
+### The confirmed non-goal, sized
+
+The single biggest real-world cluster — **memberships, paywalls,
+comments, ratings** (waitbutwhy's store/forum, craigmod's and atp.fm's
+memberships, 404media's gated bodies, every recipe site's reviews) — is
+the dynamic-server non-goal, now measured: it is what most *monetized*
+sites add atop exactly the static core grackle models. The design keeps
+the line: entitlements are an edge/CDN concern layered over static
+output; user-generated content is an external embed. gwern's URL-keyed
+annotation database and hover-transclusion remain the one genuinely
+sui-generis structural outlier surveyed.
+
 ## 8. Known-inexact from day one (accepted, iterate later)
 
 | Area | Why | Plan |
@@ -3722,6 +3802,43 @@ the drift is only ever invisible *until* it isn't.
     (c) whether a board can materialize a route or is embed-only;
     (d) boards-in-boards (leaning no — the §5d tripwire); (e) whether a
     board's items ride the q36 preview kind or stay opaque fragments.
+38. **The link graph (§7b).** Backlinks as a relations axis: scan bodies
+    for internal links at load, invert, push a `linked-from` group per
+    document — the §6b axes design's first non-similarity member, and
+    the defining mechanism of every digital garden surveyed. Cheap and
+    shaped like what exists. The harder half is **transclusion** (render
+    row X inline by reference — andymatuschak's hover-embeds): a new
+    embed primitive that §5d's no-control-flow rule must be careful
+    with. Recommend: backlinks first, standalone; transclusion waits
+    for a real consumer.
+39. **Set-scoped computed fields (§7b).** §5f fields derive from ONE
+    row; the survey wants aggregates over a view's members —
+    `count()`, `sum(minutes)`, date spans — for meal-plan rollups,
+    subtree stats, calendar counts, term indexes. A natural §5f
+    extension (functions whose source type is a member set), but it
+    changes the field-inheritance story; spec alongside q31's build.
+40. **Structured record fields (§7b).** `.schema.toml` wants a
+    list-of-records type (`ingredients = {type="records", fields={qty=
+    "string", name="string"}}`-ish) for ingredient lists, podcast
+    chapters, cast lists — plus a schema.org/JSON-LD emission deriver
+    fed by it. Extends §5b without changing its shape.
+41. **i18n (§7b).** No locale axis exists: parallel translated trees
+    with cross-routing and a language switcher (docs.astro,
+    solar.lowtechmagazine). Needs row-level translation *pairing* (same
+    logical row, N locale files), locale-prefixed route templates, and
+    a `translations` relations axis. The one classic SSG feature the
+    model lacks outright; big enough to spec properly before building.
+42. **Client-side faceted filtering (§7b).** Combinable facets (diet ×
+    cuisine × season) can't be enumerated as static views. The
+    search.bin architecture generalizes: ship a typed facet index, run
+    the intersection in the client — a *client-side view*, declared in
+    config like any other, materializing an index instead of routes.
+43. **Media beyond image (§7b).** Audio/video schema field types (with
+    duration/player facts, as image carries dimensions), podcast RSS
+    enclosures as a feed variant, multi-format/srcset renditions from
+    the §6b contest, and externally-hosted originals (a URL-valued
+    image source that skips thumbnailing but can still carry declared
+    dimensions).
 24. ~~Per-view fragment variants (§5e)~~ — **settled, built (2026-07),
     forced by q36 exactly as predicted** ("needed the day one view wants
     cards while another wants summaries" — that day was the unification).
