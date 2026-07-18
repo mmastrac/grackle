@@ -216,11 +216,12 @@ route = "/books/"
 layout = "listing"
 variant = "cards"
 featured = true
-title = "Book of the Month"
+title = { en = "Book of the Month", fr = "Le livre du mois" }
 # q45 mode A: declared prose in the listing layout's intro slot — a
 # LocalizedStr rendered as markdown through the link resolver, so the
-# view: link below is validated at build like any body link.
-intro = "One book a month, argued with, shelved beside the [notes](view:blog_index)."
+# view: link below is validated at build like any body link, and resolves
+# per locale (/blog/ or /fr/blog/) from this one declaration.
+intro = { en = "One book a month, argued with, shelved beside the [notes](view:blog_index).", fr = "Un livre par mois, discuté, rangé à côté du [carnet](view:blog_index)." }
 
 # The recipes landing (q45 mode B): /recipes/ is a VIEW that claims its
 # content row. The row (recipes/index.md) owns the arrangement — its

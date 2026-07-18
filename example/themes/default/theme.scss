@@ -382,9 +382,23 @@ a[data-kind="tag"] {
 // Cards (q23): the book club. The featured card is this month's selection,
 // large; the grid is the back catalogue. width/height attrs come from the
 // engine's dimension facts, so covers reserve their space.
+//
+// The title is specified against the cover's HEIGHT, but `top: 75%` would
+// resolve against the card box, which also holds the note. So height is
+// expressed in the card's inline size instead: covers are 2:3, making the
+// height 1.5x the width. One cq-unit declaration then holds at every
+// placement without a breakpoint, and a differently-shaped cover changes
+// $cover-ratio and nothing else.
+$cover-ratio: 1.5;
+$cover-height-pct: $cover-ratio * 1cqw;
+
 .card {
 	display: block;
 	text-decoration: none;
+	// The card IS the jacket box: the cq units below resolve against it, so
+	// nothing may size the cover independently of it.
+	position: relative;
+	container-type: inline-size;
 
 	img {
 		width: 100%;
@@ -401,29 +415,50 @@ a[data-kind="tag"] {
 		color: var(--fg);
 	}
 
+	// Blank covers carry no type of their own, so the card sets the title on
+	// them — but only where there is a cover to set it on: `cover` is an
+	// optional schema field, and a coverless row's card has no jacket for
+	// the type to sit in.
+	&:has(img[src]) .card-title {
+		position: absolute;
+		// Centred ON the 75% line, not started at it: only 25% of the cover
+		// remains below, and a line costs ~11.5% of it, so anchoring the top
+		// there drops a third line off the jacket.
+		top: 75 * $cover-height-pct;
+		transform: translateY(-50%);
+		left: 0;
+		right: 0;
+		margin-top: 0;
+		padding: 0.3em 0.5em;
+		font-size: 10 * $cover-height-pct;
+		line-height: 1.15;
+		text-align: center;
+		color: #fff;
+		// Covers are arbitrary artwork, so legibility can't rest on any one
+		// of them: a band fading out at both edges carries the type over
+		// whatever is underneath, and the shadow covers the light-cover case.
+		background: linear-gradient(
+			rgba(0, 0, 0, 0),
+			rgba(0, 0, 0, 0.45) 20%,
+			rgba(0, 0, 0, 0.45) 80%,
+			rgba(0, 0, 0, 0)
+		);
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+	}
+
 	.card-note {
 		display: block;
+		margin-top: 0.5rem;
 		font-size: 0.85rem;
 		color: var(--muted);
 	}
 }
 
 .card-list {
+	// The selection is a bigger jacket, not a different shape — its type
+	// scales with the cover, so there is no font size to override here.
 	.featured .card {
-		display: grid;
-		grid-template-columns: minmax(180px, 260px) 1fr;
-		grid-template-rows: auto 1fr;
-		column-gap: 1.5rem;
-		align-items: start;
-
-		img {
-			grid-row: 1 / span 2;
-		}
-
-		.card-title {
-			font-size: 1.3rem;
-			margin-top: 0;
-		}
+		max-width: 300px;
 	}
 
 	.card-grid {
@@ -468,7 +503,11 @@ a[data-kind="tag"] {
 	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	gap: 1.5rem;
 
-	.card img {
+	// Cap the CARD, not the image inside it: the title is positioned against
+	// the card box, so sizing the two independently hangs the title's scrim
+	// off the edge of the cover. The image is width:100% of the card, so
+	// this lands the same 160px jacket.
+	.card {
 		max-width: 160px;
 	}
 }
