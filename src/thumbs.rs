@@ -36,6 +36,10 @@ pub struct Thumb {
     pub url: String,
     /// Output-relative path to write (`static/{hash}.{ext}`).
     pub rel: String,
+    /// Pixel dimensions of the published variant (q26's dimension facts) —
+    /// a header read, not a decode, so warm builds stay warm. None when the
+    /// bytes passed through undecodable.
+    pub dims: Option<(u32, u32)>,
 }
 
 /// Generate (or reuse cached) thumbnails for every source, in parallel.
@@ -100,6 +104,7 @@ fn one(
     let make = |rel: String, cache_path: PathBuf| Thumb {
         url: format!("{baseurl}/{rel}"),
         rel,
+        dims: image::image_dimensions(&cache_path).ok(),
         cache_path,
     };
 

@@ -16,16 +16,16 @@ author = "Example Author"
 
 # ---------------------------------------------------------------- posts
 
-# Named "blog" because the phase-1 gate in views.rs requires it — §7a
-# contradiction #1, kept visible on purpose.
-[collections.blog]
+# Named "notes", NOT "blog" — §7a contradiction #1, resolved: views now
+# dispatch on collection *kind*, so the name is ours to choose.
+[collections.notes]
 kind = "posts"
 source = "_posts"
 crumb = "Notes"
 index = "/blog/"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
-  [[collections.blog.rules]]
+  [[collections.notes.rules]]
   match = "**"
   defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
@@ -70,7 +70,7 @@ min_score = 0.3
 # ---------------------------------------------------------------- views
 
 [views.published]
-over = "blog"
+over = "notes"
 filter = "!draft && !hidden"
 
   [views.published.fields.summary]
@@ -101,6 +101,17 @@ over = "published"
 limit = 20
 route = "/atom.xml"
 template = "atom.xml"
+
+# The gallery (§5 audit, built): a view over the objects table. `match`
+# scopes by path glob, `order_by` is declared (lexical-by-luck is not a
+# contract), and the route replaces what was a hand-written index page.
+[views.gallery]
+over = "objects"
+match = "photos/**"
+order_by = "name"
+route = "/photos/"
+layout = "gallery"
+title = "Photos"
 
 [views.sitemap]
 over = "*"

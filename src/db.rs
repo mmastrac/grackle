@@ -831,6 +831,48 @@ impl filter::Row for Post {
     }
 }
 
+/// Fields a filter may reference on an object row (§5 audit gap 1: objects
+/// had no schema, so `over = "objects"` couldn't type-check a filter).
+/// Dimensions are deliberately absent: they are render-time facts from the
+/// thumbnail pass (q26), not load-time columns — a field that would need
+/// every image decoded at load is not worth a filter yet.
+pub fn object_schema() -> filter::Schema {
+    use filter::Type::*;
+    let mut s = filter::Schema::new();
+    s.insert("path", Str);
+    s.insert("dir", Str);
+    s.insert("name", Str);
+    s.insert("stem", Str);
+    s.insert("ext", Str);
+    s.insert("url", Str);
+    s.insert("size", Int);
+    s
+}
+
+impl filter::Row for Object {
+    fn field(&self, name: &str) -> filter::Value {
+        use filter::Value as V;
+        match name {
+            "path" => V::Str(self.rel.to_string_lossy().to_string()),
+            "dir" => V::Str(
+                self.rel
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
+            "name" => V::Str(self.name.clone()),
+            "stem" => self
+                .rel
+                .file_stem()
+                .map_or(V::Null, |s| V::Str(s.to_string_lossy().to_string())),
+            "ext" => V::Str(self.ext.clone()),
+            "url" => V::Str(self.url.clone()),
+            "size" => V::Int(self.size as i64),
+            _ => V::Null,
+        }
+    }
+}
+
 // ------------------------------------------------------------------ load
 
 impl SiteDb {

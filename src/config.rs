@@ -113,6 +113,16 @@ pub struct View {
     /// A collection name, another view's name, or `*` for the route set.
     pub over: String,
     pub filter: Option<String>,
+    /// Path-glob scoping (§5 audit): globs already exist in rules (§4), so
+    /// view scoping reuses them rather than growing the filter language a
+    /// path operator. Matched against the row's root-relative path.
+    #[serde(rename = "match")]
+    pub scope: Option<String>,
+    /// Explicit ordering for rows that have no natural one (§5 audit:
+    /// posts sort reverse-chronologically by construction; objects don't).
+    /// `"name"` is the only value so far. Declared, not defaulted — the
+    /// corpus's zero-padding making lexical order correct is luck.
+    pub order_by: Option<String>,
     pub group_by: Option<String>,
     pub paginate: Option<usize>,
     pub route: Option<String>,

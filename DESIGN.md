@@ -866,23 +866,27 @@ variant  = "gallery"                 # §5e, open question 24
 route    = "/demos/mindstorms/{key}/"
 ```
 
-The three gaps, in order of generality:
+The three gaps, in order of generality — **all three built (2026-07)**
+against the example site's gallery (§7a), which also killed the phase-1
+gate: views now dispatch on the base collection's *kind*, never its name:
 
-1. **Objects have no schema.** The filter language's fields are post fields;
-   `over = "objects"` needs `path`/`dir`/`stem`/`ext`/`width`/`height`
-   declared so filters type-check. §5 already says schema is per-collection —
-   it was just never stated for objects. Dimensions are known (§6b makes the
-   thumbnails), so `width`/`height` come free and feed §5e's dimension facts
-   (open question 26).
-2. **View scoping needs `match`, not a bigger filter language.** There is no
-   path-glob operator in the expression grammar, and growing one is the wrong
-   fix — glob matching already exists in rules (§4). A `match` key on views
-   reuses it and keeps the filter language typed-fields-only.
-3. **`order_by` does not exist.** Posts sort reverse-chronologically by
-   construction; any non-post view eventually wants an explicit order. Note
-   the corpus's zero-padding makes lexical order = sequence order for
-   mindstorms — lucky, not guaranteed, so `order_by = "name"` should be
-   declared, not defaulted.
+1. **Objects have no schema.** ✅ `object_schema()`:
+   `path`/`dir`/`name`/`stem`/`ext`/`url` (str) + `size` (int), so
+   `over = "objects"` filters type-check with the usual errors. Dimensions
+   stayed out of the *filter* schema on purpose — they are render-time
+   facts from the thumbnail pass (q26, also built: galleries emit
+   `width`/`height` on every `<img>`), not load-time columns.
+2. **View scoping needs `match`, not a bigger filter language.** ✅ A
+   `match` glob on views, reusing rule globs; the filter language stays
+   typed-fields-only.
+3. **`order_by` does not exist.** ✅ Built and *required* for object views
+   (`order_by = "name"` is the one value so far) — declared, not
+   defaulted, exactly because the corpus's zero-padding making lexical
+   order correct is luck.
+
+Still open for the mindstorms case specifically: `group_by` over object
+paths (one gallery route per directory) and the group `hero` (q23) —
+the example's flat gallery didn't force them.
 
 Two consequences ride along: group part maps need a **hero** (the existing
 `alpharex_1.jpg` cover images argue "designated cover file beats first item"
@@ -1949,7 +1953,7 @@ obligation). Auditing the archetypes:
 |---|---|---|---|
 | document, margin or sidenotes | canonical | grid areas, `:has()` | — |
 | album gallery (Finder-ish) | theme maps `items` to a `card` fragment | `repeat(auto-fill, minmax())`, `aspect-ratio`, `object-fit` | **hero part** |
-| Pinterest masonry | `card` fragment | see below | dimension facts |
+| Pinterest masonry | `card` fragment | see below | ~~dimension facts~~ ✅ **built** (2026-07): the `gallery`/`figure` kinds + object views; figures carry `width`/`height` from the thumb pass, and the example site runs CSS-columns masonry on them (§7a) |
 | magazine / full-bleed | canonical + per-block hints | named-grid-lines full-bleed pattern | **per-block facts** |
 | timeline / film-strip | `items` → small fragment | grid, `scroll-snap` | — |
 | dense index / table | `items` → row fragment | plain grid | — |
@@ -3475,11 +3479,12 @@ the drift is only ever invisible *until* it isn't.
 
 ### Accepted asymmetries, named so they don't read as leaks
 
-- `if q.base != "blog"` in `views.rs` is the **phase-1 gate** (posts-backed
-  views only), not policy; it dies when object views land (§5 audit).
-- `post_trail` hardcodes the `"blog"` collection: rows don't carry a
-  collection id because exactly one posts collection exists. Real the day
-  there are two.
+- ~~`if q.base != "blog"` in `views.rs`~~ — **dead (2026-07)**: object views
+  forced kind-based dispatch, and the example site's posts collection is
+  named `notes` to keep it dead.
+- ~~`post_trail` hardcodes `"blog"`~~ — **generalized (2026-07)**: the posts
+  collection is found by kind. Still single-posts-table; a second posts
+  collection remains future work.
 - `themes/default` is one hardcoded path in `build.rs` (down from four):
   the theme *name* isn't config yet. One key, whenever a second theme
   exists.

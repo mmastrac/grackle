@@ -6,8 +6,8 @@
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
-use crate::config::Config;
-use crate::db::{post_schema, route_schema, Post, Route, RouteKind, SiteDb, ViewRows};
+use crate::config::{Config, Kind, Query, View};
+use crate::db::{object_schema, post_schema, route_schema, Post, Route, RouteKind, SiteDb, ViewRows};
 use crate::filter;
 use crate::route;
 
@@ -110,8 +110,20 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // Both named queries (`published`) and embedded views (`latest`) still
         // have to resolve, so a typo in `over` is a startup error either way.
         let q = cfg.query(name)?;
-        if q.base != "blog" {
-            continue; // phase 1: posts-backed views only
+        // Dispatch on the base collection's KIND, never its name. This
+        // replaced the phase-1 `q.base != "blog"` gate the day the example
+        // site (§7a) named its posts collection `notes` — the falsifier
+        // doing its job.
+        let Some(base) = cfg.collections.get(&q.base) else { continue };
+        match base.kind {
+            Kind::Posts => {} // the flow below
+            Kind::Objects => {
+                build_object_view(cfg, db, name, v, &q)?;
+                continue;
+            }
+            Kind::Tree => {
+                bail!("view {name}: views over tree collections are not supported yet")
+            }
         }
         // Parsed and type-checked once per view, not per row: a bad filter is a
         // startup error naming the view.
@@ -243,6 +255,66 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     Ok(())
 }
 
+/// Materialize a view over the objects table (§5 audit gaps 1–3): `match`
+/// scopes by path glob (reusing rule globs, not growing the filter
+/// language), `filter` type-checks against the object schema, `order_by`
+/// is *required* — objects have no natural order, and lexical-by-luck is
+/// not a contract — and the route's `members` index into `objects.rows`.
+fn build_object_view(
+    _cfg: &Config,
+    db: &mut SiteDb,
+    name: &str,
+    v: &View,
+    q: &Query,
+) -> Result<()> {
+    if v.group_by.is_some() || v.paginate.is_some() {
+        bail!("view {name}: group_by/paginate on object views is not supported yet");
+    }
+    let Some(route) = v.route.as_deref() else {
+        bail!("view {name} needs a route");
+    };
+    let order = v
+        .order_by
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("view {name}: object views need an order_by (have: name)"))?;
+    if order != "name" {
+        bail!("view {name}: unknown order_by {order:?} (have: name)");
+    }
+    let scope = match &v.scope {
+        Some(g) => Some(
+            globset::Glob::new(g)
+                .with_context(|| format!("view {name}: match {g:?}"))?
+                .compile_matcher(),
+        ),
+        None => None,
+    };
+    let pred = match q.predicate() {
+        Some(src) => filter::Filter::parse(&src, &object_schema())
+            .with_context(|| format!("view {name}: filter {src:?}"))?,
+        None => filter::Filter::always(),
+    };
+    let mut members: Vec<usize> = db
+        .objects
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| scope.as_ref().is_none_or(|m| m.is_match(&o.rel)))
+        .filter(|(_, o)| pred.eval(*o))
+        .map(|(i, _)| i)
+        .collect();
+    members.sort_by(|&a, &b| {
+        let (x, y) = (&db.objects.rows[a], &db.objects.rows[b]);
+        x.name.cmp(&y.name).then_with(|| x.rel.cmp(&y.rel))
+    });
+    db.routes.push(Route {
+        view: Some(name.to_string()),
+        rows: Some(members.len()),
+        members,
+        ..Route::new(route.to_string(), RouteKind::View)
+    });
+    Ok(())
+}
+
 /// Views over the whole route set (the sitemap). Runs after every other route
 /// exists, and its `rows` is the count that actually passes its filter.
 pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
@@ -267,6 +339,66 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod object_view_tests {
+    use super::*;
+    use crate::db::Object;
+    use std::path::PathBuf;
+
+    fn obj(rel: &str) -> Object {
+        Object {
+            path: PathBuf::from(rel),
+            rel: PathBuf::from(rel),
+            version: 0,
+            url: format!("/{rel}"),
+            ext: rel.rsplit('.').next().unwrap_or("").into(),
+            name: rel.rsplit('/').next().unwrap_or(rel).into(),
+            size: 1,
+        }
+    }
+
+    fn cfg(views: &str) -> Config {
+        let src = format!(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [collections.objects]\nkind = \"objects\"\n{views}"
+        );
+        toml::from_str(&src).expect("test config parses")
+    }
+
+    #[test]
+    fn object_view_scopes_sorts_and_routes() {
+        let c = cfg(
+            "[views.g]\nover = \"objects\"\nmatch = \"photos/**\"\n\
+             order_by = \"name\"\nroute = \"/photos/\"\nlayout = \"gallery\"\n",
+        );
+        let mut db = SiteDb::default();
+        db.objects.rows =
+            vec![obj("assets/x.png"), obj("photos/b.png"), obj("photos/a.png")];
+        build_views(&c, &mut db).unwrap();
+        let r = db.routes.iter().find(|r| r.url == "/photos/").expect("route");
+        assert_eq!(r.rows, Some(2));
+        // Sorted by name (a before b); the out-of-scope asset is absent.
+        assert_eq!(r.members, vec![2, 1]);
+    }
+
+    #[test]
+    fn object_view_requires_order_by() {
+        let c = cfg("[views.g]\nover = \"objects\"\nroute = \"/p/\"\nlayout = \"gallery\"\n");
+        let e = build_views(&c, &mut SiteDb::default()).unwrap_err().to_string();
+        assert!(e.contains("order_by"), "{e}");
+    }
+
+    #[test]
+    fn object_filters_typecheck_against_the_object_schema() {
+        let c = cfg(
+            "[views.g]\nover = \"objects\"\nfilter = \"draft\"\n\
+             order_by = \"name\"\nroute = \"/p/\"\nlayout = \"gallery\"\n",
+        );
+        let e = format!("{:#}", build_views(&c, &mut SiteDb::default()).unwrap_err());
+        assert!(e.contains("unknown field `draft`"), "{e}");
+    }
 }
 
 #[cfg(test)]

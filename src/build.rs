@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::config::{Config, View};
+use crate::config::{Config, Kind, View};
 use crate::db::{Post, Route, RouteKind, SiteDb};
 use crate::markdown::Doc;
 use crate::render::{self, Site, Theme};
@@ -102,7 +102,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let root = cfg.root();
     let theme_dir = root.join("themes/default");
 
-    let thumb_urls = thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
+    let thumbs = thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
+    let thumb_urls: HashMap<String, String> =
+        thumbs.iter().map(|(k, t)| (k.clone(), t.url.clone())).collect();
 
     // ---- theme: fragments + tree slot fills, loaded once (§5e). All theme
     // errors — malformed fragment, unknown slot, arity violation — surface
@@ -166,6 +168,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
         let Some(v) = cfg.views.get(view) else { continue };
+        // Listings are posts-backed; object-backed views render in the
+        // gallery pass below (their `members` index a different table).
+        if view_base_kind(cfg, view) != Some(Kind::Posts) {
+            continue;
+        }
         // Only the built-in listing kinds render here; feed/sitemap have their
         // own passes, and a view with no layout is embedded, not routed.
         let Some(_layout) = v.layout.as_deref().or(match view.as_str() {
@@ -217,6 +224,44 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
         let main = thm.fragments.render(&parts::listing(&rows, &title, trail, pagination));
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
+        let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, &root)?;
+        out_map.insert(r.url.clone(), html.into_bytes());
+        stats.listings += 1;
+    }
+
+    // ---- galleries: object-backed views (§5 audit). The view supplied the
+    // query (`match` glob + filter + order_by); this pass only shapes rows
+    // into `figure` parts — thumbnail src from §6b, dimension facts from
+    // the thumb pass (q26) so the browser reserves space and masonry never
+    // shifts.
+    for r in &db.routes {
+        let Some(view) = &r.view else { continue };
+        if view_base_kind(cfg, view) != Some(Kind::Objects) {
+            continue;
+        }
+        let Some(v) = cfg.views.get(view) else { continue };
+        let (title, trail) = listing_title_and_trail(cfg, view, v, r)?;
+        let items: Vec<parts::Figure> = r
+            .members
+            .iter()
+            .map(|&i| &db.objects.rows[i])
+            .map(|o| {
+                let key = o.rel.to_string_lossy().to_string();
+                let t = thumbs.get(&key);
+                parts::Figure {
+                    url: o.url.clone(),
+                    src: t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone()),
+                    dims: t.and_then(|t| t.dims),
+                    alt: o
+                        .rel
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+        let main = thm.fragments.render(&parts::gallery(&items, &title, trail));
+        let head = render::head_simple(&title, &r.url, &site, false);
         let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -384,7 +429,7 @@ fn thumbs_pass(
     root: &Path,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
-) -> Result<HashMap<String, String>> {
+) -> Result<HashMap<String, crate::thumbs::Thumb>> {
     let mut img_sources: Vec<String> = Vec::new();
     for p in &db.posts.rows {
         img_sources.extend(tags::image_sources(&p.body));
@@ -398,13 +443,20 @@ fn thumbs_pass(
                 }
             }
         }
+        // Gallery members (object-backed views) thumbnail too — the gallery
+        // pass shows thumbs and links originals, same as {% image %}.
+        if let Some(view) = &r.view {
+            if view_base_kind(cfg, view) == Some(Kind::Objects) {
+                for &i in &r.members {
+                    img_sources.push(db.objects.rows[i].rel.to_string_lossy().to_string());
+                }
+            }
+        }
     }
     let cache_dir = root.join("_cache/thumbs");
     let thumbs = crate::thumbs::generate(root, &cache_dir, &cfg.site.baseurl, &img_sources)?;
-    let mut thumb_urls: HashMap<String, String> = HashMap::new();
     let mut published: HashSet<String> = HashSet::new();
-    for (src, t) in &thumbs {
-        thumb_urls.insert(src.clone(), t.url.clone());
+    for t in thumbs.values() {
         if published.insert(t.rel.clone()) {
             let bytes = std::fs::read(&t.cache_path)
                 .with_context(|| format!("reading thumb {}", t.cache_path.display()))?;
@@ -412,7 +464,7 @@ fn thumbs_pass(
             stats.thumbs += 1;
         }
     }
-    Ok(thumb_urls)
+    Ok(thumbs)
 }
 
 /// ONE render per post (§6d). Expand + parse once; the same parse yields the
@@ -517,6 +569,13 @@ fn css_pass(theme_dir: &Path, out_map: &mut SiteOutput, stats: &mut Stats) -> Re
     Ok(())
 }
 
+/// The kind of the collection at the base of a view's `over` chain — what
+/// decides which render pass owns its routes. None for `over = "*"`.
+fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
+    let base = cfg.query(view).ok()?.base;
+    Some(cfg.collections.get(&base)?.kind)
+}
+
 /// Every trail roots the same way (§5c provenance): Home, then the
 /// collection's own crumb, linked to its index.
 fn trail_root(cfg: &Config, collection: &str) -> Vec<(String, Option<String>)> {
@@ -583,13 +642,19 @@ fn listing_title_and_trail(
 /// provenance (§5c); the only special case left is drafts, which wait on
 /// the profiles work (§4a).
 fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
-    let mut t = trail_root(cfg, "blog");
+    // The posts collection, whatever it is named (§7a: the example's is
+    // `notes`). One posts table means one posts collection today.
+    let col = cfg.collections.iter().find(|(_, c)| c.kind == Kind::Posts);
+    let mut t = match &col {
+        Some((name, _)) => trail_root(cfg, name),
+        None => vec![("Home".to_string(), Some("/".to_string()))],
+    };
     if p.draft {
         t.push(("Drafts".to_string(), Some("/drafts".to_string())));
         t.push((p.title.clone(), None));
         return t;
     }
-    let trail_view = cfg.collections.get("blog").and_then(|c| c.trail.as_deref());
+    let trail_view = col.and_then(|(_, c)| c.trail.as_deref());
     if let Some(trail_view) = trail_view {
         for name in cfg.grouped_chain(trail_view) {
             let Some(v) = cfg.views.get(&name) else { continue };

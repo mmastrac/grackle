@@ -189,6 +189,22 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("tags", Stream("tag")),
             ("content", Html),
         ],
+        // N object rows as pictures (§5 audit: the gallery archetype). Each
+        // figure carries q26's dimension facts so the browser can reserve
+        // space (masonry without layout shift); `url` links the original,
+        // `src` is the thumbnail (§6b).
+        "gallery" => &[
+            ("title", Text),
+            ("crumbs", Stream("crumb")),
+            ("items", Stream("figure")),
+        ],
+        "figure" => &[
+            ("url", Url),
+            ("src", Url),
+            ("width", Text),
+            ("height", Text),
+            ("alt", Text),
+        ],
         // N rows as bare titled links (`/`'s embedded latest-posts block).
         "link_list" => &[("items", Stream("link"))],
         "link" => &[("title", Text), ("url", Url)],
@@ -487,6 +503,38 @@ pub fn pagination(current: usize, total: usize) -> Option<PartMap> {
     Some(m)
 }
 
+/// One gallery item: `(original url, thumb src, dimensions, alt)`.
+pub struct Figure {
+    pub url: String,
+    pub src: String,
+    pub dims: Option<(u32, u32)>,
+    pub alt: String,
+}
+
+/// N object rows as pictures. Dimensions ride as attribute holes so the
+/// theme's `<img>` gets `width`/`height` and the page never shifts (q26).
+pub fn gallery(items: &[Figure], title: &str, trail: Vec<(String, Option<String>)>) -> PartMap {
+    let mut m = PartMap::new("gallery");
+    m.set("title", Part::Text(title.to_string()));
+    m.set("crumbs", crumb_stream(trail));
+    let v = items
+        .iter()
+        .map(|f| {
+            let mut fm = PartMap::new("figure");
+            fm.set("url", Part::Text(f.url.clone()));
+            fm.set("src", Part::Text(f.src.clone()));
+            if let Some((w, h)) = f.dims {
+                fm.set("width", Part::Text(w.to_string()));
+                fm.set("height", Part::Text(h.to_string()));
+            }
+            fm.set("alt", Part::Text(f.alt.clone()));
+            fm
+        })
+        .collect();
+    m.set("items", Part::Stream(v));
+    m
+}
+
 /// N rows as bare titled links — the smallest listing kind.
 pub fn link_list(rows: &[&Post]) -> PartMap {
     let mut m = PartMap::new("link_list");
@@ -546,6 +594,24 @@ mod tests {
     fn unknown_part_name_asserts() {
         let mut c = PartMap::new("crumb");
         c.set("title", Part::Text("x".into()));
+    }
+
+    #[test]
+    fn gallery_figures_carry_dimension_facts() {
+        let m = gallery(
+            &[Figure {
+                url: "/photos/a.png".into(),
+                src: "/static/x.jpg".into(),
+                dims: Some((320, 200)),
+                alt: "a".into(),
+            }],
+            "Photos",
+            vec![("Home".into(), Some("/".into()))],
+        );
+        let out = canonical(&m);
+        assert!(out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#), "{out}");
+        assert!(out.contains(r#"<span data-slot="width">320</span>"#), "{out}");
+        assert!(out.contains(r#"<span data-slot="height">200</span>"#), "{out}");
     }
 
     #[test]
