@@ -21,10 +21,6 @@ author = "Example Author"
 [collections.notes]
 kind = "posts"
 source = "_posts"
-# A LocalizedStr (§6f): every display name in config takes either a bare
-# string or a per-locale map — same shape as tag names and view titles.
-crumb = { en = "Notes", fr = "Carnet" }
-index = "/blog/"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.notes.rules]]

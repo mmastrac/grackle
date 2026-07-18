@@ -3,10 +3,15 @@
 //!
 //! One family, five entry points, all answering the same question in
 //! different currencies: `home_url` (the locale's root), `trail_root`
-//! (Home, then the collection), `ancestors` (what the URL nests under),
+//! (Home), `ancestors` (what the URL nests under),
 //! `listing_title_and_trail` (a view route's own naming), `post_trail`
-//! (a row's archive chain). Lifted out of `build.rs` unchanged — the
-//! §9b round-2 audit named this a coherent module wanting out.
+//! (a row's archive chain).
+//!
+//! There are exactly two producers of a crumb, and the split is the point
+//! (q46): the **URL climb** supplies every level the path nests under, and
+//! a collection's declared `trail` view supplies the subdivision chain,
+//! which renders from a row's own group keys and so cannot be recovered
+//! from the path at all. Nothing is stated twice.
 
 use anyhow::{Context, Result};
 
@@ -27,34 +32,16 @@ pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
     "/".to_string()
 }
 
-/// Every trail roots the same way (§5c provenance): Home, then the
-/// collection's own crumb, linked to its index. All three resolve per
-/// locale (§6f): the engine's "home" string, the home URL (existence-
-/// checked), the crumb's LocalizedStr, and the index URL locale-prefixed
-/// — a French row's trail points at the French index, which exists
-/// whenever French rows do (locale-parallel views are default-on; a
-/// collection whose index view opted out keeps this honest only if its
-/// rows opted out of translation too — `index` naming a VIEW instead of
-/// a URL would close that, q32-adjacent, pending).
-pub fn trail_root(
-    cfg: &Config,
-    db: &SiteDb,
-    collection: &str,
-    locale: &str,
-) -> Vec<(String, Option<String>)> {
-    let mut t =
-        vec![(cfg.i18n.string("home", locale).to_string(), Some(home_url(cfg, db, locale)))];
-    if let Some(col) = cfg.collections.get(collection) {
-        if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
-            let u = if locale != cfg.i18n.default {
-                format!("/{locale}{u}")
-            } else {
-                u.clone()
-            };
-            t.push((cfg.i18n.text(c, locale).to_string(), Some(u)));
-        }
-    }
-    t
+/// Every trail roots the same way (§5c provenance): Home, resolved per
+/// locale (§6f) — the engine's "home" string, and a home URL that is
+/// existence-checked rather than assumed.
+///
+/// Home is *all* the root is (q46, §5h): every crumb between it and the
+/// current page comes from climbing the URL through [`ancestors`], so a
+/// collection never names itself. `/fr/blog/` is found that way rather
+/// than built by string-prefixing a configured index.
+pub fn trail_root(cfg: &Config, db: &SiteDb, locale: &str) -> Vec<(String, Option<String>)> {
+    vec![(cfg.i18n.string("home", locale).to_string(), Some(home_url(cfg, db, locale)))]
 }
 
 /// A listing route's title and provenance trail (§5c): the view's declared
@@ -103,11 +90,13 @@ pub fn listing_title_and_trail(
     let tail = match r.page {
         // Paginated trails keep the engine's `page` string for now — crumb
         // templates for paginated views are punted with open question 30
-        // (pagination × subdivision).
-        Some(p) => {
-            (p > 1).then(|| cfg.i18n.string("page", loc).replace("{n}", &p.to_string()))
+        // (pagination × subdivision). Page *one* is not a page-of, though:
+        // it is the view's root, so it names itself in the tail the way
+        // every other listing does.
+        Some(p) if p > 1 => {
+            Some(cfg.i18n.string("page", loc).replace("{n}", &p.to_string()))
         }
-        None => {
+        _ => {
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             match tmpl {
                 Some(t) => Some(crate::route::render(&text(t), param)
@@ -116,15 +105,11 @@ pub fn listing_title_and_trail(
             }
         }
     };
-    let mut trail = trail_root(cfg, db, &cfg.query(view)?.base, loc);
-    // The landing chain for listings (q45): URL ancestors between the
-    // root and this route are crumbs too — /recipes/courses/dinner/
-    // climbs through the /recipes/ landing. Deduped by URL, because
-    // the collection crumb already roots /blog/-style listings there.
+    let mut trail = trail_root(cfg, db, loc);
+    // The landing chain (q45): URL ancestors between the root and this
+    // route are crumbs — /recipes/courses/dinner/ climbs through the
+    // /recipes/ landing, /blog/tags/rust/ through /blog/.
     for (url, label) in ancestors(cfg, db, &r.url) {
-        if trail.iter().any(|(_, u)| u.as_deref() == Some(url.as_str())) {
-            continue;
-        }
         trail.push((label, Some(url)));
     }
     for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
@@ -143,22 +128,27 @@ pub fn listing_title_and_trail(
     Ok((title, trail))
 }
 
-/// A post's breadcrumb trail: the shared root, then the collection's
-/// declared `trail` view chain rendered with the post's own group keys —
-/// each level linked to its archive — ending in the inert day. All
-/// provenance (§5c); the only special case left is drafts, which wait on
-/// the profiles work (§4a).
+/// A post's breadcrumb trail: Home, the landings its URL nests under, then
+/// the collection's declared `trail` view chain rendered with the post's
+/// own group keys — each level linked to its archive — ending in the inert
+/// day. All provenance (§5c); the only special case left is drafts, which
+/// wait on the profiles work (§4a).
+///
+/// The two walks divide cleanly: [`ancestors`] matches only *ungrouped*
+/// view roots, so `/blog/2022/12/16/x.html` finds the `/blog/` landing and
+/// steps straight past the year and month archives — leaving them to
+/// `trail`, whose subdivision chain is genuinely non-derivable from the
+/// URL (it renders each level from the post's own group keys, not from
+/// path segments).
 pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<String>)> {
     // The posts collection, whatever it is named (§7a: the example's is
     // `notes`). One posts table means one posts collection today.
     let col = cfg.collections.iter().find(|(_, c)| c.kind == Kind::Posts);
     let loc = p.locale.as_str();
-    let mut t = match &col {
-        Some((name, _)) => trail_root(cfg, db, name, loc),
-        None => {
-            vec![(cfg.i18n.string("home", loc).to_string(), Some(home_url(cfg, db, loc)))]
-        }
-    };
+    let mut t = trail_root(cfg, db, loc);
+    for (url, label) in ancestors(cfg, db, &p.url) {
+        t.push((label, Some(url)));
+    }
     if p.draft {
         t.push((cfg.i18n.string("drafts", loc).to_string(), Some("/drafts".to_string())));
         t.push((p.title.clone(), None));
@@ -229,7 +219,12 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
         } else if let Some(r) = db.routes.iter().find(|r| {
             r.kind == RouteKind::View
                 && r.url == parent
-                && r.key.is_none()
+                // The view's ROOT route, not one of its grouped archives:
+                // group keys accumulate in `params` along the subdivision
+                // chain, so empty means ungrouped. Not `key`, which a
+                // paginated view stamps with a synthetic `"page 1"` on its
+                // first route — that would hide `/blog/` from the climb.
+                && r.params.is_empty()
                 && r.page.is_none_or(|n| n == 1)
         }) {
             // q45, the landing chain's first slice: a materialized landing
@@ -248,4 +243,45 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
     }
     out.reverse();
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view_route(url: &str, view: &str) -> Route {
+        let mut r = Route::new(url.to_string(), RouteKind::View);
+        r.view = Some(view.to_string());
+        r
+    }
+
+    /// q46, pinned: a paginated landing is a crumb (its synthetic
+    /// `"page 1"` key must not read as a group key), a grouped archive is
+    /// not, and the crumb is the view's own name.
+    #[test]
+    fn ancestors_finds_a_paginated_landing() {
+        let cfg: Config = toml::from_str(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [views.published]\nover = \"blog\"\n\
+             [views.blog_index]\nover = \"published\"\npaginate = 5\n\
+             routes = [\"/blog/\", \"/blog/page/{n}/\"]\ntitle = \"Blog\"\n\
+             [views.yearly_archive]\nover = \"published\"\ngroup_by = \"date.year\"\n\
+             route = \"/blog/{year}/\"\ntitle = \"{year}\"\n",
+        )
+        .unwrap();
+        let mut db = SiteDb::default();
+        let mut root = view_route("/blog/", "blog_index");
+        root.key = Some("page 1".to_string()); // what pagination stamps
+        root.page = Some(1);
+        db.routes.push(root);
+        // Grouped, so not a landing: the climb steps past it and leaves it
+        // to `trail`.
+        let mut year = view_route("/blog/2022/", "yearly_archive");
+        year.params = vec![("year".to_string(), "2022".to_string())];
+        db.routes.push(year);
+
+        let anc = ancestors(&cfg, &db, "/blog/2022/12/16/a-post.html");
+        assert_eq!(anc, vec![("/blog/".to_string(), "Blog".to_string())]);
+    }
 }

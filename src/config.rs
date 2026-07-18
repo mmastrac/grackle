@@ -315,11 +315,16 @@ pub struct Collection {
     pub include: Vec<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
-    /// The collection's crumb identity: what it contributes to breadcrumb
-    /// trails (§5c provenance — the chain roots at the collection), and
-    /// where that crumb links. Per-locale maps carry the lang axis (§6f).
-    pub crumb: Option<LocalizedStr>,
-    pub index: Option<String>,
+    /// The retired `crumb`/`index` spellings — kept, like `[tags.<id>]`,
+    /// only so validate() can name the replacement (§5h, q46) instead of
+    /// ignoring them. Silence is the wrong failure here: a stale
+    /// `crumb = "Blog"` costs nothing at load and yields a page quietly
+    /// missing a crumb.
+    ///
+    /// `trail` stays: a subdivision chain renders from a row's group keys,
+    /// which no URL walk can recover.
+    pub crumb: Option<toml::Value>,
+    pub index: Option<toml::Value>,
     /// The view whose subdivision chain forms this collection's row trails
     /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
     pub trail: Option<String>,
@@ -616,6 +621,17 @@ impl Config {
                      declare [records.tags.{id}] instead (§6f)"
                 );
             }
+            for (name, c) in &cfg.collections {
+                let stale = c.crumb.as_ref().map(|_| "crumb").or(c.index.as_ref().map(|_| "index"));
+                if let Some(field) = stale {
+                    anyhow::bail!(
+                        "collections.{name}: `{field}` is retired — a trail climbs \
+                         the URL to the landing view that owns the collection's \
+                         index, so the view's own `title`/`crumb` and route say \
+                         this once (§5h, q46)"
+                    );
+                }
+            }
             for (field, recs) in &cfg.records {
                 for (id, t) in recs {
                     if let Some(n) = &t.name {
@@ -635,11 +651,6 @@ impl Config {
                 }
                 if let Some(i) = &v.intro {
                     check(&format!("view {name}: intro"), i)?;
-                }
-            }
-            for (name, c) in &cfg.collections {
-                if let Some(cr) = &c.crumb {
-                    check(&format!("collection {name}: crumb"), cr)?;
                 }
             }
             // The global map: same locale rule; values are literal (a
@@ -679,11 +690,6 @@ impl Config {
                     }
                     if let Some(i) = &v.intro {
                         refs.push((format!("view {name}: intro"), i));
-                    }
-                }
-                for (name, c) in &cfg.collections {
-                    if let Some(cr) = &c.crumb {
-                        refs.push((format!("collection {name}: crumb"), cr));
                     }
                 }
                 for (what, s) in refs {
@@ -1263,5 +1269,19 @@ mod tests {
 
         let e = cfg_err("[tags.contes]\nslug = \"x\"\n");
         assert!(e.contains("records.tags.contes"), "{e}");
+    }
+
+    /// q46: `collection.crumb`/`index` are retired, and a stale one is a
+    /// load error naming what replaced it. Silence would be worse than an
+    /// error here — the config keeps reading as if it still did something,
+    /// while the page it names loses nothing visible for the author to
+    /// notice.
+    #[test]
+    fn retired_collection_crumb_errors() {
+        // cfg_err's harness opens [collections.blog], so these land in it.
+        for field in ["crumb = \"Blog\"\n", "index = \"/blog/\"\n"] {
+            let e = cfg_err(field);
+            assert!(e.contains("retired") && e.contains("§5h"), "{e}");
+        }
     }
 }

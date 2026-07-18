@@ -21,11 +21,10 @@ email = "matthew@mastracci.com"
 [collections.blog]
 kind = "posts"
 source = "_posts"
-# The collection's crumb identity (§5c provenance): trails root here, and a
-# post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
-# December > 16, every archive level clickable.
-crumb = "Blog"
-index = "/blog/"
+# A post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
+# December > 16, every archive level clickable. The Blog level itself is
+# not declared here: the post's URL nests under /blog/, and the trail
+# climbs to the landing that owns it (q46).
 trail = "monthly_archive"
 # Tried in order. Measured: all 327 posts use the first form; the legacy
 # MM-DD-YYYY form that legacy_post_filename_dates.rb exists for is unused

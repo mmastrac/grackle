@@ -2474,14 +2474,22 @@ backlink scan — **membership is not citation**.
 
 `ancestors()` answers "what's above this URL" in two steps per level:
 a rendered **page row** at the parent URL (mode-B landings match here,
-row title winning), else a **materialized landing route** (key-less,
-page ≤ 1) — the view's crumb-else-title at the route's locale. Locale-
-prefix homes are skipped (`/fr/` is not a directory; Home is the trail
-root's job — this killed the duplicated `Accueil`). **Listing trails
-climb the same chain**, deduped by URL against the collection crumb
-that already roots `/blog/`-style listings — so
+row title winning), else a **materialized landing route** — the view's
+crumb-else-title at the route's locale. Locale-prefix homes are skipped
+(`/fr/` is not a directory; Home is the trail root's job — this killed
+the duplicated `Accueil`). **Listing trails climb the same chain**, so
 `Home › Recipes › Dinner` fell out of moving the course archives under
 `/recipes/`, with zero source edits (every `view:` link re-derived).
+
+"Materialized landing route" is tested as **`params` empty, page ≤ 1**,
+and the first half of that is a q46 correction worth keeping visible.
+It was `key` empty — which reads right and is wrong: group keys land in
+`params`, but a *paginated* view also stamps a synthetic `"page 1"` key
+on its first route, so `/blog/` was invisible to the climb. Nothing
+noticed, because `/books/` and `/recipes/` don't paginate and `/blog/`'s
+crumb was arriving from config. A duplicated fact had been holding a
+broken derivation upright — which is the general argument for q46, found
+by doing it.
 **Theme rides the same logic one level up**: a tree-backed listing
 whose members unanimously wear one theme *name* wears it too (subtheme
 tokens are one row's dress and never lift; mixed or theme-less members
@@ -2490,11 +2498,42 @@ is untouched by construction). The landing's language switcher derives
 from the owner's materialized routes — a fallback-prose landing is
 still the French landing.
 
+### The collection stops naming itself *(q46, settled and built 2026-07)*
+
+`collection.crumb`/`index` are **gone**. They stated, in the collection,
+what the collection's landing view already declares: `crumb = "Blog"`
+beside `blog_index`'s `title = "Blog"`, `index = "/blog/"` beside its
+route. Two spellings of one fact, kept in agreement by hand.
+
+The dissolution is the chain doing its job. `trail_root` is now Home and
+nothing else; every crumb between Home and the current page comes from
+the climb, for rows and listings alike. A post at `/blog/2022/12/16/x`
+finds the `/blog/` landing on the way up and wears the *view's* name.
+
+What made this safe is that the two producers cannot collide: the climb
+matches ungrouped landing routes only, so it steps past `/blog/2022/`
+and `/blog/2022/12/` entirely, leaving them to `trail` — whose chain
+renders from a row's own group keys and is genuinely non-derivable from
+a URL. `trail` stays for exactly that reason.
+
+Locale falls out instead of being handled. The old code built
+`/fr` + `index` by string concatenation and hoped the result existed;
+the climb *finds* `/fr/blog/` as a materialized route, or doesn't, and
+either way says something true. §6f's dangling-crumb edge closed with
+no code of its own.
+
+**Accounted, byte for byte.** Both sites rebuilt: every post trail, tag
+archive, year and month archive, feed and sitemap identical. The whole
+visible change is one line on `/blog/` (and `/fr/blog/`) — the crumb is
+the same word in the same place, now inert instead of linking to the
+page you are already on. The listing had been naming itself twice, once
+as a self-link from the collection config and once as its title;
+`page 1` had suppressed the ordinary inert tail that every other listing
+renders, so removing the duplicate *revealed* the convention rather than
+breaking it.
+
 ### Honest edges, pending
 
-- `collection.crumb`/`index` are still literal config — the non-nested
-  half of the chain. **q46** proposes dissolving them: post trails root
-  through the same climb, and the fields die.
 - An explicit `parent =` for when URL nesting lies: unneeded so far.
 - Orphaned translations (`index.fr.md` with no French rows has nowhere
   to render) should warn.
@@ -4150,9 +4189,11 @@ inventory:
 6. **`build.rs` is the gravity well** (~1,800 lines): rendering passes
    plus the whole trail family (`trail_root`, `ancestors`,
    `listing_title_and_trail`, `post_trail`, `home_url`) plus the
-   intro/prose family. The trail family is a coherent module wanting
-   out (`trails.rs`) — and q46's dissolution work would land cleaner
-   there.
+   intro/prose family. ✅ **The trail family left** — `trails.rs`, lifted
+   verbatim and proved byte-identical before q46 touched it, which is
+   what let the dissolution's diff be all semantics. The intro/prose
+   family and the rendering passes are still there; item 5's
+   "route's slice as parts" is the next tenant to evict.
 7. **Semantic drift in the main config**, folded into q33's remainder:
    `layout` on listing views is a presence flag wearing dead kind names
    (`"tag_index"` selects nothing since §5e), and `template` no longer
@@ -4160,7 +4201,11 @@ inventory:
    vocabulary wearing an old name.
 
 Born from this audit: **q46** (dissolve `collection.crumb`/`index` into
-the landing chain — the last non-derived trail names). The example's
+the landing chain — the last non-derived trail names), ✅ **settled and
+built**; §5h carries it. It paid an unbudgeted dividend: the duplicated
+config had been propping up a broken climb (paginated landings were
+invisible to `ancestors`), which no test could have caught while both
+sources existed. The example's
 residuals are all scheduled, not leaked: the manual's hand-list waits on
 §6e-as-landing-listing, home waits on the queryless landing + q37's
 board, `index.fr.html`'s raw hrefs wait on the §6d rewrite stage, and
@@ -4319,16 +4364,6 @@ never reused.
     §6b contest, and externally-hosted originals (a URL-valued image
     source that skips thumbnailing but can still carry declared
     dimensions).
-46. **Dissolve `collection.crumb`/`index` into the landing chain (§5h,
-    from the 2026-07-18 seams audit).** Both configs state the same two
-    facts twice: `crumb = "Blog"` beside `blog_index`'s `title = "Blog"`,
-    `index = "/blog/"` beside its route. With the chain built, a post URL
-    climbs to `/blog/` — a landing route carrying the view's crumb — so
-    `post_trail` can root through the same walk listings and tree pages
-    use, and both fields die. Byte-parity looks provable (same words,
-    same URLs), and §6f's dangling-crumb edge closes for free (the climb
-    finds `/fr/blog/` at the route's locale). `trail` stays — the
-    subdivision chain is genuinely non-derivable.
 
 ### Settled ledger
 
@@ -4358,3 +4393,4 @@ One line per retired question; the named section carries the design.
 | 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced | §5g |
 | 45 | landings: a view owns the URL, a row may own the words; claiming, the chain, theme provenance | §5h |
+| 46 | `collection.crumb`/`index` dissolved — the URL climb is the sole source of a landing crumb, `trail` keeps the subdivision chain | §5h |
