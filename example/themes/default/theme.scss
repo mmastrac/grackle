@@ -431,16 +431,20 @@ a[data-kind="tag"] {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
 		gap: 1.25rem;
+	}
 
-		// Rule 2 deletes this whole element when there is no backlist, so
-		// the label lives here, not as a literal heading.
-		&::before {
-			content: "Previous selections";
-			grid-column: 1 / -1;
-			font-weight: bold;
-			border-top: 1px solid var(--line);
-			padding-top: 1rem;
-		}
+	// The backlist label belongs to the CLUB shape, not to cards at large:
+	// it only reads under a featured selection. The empty `featured` slot
+	// collapses (rule 2), so adjacency IS the conditional — a course
+	// listing has no featured sibling and gets no label. (Rule 2 likewise
+	// deletes the grid itself when there is no backlist, which is why the
+	// label lives in CSS, not as a literal heading.)
+	.featured + .card-grid::before {
+		content: "Previous selections";
+		grid-column: 1 / -1;
+		font-weight: bold;
+		border-top: 1px solid var(--line);
+		padding-top: 1rem;
 	}
 }
 
