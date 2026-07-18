@@ -150,7 +150,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         .par_iter()
         .map(|p| -> Result<(String, String)> {
             let head = render::head_for_post(p, &site);
-            let trail = post_trail(cfg, p);
+            let trail = post_trail(cfg, db, p);
             let whole = bodies[p.url.as_str()].whole.as_str();
             let rel: Vec<usize> = db
                 .posts
@@ -250,7 +250,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             })
             .collect();
 
-        let (title, trail) = listing_title_and_trail(cfg, view, v, r)?;
+        let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
 
         // Pagination is emitted only for paginated routes (those carrying a
         // page number); grouped views (tags, archives) have `page: None`. The
@@ -310,7 +310,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             continue;
         }
         let Some(v) = cfg.views.get(view) else { continue };
-        let (title, trail) = listing_title_and_trail(cfg, view, v, r)?;
+        let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
         let items: Vec<parts::Figure> = r
             .members
             .iter()
@@ -348,7 +348,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             continue;
         }
         let Some(v) = cfg.views.get(view) else { continue };
-        let (title, trail) = listing_title_and_trail(cfg, view, v, r)?;
+        let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
         let rows: Vec<parts::CardRow> = r
             .members
             .iter()
@@ -601,6 +601,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                 &parts::document_tree(
                                     cfg,
                                     row_locale,
+                                    &home_url(cfg, db, row_locale),
                                     &title,
                                     &r.url,
                                     parts::TreeDoc {
@@ -1078,17 +1079,37 @@ fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
     Some(cfg.collections.get(&base)?.kind)
 }
 
+/// The URL "Home" means for a locale (§6f): the locale's own homepage
+/// when a translated index exists (`index.fr.html` → `/fr/`), else the
+/// site root. Existence-checked, not assumed — a locale with translated
+/// posts but no translated homepage keeps linking `/`.
+fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
+    if locale != cfg.i18n.default {
+        let prefixed = format!("/{locale}/");
+        if db.pages.rows.iter().any(|p| p.rendered && p.url == prefixed) {
+            return prefixed;
+        }
+    }
+    "/".to_string()
+}
+
 /// Every trail roots the same way (§5c provenance): Home, then the
-/// collection's own crumb, linked to its index. Both resolve per locale
-/// (§6f): the engine's "home" string, the crumb's LocalizedStr, and the
-/// index URL locale-prefixed — a French row's trail points at the French
-/// index, which exists whenever French rows do (locale-parallel views are
-/// default-on; a collection whose index view opted out keeps this honest
-/// only if its rows opted out of translation too — `index` naming a VIEW
-/// instead of a URL would close that, q32-adjacent, pending).
-fn trail_root(cfg: &Config, collection: &str, locale: &str) -> Vec<(String, Option<String>)> {
+/// collection's own crumb, linked to its index. All three resolve per
+/// locale (§6f): the engine's "home" string, the home URL (existence-
+/// checked), the crumb's LocalizedStr, and the index URL locale-prefixed
+/// — a French row's trail points at the French index, which exists
+/// whenever French rows do (locale-parallel views are default-on; a
+/// collection whose index view opted out keeps this honest only if its
+/// rows opted out of translation too — `index` naming a VIEW instead of
+/// a URL would close that, q32-adjacent, pending).
+fn trail_root(
+    cfg: &Config,
+    db: &SiteDb,
+    collection: &str,
+    locale: &str,
+) -> Vec<(String, Option<String>)> {
     let mut t =
-        vec![(cfg.i18n.string("home", locale).to_string(), Some("/".to_string()))];
+        vec![(cfg.i18n.string("home", locale).to_string(), Some(home_url(cfg, db, locale)))];
     if let Some(col) = cfg.collections.get(collection) {
         if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
             let u = if locale != cfg.i18n.default {
@@ -1109,6 +1130,7 @@ fn trail_root(cfg: &Config, collection: &str, locale: &str) -> Vec<(String, Opti
 /// the config already knew; layout kinds are code, naming is the view's.
 fn listing_title_and_trail(
     cfg: &Config,
+    db: &SiteDb,
     view: &str,
     v: &View,
     r: &Route,
@@ -1139,7 +1161,7 @@ fn listing_title_and_trail(
             }
         }
     };
-    let mut trail = trail_root(cfg, &cfg.query(view)?.base, loc);
+    let mut trail = trail_root(cfg, db, &cfg.query(view)?.base, loc);
     for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
         let av = &cfg.views[anc.as_str()];
         let tmpl = av.crumb.as_ref().or(av.title.as_ref());
@@ -1161,15 +1183,15 @@ fn listing_title_and_trail(
 /// each level linked to its archive — ending in the inert day. All
 /// provenance (§5c); the only special case left is drafts, which wait on
 /// the profiles work (§4a).
-fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
+fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<String>)> {
     // The posts collection, whatever it is named (§7a: the example's is
     // `notes`). One posts table means one posts collection today.
     let col = cfg.collections.iter().find(|(_, c)| c.kind == Kind::Posts);
     let loc = p.locale.as_str();
     let mut t = match &col {
-        Some((name, _)) => trail_root(cfg, name, loc),
+        Some((name, _)) => trail_root(cfg, db, name, loc),
         None => {
-            vec![(cfg.i18n.string("home", loc).to_string(), Some("/".to_string()))]
+            vec![(cfg.i18n.string("home", loc).to_string(), Some(home_url(cfg, db, loc)))]
         }
     };
     if p.draft {

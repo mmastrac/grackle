@@ -527,6 +527,7 @@ pub struct TreeDoc<'a> {
 pub fn document_tree(
     cfg: &crate::config::Config,
     locale: &str,
+    home: &str,
     title: &str,
     url: &str,
     d: TreeDoc,
@@ -537,7 +538,7 @@ pub fn document_tree(
     m.set("url", Part::Text(url.to_string()));
     m.set("tree", Part::Flag(true));
     let mut v =
-        vec![(cfg.i18n.string("home", locale).to_string(), Some("/".to_string()))];
+        vec![(cfg.i18n.string("home", locale).to_string(), Some(home.to_string()))];
     for (u, t) in d.ancestors {
         v.push((t.clone(), Some(u.clone())));
     }
@@ -894,6 +895,7 @@ mod tests {
             let m = document_tree(
                 &cfg,
                 &pg.locale,
+                "/",
                 &title,
                 &pg.url,
                 TreeDoc {

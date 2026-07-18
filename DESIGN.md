@@ -3266,7 +3266,10 @@ locale-parallel listings plug in later is already marked in
 builtins → byte-identical, verified.
 
 **Honest edges, named now**: a localized POST's trail is complete —
-`Accueil › Carnet(→ /fr/blog/) › 10 January 2026`: the collection-index
+`Accueil(→ /fr/) › Carnet(→ /fr/blog/) › 10 January 2026`: "Home" is
+**existence-checked** — it links the locale's own homepage when a
+translated index exists (`index.fr.html` → `/fr/`, which the example now
+ships), else the site root; the collection-index
 crumb locale-prefixes (the French index exists whenever French rows do),
 and the inert date tail shows the whole date when the collection
 declares no archive chain (a bare day only reads after year › month
