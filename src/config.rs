@@ -25,6 +25,10 @@ pub struct Config {
     /// widget is one config entry, no code.
     #[serde(default)]
     pub widgets: BTreeMap<String, String>,
+    /// Related-posts ranking policy (§6b). Cosine similarity supplies the
+    /// candidates; this shapes them per site.
+    #[serde(default)]
+    pub related: RelatedCfg,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -140,6 +144,26 @@ pub struct Field {
     /// granularity, at least one block; `max_chars` counts visible text).
     /// Carries a `truncated` fact for the theme's ★.
     pub truncate: Option<Truncate>,
+}
+
+/// `[related]`: how embedding similarity becomes a related-posts list.
+/// `year_penalty` subtracts per year of date distance (a soft prior toward
+/// contemporaries); `max_years` is a hard cap; `min_score` drops weak
+/// matches after adjustment — a 2004 post is probably not relevant on this
+/// blog, but might be on another, so all of it is per-site policy.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RelatedCfg {
+    pub limit: usize,
+    pub min_score: Option<f32>,
+    pub year_penalty: Option<f32>,
+    pub max_years: Option<i32>,
+}
+
+impl Default for RelatedCfg {
+    fn default() -> Self {
+        RelatedCfg { limit: 4, min_score: None, year_penalty: None, max_years: None }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

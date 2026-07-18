@@ -30,6 +30,7 @@ use tokio::net::TcpListener;
 use crate::build::{self, SiteOutput};
 use crate::config::Config;
 use crate::db::SiteDb;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A rendered snapshot plus a version the browser polls to know when to reload.
 ///
@@ -52,7 +53,7 @@ const VERSION_PATH: &str = "/__grackle/version";
 
 pub fn serve(config_path: &Path, port: u16) -> Result<()> {
     let t = Instant::now();
-    let snap = render(config_path, 1)?;
+    let (snap, pending) = render(config_path, 1)?;
     println!(
         "grackle: rendered {} routes in {:.0}ms",
         snap.pages.len(),
@@ -66,8 +67,14 @@ pub fn serve(config_path: &Path, port: u16) -> Result<()> {
         .enable_all()
         .build()?;
     rt.block_on(async move {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
         // Keep the watcher alive for the process lifetime by binding it here.
-        let _watcher = spawn_watcher(config_path.to_path_buf(), root, shared.clone())?;
+        let _watcher =
+            spawn_watcher(config_path.to_path_buf(), root.clone(), shared.clone(), tx.clone(), rx)?;
+        // Stale-while-revalidate (§6b): the first render served whatever
+        // embeddings the cache had; bring them current off-thread and
+        // re-render when done.
+        embed_in_background(&root, pending, tx);
 
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let listener = TcpListener::bind(addr)
@@ -154,20 +161,56 @@ fn reply(status: StatusCode, ct: &'static str, body: Vec<u8>) -> Response<Full<B
 ///
 /// This is "rebuild the world": config and db are re-read every time, so an
 /// edit to `grackle.toml`, a post, a page, or the SCSS all take effect.
-fn render(config_path: &Path, version: u64) -> Result<Snapshot> {
+/// Also returns the embeddings that are missing or stale — the render used
+/// the old vectors (stale-while-revalidate); the caller re-embeds off-thread.
+fn render(config_path: &Path, version: u64) -> Result<(Snapshot, Vec<crate::embed::Pending>)> {
     let cfg = Config::load(config_path)?;
     let db = SiteDb::load(&cfg).context("loading site database")?;
-    let (pages, _stats) = build::render_site(&cfg, &db)?;
-    Ok(Snapshot { version, pages })
+    let (pages, mut stats) = build::render_site(&cfg, &db)?;
+    let pending = std::mem::take(&mut stats.embed_pending);
+    Ok((Snapshot { version, pages }, pending))
+}
+
+/// Embed pending posts on a plain thread, then poke the rebuild channel so
+/// the next render picks up the fresh vectors. One flight at a time; on
+/// failure (e.g. offline model download) we log and do NOT re-poke — the
+/// next natural rebuild retries, instead of a hot retry loop.
+fn embed_in_background(
+    root: &Path,
+    pending: Vec<crate::embed::Pending>,
+    tx: tokio::sync::mpsc::UnboundedSender<()>,
+) {
+    static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+    if pending.is_empty() || IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let cache = root.join("_cache/embeddings");
+    std::thread::spawn(move || {
+        let n = pending.len();
+        let t = Instant::now();
+        let ok = crate::embed::embed_pending(&cache, &pending);
+        IN_FLIGHT.store(false, Ordering::SeqCst);
+        match ok {
+            Ok(()) => {
+                println!(
+                    "grackle: embedded {n} posts in {:.1}s (background), re-rendering",
+                    t.elapsed().as_secs_f64()
+                );
+                let _ = tx.send(());
+            }
+            Err(e) => eprintln!("grackle: background embedding failed: {e:#}"),
+        }
+    });
 }
 
 fn spawn_watcher(
     config_path: PathBuf,
     root: PathBuf,
     shared: Shared,
+    tx: tokio::sync::mpsc::UnboundedSender<()>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<()>,
 ) -> Result<notify::RecommendedWatcher> {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-
+    let watch_tx = tx.clone();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(ev) = res else { return };
         // Access events are noise; react to create/modify/remove/rename only.
@@ -175,7 +218,7 @@ fn spawn_watcher(
             return;
         }
         if ev.paths.iter().any(|p| is_content(p)) {
-            let _ = tx.send(());
+            let _ = watch_tx.send(());
         }
     })
     .context("creating file watcher")?;
@@ -194,13 +237,16 @@ fn spawn_watcher(
             let cp = config_path.clone();
             let result = tokio::task::spawn_blocking(move || render(&cp, version)).await;
             match result {
-                Ok(Ok(snap)) => {
+                Ok(Ok((snap, pending))) => {
                     let n = snap.pages.len();
                     shared.set(snap); // RCU full replace — no copy of the old map
                     println!(
                         "grackle: rebuilt {n} routes in {:.0}ms (v{version})",
                         t.elapsed().as_secs_f64() * 1000.0
                     );
+                    // An edited post rendered with its stale embedding;
+                    // refresh it off-thread and re-render on completion.
+                    embed_in_background(&root, pending, tx.clone());
                 }
                 Ok(Err(e)) => eprintln!("grackle: rebuild failed: {e:#}"),
                 Err(e) => eprintln!("grackle: rebuild task panicked: {e}"),

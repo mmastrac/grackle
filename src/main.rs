@@ -3,6 +3,7 @@ mod build;
 mod config;
 mod db;
 mod diff;
+mod embed;
 mod filter;
 mod markdown;
 mod markers;
@@ -101,6 +102,12 @@ enum Query {
     },
     /// Tags with post counts.
     Tags,
+    /// Posts most similar to a URL, by embedding cosine (§6b).
+    Similar {
+        url: String,
+        #[arg(long, default_value_t = 8)]
+        limit: usize,
+    },
     /// Monthly archive buckets.
     Archives,
     /// Everything known about one URL.
@@ -115,7 +122,7 @@ fn main() -> Result<()> {
     let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     match cli.cmd {
-        Cmd::Query(q) => run_query(q, &db, total_ms)?,
+        Cmd::Query(q) => run_query(q, &cfg, &db, total_ms)?,
         Cmd::Export { out, pretty } => {
             let json = if pretty {
                 serde_json::to_string_pretty(&db)?
@@ -246,7 +253,7 @@ fn routes_tree(db: &db::SiteDb, depth: usize, under: Option<&str>) {
     println!("\n{n} routes (depth {depth}; --depth N to expand, --under PREFIX to focus)");
 }
 
-fn run_query(q: Query, db: &db::SiteDb, total_ms: f64) -> Result<()> {
+fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> Result<()> {
     let p = &db.posts;
     match q {
         Query::Stats => {
@@ -320,6 +327,20 @@ fn run_query(q: Query, db: &db::SiteDb, total_ms: f64) -> Result<()> {
                 if n >= limit {
                     break;
                 }
+            }
+        }
+        Query::Similar { url, limit } => {
+            let vectors = embed::fresh(db, &cfg.root().join("_cache/embeddings"))?;
+            let mut policy = cfg.related;
+            policy.limit = limit;
+            let rel = embed::rank(db, &vectors, &policy);
+            let Some(&i) = db.posts.by_url.get(&url) else {
+                anyhow::bail!("no post at {url}");
+            };
+            println!("similar to {} — {}", url, db.posts.rows[i].title);
+            for (j, score) in rel.by_post.get(&i).map(Vec::as_slice).unwrap_or(&[]) {
+                let p = &db.posts.rows[*j];
+                println!("  {score:.3}  {}  {}", p.url, p.title);
             }
         }
         Query::Tags => {

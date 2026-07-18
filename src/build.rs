@@ -33,6 +33,10 @@ pub struct Stats {
     /// Distinct derived thumbnails published under `/static/`.
     pub thumbs: usize,
     pub skipped: Vec<String>,
+    /// Posts whose embeddings are missing or stale (§6b). The caller decides
+    /// when to run the model: `build` before rendering, `serve` in the
+    /// background with a re-render on completion.
+    pub embed_pending: Vec<crate::embed::Pending>,
 }
 
 /// A URL ending in `/` is served as that directory's index.html.
@@ -54,6 +58,17 @@ fn write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// Write a rendered site to a directory (AOT). Thin wrapper over `render_site`.
 pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
+    // AOT builds publish, so they wait for fresh embeddings: bring the cache
+    // current first, then render once with nothing pending.
+    let cache = cfg.root().join("_cache/embeddings");
+    if let Ok(l) = crate::embed::load(db, &cache) {
+        if !l.pending.is_empty() {
+            println!("grackle: embedding {} changed posts…", l.pending.len());
+            if let Err(e) = crate::embed::embed_pending(&cache, &l.pending) {
+                eprintln!("grackle: embedding failed, using stale/absent vectors: {e:#}");
+            }
+        }
+    }
     let (map, stats) = render_site(cfg, db)?;
     let _ = std::fs::remove_dir_all(out);
     std::fs::create_dir_all(out)?;
@@ -86,6 +101,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         serialized: 0,
         thumbs: 0,
         skipped: Vec::new(),
+        embed_pending: Vec::new(),
     };
 
     // ---- thumbnails: derive images once, publish under /static/ (§6b).
@@ -151,6 +167,23 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         })
         .collect::<Result<_>>()?;
 
+    // ---- related posts (§6b): cache-only load — fresh vectors where the
+    // cache has them, STALE ones where a post's text changed (it keeps its
+    // old embedding until reprocessed), None for never-seen posts. Whatever
+    // is pending goes back to the caller via Stats: `build` embeds it
+    // before rendering (published output is always fresh), `serve` embeds
+    // on a background thread and re-renders on completion. Ranking policy
+    // ([related]: min score, year penalty/cap) is config.
+    let loaded = match crate::embed::load(db, &root.join("_cache/embeddings")) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("grackle: embeddings unavailable, skipping related posts: {e:#}");
+            crate::embed::Loaded { vectors: Vec::new(), pending: Vec::new() }
+        }
+    };
+    let related = crate::embed::rank(db, &loaded.vectors, &cfg.related);
+    stats.embed_pending = loaded.pending;
+
     // ---- posts: document parts -> theme fragments -> shell
     let rendered: Vec<(String, String)> = db
         .posts
@@ -160,7 +193,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let head = render::head_for_post(p, &site);
             let trail = post_trail(cfg, p);
             let whole = bodies[p.url.as_str()].whole.as_str();
-            let main = thm.fragments.render(&parts::document(db, p, whole, trail));
+            let rel: Vec<usize> = db
+                .posts
+                .by_url
+                .get(&p.url)
+                .and_then(|i| related.by_post.get(i))
+                .map(|v| v.iter().map(|(j, _)| *j).collect())
+                .unwrap_or_default();
+            let main = thm.fragments.render(&parts::document(db, p, whole, trail, &rel));
             let dir = p.path.parent().unwrap_or(&root);
             let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?;
             Ok((p.url.clone(), html))

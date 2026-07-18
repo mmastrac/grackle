@@ -170,7 +170,7 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("crumbs", Stream("crumb")),
             ("tags", Stream("tag")),
             ("content", Html),
-            ("neighbors", Stream("neighbor")),
+            ("relations", Stream("relation")),
         ],
         // N rows, summarised; the view supplied query, filter and title.
         "listing" => &[
@@ -196,9 +196,12 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         // A crumb with no `url` is the trail's inert tail.
         "crumb" => &[("label", Text), ("url", Url)],
         "tag" => &[("name", Text), ("url", Url)],
+        // A post relates to others along AXES — embedding similarity,
+        // earlier, later, and whatever comes next (same-tag, series). Each
+        // axis is one relation group; the post pivots along all of them.
+        // The axis rides as an attribute hole (`data-axis`) for CSS.
+        "relation" => &[("axis", Text), ("label", Text), ("items", Stream("neighbor"))],
         "neighbor" => &[
-            ("rel", Text),
-            ("label", Text),
             ("url", Url),
             ("date", Text),
             ("date_pretty", Text),
@@ -326,6 +329,7 @@ pub fn document(
     p: &Post,
     content: &str,
     trail: Vec<(String, Option<String>)>,
+    related: &[usize],
 ) -> PartMap {
     let mut m = PartMap::new("document");
     m.set("title", Part::Text(p.title.clone()));
@@ -335,29 +339,50 @@ pub fn document(
         m.set("tags", t);
     }
     m.set("content", Part::Html(content.to_string()));
+    // Relations (§6b): the post pivots along multiple AXES — embedding
+    // similarity, then the temporal pair. Each axis is one group carrying
+    // its own label; an axis with nothing to say contributes no group, and
+    // a future axis (same-tag, series) is one more push, no schema or
+    // theme change.
+    let neighbor = |j: usize| -> Option<PartMap> {
+        let n = db.posts.rows.get(j)?;
+        let mut nm = PartMap::new("neighbor");
+        nm.set("url", Part::Text(n.url.clone()));
+        if let Some(d) = n.date {
+            nm.set("date", Part::Text(d.format("%Y-%m-%d").to_string()));
+            nm.set("date_pretty", Part::Text(d.format("%-d %B %Y").to_string()));
+        }
+        nm.set("title", Part::Text(n.title.clone()));
+        Some(nm)
+    };
+    let group = |axis: &str, label: &str, items: Vec<PartMap>| -> Option<PartMap> {
+        if items.is_empty() {
+            return None;
+        }
+        let mut g = PartMap::new("relation");
+        g.set("axis", Part::Text(axis.into()));
+        g.set("label", Part::Text(label.into()));
+        g.set("items", Part::Stream(items));
+        Some(g)
+    };
+    let mut relations = Vec::new();
+    let similar: Vec<PartMap> = related.iter().filter_map(|&j| neighbor(j)).collect();
+    relations.extend(group("similar", "Related", similar));
     if let Some(&i) = db.posts.by_url.get(&p.url) {
         let (newer, older) = db.posts.neighbors(i);
-        let item = |rel: &str, label: &str, idx: Option<usize>| -> Option<PartMap> {
-            let n = &db.posts.rows[idx?];
-            let mut nm = PartMap::new("neighbor");
-            nm.set("rel", Part::Text(rel.into()));
-            nm.set("label", Part::Text(label.into()));
-            nm.set("url", Part::Text(n.url.clone()));
-            if let Some(d) = n.date {
-                nm.set("date", Part::Text(d.format("%Y-%m-%d").to_string()));
-                nm.set("date_pretty", Part::Text(d.format("%-d %B %Y").to_string()));
-            }
-            nm.set("title", Part::Text(n.title.clone()));
-            Some(nm)
-        };
-        let v: Vec<PartMap> = [
-            item("newer", "Later post", newer),
-            item("older", "Earlier post", older),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        m.set("neighbors", Part::Stream(v));
+        relations.extend(group(
+            "later",
+            "Later post",
+            newer.and_then(&neighbor).into_iter().collect(),
+        ));
+        relations.extend(group(
+            "earlier",
+            "Earlier post",
+            older.and_then(&neighbor).into_iter().collect(),
+        ));
+    }
+    if !relations.is_empty() {
+        m.set("relations", Part::Stream(relations));
     }
     m
 }
@@ -515,6 +540,8 @@ mod tests {
         assert_eq!(pages[2].text("url"), Some("/blog/page/3"));
     }
 
+    // Schema conformance is a debug_assert; release builds compile it out.
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "not in the `crumb` schema")]
     fn unknown_part_name_asserts() {
@@ -570,7 +597,7 @@ mod tests {
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone(), None),
             ];
-            let m = document(&db, p, &p.body, trail);
+            let m = document(&db, p, &p.body, trail, &[]);
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }

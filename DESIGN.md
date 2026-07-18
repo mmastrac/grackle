@@ -2269,7 +2269,57 @@ carrying two workarounds that simply evaporate:
   smallest of {original, PNG, JPEG}; adding WebP is one more encoder and the
   extension now travels with the URL.
 
-### Embeddings (this retires LSI)
+### Embeddings (this retires LSI) *(built 2026-07)*
+
+**Built** (`embed.rs`), with three deliberate departures from the spec
+below, each an improvement the build surfaced:
+
+1. **The embedded text is `title: … \n tags: … \n body: …`** — title and
+   tags are signal, not metadata, so they are in the text and therefore in
+   the **cache key**. The original "retitling never re-embeds" claim is
+   deliberately inverted: retitling *should* re-embed, because the title
+   changed what the post is about. (Whitespace-only edits still don't:
+   the text is trimmed.)
+2. **Ranking policy is config** (`[related]`): `limit`, `min_score` on the
+   *adjusted* score, and year-distance handling — `year_penalty` (soft
+   per-year subtraction) and/or `max_years` (hard cap). A 2004 post is
+   probably not relevant on this blog but might be on another; the site
+   declares its prior (here: penalty 0.01/yr, min 0.4). Observed effect:
+   the blogging-meta post still pulls its genuinely-related 2009/2010
+   platform posts (raw 0.58–0.64 beats the penalty); weaker cross-era
+   matches drop.
+3. **Stale-while-revalidate** — the resident database's move (§7). An
+   `index.json` maps post name → current vector hash; a post whose text
+   changed serves its **old vector until reprocessed**. `build` (AOT,
+   publishes) embeds pending posts *before* rendering; `serve` renders
+   immediately on stale vectors and re-embeds on a background thread,
+   poking the rebuild channel on completion. Proven live in the serve log:
+   edit → rebuild 366ms on the stale vector → "embedded 1 posts in 0.2s
+   (background), re-rendering" → automatic fresh re-render. Failure
+   (offline model download) logs and waits for the next natural rebuild —
+   no hot retry loop.
+
+Mechanics as specced: vectors cached content-addressed
+(`_cache/embeddings/{hash}.vec`, 1.5 KB each), model beside them
+(`_cache/models/`, downloaded once), L2-normalised so similarity is a dot
+product, brute-force over the corpus, and **a post never matches itself** —
+its own vector is the perfect cosine, so the exclusion is pinned by a test
+(identical twin vectors: the twin ranks, the self does not) rather than
+left as an incidental filter. Measured: full re-embed ~20s inside a
+38s cold build; **warm build 1.5s total**. `grackle query similar <url>`
+makes the ranking inspectable, embedding pending posts first so it never
+lies.
+
+**"Related" is AXES, not a list.** A post relates to others along multiple
+axes — embedding similarity, earlier, later — and pivots along each. The
+part model says so: `document` carries `relations: Stream("relation")`,
+each relation = `{axis, label, items: Stream("neighbor")}`. The axis rides
+into markup as `data-axis` (an attribute hole) for per-axis styling; the
+label lives on the group, which retired the label-on-first-item hack the
+flat model needed; an axis with nothing to say contributes no group
+(rule 2); and a future axis — same-tag, series — is one more group pushed
+by the producer: no schema change, no theme change, the `relation`
+fragment renders axes it has never heard of.
 
 `_config-prod.yml` sets `lsi: true`, which is the `Populating LSI... /
 Rebuilding index...` phase visible in the build log — a dominant chunk of the
@@ -3262,3 +3312,19 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     deriver to the struct shape deepens the wrong groove. Inheritance
     semantics (fields flow with rows along `over`, nearest wins) are right
     and survive the change.
+
+    **Direction settled (2026-07): extend the filter language, borrow no
+    engine.** Surveyed: `liquid`/`liquid-core` rejected a third time (the
+    grammar is the cheap 20%; typed load-time validation against our schema
+    is the value, and liquid doesn't bring it); `minijinja` expressions are
+    credible (real kwargs, zero deps) but dynamically typed — schema
+    checking needs its unstable `machinery` AST — and would split the
+    config into two expression languages; CEL fits conceptually but is
+    dependency weight with a type system to bridge. So: add call syntax
+    with named arguments to `filter.rs`, functions in a typed registry
+    (name → source type, params, return type), same load-time errors naming
+    the knowns; filters become expressions of type bool, fields expressions
+    producing content. Constraint worth keeping: the grammar stays
+    **CEL-compatible** (our filter syntax already is, accidentally), so the
+    hand-rolled parser can be swapped for `cel` later without breaking a
+    config file. Build at the q23 `hero` forcing point.
