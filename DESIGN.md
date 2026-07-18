@@ -2857,6 +2857,117 @@ That is the concrete argument for AST-level access — not a preference.
    the content-addressed cache (§6b), but worth measuring before allowing
    templates in rules.
 
+## 6e. Hierarchy: the page's tree and the tree's tree *(specced 2026-07)*
+
+The site has two hierarchies, and they are the same shape seen on two axes:
+**headings nest by level** (h2 contains its h3s) and **pages nest by path**
+(`code/legacy/` contains its 22 projects). Both are hierarchy *derived from
+position* — §6d's position axis, read in depth instead of in sequence. And
+half of the machinery already exists: **breadcrumbs are the upward walk** of
+the path tree (`ancestors()`, §5c provenance). What's missing is the
+**downward walk** on either axis:
+
+| | toward the root | toward the leaves |
+|---|---|---|
+| heading tree | — (the title is the root) | **page ToC** — this document's outline |
+| path tree | breadcrumbs ✅ (§5c) | **section tree** — a manual-style file ToC |
+
+Measured, both cases are real: 7 posts use `##` headings (the long technical
+ones — exactly the ToC audience), and `code/`/`writing/` hold 36 index pages
+up to five levels deep, with 23 index-less directories (q27) between them.
+
+### One part vocabulary, two producers
+
+The unifying move is the §5e one: both ToCs are **the same recursive part
+kind**, produced from different sources.
+
+```
+"outline_entry" => [("label", Text), ("url", Url),
+                    ("current", Text),                   // aria-current, the pagination trick
+                    ("children", Stream("outline_entry"))]
+```
+
+The `document` schema gains two parts sharing it: `outline` (this document's
+headings) and `section` (the enclosing section's page tree) — both
+`Stream("outline_entry")`. A docs-style page showing the file tree on the
+left and its own headings on the right is then *two grid areas in theme CSS*;
+a theme that declines either slot loses nothing (rule 2 deletes the empty
+element; canonical renders whatever exists — the null theme gets navigable
+ToCs for free, and the completeness falsifier extends without new code).
+
+This is the **first self-referential schema**, and the binder already
+handles it: streams render their child fragments by kind, recursion
+terminates on finite data, and a `toc` fragment containing
+`<ol data-slot="children">` is just a fragment that maps itself. Worth a
+test; not worth new machinery.
+
+**Why not relations?** `relations` (§6b) are flat row↔row groups along
+axes; outlines are recursive *containment*. Forcing an outline into a
+relation flattens it; forcing relations to recurse complicates every
+theme. Two shapes, kept apart on purpose.
+
+**Derived, not authored — so parts, not slot fills.** `.slots/` carries
+content a human wrote; ToCs are computed from structure that already
+exists. Both exit through `data-slot` holes, but a ToC never lives in a
+file — there is no `{% toc %}` tag and no `.slots/outline.md`, for the same
+reason there is no `{% for %}`.
+
+### The page outline (heading axis)
+
+- **Source: the same parse that renders.** `render_doc` walks the AST once
+  (§6d); collecting `(level, id, text)` per heading is a few lines in that
+  walk. The ids are comrak's `auto_ids` — already emitted, already verified
+  (§8a: zero heading diffs) — and because the outline is extracted from the
+  same AST pass that emits them, link and target *cannot* desynchronize
+  (the search-wasm argument, §6b). Nesting the flat list by level is the
+  standard outline algorithm; a level jump (h2 → h4) nests under the
+  nearest shallower entry. (The refactor deleted `Block.tag` as unused;
+  this is its replacement in better form — structured heading facts, not a
+  string per block.)
+- **Opt-in is schema, cascaded by the tree.** `toc: true` front matter —
+  §5a's canonical *render directive* example, finally real — with markers/
+  rules supplying subtree defaults, so "everything under `doc/` has a ToC"
+  is one marker, no per-file editing.
+- **Depth is production policy, not CSS.** The §6d lesson applies
+  unchanged: never ship levels a stylesheet hides. v1 hardcodes a sane
+  range (h2–h3); the §5f expression form is the future home —
+  `toc = outline(content, {"max_depth": 3})`, one more deriver in the
+  typed registry, riding the q23 forcing point.
+
+### The section tree (path axis)
+
+- **The root is declared positionally.** A marker (working name
+  `.section`) makes its directory a section root: every rendered row
+  beneath it carries a `section` part — the root's subtree of pages, with
+  the current row marked. Config says what the marker means; the tree says
+  where. Finding your root is the same nearest-wins ascent as markers,
+  buckets and slot fills — one more user of the one algorithm.
+- **Membership and labels come from the database.** Rendered rows only
+  (v1); labels are page titles (schema); an index-less directory is q27's
+  unlinked label — **this feature is q27's forcing point**, and the
+  auto-index view it recommended would share the `outline_entry` fragment.
+- **Ordering must be declared, not inherited from `ls`.** `order:` front
+  matter, else lexical filename — the §5-audit `order_by` gap again (the
+  corpus zero-pads, so lexical is correct today; that is luck, and the
+  field makes it intent).
+- **`current` is the pagination trick verbatim**: an attribute hole fills
+  `aria-current` on the row's own entry; theme CSS selects on it; a11y and
+  styling share one part.
+- Derivation is once per section per build, not once per page — every page
+  in a section shows the same tree, only `current` moves.
+
+### Costs and edges, named now
+
+- Heading text needs inline-markup stripping (a heading containing a link
+  outlines as its text). Same AST walk, small.
+- Static passthrough rows are not pages: legacy HTML trees (mindstorms)
+  get no section part until they become rendered rows — consistent with
+  the §5 audit's opt-in restructure, not a new gap.
+- A marker that declares *scope* is a new marker flavor: today's markers
+  set row defaults; `.section` names a subtree unit. If it also wants
+  options (depth, ordering), markers grow a payload — or the §5b
+  `.schema.toml`-style per-directory config does it. That choice is q35.
+
 ## 7. Clients of the database
 
 Both `build` and `serve` are one render path: `build::render_site` produces the
@@ -3481,7 +3592,9 @@ the drift is only ever invisible *until* it isn't.
     free: an auto-index **view** — a `listing` of children materialized for
     each index-less directory — turning the hole into a page with zero
     authored content. Recommend: unlinked label now, auto-index view as the
-    upgrade.
+    upgrade. **Forcing point arrived (§6e)**: section trees walk these
+    directories, so the unlinked-label semantic ships with them, and the
+    auto-index view shares §6e's `outline_entry` fragment.
 28. **Mindstorms restructure vs URL parity (§5 audit).** The gallery
     restructure retires `/demos/mindstorms/alpharex_1.html` and its 16
     siblings — which are in the sitemap and carry **no `noindex`** (only the
@@ -3577,3 +3690,14 @@ the drift is only ever invisible *until* it isn't.
     layers (`store::walker` + config). The serve list has one extra
     legitimate member the others lack: `_cache/`, which a rebuild *writes*
     (watching it would loop) — that one is serve's own, and stays.
+35. **Scope markers (§6e).** `.section` declares a subtree *unit*, which is
+    a new marker flavor: today's markers set row defaults (values merged
+    into front matter); a section root names a place. Three sub-questions:
+    (a) is it a marker with a payload (`.section` file carrying TOML for
+    depth/ordering), a bare marker + `.schema.toml`-style sidecar (§5b), or
+    just a `[markers]` entry whose *presence* is the declaration; (b) does
+    `order:` become a real schema field now (the §5-audit `order_by` gap —
+    lexical-by-zero-padding is luck, not intent); (c) do nested `.section`
+    markers mean nested units (inner tree scoped to inner root — the
+    nearest-wins answer says yes) or an error. Leaning: bare marker,
+    nearest wins, `order:` lands with it.
