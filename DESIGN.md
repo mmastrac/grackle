@@ -3323,11 +3323,13 @@ crumb locale-prefixes (the French index exists whenever French rows do),
 and the inert date tail shows the whole date when the collection
 declares no archive chain (a bare day only reads after year › month
 crumbs; main site keeps its day tail, byte-identical). Localized tree
-PAGES still walk URL ancestors and find no `/fr/…` pages (default-locale
-ancestors are probably right — pending), and `collection.index` is a
+PAGES still walk URL ancestors — which duplicates the home crumb on
+`/fr/…` URLs (the prefix makes `/fr/` look like a directory ancestor)
+and drops untranslated section crumbs — and `collection.index` is a
 literal URL, so an index view that opted out of locales would leave the
-prefixed crumb dangling — `index` naming a VIEW would close that,
-q32-adjacent. `.slots/` fills localize by the same suffix convention
+prefixed crumb dangling — `index` naming a VIEW would close that.
+**Both are q45's** (index pages vs view roots — the landing
+unification). `.slots/` fills localize by the same suffix convention
 (`nav.fr.md` beside `nav.md` — built, and their view links resolve per
 consuming page's locale, §6a).
 `month_name` in group params is computed at route build, locale-free —
@@ -4211,7 +4213,8 @@ the drift is only ever invisible *until* it isn't.
     section trees render index-less directories as unlinked labels
     (`a:not([href])`, live on the example's `manual/advanced/`). The
     auto-index view remains the upgrade, sharing the `outline_entry`
-    fragment.
+    fragment — and q45 subsumes it exactly: an index-less directory
+    is a landing view with no intro row.
 28. **Mindstorms restructure vs URL parity (§5 audit).** The gallery
     restructure retires `/demos/mindstorms/alpharex_1.html` and its 16
     siblings — which are in the sitemap and carry **no `noindex`** (only the
@@ -4336,3 +4339,85 @@ the drift is only ever invisible *until* it isn't.
     (order, label), unset last; (c) nested `.section`s nest, nearest wins,
     pinned by test. A marker with a payload remains available the day
     depth/ordering options are wanted.
+45. **Index pages vs view roots (Matt, 2026-07): the landing is one
+    concept with four implementations, and none owns it.** A deep
+    review, prompted by "they really seem to be fuzzy." The page that
+    *stands for a set* — a section landing — exists four ways: a
+    **view root** (`/blog/`, `/photos/`, `/books/` — a materialized
+    route, not a row); an **index page** (`recipes/index.md`,
+    `manual/index.md` — a *row*, routed by `**/index.{html,md}`); the
+    **home page** (`index.html` at `/` — a row plus special cases:
+    `home_url`, the engine `home` string); and **`collection.index`**
+    (a raw URL in config standing for a landing in trails). Four
+    mechanisms then answer "what landing is above this thing," each
+    differently: posts via `trail_root` → `collection.index`; listings
+    via the grouped chain's route templates; tree pages via
+    `ancestors()` — a URL-walk that sees only page rows; nav by making
+    the author pick a dialect per section (`view:blog_index` vs
+    `/recipes/index.md`).
+
+    **The symptoms are live, not hypothetical** (all observed on the
+    example): `/books/the-typed-kitchen/` has no Books crumb —
+    `ancestors()` cannot see a view root, so the club is unreachable
+    upward from its own members. `/fr/recipes/red-lentil-dal/` shows
+    `Accueil › Carnet de terrain › …` — home *duplicated* (the `/fr/`
+    prefix makes the homepage row look like a directory ancestor) and
+    Recipes *missing* (no `index.fr.md`). `/fr/recipes/` is a 404
+    while `/fr/blog/` exists — locale-parallel is default-on for views
+    but impossible for index pages, and `index.fr.html` visibly routes
+    around it by linking the lone French recipe directly. `stem !=
+    "index"` appears in three view filters — the landing is a row, so
+    every query over its table must remember to exclude it or the
+    listing lists itself, while view listings are excluded
+    structurally by route kind: one distinction, two mechanisms, one a
+    naming convention. `recipes/index.md` hand-states "serves 2, 25
+    min" beside a schema that owns `servings`/`minutes`, and
+    `manual/index.md` hand-lists the tree §6e derives — hand-maintained
+    materialized views, the classic denormalization drift. And
+    `collection.index = "/blog/"` speaks the raw-URL dialect §6a made
+    a *load error* in content. The one honest seam: route collisions
+    are checked cross-table, so a section at least cannot silently be
+    both (`books/index.md` would error against `views.books`).
+
+    **Diagnosis**: a landing is a **projection** (derived listing)
+    plus, sometimes, **prose** (an owned row). An index page is a row
+    pretending to be a view; a view root is a view missing its row's
+    prose. Every symptom is one of those halves missing or
+    hand-forged. The homepage already demonstrates the working shape —
+    prose that *embeds* views: the row owns the words, the query owns
+    the list.
+
+    **Proposed unification: a landing URL is always owned by a view,
+    and a view may take its prose from a row.** `/recipes/` becomes a
+    view over `pages` like `/books/` already is. A view can declare —
+    or discover by convention — an **intro row**: `index.md` in the
+    matched directory supplies front matter and prose rendered above
+    the derived listing (the homepage hybrid made first-class). The
+    intro row stops being routed standalone and stops being listable,
+    so every `stem != "index"` filter dies structurally. Then the rest
+    falls out: locale-parallel applies uniformly (`/fr/recipes/`
+    materializes with French rows, intro from `index.fr.md` else the
+    default intro — the same suffix fallback slots use); trails unify
+    (`ancestors()` is replaced by a landing chain that view routes
+    participate in); `collection.index` names a **view** (closing the
+    q32-adjacent pending §6f records); nav speaks one dialect —
+    `view:` for every section. Home is the root landing: a view whose
+    intro is `index.html` and whose listing may be empty —
+    prose-only landings are the degenerate case, which also covers
+    `manual/` (its "listing" is §6e's section tree, a different
+    layout), and `home_url` falls out. q27's auto-index upgrade is
+    subsumed exactly: an index-less directory is a landing view with
+    no intro row. q37's board is the sibling question (what home's
+    *listing* is, when it is several views).
+
+    **Open before building**: (a) how a landing derives its *parent*
+    for the chain — URL nesting of landing roots vs an explicit
+    `parent =`; (b) front-matter authority — does the intro row's
+    `title:` beat the view's `title`/`crumb` (leaning: yes, explicit
+    beats derived, per row); (c) discovery — `index.md` in the
+    matched dir by convention vs `intro = "recipes/index.md"`
+    declared (leaning: convention, declared override); (d) what
+    happens to the `**/index.{html,md}` route rule and URL parity on
+    the main site, where index pages are today ordinary rows; (e) the
+    interim for `manual/index.md`'s hand-list before the section-tree
+    landing exists.
