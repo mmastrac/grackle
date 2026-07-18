@@ -42,7 +42,7 @@ impl SortKey {
 /// The canonical spelling of a `group_by` spec. The date specs were always
 /// aliases for schema fields the filter language already had — grouping by
 /// tags, by year, by course is ONE operation: group by a typed field.
-fn spec_field(spec: &str) -> &str {
+pub(crate) fn spec_field(spec: &str) -> &str {
     match spec {
         "date.year" => "year",
         "date.month" => "month",

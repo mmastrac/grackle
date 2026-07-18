@@ -263,9 +263,29 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     .iter()
                     .filter(|x| x.view == r.view && x.page.is_some() && x.locale == r.locale)
                     .count();
+                // q32 settled: page URLs render from the owning view's own
+                // route templates (locale-prefixed like the routes were),
+                // not from a literal copy in the producer.
                 let prefix =
                     r.locale.as_deref().map(|l| format!("/{l}")).unwrap_or_default();
-                parts::pagination(cur, total, &prefix)
+                let urls: Vec<String> = (1..=total)
+                    .map(|n| -> Result<String> {
+                        let tmpl = if n == 1 {
+                            v.routes.first()
+                        } else {
+                            v.routes.get(1).or_else(|| v.routes.first())
+                        }
+                        .ok_or_else(|| anyhow::anyhow!("view {view}: no routes"))?;
+                        Ok(format!(
+                            "{prefix}{}",
+                            crate::route::render(tmpl, |k| match k {
+                                "n" => Some(n.to_string()),
+                                _ => None,
+                            })?
+                        ))
+                    })
+                    .collect::<Result<_>>()?;
+                parts::pagination(cur, &urls)
             }
             None => None,
         };

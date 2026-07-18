@@ -289,6 +289,11 @@ pub struct Collection {
     /// The view whose subdivision chain forms this collection's row trails
     /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
     pub trail: Option<String>,
+    /// The view that owns this collection's tag routes (q32): tag pills
+    /// render their URLs from ITS route template, so config can move the
+    /// archive and the chrome follows. Optional — a unique tags-grouped
+    /// view is found on its own; no tags view at all = unlinked pills.
+    pub tags: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -488,6 +493,53 @@ impl Config {
                     "widget {name:?}: wrapper template has no {{body}} hole, \
                      so the author's markdown would be dropped"
                 );
+            }
+        }
+        // q32: the tag-route owner must be resolvable and renderable at
+        // load — tag pills render URLs from its route template, and a
+        // template that can't render from a tag key would 404 the chrome.
+        {
+            let declared = cfg
+                .collections
+                .values()
+                .find(|c| c.kind == Kind::Posts)
+                .and_then(|c| c.tags.as_deref());
+            if let Some(name) = declared {
+                let Some(v) = cfg.views.get(name) else {
+                    anyhow::bail!("collection tags view {name:?} is not a declared view");
+                };
+                if v.group_by.as_deref().map(crate::views::spec_field) != Some("tags") {
+                    anyhow::bail!("collection tags view {name:?} is not grouped by tags");
+                }
+                if v.route.is_none() {
+                    anyhow::bail!("collection tags view {name:?} has no route");
+                }
+            } else {
+                let tag_views: Vec<&str> = cfg
+                    .views
+                    .iter()
+                    .filter(|(_, v)| {
+                        v.group_by.as_deref().map(crate::views::spec_field) == Some("tags")
+                    })
+                    .map(|(n, _)| n.as_str())
+                    .collect();
+                if tag_views.len() > 1 {
+                    anyhow::bail!(
+                        "multiple views group by tags ({}) — declare which owns tag                          routes: [collections.<posts>] tags = \"<view>\"",
+                        tag_views.join(", ")
+                    );
+                }
+            }
+            if let Some((name, v)) = cfg.tags_view() {
+                if let Some(tmpl) = v.route.as_deref() {
+                    crate::route::render(tmpl, |k| match k {
+                        "key" | "tags" => Some("probe".to_string()),
+                        _ => None,
+                    })
+                    .with_context(|| {
+                        format!("view {name}: tag route template needs more than {{key}}")
+                    })?;
+                }
             }
         }
         // §6f: every LocalizedStr in the config obeys ONE rule — a
@@ -770,6 +822,49 @@ impl Config {
             Some(n) => self.i18n.text(n, locale),
             None => id,
         }
+    }
+
+    /// The view that owns tag routes (q32): the posts collection's declared
+    /// `tags` view, else the unique view grouped by tags. Validation
+    /// guarantees a declared name resolves; ambiguity without a declaration
+    /// is a load error, so None here means "this site has no tag archive".
+    pub fn tags_view(&self) -> Option<(&str, &View)> {
+        if let Some(name) = self
+            .collections
+            .values()
+            .find(|c| c.kind == Kind::Posts)
+            .and_then(|c| c.tags.as_deref())
+        {
+            return self.views.get(name).map(|v| (name, v));
+        }
+        let mut found = None;
+        for (name, v) in &self.views {
+            if v.group_by.as_deref().map(crate::views::spec_field) == Some("tags") {
+                if found.is_some() {
+                    return None; // ambiguous — validation already errored
+                }
+                found = Some((name.as_str(), v));
+            }
+        }
+        found
+    }
+
+    /// A tag's archive URL for a row's locale (q32 + §6f): the owning
+    /// view's route template rendered with the tag's slug, locale-prefixed
+    /// when that view materializes per locale. None = no tag archive
+    /// exists, and the pill renders unlinked.
+    pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
+        let (_, v) = self.tags_view()?;
+        let tmpl = v.route.as_deref()?;
+        let url = crate::route::render(tmpl, |k| match k {
+            "key" | "tags" => Some(self.tag_slug(id).to_string()),
+            _ => None,
+        })
+        .ok()?;
+        if locale != self.i18n.default && v.locales.as_deref() != Some("default") {
+            return Some(format!("/{locale}{url}"));
+        }
+        Some(url)
     }
 }
 

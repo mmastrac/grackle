@@ -3856,14 +3856,12 @@ renderer ignored all of it*. That was cured for row membership (`members`).
 The same disease survives in four smaller pockets — each is the renderer
 (or a producer) re-deriving something config already owns:
 
-1. **Producers hardcode routes config owns** (→ q32). `parts.rs` tag pills
-   emit the literal string `/blog/tags/{t}/` — the shape of
-   `[views.tag_index] route` — and `parts::pagination` hardcodes `/blog/` +
-   `/blog/page/{n}` — the shape of `[views.blog_index] routes`. Edit either
-   route in config and the build succeeds while the chrome 404s: exactly
-   the members bug, at the URL level. The fix shape exists already — post
-   trails render the owning view's route template (§5c provenance); tag
-   pills and pagination should get their URLs the same way.
+1. ~~Producers hardcode routes config owns~~ (→ q32) — **cured
+   (2026-07)**: pagination takes URLs rendered from the owning view's
+   `routes` templates, and tag pills render `Config::tag_url` from the
+   declared-or-unique tags view's template (no tags view = unlinked
+   pills). The i18n work is what finally forced it: the hardcodes had
+   grown locale prefixes in two places before the cure.
 2. **`build.rs` holds policy keyed on view names** (→ q33). Three spots:
    `view != "blog_index"` decides which listings get `noindex`;
    `"blog_index" => Some("blog_index")` supplies a fallback layout; the
@@ -4225,15 +4223,27 @@ the drift is only ever invisible *until* it isn't.
     config file. Build at the q23 `hero` forcing point. **Spec: §5f** —
     the CEL contract, surfaces, environment typing, options-as-map-literals,
     and the divergence ledger.
-32. **Producers hardcode routes that config owns (§9b).** `parts.rs` emits
-    `/blog/tags/{key}/` for tag pills and `/blog/` + `/blog/page/{n}` for
-    pagination — literal copies of `[views.tag_index].route` and
-    `[views.blog_index].routes`. Config can change; the chrome would 404
-    with no load-time error. Fix shape: producers take URLs; build renders
-    them from the owning view's route template, exactly as post trails
-    already do (§5c provenance). Needs a small answer for "which view owns
-    tag URLs" — probably the collection declares it, next to
-    `crumb`/`index`/`trail`.
+32. ~~Producers hardcode routes that config owns (§9b)~~ — **settled,
+    built (2026-07)**, in exactly the predicted shape and with the
+    predicted small answer. Pagination: the producer takes URLs
+    (`pagination(current, urls)` no longer knows what a blog is); build
+    renders them from the owning view's own `routes` templates,
+    locale-prefixed like the routes themselves. Tag pills: the posts
+    collection may declare which view owns tag routes
+    (`tags = "tag_index"`, next to `crumb`/`index`/`trail`), falling
+    back to the unique tags-grouped view — ambiguity without a
+    declaration is a load error, the declared view must be tags-grouped
+    and routed, and its template must render from `{key}` alone
+    (probed at load). `Config::tag_url(id, locale)` renders the
+    template with the record's slug and the view's locale
+    materialization; **no tags view = unlinked pills**, presence-driven
+    like everything else. i18n forced this settlement: the hardcodes
+    had already grown locale prefixes in two places. One deliberate
+    visible change, accounted mechanically: pagination links now carry
+    the route template's trailing slash (`/blog/page/2/`) — 66 files
+    changed, every byte explained by that one substitution; the old
+    slashless form was jekyll-paginate parity that made every click
+    bounce through a server redirect.
 33. **View-name policy in `build.rs` (§9b)** — *the serialization half is
     settled (2026-07), with better vocabulary than this entry proposed*:
     Matt's framing is that the feed is not a special pass but a

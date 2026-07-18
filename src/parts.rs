@@ -355,30 +355,19 @@ fn tag_stream(cfg: &crate::config::Config, p: &Post) -> Option<Part> {
     if p.tags.is_empty() {
         return None;
     }
-    // §6f: when a tags view materializes per locale, a translated row's
-    // pills point into ITS locale's archive; otherwise every locale
-    // shares the default archive. (The literal route here is q32 debt.)
-    let parallel = cfg
-        .views
-        .values()
-        .any(|v| v.group_by.as_deref() == Some("tags") && v.locales.as_deref() != Some("default"));
-    let prefix = if parallel && p.locale != cfg.i18n.default {
-        format!("/{}", p.locale)
-    } else {
-        String::new()
-    };
     let v = p
         .tags
         .iter()
         .map(|t| {
-            // Tag records: display name follows the row's locale, the
-            // route slug is locale-independent. No record = id.
+            // Tag records: display name follows the row's locale (§6f);
+            // the URL comes from the OWNING VIEW's route template (q32
+            // settled — config can move the archive and pills follow).
+            // A site with no tag archive gets unlinked pills.
             let mut m = PartMap::new("tag");
             m.set("name", Part::Text(cfg.tag_name(t, &p.locale).to_string()));
-            m.set(
-                "url",
-                Part::Text(format!("{prefix}/blog/tags/{}/", cfg.tag_slug(t))),
-            );
+            if let Some(url) = cfg.tag_url(t, &p.locale) {
+                m.set("url", Part::Text(url));
+            }
             m
         })
         .collect();
@@ -618,17 +607,15 @@ pub fn listing(
 /// the page range (a page with no `url` is the current one). Page 1 lives at
 /// `/blog/`; page N>1 links `/blog/page/N` with no trailing slash, faithful to
 /// jekyll-paginate. `None` when there is a single page.
-pub fn pagination(current: usize, total: usize, prefix: &str) -> Option<PartMap> {
+/// q32 settled: producers take URLs. `urls[i]` is page i+1's link target,
+/// rendered by build from the owning view's route templates — this
+/// producer no longer knows what a blog is.
+pub fn pagination(current: usize, urls: &[String]) -> Option<PartMap> {
+    let total = urls.len();
     if total <= 1 {
         return None;
     }
-    let path = |n: usize| {
-        if n <= 1 {
-            format!("{prefix}/blog/")
-        } else {
-            format!("{prefix}/blog/page/{n}")
-        }
-    };
+    let path = |n: usize| urls[n - 1].clone();
     let mut m = PartMap::new("pagination");
     if current > 1 {
         m.set("prev", Part::Text(path(current - 1)));
@@ -780,8 +767,10 @@ mod tests {
 
     #[test]
     fn pagination_is_data_not_markup() {
-        assert!(pagination(1, 1, "").is_none());
-        let m = pagination(2, 3, "").unwrap();
+        assert!(pagination(1, &["/blog/".to_string()]).is_none());
+        let urls: Vec<String> =
+            ["/blog/", "/blog/page/2", "/blog/page/3"].iter().map(|s| s.to_string()).collect();
+        let m = pagination(2, &urls).unwrap();
         assert_eq!(m.text("prev"), Some("/blog/"));
         assert_eq!(m.text("next"), Some("/blog/page/3"));
         let pages = m.stream("pages");
@@ -888,7 +877,11 @@ mod tests {
                 &rows,
                 r.key.as_deref().unwrap_or("listing"),
                 vec![("Home".to_string(), Some("/".to_string()))],
-                r.page.and_then(|n| pagination(n, 66, "")),
+                r.page.and_then(|n| {
+                    let urls: Vec<String> =
+                        (1..=66).map(|i| format!("/blog/page/{i}")).collect();
+                    pagination(n, &urls)
+                }),
             );
             let out = canonical(&m);
             assert!(complete(&m, &out), "listing {} dropped a part", r.url);
