@@ -303,6 +303,11 @@ pub fn route_schema() -> filter::Schema {
     s.insert("key", Str);
     s.insert("page", Int);
     s.insert("rows", Int);
+    // The source filename's stem, Null for sourceless (view) routes — the
+    // same field page filters use, so `stem != "index"` says the same
+    // thing at both layers (e.g. keeping listing-shaped index pages out
+    // of a search shell's row set).
+    s.insert("stem", Str);
     s
 }
 
@@ -326,6 +331,11 @@ impl filter::Row for Route {
             },
             "page" => self.page.map_or(V::Null, |p| V::Int(p as i64)),
             "rows" => self.rows.map_or(V::Null, |r| V::Int(r as i64)),
+            "stem" => self
+                .source
+                .as_deref()
+                .and_then(|p| p.file_stem())
+                .map_or(V::Null, |s| V::Str(s.to_string_lossy().into_owned())),
             _ => V::Null,
         }
     }
@@ -1117,5 +1127,31 @@ impl SiteDb {
 
         db.routes.sort_by(|a, b| a.url.cmp(&b.url));
         Ok(db)
+    }
+}
+
+#[cfg(test)]
+mod route_stem_tests {
+    use super::*;
+    use crate::filter::Filter;
+
+    /// `stem != "index"` must drop index pages while letting sourceless
+    /// (view) routes and dated posts through — Null passes `!=` by the
+    /// filter's comparison rule, and that is load-bearing here.
+    #[test]
+    fn stem_filters_index_pages_only() {
+        let f = Filter::parse("stem != \"index\"", &route_schema()).unwrap();
+        let index_page = Route {
+            source: Some(PathBuf::from("recipes/index.md")),
+            ..Route::new("/recipes/".into(), RouteKind::Page)
+        };
+        let content_page = Route {
+            source: Some(PathBuf::from("recipes/carbonara.md")),
+            ..Route::new("/recipes/carbonara/".into(), RouteKind::Page)
+        };
+        let view_route = Route::new("/blog/".into(), RouteKind::View);
+        assert!(!f.eval(&index_page));
+        assert!(f.eval(&content_page));
+        assert!(f.eval(&view_route));
     }
 }

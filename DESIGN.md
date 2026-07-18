@@ -2304,9 +2304,16 @@ example searches notes AND recipes/books/manual with the filter above
 **byte-identical** through the view path — flipping pages in is a one-line
 config decision, not a code change. The js/wasm consumers are emitted only
 when a search view exists; a site without one ships zero search bytes.
-Noticed en route, not yet a question: listing-shaped pages (indexes, the
-homepage) match every term their link titles mention — a `stem`-like
-field on the route schema would let a filter exclude them.
+Noticed en route and closed the same day: listing-shaped pages (indexes,
+the homepage) matched every term their link titles mention, so the route
+schema gained `stem` (derived from the route's source filename, Null for
+sourceless view routes — which pass `!=` by the filter's Null rule,
+pinned by test). The example filter appends `&& stem != "index"` — the
+same clause page filters already use, now meaning the same thing at the
+route layer. 18 docs → 15; "lentil" finds the dal and nothing else. The
+honest cost: `manual/index.md`'s own prose is unsearchable too — the
+filter keys on shape (index-ness), not on how listing-heavy the body is;
+an `embeds`-count fact would be the finer instrument if that ever hurts.
 
 ### Script shells: the experimental bench *(Matt, 2026-07 — yes, the pun; built)*
 
