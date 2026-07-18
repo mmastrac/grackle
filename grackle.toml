@@ -109,6 +109,23 @@ include = [".well-known/**", ".htaccess"]
   match = "**/*"
   route = "/{path}"
 
+# ---------------------------------------------------------------- widgets
+
+# Custom block widgets (§5d): {% name %}…{% endname %} expands to the wrapper
+# with the body spliced at {body}, BEFORE markdown — the blank padding makes
+# comrak parse the body as ordinary markdown (no kramdown markdown="1").
+# The theme styles the wrapper element.
+[widgets]
+callout = """
+<callout>
+<div>
+
+{body}
+
+</div>
+</callout>
+"""
+
 # ---------------------------------------------------------------- views
 
 # The one named set. Jekyll had five hand-written `{% unless %}` clauses that

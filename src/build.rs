@@ -138,6 +138,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         .map(|p| -> Result<(String, String)> {
             let cx = tags::Ctx {
                 thumbs: Some(&thumb_urls),
+                widgets: Some(&cfg.widgets),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let expanded = tags::expand(&p.body, &cx)?;
@@ -163,6 +164,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         .map(|p| {
             let cx = tags::Ctx {
                 thumbs: Some(&thumb_urls),
+                widgets: Some(&cfg.widgets),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let e = tags::expand(&p.body, &cx).unwrap_or_else(|_| p.body.clone());
@@ -366,6 +368,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     site: Some(&site),
                     thumbs: Some(&thumb_urls),
                     theme: Some(&thm),
+                    widgets: Some(&cfg.widgets),
                     ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
                 };
                 let expanded = tags::expand(body, &cx)?;

@@ -33,11 +33,23 @@ pub struct Ctx<'a> {
     /// The theme, for embedded views ({% view %}) that render through
     /// fragments. None disables embedding.
     pub theme: Option<&'a crate::theme::Theme>,
+    /// Custom block widgets: `name → wrapper template with a {body} hole`
+    /// (§5d). None disables paired tags.
+    pub widgets: Option<&'a std::collections::BTreeMap<String, String>>,
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(db: &'a SiteDb, baseurl: &'a str, source: impl Into<String>) -> Self {
-        Ctx { db, baseurl, source: source.into(), includes: None, site: None, thumbs: None, theme: None }
+        Ctx {
+            db,
+            baseurl,
+            source: source.into(),
+            includes: None,
+            site: None,
+            thumbs: None,
+            theme: None,
+            widgets: None,
+        }
     }
 }
 
@@ -185,6 +197,7 @@ fn include(arg: &str, cx: &Ctx) -> Result<String> {
         site: cx.site,
         thumbs: cx.thumbs,
         theme: cx.theme,
+        widgets: cx.widgets,
     };
     expand(&text, &inner)
 }
@@ -206,6 +219,23 @@ fn prepend_baseurl(inner: &str, cx: &Ctx) -> Option<String> {
 }
 
 /// Expand the known tags. Anything else is left alone rather than guessed at.
+/// Find `{% end<name> %}` in `s`: returns (body end, index after the end
+/// tag). Tokenized the same way as the main scan, so spacing inside the tag
+/// doesn't matter.
+fn find_end_tag(s: &str, name: &str) -> Option<(usize, usize)> {
+    let want = format!("end{name}");
+    let mut idx = 0;
+    while let Some(i) = s[idx..].find("{%") {
+        let start = idx + i;
+        let close = s[start..].find("%}")? + start;
+        if s[start + 2..close].trim() == want {
+            return Some((start, close + 2));
+        }
+        idx = close + 2;
+    }
+    None
+}
+
 pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
     let mut out = String::with_capacity(body.len() + 256);
     let mut rest = body;
@@ -226,6 +256,28 @@ pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
         };
         let inner = rest[next + 2..next + end].trim().to_string();
         out.push_str(&rest[..next]);
+
+        // Paired widget tags (§5d custom widgets): `{% name %}` opens a
+        // markdown body closed by `{% endname %}`. The body is expanded in
+        // its own right (images work inside a callout), then spliced into
+        // the widget's wrapper template at `{body}` — a named expansion with
+        // a body, not control flow. Registered widgets with no end tag are
+        // an author error, loudly; unregistered names stay verbatim below.
+        if is_tag {
+            if let Some(tmpl) = cx.widgets.and_then(|w| w.get(inner.as_str())) {
+                let after = &rest[next + end + close.len()..];
+                let Some((body_end, resume)) = find_end_tag(after, &inner) else {
+                    bail!(
+                        "{}: {{% {inner} %}} has no matching {{% end{inner} %}}",
+                        cx.source
+                    );
+                };
+                let body = expand(after[..body_end].trim(), cx)?;
+                out.push_str(&tmpl.replace("{body}", &body));
+                rest = &after[resume..];
+                continue;
+            }
+        }
 
         let replacement = if is_tag {
             match inner.split_once(char::is_whitespace) {
@@ -360,5 +412,56 @@ mod tests {
         let e = expand("{% post_url nope %}", &ctx(&db)).unwrap_err().to_string();
         assert!(e.contains("test.md"), "{e}");
         assert!(e.contains("matches no post"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod widget_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn widgets() -> BTreeMap<String, String> {
+        let mut w = BTreeMap::new();
+        w.insert(
+            "callout".to_string(),
+            "<callout>\n<div>\n\n{body}\n\n</div>\n</callout>\n".to_string(),
+        );
+        w
+    }
+
+    #[test]
+    fn widget_splices_body_into_wrapper() {
+        let db = SiteDb::default();
+        let w = widgets();
+        let cx = Ctx { widgets: Some(&w), ..Ctx::new(&db, "", "t") };
+        let out = expand("a\n\n{% callout %}\n**bold**\n{% endcallout %}\n\nb", &cx).unwrap();
+        assert_eq!(out, "a\n\n<callout>\n<div>\n\n**bold**\n\n</div>\n</callout>\n\n\nb");
+    }
+
+    #[test]
+    fn widget_body_is_expanded_recursively() {
+        let db = SiteDb::default();
+        let w = widgets();
+        let cx = Ctx { widgets: Some(&w), ..Ctx::new(&db, "/b", "t") };
+        let out = expand("{% callout %}\nsee {{ site.baseurl }}/x\n{% endcallout %}", &cx).unwrap();
+        assert!(out.contains("see /b/x"), "{out}");
+    }
+
+    #[test]
+    fn unterminated_widget_is_an_error_naming_the_source() {
+        let db = SiteDb::default();
+        let w = widgets();
+        let cx = Ctx { widgets: Some(&w), ..Ctx::new(&db, "", "post.md") };
+        let e = expand("{% callout %}\nnever closed", &cx).unwrap_err().to_string();
+        assert!(e.contains("post.md"), "{e}");
+        assert!(e.contains("endcallout"), "{e}");
+    }
+
+    #[test]
+    fn unregistered_paired_tag_stays_verbatim() {
+        let db = SiteDb::default();
+        let cx = Ctx::new(&db, "", "t");
+        let src = "{% callout %}\nx\n{% endcallout %}";
+        assert_eq!(expand(src, &cx).unwrap(), src);
     }
 }

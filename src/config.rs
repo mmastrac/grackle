@@ -20,6 +20,11 @@ pub struct Config {
     /// The config says what a marker means; the tree says where (DESIGN.md §4b).
     #[serde(default)]
     pub markers: BTreeMap<String, BTreeMap<String, toml::Value>>,
+    /// Custom block widgets (§5d): `{% name %}…{% endname %}` expands to the
+    /// wrapper template with the markdown body spliced at `{body}`. Adding a
+    /// widget is one config entry, no code.
+    #[serde(default)]
+    pub widgets: BTreeMap<String, String>,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -170,6 +175,14 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        for (name, tmpl) in &cfg.widgets {
+            if !tmpl.contains("{body}") {
+                anyhow::bail!(
+                    "widget {name:?}: wrapper template has no {{body}} hole, \
+                     so the author's markdown would be dropped"
+                );
+            }
+        }
         Ok(cfg)
     }
 

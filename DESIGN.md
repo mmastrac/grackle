@@ -1531,7 +1531,17 @@ rule we never need it. The whole vocabulary is:
 Anything unrecognised is emitted **verbatim**, so an unimplemented construct
 appears in the output rather than evaluating to nothing.
 
-### Custom widgets: named HTML expansions with a markdown body
+### Custom widgets: named HTML expansions with a markdown body *(built 2026-07)*
+
+**Built as specced**: a `[widgets]` registry in `grackle.toml` (`name →
+wrapper template` with a `{body}` hole, validated at load — a template with
+no hole is a config error), paired-tag expansion in `tags.rs` (the body is
+expanded in its own right, so `{% image %}` and `{{ site.baseurl }}` work
+inside a callout; a registered widget with no end tag errors naming the
+file; unregistered paired tags stay verbatim). Both 2026 posts are
+rewritten to `{% callout %}` — all three raw-HTML shapes collapsed to the
+one form — and the `markdown="1"` kramdown idiom is out of the source
+entirely. 9 callouts render boxed; the fixture is retired.
 
 It should be **easy to add a custom block widget** — `{% callout %} … {% endcallout %}`
 — that translates to a fixed HTML wrapper with the author's markdown inside. This
@@ -3169,19 +3179,13 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     or an explicit parity exemption like §11.12's — and either way, the
     accidental indexability is worth fixing before the restructure, not
     with it.
-29. **Custom block widgets `{% callout %}` (§5d).** A registry of
-    `name → HTML wrapper` expanded as a paired tag (`{% name %}…{% endname %}`)
-    with the body spliced in as markdown. Motivated by a real bug: the callout
-    boxes use `<callout><div markdown="1">`, a kramdown idiom comrak mishandles
-    (the `<div>` lands in a `<p>` and the box collapses, §8). One post
-    (`dissecting-a-failed-nation-state-attack`) is hand-normalised so it renders;
-    the other (`life-before-main`, ~8 uses across three shapes — `<callout><div>`,
-    bare `<div>`, inline `<p markdown="1">`) is **deliberately left raw as the
-    widget's test fixture** — it renders its callouts broken in grackle until the
-    widget lands. The widget retires the raw-HTML + `markdown="1"` idiom for good,
-    keeps authored source portable, and stays inside the no-control-flow rule
-    (arguments/conditionals are the tripwire back to templating). Small; the one
-    structural addition is a paired tag in `tags.rs`.
+29. ~~Custom block widgets `{% callout %}` (§5d)~~ — **settled, built**
+    (§5d "Custom widgets"): `[widgets]` registry in config, paired-tag
+    expansion in `tags.rs` (body expanded recursively; missing end tag
+    errors naming the file; unregistered names verbatim), both 2026 posts
+    rewritten — all three raw shapes collapsed to `{% callout %}`, the
+    `markdown="1"` kramdown idiom gone from the source, the fixture retired.
+    The no-control-flow tripwire stands: no arguments, no conditionals.
 30. **Pagination × subdivision (§5c).** A grouped view can be subdivided; a
     paginated one deliberately cannot *yet*. A year archive could plausibly
     paginate (`/blog/2022/page/2/`) while months subdivide off the same root
