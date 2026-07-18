@@ -3671,6 +3671,26 @@ the drift is only ever invisible *until* it isn't.
     never consults child fragments — a theme with `link.html` but no
     `link_list.html` still gets canonical links), which the unification
     review should either fix or document as the rule.
+37. **The `board` kind: composition of views as content *(specced,
+    deliberately pending)*.** The example's homepage reproduces the shape
+    §5c diagnosed on the old `/` — a hand-written wrapper
+    (`.home-grid`, was `.blocks-50`), authored `<h2>` labels, three
+    `{% view %}` embeds — and adds a cost the example made visible: the
+    arrangement is **theme-coupled** (render `/` under the recipes theme
+    and `.home-grid` styles nothing, while `.slots/` identity survives
+    every theme). The dissolution is the §5c move applied to page
+    structure: a board is a *query over queries* —
+    `[views.home] layout = "board"` declaring ordered members, each
+    contributing `{label, content}`; the theme places one slot, CSS does
+    the columns, labels become config the way `title`/`crumb` did. It
+    would retire the last hand-written arrangement on either site's
+    homepage. **Pending on purpose** (build at the second board, or the
+    publish cutover, whichever first): (a) member declaration — a list of
+    view names vs inline view definitions; (b) labels — declared per
+    member on the board vs inherited from each member view's `title`;
+    (c) whether a board can materialize a route or is embed-only;
+    (d) boards-in-boards (leaning no — the §5d tripwire); (e) whether a
+    board's items ride the q36 preview kind or stay opaque fragments.
 24. **Per-view fragment variants (§5e).** `variant = "gallery"` on a view →
     `listing--gallery.html` with fallback to `listing.html`, load-time
     checked. Needed the day one view wants cards while another wants
