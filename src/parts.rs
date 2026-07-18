@@ -355,15 +355,30 @@ fn tag_stream(cfg: &crate::config::Config, p: &Post) -> Option<Part> {
     if p.tags.is_empty() {
         return None;
     }
+    // §6f: when a tags view materializes per locale, a translated row's
+    // pills point into ITS locale's archive; otherwise every locale
+    // shares the default archive. (The literal route here is q32 debt.)
+    let parallel = cfg
+        .views
+        .values()
+        .any(|v| v.group_by.as_deref() == Some("tags") && v.locales.as_deref() != Some("default"));
+    let prefix = if parallel && p.locale != cfg.i18n.default {
+        format!("/{}", p.locale)
+    } else {
+        String::new()
+    };
     let v = p
         .tags
         .iter()
         .map(|t| {
-            // §6f tag records: display name follows the row's locale,
-            // the route slug is locale-independent. No record = id.
+            // Tag records: display name follows the row's locale, the
+            // route slug is locale-independent. No record = id.
             let mut m = PartMap::new("tag");
             m.set("name", Part::Text(cfg.tag_name(t, &p.locale).to_string()));
-            m.set("url", Part::Text(format!("/blog/tags/{}/", cfg.tag_slug(t))));
+            m.set(
+                "url",
+                Part::Text(format!("{prefix}/blog/tags/{}/", cfg.tag_slug(t))),
+            );
             m
         })
         .collect();
@@ -372,8 +387,13 @@ fn tag_stream(cfg: &crate::config::Config, p: &Post) -> Option<Part> {
 
 /// The `translations` relations group (§6f): this row in other locales,
 /// as dateless neighbors labelled by language — the language switcher is
-/// one more axis, not a new mechanism.
-pub fn translations_group(translations: &[(String, String)]) -> Option<PartMap> {
+/// one more axis, not a new mechanism. The group label is engine
+/// vocabulary, resolved for the row's locale.
+pub fn translations_group(
+    cfg: &crate::config::Config,
+    locale: &str,
+    translations: &[(String, String)],
+) -> Option<PartMap> {
     if translations.is_empty() {
         return None;
     }
@@ -388,7 +408,7 @@ pub fn translations_group(translations: &[(String, String)]) -> Option<PartMap> 
         .collect();
     let mut g = PartMap::new("relation");
     g.set("axis", Part::Text("translations".into()));
-    g.set("label", Part::Text("Translations".into()));
+    g.set("label", Part::Text(cfg.i18n.string("translations", locale).to_string()));
     g.set("items", Part::Stream(items));
     Some(g)
 }
@@ -399,7 +419,11 @@ pub fn translations_group(translations: &[(String, String)]) -> Option<PartMap> 
 /// The `linked-from` relations group (q38): pages that link here, as
 /// dateless neighbors. The link graph's first face — one more axis, the
 /// §6b design absorbing its first non-similarity member.
-fn linked_from_group(backlinks: &[(String, String)]) -> Option<PartMap> {
+fn linked_from_group(
+    cfg: &crate::config::Config,
+    locale: &str,
+    backlinks: &[(String, String)],
+) -> Option<PartMap> {
     if backlinks.is_empty() {
         return None;
     }
@@ -414,7 +438,7 @@ fn linked_from_group(backlinks: &[(String, String)]) -> Option<PartMap> {
         .collect();
     let mut g = PartMap::new("relation");
     g.set("axis", Part::Text("linked-from".into()));
-    g.set("label", Part::Text("Linked from".into()));
+    g.set("label", Part::Text(cfg.i18n.string("linked_from", locale).to_string()));
     g.set("items", Part::Stream(items));
     Some(g)
 }
@@ -468,20 +492,22 @@ pub fn document(
         Some(g)
     };
     let mut relations = Vec::new();
-    relations.extend(translations_group(translations));
+    // Axis labels are engine vocabulary (§6f), resolved per row locale.
+    let word = |k: &str| cfg.i18n.string(k, &p.locale);
+    relations.extend(translations_group(cfg, &p.locale, translations));
     let similar: Vec<PartMap> = related.iter().filter_map(|&j| neighbor(j)).collect();
-    relations.extend(group("similar", "Related", similar));
-    relations.extend(linked_from_group(backlinks));
+    relations.extend(group("similar", word("related"), similar));
+    relations.extend(linked_from_group(cfg, &p.locale, backlinks));
     if let Some(&i) = db.posts.by_url.get(&p.url) {
         let (newer, older) = db.posts.neighbors(i);
         relations.extend(group(
             "later",
-            "Later post",
+            word("later"),
             newer.and_then(&neighbor).into_iter().collect(),
         ));
         relations.extend(group(
             "earlier",
-            "Earlier post",
+            word("earlier"),
             older.and_then(&neighbor).into_iter().collect(),
         ));
     }
@@ -509,12 +535,20 @@ pub struct TreeDoc<'a> {
     pub translations: &'a [(String, String)],
 }
 
-pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartMap {
+pub fn document_tree(
+    cfg: &crate::config::Config,
+    locale: &str,
+    title: &str,
+    url: &str,
+    d: TreeDoc,
+    content: &str,
+) -> PartMap {
     let mut m = PartMap::new("document");
     m.set("title", Part::Text(title.to_string()));
     m.set("url", Part::Text(url.to_string()));
     m.set("tree", Part::Flag(true));
-    let mut v = vec![("Home".to_string(), Some("/".to_string()))];
+    let mut v =
+        vec![(cfg.i18n.string("home", locale).to_string(), Some("/".to_string()))];
     for (u, t) in d.ancestors {
         v.push((t.clone(), Some(u.clone())));
     }
@@ -531,8 +565,8 @@ pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartM
     }
     m.set("content", Part::Html(content.to_string()));
     let mut relations = Vec::new();
-    relations.extend(translations_group(d.translations));
-    relations.extend(linked_from_group(d.backlinks));
+    relations.extend(translations_group(cfg, locale, d.translations));
+    relations.extend(linked_from_group(cfg, locale, d.backlinks));
     if !relations.is_empty() {
         m.set("relations", Part::Stream(relations));
     }
@@ -584,15 +618,15 @@ pub fn listing(
 /// the page range (a page with no `url` is the current one). Page 1 lives at
 /// `/blog/`; page N>1 links `/blog/page/N` with no trailing slash, faithful to
 /// jekyll-paginate. `None` when there is a single page.
-pub fn pagination(current: usize, total: usize) -> Option<PartMap> {
+pub fn pagination(current: usize, total: usize, prefix: &str) -> Option<PartMap> {
     if total <= 1 {
         return None;
     }
     let path = |n: usize| {
         if n <= 1 {
-            "/blog/".to_string()
+            format!("{prefix}/blog/")
         } else {
-            format!("/blog/page/{n}")
+            format!("{prefix}/blog/page/{n}")
         }
     };
     let mut m = PartMap::new("pagination");
@@ -746,8 +780,8 @@ mod tests {
 
     #[test]
     fn pagination_is_data_not_markup() {
-        assert!(pagination(1, 1).is_none());
-        let m = pagination(2, 3).unwrap();
+        assert!(pagination(1, 1, "").is_none());
+        let m = pagination(2, 3, "").unwrap();
         assert_eq!(m.text("prev"), Some("/blog/"));
         assert_eq!(m.text("next"), Some("/blog/page/3"));
         let pages = m.stream("pages");
@@ -854,7 +888,7 @@ mod tests {
                 &rows,
                 r.key.as_deref().unwrap_or("listing"),
                 vec![("Home".to_string(), Some("/".to_string()))],
-                r.page.and_then(|n| pagination(n, 66)),
+                r.page.and_then(|n| pagination(n, 66, "")),
             );
             let out = canonical(&m);
             assert!(complete(&m, &out), "listing {} dropped a part", r.url);
@@ -865,6 +899,8 @@ mod tests {
         for pg in &db.pages.rows {
             let title = pg.title.clone().unwrap_or_default();
             let m = document_tree(
+                &cfg,
+                &pg.locale,
                 &title,
                 &pg.url,
                 TreeDoc {

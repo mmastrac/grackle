@@ -710,7 +710,7 @@ mod tests {
         ])
         .unwrap();
         let mut m = PartMap::new("listing");
-        m.set("pagination", Part::Map(crate::parts::pagination(2, 3).unwrap()));
+        m.set("pagination", Part::Map(crate::parts::pagination(2, 3, "").unwrap()));
         let out = f.render(&m);
         assert!(out.contains(r#"<a href="/blog/">Prev</a>"#), "{out}");
         assert!(out.contains(r#"<li data-kind="page_link"><a data-slot="n">2</a></li>"#), "{out}");

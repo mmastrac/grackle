@@ -3225,17 +3225,85 @@ The design, piece by piece:
   rows are searchable ("lentilles" finds the French dal), which is the
   right default for a bilingual site and one filter clause to change.
 
-**Honest edges, named now**: a localized row's breadcrumb trail is
-currently `Home › self` (the URL-walk finds no `/fr/…` ancestors; walking
-the default-locale ancestors is probably right — pending). Chrome
-(`.slots/` nav, engine labels like "Translations"/"Later post", listing
-titles) is not localized. There are no locale-parallel listings
-(`/fr/blog/` does not exist — a `locale = "fr"` view field is the natural
-extension when wanted). Localized group *keys* (a French course name)
-are q40-adjacent. `{% post_url %}` targets the physical name, so a French
-body can cite `…hello-field-notes.fr`. The markers walk uses physical
-paths — irrelevant for suffix, a known caveat for the prefix selector,
-which is built and tested but not yet exercised by a corpus.
+### Display names: one shape, one hierarchy *(built 2026-07; hierarchy Matt's)*
+
+Every human-facing string a site emits resolves through one three-level
+hierarchy — **inline beats global beats engine built-in**:
+
+1. **Inline, at the site.** Any display-name position (view
+   `title`/`crumb`, collection `crumb`, tag `name`) takes a
+   **`LocalizedStr`**: a bare string, or a per-locale map —
+   `crumb = { en = "Notes", fr = "Carnet" }`. Writing a value here IS
+   the surgical override; nothing else consults the fallbacks.
+2. **The global map, `[i18n.strings]`.** Two kinds of key live here:
+   *engine vocabulary* keys override what the engine emits everywhere,
+   and *user keys* are shared strings any site can pull in by
+   **reference** — `title = "@tagged"` (`"@@…"` escapes a literal `@`).
+   Declare a common string once, per locale; reference it all over;
+   override inline at the one site that differs.
+3. **Engine built-ins.** The engine's vocabulary is a closed, named set
+   (`ENGINE_STRINGS`: `home`, `drafts`, `related`, `later`, `earlier`,
+   `linked_from`, `translations`, `page` = `"Page {n}"`), each with its
+   English default. Adding an engine string means adding it to the
+   table — the closed set IS the inventory, so nothing can be emitted
+   that can't be translated.
+
+Load rules keep resolution total and typos loud: a per-locale map may
+only name declared locales and must include the default; a `@reference`
+must resolve (error naming every known key); global values are literal
+(no reference chains); and a **non-engine global key nobody references
+is an error** — which is precisely how a typo'd engine override
+(`hom = …`) surfaces now that user keys are legal. Templates stay
+templates — `{key}`/`{month_name}` placeholders render after the locale
+resolves, so shared strings can carry them.
+
+**Resolution locale is the row's locale** for row-scoped surfaces (axis
+labels, trails — the French note's trail reads `Accueil › Carnet › 10`
+with zero engine special-casing) and **the view's locale** for listing
+surfaces — which is the default locale today, so the one seam where
+locale-parallel listings plug in later is already marked in
+`listing_title_and_trail`. Main site: no overrides, all bare strings →
+builtins → byte-identical, verified.
+
+**Honest edges, named now**: a localized row's breadcrumb trail beyond
+the root is `Accueil › Carnet › self` — deeper URL-walk ancestors find no
+`/fr/…` pages (walking the default-locale ancestors is probably right —
+pending). `.slots/` fills are content, not config — the natural move is
+the same path selector (`nav.fr.md` beside `nav.md`), unbuilt.
+`month_name` in group params is computed at route build, locale-free —
+localizing it belongs to the locale-parallel-views work. The search
+overlay's strings live in `/search.js` (client-side, engine asset) —
+pending until search itself is locale-aware. `site.title` is not yet a
+`LocalizedStr` (the shell renders one site title). **Locale-parallel views: built, and DEFAULT-ON** (forced when Matt asked
+where a French note's tag pill should lead; flipped to opt-out on his
+call — "the default locale sits above the selector, so /atom.xml and
+/fr/atom.xml both fall out"). Every materializing **row-query** view —
+grouped archives, paginated and plain listings, members-backed shells
+like the feed — partitions per declared locale: that locale's rows, the
+locale-prefixed route (default locale unprefixed), title/crumb/trail
+resolved at the route's locale (the route carries `locale`, and
+`listing_title_and_trail` reads it — the seam marked earlier, used on
+schedule). A locale with no rows materializes **nothing**: the partition
+is real, not mirrored — the example gets `/fr/blog/` ("Carnet"),
+`/fr/atom.xml` (its own self-link, French entries only),
+`/fr/blog/tags/meta/` and `/fr/courses/dinner/`, but no `/fr/books/`
+(no French books) and no `/fr/photos/`. Opt-out is
+`locales = "default"`; `"*"` states the default explicitly. Exempt by
+design: **star views** never multiply (they query the finished route set
+and filter on `locale` — one sitemap spans all locales), **object
+views** carry no locale (declaring `locales` there is an error), and
+**embedded views** follow their embedding page (pending). Per-locale
+pagination totals count within their locale; the pagination producer's
+q32-hardcoded routes gained the locale prefix. A monolingual site
+declares no locales and the default is a proven no-op (byte oracle).
+Also noticed: `pretty_date` is locale-free — "10 January 2026" on a
+French page; localized date formatting is pending, probably as an
+engine-strings-adjacent month-name table. Localized group *keys* (a French
+course name) are q40-adjacent. `{% post_url %}` targets the physical
+name, so a French body can cite `…hello-field-notes.fr`. The markers
+walk uses physical paths — irrelevant for suffix, a known caveat for the
+prefix selector, which is built and tested but not yet exercised by a
+corpus.
 
 ## 7. Clients of the database
 

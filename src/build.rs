@@ -261,9 +261,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let total = db
                     .routes
                     .iter()
-                    .filter(|x| x.view == r.view && x.page.is_some())
+                    .filter(|x| x.view == r.view && x.page.is_some() && x.locale == r.locale)
                     .count();
-                parts::pagination(cur, total)
+                let prefix =
+                    r.locale.as_deref().map(|l| format!("/{l}")).unwrap_or_default();
+                parts::pagination(cur, total, &prefix)
             }
             None => None,
         };
@@ -374,7 +376,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .map(|&i| &db.posts.rows[i])
             .map(|p| (p, bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or("")))
             .collect();
-        let xml = render::feed(&site, &updated, &entries);
+        let xml = render::feed(&site, &r.url, &updated, &entries);
         out_map.insert(r.url.clone(), xml.into_bytes());
         stats.serialized += 1;
     }
@@ -570,9 +572,15 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                     .collect()
                             }))
                             .unwrap_or_default();
+                        // §6f: engine vocabulary resolves per row locale.
+                        let row_locale = row
+                            .map(|p| p.locale.as_str())
+                            .unwrap_or(cfg.i18n.default.as_str());
                         let main = match layout {
                             Some("page") | Some("post") => row_thm.fragments.render(
                                 &parts::document_tree(
+                                    cfg,
+                                    row_locale,
                                     &title,
                                     &r.url,
                                     parts::TreeDoc {
@@ -1051,12 +1059,14 @@ fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
 }
 
 /// Every trail roots the same way (§5c provenance): Home, then the
-/// collection's own crumb, linked to its index.
-fn trail_root(cfg: &Config, collection: &str) -> Vec<(String, Option<String>)> {
-    let mut t = vec![("Home".to_string(), Some("/".to_string()))];
+/// collection's own crumb, linked to its index. Both resolve per locale
+/// (§6f): the engine's "home" string and the crumb's LocalizedStr.
+fn trail_root(cfg: &Config, collection: &str, locale: &str) -> Vec<(String, Option<String>)> {
+    let mut t =
+        vec![(cfg.i18n.string("home", locale).to_string(), Some("/".to_string()))];
     if let Some(col) = cfg.collections.get(collection) {
         if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
-            t.push((c.clone(), Some(u.clone())));
+            t.push((cfg.i18n.text(c, locale).to_string(), Some(u.clone())));
         }
     }
     t
@@ -1074,31 +1084,37 @@ fn listing_title_and_trail(
     r: &Route,
 ) -> Result<(String, Vec<(String, Option<String>)>)> {
     let param = |k: &str| crate::route::param(&r.params, k);
+    // Listings render at the view's locale (§6f): the route carries it
+    // for locale-parallel materializations; absent = the default.
+    let loc = r.locale.as_deref().unwrap_or(cfg.i18n.default.as_str());
+    let text = |t: &crate::config::LocalizedStr| cfg.i18n.text(t, loc).to_string();
     let title = match &v.title {
-        Some(t) => crate::route::render(t, param)
+        Some(t) => crate::route::render(&text(t), param)
             .with_context(|| format!("view {view}: title"))?,
         None => r.key.clone().unwrap_or_else(|| view.to_string()),
     };
     let tail = match r.page {
-        // Paginated trails keep the engine's `Page N` rule for now — crumb
+        // Paginated trails keep the engine's `page` string for now — crumb
         // templates for paginated views are punted with open question 30
         // (pagination × subdivision).
-        Some(p) => (p > 1).then(|| format!("Page {p}")),
+        Some(p) => {
+            (p > 1).then(|| cfg.i18n.string("page", loc).replace("{n}", &p.to_string()))
+        }
         None => {
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             match tmpl {
-                Some(t) => Some(crate::route::render(t, param)
+                Some(t) => Some(crate::route::render(&text(t), param)
                     .with_context(|| format!("view {view}: crumb"))?),
                 None => r.key.clone(),
             }
         }
     };
-    let mut trail = trail_root(cfg, &cfg.query(view)?.base);
+    let mut trail = trail_root(cfg, &cfg.query(view)?.base, loc);
     for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
         let av = &cfg.views[anc.as_str()];
         let tmpl = av.crumb.as_ref().or(av.title.as_ref());
         if let (Some(t), Some(route_t)) = (tmpl, av.route.as_deref()) {
-            let label = crate::route::render(t, param)
+            let label = crate::route::render(&text(t), param)
                 .with_context(|| format!("view {anc}: crumb"))?;
             let url = crate::route::render(route_t, param)?;
             trail.push((label, Some(url)));
@@ -1119,12 +1135,15 @@ fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
     // The posts collection, whatever it is named (§7a: the example's is
     // `notes`). One posts table means one posts collection today.
     let col = cfg.collections.iter().find(|(_, c)| c.kind == Kind::Posts);
+    let loc = p.locale.as_str();
     let mut t = match &col {
-        Some((name, _)) => trail_root(cfg, name),
-        None => vec![("Home".to_string(), Some("/".to_string()))],
+        Some((name, _)) => trail_root(cfg, name, loc),
+        None => {
+            vec![(cfg.i18n.string("home", loc).to_string(), Some("/".to_string()))]
+        }
     };
     if p.draft {
-        t.push(("Drafts".to_string(), Some("/drafts".to_string())));
+        t.push((cfg.i18n.string("drafts", loc).to_string(), Some("/drafts".to_string())));
         t.push((p.title.clone(), None));
         return t;
     }
@@ -1140,6 +1159,7 @@ fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
             let get = |k: &str| crate::route::param(&params, k);
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             if let (Some(tm), Some(rt)) = (tmpl, v.route.as_deref()) {
+                let tm = cfg.i18n.text(tm, loc);
                 if let (Ok(label), Ok(url)) =
                     (crate::route::render(tm, get), crate::route::render(rt, get))
                 {

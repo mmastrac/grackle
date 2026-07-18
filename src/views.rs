@@ -244,6 +244,52 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             continue;
         }
 
+        // §6f locale-parallel views, DEFAULT-ON (Matt): a materializing
+        // row-query view partitions by locale unless it opts out with
+        // `locales = "default"` — every locale's rows, the locale-prefixed
+        // route (the default locale sits ABOVE the selector: no prefix),
+        // titles/trails resolved at the route's locale. A locale with no
+        // rows materializes nothing: the partition is real, not mirrored.
+        // Star views and embedded views are exempt (route-set queries
+        // filter on `locale`; embeds will follow their embedding page).
+        let locales: Vec<&str> = match v.locales.as_deref() {
+            Some("default") => vec![cfg.i18n.default.as_str()],
+            _ => std::iter::once(cfg.i18n.default.as_str())
+                .chain(cfg.i18n.locales.iter().map(String::as_str))
+                .collect(),
+        };
+        // The default locale reuses `visible` (order-derived); others get
+        // the same query over their rows, newest first — the ordering
+        // `order` gives the default.
+        let rows_for = |locale: &str| -> Vec<usize> {
+            if locale == cfg.i18n.default {
+                return visible.clone();
+            }
+            let mut ix: Vec<usize> = posts
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.locale == locale)
+                .filter(|(_, p)| pred.eval(*p))
+                .map(|(i, _)| i)
+                .collect();
+            ix.sort_by(|&a, &b| {
+                let (x, y) = (&posts.rows[a], &posts.rows[b]);
+                y.date.cmp(&x.date).then_with(|| x.slug.cmp(&y.slug))
+            });
+            ix
+        };
+        let prefixed = |locale: &str, tmpl: &str| -> String {
+            if locale == cfg.i18n.default {
+                tmpl.to_string()
+            } else {
+                format!("/{locale}{tmpl}")
+            }
+        };
+        let stamp = |locale: &str| -> Option<String> {
+            (locale != cfg.i18n.default).then(|| locale.to_string())
+        };
+
         // Grouped views, possibly a subdivision chain (§5c): a grouped view
         // `over` a grouped view refines the parent's partition, and the group
         // keys accumulate — GROUP BY year, month, expressed compositionally.
@@ -256,10 +302,6 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
             let chain = cfg.group_specs(name);
             check_group_chain(db, name, &chain, Kind::Posts)?;
-            let rows: Vec<(usize, &dyn filter::Row)> = visible
-                .iter()
-                .map(|&i| (i, &posts.rows[i] as &dyn filter::Row))
-                .collect();
             // §6f: tag URLs wear the record's slug; keys and titles keep
             // the id. Chains without a tags level pass values through.
             let has_tags = chain.iter().any(|s| spec_field(s) == "tags");
@@ -270,8 +312,19 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                     v.to_string()
                 }
             };
-            let routes = grouped_routes(name, tmpl, &chain, &rows, &route_value)?;
-            db.routes.extend(routes);
+            for locale in &locales {
+                let row_ix = rows_for(locale);
+                let rows: Vec<(usize, &dyn filter::Row)> = row_ix
+                    .iter()
+                    .map(|&i| (i, &posts.rows[i] as &dyn filter::Row))
+                    .collect();
+                let mut routes =
+                    grouped_routes(name, &prefixed(locale, tmpl), &chain, &rows, &route_value)?;
+                for r in &mut routes {
+                    r.locale = stamp(locale);
+                }
+                db.routes.extend(routes);
+            }
             continue;
         }
 
@@ -279,47 +332,62 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             // Paginated list.
             None if v.paginate.is_some() => {
                 let per = v.paginate.unwrap().max(1);
-                let pages = visible.len().div_ceil(per);
-                for n in 1..=pages {
-                    let tmpl = if n == 1 {
-                        v.routes.first()
-                    } else {
-                        v.routes.get(1).or_else(|| v.routes.first())
-                    };
-                    let Some(tmpl) = tmpl else { continue };
-                    let url = route::render(tmpl, |k| match k {
-                        "n" => Some(n.to_string()),
-                        _ => None,
-                    })?;
-                    let members: Vec<usize> =
-                        visible.iter().copied().skip(per * (n - 1)).take(per).collect();
-                    db.routes.push(Route {
-                        view: Some(name.clone()),
-                        key: Some(format!("page {n}")),
-                        rows: Some(members.len()),
-                        page: Some(n),
-                        members,
-                        ..Route::new(url, RouteKind::View)
-                    });
+                for locale in &locales {
+                    let row_ix = rows_for(locale);
+                    if row_ix.is_empty() && *locale != cfg.i18n.default {
+                        continue;
+                    }
+                    let pages = row_ix.len().div_ceil(per);
+                    for n in 1..=pages {
+                        let tmpl = if n == 1 {
+                            v.routes.first()
+                        } else {
+                            v.routes.get(1).or_else(|| v.routes.first())
+                        };
+                        let Some(tmpl) = tmpl else { continue };
+                        let url = route::render(&prefixed(locale, tmpl), |k| match k {
+                            "n" => Some(n.to_string()),
+                            _ => None,
+                        })?;
+                        let members: Vec<usize> =
+                            row_ix.iter().copied().skip(per * (n - 1)).take(per).collect();
+                        db.routes.push(Route {
+                            view: Some(name.clone()),
+                            key: Some(format!("page {n}")),
+                            rows: Some(members.len()),
+                            page: Some(n),
+                            members,
+                            locale: stamp(locale),
+                            ..Route::new(url, RouteKind::View)
+                        });
+                    }
                 }
             }
-            // Single route over a (possibly limited) slice: the feed.
+            // Single route over a (possibly limited) slice: the feed —
+            // which is how /fr/atom.xml falls out of the default (§6f).
             None => {
                 let tmpl = v
                     .route
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-                let members: Vec<usize> = visible
-                    .iter()
-                    .copied()
-                    .take(v.limit.unwrap_or(visible.len()))
-                    .collect();
-                db.routes.push(Route {
-                    view: Some(name.clone()),
-                    rows: Some(members.len()),
-                    members,
-                    ..Route::new(tmpl.to_string(), RouteKind::View)
-                });
+                for locale in &locales {
+                    let row_ix = rows_for(locale);
+                    if row_ix.is_empty() && *locale != cfg.i18n.default {
+                        continue;
+                    }
+                    let members: Vec<usize> = row_ix
+                        .iter()
+                        .copied()
+                        .take(v.limit.unwrap_or(row_ix.len()))
+                        .collect();
+                    db.routes.push(Route {
+                        view: Some(name.clone()),
+                        rows: Some(members.len()),
+                        members,
+                        locale: stamp(locale),
+                        ..Route::new(prefixed(locale, tmpl), RouteKind::View)
+                    });
+                }
             }
             Some(_) => unreachable!("grouped views are handled above"),
         }
@@ -341,6 +409,11 @@ fn build_object_view(
 ) -> Result<()> {
     if v.group_by.is_some() || v.paginate.is_some() {
         bail!("view {name}: group_by/paginate on object views is not supported yet");
+    }
+    // §6f: objects carry no locale — an object view never multiplies, and
+    // saying otherwise is a config error, not a silent ignore.
+    if v.locales.is_some() {
+        bail!("view {name}: objects carry no locale; object views cannot declare locales");
     }
     let Some(route) = v.route.as_deref() else {
         bail!("view {name} needs a route");
@@ -442,27 +515,37 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             .with_context(|| format!("view {name}: filter {src:?}"))?,
         None => filter::Filter::always(),
     };
-    let mut members: Vec<usize> = db
-        .pages
-        .rows
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| p.rendered)
-        // §6f: views see the default locale, like posts' `order`.
-        // Translations render as pages; they don't join listings.
-        .filter(|(_, p)| p.locale == cfg.i18n.default)
-        .filter(|(_, p)| scope.as_ref().is_none_or(|m| m.is_match(&p.rel)))
-        .filter(|(_, p)| pred.eval(*p))
-        .map(|(i, _)| i)
-        .collect();
-    members.sort_by(|&a, &b| {
-        use crate::filter::Row as _;
-        let (x, y) = (&db.pages.rows[a], &db.pages.rows[b]);
-        let ord = value_cmp(&x.field(key), &y.field(key));
-        let ord = if desc { ord.reverse() } else { ord };
-        ord.then_with(|| x.rel.cmp(&y.rel))
-    });
-    members.truncate(v.limit.unwrap_or(usize::MAX));
+    // §6f: one row collection per locale (default-on, like posts views);
+    // embedded views take the default locale's set below.
+    let rows_for = |locale: &str| -> Vec<usize> {
+        let mut members: Vec<usize> = db
+            .pages
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.rendered)
+            .filter(|(_, p)| p.locale == locale)
+            .filter(|(_, p)| scope.as_ref().is_none_or(|m| m.is_match(&p.rel)))
+            .filter(|(_, p)| pred.eval(*p))
+            .map(|(i, _)| i)
+            .collect();
+        members.sort_by(|&a, &b| {
+            use crate::filter::Row as _;
+            let (x, y) = (&db.pages.rows[a], &db.pages.rows[b]);
+            let ord = value_cmp(&x.field(key), &y.field(key));
+            let ord = if desc { ord.reverse() } else { ord };
+            ord.then_with(|| x.rel.cmp(&y.rel))
+        });
+        members.truncate(v.limit.unwrap_or(usize::MAX));
+        members
+    };
+    let locales: Vec<&str> = match v.locales.as_deref() {
+        Some("default") => vec![cfg.i18n.default.as_str()],
+        _ => std::iter::once(cfg.i18n.default.as_str())
+            .chain(cfg.i18n.locales.iter().map(String::as_str))
+            .collect(),
+    };
+    let members = rows_for(&cfg.i18n.default);
 
     // Grouped tree views — recipes by course — through the same general
     // machinery as every other grouping (one route per composite key,
@@ -474,14 +557,28 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
         let chain = cfg.group_specs(name);
         check_group_chain(db, name, &chain, Kind::Tree)?;
-        let routes = {
-            let rows: Vec<(usize, &dyn filter::Row)> = members
-                .iter()
-                .map(|&i| (i, &db.pages.rows[i] as &dyn filter::Row))
-                .collect();
-            grouped_routes(name, tmpl, &chain, &rows, &|_, v| v.to_string())?
-        };
-        db.routes.extend(routes);
+        for locale in &locales {
+            let row_ix =
+                if *locale == cfg.i18n.default { members.clone() } else { rows_for(locale) };
+            let tmpl = if *locale == cfg.i18n.default {
+                tmpl.to_string()
+            } else {
+                format!("/{locale}{tmpl}")
+            };
+            let mut routes = {
+                let rows: Vec<(usize, &dyn filter::Row)> = row_ix
+                    .iter()
+                    .map(|&i| (i, &db.pages.rows[i] as &dyn filter::Row))
+                    .collect();
+                grouped_routes(name, &tmpl, &chain, &rows, &|_, v| v.to_string())?
+            };
+            if *locale != cfg.i18n.default {
+                for r in &mut routes {
+                    r.locale = Some(locale.to_string());
+                }
+            }
+            db.routes.extend(routes);
+        }
         return Ok(());
     }
 
@@ -501,12 +598,26 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
     let Some(route) = v.route.as_deref() else {
         bail!("view {name} needs a route");
     };
-    db.routes.push(Route {
-        view: Some(name.to_string()),
-        rows: Some(members.len()),
-        members,
-        ..Route::new(route.to_string(), RouteKind::View)
-    });
+    for locale in &locales {
+        let row_ix =
+            if *locale == cfg.i18n.default { members.clone() } else { rows_for(locale) };
+        // No rows in this locale = no page (the partition is real).
+        if row_ix.is_empty() && *locale != cfg.i18n.default {
+            continue;
+        }
+        let (url, stamp) = if *locale == cfg.i18n.default {
+            (route.to_string(), None)
+        } else {
+            (format!("/{locale}{route}"), Some(locale.to_string()))
+        };
+        db.routes.push(Route {
+            view: Some(name.to_string()),
+            rows: Some(row_ix.len()),
+            members: row_ix,
+            locale: stamp,
+            ..Route::new(url, RouteKind::View)
+        });
+    }
     Ok(())
 }
 

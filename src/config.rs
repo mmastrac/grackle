@@ -81,7 +81,29 @@ pub struct I18nCfg {
     /// a missing entry falls back to the locale code.
     #[serde(default)]
     pub names: BTreeMap<String, String>,
+    /// The GLOBAL string map (§6f): the fallback layer of the display-name
+    /// hierarchy (inline beats global beats engine built-in). Engine
+    /// vocabulary keys (ENGINE_STRINGS) override what the engine emits; any
+    /// other key is a shared string for `"@key"` references — and must be
+    /// referenced somewhere, so a typo'd engine key can't hide as an
+    /// accidental unused string. Values are literal (no reference chains).
+    #[serde(default)]
+    pub strings: BTreeMap<String, LocalizedStr>,
 }
+
+/// The engine's display vocabulary: every string the engine emits into
+/// pages, with its built-in default. `[i18n.strings]` may override any of
+/// these (per locale or wholesale); nothing else may appear there.
+pub const ENGINE_STRINGS: &[(&str, &str)] = &[
+    ("home", "Home"),
+    ("drafts", "Drafts"),
+    ("related", "Related"),
+    ("later", "Later post"),
+    ("earlier", "Earlier post"),
+    ("linked_from", "Linked from"),
+    ("translations", "Translations"),
+    ("page", "Page {n}"),
+];
 
 fn default_locale() -> String {
     "en".to_string()
@@ -94,6 +116,7 @@ impl Default for I18nCfg {
             locales: Vec::new(),
             selector: Selector::default(),
             names: BTreeMap::new(),
+            strings: BTreeMap::new(),
         }
     }
 }
@@ -145,21 +168,80 @@ impl I18nCfg {
     pub fn name_of<'a>(&'a self, locale: &'a str) -> &'a str {
         self.names.get(locale).map(String::as_str).unwrap_or(locale)
     }
+
+    /// A named string (§6f), for a locale: the global `[i18n.strings]`
+    /// entry if declared, else the engine built-in. This is the FALLBACK
+    /// half of the hierarchy; `text` adds the inline-beats-global half.
+    pub fn string<'a>(&'a self, key: &str, locale: &str) -> &'a str {
+        if let Some(s) = self.strings.get(key) {
+            return s.get(locale, &self.default);
+        }
+        ENGINE_STRINGS
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| *v)
+            .unwrap_or("")
+    }
+
+    /// Resolve a display-name site (§6f): an inline value wins outright;
+    /// an `"@key"` reference falls back to the global map (which itself
+    /// falls back to engine built-ins). Load validation guarantees every
+    /// reference resolves.
+    pub fn text<'a>(&'a self, s: &'a LocalizedStr, locale: &str) -> &'a str {
+        match s.reference() {
+            Some(key) => self.string(key, locale),
+            None => s.get(locale, &self.default),
+        }
+    }
 }
 
 /// One tag record: route slug and display name(s). Both default to the id.
 #[derive(Debug, Deserialize)]
 pub struct TagCfg {
     pub slug: Option<String>,
-    pub name: Option<NameSpec>,
+    pub name: Option<LocalizedStr>,
 }
 
-/// A name, or a name per locale — the lang axis on a config record.
+/// THE shape for display names (§6f): any human-facing string the config
+/// authors is either a bare string, a per-locale map, or a REFERENCE
+/// (`"@key"`) into the global `[i18n.strings]` map. The hierarchy is
+/// inline beats global beats engine built-in: write a value at the site
+/// to be surgical, name a shared string to say one thing everywhere.
+/// Validated at load: per-locale maps name only declared locales and
+/// include the default locale (resolution is total); references must
+/// resolve; `"@@…"` escapes a literal leading `@`.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub enum NameSpec {
+pub enum LocalizedStr {
     One(String),
     PerLocale(BTreeMap<String, String>),
+}
+
+impl LocalizedStr {
+    /// The `"@key"` reference form, if this is one.
+    pub fn reference(&self) -> Option<&str> {
+        match self {
+            LocalizedStr::One(s) => {
+                s.strip_prefix('@').filter(|rest| !rest.starts_with('@'))
+            }
+            LocalizedStr::PerLocale(_) => None,
+        }
+    }
+
+    /// Exact locale, else the default locale's entry (validated present;
+    /// the empty-string fallback is unreachable on a loaded config).
+    /// Reference-blind — resolution with the global map is `I18nCfg::text`.
+    pub fn get<'a>(&'a self, locale: &str, default: &str) -> &'a str {
+        match self {
+            // "@@literal" -> "@literal"
+            LocalizedStr::One(s) => s.strip_prefix('@').unwrap_or(s),
+            LocalizedStr::PerLocale(m) => m
+                .get(locale)
+                .or_else(|| m.get(default))
+                .map(String::as_str)
+                .unwrap_or(""),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -201,8 +283,8 @@ pub struct Collection {
     pub rules: Vec<Rule>,
     /// The collection's crumb identity: what it contributes to breadcrumb
     /// trails (§5c provenance — the chain roots at the collection), and
-    /// where that crumb links.
-    pub crumb: Option<String>,
+    /// where that crumb links. Per-locale maps carry the lang axis (§6f).
+    pub crumb: Option<LocalizedStr>,
     pub index: Option<String>,
     /// The view whose subdivision chain forms this collection's row trails
     /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
@@ -259,6 +341,13 @@ pub struct View {
     /// book-of-the-month shape. Most listings leave it off.
     #[serde(default)]
     pub featured: bool,
+    /// §6f locale-parallel materialization, DEFAULT-ON: a materializing
+    /// row-query view partitions per declared locale (each locale's rows,
+    /// locale-prefixed routes, titles resolved per locale; a locale with
+    /// no rows materializes nothing). `"default"` opts out; `"*"` states
+    /// the default explicitly. Star views never multiply (filter on
+    /// `locale`); embedded views follow their embedding page (pending).
+    pub locales: Option<String>,
     /// The view's outermost serialization (Matt, 2026-07): `"atom"` and
     /// `"sitemap"` are built-in XML shells, `"search"` is the postcard
     /// index /search.js consumes — the feed is not a special pass, it is
@@ -271,10 +360,10 @@ pub struct View {
     /// Listing title, as a template over the route's group params
     /// (`"{year} {month_name}"`, `"Posts Tagged “{key}”"`). Same placeholder
     /// language as routes, same load-time discipline.
-    pub title: Option<String>,
+    pub title: Option<LocalizedStr>,
     /// What this view contributes to descendants' breadcrumb trails.
-    /// Defaults to `title`.
-    pub crumb: Option<String>,
+    /// Defaults to `title`. Per-locale maps carry the lang axis (§6f).
+    pub crumb: Option<LocalizedStr>,
     /// Computed fields (§6d): columns this view adds to its rows, each
     /// defined by a deriver. Views composed `over` this one inherit them —
     /// fields flow with rows through query composition the way filters do —
@@ -375,6 +464,14 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    /// Every load-time config check (split from `load` so tests can run
+    /// them on in-memory configs).
+    fn validate(&self) -> Result<()> {
+        let cfg = self;
         for (vname, v) in &cfg.views {
             for (fname, f) in &v.fields {
                 if f.truncate.is_none() {
@@ -393,23 +490,132 @@ impl Config {
                 );
             }
         }
-        // §6f: a tag record's per-locale names may only name declared locales
-        // — a typo'd locale key is a load error, not a silently unused name.
-        for (id, t) in &cfg.tags {
-            if let Some(NameSpec::PerLocale(m)) = &t.name {
+        // §6f: every LocalizedStr in the config obeys ONE rule — a
+        // per-locale map may only name declared locales, and must include
+        // the default locale so resolution is total. A typo'd locale key
+        // is a load error, not a silently unused name.
+        {
+            let check = |what: &str, s: &LocalizedStr| -> Result<()> {
+                let LocalizedStr::PerLocale(m) = s else { return Ok(()) };
                 for loc in m.keys() {
                     if *loc != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == loc) {
                         anyhow::bail!(
-                            "tag {id}: name declares locale {loc:?}, which is neither the \
+                            "{what}: declares locale {loc:?}, which is neither the \
                              default ({:?}) nor in i18n.locales {:?}",
                             cfg.i18n.default,
                             cfg.i18n.locales
                         );
                     }
                 }
+                if !m.contains_key(&cfg.i18n.default) {
+                    anyhow::bail!(
+                        "{what}: a per-locale name must include the default locale ({:?})",
+                        cfg.i18n.default
+                    );
+                }
+                Ok(())
+            };
+            for (id, t) in &cfg.tags {
+                if let Some(n) = &t.name {
+                    check(&format!("tag {id}: name"), n)?;
+                }
+            }
+            for (name, v) in &cfg.views {
+                if let Some(t) = &v.title {
+                    check(&format!("view {name}: title"), t)?;
+                }
+                if let Some(c) = &v.crumb {
+                    check(&format!("view {name}: crumb"), c)?;
+                }
+            }
+            for (name, c) in &cfg.collections {
+                if let Some(cr) = &c.crumb {
+                    check(&format!("collection {name}: crumb"), cr)?;
+                }
+            }
+            // The global map: same locale rule; values are literal (a
+            // reference chain would make resolution non-total).
+            for (key, s) in &cfg.i18n.strings {
+                check(&format!("i18n.strings.{key}"), s)?;
+                if s.reference().is_some() {
+                    anyhow::bail!(
+                        "i18n.strings.{key}: a global string may not itself be a \
+                         reference (no chains)"
+                    );
+                }
+            }
+            // References must resolve, and every non-engine global string
+            // must be referenced — an unused key is a load error, which is
+            // what catches a typo'd engine-vocabulary override ("hom") now
+            // that user keys are legal.
+            let mut referenced: Vec<&str> = Vec::new();
+            {
+                let mut refs: Vec<(String, &LocalizedStr)> = Vec::new();
+                for (id, t) in &cfg.tags {
+                    if let Some(n) = &t.name {
+                        refs.push((format!("tag {id}: name"), n));
+                    }
+                }
+                for (name, v) in &cfg.views {
+                    if let Some(t) = &v.title {
+                        refs.push((format!("view {name}: title"), t));
+                    }
+                    if let Some(c) = &v.crumb {
+                        refs.push((format!("view {name}: crumb"), c));
+                    }
+                }
+                for (name, c) in &cfg.collections {
+                    if let Some(cr) = &c.crumb {
+                        refs.push((format!("collection {name}: crumb"), cr));
+                    }
+                }
+                for (what, s) in refs {
+                    let Some(key) = s.reference() else { continue };
+                    let known = cfg.i18n.strings.contains_key(key)
+                        || ENGINE_STRINGS.iter().any(|(k, _)| *k == key);
+                    if !known {
+                        let mut knowns: Vec<&str> =
+                            ENGINE_STRINGS.iter().map(|(k, _)| *k).collect();
+                        knowns.extend(cfg.i18n.strings.keys().map(String::as_str));
+                        knowns.sort_unstable();
+                        knowns.dedup();
+                        anyhow::bail!(
+                            "{what}: reference @{key} names no string (knowns: {})",
+                            knowns.join(", ")
+                        );
+                    }
+                    referenced.push(key);
+                }
+            }
+            for key in cfg.i18n.strings.keys() {
+                if !ENGINE_STRINGS.iter().any(|(k, _)| k == key)
+                    && !referenced.iter().any(|r| r == key)
+                {
+                    anyhow::bail!(
+                        "i18n.strings.{key}: unused string — nothing references \
+                         @{key}, and it is not engine vocabulary (a typo'd engine \
+                         key would look exactly like this)"
+                    );
+                }
             }
         }
         for (vname, v) in &cfg.views {
+            if let Some(l) = v.locales.as_deref() {
+                if !matches!(l, "*" | "default") {
+                    anyhow::bail!(
+                        "view {vname}: locales must be \"*\" (every declared \
+                         locale — the default) or \"default\" (opt out of \
+                         locale-parallel materialization, §6f)"
+                    );
+                }
+                if v.over == "*" {
+                    anyhow::bail!(
+                        "view {vname}: star views serialize the whole route \
+                         set and never materialize per locale — filter on \
+                         `locale` instead (§6f)"
+                    );
+                }
+            }
             if let Some(s) = v.shell.as_deref() {
                 if !matches!(s, "atom" | "sitemap" | "search") && !cfg.shells.contains_key(s) {
                     let registered: Vec<&str> = cfg.shells.keys().map(|k| k.as_str()).collect();
@@ -420,7 +626,7 @@ impl Config {
                 }
             }
         }
-        Ok(cfg)
+        Ok(())
     }
 
     /// Flatten a view's `over` chain into a base collection plus every filter
@@ -556,16 +762,12 @@ impl Config {
         self.tags.get(id).and_then(|t| t.slug.as_deref()).unwrap_or(id)
     }
 
-    /// The display name a tag wears for a locale (§6f). Per-locale map
-    /// falls back to the default locale's entry, then the id.
+    /// The display name a tag wears for a locale (§6f): the record's name
+    /// through the standard hierarchy (inline / "@ref" / global), else
+    /// the id.
     pub fn tag_name<'a>(&'a self, id: &'a str, locale: &str) -> &'a str {
         match self.tags.get(id).and_then(|t| t.name.as_ref()) {
-            Some(NameSpec::One(s)) => s,
-            Some(NameSpec::PerLocale(m)) => m
-                .get(locale)
-                .or_else(|| m.get(&self.i18n.default))
-                .map(String::as_str)
-                .unwrap_or(id),
+            Some(n) => self.i18n.text(n, locale),
             None => id,
         }
     }
@@ -576,11 +778,23 @@ mod tests {
     use super::*;
 
     fn cfg(views: &str) -> Config {
+        let c = cfg_raw(views);
+        c.validate().expect("test config should validate");
+        c
+    }
+
+    fn cfg_raw(views: &str) -> Config {
         let src = format!(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
         );
         toml::from_str(&src).expect("test config should parse")
+    }
+
+    /// The load-time error a config produces, as a full anyhow chain.
+    fn cfg_err(views: &str) -> String {
+        let c = cfg_raw(views);
+        format!("{:#}", c.validate().expect_err("config should fail validation"))
     }
 
     #[test]
@@ -764,6 +978,43 @@ mod tests {
         let off = I18nCfg::default();
         let (l, loc) = off.split(Path::new("recipes/dal.fr.md"));
         assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.fr.md", "en"));
+    }
+
+    /// §6f display-name hierarchy: inline beats global beats built-in;
+    /// "@key" references the global map; "@@" escapes a literal @.
+    #[test]
+    fn string_hierarchy_resolves() {
+        let c = cfg(
+            "[views.a]\nover = \"posts\"\ntitle = \"@kitchen\"\n\n\
+             [views.b]\nover = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
+             [i18n]\nlocales = [\"fr\"]\n\n\
+             [i18n.strings]\nkitchen = { en = \"Kitchen\", fr = \"Cuisine\" }\n\
+             home = { en = \"Home\", fr = \"Accueil\" }\n",
+        );
+        let t = c.views["a"].title.as_ref().unwrap();
+        assert_eq!(c.i18n.text(t, "en"), "Kitchen");
+        assert_eq!(c.i18n.text(t, "fr"), "Cuisine");
+        let t = c.views["b"].title.as_ref().unwrap();
+        assert_eq!(c.i18n.text(t, "fr"), "Inline wins");
+        let t = c.views["b"].crumb.as_ref().unwrap();
+        assert_eq!(c.i18n.text(t, "en"), "@literal-at");
+        // Global overrides the engine built-in; absent key keeps it.
+        assert_eq!(c.i18n.string("home", "fr"), "Accueil");
+        assert_eq!(c.i18n.string("related", "fr"), "Related");
+    }
+
+    /// §6f: a dangling reference and an unused global string are both load
+    /// errors — the latter is what catches a typo'd engine-key override.
+    #[test]
+    fn string_hierarchy_fails_loud() {
+        let e = cfg_err("[views.a]\nover = \"posts\"\ntitle = \"@nope\"\n");
+        assert!(e.contains("names no string"), "{e}");
+        let e = cfg_err("[i18n.strings]\nhom = \"Home\"\n");
+        assert!(e.contains("unused string"), "{e}");
+        let e = cfg_err(
+            "[views.a]\nover = \"posts\"\ntitle = \"@x\"\n\n[i18n.strings]\nx = \"@y\"\ny = \"z\"\n",
+        );
+        assert!(e.contains("no chains"), "{e}");
     }
 
     /// §6f tag records: slug and display names default to the id; a

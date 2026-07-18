@@ -228,12 +228,14 @@ fn cdata_escape(s: &str) -> String {
 
 /// The Atom feed (atom.xml). `updated` is the build timestamp already in
 /// xmlschema form; entries are `(post, rendered_body)`, newest first.
-pub fn feed(site: &Site, updated: &str, entries: &[(&Post, &str)]) -> String {
+/// `self_path` is the feed route's own URL (§6f: locale-parallel feeds —
+/// /atom.xml and /fr/atom.xml — each claim their own self link).
+pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Post, &str)]) -> String {
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     s.push_str("\t<feed xmlns=\"http://www.w3.org/2005/Atom\">\n");
     let _ = write!(s, "\t<title><![CDATA[{}]]></title>\n", cdata_escape(site.title));
-    let _ = write!(s, "\t<link href=\"{u}/atom.xml\" rel=\"self\"/>\n", u = site.url);
+    let _ = write!(s, "\t<link href=\"{u}{self_path}\" rel=\"self\"/>\n", u = site.url);
     let _ = write!(s, "\t<link href=\"{u}/\"/>\n", u = site.url);
     let _ = write!(s, "\t<icon>{u}/resource/favicon/favicon-160x160.png</icon>\n", u = site.url);
     let _ = write!(s, "\t<logo>{u}/resource/favicon/favicon-160x160.png</logo>\n", u = site.url);
