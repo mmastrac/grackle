@@ -37,6 +37,8 @@ pub struct Stats {
     /// when to run the model: `build` before rendering, `serve` in the
     /// background with a re-render on completion.
     pub embed_pending: Vec<crate::embed::Pending>,
+    /// Size of the shipped /search.bin index.
+    pub search_bytes: usize,
 }
 
 /// A URL ending in `/` is served as that directory's index.html.
@@ -102,6 +104,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         thumbs: 0,
         skipped: Vec::new(),
         embed_pending: Vec::new(),
+        search_bytes: 0,
     };
 
     // ---- thumbnails: derive images once, publish under /static/ (§6b).
@@ -463,6 +466,51 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 stats.pages += 1;
             }
             _ => {}
+        }
+    }
+
+    // ---- search (§6b): the index ships as /search.bin (postcard), consumed
+    // by the SAME core code compiled to wasm — /search.wasm + its /search.js
+    // loader are theme assets, fetched only when the search icon is clicked.
+    {
+        use grackle_search_core as sc;
+        let docs: Vec<sc::SearchDoc> = db
+            .posts
+            .rows
+            .iter()
+            .filter(|p| !p.draft && !p.hidden)
+            .map(|p| sc::SearchDoc {
+                url: p.url.clone(),
+                title: p.title.clone(),
+                date: p
+                    .date
+                    .map(|d| d.format("%-d %B %Y").to_string())
+                    .unwrap_or_default(),
+                html: bodies
+                    .get(p.url.as_str())
+                    .map(|d| d.whole.clone())
+                    .unwrap_or_default(),
+                tags: p.tags.clone(),
+            })
+            .collect();
+        let t = std::time::Instant::now();
+        let (index, st) = sc::build_index(&docs);
+        let bin = index.to_bytes();
+        stats.search_bytes = bin.len();
+        println!(
+            "  search    {} docs, {} terms, {} postings -> {} KB in {:.0}ms",
+            st.docs,
+            st.terms,
+            st.postings,
+            bin.len() / 1024,
+            t.elapsed().as_secs_f64() * 1000.0
+        );
+        out_map.insert("/search.bin".to_string(), bin);
+        for asset in ["search.js", "search.wasm"] {
+            let p = root.join("themes/default").join(asset);
+            if let Ok(bytes) = std::fs::read(&p) {
+                out_map.insert(format!("/{asset}"), bytes);
+            }
         }
     }
 

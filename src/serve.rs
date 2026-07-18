@@ -300,6 +300,8 @@ fn content_type(path: &str) -> &'static str {
         "woff" => "font/woff",
         "ttf" => "font/ttf",
         "zip" => "application/zip",
+        "wasm" => "application/wasm",
+        "bin" => "application/octet-stream",
         "mp4" => "video/mp4",
         _ => "application/octet-stream",
     }

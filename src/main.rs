@@ -102,6 +102,12 @@ enum Query {
     },
     /// Tags with post counts.
     Tags,
+    /// Search the TF-IDF index the site ships (§6b) — same code the browser runs.
+    Search {
+        query: Vec<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Posts most similar to a URL, by embedding cosine (§6b).
     Similar {
         url: String,
@@ -327,6 +333,27 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 if n >= limit {
                     break;
                 }
+            }
+        }
+        Query::Search { query, limit } => {
+            use grackle_search_core as sc;
+            let docs: Vec<sc::SearchDoc> = db
+                .posts
+                .rows
+                .iter()
+                .filter(|p| !p.draft && !p.hidden)
+                .map(|p| sc::SearchDoc {
+                    url: p.url.clone(),
+                    title: p.title.clone(),
+                    date: p.date.map(|d| d.format("%-d %B %Y").to_string()).unwrap_or_default(),
+                    html: p.body.clone(),
+                    tags: p.tags.clone(),
+                })
+                .collect();
+            let (index, _) = sc::build_index(&docs);
+            let q = query.join(" ");
+            for (url, title, date) in index.search(&q, limit) {
+                println!("  {date:>18}  {url}  {title}");
             }
         }
         Query::Similar { url, limit } => {

@@ -3,7 +3,12 @@ name = "grackle"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [".", "search-core", "search-wasm"]
+default-members = [".", "search-core"]
+
 [dependencies]
+grackle-search-core = { path = "search-core" }
 anyhow = "1"
 blake3 = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -31,3 +36,7 @@ fastembed = "5.17.3"
 
 [profile.release]
 opt-level = 3
+
+# Small wasm: the search blob ships to browsers, so it optimizes for size.
+[profile.release.package.grackle-search-wasm]
+opt-level = "z"

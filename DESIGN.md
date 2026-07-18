@@ -2354,9 +2354,46 @@ version: rust-bert is 2 years stale, 16k downloads, and drags in libtorch
 (~2 GB), which is hostile to the Docker build. `fastembed` is actively
 maintained, 1.2M downloads, ONNX-based, and ships MiniLM directly.
 
-### TF-IDF search index (JSON, for a JS-only search)
+### TF-IDF search index — the searcher is the same code, compiled to wasm *(built 2026-07)*
 
-A different tool for a different job, sharing the same cache discipline.
+**Built, with the architecture upgraded mid-design**: instead of a JSON
+index consumed by a hand-written JS searcher (whose stemmer would be a
+drift-prone port of the Rust one), the search core is **one crate**
+(`search-core`: stem, tokenize, index build, rank) used by both ends —
+`grackle build` calls it to ship `/search.bin` (postcard, not JSON: the
+format is private to the two ends of the same crate; `grackle query search`
+is the inspectable surface), and the identical code compiles to
+WebAssembly (`search-wasm`, a ~90 KB cdylib behind a raw no-bindgen ABI:
+`alloc`/`init`/`search`) shipped as `/search.wasm`. **Symmetry by
+construction**: the browser stems queries with the same compiled function
+that stemmed the corpus, and the stemmer is free to stay simple (or swap
+to Snowball later) because it cannot desynchronize.
+
+The page ships an icon, nothing else: clicking it injects `/search.js`
+(3.6 KB loader — bytes and pixels only, every search decision is in the
+wasm), which fetches the blob + index and answers per keystroke. The
+**last query token is a live prefix** over the sorted term map ("bluet"
+finds bluetooth, "jekyl" finds the Jekyll posts) — real
+search-as-you-type, cheap in Rust, awkward in the JS it replaced.
+
+Measured (327 posts): 7,125 terms, 29,793 postings, **195 KB index built
+in 22ms** per build (no TF disk cache — tokenizing the corpus is
+single-digit ms, so the spec'd cache would be machinery without a cost to
+pay for; the per-row/corpus-wide decomposition survives in memory).
+Postings capped at 40/term, scores TF·IDF quantised u16, title/tag hits
+boosted 5×, stopworded, years searchable. First-click payload ≈ 288 KB
+(js + wasm + index), all cacheable; every page's default payload stays
+**zero JS**. The wasm blob is a committed theme asset — rebuild with
+`cargo build -p grackle-search-wasm --release --target
+wasm32-unknown-unknown` and copy to `themes/default/search.wasm`.
+
+**Swiftype is retired**: the `data-swiftype-index` attributes left the
+shell with the chrome cut, and the launcher this replaces was a
+third-party service tab.
+
+The original sketch, kept for the record — the shape survived even though
+the JSON/JS specifics did not. A different tool for a different job,
+sharing the same cache discipline.
 Embeddings answer *"what is this like"* (fuzzy, build-time, 500 KB of f32);
 TF-IDF answers *"where does this word appear"* (exact, shippable to a browser,
 no model at runtime).
