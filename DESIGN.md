@@ -4421,3 +4421,55 @@ the drift is only ever invisible *until* it isn't.
     the main site, where index pages are today ordinary rows; (e) the
     interim for `manual/index.md`'s hand-list before the section-tree
     landing exists.
+
+    **Direction settled (2026-07, Matt's shape): the engine never
+    guesses the arrangement** — either the theme owns it (a slot) or
+    the author does (the row places the embed); the "prose above
+    listing" concatenation is dead. Three tiers. **Bare**: query +
+    route + `listing`, what `/books/` is today. **Declared text**:
+    the view declares `intro` (the chosen word — over preamble, lede
+    taken by q31, standfirst too clever), a `LocalizedStr` rendered
+    as *markdown through the view's locale-aware link resolver* (an
+    intro can say `view:…` and gets strict validation), filling an
+    `intro` slot on the listing layout — empty collapses (binder
+    rule 2), so every existing listing is byte-identical and the
+    magical view just works. **Referenced content**: the view
+    declares `content = "recipes/index.md"` (mutually exclusive with
+    `intro`; both = load error) — the row becomes the whole body and
+    is *responsible for placing* `{% view <owner> %}`, a load error
+    if it doesn't (the rows would be unreachable), scoped to views
+    that have a query. The row keeps everything rows have: front
+    matter, its rule-derived theme (the landing wears its section's
+    clothes), suffix localization with default-locale fallback.
+
+    **Claiming**: a referenced content row is *claimed* — no
+    standalone route, and excluded from every query **structurally**,
+    by ownership, killing the `stem != "index"` naming convention
+    outright (forgetting the filter becomes impossible rather than a
+    self-listing bug). Claiming is declared, never discovered — a
+    convention would claim rows silently; declared is q5's answer
+    again (schema declared, not inferred). Which makes migration
+    incremental: `**/index.{html,md}` survives for unclaimed rows,
+    the main site is untouched (oracle-safe), and sections lift one
+    `content =` declaration at a time — the q9 page-bundle posture.
+    **Home stops being special**: a *queryless landing*
+    (`route = "/"`, `content = "index.html"`) whose content embeds
+    other views by name — the must-place check has no rows to
+    strand; q37's board hangs in this frame later, and `home_url`
+    becomes "the root landing's route, per locale."
+
+    The subtle semantic: the owning view's self-embed is
+    **route-aware** — it renders *this route's slice* (page 2 of
+    `/blog/` renders page 2's rows; `/fr/recipes/` the French
+    partition), unlike embeds of *other* views, which keep today's
+    whole-view semantics. Intro and content render on every page of
+    a paginated landing: the prose is the landing's face; the slice
+    is what changes.
+
+    Narrowed but open: (a) stands (parent derivation for the trail
+    chain); theme provenance for bare/intro landings (content rows
+    bring their rule-derived theme; should a view declare one?);
+    orphaned translations (`index.fr.md` with no French rows has
+    nowhere to render → warn); whether mode-B prose is searchable
+    (landing routes are structurally excluded — leaning keep them
+    out until someone misses it).
