@@ -2308,6 +2308,31 @@ Noticed en route, not yet a question: listing-shaped pages (indexes, the
 homepage) match every term their link titles mention — a `stem`-like
 field on the route schema would let a filter exclude them.
 
+### Script shells: the experimental bench *(Matt, 2026-07 — yes, the pun; built)*
+
+A **shell script** as a shell type: `[shells.name] command = "…"`
+registers a serialization the engine doesn't speak, and a view opts in
+with `shell = "name"`. The engine pipes the view's member rows to the
+command's stdin as JSON and writes its stdout at the view's route
+verbatim — PDF, PostScript, whatever the command emits. `sh -c`, run
+from the site root; non-zero exit fails the build carrying stderr.
+
+The payload schema is **TEMP by declaration** (stamped
+`"schema": "grackle-shell/0"`, asserted by consumers): `{schema, shell,
+view, route, site{url,title,author}, rows[{url, title, date,
+date_pretty, tags, html}]}` — the same projection the atom shell eats.
+It gets versioned the day anything beyond an experiment depends on it;
+until then it may change without ceremony.
+
+This is the **promotion path for shells**: prototype as a script, and a
+shell that earns keeping becomes a built-in (exactly how atom/sitemap/
+search would have been prototyped had the bench existed). First
+occupant: the example ships `/llms.txt` via `shells/llms.py` — the md
+shell's named forcing consumer, running as an experiment before the md
+shell exists. Known limits, accepted for a bench: rows are post-shaped
+only (the temp schema's projection), and the command runs on every
+build — script shells are for cheap serializations, not compilers.
+
 ### The md shell *(specced; consumer named)*
 
 A markdown serialization of part maps, and its forcing consumer is
@@ -2328,7 +2353,10 @@ Row-level shells — `layout: light` still conflates "minimal shell" with
 a theme choice; a `shell:` row field (`html`/`light`/`none`-bytes) would
 split them — and the atom/sitemap serializers becoming true part-map
 consumers (a feed entry IS a document-parts subset), and a `json` shell
-when something wants one.
+when something wants one (though a script shell now covers the
+experiment: the payload already is JSON — `cat` is a json shell).
+Versioning the script-shell payload schema rides with the first
+non-experimental consumer.
 
 ## 6a. Object references: paths and names
 

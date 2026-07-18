@@ -1,8 +1,10 @@
 // The recipes theme: deliberately nothing like the default — sans-serif,
-// dark header, recipe-card body. It ships a shell and this stylesheet
-// ONLY: every layout kind renders through the canonical fallback, styled
-// here via data-kind/data-slot. Same .slots/ identity (nav, copyright) —
-// no theme owns the site's words.
+// dark header, recipe-card body. Mostly canonical: a shell, this
+// stylesheet, and four fragments (document/crumb/relation/neighbor —
+// added when canonical crumbs/relations proved too raw); every other
+// kind renders through the canonical fallback, styled here via
+// data-kind/data-slot. Same .slots/ identity (nav, copyright) — no theme
+// owns the site's words.
 
 :root {
 	--bg: #f4efe6;
@@ -84,19 +86,49 @@ main {
 		margin-bottom: 1rem;
 	}
 
-	> a[data-slot="url"] {
-		display: none;
-	}
-
 	[data-slot="crumbs"] {
 		font-size: 0.75rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 		color: var(--muted);
+		margin-bottom: 1rem;
 
 		a {
 			color: var(--muted);
 		}
+
+		.crumb + .crumb::before {
+			content: " / ";
+			padding: 0 0.15em;
+		}
+	}
+
+	// Relations (backlinks et al) as a quiet footer inside the card.
+	.relations {
+		margin-top: 2.5rem;
+		padding-top: 1rem;
+		border-top: 1px dashed var(--muted);
+	}
+
+	.relation-label {
+		margin: 0 0 0.35rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--muted);
+	}
+
+	.neighbor {
+		display: block;
+		padding: 0.1em 0;
+		text-decoration: none;
+	}
+
+	.neighbor-date {
+		font-size: 0.8rem;
+		color: var(--muted);
+		margin-right: 0.6em;
 	}
 
 	h2 {

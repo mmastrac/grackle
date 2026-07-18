@@ -401,6 +401,49 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         stats.serialized += 1;
     }
 
+    // ---- script shells (§5g, the pun intended): registered serializations.
+    //
+    // The experimental bench: a `[shells.name] command = "…"` entry plus
+    // `shell = "name"` on a view pipes the view's member rows as JSON into
+    // the command's stdin, and whatever bytes it prints land at the view's
+    // route verbatim — PDF, PostScript, whatever. The JSON schema is TEMP
+    // (stamped "grackle-shell/0"); it gets versioned the day anything
+    // beyond an experiment depends on it. A shell that earns keeping gets
+    // promoted to a built-in.
+    for r in &db.routes {
+        let Some(view) = &r.view else { continue };
+        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(shell) = v.shell.as_deref() else { continue };
+        let Some(def) = cfg.shells.get(shell) else { continue };
+        let rows: Vec<serde_json::Value> = r
+            .members
+            .iter()
+            .map(|&i| {
+                let p = &db.posts.rows[i];
+                serde_json::json!({
+                    "url": p.url,
+                    "title": p.title,
+                    "date": p.date.map(crate::db::iso_date),
+                    "date_pretty": p.date.map(crate::db::pretty_date),
+                    "tags": p.tags,
+                    "html": bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or(""),
+                })
+            })
+            .collect();
+        let payload = serde_json::json!({
+            "schema": "grackle-shell/0",
+            "shell": shell,
+            "view": view,
+            "route": r.url,
+            "site": { "url": site.url, "title": site.title, "author": site.author },
+            "rows": rows,
+        });
+        let bytes = run_script_shell(&root, &def.command, &payload)
+            .with_context(|| format!("view {view}: script shell {shell:?} ({})", def.command))?;
+        out_map.insert(r.url.clone(), bytes);
+        stats.serialized += 1;
+    }
+
     // ---- tree: rendered pages + static passthrough + objects
     //
     // Section trees (§6e) derive once per `.section` root and are re-shaped
@@ -802,6 +845,44 @@ pub fn search_docs(
             tags: p.tags.clone(),
         })
         .collect()
+}
+
+/// Run a registered script shell (§5g): `sh -c command` from the site root,
+/// JSON on stdin, bytes on stdout. Non-zero exit is a build error carrying
+/// stderr — a script shell fails loud, like everything else. Stdin is fed
+/// from a thread so a script that streams output before draining its input
+/// can't deadlock against the pipe buffer.
+fn run_script_shell(
+    root: &Path,
+    command: &str,
+    payload: &serde_json::Value,
+) -> Result<Vec<u8>> {
+    use std::io::Write;
+    use std::process::{Command as Proc, Stdio};
+    let mut child = Proc::new("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawn failed")?;
+    let mut stdin = child.stdin.take().expect("stdin was piped");
+    let data = serde_json::to_vec(payload)?;
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&data);
+    });
+    let out = child.wait_with_output()?;
+    let _ = writer.join();
+    if !out.status.success() {
+        anyhow::bail!(
+            "exited {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(out.stdout)
 }
 
 /// Search (§6b, §5g): the index is a SHELL — a view declares

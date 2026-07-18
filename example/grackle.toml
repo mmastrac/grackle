@@ -109,6 +109,18 @@ route = "/atom.xml"
 template = "atom.xml"
 shell = "atom"
 
+# A script shell (§5g — the pun is the point): a registered shell type
+# backed by a command. The view's rows arrive as grackle-shell/0 JSON on
+# stdin; stdout lands at the route verbatim. The experimental bench —
+# this one prototypes /llms.txt before the md shell is a built-in.
+[shells.llms]
+command = "python3 shells/llms.py"
+
+[views.llms]
+over = "published"
+route = "/llms.txt"
+shell = "llms"
+
 # Search spans tables (§5g): notes AND every rendered page — recipes, books,
 # the manual — because the searchable set is a route-schema query, not a
 # hardcoded projection of the posts table.

@@ -187,11 +187,26 @@ a:hover {
 [data-kind="crumb"] {
 	font-size: 0.85rem;
 	color: var(--muted);
+
+	a {
+		color: var(--muted);
+	}
 }
 
-[data-kind="tag"] a,
-[data-kind="tag"] [data-slot="name"] {
+.crumb + .crumb::before {
+	content: " \203A ";
+	color: var(--line);
+	padding: 0 0.1em;
+}
+
+// The tag fragment's root IS the link (a.pill, stamped data-kind="tag").
+a[data-kind="tag"] {
 	font-size: 0.8rem;
+	color: var(--muted);
+
+	& + a[data-kind="tag"] {
+		margin-left: 0.5em;
+	}
 }
 
 .image img {
@@ -227,6 +242,47 @@ a:hover {
 .doc .crumbs {
 	font-size: 0.85rem;
 	color: var(--muted);
+}
+
+// Relations (§6b axes): similar/earlier/later/linked-from, one fragment
+// per axis, neighbors as date | title rows.
+.doc .relations {
+	margin-top: 3rem;
+	padding-top: 1.25rem;
+	border-top: 1px solid var(--line);
+}
+
+.relation {
+	margin-bottom: 1.5rem;
+
+	&:last-child {
+		margin-bottom: 0;
+	}
+}
+
+.relation-label {
+	margin: 0 0 0.4rem;
+	font-size: 0.8rem;
+	font-weight: bold;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--muted);
+}
+
+.neighbor {
+	display: grid;
+	grid-template-columns: 8.5rem minmax(0, 1fr);
+	gap: 0 1rem;
+	align-items: baseline;
+	padding: 0.15em 0;
+	text-decoration: none;
+}
+
+.neighbor-date {
+	font-style: italic;
+	font-size: 0.85rem;
+	color: var(--muted);
+	white-space: nowrap;
 }
 
 // The page outline (§6e heading axis): same outline_entry fragment as the

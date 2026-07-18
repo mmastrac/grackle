@@ -29,6 +29,13 @@ pub struct Config {
     /// candidates; this shapes them per site.
     #[serde(default)]
     pub related: RelatedCfg,
+    /// Script shells (§5g, and yes, the pun): registered shell types backed
+    /// by an external command — the experimental bench for serializations
+    /// the engine doesn't speak yet (PDF, PostScript, whatever). The command
+    /// gets the view's rows as JSON on stdin (schema is TEMP, see §5g) and
+    /// its stdout bytes land at the view's route verbatim.
+    #[serde(default)]
+    pub shells: BTreeMap<String, ShellDef>,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -39,6 +46,12 @@ fn default_root() -> PathBuf {
 
 fn default_true() -> bool {
     true
+}
+
+/// A registered script shell: `sh -c command`, run from the site root.
+#[derive(Debug, Deserialize)]
+pub struct ShellDef {
+    pub command: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -274,9 +287,11 @@ impl Config {
         }
         for (vname, v) in &cfg.views {
             if let Some(s) = v.shell.as_deref() {
-                if !matches!(s, "atom" | "sitemap" | "search") {
+                if !matches!(s, "atom" | "sitemap" | "search") && !cfg.shells.contains_key(s) {
+                    let registered: Vec<&str> = cfg.shells.keys().map(|k| k.as_str()).collect();
                     anyhow::bail!(
-                        "view {vname}: unknown shell {s:?} (built-in shells: atom, sitemap, search)"
+                        "view {vname}: unknown shell {s:?} (built-in shells: atom, sitemap, search; registered script shells: [{}])",
+                        registered.join(", ")
                     );
                 }
             }
