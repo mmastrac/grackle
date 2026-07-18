@@ -15,7 +15,6 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 comrak = "0.54"
 image = "0.25"
-similar = "2"
 globset = "0.4"
 grass = "0.13"
 http-body-util = "0.1"

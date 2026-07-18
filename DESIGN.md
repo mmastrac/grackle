@@ -15,8 +15,10 @@ file → row → query → doc model → part map → slots → CSS → URL
 ```
 
 This section follows one post through all of them. Honesty note, per house
-rules: steps 1–4 and 8 describe what is built and measured; steps 5–7
-describe §5e's target, which is designed but unbuilt.
+rules: every step below is built and measured, with three deliberate gaps —
+the doc model's `notes` stream (§6d stage B), the per-theme `theme.toml`
+head-fact selection (the engine renders all head facts today), and serve's
+incremental invalidation (v1 rebuilds the world in ~0.4s; §7).
 
 ### 1. You write a file
 
@@ -1651,14 +1653,14 @@ that case resolves to a schema field too.
 part maps (`parts.rs`): named, typed parts — `Text`/`Html`/`Stream`/`Map`/
 `Flag` — in canonical order, names asserted against a per-kind `schema()`,
 producers never touching `Site` (URLs are root-relative; `baseurl` is
-presentation). A **legacy composer** (`legacy.rs`, scheduled to die with step
-3) replays the pre-§5e BEM markup from the maps, verified **byte-identical**
+presentation). A **legacy composer** (`legacy.rs`, since deleted with step 3)
+replayed the pre-§5e BEM markup from the maps, verified **byte-identical**
 across the whole site. Two findings from the extraction: (a) all three crumb
 markup shapes turned out to be *one uniform loop over `{label, url?}` crumbs*
 — the drift was only ever in the composer, exactly as predicted; (b)
 `body_class()` was already dead code (the violation lives as a hardcoded
-string at the listing call site). Steps 2–4 (binder, theme directory, null
-theme) remain the target below, with §5a–§5d as the fossil record.
+string at the listing call site). The step records below are the build log,
+with §5a–§5d as the fossil record.
 
 **Step 2 built (the binder).** `binder.rs`: strict fragment parser + the hole
 algebra (now four rules — see below; attribute holes were the one genuine
@@ -1682,10 +1684,13 @@ document shapes (one fragment, `[data-tree]` is two CSS declarations),
 `body.multipost` (summary styles select on `[data-kind="summary"]`
 context), and the Rust default shell. Notes from the build:
 
-- **Dark mode landed as pure CSS** — a custom-property palette plus one
-  `prefers-color-scheme` block in `_chrome.scss`, zero engine involvement:
-  the proof §5e promised that CSS is doing the lifting. Code blocks stay
-  light in both schemes (the rouge palette is tuned for paper).
+- **Dark mode landed as pure CSS, then was deliberately removed (2026-07)** —
+  a custom-property palette plus one `prefers-color-scheme` block in
+  `_chrome.scss`, zero engine involvement: the proof §5e promised that CSS is
+  doing the lifting. It proved the mechanism and was then backed out to
+  unconditionally light, because the *content* assumes a white background in
+  a lot of places (screenshots, diagrams, legacy pages). The palette vars
+  stay; a dark value set is one block away once the content can take it.
 - **The placeholder-link rule earns its keep everywhere at once**:
   disabled pagination arrows, the current page tile, and inert crumb tails
   are all `<a>` without `href`, styled via `a:not([href])`. `aria-current`
@@ -1991,7 +1996,8 @@ could need must be in the schema.** The four gaps are the current delta.
   summary, star gated in theme CSS. The fix §6d wanted, expressible now.
 - **Dark mode is a theme concern at last** (§8b found none exists): a
   `prefers-color-scheme` block in `theme.scss`, zero engine involvement —
-  the proof that CSS is actually doing the lifting.
+  the proof that CSS is actually doing the lifting. (Proven, then removed:
+  see the step-3 notes — the content isn't dark-safe yet.)
 - **A third theme is a directory.** Copy `themes/default/`, edit HTML and
   SCSS, done. Open question 20 dissolves: no Rust, no recompile, and the
   engine's load-time checks tell you every hole you got wrong.
@@ -2073,10 +2079,9 @@ unaffected.
   gets spent — spend it once, on this, not twice.
 - **`_sass` is rewritten against the new contract.** That rewrite *is* the new
   default theme, and the natural moment to add the dark mode §8b flagged.
-- **A fragment binder must be written.** Parse HTML fragments once at load,
-  bind holes, validate names: a few hundred lines against `lol_html` or a
-  small parser — strictly less machinery than the `liquid` crate §5d retired,
-  for strictly more checking.
+- **A fragment binder must be written.** ✅ Was (`binder.rs`, ~760 lines with
+  tests, hand-rolled parser — no `lol_html` needed): strictly less machinery
+  than the `liquid` crate §5d retired, for strictly more checking.
 
 ### Tripwires
 
@@ -3006,36 +3011,45 @@ number further — and note this same blind spot hides the highlighting gap: onl
 6 posts use real-language fences, and **4 of them are liquid-skipped**, so the
 "1 remaining rouge diff" is 1 of 2 compared, not 1 of 6.
 
-## 9. Crate layout
+## 9. Crate layout *(as built; the original sketch is in git history)*
+
+A cargo workspace: the engine, plus the search core split out so the same
+code compiles to wasm (§6b).
 
 ```
-grackle/
-  Cargo.toml
+grackle/                     workspace root = the engine binary
   src/
-    main.rs        CLI (build / serve / query / diff)
-    config.rs      grackle.toml (+ --config overlay for dev/prod)
-    store/
-      mod.rs       FsStore: table mapping, row versions, hydration cache
-      watch.rs     notify ingest → debounce → transactions → revisions
-      snapshot.rs  MVCC snapshots, invalidation keys
-    db/
-      posts.rs     posts table + secondary indexes (own rev counters)
-      tree.rs      page tree + ancestors/children
-      views.rs     declarative views → routable rows
-    route.rs       route templates, rules engine, URL↔row reverse index
-    render/
-      liquid.rs    parser setup, filters, tags, object model
-      markdown.rs  comrak wrapper, highlight adapter
-      layout.rs    layout chain + front-matter merge
-    assets/
-      thumbs.rs    derived-image table (content-addressed disk cache)
-      scss.rs      grass compile
-    serve.rs       axum: reverse-index handler + SSE subscriber
-    diff.rs        golden comparison
+    main.rs      CLI (query / export / build / serve / routes / diff)
+    config.rs    grackle.toml; view composition semantics (query/chain/
+                 group_specs/fields_for — the ONE over-chain walker)
+    store.rs     FsStore: front-matter split, tree walk, .gitignore law (§4c)
+    markers.rs   marker scan + nearest-wins defaults (§4b)
+    route.rs     filename formats, route templates, template params
+    db.rs        tables, rows, indexes, routes, load-time constraints (§3, §4)
+    views.rs     views become routes: row sets, grouping, subdivision (§5, §5c)
+    filter.rs    the typed predicate language (§5); q31 grows it into
+                 the expression language
+    tags.rs      the {% %} expander: image/post_url/view/include + widgets
+    markdown.rs  comrak-as-kramdown; Doc = whole + blocks (§6d)
+    parts.rs     part maps: typed schemas, producers, canonical() (§5e)
+    binder.rs    fragment parser + hole algebra + load-time checks (§5e)
+    slots.rs     .slots/ tree fills, block-arity rule (§5e)
+    theme.rs     theme = fragments + fills; shell assembly
+    render.rs    head facts, escaping, light shell, feed/sitemap XML
+    embed.rs     embeddings cache + related-posts ranking (§6b)
+    thumbs.rs    content-addressed thumbnails (§6b)
+    build.rs     render_site: the passes; build = write map to disk (§7)
+    serve.rs     resident snapshot behind raw hyper; watcher; live reload
+    diff.rs      golden comparison vs the Jekyll reference (§8)
+  search-core/   stem/tokenize/index/rank — used by build AND the browser
+  search-wasm/   the same core behind a raw no-bindgen wasm ABI (§6b)
 ```
 
-Ballpark: ~3–4k lines including the diff harness (the storage/snapshot layer
-adds ~500 over the previous one-shot design).
+~8.3k lines in the engine + ~450 in the search crates (vs the ~3–4k
+ballparked before §5e/§6b/§6d existed). The sketch this replaced imagined
+`store/watch/snapshot` and `db/{posts,tree,views}` submodule trees, a
+`render/liquid.rs`, and axum+SSE serving; reality is flatter, liquid never
+happened (§5d), and serve is raw hyper with polling (§7).
 
 ## 9a. Crate choices (verified against crates.io, 2026-07)
 
@@ -3043,17 +3057,17 @@ adds ~500 over the previous one-shot design).
 |---|---|---|---|
 | ~~`liquid`~~ | ~~0.26.11~~ | ~~templates~~ | ❌ **Dropped — §5d.** Was listed here as the biggest dependency risk (stale, Shopify dialect, needing us to reimplement Jekyll's tags and filters on top). Measured: the site has ~3 real templating constructs, all already Rust components. `tags.rs` recognises 5 whole shapes and emits anything else verbatim. The risk is retired by not taking it. |
 | `comrak` | 0.54 | markdown | Very active (July 2026). CommonMark+GFM with `smart` punctuation. **We mutate the AST** — that is the primary reason it beats `pulldown-cmark`, and it is now load-bearing rather than incidental (see below). Not kramdown — the accepted-inexact area (§8, §8c). |
-| `syntect` | 5.3 | highlighting | Stable, ubiquitous. Class-mode output mapped to Rouge/pygments class names so `_rouge.scss` keeps working. **Not yet wired**; §8c shows the highlighting gap is under-measured (4 of 6 highlighted posts are liquid-skipped). |
-| `two-face` | 0.5 | extra syntect syntaxes | Maintained; covers languages beyond the Sublime defaults. |
+| `syntect` | 5.3 | highlighting | **Not a dependency yet** — planned for the token-span gap (§8, q4). Class-mode output mapped to Rouge/pygments class names so `_rouge.scss` keeps working. §8c shows the gap is under-measured (4 of 6 highlighted posts are liquid-skipped). |
+| `two-face` | 0.5 | extra syntect syntaxes | **Not a dependency yet**; rides with syntect. |
 | `grass` | 0.13 | SCSS → CSS | Slow cadence (2024) but Sass is a frozen target; dart-sass-compatible, pure Rust, used by Zola. |
 | `serde_yaml_ng` | 0.10 | front matter | Maintained successor to deprecated `serde_yaml`. YAML is a frozen spec; low risk. |
-| `notify` + `notify-debouncer-full` | 8.2 | replication stream | Very active; the debouncer gives us transaction batching nearly for free. |
-| `axum` + `tokio` | 0.8 | `serve` | Active; SSE built in. Only linked into the serve client. |
+| `notify` | 8.2 | replication stream | ✅ in use (`serve`). The debouncer crate wasn't needed: a 150ms sleep-then-drain on the rebuild channel batches save-storms in ~6 lines. |
+| ~~`axum`~~ | — | ~~`serve`~~ | ❌ **Dropped for raw `hyper`** (see below) — no framework, no SSE; live reload is a poll. |
 | `image` | 0.25 | thumbnail derived assets | ✅ **in use** (`thumbs.rs`). Lanczos3 shrink-to-fit + PNG(best)/JPEG(85) contest, GIF passthrough, alpha-aware (skips JPEG for transparent PNGs, better than the plugin). WebP deferred. Adds ~70s to a clean `cargo build`. |
 | `fastembed` | 5.17 | embeddings → `related_posts` | ✅ **Chosen over `rust-bert`.** Updated this month; **1.2M** downloads; ONNX (`ort`) — no libtorch. Ships `all-MiniLM-L6-v2`. |
 | `blake3` | 1.x | all cache keys | ✅ **in use** (thumbnail content keys). Fast, non-cryptographic use. **`md-5` is dropped**: it existed only to reproduce `_thumbs/{md5}-600-600`, and §11.12 frees those URLs. |
-| `lol_html` | 3.0 | `feed_images` rewriting; diff normalization | Cloudflare, active; the selector-based streaming rewriter maps 1:1 onto the plugin's nokogiri usage. |
-| `similar` | 3.1 | `grackle diff` | Active; the standard Rust diff library. |
+| `lol_html` | 3.0 | the §6d rewrite stage | **Not a dependency yet** — stage B. `feed_images`/`expand_urls` landed as two small regexes (§8), and diff normalization is hand-rolled; the selector-driven rewriter arrives with its real consumers (§6a names, §6c styles). |
+| `postcard` | 1 | `/search.bin` serde | ✅ in use (search crates). Compact, no_std-friendly — right for a format private to the two ends of one crate (§6b). |
 | `hyper` + `hyper-util` + `http-body-util` | 1 / 0.1 | `serve` HTTP | Raw hyper, no framework (no axum) — a `service_fn` per connection on `tokio`. |
 | `tokio` | 1 | `serve` async runtime | Only linked for `serve`; `build`/`query` stay sync. |
 | `notify` | 8.2 | `serve` file watcher | The replication stream (§2); the debouncer would batch save-storms further. |
@@ -3146,6 +3160,88 @@ five (img/iframe, `<style>`, code shape) happen **at the node**, before HTML
 exists — no re-parse, no selector matching. `lol_html` drops back to what it is
 actually good at: user-authored `.rewrite.toml` rules over rendered output.
 
+## 9b. Seams audit: is responsibility still split right? *(2026-07)*
+
+Taken after the dedup refactor (one chain walker in `config.rs`, `views.rs`
+split out of `db.rs`, one front-matter splitter, `Route::new`), with the
+whole codebase freshly re-read. Verdict first: **the load-bearing boundaries
+hold, and the leaks that exist are all one disease.**
+
+### What holds
+
+The pipeline's layer per module is real: config *declares*, `db` *resolves
+and constrains*, `views` *materializes*, `parts` *produce*, binder + theme
+*arrange*, CSS does *geometry*, `build` *orchestrates*, `serve` *hosts*.
+The crisp tests all still pass on inspection: producers never see `Site`,
+no theme can compute, no fragment can loop, and the recent features entered
+without bending anything — relations-as-axes arrived as one more producer
+push (no schema, binder or theme change), and summaries arrived as a config
+field flowing through `over` (no rendering attribute, no engine policy).
+The predictor of this health is the discipline itself: **everything
+declared is load-checked** (filters, fragments, fields, widgets, slots), so
+a responsibility placed in config *stays* there — code can't quietly
+reinterpret what it would first have to type-check.
+
+### The one recurring disease
+
+§5c named it: *the config declared `filter`/`group_by`/`paginate` and the
+renderer ignored all of it*. That was cured for row membership (`members`).
+The same disease survives in four smaller pockets — each is the renderer
+(or a producer) re-deriving something config already owns:
+
+1. **Producers hardcode routes config owns** (→ q32). `parts.rs` tag pills
+   emit the literal string `/blog/tags/{t}/` — the shape of
+   `[views.tag_index] route` — and `parts::pagination` hardcodes `/blog/` +
+   `/blog/page/{n}` — the shape of `[views.blog_index] routes`. Edit either
+   route in config and the build succeeds while the chrome 404s: exactly
+   the members bug, at the URL level. The fix shape exists already — post
+   trails render the owning view's route template (§5c provenance); tag
+   pills and pagination should get their URLs the same way.
+2. **`build.rs` holds policy keyed on view names** (→ q33). Three spots:
+   `view != "blog_index"` decides which listings get `noindex`;
+   `"blog_index" => Some("blog_index")` supplies a fallback layout; the
+   feed pass selects its view by `template == "atom.xml"` — a
+   serialization chosen by template *filename*. This is §5a's "the shell
+   knows about everything," recurring in miniature in the orchestrator.
+   `noindex` wants to be a view attribute (a schema fact like every
+   other); serializations want to be declared layout kinds
+   (`layout = "feed"`), not filename matches.
+3. **The sitemap predicate evaluates twice** (→ q33, same family).
+   `views::build_star_views` parses and runs the filter to *count* rows;
+   `build.rs` re-parses and re-runs it to *enumerate* them. One source
+   string, so they cannot disagree today — but two evaluation sites is
+   precisely how Jekyll's three listing filters drifted (§5a). Star routes
+   should carry their members like every other route.
+4. **Three definitions of "not content"** (→ q34). §4c legislated the
+   three layers (gitignore + dot/underscore skip + `exclude`) — for the
+   tree walk. But `slots.rs` carries a private `SKIP` list duplicating
+   half of `grackle.toml`'s `exclude`, and `serve.rs::is_content` carries
+   a third. Add an exclude to config today and the watcher still rebuilds
+   on it and the slots walk still descends it. Both walks should derive
+   from the §4c layers.
+
+None of these is urgent — every one is invisible until a config value
+changes out from under its shadow copy — but that is also the §5c lesson:
+the drift is only ever invisible *until* it isn't.
+
+### Accepted asymmetries, named so they don't read as leaks
+
+- `if q.base != "blog"` in `views.rs` is the **phase-1 gate** (posts-backed
+  views only), not policy; it dies when object views land (§5 audit).
+- `post_trail` hardcodes the `"blog"` collection: rows don't carry a
+  collection id because exactly one posts collection exists. Real the day
+  there are two.
+- `themes/default` is one hardcoded path in `build.rs` (down from four):
+  the theme *name* isn't config yet. One key, whenever a second theme
+  exists.
+- The CLI's `query search` indexes raw markdown where build indexes
+  rendered HTML — documented at `search_docs`; a deliberately cheap smoke
+  query, not an inconsistency to fix.
+- `render.rs` has become "head facts + escaping + XML serializations" —
+  its doc admits it. If stage B touches the feed anyway, the
+  serializations can move out; renaming for its own sake isn't worth a
+  commit.
+
 ## 10. Phasing (each phase has a checkable exit)
 
 | Phase | Deliverable | Exit criterion |
@@ -3157,7 +3253,8 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
 | 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by §11.12 (`/static/` by design). |
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
-| **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** |
+| **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** (Dark mode: proven as one CSS block, then removed — content assumes white; §5e step-3 notes.) |
+| **8** | §6b content intelligence: embeddings + search | ✅ **done** — embeddings (fastembed/MiniLM, `[related]` policy, relations-as-axes, stale-while-revalidate in serve; **LSI retired**) and TF-IDF search (`search-core` shared by build and browser via `search-wasm`; `/search.bin` 195 KB/22ms; lazy `/search.js`; **Swiftype retired**). The Jekyll build's last two external services are gone. |
 | **7** | content intelligence: §6d blocks | 🟡 **stage A done** — `render_doc` (one parse: whole + blocks), **the summary is a computed field** (`[views.published.fields.summary] truncate = {…}` — a derived column inheriting along `over`, nearest wins; `Doc::truncate` is mechanism, the deriver validated at load; `hero`/`lede` (q23) are future derivers), `truncated` fact → `data-truncated` → ★ (q17 settled), nth-of-type CSS deleted, concat==whole pinned as a corpus test (footnote post the sole exception). **Measured: `/blog/` 160→15.7 KB; `/blog/tags/rust/` 180→11.3 KB (93.8%).** Post pages and feed byte-identical; the double render is gone. Stage B: notes stream + sidenotes (q18), the `lol_html` rewrite stage; also `{% callout %}` widgets landed (q29). |
 
 ## 11. Open questions (to iterate on)
@@ -3246,15 +3343,12 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     `route_schema()`; the sitemap filter excludes them; re-probed leak-free at
     573. Profiles (the proper fix) still ride with phase 3, but the leak is no
     longer waiting on them.
-20. **Themes are Rust (§5d).** A third theme means recompiling, and the shell
-    is the one artifact with a genuine claim to being a template — it is also
-    where presence-conditionals are hardest to model away, which is why
-    `<head>` is computed from `Head` facts. Acceptable at two themes. The first
-    thing §5d's rule would break on. **§5e proposes the dissolution**: themes
-    become directories of hole-bearing HTML fragments + CSS, presence
-    conditionals are replaced by empty-slot-collapses, and the binder is less
-    machinery than the `liquid` crate §5d retired. Unbuilt; see §5e's status
-    line.
+20. ~~Themes are Rust (§5d)~~ — **settled, dissolved by §5e** (steps 3–4,
+    built): a theme is a directory of hole-bearing fragments + SCSS, presence
+    conditionals died to empty-slot-collapses, and a fragmentless theme IS
+    the null theme. A third theme is `mkdir`, no recompile. The residual
+    Rust in presentation is the computed head facts (`render.rs`) and the
+    `light` shell — engine surface, not theme surface, by design.
 21. **Tighten `diff`'s liquid skip (§8c).** 97 of 327 posts are excluded, many
     falsely (`{{ github.event.issue.number }}` in code samples is GitHub
     Actions, not Liquid). 30% of the corpus is unmeasured and the 90% is over
@@ -3365,3 +3459,27 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
     **CEL-compatible** (our filter syntax already is, accidentally), so the
     hand-rolled parser can be swapped for `cel` later without breaking a
     config file. Build at the q23 `hero` forcing point.
+32. **Producers hardcode routes that config owns (§9b).** `parts.rs` emits
+    `/blog/tags/{key}/` for tag pills and `/blog/` + `/blog/page/{n}` for
+    pagination — literal copies of `[views.tag_index].route` and
+    `[views.blog_index].routes`. Config can change; the chrome would 404
+    with no load-time error. Fix shape: producers take URLs; build renders
+    them from the owning view's route template, exactly as post trails
+    already do (§5c provenance). Needs a small answer for "which view owns
+    tag URLs" — probably the collection declares it, next to
+    `crumb`/`index`/`trail`.
+33. **View-name policy in `build.rs` (§9b).** Listing `noindex` decided by
+    `view != "blog_index"`; a fallback layout supplied by matching the name
+    `blog_index`; the feed view selected by `template == "atom.xml"`; the
+    sitemap filter parsed and evaluated a second time at render (star
+    routes carry no members). Each wants the §5c treatment: `noindex` as a
+    view attribute, serializations as declared layout kinds
+    (`layout = "feed"` / `"sitemap"`), members on star routes. Small,
+    mechanical, and each one deletes a string match.
+34. **Three "not content" lists (§9b).** §4c's three layers govern the tree
+    walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`) carry
+    private skip lists that duplicate — and can silently drift from —
+    `grackle.toml`'s `exclude`. Both walks should derive from the §4c
+    layers (`store::walker` + config). The serve list has one extra
+    legitimate member the others lack: `_cache/`, which a rebuild *writes*
+    (watching it would loop) — that one is serve's own, and stays.
