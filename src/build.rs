@@ -268,7 +268,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
         let pagination = pagination_parts(db, view, v, r)?;
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
-        let intro = intro_html(cfg, v, view, &linkspace, loc)?;
+        let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
 
         let main = thm
             .fragments
@@ -322,7 +322,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             })
             .collect();
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
-        let intro = intro_html(cfg, v, view, &linkspace, loc)?;
+        let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
         let main = thm
             .fragments
             .render_with(&parts::gallery(&items, &title, trail, intro), v.variant.as_deref());
@@ -369,7 +369,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             })
             .collect();
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
-        let intro = intro_html(cfg, v, view, &linkspace, loc)?;
+        let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
         let main = thm.fragments.render_with(
             &parts::featured_listing(&rows, v.featured, &title, trail, intro),
             v.variant.as_deref(),
@@ -1431,10 +1431,49 @@ fn intro_html(
     locale: &str,
 ) -> Result<Option<String>> {
     let Some(i) = &v.intro else { return Ok(None) };
-    let text = cfg.i18n.text(i, locale);
-    let source = format!("view {view}: intro");
+    render_config_prose(cfg, linkspace, locale, &format!("view {view}: intro"), i)
+}
+
+/// The intro for one ROUTE (§6f enum records × q45 mode A): a grouped
+/// route whose leaf value declares a record `intro` gets that value's
+/// own prose — the course archive introduces the course — else the
+/// view's intro applies to every partition.
+fn route_intro(
+    cfg: &Config,
+    v: &View,
+    view: &str,
+    r: &Route,
+    linkspace: &crate::links::LinkSpace,
+    locale: &str,
+) -> Result<Option<String>> {
+    if r.key.is_some() {
+        let chain = cfg.group_specs(view);
+        if let Some(field) = chain.last().map(|s| crate::views::spec_field(s)) {
+            if let Some(id) = crate::route::param(&r.params, field) {
+                if let Some(i) = cfg.record(field, &id).and_then(|rec| rec.intro.as_ref()) {
+                    let source = format!("record {field}.{id}: intro");
+                    return render_config_prose(cfg, linkspace, locale, &source, i);
+                }
+            }
+        }
+    }
+    intro_html(cfg, v, view, linkspace, locale)
+}
+
+/// Config-authored prose (intros): markdown through the locale-aware
+/// link resolver — `view:` links and source paths get the same strict
+/// validation as any body; no browser-agreement bypass (config prose
+/// has no directory).
+fn render_config_prose(
+    cfg: &Config,
+    linkspace: &crate::links::LinkSpace,
+    locale: &str,
+    source: &str,
+    text: &crate::config::LocalizedStr,
+) -> Result<Option<String>> {
+    let text = cfg.i18n.text(text, locale);
     let doc = crate::markdown::render_doc_with(text, &|href| {
-        crate::links::resolve(cfg, linkspace, Path::new(""), "\u{0}", locale, &source, href)
+        crate::links::resolve(cfg, linkspace, Path::new(""), "\u{0}", locale, source, href)
     })?;
     Ok(Some(doc.whole.trim_end().to_string()))
 }
@@ -1495,10 +1534,31 @@ fn listing_title_and_trail(
     v: &View,
     r: &Route,
 ) -> Result<(String, Vec<(String, Option<String>)>)> {
-    let param = |k: &str| crate::route::param(&r.params, k);
     // Listings render at the view's locale (§6f): the route carries it
     // for locale-parallel materializations; absent = the default.
     let loc = r.locale.as_deref().unwrap_or(cfg.i18n.default.as_str());
+    // §6f enum records: a grouped param renders its record's localized
+    // NAME — "méta" on the French tag page, "Dinner" for a course —
+    // while routes keep slugs and keys/params keep ids.
+    let fields: Vec<String> = cfg
+        .group_specs(view)
+        .iter()
+        .map(|s| crate::views::spec_field(s).to_string())
+        .collect();
+    let param = |k: &str| -> Option<String> {
+        let raw = crate::route::param(&r.params, k)?;
+        let field = if k == "key" {
+            fields.last().map(String::as_str)
+        } else if fields.iter().any(|f| f == k) {
+            Some(k)
+        } else {
+            None
+        };
+        match field {
+            Some(f) => Some(cfg.record_name(f, &raw, loc).to_string()),
+            None => Some(raw),
+        }
+    };
     let text = |t: &crate::config::LocalizedStr| cfg.i18n.text(t, loc).to_string();
     let title = match &v.title {
         Some(t) => crate::route::render(&text(t), param)
@@ -1522,6 +1582,16 @@ fn listing_title_and_trail(
         }
     };
     let mut trail = trail_root(cfg, db, &cfg.query(view)?.base, loc);
+    // The landing chain for listings (q45): URL ancestors between the
+    // root and this route are crumbs too — /recipes/courses/dinner/
+    // climbs through the /recipes/ landing. Deduped by URL, because
+    // the collection crumb already roots /blog/-style listings there.
+    for (url, label) in ancestors(cfg, db, &r.url) {
+        if trail.iter().any(|(_, u)| u.as_deref() == Some(url.as_str())) {
+            continue;
+        }
+        trail.push((label, Some(url)));
+    }
     for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
         let av = &cfg.views[anc.as_str()];
         let tmpl = av.crumb.as_ref().or(av.title.as_ref());

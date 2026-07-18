@@ -3225,9 +3225,13 @@ locales = ["fr"]
 [i18n.names]
 fr = "Français"        # what the translations axis calls the locale
 
-[tags.meta]            # tag records: enum-style config records (§6f)
+[records.tags.meta]    # enum records: the value domain of a grouped field
 name = { en = "meta", fr = "méta" }   # display name carries the lang axis
 # slug = "…"           # route slug, defaults to the id
+
+[records.course.dinner]               # ANY grouped field, not just tags
+name = { en = "Dinner", fr = "Dîner" }
+intro = { en = "These dinner recipes are sure to please!", fr = "…" }
 ```
 
 The design, piece by piece:
@@ -3261,13 +3265,22 @@ The design, piece by piece:
   embedding similarity ranks within a locale now (a translation is the
   same text — it would top its original's Related list; pinned in
   `embed::rank`).
-- **Tag records** are the first enum-style config records: `[tags.id]`
-  with `slug` (route-facing, locale-independent, defaults to id) and
-  `name` (string or per-locale map; fallback locale → default → id). The
-  French note's pill reads *méta* and links to the shared `/blog/tags/
-  meta/`; slugging happens at exactly one seam (`grouped_routes`'
-  `route_value`) so keys, params and titles keep the id. A typo'd locale
-  key in a record is a load error. The shape q40's records will extend.
+- **Enum records** (generalized from tag records at Matt's ask,
+  2026-07): `[records.<field>.<id>]` declares the value domain of ANY
+  grouped field — tags, courses, whatever a view groups by — with
+  `slug` (route-facing, locale-independent, defaults to id), `name`
+  (string or per-locale map; fallback locale → default → id), and
+  `intro` (the value's own landing prose — q45 mode A per key: the
+  course archive introduces the course, beating the view's intro for
+  that route). The French note's pill reads *méta*; the French tag
+  ARCHIVE is now titled *« méta »* too, because `{key}` in grouped
+  titles/crumbs renders through the record's name at the route's
+  locale — display wears the name, URLs wear the slug, keys and params
+  keep the id. Slugging happens at one seam per base kind
+  (`route_value`) and now covers every grouped field. The retired
+  `[tags.id]` spelling is a load error naming the new form. A typo'd
+  locale key in a record is a load error. The shape q40's structured
+  records will extend.
 - **Filters see the axis**: `locale` joined the post, page and route
   schemas (route: Null = default locale, passing `!=` by the Null rule).
   The example's search deliberately declares nothing about locale — French
@@ -4503,10 +4516,16 @@ the drift is only ever invisible *until* it isn't.
     (else title) at the route's locale. A book's trail now climbs
     `Home › Book of the Month › The Typed Kitchen`; mode-B landings
     never reach the fallback (the claimed row matches first, row
-    title winning as everywhere). URL nesting IS the parent
-    derivation for tree rows; what remains of (a) is only the
-    non-nested half: `collection.index` naming a view, and whether
-    a landing may declare `parent =` when nesting lies.
+    title winning as everywhere). **Listing trails climb the same
+    chain** (deduped by URL against the collection crumb, which
+    already roots `/blog/`-style listings): when the course archives
+    moved under the landing (`/recipes/courses/{key}/`, Matt's ask),
+    `Home › Recipes › Dinner` fell out of the nesting with no
+    declaration — and the move itself cost zero source edits, every
+    `view:` link re-deriving. URL nesting IS the parent derivation
+    for tree rows; what remains of (a) is only the non-nested half:
+    `collection.index` naming a view, and whether a landing may
+    declare `parent =` when nesting lies.
 
     Narrowed but open: (a)'s non-nested half (above); theme
     provenance for bare/intro landings (content rows bring their

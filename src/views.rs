@@ -302,14 +302,15 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
             let chain = cfg.group_specs(name);
             check_group_chain(db, name, &chain, Kind::Posts)?;
-            // §6f: tag URLs wear the record's slug; keys and titles keep
-            // the id. Chains without a tags level pass values through.
-            let has_tags = chain.iter().any(|s| spec_field(s) == "tags");
+            // §6f enum records: URLs wear the record's slug for ANY
+            // grouped field (tags, courses, …); keys and titles keep the
+            // id. `key` is the leaf level's value.
+            let leaf = chain.last().map(|s| spec_field(s).to_string());
             let route_value = |k: &str, v: &str| -> String {
-                if has_tags && matches!(k, "key" | "tags") {
-                    cfg.tag_slug(v).to_string()
-                } else {
-                    v.to_string()
+                let field = if k == "key" { leaf.as_deref() } else { Some(k) };
+                match field {
+                    Some(f) => cfg.record_slug(f, v).to_string(),
+                    None => v.to_string(),
                 }
             };
             for locale in &locales {
@@ -569,12 +570,20 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             } else {
                 format!("/{locale}{tmpl}")
             };
+            let leaf = chain.last().map(|s| spec_field(s).to_string());
+            let route_value = |k: &str, v: &str| -> String {
+                let field = if k == "key" { leaf.as_deref() } else { Some(k) };
+                match field {
+                    Some(f) => cfg.record_slug(f, v).to_string(),
+                    None => v.to_string(),
+                }
+            };
             let mut routes = {
                 let rows: Vec<(usize, &dyn filter::Row)> = row_ix
                     .iter()
                     .map(|&i| (i, &db.pages.rows[i] as &dyn filter::Row))
                     .collect();
-                grouped_routes(name, &tmpl, &chain, &rows, &|_, v| v.to_string())?
+                grouped_routes(name, &tmpl, &chain, &rows, &route_value)?
             };
             if *locale != cfg.i18n.default {
                 for r in &mut routes {

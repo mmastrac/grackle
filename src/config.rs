@@ -40,11 +40,19 @@ pub struct Config {
     /// carries the default locale and nothing changes.
     #[serde(default)]
     pub i18n: I18nCfg,
-    /// Tag records (§6f): enum-style config records keyed by tag id. A tag
-    /// used in front matter needs no entry — id is slug is name — but an
-    /// entry can set the route slug and per-locale display names.
+    /// Enum records (§6f, generalized from tag records at Matt's ask):
+    /// `[records.<field>.<id>]` declares the value domain of a grouped
+    /// field — tags, courses, any typed field a view groups by. A value
+    /// used in front matter needs no entry (id is slug is name), but an
+    /// entry can set the route `slug`, per-locale display `name`s (used
+    /// by pills AND by `{key}` in grouped titles/crumbs), and an `intro`
+    /// — mode-A landing prose for that value's own archive page.
     #[serde(default)]
-    pub tags: BTreeMap<String, TagCfg>,
+    pub records: BTreeMap<String, BTreeMap<String, RecordCfg>>,
+    /// The retired `[tags.<id>]` spelling — kept only so validate() can
+    /// error loudly with the new form instead of ignoring it silently.
+    #[serde(default)]
+    pub tags: BTreeMap<String, toml::Value>,
     /// Internal-link policy (§6a, Matt's rule): links reference what the
     /// database owns — rows by SOURCE PATH, views by `view:` reference —
     /// because final URLs are derived values (locales, slugs, templates).
@@ -218,11 +226,14 @@ pub enum LinkPolicy {
     Strict,
 }
 
-/// One tag record: route slug and display name(s). Both default to the id.
+/// One enum record: the full schema of one value of a grouped field.
+/// `slug` and `name` default to the id; `intro` is absent by default.
 #[derive(Debug, Deserialize)]
-pub struct TagCfg {
+#[serde(deny_unknown_fields)]
+pub struct RecordCfg {
     pub slug: Option<String>,
     pub name: Option<LocalizedStr>,
+    pub intro: Option<LocalizedStr>,
 }
 
 /// THE shape for display names (§6f): any human-facing string the config
@@ -599,9 +610,20 @@ impl Config {
                 }
                 Ok(())
             };
-            for (id, t) in &cfg.tags {
-                if let Some(n) = &t.name {
-                    check(&format!("tag {id}: name"), n)?;
+            if let Some(id) = cfg.tags.keys().next() {
+                anyhow::bail!(
+                    "[tags.{id}]: tag records generalized to enum records — \
+                     declare [records.tags.{id}] instead (§6f)"
+                );
+            }
+            for (field, recs) in &cfg.records {
+                for (id, t) in recs {
+                    if let Some(n) = &t.name {
+                        check(&format!("record {field}.{id}: name"), n)?;
+                    }
+                    if let Some(i) = &t.intro {
+                        check(&format!("record {field}.{id}: intro"), i)?;
+                    }
                 }
             }
             for (name, v) in &cfg.views {
@@ -638,9 +660,14 @@ impl Config {
             let mut referenced: Vec<&str> = Vec::new();
             {
                 let mut refs: Vec<(String, &LocalizedStr)> = Vec::new();
-                for (id, t) in &cfg.tags {
-                    if let Some(n) = &t.name {
-                        refs.push((format!("tag {id}: name"), n));
+                for (field, recs) in &cfg.records {
+                    for (id, t) in recs {
+                        if let Some(n) = &t.name {
+                            refs.push((format!("record {field}.{id}: name"), n));
+                        }
+                        if let Some(i) = &t.intro {
+                            refs.push((format!("record {field}.{id}: intro"), i));
+                        }
                     }
                 }
                 for (name, v) in &cfg.views {
@@ -883,19 +910,37 @@ impl Config {
         std::fs::canonicalize(&joined).unwrap_or(joined)
     }
 
-    /// The slug a tag uses in routes (§6f). Defaults to the id.
-    pub fn tag_slug<'a>(&'a self, id: &'a str) -> &'a str {
-        self.tags.get(id).and_then(|t| t.slug.as_deref()).unwrap_or(id)
+    /// The enum record for one value of a grouped field, if declared.
+    pub fn record(&self, field: &str, id: &str) -> Option<&RecordCfg> {
+        self.records.get(field)?.get(id)
     }
 
-    /// The display name a tag wears for a locale (§6f): the record's name
-    /// through the standard hierarchy (inline / "@ref" / global), else
-    /// the id.
-    pub fn tag_name<'a>(&'a self, id: &'a str, locale: &str) -> &'a str {
-        match self.tags.get(id).and_then(|t| t.name.as_ref()) {
+    /// The display name a field value wears for a locale (§6f): the
+    /// record's name through the standard hierarchy (inline / "@ref" /
+    /// global), else the id itself.
+    pub fn record_name<'a>(&'a self, field: &str, id: &'a str, locale: &str) -> &'a str {
+        match self.record(field, id).and_then(|r| r.name.as_ref()) {
             Some(n) => self.i18n.text(n, locale),
             None => id,
         }
+    }
+
+    /// The slug a field value wears in routes (§6f). Defaults to the id —
+    /// URLs are the only surface slugs touch; keys, params and titles
+    /// keep the id.
+    pub fn record_slug<'a>(&'a self, field: &str, id: &'a str) -> &'a str {
+        self.record(field, id).and_then(|t| t.slug.as_deref()).unwrap_or(id)
+    }
+
+    /// The slug a tag uses in routes (§6f). Defaults to the id.
+    pub fn tag_slug<'a>(&'a self, id: &'a str) -> &'a str {
+        self.record_slug("tags", id)
+    }
+
+    /// The display name a tag wears for a locale — `record_name` for the
+    /// `tags` field, kept named because pills call it everywhere.
+    pub fn tag_name<'a>(&'a self, id: &'a str, locale: &str) -> &'a str {
+        self.record_name("tags", id, locale)
     }
 
     /// The view that owns tag routes (q32): the posts collection's declared
@@ -1195,12 +1240,15 @@ mod tests {
         assert!(e.contains("no chains"), "{e}");
     }
 
-    /// §6f tag records: slug and display names default to the id; a
-    /// per-locale name falls back default-locale, then id.
+    /// §6f enum records: slug and display names default to the id; a
+    /// per-locale name falls back default-locale, then id. The `intro`
+    /// rides the same record; the retired [tags.x] spelling errors with
+    /// the new form.
     #[test]
-    fn tag_records_default_to_id() {
+    fn enum_records_default_to_id() {
         let c = cfg(
-            "[tags.contes]\nslug = \"fairy-tales\"\nname = { en = \"Fairy tales\", fr = \"Contes\" }\n\n[i18n]\nlocales = [\"fr\"]\n",
+            "[records.tags.contes]\nslug = \"fairy-tales\"\nname = { en = \"Fairy tales\", fr = \"Contes\" }\n\n\
+             [records.course.dinner]\nintro = \"Sure to please!\"\n\n[i18n]\nlocales = [\"fr\"]\n",
         );
         assert_eq!(c.tag_slug("contes"), "fairy-tales");
         assert_eq!(c.tag_slug("rust"), "rust");
@@ -1208,5 +1256,12 @@ mod tests {
         assert_eq!(c.tag_name("contes", "en"), "Fairy tales");
         assert_eq!(c.tag_name("contes", "de"), "Fairy tales");
         assert_eq!(c.tag_name("rust", "fr"), "rust");
+        assert_eq!(c.record_slug("course", "dinner"), "dinner");
+        assert_eq!(c.record_name("course", "dinner", "fr"), "dinner");
+        let i = c.record("course", "dinner").unwrap().intro.as_ref().unwrap();
+        assert_eq!(c.i18n.text(i, "en"), "Sure to please!");
+
+        let e = cfg_err("[tags.contes]\nslug = \"x\"\n");
+        assert!(e.contains("records.tags.contes"), "{e}");
     }
 }

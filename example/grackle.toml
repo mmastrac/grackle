@@ -107,10 +107,23 @@ translations = { en = "Translations", fr = "Traductions" }
 # A shared string: referenced by tag_index below as title = "@tagged".
 tagged = { en = "Notes tagged “{key}”", fr = "Notes étiquetées « {key} »" }
 
-# Tag records (§6f): enum-style config records. Slug and name default to
-# the id; `name` may carry the lang axis.
-[tags.meta]
+# Enum records (§6f, generalized 2026-07): `[records.<field>.<id>]`
+# declares the value domain of any grouped field — the tag-records
+# pattern, no longer tags-only. Slug and name default to the id; `name`
+# carries the lang axis and renders wherever the value is DISPLAYED
+# (pills, `{key}` in grouped titles/crumbs) while routes wear the slug;
+# `intro` is the value's own landing prose, picked up by its archive
+# page (q45 mode A, per key).
+[records.tags.meta]
 name = { en = "meta", fr = "méta" }
+
+[records.course.dinner]
+name = { en = "Dinner", fr = "Dîner" }
+intro = { en = "These dinner recipes are sure to please!", fr = "Des dîners qui font plaisir, à coup sûr." }
+
+[records.course.baking]
+name = { en = "Baking", fr = "Fournée" }
+intro = { en = "Flour, patience, and a hot oven.", fr = "De la farine, de la patience et un four bien chaud." }
 
 # ---------------------------------------------------------------- related
 
@@ -231,15 +244,19 @@ title = { en = "Recipes", fr = "Recettes" }
 # Recipes grouped by a schema field — group_by = "course" is the SAME
 # operation as group_by = "tags": group by a typed field. The date specs
 # were always aliases for the year/month fields.
+# Course archives live UNDER the recipes landing (Matt, 2026-07): the
+# nested URL is what makes the trail climb — Home › Recipes › Dinner
+# falls out of the q45 landing chain, no declaration. {key} renders the
+# course record's localized name; the URL wears its slug.
 [views.recipes_by_course]
 over = "pages"
 match = "recipes/**"
 group_by = "course"
 order_by = "title"
-route = "/courses/{key}/"
+route = "/recipes/courses/{key}/"
 layout = "listing"
 variant = "cards"
-title = "Recipes: {key}"
+title = { en = "Recipes: {key}", fr = "Recettes : {key}" }
 crumb = "{key}"
 
 # Routeless, embedded on the homepage: the same query language, composed
