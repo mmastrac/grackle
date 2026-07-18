@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::db::SiteDb;
+use crate::markdown::Heading;
 use crate::parts::{Part, PartMap};
 
 /// One entry in a section tree, source-shaped (parts come later so the
@@ -125,6 +126,33 @@ pub fn section_tree(db: &SiteDb, root: &Path) -> Vec<Node> {
     out
 }
 
+/// §6e's heading axis: the same recursive shape, from the document's own
+/// headings. Nesting is by level, and a jump (h2 → h4) nests under the
+/// nearest shallower entry. The depth window is production policy — §6d's
+/// lesson stands: never ship levels a stylesheet hides.
+pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<Node> {
+    fn build(hs: &[&Heading], i: &mut usize, parent: u8) -> Vec<Node> {
+        let mut out = Vec::new();
+        while *i < hs.len() {
+            let h = hs[*i];
+            if h.level <= parent {
+                break;
+            }
+            *i += 1;
+            let children = build(hs, i, h.level);
+            out.push(Node {
+                label: h.text.clone(),
+                url: Some(format!("#{}", h.id)),
+                order: None,
+                children,
+            });
+        }
+        out
+    }
+    let kept: Vec<&Heading> = hs.iter().filter(|h| h.level >= min && h.level <= max).collect();
+    build(&kept, &mut 0, 0)
+}
+
 /// The tree as `outline_entry` part maps, with the row's own entry marked
 /// `current` — the literal `aria-current` value, the pagination trick.
 pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
@@ -164,6 +192,7 @@ mod tests {
             title: title.map(String::from),
             layout: Some("page".into()),
             order,
+            toc: false,
         }
     }
 
@@ -212,6 +241,35 @@ mod tests {
         // And the canonical rendering recurses without loss.
         let out = crate::parts::canonical(&parts[1]);
         assert!(out.contains("X"), "{out}");
+    }
+
+    #[test]
+    fn heading_tree_nests_by_level_and_tolerates_jumps() {
+        let hs: Vec<Heading> = [
+            (2, "a", "A"),
+            (3, "a1", "A1"),
+            (3, "a2", "A2"),
+            (2, "b", "B"),
+        ]
+        .iter()
+        .map(|(l, id, t)| Heading { level: *l, id: id.to_string(), text: t.to_string() })
+        .collect();
+        let t = heading_tree(&hs, 2, 3);
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[0].children.len(), 2);
+        assert_eq!(t[0].children[1].url.as_deref(), Some("#a2"));
+        assert!(t[1].children.is_empty());
+
+        // A jump (h2 → h4) nests under the nearest shallower entry, and the
+        // depth window drops what production policy says to drop.
+        let jump: Vec<Heading> = [(2, "x", "X"), (4, "deep", "Deep"), (3, "y", "Y")]
+            .iter()
+            .map(|(l, id, t)| Heading { level: *l, id: id.to_string(), text: t.to_string() })
+            .collect();
+        let t = heading_tree(&jump, 2, 4);
+        assert_eq!(t[0].children.len(), 2, "Deep and Y both under X");
+        let t = heading_tree(&jump, 2, 3);
+        assert_eq!(t[0].children.len(), 1, "depth window drops h4");
     }
 
     #[test]

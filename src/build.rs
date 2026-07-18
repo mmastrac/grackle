@@ -147,7 +147,18 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 .and_then(|i| related.by_post.get(i))
                 .map(|v| v.iter().map(|(j, _)| *j).collect())
                 .unwrap_or_default();
-            let main = thm.fragments.render(&parts::document(db, p, whole, trail, &rel));
+            // §6e heading axis: `toc:` rows carry their outline, extracted
+            // from the same rendered bytes. h2–h3 is the v1 depth window
+            // (production policy, not CSS — never ship what a theme hides).
+            let outline = if p.toc {
+                let tree =
+                    crate::outline::heading_tree(&bodies[p.url.as_str()].headings(), 2, 3);
+                crate::outline::to_parts(&tree, &p.url)
+            } else {
+                Vec::new()
+            };
+            let main =
+                thm.fragments.render(&parts::document(db, p, whole, trail, &rel, outline));
             let dir = p.path.parent().unwrap_or(&root);
             let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?;
             Ok((p.url.clone(), html))
@@ -380,10 +391,19 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     continue;
                 }
 
-                let frag = if src.extension().is_some_and(|e| e == "md") {
-                    crate::markdown::render(&expanded)
+                // Markdown pages render as a Doc so `toc:` pages can
+                // extract their outline from the same bytes (§6e).
+                let (frag, outline) = if src.extension().is_some_and(|e| e == "md") {
+                    let d = crate::markdown::render_doc(&expanded);
+                    let o = if row.is_some_and(|p| p.toc) {
+                        let tree = crate::outline::heading_tree(&d.headings(), 2, 3);
+                        crate::outline::to_parts(&tree, &r.url)
+                    } else {
+                        Vec::new()
+                    };
+                    (d.whole, o)
                 } else {
-                    expanded
+                    (expanded, Vec::new())
                 };
 
                 // The section tree this row carries, if a `.section` unit
@@ -414,6 +434,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                     &r.url,
                                     &ancestors(db, &r.url),
                                     section,
+                                    outline,
                                     &frag,
                                 ),
                             ),

@@ -134,6 +134,29 @@ a:hover {
 	color: var(--muted);
 }
 
+// The page outline (§6e heading axis): same outline_entry fragment as the
+// section tree, styled as a compact "On this page" block.
+.page-outline {
+	margin: 1rem 0 1.5rem;
+	padding: 0.5rem 1rem;
+	border-left: 3px solid var(--line);
+	font-size: 0.9rem;
+
+	&::before {
+		content: "On this page";
+		display: block;
+		font-weight: bold;
+		color: var(--muted);
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.outline-children {
+		padding-left: 1rem;
+	}
+}
+
 // The gallery: CSS-columns masonry (the §5e interim — native masonry is
 // not Baseline yet). width/height attributes come from the engine's
 // dimension facts (q26), so the browser reserves space and nothing shifts.

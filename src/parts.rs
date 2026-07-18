@@ -171,6 +171,8 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             // §6e's path axis: the enclosing `.section` unit's page tree,
             // with this row marked current. Absent outside sections.
             ("section", Stream("outline_entry")),
+            // §6e's heading axis: this document's own outline (`toc:`).
+            ("outline", Stream("outline_entry")),
             ("content", Html),
             ("relations", Stream("relation")),
         ],
@@ -358,6 +360,7 @@ pub fn document(
     content: &str,
     trail: Vec<(String, Option<String>)>,
     related: &[usize],
+    outline: Vec<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("document");
     m.set("title", Part::Text(p.title.clone()));
@@ -365,6 +368,9 @@ pub fn document(
     m.set("crumbs", crumb_stream(trail));
     if let Some(t) = tag_stream(p) {
         m.set("tags", t);
+    }
+    if !outline.is_empty() {
+        m.set("outline", Part::Stream(outline));
     }
     m.set("content", Part::Html(content.to_string()));
     // Relations (§6b): the post pivots along multiple AXES — embedding
@@ -424,6 +430,7 @@ pub fn document_tree(
     url: &str,
     ancestors: &[(String, String)],
     section: Vec<PartMap>,
+    outline: Vec<PartMap>,
     content: &str,
 ) -> PartMap {
     let mut m = PartMap::new("document");
@@ -438,6 +445,9 @@ pub fn document_tree(
     m.set("crumbs", crumb_stream(v));
     if !section.is_empty() {
         m.set("section", Part::Stream(section));
+    }
+    if !outline.is_empty() {
+        m.set("outline", Part::Stream(outline));
     }
     m.set("content", Part::Html(content.to_string()));
     m
@@ -680,7 +690,7 @@ mod tests {
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone(), None),
             ];
-            let m = document(&db, p, &p.body, trail, &[]);
+            let m = document(&db, p, &p.body, trail, &[], Vec::new());
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -716,6 +726,7 @@ mod tests {
                 &title,
                 &pg.url,
                 &[("/code/".to_string(), "Code".to_string())],
+                Vec::new(),
                 Vec::new(),
                 "<p>body</p>",
             );

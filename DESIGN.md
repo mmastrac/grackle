@@ -2861,19 +2861,24 @@ That is the concrete argument for AST-level access — not a preference.
    the content-addressed cache (§6b), but worth measuring before allowing
    templates in rules.
 
-## 6e. Hierarchy: the page's tree and the tree's tree *(specced 2026-07; section trees built, page outlines pending)*
+## 6e. Hierarchy: the page's tree and the tree's tree *(specced and built 2026-07)*
 
-> ✅ **The path axis is built** (`outline.rs`, 2026-07), against the example
-> site's manual (§7a): `.section` is engine vocabulary like `.slots/` (a
-> bare file, no config), the scan rides the same .gitignore defence as
-> markers, `order:` front matter landed on pages, the recursive
-> `outline_entry` kind renders through fragment and canonical alike, the
-> root's index leads, index-less directories appear as unlinked labels
-> (q27's semantic, shipped), nested `.section`s resolve nearest-wins, and
-> `aria-current` rides the attribute hole. Trees derive once per section
-> per build; only `current` moves per page. **The heading axis (page
-> outlines) remains specced-not-built** — it lands with the §5f `outline()`
-> deriver or earlier.
+> ✅ **Both axes are built** (`outline.rs`, 2026-07), against the example
+> site (§7a). **Path axis**: `.section` is engine vocabulary like
+> `.slots/` (a bare file, no config), the scan rides the same .gitignore
+> defence as markers, `order:` front matter landed on pages, the root's
+> index leads, index-less directories appear as unlinked labels (q27's
+> semantic, shipped), nested `.section`s resolve nearest-wins, and
+> `aria-current` rides the attribute hole; trees derive once per section
+> per build — only `current` moves per page. **Heading axis**: `toc:`
+> rows carry their outline, extracted *from the rendered block bytes
+> themselves* (id and text read out of the shipped `<h2 id=…>`), so link
+> and target cannot desync — pinned by a sync test; nesting tolerates
+> level jumps; the h2–h3 window is hardcoded v1 policy pending the §5f
+> `outline()` deriver. One recursive `outline_entry` kind serves both
+> axes through one theme fragment — the unification this section bet on,
+> demonstrated on the example's `configuration` page, which renders the
+> section tree and its own outline side by side.
 
 The site has two hierarchies, and they are the same shape seen on two axes:
 **headings nest by level** (h2 contains its h3s) and **pages nest by path**
@@ -3039,11 +3044,12 @@ parked feature, in parallel rather than in sequence.
 
 | section | exists to force |
 |---|---|
-| `photos/` (varied aspect ratios) | object views (§5 audit gaps 1–3: object schema, `match`, `order_by`), `hero` (q23), variants (q24), dimension facts (q26), the masonry archetype (§5e) |
-| `manual/` (mdbook-style tree, `order:` in front matter) | §6e section trees, `.section` scope markers (q35), q27 index-less directories |
-| long posts with `##` headings, `toc:` front matter | §6e page outlines, the §5f `outline()` deriver |
+| `photos/` (varied aspect ratios) | ✅ **forced it** — object views (§5 audit gaps 1–3), dimension facts (q26), CSS-columns masonry; still open here: variants (q24) |
+| `manual/` (mdbook-style tree, `order:` in front matter) | ✅ **forced it** — §6e section trees, `.section` markers (q35 settled), q27 unlinked labels |
+| long posts with `##` headings, `toc:` front matter | ✅ **forced it** — §6e page outlines |
 | `recipes/` (typed front matter: servings, prep time, course) | per-subtree schema (§5b — its long-missing second user), typed fields beyond the post schema, `group_by` over arbitrary schema fields (today: tags/dates only) |
-| a second theme, minimal | the partial-theme claim (shell + CSS, everything else canonical), and eventually the theme-name config key (§9b) |
+| `books/` (planned: a book-of-the-month club) | `hero` (q23) *and* database-rows-as-content in one fixture: books are typed rows (author, month, `cover:`) whose index features the newest row large, and each book page shows its cover large — hero-from-a-schema-field is q23's "explicit beats derived" precedence with the §5b schema work attached |
+| a second theme, minimal | ✅ partial themes proven (shell + CSS at first; per-kind fragments added only as features needed them); still open: the theme-name config key (§9b) |
 
 Two rules keep it honest:
 
@@ -3631,7 +3637,11 @@ the drift is only ever invisible *until* it isn't.
     everywhere else. The mindstorms audit (§5) adds a third source for
     *group* heroes: a designated cover file (`cover.*`, matching the existing
     `alpharex_1.jpg` covers) beats first-item — explicit beats derived again,
-    expressed positionally.
+    expressed positionally. **Planned fixture (§7a): the example's
+    book-of-the-month club** — the club index features the newest book's
+    cover large, each book page shows it large; hero-from-a-schema-field
+    (`cover:`) plus the two fallbacks, on rows that are also the §5b typed-
+    schema case. One section forces both questions.
 24. **Per-view fragment variants (§5e).** `variant = "gallery"` on a view →
     `listing--gallery.html` with fallback to `listing.html`, load-time
     checked. Needed the day one view wants cards while another wants

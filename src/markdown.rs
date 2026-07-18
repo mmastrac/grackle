@@ -204,6 +204,65 @@ fn text_len(html: &str) -> usize {
     n
 }
 
+// ---------------------------------------------------------------- headings
+
+/// One heading of a rendered document — §6e's heading axis.
+#[derive(Debug, PartialEq)]
+pub struct Heading {
+    pub level: u8,
+    /// The anchor target comrak emitted on the element.
+    pub id: String,
+    /// The heading's visible text, entities folded back.
+    pub text: String,
+}
+
+impl Doc {
+    /// The document's headings, extracted from the same rendered bytes
+    /// that ship — link and target cannot desync (§6e), the search-wasm
+    /// argument applied to anchors.
+    pub fn headings(&self) -> Vec<Heading> {
+        self.blocks.iter().filter_map(|b| heading_of(b)).collect()
+    }
+}
+
+fn heading_of(html: &str) -> Option<Heading> {
+    let h = html.trim_start();
+    let rest = h.strip_prefix("<h")?;
+    let level = rest.bytes().next().filter(u8::is_ascii_digit)? - b'0';
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    let i = h.find("id=\"")? + 4;
+    let id = h[i..].split('"').next()?.to_string();
+    let text = unescape(&visible_text(h));
+    Some(Heading { level, id, text })
+}
+
+/// Visible text of a fragment: characters outside tags, trimmed. The
+/// heading's trailing anchor link is empty, so it contributes nothing.
+fn visible_text(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Fold comrak's text escapes back to characters — the label re-escapes at
+/// fill time (`Part::Text`), so leaving entities would double-escape.
+fn unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +281,31 @@ mod tests {
     #[test]
     fn raw_html_passes_through() {
         assert!(render("<div class=\"x\">hi</div>").contains(r#"<div class="x">"#));
+    }
+
+    /// The §6e sync property: every extracted heading's id appears in the
+    /// block it came from — links target what actually shipped.
+    #[test]
+    fn headings_extract_in_sync_with_emitted_ids() {
+        let d = render_doc("## Alpha & Beta\n\ntext\n\n### Gamma \"quoted\"\n\n## Delta");
+        let hs = d.headings();
+        assert_eq!(hs.len(), 3);
+        assert_eq!((hs[0].level, hs[0].text.as_str()), (2, "Alpha & Beta"));
+        assert_eq!((hs[1].level, hs[1].text.as_str()), (3, "Gamma “quoted”"));
+        assert_eq!(hs[2].level, 2);
+        for h in &hs {
+            let target = format!("id=\"{}\"", h.id);
+            assert!(
+                d.blocks.iter().any(|b| b.contains(&target)),
+                "{target} not emitted"
+            );
+        }
+    }
+
+    #[test]
+    fn non_headings_extract_nothing() {
+        let d = render_doc("plain paragraph\n\n    code block\n\n<hr>");
+        assert!(d.headings().is_empty());
     }
 }
 

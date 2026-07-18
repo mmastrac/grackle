@@ -41,6 +41,8 @@ pub struct Post {
     pub draft: bool,
     pub hidden: bool,
     pub noindex: bool,
+    /// Render the heading outline (§6e); front matter or cascaded default.
+    pub toc: bool,
     pub url: String,
     pub body_bytes: usize,
     #[serde(skip)]
@@ -80,6 +82,8 @@ pub struct Page {
     pub layout: Option<String>,
     /// Declared position within a section tree (§6e).
     pub order: Option<i64>,
+    /// Render the heading outline (§6e).
+    pub toc: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -529,6 +533,7 @@ fn build_posts(
             .front
             .noindex
             .unwrap_or_else(|| as_bool(&defaults, "noindex"));
+        let toc = raw.front.toc.unwrap_or_else(|| as_bool(&defaults, "toc"));
         let layout = raw.front.layout.clone().or_else(|| {
             defaults
                 .get("layout")
@@ -582,6 +587,7 @@ fn build_posts(
             draft,
             hidden,
             noindex,
+            toc,
             url,
             body_bytes: raw.body.len(),
             body: raw.body,
@@ -747,10 +753,10 @@ fn build_tree_and_objects(
             });
         } else {
             // Only rendered rows have schema; 41 files, so parsing is cheap.
-            let (title, layout, order) = if f.has_front_matter {
+            let fm = if f.has_front_matter {
                 read_page_schema(&f.path)
             } else {
-                (None, None, None)
+                Default::default()
             };
             pages.rows.push(Page {
                 path: f.path,
@@ -759,23 +765,23 @@ fn build_tree_and_objects(
                 url,
                 rendered: f.has_front_matter,
                 size: f.size,
-                title,
-                layout,
-                order,
+                title: fm.title,
+                layout: fm.layout,
+                order: fm.order,
+                toc: fm.toc.unwrap_or(false),
             });
         }
     }
     Ok((pages, objects))
 }
 
-/// Front matter of a tree page: just the fields presentation needs.
-fn read_page_schema(path: &Path) -> (Option<String>, Option<String>, Option<i64>) {
+/// Front matter of a tree page: presentation reads its fields directly.
+fn read_page_schema(path: &Path) -> crate::store::FrontMatter {
     let Ok(text) = std::fs::read_to_string(path) else {
-        return (None, None, None);
+        return Default::default();
     };
     let (yaml, _) = store::split_front_matter(&text);
-    let fm: crate::store::FrontMatter = serde_yaml_ng::from_str(yaml).unwrap_or_default();
-    (fm.title, fm.layout, fm.order)
+    serde_yaml_ng::from_str(yaml).unwrap_or_default()
 }
 
 // ------------------------------------------------------------------ views

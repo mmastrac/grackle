@@ -23,6 +23,10 @@ pub struct FrontMatter {
     pub noindex: Option<bool>,
     /// Declared position within a section tree (§6e). Unset sorts last.
     pub order: Option<i64>,
+    /// Render this document's heading outline (§6e) — §5a's canonical
+    /// "render directive" example. Cascades from markers/rules like any
+    /// default.
+    pub toc: Option<bool>,
 }
 
 /// `tags:` is a YAML sequence in all 44 posts that have it, but Jekyll also
