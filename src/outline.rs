@@ -1,0 +1,230 @@
+//! Section trees (§6e, the path axis): a `.section` marker roots a subtree
+//! unit, and every rendered row beneath it carries the section's page tree
+//! with itself marked current — the downward walk that complements the
+//! breadcrumbs' upward one.
+//!
+//! Labels come from page titles; an index-less directory is an unlinked
+//! label (q27's semantic, shipped here). Ordering is declared (`order:`
+//! front matter), else lexical by label — the §5-audit rule that
+//! lexical-by-luck is not a contract, made explicit per node.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use crate::db::SiteDb;
+use crate::parts::{Part, PartMap};
+
+/// One entry in a section tree, source-shaped (parts come later so the
+/// same tree renders once per page with only `current` moving).
+#[derive(Debug)]
+pub struct Node {
+    pub label: String,
+    /// None = an index-less directory: a label, deliberately unlinked
+    /// (linking it would 404 — q27).
+    pub url: Option<String>,
+    pub order: Option<i64>,
+    pub children: Vec<Node>,
+}
+
+/// The nearest section root governing `rel`, if any — the same
+/// nearest-wins ascent as markers, buckets and slot fills.
+pub fn nearest<'a>(sections: &'a [PathBuf], rel: &Path) -> Option<&'a Path> {
+    sections
+        .iter()
+        .filter(|s| rel.starts_with(s))
+        .max_by_key(|s| s.components().count())
+        .map(PathBuf::as_path)
+}
+
+/// A building directory node: named children plus its own identity, which
+/// arrives when (if) its index page is seen.
+#[derive(Default)]
+struct Dir {
+    url: Option<String>,
+    title: Option<String>,
+    order: Option<i64>,
+    dirs: BTreeMap<String, Dir>,
+    pages: Vec<Node>,
+}
+
+impl Dir {
+    fn at(&mut self, comps: &[String]) -> &mut Dir {
+        let mut cur = self;
+        for c in comps {
+            cur = cur.dirs.entry(c.clone()).or_default();
+        }
+        cur
+    }
+
+    fn into_nodes(self) -> Vec<Node> {
+        let mut out: Vec<Node> = self
+            .dirs
+            .into_iter()
+            .map(|(name, d)| {
+                let label = d.title.clone().unwrap_or_else(|| name.clone());
+                let (url, order) = (d.url.clone(), d.order);
+                Node { label, url, order, children: d.into_nodes() }
+            })
+            .collect();
+        out.extend(self.pages);
+        // Declared order first, then label — stable and intentional.
+        out.sort_by(|a, b| {
+            (a.order.unwrap_or(i64::MAX), a.label.to_lowercase())
+                .cmp(&(b.order.unwrap_or(i64::MAX), b.label.to_lowercase()))
+        });
+        out
+    }
+}
+
+/// The section tree rooted at `root` (a root-relative directory): the
+/// root's own index first, then the nested pages and directories beneath.
+/// Derived once per section per build; `current` moves per page in
+/// `to_parts`.
+pub fn section_tree(db: &SiteDb, root: &Path) -> Vec<Node> {
+    let mut top = Dir::default();
+    let mut root_index: Option<Node> = None;
+
+    for p in db.pages.rows.iter().filter(|p| p.rendered) {
+        let Ok(rest) = p.rel.strip_prefix(root) else { continue };
+        let comps: Vec<String> = rest
+            .iter()
+            .map(|c| c.to_string_lossy().to_string())
+            .collect();
+        let Some((file, dirs)) = comps.split_last() else { continue };
+        let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
+        let label = p.title.clone().unwrap_or_else(|| stem.to_string());
+
+        if stem == "index" {
+            if dirs.is_empty() {
+                root_index = Some(Node {
+                    label,
+                    url: Some(p.url.clone()),
+                    order: p.order,
+                    children: Vec::new(),
+                });
+            } else {
+                // The index page IS its directory's identity.
+                let d = top.at(dirs);
+                d.url = Some(p.url.clone());
+                d.title = Some(label);
+                d.order = p.order;
+            }
+        } else {
+            top.at(dirs).pages.push(Node {
+                label,
+                url: Some(p.url.clone()),
+                order: p.order,
+                children: Vec::new(),
+            });
+        }
+    }
+
+    let mut out = Vec::new();
+    out.extend(root_index); // the section home leads, outside the sort
+    out.extend(top.into_nodes());
+    out
+}
+
+/// The tree as `outline_entry` part maps, with the row's own entry marked
+/// `current` — the literal `aria-current` value, the pagination trick.
+pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
+    nodes
+        .iter()
+        .map(|n| {
+            let mut m = PartMap::new("outline_entry");
+            m.set("label", Part::Text(n.label.clone()));
+            if let Some(u) = &n.url {
+                m.set("url", Part::Text(u.clone()));
+            }
+            if n.url.as_deref() == Some(current_url) {
+                m.set("current", Part::Text("page".into()));
+            }
+            let kids = to_parts(&n.children, current_url);
+            if !kids.is_empty() {
+                m.set("children", Part::Stream(kids));
+            }
+            m
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Page;
+
+    fn page(rel: &str, url: &str, title: Option<&str>, order: Option<i64>) -> Page {
+        Page {
+            path: PathBuf::from(rel),
+            rel: PathBuf::from(rel),
+            version: 0,
+            url: url.to_string(),
+            rendered: true,
+            size: 0,
+            title: title.map(String::from),
+            layout: Some("page".into()),
+            order,
+        }
+    }
+
+    fn db(pages: Vec<Page>) -> SiteDb {
+        let mut db = SiteDb::default();
+        db.pages.rows = pages;
+        db
+    }
+
+    #[test]
+    fn nests_orders_and_labels_indexless_dirs() {
+        let db = db(vec![
+            page("manual/index.md", "/manual/", Some("Manual"), None),
+            page("manual/install.md", "/manual/install/", Some("Install"), Some(1)),
+            page("manual/themes.md", "/manual/themes/", Some("Themes"), Some(3)),
+            page("manual/configuration.md", "/manual/configuration/", Some("Configuration"), Some(2)),
+            // advanced/ has no index: unlinked label, after ordered siblings.
+            page("manual/advanced/markers.md", "/manual/advanced/markers/", Some("Markers"), Some(2)),
+            page("manual/advanced/expressions.md", "/manual/advanced/expressions/", Some("Expressions"), Some(1)),
+            // outside the section: absent.
+            page("recipes/index.md", "/recipes/", Some("Recipes"), None),
+        ]);
+        let t = section_tree(&db, Path::new("manual"));
+        let labels: Vec<&str> = t.iter().map(|n| n.label.as_str()).collect();
+        // Root index first, then declared order, then the unordered dir.
+        assert_eq!(labels, vec!["Manual", "Install", "Configuration", "Themes", "advanced"]);
+        let adv = &t[4];
+        assert_eq!(adv.url, None, "index-less directory is unlinked");
+        let kids: Vec<&str> = adv.children.iter().map(|n| n.label.as_str()).collect();
+        assert_eq!(kids, vec!["Expressions", "Markers"]);
+    }
+
+    #[test]
+    fn current_is_marked_and_recursion_renders() {
+        let db = db(vec![
+            page("m/index.md", "/m/", Some("M"), None),
+            page("m/a/x.md", "/m/a/x/", Some("X"), None),
+        ]);
+        let t = section_tree(&db, Path::new("m"));
+        let parts = to_parts(&t, "/m/a/x/");
+        // The dir node "a" carries X as a child; X is current.
+        let a = &parts[1];
+        let Some(Part::Stream(kids)) = a.get("children") else { panic!("no children") };
+        assert_eq!(kids[0].text("current"), Some("page"));
+        assert_eq!(parts[0].text("current"), None);
+        // And the canonical rendering recurses without loss.
+        let out = crate::parts::canonical(&parts[1]);
+        assert!(out.contains("X"), "{out}");
+    }
+
+    #[test]
+    fn nearest_wins_on_nested_sections() {
+        let sections = vec![PathBuf::from("manual"), PathBuf::from("manual/advanced")];
+        assert_eq!(
+            nearest(&sections, Path::new("manual/advanced/x.md")).unwrap(),
+            Path::new("manual/advanced")
+        );
+        assert_eq!(
+            nearest(&sections, Path::new("manual/install.md")).unwrap(),
+            Path::new("manual")
+        );
+        assert!(nearest(&sections, Path::new("recipes/x.md")).is_none());
+    }
+}

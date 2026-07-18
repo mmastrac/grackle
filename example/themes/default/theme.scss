@@ -104,6 +104,36 @@ a:hover {
 	height: auto;
 }
 
+// The section tree (§6e): the manual's page tree, rendered on every page
+// in the section. aria-current comes from the engine; unlinked labels are
+// index-less directories (a:not([href]), the placeholder-link rule).
+.section-tree {
+	margin: 1rem 0 1.5rem;
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	font-size: 0.9rem;
+
+	.outline-children {
+		padding-left: 1rem;
+	}
+
+	a[aria-current="page"] {
+		font-weight: bold;
+		color: var(--fg);
+	}
+
+	a:not([href]) {
+		color: var(--muted);
+	}
+}
+
+.doc .tags,
+.doc .crumbs {
+	font-size: 0.85rem;
+	color: var(--muted);
+}
+
 // The gallery: CSS-columns masonry (the §5e interim — native masonry is
 // not Baseline yet). width/height attributes come from the engine's
 // dimension facts (q26), so the browser reserves space and nothing shifts.

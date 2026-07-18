@@ -78,6 +78,8 @@ pub struct Page {
     /// now selects a *theme* plus a layout kind.
     pub title: Option<String>,
     pub layout: Option<String>,
+    /// Declared position within a section tree (§6e).
+    pub order: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -312,6 +314,10 @@ pub struct SiteDb {
     /// (`latest`). Grouped and paginated views resolve to many sets, which live
     /// on their routes instead (DESIGN.md §5c).
     pub views: BTreeMap<String, ViewRows>,
+    /// Root-relative directories containing a `.section` scope marker (§6e):
+    /// each roots a section tree its rendered rows carry. Engine vocabulary
+    /// like `.slots/` — no config entry names it.
+    pub sections: Vec<PathBuf>,
     pub stats: LoadStats,
 }
 
@@ -741,10 +747,10 @@ fn build_tree_and_objects(
             });
         } else {
             // Only rendered rows have schema; 41 files, so parsing is cheap.
-            let (title, layout) = if f.has_front_matter {
+            let (title, layout, order) = if f.has_front_matter {
                 read_page_schema(&f.path)
             } else {
-                (None, None)
+                (None, None, None)
             };
             pages.rows.push(Page {
                 path: f.path,
@@ -755,6 +761,7 @@ fn build_tree_and_objects(
                 size: f.size,
                 title,
                 layout,
+                order,
             });
         }
     }
@@ -762,13 +769,13 @@ fn build_tree_and_objects(
 }
 
 /// Front matter of a tree page: just the fields presentation needs.
-fn read_page_schema(path: &Path) -> (Option<String>, Option<String>) {
+fn read_page_schema(path: &Path) -> (Option<String>, Option<String>, Option<i64>) {
     let Ok(text) = std::fs::read_to_string(path) else {
-        return (None, None);
+        return (None, None, None);
     };
     let (yaml, _) = store::split_front_matter(&text);
     let fm: crate::store::FrontMatter = serde_yaml_ng::from_str(yaml).unwrap_or_default();
-    (fm.title, fm.layout)
+    (fm.title, fm.layout, fm.order)
 }
 
 // ------------------------------------------------------------------ views
@@ -879,9 +886,25 @@ impl SiteDb {
     pub fn load(cfg: &Config) -> Result<Self> {
         let mut db = SiteDb::default();
         let t_m = std::time::Instant::now();
-        let markers = Markers::scan(&cfg.root(), &cfg.markers, cfg.gitignore)?;
+        let root = cfg.root();
+        let markers = Markers::scan(&root, &cfg.markers, cfg.gitignore)?;
         db.stats.markers_ms = t_m.elapsed().as_secs_f64() * 1000.0;
         db.stats.markers = markers.found;
+
+        // §6e scope markers: a `.section` file roots a section tree. A
+        // name-only walk with the same .gitignore defence as the marker scan.
+        let mut b = store::walker(&root, cfg.gitignore);
+        b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
+        for entry in b.build().filter_map(|e| e.ok()) {
+            if entry.file_type().is_some_and(|t| t.is_file()) && entry.file_name() == ".section" {
+                if let Ok(rel) = entry.path().strip_prefix(&root) {
+                    if let Some(dir) = rel.parent() {
+                        db.sections.push(dir.to_path_buf());
+                    }
+                }
+            }
+        }
+        db.sections.sort();
         let mut tree_c = None;
         let mut obj_c = None;
 

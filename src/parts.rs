@@ -168,8 +168,21 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
             ("tree", Flag),
             ("crumbs", Stream("crumb")),
             ("tags", Stream("tag")),
+            // §6e's path axis: the enclosing `.section` unit's page tree,
+            // with this row marked current. Absent outside sections.
+            ("section", Stream("outline_entry")),
             ("content", Html),
             ("relations", Stream("relation")),
+        ],
+        // §6e: the ONE recursive kind — hierarchy on either axis (headings
+        // or paths) renders through it. An entry with no `url` is an
+        // index-less directory's unlinked label (q27); `current` carries
+        // the literal `aria-current` value, the pagination trick.
+        "outline_entry" => &[
+            ("label", Text),
+            ("url", Url),
+            ("current", Text),
+            ("children", Stream("outline_entry")),
         ],
         // N rows, summarised; the view supplied query, filter and title.
         "listing" => &[
@@ -403,12 +416,14 @@ pub fn document(
 }
 
 /// One tree row, full content: the same `document` kind — the relations differ
-/// because the *schema* differs (§5a). Ancestors instead of a date trail, and
-/// the `tree` fact instead of temporal neighbors.
+/// because the *schema* differs (§5a). Ancestors instead of a date trail, the
+/// `tree` fact instead of temporal neighbors, and — inside a `.section` unit
+/// (§6e) — the section's page tree with this row marked current.
 pub fn document_tree(
     title: &str,
     url: &str,
     ancestors: &[(String, String)],
+    section: Vec<PartMap>,
     content: &str,
 ) -> PartMap {
     let mut m = PartMap::new("document");
@@ -421,6 +436,9 @@ pub fn document_tree(
     }
     v.push((title.to_string(), None));
     m.set("crumbs", crumb_stream(v));
+    if !section.is_empty() {
+        m.set("section", Part::Stream(section));
+    }
     m.set("content", Part::Html(content.to_string()));
     m
 }
@@ -698,6 +716,7 @@ mod tests {
                 &title,
                 &pg.url,
                 &[("/code/".to_string(), "Code".to_string())],
+                Vec::new(),
                 "<p>body</p>",
             );
             let out = canonical(&m);

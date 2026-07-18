@@ -2861,7 +2861,19 @@ That is the concrete argument for AST-level access — not a preference.
    the content-addressed cache (§6b), but worth measuring before allowing
    templates in rules.
 
-## 6e. Hierarchy: the page's tree and the tree's tree *(specced 2026-07)*
+## 6e. Hierarchy: the page's tree and the tree's tree *(specced 2026-07; section trees built, page outlines pending)*
+
+> ✅ **The path axis is built** (`outline.rs`, 2026-07), against the example
+> site's manual (§7a): `.section` is engine vocabulary like `.slots/` (a
+> bare file, no config), the scan rides the same .gitignore defence as
+> markers, `order:` front matter landed on pages, the recursive
+> `outline_entry` kind renders through fragment and canonical alike, the
+> root's index leads, index-less directories appear as unlinked labels
+> (q27's semantic, shipped), nested `.section`s resolve nearest-wins, and
+> `aria-current` rides the attribute hole. Trees derive once per section
+> per build; only `current` moves per page. **The heading axis (page
+> outlines) remains specced-not-built** — it lands with the §5f `outline()`
+> deriver or earlier.
 
 The site has two hierarchies, and they are the same shape seen on two axes:
 **headings nest by level** (h2 contains its h3s) and **pages nest by path**
@@ -3643,9 +3655,11 @@ the drift is only ever invisible *until* it isn't.
     free: an auto-index **view** — a `listing` of children materialized for
     each index-less directory — turning the hole into a page with zero
     authored content. Recommend: unlinked label now, auto-index view as the
-    upgrade. **Forcing point arrived (§6e)**: section trees walk these
-    directories, so the unlinked-label semantic ships with them, and the
-    auto-index view shares §6e's `outline_entry` fragment.
+    upgrade. **Forcing point arrived and the first half shipped (§6e)**:
+    section trees render index-less directories as unlinked labels
+    (`a:not([href])`, live on the example's `manual/advanced/`). The
+    auto-index view remains the upgrade, sharing the `outline_entry`
+    fragment.
 28. **Mindstorms restructure vs URL parity (§5 audit).** The gallery
     restructure retires `/demos/mindstorms/alpharex_1.html` and its 16
     siblings — which are in the sitemap and carry **no `noindex`** (only the
@@ -3741,14 +3755,10 @@ the drift is only ever invisible *until* it isn't.
     layers (`store::walker` + config). The serve list has one extra
     legitimate member the others lack: `_cache/`, which a rebuild *writes*
     (watching it would loop) — that one is serve's own, and stays.
-35. **Scope markers (§6e).** `.section` declares a subtree *unit*, which is
-    a new marker flavor: today's markers set row defaults (values merged
-    into front matter); a section root names a place. Three sub-questions:
-    (a) is it a marker with a payload (`.section` file carrying TOML for
-    depth/ordering), a bare marker + `.schema.toml`-style sidecar (§5b), or
-    just a `[markers]` entry whose *presence* is the declaration; (b) does
-    `order:` become a real schema field now (the §5-audit `order_by` gap —
-    lexical-by-zero-padding is luck, not intent); (c) do nested `.section`
-    markers mean nested units (inner tree scoped to inner root — the
-    nearest-wins answer says yes) or an error. Leaning: bare marker,
-    nearest wins, `order:` lands with it.
+35. ~~Scope markers (§6e)~~ — **settled by building** (2026-07): (a) a bare
+    file, engine vocabulary like `.slots/` — no config entry, no payload
+    (options can arrive later as file contents without breaking empty
+    files); (b) yes — `order:` is a page schema field, sorted
+    (order, label), unset last; (c) nested `.section`s nest, nearest wins,
+    pinned by test. A marker with a payload remains available the day
+    depth/ordering options are wanted.

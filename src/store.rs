@@ -21,6 +21,8 @@ pub struct FrontMatter {
     pub hidden: Option<bool>,
     pub draft: Option<bool>,
     pub noindex: Option<bool>,
+    /// Declared position within a section tree (§6e). Unset sorts last.
+    pub order: Option<i64>,
 }
 
 /// `tags:` is a YAML sequence in all 44 posts that have it, but Jekyll also

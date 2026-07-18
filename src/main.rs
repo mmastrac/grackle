@@ -7,6 +7,7 @@ mod embed;
 mod filter;
 mod markdown;
 mod markers;
+mod outline;
 mod parts;
 mod render;
 mod slots;

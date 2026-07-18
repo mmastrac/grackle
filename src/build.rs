@@ -334,6 +334,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     }
 
     // ---- tree: rendered pages + static passthrough + objects
+    //
+    // Section trees (§6e) derive once per `.section` root and are re-shaped
+    // per page — the tree is shared, only `current` moves.
+    let mut section_trees: HashMap<PathBuf, Vec<crate::outline::Node>> = HashMap::new();
     for r in &db.routes {
         match r.kind {
             RouteKind::Static | RouteKind::Object => {
@@ -382,6 +386,18 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     expanded
                 };
 
+                // The section tree this row carries, if a `.section` unit
+                // encloses it (§6e).
+                let section: Vec<parts::PartMap> = row
+                    .and_then(|p| crate::outline::nearest(&db.sections, &p.rel))
+                    .map(|sec| {
+                        let tree = section_trees
+                            .entry(sec.to_path_buf())
+                            .or_insert_with(|| crate::outline::section_tree(db, sec));
+                        crate::outline::to_parts(tree, &r.url)
+                    })
+                    .unwrap_or_default();
+
                 // The legacy `layout:` field selects a theme + a layout kind.
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = match Theme::parse(layout) {
@@ -393,7 +409,13 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     Theme::Default => {
                         let main = match layout {
                             Some("page") | Some("post") => thm.fragments.render(
-                                &parts::document_tree(&title, &r.url, &ancestors(db, &r.url), &frag),
+                                &parts::document_tree(
+                                    &title,
+                                    &r.url,
+                                    &ancestors(db, &r.url),
+                                    section,
+                                    &frag,
+                                ),
                             ),
                             // `default`, `null`: the row builds its own `main`.
                             _ => frag.clone(),
