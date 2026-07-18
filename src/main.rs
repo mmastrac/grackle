@@ -15,6 +15,7 @@ mod slots;
 mod theme;
 mod serve;
 mod tags;
+mod trails;
 mod thumbs;
 mod route;
 mod schema;
