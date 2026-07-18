@@ -119,6 +119,13 @@ pub struct Page {
     /// The locale-stripped identity shared by a row and its translations.
     #[serde(skip)]
     pub logical: String,
+    /// q45: this row is a landing view's content — no standalone route,
+    /// excluded from every query structurally (ownership, not the
+    /// `stem != "index"` convention). `url` is fixed up to the owning
+    /// view's route after views build, so source links resolve to the
+    /// landing.
+    #[serde(skip)]
+    pub claimed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -808,6 +815,11 @@ fn build_tree_and_objects(
         .filter(|f| !markers.is_marker(&f.path))
         .collect();
 
+    // q45: rows named by a view's `content` — claimed landings. Matched
+    // by logical identity so every locale variant is claimed with its
+    // original.
+    let claims = cfg.content_claims();
+
     let obj_exts: Vec<String> = obj_c
         .map(|c| c.extensions.iter().map(|e| e.to_lowercase()).collect())
         .unwrap_or_default();
@@ -914,6 +926,16 @@ fn build_tree_and_objects(
             if f.has_front_matter {
                 pages.by_logical.entry(logical.clone()).or_default().push(pages.rows.len());
             }
+            // q45: a row named by some view's `content` is claimed — every
+            // locale variant of it (the claim is on the logical identity).
+            let claimed = claims.contains_key(logical.as_str());
+            if claimed && !f.has_front_matter {
+                bail!(
+                    "view {}: content {logical:?} has no front matter, so it \
+                     is a static file, not a claimable row",
+                    claims[logical.as_str()]
+                );
+            }
             pages.rows.push(Page {
                 path: f.path,
                 rel: f.rel,
@@ -931,7 +953,15 @@ fn build_tree_and_objects(
                 images: checked.images,
                 locale,
                 logical,
+                claimed,
             });
+        }
+    }
+    // Every claim must have found its row — a typo'd content path is a
+    // load error naming the view, not a silently bare landing.
+    for (path, view) in &claims {
+        if !pages.rows.iter().any(|p| p.claimed && p.logical == *path) {
+            bail!("view {view}: content {path:?} names no row in the tree");
         }
     }
     Ok((pages, objects))
@@ -1180,6 +1210,11 @@ impl SiteDb {
             });
         }
         for p in &db.pages.rows {
+            // q45: a claimed row has no route of its own — the owning
+            // view materializes the landing.
+            if p.claimed {
+                continue;
+            }
             let kind = if p.rendered { RouteKind::Page } else { RouteKind::Static };
             db.routes.push(Route {
                 source: Some(p.path.clone()),
@@ -1196,6 +1231,37 @@ impl SiteDb {
         crate::views::build_views(cfg, &mut db)?;
         crate::views::build_star_views(cfg, &mut db)?;
         db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        // q45: a claimed row's URL becomes its landing's — the owning
+        // view's route in the row's locale — so source-path links and the
+        // ancestors walk see the landing, not the retired standalone URL.
+        // A locale variant whose partition didn't materialize keeps no
+        // URL (nothing may link it).
+        {
+            let claims = cfg.content_claims();
+            let mut fixed: Vec<(usize, String)> = Vec::new();
+            for (i, p) in db.pages.rows.iter().enumerate() {
+                if !p.claimed {
+                    continue;
+                }
+                let owner = claims[p.logical.as_str()];
+                let url = db
+                    .routes
+                    .iter()
+                    .find(|r| {
+                        r.kind == RouteKind::View
+                            && r.view.as_deref() == Some(owner)
+                            && r.locale == route_locale(&p.locale)
+                            && r.key.is_none()
+                            && r.page.is_none_or(|n| n == 1)
+                    })
+                    .map(|r| r.url.clone());
+                fixed.push((i, url.unwrap_or_default()));
+            }
+            for (i, url) in fixed {
+                db.pages.rows[i].url = url;
+            }
+        }
 
         // Constraint: route collisions across every table.
         let mut seen: HashMap<&str, &Route> = HashMap::new();

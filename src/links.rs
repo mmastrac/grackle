@@ -39,6 +39,12 @@ impl LinkSpace {
             }
         }
         for p in &db.pages.rows {
+            // q45: a claimed locale variant whose partition never
+            // materialized has no URL; offering it would rewrite links
+            // to "".
+            if p.url.is_empty() {
+                continue;
+            }
             source_to_url.insert(p.rel.to_string_lossy().to_string(), p.url.clone());
         }
         for o in &db.objects.rows {
@@ -150,6 +156,15 @@ pub fn resolve(
                 );
                 if browser == *url {
                     return Ok(None); // the browser already gets it right
+                }
+            }
+            // §6f, same invariant as view links: a translated row's source
+            // link lands in its own locale's variant when that variant
+            // materialized, and falls back to the target row's own URL.
+            if locale != cfg.i18n.default && !url.starts_with(&format!("/{locale}/")) {
+                let prefixed = format!("/{locale}{url}");
+                if space.routes.contains(&prefixed) {
+                    return Ok(Some(format!("{prefixed}{suffix}")));
                 }
             }
             return Ok(Some(format!("{url}{suffix}")));

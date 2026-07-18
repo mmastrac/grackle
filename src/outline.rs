@@ -202,6 +202,7 @@ mod tests {
             images: Default::default(),
             locale: "en".into(),
             logical: rel.to_string(),
+            claimed: false,
         }
     }
 

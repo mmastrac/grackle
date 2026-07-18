@@ -5,7 +5,7 @@
 //! resident and answers requests from it — the "no output directory in dev"
 //! the design calls for. One render path, two materializations.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -224,6 +224,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
         let Some(v) = cfg.views.get(view) else { continue };
+        // q45: a view that claims content renders in the landing pass —
+        // the row owns the arrangement there.
+        if v.content.is_some() {
+            continue;
+        }
         // Listings are posts-backed; object-backed views render in the
         // gallery pass below (their `members` index a different table).
         if view_base_kind(cfg, view) != Some(Kind::Posts) {
@@ -261,50 +266,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .collect();
 
         let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
-
-        // Pagination is emitted only for paginated routes (those carrying a
-        // page number); grouped views (tags, archives) have `page: None`. The
-        // total is this view's page count — general, though only `blog_index`
-        // paginates today.
-        let pagination = match r.page {
-            Some(cur) => {
-                let total = db
-                    .routes
-                    .iter()
-                    .filter(|x| x.view == r.view && x.page.is_some() && x.locale == r.locale)
-                    .count();
-                // q32 settled: page URLs render from the owning view's own
-                // route templates (locale-prefixed like the routes were),
-                // not from a literal copy in the producer.
-                let prefix =
-                    r.locale.as_deref().map(|l| format!("/{l}")).unwrap_or_default();
-                let urls: Vec<String> = (1..=total)
-                    .map(|n| -> Result<String> {
-                        let tmpl = if n == 1 {
-                            v.routes.first()
-                        } else {
-                            v.routes.get(1).or_else(|| v.routes.first())
-                        }
-                        .ok_or_else(|| anyhow::anyhow!("view {view}: no routes"))?;
-                        Ok(format!(
-                            "{prefix}{}",
-                            crate::route::render(tmpl, |k| match k {
-                                "n" => Some(n.to_string()),
-                                _ => None,
-                            })?
-                        ))
-                    })
-                    .collect::<Result<_>>()?;
-                parts::pagination(cur, &urls)
-            }
-            None => None,
-        };
+        let pagination = pagination_parts(db, view, v, r)?;
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let intro = intro_html(cfg, v, view, &linkspace, loc)?;
 
         let main = thm
             .fragments
-            .render_with(&parts::listing(cfg, &rows, &title, trail, pagination), v.variant.as_deref());
+            .render_with(&parts::listing(cfg, &rows, &title, trail, intro, pagination), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let html = thm.page(
             render::head_html(&head, &css_of(None)),
             &cfg.site.title,
@@ -329,6 +298,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             continue;
         }
         let Some(v) = cfg.views.get(view) else { continue };
+        if v.content.is_some() {
+            continue; // q45: renders in the landing pass
+        }
         let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
         let items: Vec<parts::Figure> = r
             .members
@@ -349,11 +321,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
             })
             .collect();
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let intro = intro_html(cfg, v, view, &linkspace, loc)?;
         let main = thm
             .fragments
-            .render_with(&parts::gallery(&items, &title, trail), v.variant.as_deref());
+            .render_with(&parts::gallery(&items, &title, trail, intro), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, false);
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let html = thm.page(
             render::head_html(&head, &css_of(None)),
             &cfg.site.title,
@@ -376,6 +349,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             continue;
         }
         let Some(v) = cfg.views.get(view) else { continue };
+        if v.content.is_some() {
+            continue; // q45: renders in the landing pass
+        }
         let (title, trail) = listing_title_and_trail(cfg, db, view, v, r)?;
         let rows: Vec<parts::CardRow> = r
             .members
@@ -392,12 +368,13 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
             })
             .collect();
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let intro = intro_html(cfg, v, view, &linkspace, loc)?;
         let main = thm.fragments.render_with(
-            &parts::featured_listing(&rows, v.featured, &title, trail),
+            &parts::featured_listing(&rows, v.featured, &title, trail, intro),
             v.variant.as_deref(),
         );
         let head = render::head_simple(&title, &r.url, &site, false);
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let html = thm.page(
             render::head_html(&head, &css_of(None)),
             &cfg.site.title,
@@ -406,6 +383,235 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             loc,
             &fill_link_resolver(cfg, &linkspace, loc),
             None,
+        )?;
+        out_map.insert(r.url.clone(), html.into_bytes());
+        stats.listings += 1;
+    }
+
+    // ---- landings (q45 mode B): routes whose view claims a content row.
+    //
+    // The row is the whole body and owns the arrangement; `{% view <owner> %}`
+    // substitutes THIS route's slice — page 2 renders page 2's rows, /fr/ the
+    // French partition — built by base kind exactly as the bare passes build
+    // it, minus title and crumbs (those are the row's to place). The row
+    // keeps everything rows have: front matter, its rule-derived theme, its
+    // directory (slot fills resolve nearest-wins from there), suffix
+    // localization with default-locale fallback.
+    let mut section_trees: HashMap<PathBuf, Vec<crate::outline::Node>> = HashMap::new();
+    for r in &db.routes {
+        let Some(view) = &r.view else { continue };
+        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(content) = v.content.as_deref() else { continue };
+        if r.kind != RouteKind::View {
+            continue;
+        }
+        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+
+        // The claimed row, in the route's locale — else the default's
+        // prose (the same fallback slot fills use).
+        let sibs = db.pages.by_logical.get(content).cloned().unwrap_or_default();
+        let row = sibs
+            .iter()
+            .map(|&i| &db.pages.rows[i])
+            .find(|p| p.locale == loc)
+            .or_else(|| {
+                sibs.iter()
+                    .map(|&i| &db.pages.rows[i])
+                    .find(|p| p.locale == cfg.i18n.default)
+            });
+        let Some(row) = row else { continue }; // existence-checked at load
+        let src = &row.path;
+
+        // This route's slice, by the view's base kind.
+        let embed_parts = match view_base_kind(cfg, view) {
+            Some(Kind::Posts) => {
+                let summary_field =
+                    cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
+                let rows: Vec<(&crate::db::Post, String, bool)> = r
+                    .members
+                    .iter()
+                    .map(|&i| &db.posts.rows[i])
+                    .map(|p| match bodies.get(p.url.as_str()) {
+                        Some(d) => match summary_field {
+                            Some(t) => {
+                                let (html, truncated) = d.truncate(t.max_blocks, t.max_chars);
+                                (p, html, truncated)
+                            }
+                            None => (p, d.whole.clone(), false),
+                        },
+                        None => (p, String::new(), false),
+                    })
+                    .collect();
+                let pagination = pagination_parts(db, view, v, r)?;
+                parts::listing_embed(cfg, &rows, pagination)
+            }
+            Some(Kind::Tree) => {
+                let rows: Vec<parts::CardRow> = r
+                    .members
+                    .iter()
+                    .map(|&i| &db.pages.rows[i])
+                    .map(|p| {
+                        let t = p.hero_source().and_then(|s| thumbs.get(s));
+                        parts::CardRow {
+                            title: p.title.clone().unwrap_or_default(),
+                            url: p.url.clone(),
+                            src: t.map(|t| t.url.clone()),
+                            dims: t.and_then(|t| t.dims),
+                            note: p.description.clone(),
+                        }
+                    })
+                    .collect();
+                parts::cards_embed(&rows, v.featured)
+            }
+            Some(Kind::Objects) => {
+                let items: Vec<parts::Figure> = r
+                    .members
+                    .iter()
+                    .map(|&i| &db.objects.rows[i])
+                    .map(|o| {
+                        let key = o.rel.to_string_lossy().to_string();
+                        let t = thumbs.get(&key);
+                        parts::Figure {
+                            url: o.url.clone(),
+                            src: t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone()),
+                            dims: t.and_then(|t| t.dims),
+                            alt: o
+                                .rel
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default(),
+                        }
+                    })
+                    .collect();
+                parts::gallery_embed(&items)
+            }
+            None => continue,
+        };
+
+        // The row's theme renders both the slice and the page (§5a: the
+        // landing wears its section's clothes).
+        let (theme_name, subtheme) = match row.theme.as_deref() {
+            Some(spec) => {
+                let (n, s) = theme::split_spec(spec);
+                (Some(n), s)
+            }
+            None => (None, None),
+        };
+        let row_thm = themes.get(theme_name)?;
+        let embed_html = row_thm.fragments.render_with(&embed_parts, v.variant.as_deref());
+
+        // Must-place (q45): the claimed row owns the arrangement — a body
+        // that never places the owner's embed strands the view's rows.
+        let text = std::fs::read_to_string(src)
+            .with_context(|| format!("reading {}", src.display()))?;
+        let (_, body) = split_front_matter(&text);
+        let tag = format!("{{% view {view} %}}");
+        if !body.contains(&tag) {
+            bail!(
+                "view {view}: content {} never places {tag} — the claimed row \
+                 owns the arrangement, and without the embed the view's rows \
+                 are unreachable",
+                row.rel.display()
+            );
+        }
+
+        // Expand with a sentinel, render markdown, then substitute the
+        // slice — so the embedded HTML never meets the markdown parser
+        // (a blank line inside it would split the HTML block).
+        const SENTINEL: &str = "<!--grackle:landing-embed-->";
+        let cx = tags::Ctx {
+            includes: Some(cfg.root().join("_includes")),
+            site: Some(&site),
+            thumbs: Some(&thumb_urls),
+            theme: Some(row_thm),
+            widgets: Some(&cfg.widgets),
+            embed: Some((view.as_str(), SENTINEL)),
+            ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
+        };
+        let expanded = tags::expand(body, &cx)?;
+        let frag = if src.extension().is_some_and(|e| e == "md") {
+            // Body links resolve at the ROUTE's locale (the slot-fill
+            // precedent: prose follows its reader), from the row's dir.
+            let dir = row.rel.parent().map(Path::to_path_buf).unwrap_or_default();
+            let rel = row.rel.to_string_lossy().to_string();
+            let d = crate::markdown::render_doc_with(&expanded, &|href| {
+                crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, href)
+            })?;
+            d.whole.clone()
+        } else {
+            expanded
+        };
+        let frag = frag.replace(SENTINEL, &embed_html);
+
+        // Title: the row's front matter beats the view's declaration
+        // (explicit beats derived, per row) — the trail's inert tail
+        // follows it.
+        let (vtitle, mut trail) = listing_title_and_trail(cfg, db, view, v, r)?;
+        let title = row.title.clone().unwrap_or(vtitle);
+        if let Some(last) = trail.last_mut() {
+            if last.1.is_none() {
+                last.0 = title.clone();
+            }
+        }
+
+        // The landing per locale IS the translation set — computed from
+        // the owner's materialized routes, not from which prose variants
+        // exist (a fallback landing is still the French landing).
+        let translations: Vec<(String, String)> = db
+            .routes
+            .iter()
+            .filter(|x| {
+                x.kind == RouteKind::View
+                    && x.view.as_deref() == Some(view.as_str())
+                    && x.key.is_none()
+                    && x.page.is_none_or(|n| n == 1)
+                    && x.url != r.url
+            })
+            .map(|x| {
+                let l = x.locale.as_deref().unwrap_or(&cfg.i18n.default);
+                (cfg.i18n.name_of(l).to_string(), x.url.clone())
+            })
+            .collect();
+
+        let section: Vec<parts::PartMap> = crate::outline::nearest(&db.sections, &row.rel)
+            .map(|sec| {
+                let tree = section_trees
+                    .entry(sec.to_path_buf())
+                    .or_insert_with(|| crate::outline::section_tree(db, sec, &cfg.i18n.default));
+                crate::outline::to_parts(tree, &r.url)
+            })
+            .unwrap_or_default();
+        let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
+
+        let main = match row.layout.as_deref() {
+            Some("page") | Some("post") => row_thm.fragments.render(&parts::document_tree(
+                cfg,
+                loc,
+                &home_url(cfg, db, loc),
+                &title,
+                &r.url,
+                parts::TreeDoc {
+                    ancestors: &ancestors(cfg, db, &r.url),
+                    section,
+                    outline: Vec::new(),
+                    hero: None,
+                    backlinks: bl,
+                    translations: &translations,
+                },
+                &frag,
+            )),
+            _ => frag.clone(),
+        };
+        let head = render::head_simple(&title, &r.url, &site, false);
+        let dir = src.parent().unwrap_or(&root);
+        let html = row_thm.page(
+            render::head_html(&head, &css_of(theme_name)),
+            &cfg.site.title,
+            main,
+            dir,
+            loc,
+            &fill_link_resolver(cfg, &linkspace, loc),
+            subtheme.as_deref(),
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -527,8 +733,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // ---- tree: rendered pages + static passthrough + objects
     //
     // Section trees (§6e) derive once per `.section` root and are re-shaped
-    // per page — the tree is shared, only `current` moves.
-    let mut section_trees: HashMap<PathBuf, Vec<crate::outline::Node>> = HashMap::new();
+    // per page — the tree is shared with the landing pass, only `current`
+    // moves.
     for r in &db.routes {
         match r.kind {
             RouteKind::Static | RouteKind::Object => {
@@ -642,7 +848,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                     &title,
                                     &r.url,
                                     parts::TreeDoc {
-                                        ancestors: &ancestors(db, &r.url),
+                                        ancestors: &ancestors(cfg, db, &r.url),
                                         section,
                                         outline,
                                         hero,
@@ -1173,6 +1379,66 @@ fn fill_link_resolver<'a>(
     }
 }
 
+/// Pagination for a paginated route (those carrying a page number);
+/// grouped views (tags, archives) have `page: None` and get nothing.
+/// q32 settled: page URLs render from the owning view's own route
+/// templates (locale-prefixed like the routes were), not from a literal
+/// copy in the producer.
+fn pagination_parts(
+    db: &SiteDb,
+    view: &str,
+    v: &View,
+    r: &Route,
+) -> Result<Option<parts::PartMap>> {
+    let Some(cur) = r.page else { return Ok(None) };
+    let total = db
+        .routes
+        .iter()
+        .filter(|x| x.view == r.view && x.page.is_some() && x.locale == r.locale)
+        .count();
+    let prefix = r.locale.as_deref().map(|l| format!("/{l}")).unwrap_or_default();
+    let urls: Vec<String> = (1..=total)
+        .map(|n| -> Result<String> {
+            let tmpl = if n == 1 {
+                v.routes.first()
+            } else {
+                v.routes.get(1).or_else(|| v.routes.first())
+            }
+            .ok_or_else(|| anyhow::anyhow!("view {view}: no routes"))?;
+            Ok(format!(
+                "{prefix}{}",
+                crate::route::render(tmpl, |k| match k {
+                    "n" => Some(n.to_string()),
+                    _ => None,
+                })?
+            ))
+        })
+        .collect::<Result<_>>()?;
+    Ok(parts::pagination(cur, &urls))
+}
+
+/// q45 mode A: the view's declared intro, rendered as markdown through
+/// the locale-aware link resolver — an intro may say `view:…` or link a
+/// source path and gets the same strict validation as any body. Config
+/// prose has no directory, so the browser-agreement bypass is disabled
+/// (the impossible url_dir, as shared fills do) and every link
+/// canonicalizes.
+fn intro_html(
+    cfg: &Config,
+    v: &View,
+    view: &str,
+    linkspace: &crate::links::LinkSpace,
+    locale: &str,
+) -> Result<Option<String>> {
+    let Some(i) = &v.intro else { return Ok(None) };
+    let text = cfg.i18n.text(i, locale);
+    let source = format!("view {view}: intro");
+    let doc = crate::markdown::render_doc_with(text, &|href| {
+        crate::links::resolve(cfg, linkspace, Path::new(""), "\u{0}", locale, &source, href)
+    })?;
+    Ok(Some(doc.whole.trim_end().to_string()))
+}
+
 /// The URL "Home" means for a locale (§6f): the locale's own homepage
 /// when a translated index exists (`index.fr.html` → `/fr/`), else the
 /// site root. Existence-checked, not assumed — a locale with translated
@@ -1335,7 +1601,7 @@ fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<String
 /// Walks the URL upward and keeps the levels that are themselves rendered
 /// pages, which is what `breadcrumb.rb` did by scanning every page for a
 /// matching url. Here it is a lookup, because the tree is indexed.
-fn ancestors(db: &SiteDb, url: &str) -> Vec<(String, String)> {
+fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut cur = url.trim_end_matches('/');
     while let Some(i) = cur.rfind('/') {
@@ -1344,6 +1610,13 @@ fn ancestors(db: &SiteDb, url: &str) -> Vec<(String, String)> {
             break;
         }
         let parent = format!("{cur}/");
+        // §6f/q45: the locale prefix makes the homepage look like a
+        // directory ancestor of every /fr/… URL — but Home is the trail
+        // root's job, and it was duplicating (`Accueil › Carnet de
+        // terrain › …`).
+        if cfg.i18n.locales.iter().any(|l| parent == format!("/{l}/")) {
+            continue;
+        }
         if let Some(p) = db.pages.rows.iter().find(|p| p.url == parent && p.rendered) {
             if let Some(t) = &p.title {
                 out.push((parent, t.clone()));

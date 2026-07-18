@@ -208,6 +208,25 @@ layout = "listing"
 variant = "cards"
 featured = true
 title = "Book of the Month"
+# q45 mode A: declared prose in the listing layout's intro slot — a
+# LocalizedStr rendered as markdown through the link resolver, so the
+# view: link below is validated at build like any body link.
+intro = "One book a month, argued with, shelved beside the [notes](view:blog_index)."
+
+# The recipes landing (q45 mode B): /recipes/ is a VIEW that claims its
+# content row. The row (recipes/index.md) owns the arrangement — its
+# prose places {% view recipes_index %}, and that embed is route-aware:
+# /fr/recipes/ materializes from the French rows with index.fr.md's
+# prose. Claiming retired the stem != "index" filters below: a claimed
+# row leaves every query structurally.
+[views.recipes_index]
+over = "pages"
+match = "recipes/**"
+order_by = "title"
+route = "/recipes/"
+layout = "listing"
+content = "recipes/index.md"
+title = { en = "Recipes", fr = "Recettes" }
 
 # Recipes grouped by a schema field — group_by = "course" is the SAME
 # operation as group_by = "tags": group by a typed field. The date specs
@@ -215,7 +234,6 @@ title = "Book of the Month"
 [views.recipes_by_course]
 over = "pages"
 match = "recipes/**"
-filter = 'stem != "index"'
 group_by = "course"
 order_by = "title"
 route = "/courses/{key}/"
@@ -229,7 +247,6 @@ crumb = "{key}"
 [views.latest_recipes]
 over = "pages"
 match = "recipes/**"
-filter = 'stem != "index"'
 order_by = "title"
 limit = 3
 layout = "link_list"

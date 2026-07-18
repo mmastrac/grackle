@@ -524,6 +524,10 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             .iter()
             .enumerate()
             .filter(|(_, p)| p.rendered)
+            // q45: claimed rows serve a landing; they are chrome now, not
+            // data — no query sees them (this is what retired the
+            // `stem != "index"` convention).
+            .filter(|(_, p)| !p.claimed)
             .filter(|(_, p)| p.locale == locale)
             .filter(|(_, p)| scope.as_ref().is_none_or(|m| m.is_match(&p.rel)))
             .filter(|(_, p)| pred.eval(*p))
@@ -782,6 +786,7 @@ mod grouping_tests {
             images: Default::default(),
             locale: "en".into(),
             logical: "recipes/carbonara.md".into(),
+            claimed: false,
         };
         p.fields.insert("course".into(), filter::Value::Str("dinner".into()));
         let combos = key_combos(&p, &["course".into()]);

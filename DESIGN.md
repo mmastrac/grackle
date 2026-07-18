@@ -3323,13 +3323,13 @@ crumb locale-prefixes (the French index exists whenever French rows do),
 and the inert date tail shows the whole date when the collection
 declares no archive chain (a bare day only reads after year › month
 crumbs; main site keeps its day tail, byte-identical). Localized tree
-PAGES still walk URL ancestors — which duplicates the home crumb on
-`/fr/…` URLs (the prefix makes `/fr/` look like a directory ancestor)
-and drops untranslated section crumbs — and `collection.index` is a
-literal URL, so an index view that opted out of locales would leave the
-prefixed crumb dangling — `index` naming a VIEW would close that.
-**Both are q45's** (index pages vs view roots — the landing
-unification). `.slots/` fills localize by the same suffix convention
+PAGES walk URL ancestors — the duplicate home crumb on `/fr/…` URLs is
+**cured** (q45: `ancestors()` skips locale-prefix homes; Home is the
+trail root's job), and a section crumb appears in French exactly when
+the section's landing has a French variant (`index.fr.md` → the
+claimed row's URL is `/fr/recipes/`). `collection.index` is still a
+literal URL — `index` naming a VIEW remains q45's open (a), the
+landing chain. `.slots/` fills localize by the same suffix convention
 (`nav.fr.md` beside `nav.md` — built, and their view links resolve per
 consuming page's locale, §6a).
 `month_name` in group params is computed at route build, locale-free —
@@ -4466,10 +4466,46 @@ the drift is only ever invisible *until* it isn't.
     a paginated landing: the prose is the landing's face; the slice
     is what changes.
 
+    ✅ **Built and tasted (2026-07)**, in the settled shape, engine
+    oracle-clean (the unfilled `intro` slot collapses; the fragment
+    glues the intro div to the items line so the collapse leaves no
+    stray whitespace — the binder deletes elements, not their
+    lines). The example's `/recipes/` is a mode-B landing
+    (`content = "recipes/index.md"`, the hand-list replaced by
+    `{% view recipes_index %}` rendered through the RECIPES theme's
+    own new listing/summary fragments — the landing wears its
+    section's clothes, styled as kitchen tabs); `/books/` tastes
+    mode A (`intro` with a resolved `view:blog_index` link).
+    Cascade observed, all predicted: `/fr/recipes/` materializes
+    (index.fr.md prose, the one French row, French chrome
+    throughout); the dal trail reads `Accueil › Recettes › Dal…`
+    (the duplicated home crumb died — `ancestors()` now skips
+    locale-prefix homes, Home is the trail root's job — and the
+    Recipes crumb appeared, because the claimed row keeps title
+    and landing URL, so the ancestors walk still sees it); both
+    `stem != "index"` recipe filters deleted; nav's one
+    `/recipes/index.md` source link resolves per locale (source
+    links gained the view-link invariant: prefix-and-check,
+    fall back); sitemap gains `/fr/recipes/` and loses nothing.
+    Settled by building: row front matter beats view title;
+    claiming is declared-only; migration is incremental (unclaimed
+    index pages behave exactly as before — main site untouched).
+    One deliberate semantic change: claimed rows leave the
+    backlink scan, so listed rows no longer show "Linked from:
+    Recipes" — *membership is not citation*; an authored citation
+    in the prose would still count the day the landing bodies join
+    the scan.
+
     Narrowed but open: (a) stands (parent derivation for the trail
-    chain); theme provenance for bare/intro landings (content rows
-    bring their rule-derived theme; should a view declare one?);
-    orphaned translations (`index.fr.md` with no French rows has
-    nowhere to render → warn); whether mode-B prose is searchable
-    (landing routes are structurally excluded — leaning keep them
-    out until someone misses it).
+    chain — `/books/` members still lack a Books crumb, the one
+    symptom this slice leaves); theme provenance for bare/intro
+    landings (content rows bring their rule-derived theme; should
+    a view declare one?); orphaned translations (`index.fr.md`
+    with no French rows has nowhere to render → warn); whether
+    mode-B prose is searchable (landing routes are structurally
+    excluded — leaning keep them out until someone misses it);
+    and, noticed while tasting: a variant fragment lacking a hole
+    drops that part silently (`listing--cards.html` swallowed the
+    books intro until it grew the slot) — "never ship what a theme
+    hides" may want a load-time warning for schema parts no
+    fragment of a theme places.

@@ -392,6 +392,15 @@ pub struct View {
     /// What this view contributes to descendants' breadcrumb trails.
     /// Defaults to `title`. Per-locale maps carry the lang axis (§6f).
     pub crumb: Option<LocalizedStr>,
+    /// q45 mode A: prose the view owns — rendered as markdown through the
+    /// locale-aware link resolver into the listing layout's `intro` slot.
+    /// The theme owns the arrangement; the slot collapses when absent.
+    pub intro: Option<LocalizedStr>,
+    /// q45 mode B: the root-relative source path of a row this landing
+    /// CLAIMS. The row becomes the whole body and must place
+    /// `{% view <this view> %}` itself — the author owns the arrangement.
+    /// A claimed row loses its standalone route and leaves every query.
+    pub content: Option<String>,
     /// Computed fields (§6d): columns this view adds to its rows, each
     /// defined by a deriver. Views composed `over` this one inherit them —
     /// fields flow with rows through query composition the way filters do —
@@ -602,6 +611,9 @@ impl Config {
                 if let Some(c) = &v.crumb {
                     check(&format!("view {name}: crumb"), c)?;
                 }
+                if let Some(i) = &v.intro {
+                    check(&format!("view {name}: intro"), i)?;
+                }
             }
             for (name, c) in &cfg.collections {
                 if let Some(cr) = &c.crumb {
@@ -638,6 +650,9 @@ impl Config {
                     if let Some(c) = &v.crumb {
                         refs.push((format!("view {name}: crumb"), c));
                     }
+                    if let Some(i) = &v.intro {
+                        refs.push((format!("view {name}: intro"), i));
+                    }
                 }
                 for (name, c) in &cfg.collections {
                     if let Some(cr) = &c.crumb {
@@ -671,6 +686,42 @@ impl Config {
                          @{key}, and it is not engine vocabulary (a typo'd engine \
                          key would look exactly like this)"
                     );
+                }
+            }
+        }
+        // q45: a landing's prose is a slot text OR a claimed row, never
+        // both (the engine would have to guess the arrangement); either
+        // form belongs to a view that materializes routes; and a row may
+        // serve exactly one landing.
+        {
+            let mut claimed: BTreeMap<&str, &str> = BTreeMap::new();
+            for (vname, v) in &cfg.views {
+                if v.intro.is_some() && v.content.is_some() {
+                    anyhow::bail!(
+                        "view {vname}: declares both intro and content — the \
+                         slot text and a claimed row are exclusive (q45): the \
+                         theme owns the arrangement, or the row does"
+                    );
+                }
+                if (v.intro.is_some() || v.content.is_some()) && !v.is_materialized() {
+                    anyhow::bail!(
+                        "view {vname}: intro/content on a view with no route — \
+                         a landing materializes somewhere"
+                    );
+                }
+                if (v.intro.is_some() || v.content.is_some()) && v.over == "*" {
+                    anyhow::bail!(
+                        "view {vname}: star views serialize the route set and \
+                         have no landing to give prose to"
+                    );
+                }
+                if let Some(c) = v.content.as_deref() {
+                    if let Some(other) = claimed.insert(c, vname) {
+                        anyhow::bail!(
+                            "row {c:?} is claimed as content by two views \
+                             ({other} and {vname}) — a row serves one landing"
+                        );
+                    }
                 }
             }
         }
@@ -851,6 +902,15 @@ impl Config {
     /// `tags` view, else the unique view grouped by tags. Validation
     /// guarantees a declared name resolves; ambiguity without a declaration
     /// is a load error, so None here means "this site has no tag archive".
+    /// q45: content-claimed rows — logical source path → the owning view.
+    /// Uniqueness is a validate() invariant, so a map is honest.
+    pub fn content_claims(&self) -> BTreeMap<&str, &str> {
+        self.views
+            .iter()
+            .filter_map(|(n, v)| v.content.as_deref().map(|c| (c, n.as_str())))
+            .collect()
+    }
+
     pub fn tags_view(&self) -> Option<(&str, &View)> {
         if let Some(name) = self
             .collections

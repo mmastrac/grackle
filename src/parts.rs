@@ -198,6 +198,8 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         "listing" => &[
             ("title", Text),
             ("crumbs", Stream("crumb")),
+            // q45 mode A: the landing's declared prose, rendered markdown.
+            ("intro", Html),
             ("featured", Map("summary")),
             ("items", Stream("summary")),
             ("pagination", Map("pagination")),
@@ -228,6 +230,7 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         "gallery" => &[
             ("title", Text),
             ("crumbs", Stream("crumb")),
+            ("intro", Html),
             ("items", Stream("figure")),
         ],
         "figure" => &[
@@ -583,17 +586,42 @@ fn summary(cfg: &crate::config::Config, p: &Post, content: &str, truncated: bool
 }
 
 /// N rows, summarised. The trail is the route's provenance chain (§5c),
-/// computed by the caller.
+/// computed by the caller. `intro` is the landing's declared prose (q45
+/// mode A), already rendered; the slot collapses when absent.
 pub fn listing(
     cfg: &crate::config::Config,
     rows: &[(&Post, String, bool)],
     title: &str,
     trail: Vec<(String, Option<String>)>,
+    intro: Option<String>,
     pagination: Option<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
+    if let Some(i) = intro {
+        m.set("intro", Part::Html(i));
+    }
+    m.set(
+        "items",
+        Part::Stream(rows.iter().map(|(p, c, t)| summary(cfg, p, c, *t)).collect()),
+    );
+    if let Some(p) = pagination {
+        m.set("pagination", Part::Map(p));
+    }
+    m
+}
+
+/// The landing's route-aware self-embed (q45 mode B): the same listing
+/// map with NO title or crumbs — the claimed row owns the arrangement,
+/// so only the rows (and their pagination) render; the empty slots
+/// collapse.
+pub fn listing_embed(
+    cfg: &crate::config::Config,
+    rows: &[(&Post, String, bool)],
+    pagination: Option<PartMap>,
+) -> PartMap {
+    let mut m = PartMap::new("listing");
     m.set(
         "items",
         Part::Stream(rows.iter().map(|(p, c, t)| summary(cfg, p, c, *t)).collect()),
@@ -663,10 +691,25 @@ pub fn figure(f: &Figure) -> PartMap {
 
 /// N object rows as pictures. Dimensions ride as attribute holes so the
 /// theme's `<img>` gets `width`/`height` and the page never shifts (q26).
-pub fn gallery(items: &[Figure], title: &str, trail: Vec<(String, Option<String>)>) -> PartMap {
+pub fn gallery(
+    items: &[Figure],
+    title: &str,
+    trail: Vec<(String, Option<String>)>,
+    intro: Option<String>,
+) -> PartMap {
     let mut m = PartMap::new("gallery");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
+    if let Some(i) = intro {
+        m.set("intro", Part::Html(i));
+    }
+    m.set("items", Part::Stream(items.iter().map(figure).collect()));
+    m
+}
+
+/// The gallery as a landing self-embed (q45 mode B): pictures only.
+pub fn gallery_embed(items: &[Figure]) -> PartMap {
+    let mut m = PartMap::new("gallery");
     m.set("items", Part::Stream(items.iter().map(figure).collect()));
     m
 }
@@ -707,10 +750,27 @@ pub fn featured_listing(
     featured: bool,
     title: &str,
     trail: Vec<(String, Option<String>)>,
+    intro: Option<String>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
+    if let Some(i) = intro {
+        m.set("intro", Part::Html(i));
+    }
+    set_card_items(&mut m, rows, featured);
+    m
+}
+
+/// Cards as a landing self-embed (q45 mode B): the rows (and the
+/// featured slot, when declared) with no title or crumbs.
+pub fn cards_embed(rows: &[CardRow], featured: bool) -> PartMap {
+    let mut m = PartMap::new("listing");
+    set_card_items(&mut m, rows, featured);
+    m
+}
+
+fn set_card_items(m: &mut PartMap, rows: &[CardRow], featured: bool) {
     let items: &[CardRow] = if featured {
         if let Some(first) = rows.first() {
             m.set("featured", Part::Map(card(first)));
@@ -722,7 +782,6 @@ pub fn featured_listing(
     if !items.is_empty() {
         m.set("items", Part::Stream(items.iter().map(card).collect()));
     }
-    m
 }
 
 /// N rows as bare titled links — the smallest listing kind. Items are
@@ -800,6 +859,7 @@ mod tests {
             }],
             "Photos",
             vec![("Home".into(), Some("/".into()))],
+            None,
         );
         let out = canonical(&m);
         assert!(out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#), "{out}");
@@ -878,6 +938,7 @@ mod tests {
                 &rows,
                 r.key.as_deref().unwrap_or("listing"),
                 vec![("Home".to_string(), Some("/".to_string()))],
+                None,
                 r.page.and_then(|n| {
                     let urls: Vec<String> =
                         (1..=66).map(|i| format!("/blog/page/{i}")).collect();

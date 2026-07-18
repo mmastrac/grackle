@@ -37,6 +37,11 @@ pub struct Ctx<'a> {
     /// Custom block widgets: `name → wrapper template with a {body} hole`
     /// (§5d). None disables paired tags.
     pub widgets: Option<&'a std::collections::BTreeMap<String, String>>,
+    /// q45: the landing's route-aware self-embed — when a claimed row
+    /// places `{% view <owner> %}`, the owning view is not looked up (it
+    /// is materialized, not embeddable): THIS route's already-rendered
+    /// slice substitutes instead.
+    pub embed: Option<(&'a str, &'a str)>,
 }
 
 impl<'a> Ctx<'a> {
@@ -50,6 +55,7 @@ impl<'a> Ctx<'a> {
             thumbs: None,
             theme: None,
             widgets: None,
+            embed: None,
         }
     }
 }
@@ -137,6 +143,14 @@ fn post_url(arg: &str, cx: &Ctx) -> Result<String> {
 fn view(name: &str, cx: &Ctx) -> Result<String> {
     use crate::config::Kind;
     let name = name.trim();
+    // q45: inside a landing's claimed content, the owning view embeds as
+    // this route's slice — page 2 renders page 2's rows, /fr/ the French
+    // partition.
+    if let Some((owner, html)) = cx.embed {
+        if owner == name {
+            return Ok(html.to_string());
+        }
+    }
     let Some(v) = cx.db.views.get(name) else {
         bail!(
             "{}: {{% view {name} %}} matches no routeless view. \
