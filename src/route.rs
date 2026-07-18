@@ -98,6 +98,12 @@ pub fn render(tmpl: &str, get: impl Fn(&str) -> Option<String>) -> Result<String
     Ok(out)
 }
 
+/// Group-key params as a template `get`: what route/`title`/`crumb` templates
+/// resolve their tokens from (§5c).
+pub fn param(params: &[(String, String)], k: &str) -> Option<String> {
+    params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+}
+
 /// Which tokens a template needs. Used to enforce the "undated row routed by a
 /// dated template" constraint (DESIGN.md §4) at load time rather than as a 404.
 pub fn tokens(tmpl: &str) -> Vec<String> {

@@ -133,7 +133,7 @@ async fn handle(
         "text/html; charset=utf-8",
         format!("<!doctype html><meta charset=utf-8><title>404</title>\
                  <h1>404 — no route</h1><p><code>{}</code> is not in the database.</p>",
-            html_escape(&path))
+            crate::render::esc(&path))
             .into_bytes(),
     ))
 }
@@ -342,8 +342,4 @@ fn inject_reload(bytes: &[u8]) -> Vec<u8> {
             v
         }
     }
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }

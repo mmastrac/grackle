@@ -439,7 +439,6 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
 #[derive(Debug, Clone)]
 pub struct Filter {
     ast: Expr,
-    src: String,
 }
 
 impl Filter {
@@ -447,10 +446,7 @@ impl Filter {
     pub fn parse(src: &str, schema: &Schema) -> Result<Self> {
         let toks = lex(src)?;
         if toks.is_empty() {
-            return Ok(Filter {
-                ast: Expr::True,
-                src: src.to_string(),
-            });
+            return Ok(Filter { ast: Expr::True });
         }
         let mut p = Parser { toks, pos: 0 };
         let ast = p.parse_or()?;
@@ -458,22 +454,12 @@ impl Filter {
             bail!("trailing tokens after a complete expression");
         }
         check(&ast, schema)?;
-        Ok(Filter {
-            ast,
-            src: src.to_string(),
-        })
+        Ok(Filter { ast })
     }
 
     /// Always-true filter, for an absent `filter =`.
     pub fn always() -> Self {
-        Filter {
-            ast: Expr::True,
-            src: "*".into(),
-        }
-    }
-
-    pub fn source(&self) -> &str {
-        &self.src
+        Filter { ast: Expr::True }
     }
 
     pub fn eval(&self, row: &impl Row) -> bool {

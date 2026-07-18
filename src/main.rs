@@ -16,6 +16,7 @@ mod tags;
 mod thumbs;
 mod route;
 mod store;
+mod views;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -196,15 +197,9 @@ fn count(n: &Node) -> usize {
 }
 
 fn tag(kind: db::RouteKind, view: &Option<String>, rows: Option<usize>) -> String {
-    let base = match kind {
-        db::RouteKind::Post => "post".to_string(),
-        db::RouteKind::Page => "page".to_string(),
-        db::RouteKind::Static => "static".to_string(),
-        db::RouteKind::Object => "object".to_string(),
-        db::RouteKind::View => match view {
-            Some(v) => format!("view {v}"),
-            None => "view".into(),
-        },
+    let base = match (kind, view) {
+        (db::RouteKind::View, Some(v)) => format!("view {v}"),
+        (kind, _) => kind.as_str().to_string(),
     };
     match rows {
         Some(n) => format!("{base}, {n} rows"),
@@ -289,7 +284,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             for r in &db.routes {
                 let k = match r.kind {
                     db::RouteKind::View => format!("view:{}", r.view.clone().unwrap_or_default()),
-                    other => format!("{other:?}").to_lowercase(),
+                    other => other.as_str().to_string(),
                 };
                 *kinds.entry(k).or_default() += 1;
             }
@@ -305,8 +300,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         Query::Urls { kind } => {
             for r in &db.routes {
                 if let Some(k) = &kind {
-                    let this = format!("{:?}", r.kind).to_lowercase();
-                    if &this != k {
+                    if r.kind.as_str() != k {
                         continue;
                     }
                 }
@@ -336,21 +330,10 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             }
         }
         Query::Search { query, limit } => {
-            use grackle_search_core as sc;
-            let docs: Vec<sc::SearchDoc> = db
-                .posts
-                .rows
-                .iter()
-                .filter(|p| !p.draft && !p.hidden)
-                .map(|p| sc::SearchDoc {
-                    url: p.url.clone(),
-                    title: p.title.clone(),
-                    date: p.date.map(|d| d.format("%-d %B %Y").to_string()).unwrap_or_default(),
-                    html: p.body.clone(),
-                    tags: p.tags.clone(),
-                })
-                .collect();
-            let (index, _) = sc::build_index(&docs);
+            // The CLI runs no render pass, so the raw markdown stands in for
+            // the rendered body — a smoke query over the same projection.
+            let docs = build::search_docs(db, |p| p.body.clone());
+            let (index, _) = grackle_search_core::build_index(&docs);
             let q = query.join(" ");
             for (url, title, date) in index.search(&q, limit) {
                 println!("  {date:>18}  {url}  {title}");
@@ -431,9 +414,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
 }
 
 fn fmt_date(p: &db::Post) -> String {
-    p.date
-        .map(|d| d.format("%Y-%m-%d").to_string())
-        .unwrap_or_else(|| "----------".into())
+    p.date.map(db::iso_date).unwrap_or_else(|| "----------".into())
 }
 
 fn has_liquid(s: &str) -> bool {

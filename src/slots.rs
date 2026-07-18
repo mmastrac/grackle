@@ -193,11 +193,7 @@ fn is_void_tag(tag: &str) -> bool {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric())
         .collect();
-    matches!(
-        name.as_str(),
-        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input" | "link"
-            | "meta" | "param" | "source" | "track" | "wbr"
-    )
+    crate::binder::VOID.contains(&name.as_str())
 }
 
 #[cfg(test)]

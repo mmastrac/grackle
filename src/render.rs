@@ -6,7 +6,7 @@
 //!   feed/sitemap -> serializations, no look (below)
 //!
 //! What remains here is what has no theme: the computed `<head>` facts, the
-//! `light` Rust shell (the null theme, pending step 4), and the XML
+//! `light` shell (the null theme's minimal wrapper, §5e step 4), and the XML
 //! serializations.
 
 use crate::db::Post;
@@ -59,7 +59,7 @@ pub struct Site<'a> {
 
 pub fn head_for_post(p: &Post, site: &Site) -> Head {
     let canonical = format!("{}{}", site.url, p.url);
-    let published = p.date.map(|d| format!("{}T00:00:00+00:00", d.format("%Y-%m-%d")));
+    let published = p.date.map(xmlschema);
     let jsonld = published.as_ref().map(|ts| {
         let mut j = String::new();
         let _ = write!(
@@ -120,8 +120,8 @@ impl Theme {
     }
 }
 
-/// The `light` shell: still Rust, deliberately minimal — it becomes the null
-/// theme (canonical part order, no fragments) in §5e step 4.
+/// The `light` shell (§5e step 4): the null theme's minimal wrapper — title
+/// and robots around the canonical rendering, nothing else.
 pub fn light_shell(head: &Head, main: &str) -> String {
     let robots = if head.noindex {
         "\n\t<meta name=\"robots\" content=\"noindex,follow\">"

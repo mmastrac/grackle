@@ -16,7 +16,6 @@ pub struct FrontMatter {
     pub description: Option<String>,
     pub layout: Option<String>,
     pub permalink: Option<String>,
-    pub date: Option<String>,
     #[serde(default, deserialize_with = "string_or_seq")]
     pub tags: Vec<String>,
     pub hidden: Option<bool>,
@@ -59,8 +58,9 @@ pub struct RawRow {
 }
 
 /// Split `---\nyaml\n---\nbody`. Returns (yaml, body).
-/// A file with no front matter is all body.
-fn split_front_matter(text: &str) -> (&str, &str) {
+/// A file with no front matter is all body. The one front-matter fence
+/// parser: page schema reads and the SCSS/template splits all come here.
+pub fn split_front_matter(text: &str) -> (&str, &str) {
     let Some(rest) = text.strip_prefix("---") else {
         return ("", text);
     };

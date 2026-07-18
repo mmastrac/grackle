@@ -76,9 +76,8 @@ impl PartMap {
         self.parts.push((name, part));
     }
 
-    // Accessors are the map's read API; the binder pattern-matches `Part`
-    // directly, so outside tests these wait for the null theme (step 4).
-    #[allow(dead_code)]
+    // The map's read API: the binder fills holes through `get`, `canonical`
+    // walks `iter`; the typed accessors below mostly serve tests.
     pub fn get(&self, name: &str) -> Option<&Part> {
         self.parts.iter().find(|(n, _)| *n == name).map(|(_, p)| p)
     }
@@ -349,8 +348,8 @@ pub fn document(
         let mut nm = PartMap::new("neighbor");
         nm.set("url", Part::Text(n.url.clone()));
         if let Some(d) = n.date {
-            nm.set("date", Part::Text(d.format("%Y-%m-%d").to_string()));
-            nm.set("date_pretty", Part::Text(d.format("%-d %B %Y").to_string()));
+            nm.set("date", Part::Text(crate::db::iso_date(d)));
+            nm.set("date_pretty", Part::Text(crate::db::pretty_date(d)));
         }
         nm.set("title", Part::Text(n.title.clone()));
         Some(nm)
@@ -416,8 +415,8 @@ fn summary(p: &Post, content: &str, truncated: bool) -> PartMap {
     m.set("title", Part::Text(p.title.clone()));
     m.set("url", Part::Text(p.url.clone()));
     if let Some(d) = p.date {
-        m.set("date", Part::Text(d.format("%Y-%m-%d").to_string()));
-        m.set("date_pretty", Part::Text(d.format("%-d %B %Y").to_string()));
+        m.set("date", Part::Text(crate::db::iso_date(d)));
+        m.set("date_pretty", Part::Text(crate::db::pretty_date(d)));
     }
     if truncated {
         m.set("truncated", Part::Flag(true));

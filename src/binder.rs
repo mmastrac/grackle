@@ -30,10 +30,6 @@
 //! matching close tags): a malformed fragment is a build error, not something
 //! to recover from. After validation, rendering is infallible.
 
-// Wired into the build at §5e step 3 (theme directories); until then the
-// binder is exercised by its tests only.
-#![allow(dead_code)]
-
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -129,10 +125,6 @@ impl Fragments {
         Ok(f)
     }
 
-    pub fn get(&self, kind: &str) -> Option<&Fragment> {
-        self.map.get(kind)
-    }
-
     // ------------------------------------------------------------ validate
 
     fn validate(&self, frag: &Fragment, file: &str) -> Result<()> {
@@ -221,11 +213,6 @@ impl Fragments {
             self.validate_nodes(&el.children, kind, file)?;
         }
         Ok(())
-    }
-
-    fn known_fragments(&self) -> String {
-        let v: Vec<&str> = self.map.keys().map(String::as_str).collect();
-        if v.is_empty() { "(none)".into() } else { v.join(", ") }
     }
 
     /// `(slot name, element tag)` for every content hole in a fragment — the
@@ -380,7 +367,9 @@ fn known_kinds() -> &'static str {
 
 // ------------------------------------------------------------------ parser
 
-const VOID: &[&str] = &[
+/// The HTML void elements — the one list; `slots.rs` block counting uses it
+/// too.
+pub const VOID: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
     "param", "source", "track", "wbr",
 ];

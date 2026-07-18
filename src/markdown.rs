@@ -133,14 +133,8 @@ pub fn render(src: &str) -> String {
 /// corpus test below pins the exception set.
 pub struct Doc {
     pub whole: String,
-    pub blocks: Vec<Block>,
-}
-
-pub struct Block {
-    pub html: String,
-    /// Lowercased tag of the block's first element (`p`, `h2`, `div`, …), or
-    /// `#text` — what the summary cut counts, mirroring `:nth-of-type`.
-    pub tag: String,
+    /// Each top-level block's HTML, in order.
+    pub blocks: Vec<String>,
 }
 
 pub fn render_doc(src: &str) -> Doc {
@@ -154,22 +148,9 @@ pub fn render_doc(src: &str) -> Doc {
     for child in root.children() {
         let mut html = String::new();
         format_html(child, &opts, &mut html).expect("writing to a String cannot fail");
-        let tag = tag_of(&html);
-        blocks.push(Block { html, tag });
+        blocks.push(html);
     }
     Doc { whole, blocks }
-}
-
-fn tag_of(html: &str) -> String {
-    let h = html.trim_start();
-    if !h.starts_with('<') {
-        return "#text".into();
-    }
-    h[1..]
-        .split(|c: char| c.is_whitespace() || c == '>' || c == '/')
-        .next()
-        .unwrap_or("")
-        .to_lowercase()
 }
 
 impl Doc {
@@ -194,14 +175,14 @@ impl Doc {
                 }
             }
             if let Some(mc) = max_chars {
-                chars += text_len(&b.html);
+                chars += text_len(b);
                 if chars > mc && i > 0 {
                     cut = i;
                     break;
                 }
             }
         }
-        let html: String = self.blocks[..cut].iter().map(|b| b.html.as_str()).collect();
+        let html: String = self.blocks[..cut].concat();
         (html, cut < self.blocks.len())
     }
 }
@@ -309,16 +290,10 @@ mod block_tests {
                 continue;
             }
             let text = std::fs::read_to_string(e.path()).unwrap();
-            let body = match text.strip_prefix("---") {
-                Some(r) => match r.find("\n---") {
-                    Some(i) => &r[i + 4..],
-                    None => &text,
-                },
-                None => &text,
-            };
+            let (_, body) = crate::store::split_front_matter(&text);
             let d = render_doc(body);
             n += 1;
-            let cat: String = d.blocks.iter().map(|b| b.html.as_str()).collect();
+            let cat: String = d.blocks.concat();
             if cat != d.whole {
                 mismatched.push(e.path().file_name().unwrap().to_string_lossy().into());
             }

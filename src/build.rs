@@ -7,13 +7,15 @@
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
-use crate::db::{Post, RouteKind, SiteDb};
+use crate::config::{Config, View};
+use crate::db::{Post, Route, RouteKind, SiteDb};
+use crate::markdown::Doc;
 use crate::render::{self, Site, Theme};
 use crate::parts;
+use crate::store::split_front_matter;
 use crate::tags;
 use crate::theme;
 
@@ -22,6 +24,7 @@ use crate::theme;
 /// that directory's `index.html`.
 pub type SiteOutput = BTreeMap<String, Vec<u8>>;
 
+#[derive(Default)]
 pub struct Stats {
     pub posts: usize,
     pub pages: usize,
@@ -94,81 +97,20 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         css: &css_url,
     };
 
-    let mut stats = Stats {
-        posts: 0,
-        pages: 0,
-        listings: 0,
-        copied: 0,
-        css: 0,
-        serialized: 0,
-        thumbs: 0,
-        skipped: Vec::new(),
-        embed_pending: Vec::new(),
-        search_bytes: 0,
-    };
+    let mut stats = Stats::default();
 
-    // ---- thumbnails: derive images once, publish under /static/ (§6b).
-    //
-    // A pre-pass, so the render passes below can resolve each `{% image %}`
-    // source to its thumbnail URL by lookup. Sources come from post bodies and
-    // rendered page bodies alike (`code/legacy/*` pages use the tag too). The
-    // cache is content-addressed, so a warm build only reads and hashes each
-    // source; a cold one decodes, resizes and re-encodes.
     let root = cfg.root();
-    let mut img_sources: Vec<String> = Vec::new();
-    for p in &db.posts.rows {
-        img_sources.extend(tags::image_sources(&p.body));
-    }
-    for r in &db.routes {
-        if r.kind == RouteKind::Page {
-            if let Some(src) = &r.source {
-                if let Ok(text) = std::fs::read_to_string(src) {
-                    let (_, body) = split_fm(&text);
-                    img_sources.extend(tags::image_sources(body));
-                }
-            }
-        }
-    }
-    let cache_dir = root.join("_cache/thumbs");
-    let thumbs = crate::thumbs::generate(&root, &cache_dir, &cfg.site.baseurl, &img_sources)?;
-    let mut thumb_urls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut published: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (src, t) in &thumbs {
-        thumb_urls.insert(src.clone(), t.url.clone());
-        if published.insert(t.rel.clone()) {
-            let bytes = std::fs::read(&t.cache_path)
-                .with_context(|| format!("reading thumb {}", t.cache_path.display()))?;
-            out_map.insert(format!("/{}", t.rel), bytes);
-            stats.thumbs += 1;
-        }
-    }
+    let theme_dir = root.join("themes/default");
+
+    let thumb_urls = thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
 
     // ---- theme: fragments + tree slot fills, loaded once (§5e). All theme
     // errors — malformed fragment, unknown slot, arity violation — surface
     // here, before anything renders.
-    let thm = theme::Theme::load(&root.join("themes/default"), &root)
-        .context("loading themes/default")?;
+    let thm = theme::Theme::load(&theme_dir, &root)
+        .with_context(|| format!("loading {}", theme_dir.display()))?;
 
-    // ---- bodies: ONE render per post (§6d). Expand + parse once; the same
-    // parse yields the whole document (posts, feed — byte-identical to the
-    // old double-render) and the block sequence each listing view projects
-    // its summaries from. This replaces two separate expand-and-render
-    // passes, and the Doc is kept whole because truncation is VIEW policy
-    // (`summary = { max_blocks, max_chars }`), not a property of the body.
-    let bodies: std::collections::HashMap<&str, crate::markdown::Doc> = db
-        .posts
-        .rows
-        .par_iter()
-        .map(|p| -> Result<(&str, crate::markdown::Doc)> {
-            let cx = tags::Ctx {
-                thumbs: Some(&thumb_urls),
-                widgets: Some(&cfg.widgets),
-                ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
-            };
-            let expanded = tags::expand(&p.body, &cx)?;
-            Ok((p.url.as_str(), crate::markdown::render_doc(&expanded)))
-        })
-        .collect::<Result<_>>()?;
+    let bodies = render_bodies(cfg, db, &thumb_urls)?;
 
     // ---- related posts (§6b): cache-only load — fresh vectors where the
     // cache has them, STALE ones where a post's text changed (it keeps its
@@ -255,54 +197,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             })
             .collect();
 
-        // Titles and crumb contributions come from the view's declared
-        // `title`/`crumb` templates, rendered over the route's group params
-        // (§5c) — this used to be a `match` on the layout kind re-deriving
-        // what the config already knew. Layout kinds are code; naming is the
-        // view's.
-        let param = |k: &str| r.params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let title = match &v.title {
-            Some(t) => crate::route::render(t, param)
-                .with_context(|| format!("view {view}: title"))?,
-            None => r.key.clone().unwrap_or_else(|| view.clone()),
-        };
-        // The trail is a provenance walk (§5c): Home, the collection's crumb,
-        // each *ancestor* grouped view rendered with this route's params —
-        // linked — and this route's own crumb as the inert tail.
-        let tail = match r.page {
-            // Paginated trails keep the engine's `Page N` rule for now —
-            // crumb templates for paginated views are punted with open
-            // question 30 (pagination × subdivision).
-            Some(p) => (p > 1).then(|| format!("Page {p}")),
-            None => {
-                let tmpl = v.crumb.as_ref().or(v.title.as_ref());
-                match tmpl {
-                    Some(t) => Some(crate::route::render(t, param)
-                        .with_context(|| format!("view {view}: crumb"))?),
-                    None => r.key.clone(),
-                }
-            }
-        };
-        let mut trail = vec![("Home".to_string(), Some("/".to_string()))];
-        if let Some(col) = cfg.collections.get(&cfg.query(view)?.base) {
-            if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
-                trail.push((c.clone(), Some(u.clone())));
-            }
-        }
-        let chain = chain_view_names(cfg, view);
-        for anc in chain.iter().filter(|n| *n != view) {
-            let av = &cfg.views[anc.as_str()];
-            let tmpl = av.crumb.as_ref().or(av.title.as_ref());
-            if let (Some(t), Some(route_t)) = (tmpl, av.route.as_deref()) {
-                let label = crate::route::render(t, param)
-                    .with_context(|| format!("view {anc}: crumb"))?;
-                let url = crate::route::render(route_t, param)?;
-                trail.push((label, Some(url)));
-            }
-        }
-        if let Some(t) = tail {
-            trail.push((t, None));
-        }
+        let (title, trail) = listing_title_and_trail(cfg, view, v, r)?;
 
         // Pagination is emitted only for paginated routes (those carrying a
         // page number); grouped views (tags, archives) have `page: None`. The
@@ -411,7 +306,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
                 let row = db.pages.rows.iter().find(|p| p.url == r.url);
                 let text = std::fs::read_to_string(src)?;
-                let (_, body) = split_fm(&text);
+                let (_, body) = crate::store::split_front_matter(&text);
                 let layout = row.and_then(|p| p.layout.as_deref());
                 let title = row
                     .and_then(|p| p.title.clone())
@@ -469,112 +364,241 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         }
     }
 
-    // ---- search (§6b): the index ships as /search.bin (postcard), consumed
-    // by the SAME core code compiled to wasm — /search.wasm + its /search.js
-    // loader are theme assets, fetched only when the search icon is clicked.
-    {
-        use grackle_search_core as sc;
-        let docs: Vec<sc::SearchDoc> = db
-            .posts
-            .rows
-            .iter()
-            .filter(|p| !p.draft && !p.hidden)
-            .map(|p| sc::SearchDoc {
-                url: p.url.clone(),
-                title: p.title.clone(),
-                date: p
-                    .date
-                    .map(|d| d.format("%-d %B %Y").to_string())
-                    .unwrap_or_default(),
-                html: bodies
-                    .get(p.url.as_str())
-                    .map(|d| d.whole.clone())
-                    .unwrap_or_default(),
-                tags: p.tags.clone(),
-            })
-            .collect();
-        let t = std::time::Instant::now();
-        let (index, st) = sc::build_index(&docs);
-        let bin = index.to_bytes();
-        stats.search_bytes = bin.len();
-        println!(
-            "  search    {} docs, {} terms, {} postings -> {} KB in {:.0}ms",
-            st.docs,
-            st.terms,
-            st.postings,
-            bin.len() / 1024,
-            t.elapsed().as_secs_f64() * 1000.0
-        );
-        out_map.insert("/search.bin".to_string(), bin);
-        for asset in ["search.js", "search.wasm"] {
-            let p = root.join("themes/default").join(asset);
-            if let Ok(bytes) = std::fs::read(&p) {
-                out_map.insert(format!("/{asset}"), bytes);
-            }
-        }
-    }
-
-    // ---- css: the theme owns its stylesheet (§5e) — themes/default/theme.scss
-    // compiles to the same /css/main.css URL the shell links.
-    let scss = root.join("themes/default/theme.scss");
-    if scss.exists() {
-        let text = std::fs::read_to_string(&scss)?;
-        let (_, body) = split_fm(&text);
-        let sass_dir = root.join("themes/default");
-        let flat = inline_imports(body, &sass_dir, &mut Vec::new())?;
-        let opts = grass::Options::default().load_path(&sass_dir);
-        match grass::from_string(flat, &opts) {
-            Ok(css) => {
-                stats.css = css.len();
-                out_map.insert("/css/main.css".to_string(), css.into_bytes());
-            }
-            Err(e) => eprintln!("scss: {e}"),
-        }
-    }
+    search_pass(db, &bodies, &theme_dir, &mut out_map, &mut stats);
+    css_pass(&theme_dir, &mut out_map, &mut stats)?;
 
     Ok((out_map, stats))
 }
 
-/// The grouped views forming a view's subdivision chain (§5c), outermost
-/// first — the provenance axis breadcrumb trails walk.
-fn chain_view_names(cfg: &Config, name: &str) -> Vec<String> {
-    let mut v = Vec::new();
-    let mut cur = name;
-    while let Some(view) = cfg.views.get(cur) {
-        if view.group_by.is_some() {
-            v.push(cur.to_string());
-        }
-        cur = &view.over;
+// ------------------------------------------------------------------ passes
+
+/// Thumbnails (§6b): derive images once, publish under `/static/`, and hand
+/// back `{% image %}` source → published URL for the render passes to look
+/// up. Sources come from post bodies and rendered page bodies alike
+/// (`code/legacy/*` pages use the tag too). The cache is content-addressed,
+/// so a warm build only reads and hashes each source; a cold one decodes,
+/// resizes and re-encodes.
+fn thumbs_pass(
+    cfg: &Config,
+    db: &SiteDb,
+    root: &Path,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) -> Result<HashMap<String, String>> {
+    let mut img_sources: Vec<String> = Vec::new();
+    for p in &db.posts.rows {
+        img_sources.extend(tags::image_sources(&p.body));
     }
-    v.reverse();
-    v
+    for r in &db.routes {
+        if r.kind == RouteKind::Page {
+            if let Some(src) = &r.source {
+                if let Ok(text) = std::fs::read_to_string(src) {
+                    let (_, body) = split_front_matter(&text);
+                    img_sources.extend(tags::image_sources(body));
+                }
+            }
+        }
+    }
+    let cache_dir = root.join("_cache/thumbs");
+    let thumbs = crate::thumbs::generate(root, &cache_dir, &cfg.site.baseurl, &img_sources)?;
+    let mut thumb_urls: HashMap<String, String> = HashMap::new();
+    let mut published: HashSet<String> = HashSet::new();
+    for (src, t) in &thumbs {
+        thumb_urls.insert(src.clone(), t.url.clone());
+        if published.insert(t.rel.clone()) {
+            let bytes = std::fs::read(&t.cache_path)
+                .with_context(|| format!("reading thumb {}", t.cache_path.display()))?;
+            out_map.insert(format!("/{}", t.rel), bytes);
+            stats.thumbs += 1;
+        }
+    }
+    Ok(thumb_urls)
 }
 
-/// A post's breadcrumb trail: Home, the collection's crumb, then the
-/// collection's declared `trail` view chain rendered with the post's own
-/// group keys — each level linked to its archive — ending in the inert day.
-/// All provenance (§5c); the only special case left is drafts, which wait on
+/// ONE render per post (§6d). Expand + parse once; the same parse yields the
+/// whole document (posts, feed — byte-identical to the old double-render)
+/// and the block sequence each listing view projects its summaries from.
+/// The Doc is kept whole because truncation is VIEW policy (`summary = {
+/// max_blocks, max_chars }`), not a property of the body.
+fn render_bodies<'a>(
+    cfg: &Config,
+    db: &'a SiteDb,
+    thumb_urls: &HashMap<String, String>,
+) -> Result<HashMap<&'a str, Doc>> {
+    db.posts
+        .rows
+        .par_iter()
+        .map(|p| -> Result<(&str, Doc)> {
+            let cx = tags::Ctx {
+                thumbs: Some(thumb_urls),
+                widgets: Some(&cfg.widgets),
+                ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
+            };
+            let expanded = tags::expand(&p.body, &cx)?;
+            Ok((p.url.as_str(), crate::markdown::render_doc(&expanded)))
+        })
+        .collect()
+}
+
+/// The searchable projection of the posts table (§6b) — one definition for
+/// both the shipped index and `grackle query search`. `html_of` supplies a
+/// post's rendered body; the CLI, which runs no render pass, passes raw
+/// markdown (fine for a smoke query, not byte-faithful to the shipped index).
+pub fn search_docs(
+    db: &SiteDb,
+    html_of: impl Fn(&Post) -> String,
+) -> Vec<grackle_search_core::SearchDoc> {
+    db.posts
+        .rows
+        .iter()
+        .filter(|p| !p.draft && !p.hidden)
+        .map(|p| grackle_search_core::SearchDoc {
+            url: p.url.clone(),
+            title: p.title.clone(),
+            date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
+            html: html_of(p),
+            tags: p.tags.clone(),
+        })
+        .collect()
+}
+
+/// Search (§6b): the index ships as /search.bin (postcard), consumed by the
+/// SAME core code compiled to wasm — /search.wasm + its /search.js loader
+/// are theme assets, fetched only when the search icon is clicked.
+fn search_pass(
+    db: &SiteDb,
+    bodies: &HashMap<&str, Doc>,
+    theme_dir: &Path,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) {
+    let docs = search_docs(db, |p| {
+        bodies.get(p.url.as_str()).map(|d| d.whole.clone()).unwrap_or_default()
+    });
+    let t = std::time::Instant::now();
+    let (index, st) = grackle_search_core::build_index(&docs);
+    let bin = index.to_bytes();
+    stats.search_bytes = bin.len();
+    println!(
+        "  search    {} docs, {} terms, {} postings -> {} KB in {:.0}ms",
+        st.docs,
+        st.terms,
+        st.postings,
+        bin.len() / 1024,
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    out_map.insert("/search.bin".to_string(), bin);
+    for asset in ["search.js", "search.wasm"] {
+        let p = theme_dir.join(asset);
+        if let Ok(bytes) = std::fs::read(&p) {
+            out_map.insert(format!("/{asset}"), bytes);
+        }
+    }
+}
+
+/// The theme owns its stylesheet (§5e) — `theme.scss` compiles to the same
+/// /css/main.css URL the shell links.
+fn css_pass(theme_dir: &Path, out_map: &mut SiteOutput, stats: &mut Stats) -> Result<()> {
+    let scss = theme_dir.join("theme.scss");
+    if !scss.exists() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&scss)?;
+    let (_, body) = split_front_matter(&text);
+    let flat = inline_imports(body, theme_dir, &mut Vec::new())?;
+    let opts = grass::Options::default().load_path(theme_dir);
+    match grass::from_string(flat, &opts) {
+        Ok(css) => {
+            stats.css = css.len();
+            out_map.insert("/css/main.css".to_string(), css.into_bytes());
+        }
+        Err(e) => eprintln!("scss: {e}"),
+    }
+    Ok(())
+}
+
+/// Every trail roots the same way (§5c provenance): Home, then the
+/// collection's own crumb, linked to its index.
+fn trail_root(cfg: &Config, collection: &str) -> Vec<(String, Option<String>)> {
+    let mut t = vec![("Home".to_string(), Some("/".to_string()))];
+    if let Some(col) = cfg.collections.get(collection) {
+        if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
+            t.push((c.clone(), Some(u.clone())));
+        }
+    }
+    t
+}
+
+/// A listing route's title and provenance trail (§5c): the view's declared
+/// `title`/`crumb` templates rendered over the route's group params — each
+/// grouped *ancestor* linked to its own archive, this route's crumb as the
+/// inert tail. This used to be a `match` on the layout kind re-deriving what
+/// the config already knew; layout kinds are code, naming is the view's.
+fn listing_title_and_trail(
+    cfg: &Config,
+    view: &str,
+    v: &View,
+    r: &Route,
+) -> Result<(String, Vec<(String, Option<String>)>)> {
+    let param = |k: &str| crate::route::param(&r.params, k);
+    let title = match &v.title {
+        Some(t) => crate::route::render(t, param)
+            .with_context(|| format!("view {view}: title"))?,
+        None => r.key.clone().unwrap_or_else(|| view.to_string()),
+    };
+    let tail = match r.page {
+        // Paginated trails keep the engine's `Page N` rule for now — crumb
+        // templates for paginated views are punted with open question 30
+        // (pagination × subdivision).
+        Some(p) => (p > 1).then(|| format!("Page {p}")),
+        None => {
+            let tmpl = v.crumb.as_ref().or(v.title.as_ref());
+            match tmpl {
+                Some(t) => Some(crate::route::render(t, param)
+                    .with_context(|| format!("view {view}: crumb"))?),
+                None => r.key.clone(),
+            }
+        }
+    };
+    let mut trail = trail_root(cfg, &cfg.query(view)?.base);
+    for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
+        let av = &cfg.views[anc.as_str()];
+        let tmpl = av.crumb.as_ref().or(av.title.as_ref());
+        if let (Some(t), Some(route_t)) = (tmpl, av.route.as_deref()) {
+            let label = crate::route::render(t, param)
+                .with_context(|| format!("view {anc}: crumb"))?;
+            let url = crate::route::render(route_t, param)?;
+            trail.push((label, Some(url)));
+        }
+    }
+    if let Some(t) = tail {
+        trail.push((t, None));
+    }
+    Ok((title, trail))
+}
+
+/// A post's breadcrumb trail: the shared root, then the collection's
+/// declared `trail` view chain rendered with the post's own group keys —
+/// each level linked to its archive — ending in the inert day. All
+/// provenance (§5c); the only special case left is drafts, which wait on
 /// the profiles work (§4a).
 fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
-    let mut t = vec![("Home".to_string(), Some("/".to_string()))];
-    let Some(col) = cfg.collections.get("blog") else { return t };
-    if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
-        t.push((c.clone(), Some(u.clone())));
-    }
+    let mut t = trail_root(cfg, "blog");
     if p.draft {
         t.push(("Drafts".to_string(), Some("/drafts".to_string())));
         t.push((p.title.clone(), None));
         return t;
     }
-    if let Some(trail_view) = &col.trail {
-        for name in chain_view_names(cfg, trail_view) {
+    let trail_view = cfg.collections.get("blog").and_then(|c| c.trail.as_deref());
+    if let Some(trail_view) = trail_view {
+        for name in cfg.grouped_chain(trail_view) {
             let Some(v) = cfg.views.get(&name) else { continue };
-            let specs = crate::db::group_chain(cfg, &name);
-            let Ok(combos) = crate::db::key_combos(p, &specs) else { continue };
+            let specs = cfg.group_specs(&name);
+            let Ok(combos) = crate::views::key_combos(p, &specs) else { continue };
             let Some(combo) = combos.first() else { break }; // undated: no trail
             let params: Vec<(String, String)> =
                 combo.iter().flat_map(|k| k.params.clone()).collect();
-            let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+            let get = |k: &str| crate::route::param(&params, k);
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             if let (Some(tm), Some(rt)) = (tmpl, v.route.as_deref()) {
                 if let (Ok(label), Ok(url)) =
@@ -659,23 +683,3 @@ fn inline_imports(src: &str, load: &Path, seen: &mut Vec<String>) -> Result<Stri
     Ok(out)
 }
 
-fn split_fm(text: &str) -> (&str, &str) {
-    let Some(rest) = text.strip_prefix("---") else {
-        return ("", text);
-    };
-    let rest = rest.strip_prefix('\n').unwrap_or(rest);
-    let mut off = 0;
-    for line in rest.split_inclusive('\n') {
-        if line.trim_end_matches(['\n', '\r']) == "---" {
-            return (&rest[..off], &rest[off + line.len()..]);
-        }
-        off += line.len();
-    }
-    ("", text)
-}
-
-fn fm_get<'a>(fm: &'a str, key: &str) -> Option<&'a str> {
-    fm.lines()
-        .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
-        .map(|v| v.trim())
-}

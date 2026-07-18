@@ -19,6 +19,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct Ctx<'a> {
     pub db: &'a SiteDb,
     pub baseurl: &'a str,
@@ -189,16 +190,7 @@ fn include(arg: &str, cx: &Ctx) -> Result<String> {
     // Includes are expanded in their own right, so a partial may use the same
     // tags a page can. Depth is bounded by the filesystem, not by a counter:
     // an include cycle would recurse, which no partial in the corpus does.
-    let inner = Ctx {
-        db: cx.db,
-        baseurl: cx.baseurl,
-        source: path.display().to_string(),
-        includes: cx.includes.clone(),
-        site: cx.site,
-        thumbs: cx.thumbs,
-        theme: cx.theme,
-        widgets: cx.widgets,
-    };
+    let inner = Ctx { source: path.display().to_string(), ..cx.clone() };
     expand(&text, &inner)
 }
 

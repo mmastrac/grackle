@@ -66,6 +66,9 @@ pub struct Collection {
     pub source: Option<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
+    /// §6a bubble+bucket asset resolution names this directory; declared
+    /// ahead of the code that consumes it (deferred with the q26 pass).
+    #[allow(dead_code)]
     pub bucket: Option<String>,
     #[serde(default)]
     pub filename_formats: Vec<String>,
@@ -313,20 +316,57 @@ impl Config {
         }
     }
 
+    /// The `over` chain from `name` down to its base, nearest view first.
+    /// The one chain walker — everything derived from composition
+    /// (`fields_for`, `group_specs`, `grouped_chain`) reads this. Assumes the
+    /// chain is acyclic, which `query()` validated at load.
+    pub fn chain<'a: 'b, 'b>(&'a self, name: &'b str) -> Vec<(&'b str, &'a View)> {
+        let mut out = Vec::new();
+        let mut cur = name;
+        while let Some(v) = self.views.get(cur) {
+            out.push((cur, v));
+            cur = &v.over;
+        }
+        out
+    }
+
+    /// The `group_by` specs governing a view, outermost ancestor first. This
+    /// is subdivision (§5c): a grouped view `over` a grouped view refines the
+    /// parent's partition, so the parent's spec applies before the child's.
+    pub fn group_specs(&self, name: &str) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .chain(name)
+            .iter()
+            .filter_map(|(_, v)| v.group_by.clone())
+            .collect();
+        v.reverse();
+        v
+    }
+
+    /// The grouped views forming a view's subdivision chain, outermost first
+    /// — the provenance axis breadcrumb trails walk (§5c).
+    pub fn grouped_chain(&self, name: &str) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .chain(name)
+            .iter()
+            .filter(|(_, v)| v.group_by.is_some())
+            .map(|(n, _)| n.to_string())
+            .collect();
+        v.reverse();
+        v
+    }
+
     /// The computed-field set a view's rows carry: the union along the
     /// `over` chain, nearest declaration winning per name — fields compose
     /// exactly as filters do (§5c). Declaring `fields.summary` once on a
     /// shared query view (`published`) covers every listing composed over
-    /// it; a view wanting different budgets redeclares the field. The chain
-    /// is acyclic because `query()` validated it at load.
+    /// it; a view wanting different budgets redeclares the field.
     pub fn fields_for(&self, view: &str) -> BTreeMap<&str, &Field> {
         let mut out: BTreeMap<&str, &Field> = BTreeMap::new();
-        let mut cur = view;
-        while let Some(v) = self.views.get(cur) {
+        for (_, v) in self.chain(view) {
             for (name, f) in &v.fields {
                 out.entry(name.as_str()).or_insert(f);
             }
-            cur = &v.over;
         }
         out
     }

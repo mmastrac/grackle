@@ -54,6 +54,16 @@ impl Post {
     }
 }
 
+/// `2022-03-16` — sortable; the machine-readable date everywhere.
+pub fn iso_date(d: NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
+}
+
+/// `16 March 2022` — what themes and search hits show.
+pub fn pretty_date(d: NaiveDate) -> String {
+    d.format("%-d %B %Y").to_string()
+}
+
 /// A tree row: rendered page (has front matter) or static file (does not).
 #[derive(Debug, Serialize)]
 pub struct Page {
@@ -150,6 +160,18 @@ pub enum RouteKind {
     View,
 }
 
+impl RouteKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RouteKind::Post => "post",
+            RouteKind::Page => "page",
+            RouteKind::Static => "static",
+            RouteKind::Object => "object",
+            RouteKind::View => "view",
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Route {
     pub url: String,
@@ -191,6 +213,24 @@ pub struct Route {
 }
 
 impl Route {
+    /// A route with nothing but a URL and a kind — the base every
+    /// constructor site fills its few meaningful fields over.
+    pub(crate) fn new(url: String, kind: RouteKind) -> Route {
+        Route {
+            url,
+            kind,
+            source: None,
+            view: None,
+            key: None,
+            rows: None,
+            page: None,
+            params: Vec::new(),
+            draft: false,
+            hidden: false,
+            members: Vec::new(),
+        }
+    }
+
     /// Served as a directory (URL ends in `/`), so its output is an index.html.
     fn is_dir(&self) -> bool {
         self.url.ends_with('/')
@@ -240,7 +280,7 @@ impl filter::Row for Route {
     fn field(&self, name: &str) -> filter::Value {
         use filter::Value as V;
         match name {
-            "kind" => V::Str(format!("{:?}", self.kind).to_lowercase()),
+            "kind" => V::Str(self.kind.as_str().to_string()),
             "view" => match &self.view {
                 Some(v) => V::Str(v.clone()),
                 None => V::Null,
@@ -726,13 +766,8 @@ fn read_page_schema(path: &Path) -> (Option<String>, Option<String>) {
     let Ok(text) = std::fs::read_to_string(path) else {
         return (None, None);
     };
-    let Some(rest) = text.strip_prefix("---") else {
-        return (None, None);
-    };
-    let rest = rest.strip_prefix('\n').unwrap_or(rest);
-    let end = rest.find("\n---").unwrap_or(rest.len());
-    let fm: crate::store::FrontMatter =
-        serde_yaml_ng::from_str(&rest[..end]).unwrap_or_default();
+    let (yaml, _) = store::split_front_matter(&text);
+    let fm: crate::store::FrontMatter = serde_yaml_ng::from_str(yaml).unwrap_or_default();
     (fm.title, fm.layout)
 }
 
@@ -796,310 +831,6 @@ impl filter::Row for Post {
     }
 }
 
-/// One group key a row contributes under a single `group_by` spec: the typed
-/// sort component (years/months order numerically, tags lexically), the
-/// display component (joined into `Route.key`), and the parameters the key
-/// exposes to route/`title`/`crumb` templates.
-#[derive(Clone, Debug)]
-pub(crate) struct GroupKey {
-    sort: SortKey,
-    pub(crate) params: Vec<(String, String)>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum SortKey {
-    Int(i64),
-    Str(String),
-}
-
-impl SortKey {
-    fn display(&self) -> String {
-        match self {
-            // Numeric parts zero-pad to two so `2022-3` reads `2022-03` —
-            // years are 4 digits and unaffected.
-            SortKey::Int(n) if *n < 10 => format!("0{n}"),
-            SortKey::Int(n) => n.to_string(),
-            SortKey::Str(s) => s.clone(),
-        }
-    }
-}
-
-/// The group keys a row holds under one spec. Empty means the row is absent
-/// from this partition (an undated row under a date grouping).
-fn group_keys(p: &Post, spec: &str) -> Result<Vec<GroupKey>> {
-    use chrono::Datelike;
-    Ok(match spec {
-        "tags" => p
-            .tags
-            .iter()
-            .map(|t| GroupKey {
-                sort: SortKey::Str(t.clone()),
-                params: vec![("key".into(), t.clone())],
-            })
-            .collect(),
-        "date.year" => p
-            .date
-            .into_iter()
-            .map(|d| GroupKey {
-                sort: SortKey::Int(d.year() as i64),
-                params: vec![("year".into(), d.year().to_string())],
-            })
-            .collect(),
-        "date.month" => p
-            .date
-            .into_iter()
-            .map(|d| GroupKey {
-                sort: SortKey::Int(d.month() as i64),
-                params: vec![
-                    ("month".into(), d.month().to_string()),
-                    ("month_name".into(), d.format("%B").to_string()),
-                ],
-            })
-            .collect(),
-        other => bail!("unsupported group_by {other:?} (have: tags, date.year, date.month)"),
-    })
-}
-
-/// The composite keys a row belongs to under a subdivision chain — the
-/// cartesian product across levels (`tags` can multi-key a row; date specs
-/// contribute at most one each). Empty when the row is absent at any level.
-pub(crate) fn key_combos(p: &Post, chain: &[String]) -> Result<Vec<Vec<GroupKey>>> {
-    let mut combos: Vec<Vec<GroupKey>> = vec![Vec::new()];
-    for spec in chain {
-        let keys = group_keys(p, spec)?;
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        combos = combos
-            .into_iter()
-            .flat_map(|c| {
-                keys.iter().map(move |k| {
-                    let mut c2 = c.clone();
-                    c2.push(k.clone());
-                    c2
-                })
-            })
-            .collect();
-    }
-    Ok(combos)
-}
-
-/// The `group_by` specs governing a view, outermost ancestor first. This is
-/// subdivision (§5c): a grouped view `over` a grouped view refines the
-/// parent's partition, so the parent's spec applies before the child's. Read
-/// from config alone — no dependency on view processing order. The chain is
-/// acyclic and the composition shape is legal because `Config::query` already
-/// validated both.
-pub(crate) fn group_chain(cfg: &Config, name: &str) -> Vec<String> {
-    let mut chain = Vec::new();
-    let mut cur = name;
-    while let Some(v) = cfg.views.get(cur) {
-        if let Some(g) = &v.group_by {
-            chain.push(g.clone());
-        }
-        cur = &v.over;
-    }
-    chain.reverse();
-    chain
-}
-
-fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
-    for (name, v) in &cfg.views {
-        // `over = "*"` views read the finished route set, so they run in a
-        // second pass (see build_star_views). Views iterate in name order, so
-        // running them inline made `sitemap` miss `tag_index` — 1544 not 1559.
-        if v.over == "*" {
-            continue;
-        }
-        // Both named queries (`published`) and embedded views (`latest`) still
-        // have to resolve, so a typo in `over` is a startup error either way.
-        let q = cfg.query(name)?;
-        if q.base != "blog" {
-            continue; // phase 1: posts-backed views only
-        }
-        // Parsed and type-checked once per view, not per row: a bad filter is a
-        // startup error naming the view.
-        let pred = match q.predicate() {
-            Some(src) => filter::Filter::parse(&src, &post_schema())
-                .with_context(|| format!("view {name}: filter {src:?}"))?,
-            None => filter::Filter::always(),
-        };
-        let posts = &db.posts;
-        let visible: Vec<usize> = posts
-            .order
-            .iter()
-            .copied()
-            .filter(|&i| pred.eval(&posts.rows[i]))
-            .collect();
-
-        // No route: one row set, and nowhere to hang it but the view itself.
-        if !v.is_materialized() {
-            let members: Vec<usize> =
-                visible.into_iter().take(v.limit.unwrap_or(usize::MAX)).collect();
-            db.views.insert(
-                name.clone(),
-                ViewRows {
-                    layout: v.layout.clone(),
-                    rows: members.len(),
-                    members,
-                },
-            );
-            continue;
-        }
-
-        // Grouped views, possibly a subdivision chain (§5c): a grouped view
-        // `over` a grouped view refines the parent's partition, and the group
-        // keys accumulate — GROUP BY year, month, expressed compositionally.
-        // The chain is read from config alone, so processing order between
-        // parent and child views doesn't matter.
-        if v.group_by.is_some() {
-            let tmpl = v
-                .route
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-            let chain = group_chain(cfg, name);
-            // Composite key → (template params, members). BTreeMap on the
-            // typed sort key keeps years/months numeric and tags lexical.
-            let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<usize>)> =
-                BTreeMap::new();
-            for &i in &visible {
-                for combo in key_combos(&posts.rows[i], &chain)? {
-                    let sort: Vec<SortKey> = combo.iter().map(|k| k.sort.clone()).collect();
-                    groups
-                        .entry(sort)
-                        .or_insert_with(|| {
-                            let params =
-                                combo.iter().flat_map(|k| k.params.clone()).collect();
-                            (params, Vec::new())
-                        })
-                        .1
-                        .push(i);
-                }
-            }
-            for (sort, (params, members)) in groups {
-                let url = route::render(tmpl, |k| {
-                    params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
-                })?;
-                let key = sort
-                    .iter()
-                    .map(SortKey::display)
-                    .collect::<Vec<_>>()
-                    .join("-");
-                db.routes.push(Route {
-                    url,
-                    kind: RouteKind::View,
-                    source: None,
-                    view: Some(name.clone()),
-                    key: Some(key),
-                    rows: Some(members.len()),
-                    page: None,
-                    params,
-                    draft: false,
-                    hidden: false,
-                    members,
-                });
-            }
-            continue;
-        }
-
-        match v.group_by.as_deref() {
-            // Paginated list.
-            None if v.paginate.is_some() => {
-                let per = v.paginate.unwrap().max(1);
-                let pages = visible.len().div_ceil(per);
-                for n in 1..=pages {
-                    let tmpl = if n == 1 {
-                        v.routes.first()
-                    } else {
-                        v.routes.get(1).or_else(|| v.routes.first())
-                    };
-                    let Some(tmpl) = tmpl else { continue };
-                    let url = route::render(tmpl, |k| match k {
-                        "n" => Some(n.to_string()),
-                        _ => None,
-                    })?;
-                    let members: Vec<usize> =
-                        visible.iter().copied().skip(per * (n - 1)).take(per).collect();
-                    db.routes.push(Route {
-                        url,
-                        kind: RouteKind::View,
-                        source: None,
-                        view: Some(name.clone()),
-                        key: Some(format!("page {n}")),
-                        rows: Some(members.len()),
-                        page: Some(n),
-                        params: Vec::new(),
-                        draft: false,
-                        hidden: false,
-                        members,
-                    });
-                }
-            }
-            // Single route over a (possibly limited) slice: the feed.
-            None => {
-                let tmpl = v
-                    .route
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-                let members: Vec<usize> = visible
-                    .iter()
-                    .copied()
-                    .take(v.limit.unwrap_or(visible.len()))
-                    .collect();
-                db.routes.push(Route {
-                    url: tmpl.to_string(),
-                    kind: RouteKind::View,
-                    source: None,
-                    view: Some(name.clone()),
-                    key: None,
-                    rows: Some(members.len()),
-                    page: None,
-                    params: Vec::new(),
-                    draft: false,
-                    hidden: false,
-                    members,
-                });
-            }
-            Some(_) => unreachable!("grouped views are handled above"),
-        }
-    }
-    Ok(())
-}
-
-/// Views over the whole route set (the sitemap). Runs after every other route
-/// exists, and its `rows` is the count that actually passes its filter.
-fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
-    for (name, v) in &cfg.views {
-        if v.over != "*" {
-            continue;
-        }
-        let tmpl = v
-            .route
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-        let pred = match &v.filter {
-            Some(src) => filter::Filter::parse(src, &route_schema())
-                .with_context(|| format!("view {name}: filter {src:?}"))?,
-            None => filter::Filter::always(),
-        };
-        let rows = db.routes.iter().filter(|r| pred.eval(*r)).count();
-        db.routes.push(Route {
-            url: tmpl.to_string(),
-            kind: RouteKind::View,
-            source: None,
-            view: Some(name.clone()),
-            key: None,
-            rows: Some(rows),
-            page: None,
-            params: Vec::new(),
-            draft: false,
-            hidden: false,
-            members: Vec::new(),
-        });
-    }
-    Ok(())
-}
-
 // ------------------------------------------------------------------ load
 
 impl SiteDb {
@@ -1135,55 +866,27 @@ impl SiteDb {
         let t = std::time::Instant::now();
         for p in &db.posts.rows {
             db.routes.push(Route {
-                url: p.url.clone(),
-                kind: RouteKind::Post,
                 source: Some(p.path.clone()),
-                view: None,
-                key: None,
-                rows: None,
-                page: None,
-                params: Vec::new(),
                 draft: p.draft,
                 hidden: p.hidden,
-                members: Vec::new(),
+                ..Route::new(p.url.clone(), RouteKind::Post)
             });
         }
         for p in &db.pages.rows {
+            let kind = if p.rendered { RouteKind::Page } else { RouteKind::Static };
             db.routes.push(Route {
-                url: p.url.clone(),
-                kind: if p.rendered {
-                    RouteKind::Page
-                } else {
-                    RouteKind::Static
-                },
                 source: Some(p.path.clone()),
-                view: None,
-                key: None,
-                rows: None,
-            page: None,
-            params: Vec::new(),
-                draft: false,
-                hidden: false,
-                members: Vec::new(),
+                ..Route::new(p.url.clone(), kind)
             });
         }
         for o in &db.objects.rows {
             db.routes.push(Route {
-                url: o.url.clone(),
-                kind: RouteKind::Object,
                 source: Some(o.path.clone()),
-                view: None,
-                key: None,
-                rows: None,
-            page: None,
-            params: Vec::new(),
-                draft: false,
-                hidden: false,
-                members: Vec::new(),
+                ..Route::new(o.url.clone(), RouteKind::Object)
             });
         }
-        build_views(cfg, &mut db)?;
-        build_star_views(cfg, &mut db)?;
+        crate::views::build_views(cfg, &mut db)?;
+        crate::views::build_star_views(cfg, &mut db)?;
         db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         // Constraint: route collisions across every table.
@@ -1213,56 +916,5 @@ impl SiteDb {
 
         db.routes.sort_by(|a, b| a.url.cmp(&b.url));
         Ok(db)
-    }
-}
-
-#[cfg(test)]
-mod grouping_tests {
-    use super::*;
-
-    fn post(date: Option<&str>, tags: &[&str]) -> Post {
-        Post {
-            date: date.map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap()),
-            tags: tags.iter().map(|t| t.to_string()).collect(),
-            ..Post::default()
-        }
-    }
-
-    #[test]
-    fn subdivision_chain_accumulates_params() {
-        let p = post(Some("2022-03-16"), &[]);
-        let chain = vec!["date.year".to_string(), "date.month".to_string()];
-        let combos = key_combos(&p, &chain).unwrap();
-        assert_eq!(combos.len(), 1);
-        let params: Vec<(String, String)> =
-            combos[0].iter().flat_map(|k| k.params.clone()).collect();
-        assert!(params.contains(&("year".into(), "2022".into())), "{params:?}");
-        assert!(params.contains(&("month".into(), "3".into())), "{params:?}");
-        assert!(params.contains(&("month_name".into(), "March".into())), "{params:?}");
-        // Composite display joins with zero-padded numerics: "2022-03".
-        let key: Vec<String> = combos[0].iter().map(|k| k.sort.display()).collect();
-        assert_eq!(key.join("-"), "2022-03");
-    }
-
-    #[test]
-    fn undated_rows_are_absent_from_date_partitions() {
-        let p = post(None, &["rust"]);
-        assert!(key_combos(&p, &["date.year".into()]).unwrap().is_empty());
-        // ...but present in the tag partition.
-        assert_eq!(key_combos(&p, &["tags".into()]).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn tags_multi_key_a_row() {
-        let p = post(Some("2022-03-16"), &["c", "rust"]);
-        let combos = key_combos(&p, &["tags".into()]).unwrap();
-        assert_eq!(combos.len(), 2);
-    }
-
-    #[test]
-    fn months_sort_numerically_not_lexically() {
-        assert!(SortKey::Int(3) < SortKey::Int(12));
-        assert_eq!(SortKey::Int(3).display(), "03");
-        assert_eq!(SortKey::Int(2022).display(), "2022");
     }
 }
