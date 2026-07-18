@@ -777,6 +777,9 @@ other, so they land in the same URL→row reverse index.
 
 ### The filter language
 
+The grammar is, deliberately, a **CEL subset** — §5f pins that contract
+(this language predates the decision and converged by accident):
+
 ```
 expr    := or
 or      := and ("||" and)*
@@ -2095,6 +2098,106 @@ unaffected.
   should already have caught it; if it didn't, the check is broken, which is
   the real bug.
 
+## 5f. One expression language: CEL, subsetted *(specced 2026-07; build at the q23 forcing point)*
+
+q31 settled the direction — extend `filter.rs`, borrow no engine — and this
+section pins the contract: **the expression language is a subset of CEL**
+(the Common Expression Language, cel.dev). Not "CEL-like": every expression
+in `grackle.toml` must be *grammatically valid CEL*, and anything the
+evaluator doesn't support is a load-time "valid CEL, not supported yet" —
+never a grackle-only dialect.
+
+### Why CEL and not our own syntax
+
+- **We already are.** The filter language predates the decision and landed
+  inside CEL's grammar by convergent evolution: `!draft && !hidden`,
+  `year >= 2020 && "rust" in tags`, `layout == "post"` are valid CEL with
+  the same meaning. The constraint costs ~nothing and no config breaks.
+- **The grammar is specified by someone else.** Operator precedence, string
+  escapes, number forms — cel.dev documents them; we document only our
+  *subset and our functions*, never a syntax.
+- **The escape hatch is real.** Rust CEL crates exist; if the hand-rolled
+  evaluator ever chafes, the swap cannot break a config file. That is what
+  the compatibility contract *buys*, and why it is a contract rather than a
+  taste.
+
+### The surfaces
+
+| config key | expression type | status |
+|---|---|---|
+| `filter =` | `bool` over the row schema | built — the §5 language, already CEL |
+| `fields.NAME =` | a typed value over the row (content, text, …) | q31's target; replaces the deriver-struct |
+| future derivers (`hero`, `lede`) | same | q23 / q25 |
+
+Route/`title`/`crumb` templates stay the `{token}` placeholder language:
+string interpolation over group params, not computation. Folding them in
+would put logic where §5d forbids it.
+
+### Typing: the schema is the CEL environment
+
+CEL's spec includes a static checker driven by a declared *environment* —
+variables and function overloads, with types. That is exactly the shape
+already built: `post_schema()`/`route_schema()` are the variable
+declarations, and q31's function registry is the overload set. The existing
+discipline transfers whole: parse once at load, check against the
+environment, error with the known-names list and did-you-mean. Checked mode
+is not optional — an expression that doesn't type-check is a config error.
+
+### Functions: registered in Rust, never defined in config
+
+```toml
+[views.published.fields]
+summary = 'truncate(content, {"max_blocks": 4, "max_chars": 700})'
+```
+
+- The registry declares each function like a schema entry: name, source
+  type, option keys with their types, return type —
+  `truncate: (content, map) -> content`.
+- **Named options are a CEL map literal with string keys.** CEL has no
+  named arguments, and we do not invent them — that would fork the grammar
+  and void the swap. An unknown option key or wrong value type is a load
+  error naming the knowns, like everything else.
+- **Values carry facts.** `truncate` returns content bearing the
+  `truncated` fact, which the part layer stamps as `data-truncated` (§6d).
+  A fact is part of the value's type, not a side channel.
+- **The standard library is what we register, nothing more.** CEL's own
+  stdlib (`size()`, `matches()`, timestamps…) arrives function-by-function
+  when a config actually needs it, each behind the typed registry.
+
+### The divergence ledger (honesty over purity)
+
+Two places the existing language is not CEL, both contained:
+
+- **`*` (match-all) is not CEL grammar.** It is a whole-string sentinel,
+  equivalent to omitting `filter` — recognised before the parser runs, not
+  part of the grammar. Stays.
+- **Bare-field truthiness is not CEL semantics.** `description` meaning
+  "has one" is grammatically fine (an ident expression) but CEL's checker
+  rejects a non-bool in bool position. Ours is a semantic superset — and
+  the failure direction is the right one: a swapped-in engine would error
+  **loudly at load**, never silently change meaning. Kept for `!draft`
+  ergonomics; tighten to explicit presence tests only if the swap ever
+  actually happens.
+
+### Take / refuse
+
+**Take**: the grammar, operator semantics, the environment/checker shape.
+**Refuse**: macros (`all`/`exists` comprehensions — a comprehension over
+rows is a **view**, §5d); the protobuf type system (our types are the
+schema's five); dynamic or late binding (everything checks at load);
+evaluating any expression not written by the site's author.
+
+### Tripwires
+
+- A function wants to return different *parts* depending on a condition →
+  that is a layout-kind decision, not an expression; the §5d rule extends
+  unchanged.
+- A function wants to read *other rows* → that is view composition, not a
+  function; expressions stay row-local.
+- The subset grows until the hand-rolled parser strains → that is the
+  signal to swap in a CEL crate, not to keep growing; the contract exists
+  precisely so the swap is cheap.
+
 ## 6a. Object references: paths and names
 
 ### The measurements that shape this
@@ -2354,10 +2457,11 @@ equivalent: LSI's related-posts were mediocre, and the diff harness can't
 check them (§8 lists related posts as knowingly-inexact anyway), so there's no
 parity cost to improving them.
 
-**Crate: `fastembed`, not `rust-bert`** — see §9a for the numbers. Short
-version: rust-bert is 2 years stale, 16k downloads, and drags in libtorch
-(~2 GB), which is hostile to the Docker build. `fastembed` is actively
-maintained, 1.2M downloads, ONNX-based, and ships MiniLM directly.
+**Crate: `fastembed`, not `rust-bert`** — rust-bert is 2 years stale, 16k
+downloads, and drags in libtorch (~2 GB), which is hostile to the Docker
+build. `fastembed` is actively maintained, 1.2M downloads, ONNX-based, and
+ships MiniLM directly. (`candle` is the pure-Rust fallback if ONNX ever
+proves awkward.)
 
 ### TF-IDF search index — the searcher is the same code, compiled to wasm *(built 2026-07)*
 
@@ -2873,7 +2977,7 @@ has `pre > code { @import "rouge"; }` — scoping Rouge's syntax classes by
 nesting. libsass (what Jekyll uses) allows it; grass errors with "this at-rule
 is not allowed here". The site is legal input that grass will not take. Fixed
 by resolving `@import` textually before handing grass the flattened source, so
-the site's sass is untouched. §9a's "dart-sass-compatible" claim for grass
+the site's sass is untouched. grass's "dart-sass-compatible" reputation
 needs this caveat.
 
 **grass and sassc agree.** 2232 selectors vs the live build's 2231 — a
@@ -3051,50 +3155,38 @@ ballparked before §5e/§6b/§6d existed). The sketch this replaced imagined
 `render/liquid.rs`, and axum+SSE serving; reality is flatter, liquid never
 happened (§5d), and serve is raw hyper with polling (§7).
 
-## 9a. Crate choices (verified against crates.io, 2026-07)
+## 9a. Dependencies: the inventory is `Cargo.toml`, this doc keeps decisions
 
-| Crate | Ver | Role | Health / risk |
-|---|---|---|---|
-| ~~`liquid`~~ | ~~0.26.11~~ | ~~templates~~ | ❌ **Dropped — §5d.** Was listed here as the biggest dependency risk (stale, Shopify dialect, needing us to reimplement Jekyll's tags and filters on top). Measured: the site has ~3 real templating constructs, all already Rust components. `tags.rs` recognises 5 whole shapes and emits anything else verbatim. The risk is retired by not taking it. |
-| `comrak` | 0.54 | markdown | Very active (July 2026). CommonMark+GFM with `smart` punctuation. **We mutate the AST** — that is the primary reason it beats `pulldown-cmark`, and it is now load-bearing rather than incidental (see below). Not kramdown — the accepted-inexact area (§8, §8c). |
-| `syntect` | 5.3 | highlighting | **Not a dependency yet** — planned for the token-span gap (§8, q4). Class-mode output mapped to Rouge/pygments class names so `_rouge.scss` keeps working. §8c shows the gap is under-measured (4 of 6 highlighted posts are liquid-skipped). |
-| `two-face` | 0.5 | extra syntect syntaxes | **Not a dependency yet**; rides with syntect. |
-| `grass` | 0.13 | SCSS → CSS | Slow cadence (2024) but Sass is a frozen target; dart-sass-compatible, pure Rust, used by Zola. |
-| `serde_yaml_ng` | 0.10 | front matter | Maintained successor to deprecated `serde_yaml`. YAML is a frozen spec; low risk. |
-| `notify` | 8.2 | replication stream | ✅ in use (`serve`). The debouncer crate wasn't needed: a 150ms sleep-then-drain on the rebuild channel batches save-storms in ~6 lines. |
-| ~~`axum`~~ | — | ~~`serve`~~ | ❌ **Dropped for raw `hyper`** (see below) — no framework, no SSE; live reload is a poll. |
-| `image` | 0.25 | thumbnail derived assets | ✅ **in use** (`thumbs.rs`). Lanczos3 shrink-to-fit + PNG(best)/JPEG(85) contest, GIF passthrough, alpha-aware (skips JPEG for transparent PNGs, better than the plugin). WebP deferred. Adds ~70s to a clean `cargo build`. |
-| `fastembed` | 5.17 | embeddings → `related_posts` | ✅ **Chosen over `rust-bert`.** Updated this month; **1.2M** downloads; ONNX (`ort`) — no libtorch. Ships `all-MiniLM-L6-v2`. |
-| `blake3` | 1.x | all cache keys | ✅ **in use** (thumbnail content keys). Fast, non-cryptographic use. **`md-5` is dropped**: it existed only to reproduce `_thumbs/{md5}-600-600`, and §11.12 frees those URLs. |
-| `lol_html` | 3.0 | the §6d rewrite stage | **Not a dependency yet** — stage B. `feed_images`/`expand_urls` landed as two small regexes (§8), and diff normalization is hand-rolled; the selector-driven rewriter arrives with its real consumers (§6a names, §6c styles). |
-| `postcard` | 1 | `/search.bin` serde | ✅ in use (search crates). Compact, no_std-friendly — right for a format private to the two ends of one crate (§6b). |
-| `hyper` + `hyper-util` + `http-body-util` | 1 / 0.1 | `serve` HTTP | Raw hyper, no framework (no axum) — a `service_fn` per connection on `tokio`. |
-| `tokio` | 1 | `serve` async runtime | Only linked for `serve`; `build`/`query` stay sync. |
-| `notify` | 8.2 | `serve` file watcher | The replication stream (§2); the debouncer would batch save-storms further. |
-| `keepcalm` | 0.6 | `serve` snapshot cell | RCU `SharedMut`: lock-free reads, `set` replaces the whole snapshot without a copy — the read-mostly, wholesale-swap shape a resident site wants. Cleaner than a hand-rolled `Arc<RwLock<Arc<T>>>`. |
-| `chrono` | 0.4 | dates, strftime incl. `%-d` | Standard. |
-| `ignore` | 0.4 | tree walking, `.gitignore` | ripgrep's walker. Load-bearing, not a convenience: the marker scan has no other way to avoid `_site*`/`vendor` and costs 205ms without it (§4c). |
-| `toml`, `clap`, `anyhow`, `regex`, `globset`, `walkdir`, `camino`, `serde`/`serde_json` | — | config, CLI, errors, route-rule globs, flat dir walks, UTF-8 paths | Standard fare, all healthy. |
+This section used to carry a per-crate table with versions and health notes.
+It rotted exactly the way §9b says shadow copies do — it still listed `axum`
+after raw hyper replaced it, and `lol_html`/`syntect` before they were
+dependencies at all — so the inventory is **removed for good (2026-07)**:
+what is depended on is answered by `Cargo.toml` alone. What stays here are
+the *decisions*, which don't have version numbers:
 
-**Considered, not chosen:**
-- `rust-bert` 0.23 — **rejected**: last release Sept 2024, only **16k**
-  downloads, and needs `tch`/libtorch (~2 GB) for real models, which is
-  hostile to the Docker build. `fastembed` is the same capability, actively
-  maintained, two orders of magnitude more used, no C++ torch runtime.
-  (`candle` is the pure-Rust fallback if ONNX ever proves awkward — no native
-  runtime at all, but more wiring.)
-- Any vector index (`hnsw_rs`, FAISS bindings) — 327 vectors is a brute-force
-  dot product measured in microseconds. An index here would be pure
-  complexity.
-- `salsa` 0.28 — active (rust-analyzer/ruff lineage) but self-described
-  experimental; hand-rolled typed invalidation keys suffice at 327 posts
-  (open question 1).
-- `pulldown-cmark` — fewer extensions than comrak and no mutable AST pass
-  (needed for the Rouge-shaped code-block swap).
-- `tera`/`minijinja` — would force rewriting every template; this is a port,
-  not a redesign.
-- `html5ever`/`scraper` — heavier than needed for diff normalization; revisit
-  if lol_html proves awkward there.
+- **No template engine.** `liquid` was this section's biggest listed risk;
+  retired by not taking it — the site measured out at ~3 real templating
+  constructs, all Rust components (§5d).
+- **No expression engine.** The config language is hand-rolled against a
+  CEL grammar contract; a CEL crate is the recorded contingency, not a
+  dependency (§5f).
+- **comrak over pulldown-cmark.** The mutable AST is load-bearing — the
+  Rouge code-block shapes, and §6d's block split, both live there (below).
+- **No vector index, no rust-bert.** 327 vectors is a brute-force dot
+  product in microseconds; and embeddings run on ONNX (`fastembed`), not
+  libtorch — rationale with the measurements in §6b.
+- **Raw hyper, no axum**, with a `keepcalm` RCU cell for the resident
+  snapshot; no SSE, live reload is a poll (§7).
+- **`ignore` is load-bearing, not convenience.** The marker scan has no
+  other defence against `_site*`/`vendor` and costs 205ms without it (§4c).
+- **`lol_html` is deferred with its consumers.** The two shipped HTML
+  rewrites (`expand_urls`/`feed_images`) are small regexes; the
+  selector-driven stage arrives with §6d stage B.
+- **`salsa` declined** — hand-rolled typed invalidation keys suffice at 327
+  posts (open question 1).
+
+The bar for a new dependency: taken for a measured reason, and recorded
+here only when the decision itself is interesting.
 
 ### Why we do **not** write our own AST → HTML renderer
 
@@ -3458,7 +3550,9 @@ the drift is only ever invisible *until* it isn't.
     producing content. Constraint worth keeping: the grammar stays
     **CEL-compatible** (our filter syntax already is, accidentally), so the
     hand-rolled parser can be swapped for `cel` later without breaking a
-    config file. Build at the q23 `hero` forcing point.
+    config file. Build at the q23 `hero` forcing point. **Spec: §5f** —
+    the CEL contract, surfaces, environment typing, options-as-map-literals,
+    and the divergence ledger.
 32. **Producers hardcode routes that config owns (§9b).** `parts.rs` emits
     `/blog/tags/{key}/` for tag pills and `/blog/` + `/blog/page/{n}` for
     pagination — literal copies of `[views.tag_index].route` and
