@@ -139,9 +139,11 @@ pub struct View {
     #[serde(default)]
     pub featured: bool,
     /// The view's outermost serialization (Matt, 2026-07): `"atom"` and
-    /// `"sitemap"` are built-in XML shells — the feed is not a special
-    /// pass, it is the same rows in a different wrapper. Absent = the
-    /// HTML shell (theme). The full generalization is q44.
+    /// `"sitemap"` are built-in XML shells, `"search"` is the postcard
+    /// index /search.js consumes — the feed is not a special pass, it is
+    /// the same rows in a different wrapper, and the searchable set is a
+    /// query like any other (§5g). Absent = the HTML shell (theme). The
+    /// full generalization is q44.
     pub shell: Option<String>,
     pub limit: Option<usize>,
     pub template: Option<String>,
@@ -272,9 +274,9 @@ impl Config {
         }
         for (vname, v) in &cfg.views {
             if let Some(s) = v.shell.as_deref() {
-                if !matches!(s, "atom" | "sitemap") {
+                if !matches!(s, "atom" | "sitemap" | "search") {
                     anyhow::bail!(
-                        "view {vname}: unknown shell {s:?} (built-in shells: atom, sitemap)"
+                        "view {vname}: unknown shell {s:?} (built-in shells: atom, sitemap, search)"
                     );
                 }
             }

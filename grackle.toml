@@ -178,6 +178,16 @@ route = "/atom.xml"
 template = "atom.xml"
 shell = "atom"
 
+# The searchable set is a query (§5g): the same star shape as the sitemap,
+# serialized as the postcard index /search.js consumes. Posts only for now —
+# adding `|| kind == "page"` would make /code/ and /writing/ searchable, but
+# that's a deliberate index change, not a mechanism default.
+[views.search]
+over = "*"
+route = "/search.bin"
+shell = "search"
+filter = 'kind == "post" && !draft && !hidden'
+
 # No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
 # with `{% assign latest_count %}` because `site.posts | limit: 3` slices before
 # it filters, so hidden posts would eat the slots. `filter` and `limit` are

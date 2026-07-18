@@ -529,7 +529,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         }
     }
 
-    search_pass(db, &bodies, &theme_dir, &mut out_map, &mut stats);
+    search_pass(cfg, db, &bodies, &page_bodies, &mut out_map, &mut stats)?;
     // Every theme compiles its own stylesheet to its own URL.
     css_pass(&theme_dir, "/css/main.css", &mut out_map, &mut stats)?;
     for name in themes.names().filter(|n| *n != "default") {
@@ -782,10 +782,10 @@ mod link_tests {
     }
 }
 
-/// The searchable projection of the posts table (§6b) — one definition for
-/// both the shipped index and `grackle query search`. `html_of` supplies a
-/// post's rendered body; the CLI, which runs no render pass, passes raw
-/// markdown (fine for a smoke query, not byte-faithful to the shipped index).
+/// The searchable projection of the posts table — the CLI smoke query
+/// (`grackle query search`), which runs no render pass and feeds raw
+/// markdown. The SHIPPED index is not this: it is the `shell = "search"`
+/// view's serialization (see `search_pass`), which may span tables.
 pub fn search_docs(
     db: &SiteDb,
     html_of: impl Fn(&Post) -> String,
@@ -804,38 +804,102 @@ pub fn search_docs(
         .collect()
 }
 
-/// Search (§6b): the index ships as /search.bin (postcard), consumed by the
-/// SAME core code compiled to wasm — /search.wasm + its /search.js loader
-/// are theme assets, fetched only when the search icon is clicked.
+/// Search (§6b, §5g): the index is a SHELL — a view declares
+/// `shell = "search"` with a filter over the route schema (the sitemap's
+/// shape), and the rows that pass are the searchable set, serialized as
+/// postcard at the view's route. Posts and pages carry bodies; other route
+/// kinds are silently unsearchable even if the filter admits them. The
+/// wasm consumer + /search.js loader are engine assets embedded in the
+/// binary (they must version with the index format), emitted only when a
+/// search view exists, fetched only when a theme's trigger is clicked.
 fn search_pass(
+    cfg: &Config,
     db: &SiteDb,
     bodies: &HashMap<&str, Doc>,
-    theme_dir: &Path,
+    page_bodies: &HashMap<String, PageBody>,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
-) {
-    let docs = search_docs(db, |p| {
-        bodies.get(p.url.as_str()).map(|d| d.whole.clone()).unwrap_or_default()
-    });
-    let t = std::time::Instant::now();
-    let (index, st) = grackle_search_core::build_index(&docs);
-    let bin = index.to_bytes();
-    stats.search_bytes = bin.len();
-    println!(
-        "  search    {} docs, {} terms, {} postings -> {} KB in {:.0}ms",
-        st.docs,
-        st.terms,
-        st.postings,
-        bin.len() / 1024,
-        t.elapsed().as_secs_f64() * 1000.0
-    );
-    out_map.insert("/search.bin".to_string(), bin);
-    for asset in ["search.js", "search.wasm"] {
-        let p = theme_dir.join(asset);
-        if let Ok(bytes) = std::fs::read(&p) {
-            out_map.insert(format!("/{asset}"), bytes);
+) -> Result<()> {
+    let mut any = false;
+    for (name, v) in &cfg.views {
+        if v.shell.as_deref() != Some("search") {
+            continue;
         }
+        let Some(route) = &v.route else { continue };
+        let pred = match &v.filter {
+            Some(src) => crate::filter::Filter::parse(src, &crate::db::route_schema())
+                .with_context(|| format!("view {name}: filter {src:?}"))?,
+            None => crate::filter::Filter::always(),
+        };
+        let page_by_url: HashMap<&str, &crate::db::Page> =
+            db.pages.rows.iter().map(|p| (p.url.as_str(), p)).collect();
+        let docs: Vec<grackle_search_core::SearchDoc> = db
+            .routes
+            .iter()
+            .filter(|r| pred.eval(*r))
+            .filter_map(|r| match r.kind {
+                crate::db::RouteKind::Post => {
+                    db.posts.by_url.get(&r.url).map(|&i| &db.posts.rows[i]).map(|p| {
+                        grackle_search_core::SearchDoc {
+                            url: p.url.clone(),
+                            title: p.title.clone(),
+                            date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
+                            html: bodies
+                                .get(p.url.as_str())
+                                .map(|d| d.whole.clone())
+                                .unwrap_or_default(),
+                            tags: p.tags.clone(),
+                        }
+                    })
+                }
+                crate::db::RouteKind::Page => {
+                    let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
+                    let p = page_by_url.get(r.url.as_str())?;
+                    Some(grackle_search_core::SearchDoc {
+                        url: p.url.clone(),
+                        // A titleless page is still searchable by body; its
+                        // URL is the only honest label a hit can wear.
+                        title: p.title.clone().unwrap_or_else(|| p.url.clone()),
+                        date: String::new(),
+                        // Markdown pages searched from the same bytes that
+                        // ship; raw-HTML pages from their body fragment.
+                        html: pb
+                            .doc
+                            .as_ref()
+                            .map(|d| d.whole.clone())
+                            .unwrap_or_else(|| pb.frag.clone()),
+                        tags: Vec::new(),
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let t = std::time::Instant::now();
+        let (index, st) = grackle_search_core::build_index(&docs);
+        let bin = index.to_bytes();
+        stats.search_bytes = bin.len();
+        println!(
+            "  search    {} docs, {} terms, {} postings -> {} KB in {:.0}ms",
+            st.docs,
+            st.terms,
+            st.postings,
+            bin.len() / 1024,
+            t.elapsed().as_secs_f64() * 1000.0
+        );
+        out_map.insert(route.clone(), bin);
+        any = true;
     }
+    if any {
+        out_map.insert(
+            "/search.js".to_string(),
+            include_bytes!("../assets/search.js").to_vec(),
+        );
+        out_map.insert(
+            "/search.wasm".to_string(),
+            include_bytes!("../assets/search.wasm").to_vec(),
+        );
+    }
+    Ok(())
 }
 
 /// A theme owns its stylesheet (§5e) — `theme.scss` compiles to the URL the

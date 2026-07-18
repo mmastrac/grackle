@@ -2242,15 +2242,15 @@ evaluating any expression not written by the site's author.
   signal to swap in a CEL crate, not to keep growing; the contract exists
   precisely so the swap is cheap.
 
-## 5g. Shells: the outermost serialization *(Matt, 2026-07; html root + atom/sitemap built)*
+## 5g. Shells: the outermost serialization *(Matt, 2026-07; html root + atom/sitemap/search built)*
 
 **Shell is its own axis**, distinct from layout (which parts a row emits)
 and theme (which fragments arrange them): the shell is what the arranged
 parts are *serialized into*. A page is parts in the HTML shell; the feed
 is the same rows in the atom shell; the sitemap is routes in the sitemap
-shell. Views declare `shell = "atom" | "sitemap"` (built — this retired
-q33's template-filename match), and the HTML shell got the treatment the
-idea deserved:
+shell. Views declare `shell = "atom" | "sitemap" | "search"` (built —
+this retired q33's template-filename match), and the HTML shell got the
+treatment the idea deserved:
 
 ### The root HTML shell: themes inherit, never write, the skeleton
 
@@ -2279,6 +2279,34 @@ Pending here: a theme that wants to ADD head content (fonts) lost its
 former ability to write into the skeleton's head — the mechanism when
 wanted is an optional `head.html` theme fragment appended after the
 computed facts.
+
+### The search shell: the searchable set is a query *(Matt's framing, built 2026-07)*
+
+`/search.bin` was the last hardcoded serialization — a posts-only
+projection baked into the pass. Now a view declares it, in exactly the
+sitemap's star shape:
+
+```toml
+[views.search]
+over = "*"
+route = "/search.bin"
+shell = "search"
+filter = '(kind == "post" || kind == "page") && !draft && !hidden'
+```
+
+The rows that pass the route-schema filter are the searchable set,
+serialized as the postcard index. Posts contribute date and tags; pages
+contribute their rendered body (the same bytes that ship — markdown pages
+their `Doc`, raw-HTML pages their fragment; titleless pages wear their
+URL). Other route kinds are silently unsearchable even if admitted. The
+example searches notes AND recipes/books/manual with the filter above
+(18 docs, 5 KB); the main site declares `kind == "post"` and its index is
+**byte-identical** through the view path — flipping pages in is a one-line
+config decision, not a code change. The js/wasm consumers are emitted only
+when a search view exists; a site without one ships zero search bytes.
+Noticed en route, not yet a question: listing-shaped pages (indexes, the
+homepage) match every term their link titles mention — a `stem`-like
+field on the route schema would let a filter exclude them.
 
 ### The md shell *(specced; consumer named)*
 
@@ -2596,9 +2624,16 @@ pay for; the per-row/corpus-wide decomposition survives in memory).
 Postings capped at 40/term, scores TF·IDF quantised u16, title/tag hits
 boosted 5×, stopworded, years searchable. First-click payload ≈ 288 KB
 (js + wasm + index), all cacheable; every page's default payload stays
-**zero JS**. The wasm blob is a committed theme asset — rebuild with
-`cargo build -p grackle-search-wasm --release --target
-wasm32-unknown-unknown` and copy to `themes/default/search.wasm`.
+**zero JS**. The wasm blob and its loader are **engine assets**
+(`grackle/assets/`, embedded via `include_bytes!`, emitted when a site
+declares a search view — they must version with `/search.bin`'s format,
+so they can't be theme-committed; a theme owns only the trigger and the
+overlay CSS). Rebuild with `cargo build -p grackle-search-wasm --release
+--target wasm32-unknown-unknown` and copy to `grackle/assets/search.wasm`.
+*(Moved from `themes/default/` 2026-07 when the example site wanted
+search — the icon was one shell edit plus overlay CSS, no blob copied.
+The index itself is now a declared SHELL — `shell = "search"`, §5g — so
+the searchable set is a query over the route schema, spanning tables.)*
 
 **Swiftype is retired**: the `data-swiftype-index` attributes left the
 shell with the chrome cut, and the launcher this replaces was a

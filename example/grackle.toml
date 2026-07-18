@@ -109,6 +109,15 @@ route = "/atom.xml"
 template = "atom.xml"
 shell = "atom"
 
+# Search spans tables (§5g): notes AND every rendered page — recipes, books,
+# the manual — because the searchable set is a route-schema query, not a
+# hardcoded projection of the posts table.
+[views.search]
+over = "*"
+route = "/search.bin"
+shell = "search"
+filter = '(kind == "post" || kind == "page") && !draft && !hidden'
+
 # The gallery (§5 audit, built): a view over the objects table. `match`
 # scopes by path glob, `order_by` is declared (lexical-by-luck is not a
 # contract), and the route replaces what was a hand-written index page.

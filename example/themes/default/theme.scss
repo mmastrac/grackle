@@ -53,6 +53,101 @@ a:hover {
 		margin: 0;
 		padding: 0;
 	}
+
+	.search-button {
+		border: none;
+		background: none;
+		color: var(--muted);
+		cursor: pointer;
+		line-height: 0;
+		padding: 0.3em;
+
+		&:hover {
+			color: var(--fg);
+		}
+	}
+}
+
+// ------------------------------------------------------------------ search
+// The icon is the only search bytes a page ships (§6b): clicking it loads
+// /search.js → /search.wasm + /search.bin, all engine-emitted; the theme
+// only styles the overlay.
+.search-overlay {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 10;
+	background: color-mix(in srgb, var(--bg) 60%, transparent);
+	backdrop-filter: blur(2px);
+
+	&.is-open {
+		display: block;
+	}
+}
+
+.search-panel {
+	max-width: 36rem;
+	margin: 12vh auto 0;
+	padding: 1rem;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.search-input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 0.6em 0.8em;
+	font: inherit;
+	font-size: 1.05rem;
+	color: var(--fg);
+	background: var(--bg);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	outline: none;
+
+	&:focus {
+		border-color: var(--muted);
+	}
+}
+
+.search-results {
+	max-height: 55vh;
+	overflow-y: auto;
+	margin-top: 0.75rem;
+}
+
+.search-hit {
+	display: grid;
+	grid-template-columns: 8.5rem minmax(0, 1fr);
+	gap: 0 1rem;
+	align-items: baseline;
+	padding: 0.45em 0.4em;
+	border-radius: 6px;
+	text-decoration: none;
+	color: var(--fg);
+
+	&:hover {
+		background: var(--line);
+	}
+}
+
+.search-hit-date {
+	font-style: italic;
+	font-size: 0.8125rem;
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.search-hit-title {
+	min-width: 0;
+	overflow-wrap: break-word;
+}
+
+.search-none {
+	margin: 0.75rem 0.4em 0;
+	color: var(--muted);
 }
 
 .site-footer {
