@@ -3265,10 +3265,17 @@ locale-parallel listings plug in later is already marked in
 `listing_title_and_trail`. Main site: no overrides, all bare strings →
 builtins → byte-identical, verified.
 
-**Honest edges, named now**: a localized row's breadcrumb trail beyond
-the root is `Accueil › Carnet › self` — deeper URL-walk ancestors find no
-`/fr/…` pages (walking the default-locale ancestors is probably right —
-pending). `.slots/` fills are content, not config — the natural move is
+**Honest edges, named now**: a localized POST's trail is complete —
+`Accueil › Carnet(→ /fr/blog/) › 10 January 2026`: the collection-index
+crumb locale-prefixes (the French index exists whenever French rows do),
+and the inert date tail shows the whole date when the collection
+declares no archive chain (a bare day only reads after year › month
+crumbs; main site keeps its day tail, byte-identical). Localized tree
+PAGES still walk URL ancestors and find no `/fr/…` pages (default-locale
+ancestors are probably right — pending), and `collection.index` is a
+literal URL, so an index view that opted out of locales would leave the
+prefixed crumb dangling — `index` naming a VIEW would close that,
+q32-adjacent. `.slots/` fills are content, not config — the natural move is
 the same path selector (`nav.fr.md` beside `nav.md`), unbuilt.
 `month_name` in group params is computed at route build, locale-free —
 localizing it belongs to the locale-parallel-views work. The search

@@ -1080,13 +1080,23 @@ fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
 
 /// Every trail roots the same way (§5c provenance): Home, then the
 /// collection's own crumb, linked to its index. Both resolve per locale
-/// (§6f): the engine's "home" string and the crumb's LocalizedStr.
+/// (§6f): the engine's "home" string, the crumb's LocalizedStr, and the
+/// index URL locale-prefixed — a French row's trail points at the French
+/// index, which exists whenever French rows do (locale-parallel views are
+/// default-on; a collection whose index view opted out keeps this honest
+/// only if its rows opted out of translation too — `index` naming a VIEW
+/// instead of a URL would close that, q32-adjacent, pending).
 fn trail_root(cfg: &Config, collection: &str, locale: &str) -> Vec<(String, Option<String>)> {
     let mut t =
         vec![(cfg.i18n.string("home", locale).to_string(), Some("/".to_string()))];
     if let Some(col) = cfg.collections.get(collection) {
         if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
-            t.push((cfg.i18n.text(c, locale).to_string(), Some(u.clone())));
+            let u = if locale != cfg.i18n.default {
+                format!("/{locale}{u}")
+            } else {
+                u.clone()
+            };
+            t.push((cfg.i18n.text(c, locale).to_string(), Some(u)));
         }
     }
     t
@@ -1168,6 +1178,7 @@ fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
         return t;
     }
     let trail_view = col.and_then(|(_, c)| c.trail.as_deref());
+    let mut chained = false;
     if let Some(trail_view) = trail_view {
         for name in cfg.grouped_chain(trail_view) {
             let Some(v) = cfg.views.get(&name) else { continue };
@@ -1184,12 +1195,21 @@ fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
                     (crate::route::render(tm, get), crate::route::render(rt, get))
                 {
                     t.push((label, Some(url)));
+                    chained = true;
                 }
             }
         }
     }
+    // The inert tail: a bare day only reads after year › month crumbs;
+    // with no archive chain declared, it dangled as a naked "10" — the
+    // whole date is the honest crumb there.
     if let Some(d) = p.date {
-        t.push((d.format("%-d").to_string(), None));
+        let tail = if chained {
+            d.format("%-d").to_string()
+        } else {
+            crate::db::pretty_date(d)
+        };
+        t.push((tail, None));
     }
     t
 }
