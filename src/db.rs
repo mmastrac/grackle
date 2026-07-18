@@ -801,9 +801,9 @@ impl filter::Row for Post {
 /// display component (joined into `Route.key`), and the parameters the key
 /// exposes to route/`title`/`crumb` templates.
 #[derive(Clone, Debug)]
-struct GroupKey {
+pub(crate) struct GroupKey {
     sort: SortKey,
-    params: Vec<(String, String)>,
+    pub(crate) params: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -863,7 +863,7 @@ fn group_keys(p: &Post, spec: &str) -> Result<Vec<GroupKey>> {
 /// The composite keys a row belongs to under a subdivision chain — the
 /// cartesian product across levels (`tags` can multi-key a row; date specs
 /// contribute at most one each). Empty when the row is absent at any level.
-fn key_combos(p: &Post, chain: &[String]) -> Result<Vec<Vec<GroupKey>>> {
+pub(crate) fn key_combos(p: &Post, chain: &[String]) -> Result<Vec<Vec<GroupKey>>> {
     let mut combos: Vec<Vec<GroupKey>> = vec![Vec::new()];
     for spec in chain {
         let keys = group_keys(p, spec)?;
@@ -890,7 +890,7 @@ fn key_combos(p: &Post, chain: &[String]) -> Result<Vec<Vec<GroupKey>>> {
 /// from config alone — no dependency on view processing order. The chain is
 /// acyclic and the composition shape is legal because `Config::query` already
 /// validated both.
-fn group_chain(cfg: &Config, name: &str) -> Vec<String> {
+pub(crate) fn group_chain(cfg: &Config, name: &str) -> Vec<String> {
     let mut chain = Vec::new();
     let mut cur = name;
     while let Some(v) = cfg.views.get(cur) {

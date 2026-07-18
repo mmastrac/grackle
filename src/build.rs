@@ -11,10 +11,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
-use crate::db::{RouteKind, SiteDb};
+use crate::db::{Post, RouteKind, SiteDb};
 use crate::render::{self, Site, Theme};
-use crate::{legacy, parts};
+use crate::parts;
 use crate::tags;
+use crate::theme;
 
 /// The rendered site, keyed by URL (`/blog/`, `/atom.xml`, `/css/main.css`,
 /// `/static/{hash}.jpg`, …). A directory URL ends in `/` and, on disk, becomes
@@ -70,7 +71,6 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let css_url = format!("{}/css/main.css", cfg.site.baseurl);
     let site = Site {
         url: &cfg.site.url,
-        baseurl: &cfg.site.baseurl,
         title: &cfg.site.title,
         author: &cfg.site.author,
         email: cfg.site.email.as_deref(),
@@ -124,7 +124,13 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         }
     }
 
-    // ---- posts: render -> document -> theme
+    // ---- theme: fragments + tree slot fills, loaded once (§5e). All theme
+    // errors — malformed fragment, unknown slot, arity violation — surface
+    // here, before anything renders.
+    let thm = theme::Theme::load(&root.join("themes/default"), &root)
+        .context("loading themes/default")?;
+
+    // ---- posts: render -> document parts -> theme fragments -> shell
     let rendered: Vec<(String, String)> = db
         .posts
         .rows
@@ -137,8 +143,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let expanded = tags::expand(&p.body, &cx)?;
             let frag = crate::markdown::render(&expanded);
             let head = render::head_for_post(p, &site);
-            let main = legacy::compose(&parts::document(db, p, &frag), &site);
-            let html = Theme::Default.shell(&head, &main, &site, "");
+            let trail = post_trail(cfg, p);
+            let main = thm.fragments.render(&parts::document(db, p, &frag, trail));
+            let dir = p.path.parent().unwrap_or(&root);
+            let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?;
             Ok((p.url.clone(), html))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -198,6 +206,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 .with_context(|| format!("view {view}: title"))?,
             None => r.key.clone().unwrap_or_else(|| view.clone()),
         };
+        // The trail is a provenance walk (§5c): Home, the collection's crumb,
+        // each *ancestor* grouped view rendered with this route's params —
+        // linked — and this route's own crumb as the inert tail.
         let tail = match r.page {
             // Paginated trails keep the engine's `Page N` rule for now —
             // crumb templates for paginated views are punted with open
@@ -212,6 +223,26 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 }
             }
         };
+        let mut trail = vec![("Home".to_string(), Some("/".to_string()))];
+        if let Some(col) = cfg.collections.get(&cfg.query(view)?.base) {
+            if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
+                trail.push((c.clone(), Some(u.clone())));
+            }
+        }
+        let chain = chain_view_names(cfg, view);
+        for anc in chain.iter().filter(|n| *n != view) {
+            let av = &cfg.views[anc.as_str()];
+            let tmpl = av.crumb.as_ref().or(av.title.as_ref());
+            if let (Some(t), Some(route_t)) = (tmpl, av.route.as_deref()) {
+                let label = crate::route::render(t, param)
+                    .with_context(|| format!("view {anc}: crumb"))?;
+                let url = crate::route::render(route_t, param)?;
+                trail.push((label, Some(url)));
+            }
+        }
+        if let Some(t) = tail {
+            trail.push((t, None));
+        }
 
         // Pagination is emitted only for paginated routes (those carrying a
         // page number); grouped views (tags, archives) have `page: None`. The
@@ -229,9 +260,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             None => None,
         };
 
-        let main = legacy::compose(&parts::listing(&rows, &title, tail.as_deref(), pagination), &site);
+        let main = thm.fragments.render(&parts::listing(&rows, &title, trail, pagination));
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
-        let html = Theme::Default.shell(&head, &main, &site, " class=\"multipost\"");
+        let html = thm.page(render::head_html(&head, &site), &cfg.site.title, main, &root)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -334,6 +365,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     includes: Some(cfg.root().join("_includes")),
                     site: Some(&site),
                     thumbs: Some(&thumb_urls),
+                    theme: Some(&thm),
                     ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
                 };
                 let expanded = tags::expand(body, &cx)?;
@@ -350,17 +382,23 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 };
 
                 // The legacy `layout:` field selects a theme + a layout kind.
-                let theme = Theme::parse(layout);
-                let main = match layout {
-                    Some("page") | Some("post") => legacy::compose(
-                        &parts::document_tree(&title, &r.url, &ancestors(db, &r.url), &frag),
-                        &site,
-                    ),
-                    // `default`, `light`, `null`: the row builds its own `main`.
-                    _ => legacy::compose(&parts::raw(&frag), &site),
-                };
                 let head = render::head_simple(&title, &r.url, &site, false);
-                let html = theme.shell(&head, &main, &site, "");
+                let html = match Theme::parse(layout) {
+                    // `light` stays a Rust shell until it becomes the null
+                    // theme (§5e step 4).
+                    Theme::Light => render::light_shell(&head, &frag),
+                    Theme::Default => {
+                        let main = match layout {
+                            Some("page") | Some("post") => thm.fragments.render(
+                                &parts::document_tree(&title, &r.url, &ancestors(db, &r.url), &frag),
+                            ),
+                            // `default`, `null`: the row builds its own `main`.
+                            _ => frag.clone(),
+                        };
+                        let dir = src.parent().unwrap_or(&root);
+                        thm.page(render::head_html(&head, &site), &cfg.site.title, main, dir)?
+                    }
+                };
                 out_map.insert(r.url.clone(), html.into_bytes());
                 stats.pages += 1;
             }
@@ -368,12 +406,13 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         }
     }
 
-    // ---- css: the default theme's stylesheet
-    let scss = cfg.root().join("css/main.scss");
+    // ---- css: the theme owns its stylesheet (§5e) — themes/default/theme.scss
+    // compiles to the same /css/main.css URL the shell links.
+    let scss = root.join("themes/default/theme.scss");
     if scss.exists() {
         let text = std::fs::read_to_string(&scss)?;
         let (_, body) = split_fm(&text);
-        let sass_dir = cfg.root().join("_sass");
+        let sass_dir = root.join("themes/default");
         let flat = inline_imports(body, &sass_dir, &mut Vec::new())?;
         let opts = grass::Options::default().load_path(&sass_dir);
         match grass::from_string(flat, &opts) {
@@ -386,6 +425,62 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     }
 
     Ok((out_map, stats))
+}
+
+/// The grouped views forming a view's subdivision chain (§5c), outermost
+/// first — the provenance axis breadcrumb trails walk.
+fn chain_view_names(cfg: &Config, name: &str) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut cur = name;
+    while let Some(view) = cfg.views.get(cur) {
+        if view.group_by.is_some() {
+            v.push(cur.to_string());
+        }
+        cur = &view.over;
+    }
+    v.reverse();
+    v
+}
+
+/// A post's breadcrumb trail: Home, the collection's crumb, then the
+/// collection's declared `trail` view chain rendered with the post's own
+/// group keys — each level linked to its archive — ending in the inert day.
+/// All provenance (§5c); the only special case left is drafts, which wait on
+/// the profiles work (§4a).
+fn post_trail(cfg: &Config, p: &Post) -> Vec<(String, Option<String>)> {
+    let mut t = vec![("Home".to_string(), Some("/".to_string()))];
+    let Some(col) = cfg.collections.get("blog") else { return t };
+    if let (Some(c), Some(u)) = (&col.crumb, &col.index) {
+        t.push((c.clone(), Some(u.clone())));
+    }
+    if p.draft {
+        t.push(("Drafts".to_string(), Some("/drafts".to_string())));
+        t.push((p.title.clone(), None));
+        return t;
+    }
+    if let Some(trail_view) = &col.trail {
+        for name in chain_view_names(cfg, trail_view) {
+            let Some(v) = cfg.views.get(&name) else { continue };
+            let specs = crate::db::group_chain(cfg, &name);
+            let Ok(combos) = crate::db::key_combos(p, &specs) else { continue };
+            let Some(combo) = combos.first() else { break }; // undated: no trail
+            let params: Vec<(String, String)> =
+                combo.iter().flat_map(|k| k.params.clone()).collect();
+            let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+            let tmpl = v.crumb.as_ref().or(v.title.as_ref());
+            if let (Some(tm), Some(rt)) = (tmpl, v.route.as_deref()) {
+                if let (Ok(label), Ok(url)) =
+                    (crate::route::render(tm, get), crate::route::render(rt, get))
+                {
+                    t.push((label, Some(url)));
+                }
+            }
+        }
+    }
+    if let Some(d) = p.date {
+        t.push((d.format("%-d").to_string(), None));
+    }
+    t
 }
 
 /// Ancestor pages of a URL, outermost first — the tree relation from §5a.

@@ -21,6 +21,12 @@ email = "matthew@mastracci.com"
 [collections.blog]
 kind = "posts"
 source = "_posts"
+# The collection's crumb identity (§5c provenance): trails root here, and a
+# post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
+# December > 16, every archive level clickable.
+crumb = "Blog"
+index = "/blog/"
+trail = "monthly_archive"
 # Tried in order. Measured: all 327 posts use the first form; the legacy
 # MM-DD-YYYY form that legacy_post_filename_dates.rb exists for is unused
 # in _posts, but the format list costs nothing to keep.
@@ -71,7 +77,7 @@ source = "."
 #   3. This list, for what is tracked on purpose but still isn't content.
 #      Nothing here is gitignored, so nothing here is a duplicate.
 exclude = [
-  "docker/**", "scripts/**", "CHANGES/**", "grackle/**", "node_modules/**",
+  "docker/**", "scripts/**", "CHANGES/**", "grackle/**", "node_modules/**", "themes/**",
   "Gemfile*", "*.sh", "TODO", "*.yml", "*.toml", "Rakefile", "LICENSE*",
 ]
 # Re-added despite the dotfile rule (matches `include:` in _config.yml).
@@ -186,12 +192,12 @@ title = "{year}"
 
 # Subdivision (§5c): `over` a grouped view refines its partition, so this is
 # GROUP BY year, month — the year key comes from the parent, and provenance
-# for breadcrumb chains comes free. `crumb` defaults to `title`; when the
-# trail splits (step 3 chrome cut) it becomes `crumb = "{month_name}"` under
-# the year's own crumb.
+# for breadcrumb chains comes free: trails render as 2022 > December with the
+# year linked to its own archive.
 [views.monthly_archive]
 over = "yearly_archive"
 group_by = "date.month"
 route = "/blog/{year}/{month:02}/"
 layout = "monthly_archive"
 title = "{year} {month_name}"
+crumb = "{month_name}"

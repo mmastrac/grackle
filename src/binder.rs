@@ -233,6 +233,17 @@ impl Fragments {
         if v.is_empty() { "(none)".into() } else { v.join(", ") }
     }
 
+    /// `(slot name, element tag)` for every content hole in a fragment — the
+    /// block-arity rule (§5e tree-filled slots) needs to know whether a slot
+    /// element takes flow content or only phrasing.
+    pub fn slot_tags(&self, kind: &str) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        if let Some(f) = self.map.get(kind) {
+            collect_slot_tags(&f.nodes, &mut out);
+        }
+        out
+    }
+
     // -------------------------------------------------------------- render
 
     /// Render the fragment bound to `m.kind`, filled from `m`. Infallible by
@@ -336,6 +347,28 @@ impl Fragments {
 
         let _ = write!(out, "</{}>", el.tag);
     }
+}
+
+fn collect_slot_tags(nodes: &[Node], out: &mut Vec<(String, String)>) {
+    for n in nodes {
+        if let Node::Element(el) = n {
+            if let Some(s) = &el.slot {
+                out.push((s.clone(), el.tag.clone()));
+            }
+            collect_slot_tags(&el.children, out);
+        }
+    }
+}
+
+/// Elements whose content model is phrasing-only: a markdown fill landing in
+/// one of these must be exactly one block, which unwraps to its inline
+/// content (§5e's block-arity rule).
+pub fn is_phrasing_only(tag: &str) -> bool {
+    matches!(
+        tag,
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "span" | "a" | "em"
+            | "strong" | "small" | "time" | "abbr" | "b" | "i" | "code" | "label"
+    )
 }
 
 fn known_parts(kind: &str) -> String {

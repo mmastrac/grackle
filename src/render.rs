@@ -1,12 +1,13 @@
-//! Presentation: the four layers of DESIGN.md §5a.
+//! Presentation: head facts + serializations.
 //!
-//!   schema  -> head facts (computed, never branched)
-//!   render  -> semantic fragment (comrak)
-//!   layout  -> document | listing | feed | raw   (fills `main`)
-//!   theme   -> shell + css                       (default | light)
+//!   schema  -> head facts (computed, never branched; §5a)
+//!   layout  -> part maps (parts.rs, §5e)
+//!   theme   -> fragments + css (themes/<name>/, theme.rs, §5e)
+//!   feed/sitemap -> serializations, no look (below)
 //!
-//! The layout kinds emit the *existing* BEM hooks, so `_sass` works unchanged
-//! as the `default` theme. Stable class names are the contract (§5a).
+//! What remains here is what has no theme: the computed `<head>` facts, the
+//! `light` Rust shell (the null theme, pending step 4), and the XML
+//! serializations.
 
 use crate::db::Post;
 use std::fmt::Write as _;
@@ -50,7 +51,6 @@ pub struct Head {
 
 pub struct Site<'a> {
     pub url: &'a str,
-    pub baseurl: &'a str,
     pub title: &'a str,
     pub author: &'a str,
     pub email: Option<&'a str>,
@@ -118,19 +118,11 @@ impl Theme {
             _ => Theme::Default,
         }
     }
-
-    /// A theme owns the shell *and* the css, and renders whichever head facts
-    /// it cares about. `light` deliberately takes almost none — it is the
-    /// falsifier for the layer boundary (§5a).
-    pub fn shell(self, head: &Head, main: &str, site: &Site, body_class: &str) -> String {
-        match self {
-            Theme::Light => light_shell(head, main),
-            Theme::Default => default_shell(head, main, site, body_class),
-        }
-    }
 }
 
-fn light_shell(head: &Head, main: &str) -> String {
+/// The `light` shell: still Rust, deliberately minimal — it becomes the null
+/// theme (canonical part order, no fragments) in §5e step 4.
+pub fn light_shell(head: &Head, main: &str) -> String {
     let robots = if head.noindex {
         "\n\t<meta name=\"robots\" content=\"noindex,follow\">"
     } else {
@@ -148,10 +140,12 @@ const FAVICONS: &str = r#"
 	<meta name="apple-mobile-web-app-title" content="grack.com">
 	<meta name="application-name" content="grack.com">"#;
 
-fn default_shell(head: &Head, main: &str, site: &Site, body_class: &str) -> String {
-    let mut h = String::with_capacity(main.len() + 4096);
-    h.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
-    let _ = write!(h, "\t<title>{}</title>\n", esc(&head.title));
+/// The computed head facts as the shell's `head` part (§5a: a theme renders
+/// the subset it wants; today's default takes them all). This fills
+/// `<head data-slot="head">` in the theme's shell fragment.
+pub fn head_html(head: &Head, site: &Site) -> String {
+    let mut h = String::with_capacity(2048);
+    let _ = write!(h, "\n\t<title>{}</title>\n", esc(&head.title));
     let _ = write!(h, "\t<meta property=\"og:title\" content=\"{}\">\n", esc(&head.title));
     if let Some(d) = &head.description {
         let _ = write!(h, "\t<meta name=\"description\" content=\"{}\">\n", esc(d));
@@ -175,49 +169,9 @@ fn default_shell(head: &Head, main: &str, site: &Site, body_class: &str) -> Stri
     if head.noindex {
         h.push_str("\n\t<meta name=\"robots\" content=\"noindex,follow\">");
     }
-    h.push_str("\n</head>\n");
-    let _ = write!(h, "<body{}>\n\n<div class=\"layout\">\n\n", body_class);
-    let _ = write!(
-        h,
-        r#"<header class="header" data-swiftype-index="false">
-	<nav class="subheader" aria-label="Site sections">
-		<h2><a href="{b}/blog">Blog</a></h2>
-		<h2><a href="{b}/writing">Writing</a></h2>
-		<h2><a href="{b}/code">Code</a></h2>
-	</nav>
-	<h1><a id="root" href="{b}/">grack.com</a></h1>
-</header>
-
-<div class="body">
-
-<main class="content">
-
-{main}
-
-</main>
-
-</div>
-
-<footer class="footer" data-swiftype-index="false">
-	<p class="copyright">&copy; 1998-2026 Matt Mastracci &mdash; <a href="{b}/contact/">contact</a></p>
-</footer>
-
-</div>
-
-</body>
-</html>
-"#,
-        b = site.baseurl,
-        main = main
-    );
+    h.push('\n');
     h
 }
-
-// ----------------------------------------------------------- layout kinds
-//
-// Layout kinds moved to `parts.rs` (§5e step 1): they emit part maps now, and
-// `legacy.rs` composes the pre-§5e markup from them, byte-for-byte, until the
-// theme directory + fragment binder replace it.
 
 // --------------------------------------------------------- feed serialization
 

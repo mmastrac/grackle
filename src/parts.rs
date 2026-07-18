@@ -1,12 +1,11 @@
 //! §5e: a layout kind emits a **part map**, not a page.
 //!
 //! A part is a named, typed value — a scalar, a trusted HTML fragment, a
-//! stream of child maps, or a fact. Layout kinds *produce* parts; who arranges
-//! them into markup is someone else's job (today: the legacy composer in
-//! `legacy.rs`, which replays the pre-§5e BEM markup byte-for-byte; next: theme
-//! fragments through the binder).
+//! stream of child maps, or a fact. Layout kinds *produce* parts; arranging
+//! them into markup belongs to a theme's fragments through the binder
+//! (`binder.rs`, `theme.rs`).
 //!
-//! Two disciplines start here, ahead of the binder:
+//! Two disciplines live here:
 //!
 //! - **Names are checked against a per-kind schema** (`schema()`), the same
 //!   load-time discipline as the filter language (§5). `set()` on an unknown
@@ -77,10 +76,14 @@ impl PartMap {
         self.parts.push((name, part));
     }
 
+    // Accessors are the map's read API; the binder pattern-matches `Part`
+    // directly, so outside tests these wait for the null theme (step 4).
+    #[allow(dead_code)]
     pub fn get(&self, name: &str) -> Option<&Part> {
         self.parts.iter().find(|(n, _)| *n == name).map(|(_, p)| p)
     }
 
+    #[allow(dead_code)]
     pub fn text(&self, name: &str) -> Option<&str> {
         match self.get(name) {
             Some(Part::Text(s)) => Some(s),
@@ -88,6 +91,7 @@ impl PartMap {
         }
     }
 
+    #[allow(dead_code)]
     pub fn html(&self, name: &str) -> Option<&str> {
         match self.get(name) {
             Some(Part::Html(s)) => Some(s),
@@ -95,6 +99,7 @@ impl PartMap {
         }
     }
 
+    #[allow(dead_code)]
     pub fn stream(&self, name: &str) -> &[PartMap] {
         match self.get(name) {
             Some(Part::Stream(v)) => v,
@@ -102,6 +107,7 @@ impl PartMap {
         }
     }
 
+    #[allow(dead_code)]
     pub fn map(&self, name: &str) -> Option<&PartMap> {
         match self.get(name) {
             Some(Part::Map(m)) => Some(m),
@@ -109,6 +115,7 @@ impl PartMap {
         }
     }
 
+    #[allow(dead_code)]
     pub fn flag(&self, name: &str) -> bool {
         matches!(self.get(name), Some(Part::Flag(true)))
     }
@@ -139,9 +146,19 @@ pub enum PartType {
 pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
     use PartType::*;
     Some(match kind {
+        // The outer skeleton. `head` is the computed head facts (§5a);
+        // `nav`/`copyright` are site identity, filled from `.slots/` so no
+        // theme owns the words; `main` is the rendered layout kind.
+        "shell" => &[
+            ("head", Html),
+            ("nav", Html),
+            ("site_title", Text),
+            ("main", Html),
+            ("copyright", Html),
+        ],
         // One row, full content. `tree` is the fact that the row lives in the
         // tree (ancestor crumbs) rather than the dated stream — §5e's
-        // `data-tree`, and for now the legacy composer's shape selector.
+        // `data-tree`: the theme's CSS picks the arrangement.
         "document" => &[
             ("title", Text),
             ("url", Text),
@@ -174,15 +191,18 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         "tag" => &[("name", Text), ("url", Text)],
         "neighbor" => &[
             ("rel", Text),
+            ("label", Text),
             ("url", Text),
             ("date", Text),
             ("date_pretty", Text),
             ("title", Text),
         ],
         // `prev`/`next` are absent at the ends of the range; a page with no
-        // `url` is the current page.
+        // `url` is the current page, and `current` carries the literal
+        // `aria-current` value ("page") so the fragment's attribute hole
+        // emits it only there — a11y and the CSS gap trick from one part.
         "pagination" => &[("prev", Text), ("next", Text), ("pages", Stream("page_link"))],
-        "page_link" => &[("n", Text), ("url", Text)],
+        "page_link" => &[("n", Text), ("url", Text), ("current", Text)],
         // The row's content *is* main (§5a).
         "raw" => &[("content", Html)],
         _ => return None,
@@ -205,25 +225,13 @@ fn crumb(label: String, url: Option<String>) -> PartMap {
     c
 }
 
-/// The breadcrumb trail of a dated (or draft) row: schema-driven, no branch
-/// survives past this function (§5a). The date *is* the trail — a full post
-/// has no separate `date` part.
-fn post_crumbs(p: &Post) -> Vec<PartMap> {
-    let mut v = vec![
-        crumb("Home".into(), Some("/".into())),
-        crumb("Blog".into(), Some("/blog".into())),
-    ];
-    if p.draft {
-        v.push(crumb("Drafts".into(), Some("/drafts".into())));
-        v.push(crumb(p.title.clone(), None));
-    } else if let Some(d) = p.date {
-        v.push(crumb(
-            d.format("%Y %B").to_string(),
-            Some(format!("/blog/{}", d.format("%Y/%m"))),
-        ));
-        v.push(crumb(d.format("%-d").to_string(), None));
-    }
-    v
+/// Crumb trails arrive as `(label, url?)` pairs — a crumb with no url is the
+/// trail's inert tail. The *derivation* lives with the caller: post and
+/// listing trails are provenance walks over the view chain (§5c), which
+/// needs the config; tree trails are the ancestor axis. Producers here just
+/// give the data its shape.
+pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
+    Part::Stream(trail.into_iter().map(|(l, u)| crumb(l, u)).collect())
 }
 
 fn tag_stream(p: &Post) -> Option<Part> {
@@ -246,21 +254,27 @@ fn tag_stream(p: &Post) -> Option<Part> {
 /// One dated row, full content: the `document` kind for a post. Temporal
 /// relations (crumb trail, neighbors) are present because the schema has a
 /// date, not because anything asked "am I a post".
-pub fn document(db: &SiteDb, p: &Post, content: &str) -> PartMap {
+pub fn document(
+    db: &SiteDb,
+    p: &Post,
+    content: &str,
+    trail: Vec<(String, Option<String>)>,
+) -> PartMap {
     let mut m = PartMap::new("document");
     m.set("title", Part::Text(p.title.clone()));
     m.set("url", Part::Text(p.url.clone()));
-    m.set("crumbs", Part::Stream(post_crumbs(p)));
+    m.set("crumbs", crumb_stream(trail));
     if let Some(t) = tag_stream(p) {
         m.set("tags", t);
     }
     m.set("content", Part::Html(content.to_string()));
     if let Some(&i) = db.posts.by_url.get(&p.url) {
         let (newer, older) = db.posts.neighbors(i);
-        let item = |rel: &str, idx: Option<usize>| -> Option<PartMap> {
+        let item = |rel: &str, label: &str, idx: Option<usize>| -> Option<PartMap> {
             let n = &db.posts.rows[idx?];
             let mut nm = PartMap::new("neighbor");
             nm.set("rel", Part::Text(rel.into()));
+            nm.set("label", Part::Text(label.into()));
             nm.set("url", Part::Text(n.url.clone()));
             if let Some(d) = n.date {
                 nm.set("date", Part::Text(d.format("%Y-%m-%d").to_string()));
@@ -269,10 +283,13 @@ pub fn document(db: &SiteDb, p: &Post, content: &str) -> PartMap {
             nm.set("title", Part::Text(n.title.clone()));
             Some(nm)
         };
-        let v: Vec<PartMap> = [item("newer", newer), item("older", older)]
-            .into_iter()
-            .flatten()
-            .collect();
+        let v: Vec<PartMap> = [
+            item("newer", "Later post", newer),
+            item("older", "Earlier post", older),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         m.set("neighbors", Part::Stream(v));
     }
     m
@@ -291,15 +308,16 @@ pub fn document_tree(
     m.set("title", Part::Text(title.to_string()));
     m.set("url", Part::Text(url.to_string()));
     m.set("tree", Part::Flag(true));
-    let mut v = vec![crumb("Home".into(), Some("/".into()))];
+    let mut v = vec![("Home".to_string(), Some("/".to_string()))];
     for (u, t) in ancestors {
-        v.push(crumb(t.clone(), Some(u.clone())));
+        v.push((t.clone(), Some(u.clone())));
     }
-    v.push(crumb(title.to_string(), None));
-    m.set("crumbs", Part::Stream(v));
+    v.push((title.to_string(), None));
+    m.set("crumbs", crumb_stream(v));
     m.set("content", Part::Html(content.to_string()));
     m
 }
+
 
 fn summary(p: &Post, content: &str) -> PartMap {
     let mut m = PartMap::new("summary");
@@ -316,24 +334,17 @@ fn summary(p: &Post, content: &str) -> PartMap {
     m
 }
 
-/// N rows, summarised. `breadcrumb_tail` is the view's key, prettied (a tag,
-/// a month, a page number); the trail is Home > Blog [> tail].
+/// N rows, summarised. The trail is the route's provenance chain (§5c),
+/// computed by the caller.
 pub fn listing(
     rows: &[(&Post, String)],
     title: &str,
-    breadcrumb_tail: Option<&str>,
+    trail: Vec<(String, Option<String>)>,
     pagination: Option<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
-    let mut v = vec![
-        crumb("Home".into(), Some("/".into())),
-        crumb("Blog".into(), Some("/blog".into())),
-    ];
-    if let Some(t) = breadcrumb_tail {
-        v.push(crumb(t.to_string(), None));
-    }
-    m.set("crumbs", Part::Stream(v));
+    m.set("crumbs", crumb_stream(trail));
     m.set(
         "items",
         Part::Stream(rows.iter().map(|(p, c)| summary(p, c)).collect()),
@@ -372,6 +383,8 @@ pub fn pagination(current: usize, total: usize) -> Option<PartMap> {
             pm.set("n", Part::Text(n.to_string()));
             if n != current {
                 pm.set("url", Part::Text(path(n)));
+            } else {
+                pm.set("current", Part::Text("page".into()));
             }
             pm
         })
@@ -396,40 +409,20 @@ pub fn link_list(rows: &[&Post]) -> PartMap {
     m
 }
 
-/// The row's content *is* `main`.
-pub fn raw(content: &str) -> PartMap {
-    let mut m = PartMap::new("raw");
-    m.set("content", Part::Html(content.to_string()));
-    m
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn crumbs_are_schema_driven() {
-        // A dated row gets the date trail with an inert day tail.
-        let p = Post {
-            title: "T".into(),
-            url: "/blog/2022/12/16/t/".into(),
-            date: chrono::NaiveDate::from_ymd_opt(2022, 12, 16),
-            ..Post::default()
-        };
-        let c = post_crumbs(&p);
-        assert_eq!(c.len(), 4);
-        assert_eq!(c[2].text("label"), Some("2022 December"));
-        assert_eq!(c[2].text("url"), Some("/blog/2022/12"));
-        assert_eq!(c[3].text("label"), Some("16"));
-        assert_eq!(c[3].text("url"), None);
-    }
-
-    #[test]
-    fn draft_gets_drafts_trail() {
-        let p = Post { title: "WIP".into(), draft: true, ..Post::default() };
-        let c = post_crumbs(&p);
-        assert_eq!(c[2].text("label"), Some("Drafts"));
-        assert_eq!(c[3].text("label"), Some("WIP"));
+    fn crumb_stream_marks_inert_tail_by_missing_url() {
+        let s = crumb_stream(vec![
+            ("Home".into(), Some("/".into())),
+            ("16".into(), None),
+        ]);
+        let Part::Stream(v) = s else { panic!("not a stream") };
+        assert_eq!(v[0].text("url"), Some("/"));
+        assert_eq!(v[1].text("label"), Some("16"));
+        assert_eq!(v[1].text("url"), None);
     }
 
     #[test]

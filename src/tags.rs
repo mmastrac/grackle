@@ -30,11 +30,14 @@ pub struct Ctx<'a> {
     /// `{% image %}` source path -> the thumbnail's published URL (§6b). When
     /// absent, `{% image %}` falls back to linking the original at full size.
     pub thumbs: Option<&'a HashMap<String, String>>,
+    /// The theme, for embedded views ({% view %}) that render through
+    /// fragments. None disables embedding.
+    pub theme: Option<&'a crate::theme::Theme>,
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(db: &'a SiteDb, baseurl: &'a str, source: impl Into<String>) -> Self {
-        Ctx { db, baseurl, source: source.into(), includes: None, site: None, thumbs: None }
+        Ctx { db, baseurl, source: source.into(), includes: None, site: None, thumbs: None, theme: None }
     }
 }
 
@@ -132,7 +135,13 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
         .site
         .ok_or_else(|| anyhow::anyhow!("{}: {{% view %}} needs a site context", cx.source))?;
     match v.layout.as_deref() {
-        Some("link_list") => Ok(crate::legacy::compose(&crate::parts::link_list(&rows), site)),
+        Some("link_list") => {
+            let _ = site;
+            let theme = cx.theme.ok_or_else(|| {
+                anyhow::anyhow!("{}: {{% view {name} %}} needs a theme context", cx.source)
+            })?;
+            Ok(theme.fragments.render(&crate::parts::link_list(&rows)))
+        }
         Some(other) => bail!(
             "{}: view {name} has layout {other:?}, which is not embeddable",
             cx.source
@@ -175,6 +184,7 @@ fn include(arg: &str, cx: &Ctx) -> Result<String> {
         includes: cx.includes.clone(),
         site: cx.site,
         thumbs: cx.thumbs,
+        theme: cx.theme,
     };
     expand(&text, &inner)
 }

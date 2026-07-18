@@ -66,6 +66,14 @@ pub struct Collection {
     pub include: Vec<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
+    /// The collection's crumb identity: what it contributes to breadcrumb
+    /// trails (§5c provenance — the chain roots at the collection), and
+    /// where that crumb links.
+    pub crumb: Option<String>,
+    pub index: Option<String>,
+    /// The view whose subdivision chain forms this collection's row trails
+    /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
+    pub trail: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

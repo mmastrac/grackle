@@ -1637,7 +1637,7 @@ that case resolves to a schema field too.
 
 ## 5e. The presentation synthesis: parts fill slots, CSS does the geometry
 
-**Status: step 1 built (part maps); the rest designed.** Layout kinds now emit
+**Status: steps 1–3 built; step 4 (null theme) remains.** Layout kinds now emit
 part maps (`parts.rs`): named, typed parts — `Text`/`Html`/`Stream`/`Map`/
 `Flag` — in canonical order, names asserted against a per-kind `schema()`,
 producers never touching `Site` (URLs are root-relative; `baseurl` is
@@ -1657,6 +1657,43 @@ including its 12 tests, standalone until the theme directory wires it in.
 The part schemas gained types (`PartType`: text/html/stream-of-kind/
 map-of-kind/flag) so holes are type-checked, not just name-checked, and
 producers assert their own conformance at `set()`.
+
+**Step 3 built (the chrome cut).** `themes/default/` exists: `shell.html` +
+ten kind fragments + `theme.scss`, rendered through the binder
+(`theme.rs`); the legacy composer is deleted; `_sass` is superseded by the
+theme's stylesheet (content-level partials copied verbatim — body markup
+did not change; chrome partials rewritten against `data-slot`/`data-kind`).
+Verified exactly as priced: **bodies by machine** (all 327 post content
+regions byte-identical across the cut), **chrome by eye** (browser pass:
+posts, listings, pagination, tree pages, `/`, phone widths, both color
+schemes). What the cut retired, each named in this section's autopsy list:
+the two breadcrumb markup shapes (one `crumb` fragment now), the two
+document shapes (one fragment, `[data-tree]` is two CSS declarations),
+`body.multipost` (summary styles select on `[data-kind="summary"]`
+context), and the Rust default shell. Notes from the build:
+
+- **Dark mode landed as pure CSS** — a custom-property palette plus one
+  `prefers-color-scheme` block in `_chrome.scss`, zero engine involvement:
+  the proof §5e promised that CSS is doing the lifting. Code blocks stay
+  light in both schemes (the rouge palette is tuned for paper).
+- **The placeholder-link rule earns its keep everywhere at once**:
+  disabled pagination arrows, the current page tile, and inert crumb tails
+  are all `<a>` without `href`, styled via `a:not([href])`. `aria-current`
+  rides an attribute hole (`data-slot-aria-current` filled only on the
+  current page), so the CSS gap picker and a11y share one part.
+- **Identity slots are live** (`.slots/nav.md`, `.slots/copyright.md` at
+  the root): the copyright is a single-paragraph fill *unwrapped by the
+  block-arity rule* into the shell's `<p>`; the nav is a markdown list
+  filling a flow `<nav>`. No theme file contains the site's words.
+- **Trails are provenance walks now**: posts render Home > Blog > 2022 >
+  December > 16 with every archive level linked (the §5c payoff, one
+  config edit: `crumb = "{month_name}"` + collection `crumb`/`index`/
+  `trail`). The `Site.baseurl` parameter fell out of the presentation
+  layer entirely — parts are root-relative and fragments are literal.
+- Cascade layering is import-order + scoping rather than `@layer` for now:
+  content styles scope to the content *region* (`.doc-body`), so chrome
+  never fights body typography. `@layer` remains attractive once `grass`'s
+  handling is verified; nothing structural blocks it.
 
 ### One law, already proven twice
 
@@ -2959,7 +2996,7 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
 | 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by §11.12 (`/static/` by design). |
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
-| **6** | §5e presentation synthesis | 🟡 **steps 1–2 done** — layout kinds emit part maps (`parts.rs`, typed per-kind schemas, canonical order); `legacy.rs` composes the old BEM markup from them **byte-identically** (whole-site diff vs pre-refactor build: only the atom.xml timestamp). The fragment binder (`binder.rs`) is built and standalone: strict parser, four-rule hole algebra incl. attribute holes, all names/types/child-fragments checked at load with file:line errors. **Also landed under the oracle**: yearly archives (`/blog/{year}/`, +16 routes), and §5c subdivision — `monthly_archive` is now `over = "yearly_archive"` (GROUP BY year, month compositionally), group params on routes, `title`/`crumb` as config templates (the renderer's title `match` is gone). Next: `themes/default/` + the one by-eye chrome cut + dark mode (step 3) — where trails split on provenance (year becomes a clickable crumb) — `light` as the null theme (step 4), `.slots/` tree fills. |
+| **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. Remaining: step 4 (`light` → null theme). |
 
 ## 11. Open questions (to iterate on)
 
