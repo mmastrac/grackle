@@ -1637,7 +1637,7 @@ that case resolves to a schema field too.
 
 ## 5e. The presentation synthesis: parts fill slots, CSS does the geometry
 
-**Status: steps 1–3 built; step 4 (null theme) remains.** Layout kinds now emit
+**Status: all four steps built — the synthesis is real.** Layout kinds now emit
 part maps (`parts.rs`): named, typed parts — `Text`/`Html`/`Stream`/`Map`/
 `Flag` — in canonical order, names asserted against a per-kind `schema()`,
 producers never touching `Site` (URLs are root-relative; `baseurl` is
@@ -1694,6 +1694,32 @@ context), and the Rust default shell. Notes from the build:
   content styles scope to the content *region* (`.doc-body`), so chrome
   never fights body typography. `@layer` remains attractive once `grass`'s
   handling is verified; nothing structural blocks it.
+
+**Step 4 built (the null theme) — and it dissolved into a fallback rule.**
+`parts::canonical()` renders any part map with no fragments at all: kind
+root = `<section data-kind>` stamped with facts, scalars = `<span
+data-slot>`, urls = real links, streams/maps recurse, canonical order
+throughout. The mechanism is better than the design asked for:
+**`Fragments::render` falls back to canonical for any kind the theme
+declines to arrange**, so themes are *partial by construction* — a theme
+with no fragments IS the null theme and needs no directory, and a new theme
+can start from one fragment and grow. Two refinements fell out:
+
+- **`PartType::Url`.** The null theme should be navigable, which forced the
+  admission that url-shaped scalars are a *type*, not a naming convention.
+  Attribute holes (`data-slot-href`) now validate against Text-or-Url, and
+  canonical renders urls as links.
+- **The falsifier runs on every real row, in the test suite.** The
+  completeness property — every part's bytes survive into the canonical
+  rendering; if a part can vanish, no fragment can put it back — is checked
+  over the actual corpus (327 posts, 180 listings incl. pagination maps,
+  every tree-page shape) on every `cargo test`.
+
+`layout: light` pages (2) render as minimal shell + canonical `raw` — the
+Rust `light_shell` is now three lines of head around the null rendering.
+Incidentally proven the same day: a one-line edit to `.slots/copyright.md`
+moved the copyright year across 500+ pages with no theme file touched —
+identity slots doing exactly what they were built for.
 
 ### One law, already proven twice
 
@@ -2996,7 +3022,7 @@ actually good at: user-authored `.rewrite.toml` rules over rendered output.
 | 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by §11.12 (`/static/` by design). |
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
-| **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. Remaining: step 4 (`light` → null theme). |
+| **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** |
 
 ## 11. Open questions (to iterate on)
 

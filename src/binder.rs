@@ -157,7 +157,7 @@ impl Fragments {
                          on the fragment root, they do not fill content",
                         el.line
                     ),
-                    PartType::Text | PartType::Html => {
+                    PartType::Text | PartType::Url | PartType::Html => {
                         if el.void {
                             bail!(
                                 "{file}:{}: content slot `{slot}` on void element <{}>",
@@ -181,20 +181,15 @@ impl Fragments {
                                 el.tag
                             );
                         }
+                        // A theme without a fragment for the child kind gets
+                        // the canonical (null-theme) rendering — themes are
+                        // partial by design (§5e step 4).
                         let target = el.fragment.as_deref().unwrap_or(child);
                         if target != child {
                             bail!(
                                 "{file}:{}: `{slot}` holds `{child}` maps, but \
                                  data-fragment=\"{target}\" binds a different kind",
                                 el.line
-                            );
-                        }
-                        if self.map.get(target).is_none() {
-                            bail!(
-                                "{file}:{}: slot `{slot}` needs a `{target}` fragment, \
-                                 and this theme has none — fragments present: {}",
-                                el.line,
-                                self.known_fragments()
                             );
                         }
                     }
@@ -208,7 +203,7 @@ impl Fragments {
             for a in &el.attrs {
                 if let Attr::Slot(attr, part) = a {
                     match crate::parts::part_type(kind, part) {
-                        Some(PartType::Text) => {}
+                        Some(PartType::Text | PartType::Url) => {}
                         Some(_) => bail!(
                             "{file}:{}: data-slot-{attr} must name a text part, \
                              `{part}` is not one",
@@ -246,17 +241,20 @@ impl Fragments {
 
     // -------------------------------------------------------------- render
 
-    /// Render the fragment bound to `m.kind`, filled from `m`. Infallible by
-    /// construction once `load` has validated; panics only on a map whose
-    /// kind has no fragment — a caller bug, since callers pick the entry kind.
+    /// Render the map through its kind's fragment — or, when the theme
+    /// declines to arrange this kind, through the canonical null rendering
+    /// (§5e step 4). Themes are partial: a theme with *no* fragments is the
+    /// null theme, and it needs no directory at all. Infallible once `load`
+    /// has validated.
     pub fn render(&self, m: &PartMap) -> String {
-        let frag = self
-            .map
-            .get(m.kind)
-            .unwrap_or_else(|| panic!("no fragment for kind `{}`", m.kind));
-        let mut out = String::new();
-        self.render_nodes(&frag.nodes, m, &mut out, true);
-        out
+        match self.map.get(m.kind) {
+            Some(frag) => {
+                let mut out = String::new();
+                self.render_nodes(&frag.nodes, m, &mut out, true);
+                out
+            }
+            None => crate::parts::canonical(m),
+        }
     }
 
     fn render_nodes(&self, nodes: &[Node], m: &PartMap, out: &mut String, mut root: bool) {
@@ -329,18 +327,16 @@ impl Fragments {
             Some(Part::Html(s)) => out.push_str(s),
             Some(Part::Stream(v)) => {
                 for item in v {
-                    let child = self.map.get(item.kind).unwrap_or_else(|| {
-                        panic!("validated fragment missing for `{}`", item.kind)
-                    });
-                    self.render_nodes(&child.nodes, item, out, true);
+                    match self.map.get(item.kind) {
+                        Some(child) => self.render_nodes(&child.nodes, item, out, true),
+                        None => out.push_str(&crate::parts::canonical(item)),
+                    }
                 }
             }
-            Some(Part::Map(sub)) => {
-                let child = self.map.get(sub.kind).unwrap_or_else(|| {
-                    panic!("validated fragment missing for `{}`", sub.kind)
-                });
-                self.render_nodes(&child.nodes, sub, out, true);
-            }
+            Some(Part::Map(sub)) => match self.map.get(sub.kind) {
+                Some(child) => self.render_nodes(&child.nodes, sub, out, true),
+                None => out.push_str(&crate::parts::canonical(sub)),
+            },
             Some(Part::Flag(_)) => unreachable!("flags cannot fill content (validated)"),
             None => self.render_nodes(&el.children, m, out, false),
         }
@@ -701,10 +697,33 @@ mod tests {
         assert!(msg.contains("title, url, date"), "{msg}");
     }
 
+    /// Themes are partial (§5e step 4): a kind the theme declines to arrange
+    /// renders canonically — the null theme is the fallback, not an error.
     #[test]
-    fn missing_child_fragment_is_a_load_error() {
-        let e = frags(&[("document", r#"<nav data-slot="crumbs"></nav>"#)]).unwrap_err();
-        assert!(format!("{e}").contains("needs a `crumb` fragment"), "{e}");
+    fn missing_child_fragment_falls_back_to_canonical() {
+        let f = frags(&[("document", r#"<nav data-slot="crumbs"></nav>"#)]).unwrap();
+        let mut m = PartMap::new("document");
+        m.set(
+            "crumbs",
+            Part::Stream(vec![crumb("Home", Some("/")), crumb("16", None)]),
+        );
+        let out = f.render(&m);
+        assert!(out.contains(r#"<section data-kind="crumb">"#), "{out}");
+        assert!(out.contains(r#"<a data-slot="url" href="/">/</a>"#), "{out}");
+        assert!(out.contains(r#"<span data-slot="label">16</span>"#), "{out}");
+    }
+
+    /// And a map whose own kind has no fragment renders canonically wholesale
+    /// — a theme with no fragments at all IS the null theme.
+    #[test]
+    fn missing_root_fragment_is_the_null_theme() {
+        let f = frags(&[]).unwrap();
+        let mut m = PartMap::new("summary");
+        m.set("title", Part::Text("T".into()));
+        m.set("content", Part::Html("<p>x</p>".into()));
+        let out = f.render(&m);
+        assert!(out.starts_with(r#"<section data-kind="summary">"#), "{out}");
+        assert!(out.contains(r#"<div data-slot="content"><p>x</p></div>"#), "{out}");
     }
 
     #[test]

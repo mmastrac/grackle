@@ -384,9 +384,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 // The legacy `layout:` field selects a theme + a layout kind.
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = match Theme::parse(layout) {
-                    // `light` stays a Rust shell until it becomes the null
-                    // theme (§5e step 4).
-                    Theme::Light => render::light_shell(&head, &frag),
+                    // `light` IS the null theme (§5e step 4): the minimal
+                    // shell (title + robots) around the canonical rendering.
+                    Theme::Light => {
+                        render::light_shell(&head, &parts::canonical(&parts::raw(&frag)))
+                    }
                     Theme::Default => {
                         let main = match layout {
                             Some("page") | Some("post") => thm.fragments.render(

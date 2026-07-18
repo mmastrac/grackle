@@ -57,7 +57,7 @@ impl PartMap {
         debug_assert!(
             match (&part, ty) {
                 (_, None) => true, // the name assert above already fired
-                (Part::Text(_), Some(PartType::Text)) => true,
+                (Part::Text(_), Some(PartType::Text | PartType::Url)) => true,
                 (Part::Html(_), Some(PartType::Html)) => true,
                 (Part::Stream(v), Some(PartType::Stream(k))) =>
                     v.iter().all(|m| m.kind == k),
@@ -134,6 +134,10 @@ impl PartMap {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartType {
     Text,
+    /// A scalar that is a link target. Carried as `Part::Text`; the type
+    /// exists so the null theme can render real links and the binder can
+    /// insist attribute holes (`data-slot-href`) name something url-shaped.
+    Url,
     Html,
     Stream(&'static str),
     Map(&'static str),
@@ -161,7 +165,7 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         // `data-tree`: the theme's CSS picks the arrangement.
         "document" => &[
             ("title", Text),
-            ("url", Text),
+            ("url", Url),
             ("tree", Flag),
             ("crumbs", Stream("crumb")),
             ("tags", Stream("tag")),
@@ -177,7 +181,7 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         ],
         "summary" => &[
             ("title", Text),
-            ("url", Text),
+            ("url", Url),
             ("date", Text),
             ("date_pretty", Text),
             ("tags", Stream("tag")),
@@ -185,14 +189,14 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         ],
         // N rows as bare titled links (`/`'s embedded latest-posts block).
         "link_list" => &[("items", Stream("link"))],
-        "link" => &[("title", Text), ("url", Text)],
+        "link" => &[("title", Text), ("url", Url)],
         // A crumb with no `url` is the trail's inert tail.
-        "crumb" => &[("label", Text), ("url", Text)],
-        "tag" => &[("name", Text), ("url", Text)],
+        "crumb" => &[("label", Text), ("url", Url)],
+        "tag" => &[("name", Text), ("url", Url)],
         "neighbor" => &[
             ("rel", Text),
             ("label", Text),
-            ("url", Text),
+            ("url", Url),
             ("date", Text),
             ("date_pretty", Text),
             ("title", Text),
@@ -201,8 +205,8 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         // `url` is the current page, and `current` carries the literal
         // `aria-current` value ("page") so the fragment's attribute hole
         // emits it only there — a11y and the CSS gap trick from one part.
-        "pagination" => &[("prev", Text), ("next", Text), ("pages", Stream("page_link"))],
-        "page_link" => &[("n", Text), ("url", Text), ("current", Text)],
+        "pagination" => &[("prev", Url), ("next", Url), ("pages", Stream("page_link"))],
+        "page_link" => &[("n", Text), ("url", Url), ("current", Text)],
         // The row's content *is* main (§5a).
         "raw" => &[("content", Html)],
         _ => return None,
@@ -212,6 +216,66 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
 /// Look up one part's declared type.
 pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
     schema(kind)?.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
+}
+
+// --------------------------------------------------------------- canonical
+
+/// The null theme (§5e step 4): a part map rendered with **no fragments at
+/// all** — canonical order, generic semantic markup, derived purely from the
+/// part types. This is what a theme's absence looks like, the fallback for
+/// any kind a theme declines to arrange, and the falsifier: if the canonical
+/// render of a row is not complete, the parts layer dropped something, and
+/// no fragment can put it back.
+///
+/// The vocabulary is deliberately tiny: the kind root is a `<section
+/// data-kind>` stamped with its facts, scalars are `<span data-slot>`, urls
+/// are real links, trusted HTML and nested maps get `<div data-slot>`.
+/// Element *choice* beyond that (headings, time elements) is a theme
+/// decision, which is exactly what the null theme doesn't make.
+pub fn canonical(m: &PartMap) -> String {
+    let mut out = String::new();
+    canonical_into(m, &mut out);
+    out
+}
+
+fn canonical_into(m: &PartMap, out: &mut String) {
+    use std::fmt::Write as _;
+    let _ = write!(out, "<section data-kind=\"{}\"", m.kind);
+    for (n, p) in m.iter() {
+        if matches!(p, Part::Flag(true)) {
+            let _ = write!(out, " data-{n}");
+        }
+    }
+    out.push_str(">\n");
+    for (n, p) in m.iter() {
+        match p {
+            Part::Text(v) => {
+                if part_type(m.kind, n) == Some(PartType::Url) {
+                    let e = crate::render::esc(v);
+                    let _ = write!(out, "<a data-slot=\"{n}\" href=\"{e}\">{e}</a>\n");
+                } else {
+                    let _ = write!(out, "<span data-slot=\"{n}\">{}</span>\n", crate::render::esc(v));
+                }
+            }
+            Part::Html(v) => {
+                let _ = write!(out, "<div data-slot=\"{n}\">{v}</div>\n");
+            }
+            Part::Stream(items) => {
+                let _ = write!(out, "<div data-slot=\"{n}\">\n");
+                for item in items {
+                    canonical_into(item, out);
+                }
+                out.push_str("</div>\n");
+            }
+            Part::Map(sub) => {
+                let _ = write!(out, "<div data-slot=\"{n}\">\n");
+                canonical_into(sub, out);
+                out.push_str("</div>\n");
+            }
+            Part::Flag(_) => {}
+        }
+    }
+    out.push_str("</section>\n");
 }
 
 // --------------------------------------------------------------- producers
@@ -409,6 +473,14 @@ pub fn link_list(rows: &[&Post]) -> PartMap {
     m
 }
 
+/// The row's content *is* `main` — the null theme wraps it, real themes
+/// pass it through.
+pub fn raw(content: &str) -> PartMap {
+    let mut m = PartMap::new("raw");
+    m.set("content", Part::Html(content.to_string()));
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,5 +514,96 @@ mod tests {
     fn unknown_part_name_asserts() {
         let mut c = PartMap::new("crumb");
         c.set("title", Part::Text("x".into()));
+    }
+
+    #[test]
+    fn canonical_renders_order_links_and_facts() {
+        let mut m = PartMap::new("document");
+        m.set("title", Part::Text("A & B".into()));
+        m.set("url", Part::Text("/x/".into()));
+        m.set("tree", Part::Flag(true));
+        m.set("content", Part::Html("<p>hi</p>".into()));
+        let out = canonical(&m);
+        assert!(out.starts_with(r#"<section data-kind="document" data-tree>"#), "{out}");
+        assert!(out.contains(r#"<span data-slot="title">A &amp; B</span>"#), "{out}");
+        // Url-typed parts are real links — the null theme is navigable.
+        assert!(out.contains(r#"<a data-slot="url" href="/x/">/x/</a>"#), "{out}");
+        let t = out.find("data-slot=\"title\"").unwrap();
+        let c = out.find("data-slot=\"content\"").unwrap();
+        assert!(t < c, "canonical order is insertion order");
+    }
+
+    /// The completeness property the null theme exists to falsify: every
+    /// part's bytes must survive into the canonical rendering.
+    fn complete(m: &PartMap, out: &str) -> bool {
+        m.iter().all(|(n, p)| match p {
+            Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
+            Part::Html(v) => out.contains(v.as_str()),
+            Part::Stream(items) => items.iter().all(|c| complete(c, out)),
+            Part::Map(sub) => complete(sub, out),
+            Part::Flag(true) => out.contains(&format!("data-{n}")),
+            Part::Flag(false) => true,
+        })
+    }
+
+    /// §5e step 4's "run automatically on every row": load the real site and
+    /// render every post, page and listing through the null theme, asserting
+    /// nothing the parts layer carries is dropped. If a part can vanish, no
+    /// fragment can put it back — this catches it at the layer that owns it.
+    #[test]
+    fn null_theme_is_complete_over_every_real_row() {
+        let cfg = crate::config::Config::load(std::path::Path::new("grackle.toml"))
+            .expect("grackle.toml loads");
+        let db = crate::db::SiteDb::load(&cfg).expect("site db loads");
+        assert!(db.posts.rows.len() > 300, "real corpus expected");
+
+        // Every post as a full document (raw body stands in for rendered
+        // content: completeness is a byte property, not a markdown one).
+        for p in &db.posts.rows {
+            let trail = vec![
+                ("Home".to_string(), Some("/".to_string())),
+                (p.title.clone(), None),
+            ];
+            let m = document(&db, p, &p.body, trail);
+            let out = canonical(&m);
+            assert!(complete(&m, &out), "post {} dropped a part", p.url);
+        }
+
+        // Every routed listing, summaries and pagination included.
+        for r in &db.routes {
+            if r.view.is_none() || r.members.is_empty() {
+                continue;
+            }
+            let rows: Vec<(&Post, String)> = r
+                .members
+                .iter()
+                .map(|&i| {
+                    let p = &db.posts.rows[i];
+                    (p, p.body.clone())
+                })
+                .collect();
+            let m = listing(
+                &rows,
+                r.key.as_deref().unwrap_or("listing"),
+                vec![("Home".to_string(), Some("/".to_string()))],
+                r.page.and_then(|n| pagination(n, 66)),
+            );
+            let out = canonical(&m);
+            assert!(complete(&m, &out), "listing {} dropped a part", r.url);
+        }
+
+        // Every tree page shape (ancestors + title; content is the page's
+        // own problem — raw pages bypass parts by design).
+        for pg in &db.pages.rows {
+            let title = pg.title.clone().unwrap_or_default();
+            let m = document_tree(
+                &title,
+                &pg.url,
+                &[("/code/".to_string(), "Code".to_string())],
+                "<p>body</p>",
+            );
+            let out = canonical(&m);
+            assert!(complete(&m, &out), "page {} dropped a part", pg.url);
+        }
     }
 }
