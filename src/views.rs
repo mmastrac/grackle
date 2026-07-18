@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
 use crate::config::{Config, Kind, Query, View};
-use crate::db::{object_schema, post_schema, route_schema, Post, Route, RouteKind, SiteDb, ViewRows};
+use crate::db::{object_schema, post_schema, route_schema, Route, RouteKind, SiteDb, ViewRows};
 use crate::filter;
 use crate::route;
 
@@ -580,6 +580,7 @@ mod object_view_tests {
 #[cfg(test)]
 mod grouping_tests {
     use super::*;
+    use crate::db::Post;
     use chrono::NaiveDate;
 
     fn post(date: Option<&str>, tags: &[&str]) -> Post {

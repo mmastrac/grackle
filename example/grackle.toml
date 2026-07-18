@@ -107,6 +107,7 @@ over = "published"
 limit = 20
 route = "/atom.xml"
 template = "atom.xml"
+shell = "atom"
 
 # The gallery (§5 audit, built): a view over the objects table. `match`
 # scopes by path glob, `order_by` is declared (lexical-by-luck is not a
@@ -169,4 +170,5 @@ variant = "card"
 [views.sitemap]
 over = "*"
 route = "/sitemap.xml"
+shell = "sitemap"
 filter = '!draft && !hidden && (dir || ext == "html")'

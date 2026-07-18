@@ -119,6 +119,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let thm = themes.get(None)?;
 
     let bodies = render_bodies(cfg, db, &thumb_urls)?;
+    let page_bodies = render_page_bodies(cfg, db, &site, thm, &thumb_urls)?;
+
+    // ---- the link graph (q38): scan every rendered body once — posts and
+    // pages alike — and invert. Backlinks are one more relations axis; the
+    // scan reads the same bytes that ship, so link and index cannot desync.
+    let backlinks = backlinks_map(db, &bodies, &page_bodies, &cfg.site.url);
 
     // ---- related posts (§6b): cache-only load — fresh vectors where the
     // cache has them, STALE ones where a post's text changed (it keeps its
@@ -163,8 +169,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             } else {
                 Vec::new()
             };
-            let main =
-                thm.fragments.render(&parts::document(db, p, whole, trail, &rel, outline));
+            let bl = backlinks.get(&p.url).map(Vec::as_slice).unwrap_or(&[]);
+            let main = thm
+                .fragments
+                .render(&parts::document(db, p, whole, trail, &rel, bl, outline));
             let dir = p.path.parent().unwrap_or(&root);
             let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, dir, None)?;
             Ok((p.url.clone(), html))
@@ -333,7 +341,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
         let Some(v) = cfg.views.get(view) else { continue };
-        if v.template.as_deref() != Some("atom.xml") {
+        // The atom SHELL: the same rows, a different outermost wrapper —
+        // declared, not inferred from a template filename (q33's string
+        // match, retired; q44 is the full generalization).
+        if v.shell.as_deref() != Some("atom") {
             continue;
         }
         let entries: Vec<(&crate::db::Post, &str)> = r
@@ -357,7 +368,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // deliberately dropped. The URL *set* is identical; only 42 noise lastmods
     // are absent. (DESIGN §4a is the related draft/hidden concern.)
     for (name, v) in &cfg.views {
-        if v.over != "*" {
+        // The sitemap SHELL, likewise declared.
+        if v.shell.as_deref() != Some("sitemap") {
             continue;
         }
         let Some(route_tmpl) = &v.route else { continue };
@@ -405,50 +417,28 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             }
             RouteKind::Page => {
                 let Some(src) = &r.source else { continue };
-                // scss is compiled below, not copied.
-                if src.extension().is_some_and(|e| e == "scss" || e == "sass") {
-                    continue;
-                }
                 let row = db.pages.rows.iter().find(|p| p.url == r.url);
-                let text = std::fs::read_to_string(src)?;
-                let (_, body) = crate::store::split_front_matter(&text);
                 let layout = row.and_then(|p| p.layout.as_deref());
                 let title = row
                     .and_then(|p| p.title.clone())
                     .unwrap_or_default();
 
-                // Expand what we know FIRST, then decide. Skipping on a bare
-                // "contains {%" was wrong: 17 of the 18 skipped pages used only
-                // `{% image %}` / `{% post_url %}` / `{{ site.baseurl }}`, all
-                // of which the expander already handles.
-                let cx = tags::Ctx {
-                    includes: Some(cfg.root().join("_includes")),
-                    site: Some(&site),
-                    thumbs: Some(&thumb_urls),
-                    theme: Some(&thm),
-                    widgets: Some(&cfg.widgets),
-                    ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
-                };
-                let expanded = tags::expand(body, &cx)?;
-                if expanded.contains("{%") {
-                    // A construct we do not implement survived expansion.
+                // Bodies were rendered in the prepass (so the link graph
+                // could scan them); scss and unknown-construct pages were
+                // recorded there too.
+                let Some(pb) = page_bodies.get(&r.url) else { continue };
+                if pb.skipped {
                     stats.skipped.push(r.url.clone());
                     continue;
                 }
-
-                // Markdown pages render as a Doc so `toc:` pages can
-                // extract their outline from the same bytes (§6e).
-                let (frag, outline) = if src.extension().is_some_and(|e| e == "md") {
-                    let d = crate::markdown::render_doc(&expanded);
-                    let o = if row.is_some_and(|p| p.toc) {
+                let frag = &pb.frag;
+                // §6e heading axis for `toc:` pages, from the prepass Doc.
+                let outline = match (&pb.doc, row.is_some_and(|p| p.toc)) {
+                    (Some(d), true) => {
                         let tree = crate::outline::heading_tree(&d.headings(), 2, 3);
                         crate::outline::to_parts(&tree, &r.url)
-                    } else {
-                        Vec::new()
-                    };
-                    (d.whole, o)
-                } else {
-                    (expanded, Vec::new())
+                    }
+                    _ => Vec::new(),
                 };
 
                 // The section tree this row carries, if a `.section` unit
@@ -500,6 +490,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                         render::light_shell(&head, &parts::canonical(&parts::raw(&frag)))
                     }
                     Theme::Default => {
+                        let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
                         let main = match layout {
                             Some("page") | Some("post") => row_thm.fragments.render(
                                 &parts::document_tree(
@@ -510,8 +501,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                         section,
                                         outline,
                                         hero,
+                                        backlinks: bl,
                                     },
-                                    &frag,
+                                    frag,
                                 ),
                             ),
                             // `default`, `null`: the row builds its own `main`.
@@ -629,6 +621,162 @@ fn render_bodies<'a>(
             Ok((p.url.as_str(), crate::markdown::render_doc(&expanded)))
         })
         .collect()
+}
+
+/// A rendered page body: the expanded fragment plus its Doc (markdown
+/// pages) for outline extraction. Computed BEFORE any page is themed so
+/// the link graph (q38) can scan every body first — this is also what
+/// untangled the tree pass, which now only themes.
+struct PageBody {
+    frag: String,
+    doc: Option<Doc>,
+    /// An unimplemented construct survived expansion; the page is skipped.
+    skipped: bool,
+}
+
+fn render_page_bodies(
+    cfg: &Config,
+    db: &SiteDb,
+    site: &Site,
+    thm: &theme::Theme,
+    thumb_urls: &HashMap<String, String>,
+) -> Result<HashMap<String, PageBody>> {
+    let mut out = HashMap::new();
+    for r in &db.routes {
+        if r.kind != RouteKind::Page {
+            continue;
+        }
+        let Some(src) = &r.source else { continue };
+        // scss compiles in its own pass; it has no body to render.
+        if src.extension().is_some_and(|e| e == "scss" || e == "sass") {
+            continue;
+        }
+        let text = std::fs::read_to_string(src)
+            .with_context(|| format!("reading {}", src.display()))?;
+        let (_, body) = split_front_matter(&text);
+        // Expand what we know FIRST, then decide. Skipping on a bare
+        // "contains {%" was wrong: 17 of the 18 skipped pages used only
+        // constructs the expander already handles.
+        let cx = tags::Ctx {
+            includes: Some(cfg.root().join("_includes")),
+            site: Some(site),
+            thumbs: Some(thumb_urls),
+            theme: Some(thm),
+            widgets: Some(&cfg.widgets),
+            ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
+        };
+        let expanded = tags::expand(body, &cx)?;
+        if expanded.contains("{%") {
+            out.insert(r.url.clone(), PageBody { frag: String::new(), doc: None, skipped: true });
+            continue;
+        }
+        let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
+            let d = crate::markdown::render_doc(&expanded);
+            (d.whole.clone(), Some(d))
+        } else {
+            (expanded, None)
+        };
+        out.insert(r.url.clone(), PageBody { frag, doc, skipped: false });
+    }
+    Ok(out)
+}
+
+/// Root-relative internal link targets in a rendered fragment (q38):
+/// `href` values that are root-relative or under the site's own origin,
+/// fragment and query stripped.
+fn internal_links(html: &str, site_url: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for pat in ["href=\"", "href='"] {
+        let quote = pat.chars().last().unwrap();
+        let mut rest = html;
+        while let Some(i) = rest.find(pat) {
+            let after = &rest[i + pat.len()..];
+            let Some(end) = after.find(quote) else { break };
+            let href = &after[..end];
+            let target = if let Some(t) = href.strip_prefix(site_url) {
+                Some(t)
+            } else if href.starts_with('/') && !href.starts_with("//") {
+                Some(href)
+            } else {
+                None
+            };
+            if let Some(t) = target {
+                let t = t.split(['#', '?']).next().unwrap_or("");
+                if !t.is_empty() {
+                    out.push(t.to_string());
+                }
+            }
+            rest = &after[end..];
+        }
+    }
+    out
+}
+
+/// The reverse link graph (q38): target url → `(source title, source
+/// url)`, deduped per source, sorted by title. Sources are every rendered
+/// body — posts and pages alike; targets are document rows only. Reads
+/// the same bytes that ship, so link and index cannot desync.
+fn backlinks_map(
+    db: &SiteDb,
+    bodies: &HashMap<&str, Doc>,
+    page_bodies: &HashMap<String, PageBody>,
+    site_url: &str,
+) -> HashMap<String, Vec<(String, String)>> {
+    let mut is_target: HashSet<&str> =
+        db.posts.rows.iter().map(|p| p.url.as_str()).collect();
+    is_target.extend(db.pages.rows.iter().filter(|p| p.rendered).map(|p| p.url.as_str()));
+
+    let mut sources: Vec<(&str, String, &str)> = Vec::new();
+    for p in &db.posts.rows {
+        if let Some(d) = bodies.get(p.url.as_str()) {
+            sources.push((p.url.as_str(), p.title.clone(), d.whole.as_str()));
+        }
+    }
+    for p in db.pages.rows.iter().filter(|p| p.rendered) {
+        if let Some(pb) = page_bodies.get(&p.url) {
+            if !pb.skipped {
+                sources.push((
+                    p.url.as_str(),
+                    p.title.clone().unwrap_or_default(),
+                    pb.frag.as_str(),
+                ));
+            }
+        }
+    }
+
+    let mut map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (src_url, title, html) in sources {
+        let mut seen: HashSet<String> = HashSet::new();
+        for t in internal_links(html, site_url) {
+            if t != src_url && is_target.contains(t.as_str()) && seen.insert(t.clone()) {
+                map.entry(t).or_default().push((title.clone(), src_url.to_string()));
+            }
+        }
+    }
+    for v in map.values_mut() {
+        v.sort_by(|a, b| {
+            a.0.to_lowercase()
+                .cmp(&b.0.to_lowercase())
+                .then_with(|| a.1.cmp(&b.1))
+        });
+    }
+    map
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::internal_links;
+
+    #[test]
+    fn extracts_internal_links_only() {
+        let html = r##"<a href="/blog/x/">x</a> <a href='/a.png'>i</a>
+            <a href="https://grack.com/blog/y/#frag">abs</a>
+            <a href="https://elsewhere.com/z">ext</a>
+            <a href="//cdn.example/w">proto-rel</a> <a href="#top">frag</a>"##;
+        let mut links = internal_links(html, "https://grack.com");
+        links.sort();
+        assert_eq!(links, vec!["/a.png", "/blog/x/", "/blog/y/"]);
+    }
 }
 
 /// The searchable projection of the posts table (§6b) — one definition for

@@ -372,12 +372,36 @@ fn tag_stream(p: &Post) -> Option<Part> {
 /// One dated row, full content: the `document` kind for a post. Temporal
 /// relations (crumb trail, neighbors) are present because the schema has a
 /// date, not because anything asked "am I a post".
+/// The `linked-from` relations group (q38): pages that link here, as
+/// dateless neighbors. The link graph's first face — one more axis, the
+/// §6b design absorbing its first non-similarity member.
+fn linked_from_group(backlinks: &[(String, String)]) -> Option<PartMap> {
+    if backlinks.is_empty() {
+        return None;
+    }
+    let items = backlinks
+        .iter()
+        .map(|(title, url)| {
+            let mut nm = PartMap::new("neighbor");
+            nm.set("url", Part::Text(url.clone()));
+            nm.set("title", Part::Text(title.clone()));
+            nm
+        })
+        .collect();
+    let mut g = PartMap::new("relation");
+    g.set("axis", Part::Text("linked-from".into()));
+    g.set("label", Part::Text("Linked from".into()));
+    g.set("items", Part::Stream(items));
+    Some(g)
+}
+
 pub fn document(
     db: &SiteDb,
     p: &Post,
     content: &str,
     trail: Vec<(String, Option<String>)>,
     related: &[usize],
+    backlinks: &[(String, String)],
     outline: Vec<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("document");
@@ -420,6 +444,7 @@ pub fn document(
     let mut relations = Vec::new();
     let similar: Vec<PartMap> = related.iter().filter_map(|&j| neighbor(j)).collect();
     relations.extend(group("similar", "Related", similar));
+    relations.extend(linked_from_group(backlinks));
     if let Some(&i) = db.posts.by_url.get(&p.url) {
         let (newer, older) = db.posts.neighbors(i);
         relations.extend(group(
@@ -451,6 +476,8 @@ pub struct TreeDoc<'a> {
     pub section: Vec<PartMap>,
     pub outline: Vec<PartMap>,
     pub hero: Option<PartMap>,
+    /// Pages that link here (q38) — `(title, url)`.
+    pub backlinks: &'a [(String, String)],
 }
 
 pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartMap {
@@ -474,6 +501,9 @@ pub fn document_tree(title: &str, url: &str, d: TreeDoc, content: &str) -> PartM
         m.set("outline", Part::Stream(d.outline));
     }
     m.set("content", Part::Html(content.to_string()));
+    if let Some(g) = linked_from_group(d.backlinks) {
+        m.set("relations", Part::Stream(vec![g]));
+    }
     m
 }
 
@@ -768,7 +798,7 @@ mod tests {
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone(), None),
             ];
-            let m = document(&db, p, &p.body, trail, &[], Vec::new());
+            let m = document(&db, p, &p.body, trail, &[], &[], Vec::new());
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }

@@ -176,6 +176,7 @@ over = "published"
 limit = 20
 route = "/atom.xml"
 template = "atom.xml"
+shell = "atom"
 
 # No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
 # with `{% assign latest_count %}` because `site.posts | limit: 3` slices before
@@ -202,6 +203,7 @@ layout = "link_list"
 [views.sitemap]
 over = "*"
 route = "/sitemap.xml"
+shell = "sitemap"
 # `!draft && !hidden` closes the leak §4a flagged: without it a future draft —
 # routed into the main build today — lands in the most public URL there is,
 # which is exactly the crawling problem this project exists to fix. Latent now

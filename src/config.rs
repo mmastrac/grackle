@@ -138,6 +138,11 @@ pub struct View {
     /// book-of-the-month shape. Most listings leave it off.
     #[serde(default)]
     pub featured: bool,
+    /// The view's outermost serialization (Matt, 2026-07): `"atom"` and
+    /// `"sitemap"` are built-in XML shells — the feed is not a special
+    /// pass, it is the same rows in a different wrapper. Absent = the
+    /// HTML shell (theme). The full generalization is q44.
+    pub shell: Option<String>,
     pub limit: Option<usize>,
     pub template: Option<String>,
     /// Listing title, as a template over the route's group params
@@ -263,6 +268,15 @@ impl Config {
                     "widget {name:?}: wrapper template has no {{body}} hole, \
                      so the author's markdown would be dropped"
                 );
+            }
+        }
+        for (vname, v) in &cfg.views {
+            if let Some(s) = v.shell.as_deref() {
+                if !matches!(s, "atom" | "sitemap") {
+                    anyhow::bail!(
+                        "view {vname}: unknown shell {s:?} (built-in shells: atom, sitemap)"
+                    );
+                }
             }
         }
         Ok(cfg)

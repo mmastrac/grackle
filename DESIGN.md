@@ -3802,15 +3802,19 @@ the drift is only ever invisible *until* it isn't.
     (c) whether a board can materialize a route or is embed-only;
     (d) boards-in-boards (leaning no — the §5d tripwire); (e) whether a
     board's items ride the q36 preview kind or stay opaque fragments.
-38. **The link graph (§7b).** Backlinks as a relations axis: scan bodies
-    for internal links at load, invert, push a `linked-from` group per
-    document — the §6b axes design's first non-similarity member, and
-    the defining mechanism of every digital garden surveyed. Cheap and
-    shaped like what exists. The harder half is **transclusion** (render
-    row X inline by reference — andymatuschak's hover-embeds): a new
-    embed primitive that §5d's no-control-flow rule must be careful
-    with. Recommend: backlinks first, standalone; transclusion waits
-    for a real consumer.
+38. **The link graph (§7b)** — *backlinks half built (2026-07)*: every
+    rendered body (posts AND pages — a page-bodies prepass now feeds
+    both the tree pass and the scan) is scanned for internal hrefs,
+    inverted, and each document carries a `linked-from` relations group
+    of dateless neighbors, sorted by title. The scan reads the same
+    bytes that ship, so link and index cannot desync. The payoff
+    predicted by the axes design landed exactly: the main theme's
+    `relation.html` rendered the new axis with ZERO fragment changes
+    (46 main-site pages gained it — the bluetooth series backlinks
+    itself via its `post_url` cross-references; the example's carbonara
+    is "Linked from: Recipes · The Typed Kitchen"). **Transclusion**
+    (render row X inline by reference) remains open, waiting on a real
+    consumer, with §5d's no-control-flow rule watching it.
 39. **Set-scoped computed fields (§7b).** §5f fields derive from ONE
     row; the survey wants aggregates over a view's members —
     `count()`, `sum(minutes)`, date spans — for meal-plan rollups,
@@ -3951,14 +3955,28 @@ the drift is only ever invisible *until* it isn't.
     already do (§5c provenance). Needs a small answer for "which view owns
     tag URLs" — probably the collection declares it, next to
     `crumb`/`index`/`trail`.
-33. **View-name policy in `build.rs` (§9b).** Listing `noindex` decided by
-    `view != "blog_index"`; a fallback layout supplied by matching the name
-    `blog_index`; the feed view selected by `template == "atom.xml"`; the
-    sitemap filter parsed and evaluated a second time at render (star
-    routes carry no members). Each wants the §5c treatment: `noindex` as a
-    view attribute, serializations as declared layout kinds
-    (`layout = "feed"` / `"sitemap"`), members on star routes. Small,
-    mechanical, and each one deletes a string match.
+33. **View-name policy in `build.rs` (§9b)** — *the serialization half is
+    settled (2026-07), with better vocabulary than this entry proposed*:
+    Matt's framing is that the feed is not a special pass but a
+    different **shell** — the outermost serialization of the same rows.
+    Views now declare `shell = "atom"` / `"sitemap"` (validated at
+    load), and the template-filename match is retired; q44 carries the
+    full generalization. Still open here: listing `noindex` decided by
+    `view != "blog_index"`, the `blog_index` fallback layout match, and
+    the sitemap filter's second evaluation (star routes carry no
+    members).
+44. **Built-in shell types (Matt, 2026-07; the atom/sitemap slice is
+    built).** A page is parts in the HTML shell; the feed is parts in
+    the atom shell; a bare page is parts in a minimal shell — "shell" is
+    an axis of its own, distinct from layout (which parts) and theme
+    (which fragments). Built: `shell = "atom" | "sitemap"` on views.
+    The rest of the generalization, deliberately pending: (a) row-level
+    shells — `layout: light` today conflates "minimal shell" with a
+    theme choice, and a `shell:` row field would split them cleanly
+    (`html` / `light` / `none`-bytes); (b) whether the atom/sitemap
+    serializers become part-map consumers proper (a feed entry IS a
+    document-parts subset) rather than bespoke XML writers; (c) a
+    `json` shell (JSON Feed / index exports) once something wants it.
 34. **Three "not content" lists (§9b).** §4c's three layers govern the tree
     walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`) carry
     private skip lists that duplicate — and can silently drift from —
