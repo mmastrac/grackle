@@ -505,7 +505,7 @@ Consequences, all good:
 
 - **Public build: zero new URLs.** Hidden posts aren't routed, aren't in
   `site.posts`, don't reach the feed — identical to today's "not built at
-  all", so URL parity stays inviolable and §11.7 is settled.
+  all", so URL parity stays inviolable and q7 is settled.
 - **`/hidden/` is a drafts-profile view**, listing the shelved posts for
   review. It rides the existing `_config-prod-drafts.yml` mirror (which is
   already a second build to `_site/drafts`), so it costs no new machinery.
@@ -513,7 +513,7 @@ Consequences, all good:
   drafts profile, hidden posts *are* in `site.posts`, and
   `{% unless post.hidden %}` is what keeps them out of that build's feed and
   archives. Same template, right behavior in both profiles.
-- **The adjacency bug evaporates** (§11.8 settled). Public build: hidden rows
+- **The adjacency bug evaporates** (q8 settled). Public build: hidden rows
   don't exist, so `page.next` can never point at one and no empty "Later
   post" block can render. The gap-vs-skip question only ever arises inside
   the drafts profile, where it doesn't matter.
@@ -862,7 +862,7 @@ over     = "objects"
 match    = "demos/mindstorms/**"     # gap 2
 group_by = "dir"
 order_by = "name"                    # gap 3
-variant  = "gallery"                 # §5e, open question 24
+variant  = "gallery"                 # §5e variants (q24, settled)
 route    = "/demos/mindstorms/{key}/"
 ```
 
@@ -1497,7 +1497,23 @@ Three consequences, none of them new machinery:
    placeholder language as routes, failing loudly on unknown tokens. The
    `match layout { "tag_index" => format!("Posts Tagged …") … }` that
    re-derived titles in the renderer is gone; `"Posts Tagged “{key}”"` lives
-   next to the query it names.
+   next to the query it names. Grouped params render through §6f's enum
+   records: `{key}` wears the record's localized *name*, the URL wears its
+   *slug*, keys and params keep the id.
+
+**URLs are derived values, all the way down** *(q32, settled 2026-07)*:
+producers take URLs and never construct them. Pagination links render from
+the owning view's own `routes` templates (locale-prefixed like the routes
+were); tag pills render from the tags-owning view's template
+(`[collections.<posts>] tags = "<view>"`, falling back to the unique
+tags-grouped view — ambiguity is a load error, no tags view means unlinked
+pills); slugs apply at exactly one seam per base kind (`route_value`).
+i18n forced this settlement: the hardcodes had already grown locale
+prefixes in two places. One deliberate visible change rode along:
+pagination links gained the route template's trailing slash — 66 files,
+every byte one substitution. The collection's own `crumb`/`index` fields
+are the last non-derived names in a trail (q46 proposes dissolving them
+into §5h's landing chain).
 
 Composition rules, enforced at load: `over` may name a query-only view
 (unchanged) or a **grouped, unpaginated** view — and the composer must then
@@ -1819,7 +1835,7 @@ Currently it isn't, and the seams are visible in `render.rs`:
 4. **`document` has two shapes** (§8b), because the theme's grid imposed
    structure back onto the layout layer. The tension was recorded honestly;
    this section is what resolves it.
-5. **Themes are Rust** (§5d weakness 1, open question 20). A third theme means
+5. **Themes are Rust** (§5d weakness 1, q20 — since dissolved). A third theme means
    recompiling. "Easily theme-swappable" is the one property the current cut
    cannot deliver, and it is the property the whole presentation layer exists
    to provide.
@@ -1891,7 +1907,7 @@ four rules (built: `binder.rs`):
 3. **A stream maps a fragment over its items.** `<div data-slot="items">`
    renders the fragment of the items' kind once per row — the child kind
    comes from the part schema, so `data-fragment="…"` is an *override* (the
-   variant hook, open question 24), not a requirement. The loop lives in the
+   variant hook — q24, settled), not a requirement. The loop lives in the
    engine; the fragment stays straight-line. This is how the no-control-flow
    rule (§5d) scales past one level of nesting.
 4. **An attribute hole is `data-slot-attr="name"`** — `<a data-slot-href=
@@ -2003,21 +2019,47 @@ fact" — never to control flow.** That is the model behaving as designed: the
 gallery archetype didn't demand a template feature, it demanded a schema
 field.
 
-1. **A `hero` part on summaries** (→ open question 23). A card grid needs an
-   image per item. Source: front-matter `image:` or the first image block,
-   thumbnailed through §6b.
-2. **Per-view fragment variants** (→ open question 24). `/photos` wants cards
-   while `/blog` wants summaries, and both are `listing`. The view declares
-   `variant = "gallery"`; the engine resolves `listing--gallery.html` with
-   fallback to `listing.html`, load-time checked. Routes already carry the
-   view name, so `data-view` comes free for CSS.
+1. ~~A `hero` part on summaries~~ ✅ **built** (q23, via the book club):
+   `hero` is a `Map("figure")` on `document`, sourced from the image-typed
+   schema field named `cover` (beats `image`; §5b), thumbnailed with
+   dimension facts; the card preview consumes the same source. Still
+   arriving with their consumers: the first-image-block fallback and the
+   group hero (`cover.*` file) — q23's remainder.
+2. ~~Per-view fragment variants~~ ✅ **built** (q24; see "Variants and the
+   one preview kind" below).
 3. **Per-block facts** (→ open question 25). Full-bleed needs one block to
    escape the content column: a block-level directive → `data-` attribute on
    that block → the theme spans it. Slots straight into §6d's block stream.
-4. **Dimension facts on images** (→ open question 26). Emit
-   `aspect-ratio`/width/height on every image — grackle already knows them,
-   because it makes the thumbnails (§6b). A static generator's structural
-   advantage over client-side layout, and it kills layout shift site-wide.
+4. ~~Dimension facts on images~~ ✅ **built where images are parts** (q26):
+   gallery figures, heroes and card previews carry `width`/`height` from
+   the thumb pass, so those surfaces never shift. Remaining: `{% image %}`
+   images inside post bodies (the §6d rewrite stage is their seam).
+
+### Variants and the one preview kind *(q24 + q36, built 2026-07)*
+
+Two settlements that arrived welded together, because the second forced
+the first:
+
+- **One preview kind** (q36): a card is a view's *projection* of a row,
+  and so is a summary — they differ by what the row HAS (posts:
+  date/tags/content blocks; books: cover/note), not by what they are.
+  `summary` is the one kind (schema gained `src`/`width`/`height`/`note`,
+  presence-driven); `card`/`card_list` are deleted; `card_list` folded
+  into `listing` as a `featured` slot any listing may fill. The
+  main-site chrome cost was zero — the byte oracle stayed clean.
+- **Fragment variants** (q24): a fragment file's stem is its *name*; the
+  stem before `--` is its *kind* (`summary--card.html` binds `summary`).
+  A view declares `variant = "cards"`; rendering tries
+  `{kind}--{variant}`, falls back to the base fragment, then canonical —
+  partial themes throughout. In fragments, `data-fragment` selects a
+  variant for stream/map children; being explicit, it must resolve at
+  load, to the right kind.
+
+Documented as the rule, not fixed: the canonical fallback is
+**all-or-nothing per subtree** — canonical rendering never consults child
+fragments; a theme opts into per-kind fragments from the parent down
+(this is why the recipes theme needed `document.html` before its
+`crumb.html` was consulted).
 
 **The one honest limit is masonry.** True Pinterest packing with strict
 reading order is the single archetype CSS cannot fully express yet — native
@@ -2039,7 +2081,7 @@ could need must be in the schema.** The four gaps are the current delta.
   grid column and places `data-slot="notes"` beside content; a theme that
   doesn't gets the canonical fallback — an endnote section after content.
   Same markup, both themes, no layout change.
-- **The ★ gets its vocabulary** (open question 17): `data-truncated` on the
+- **The ★ gets its vocabulary** (q17, settled): `data-truncated` on the
   summary, star gated in theme CSS. The fix §6d wanted, expressible now.
 - **Dark mode is a theme concern at last** (§8b found none exists): a
   `prefers-color-scheme` block in `theme.scss`, zero engine involvement —
@@ -2365,6 +2407,109 @@ experiment: the payload already is JSON — `cat` is a json shell).
 Versioning the script-shell payload schema rides with the first
 non-experimental consumer.
 
+## 5h. Landings: a view owns the URL, a row may own the words *(q45, Matt's shape; built 2026-07)*
+
+### The disease this cured
+
+"The page that stands for a set" had **four implementations and no
+owner**: view roots (`/books/` — a route, not a row), index pages
+(`recipes/index.md` — a row routed by `**/index.*`), the home page (a row
+plus special cases), and `collection.index` (a raw URL in config). Four
+mechanisms answered "what's above me" four ways, and the symptoms were
+live: no Books crumb on book pages, a duplicated `Accueil` on French
+trails, `/fr/recipes/` a 404 while `/fr/blog/` existed, three
+`stem != "index"` filters guarding queries against their own landing,
+and hand-maintained listing prose drifting from the schema it duplicated
+("serves 2, 25 min" written beside a database that knew). Diagnosis: a
+landing is a **projection** plus, sometimes, **prose** — an index page
+is a row pretending to be a view; a view root is a view missing its
+row's prose. Every symptom was one half missing or hand-forged.
+
+### The rule: the engine never guesses the arrangement
+
+Either the theme owns the arrangement, or the author does. Three tiers:
+
+- **Bare**: query + route + `listing`. What `/photos/` is.
+- **Declared text**: the view declares `intro` — a `LocalizedStr`
+  rendered as *markdown through the locale-aware link resolver* (a
+  `view:` link in an intro gets strict validation; no browser-agreement
+  bypass — config prose has no directory) — filling an `intro` slot on
+  the listing layout. Empty collapses (the fragment glues the intro div
+  to the items line, because the binder deletes elements, not lines —
+  oracle-clean). Per-key intros come from §6f's enum records: a grouped
+  route whose leaf value declares `intro` gets *that* prose, beating the
+  view's — the course archive introduces the course.
+- **Referenced content**: the view declares `content = "recipes/index.md"`
+  (mutually exclusive with `intro`). The row becomes the whole body and
+  **must place `{% view <owner> %}` itself** — a load error otherwise
+  (the rows would be unreachable), scoped to views with a query. The
+  self-embed is **route-aware**: page 2 renders page 2's rows,
+  `/fr/recipes/` the French partition (a sentinel goes through tag
+  expansion; the slice substitutes after the markdown pass, so embed
+  HTML never meets the parser). Embeds of *other* views keep whole-view
+  semantics. Intro and content render on every page of a paginated
+  landing: the prose is the landing's face; the slice is what changes.
+
+### Claiming
+
+A referenced content row is **claimed**: no standalone route, and out of
+every query **structurally** — by ownership, not the `stem != "index"`
+naming convention, which died with it. The row keeps everything rows
+have: front matter (its `title:` beats the view's — explicit beats
+derived, per row), its rule-derived theme (the landing wears its
+section's clothes), its directory (slot fills resolve nearest-wins from
+there), suffix localization with default-locale fallback. It keeps its
+*title and the landing's URL per locale*, so the ancestors walk still
+crumbs it and source-path links resolve to the landing (source links
+gained the view-link locale invariant: prefix-and-check, fall back).
+Claiming is **declared, never discovered** — a convention would claim
+rows silently — which makes migration incremental: unclaimed index pages
+behave exactly as before, the main site is untouched, sections lift one
+`content =` declaration at a time. Load checks: the path names a row,
+one owner per row, intro XOR content, materialized views only,
+must-place. One deliberate semantic change: claimed rows leave the
+backlink scan — **membership is not citation**.
+
+### The chain: URL nesting is parent derivation
+
+`ancestors()` answers "what's above this URL" in two steps per level:
+a rendered **page row** at the parent URL (mode-B landings match here,
+row title winning), else a **materialized landing route** (key-less,
+page ≤ 1) — the view's crumb-else-title at the route's locale. Locale-
+prefix homes are skipped (`/fr/` is not a directory; Home is the trail
+root's job — this killed the duplicated `Accueil`). **Listing trails
+climb the same chain**, deduped by URL against the collection crumb
+that already roots `/blog/`-style listings — so
+`Home › Recipes › Dinner` fell out of moving the course archives under
+`/recipes/`, with zero source edits (every `view:` link re-derived).
+**Theme rides the same logic one level up**: a tree-backed listing
+whose members unanimously wear one theme *name* wears it too (subtheme
+tokens are one row's dress and never lift; mixed or theme-less members
+keep the default; posts and objects carry no theme, so the main site
+is untouched by construction). The landing's language switcher derives
+from the owner's materialized routes — a fallback-prose landing is
+still the French landing.
+
+### Honest edges, pending
+
+- `collection.crumb`/`index` are still literal config — the non-nested
+  half of the chain. **q46** proposes dissolving them: post trails root
+  through the same climb, and the fields die.
+- An explicit `parent =` for when URL nesting lies: unneeded so far.
+- Orphaned translations (`index.fr.md` with no French rows has nowhere
+  to render) should warn.
+- Mode-B prose is not searchable (landing routes are structurally
+  excluded); keep until someone misses it.
+- A variant fragment lacking a hole drops that part **silently**
+  (`listing--cards.html` swallowed an intro until it grew the slot) —
+  "never ship what a theme hides" wants a load-time warning for schema
+  parts no fragment of a theme places.
+- Home and the manual haven't lifted yet — home is the queryless
+  landing (`route = "/"`, `content = "index.html"`, no rows to strand;
+  q37's board hangs in this frame), the manual waits for the section
+  tree to be a landing's listing. The example search's one remaining
+  `stem != "index"` filter survives exactly until they do.
+
 ## 6a. Object references: paths and names
 
 ### The measurements that shape this
@@ -2572,7 +2717,7 @@ shares every entry with the public profile.
 
 ### What moving to `/static/` buys (now that image URLs are free to change)
 
-Derived assets are exempt from URL parity (§11.12), and the current scheme was
+Derived assets are exempt from URL parity (q12), and the current scheme was
 carrying two workarounds that simply evaporate:
 
 - **Extensions come back.** Today's thumbs are `/_thumbs/{md5}-600-600` —
@@ -3270,7 +3415,7 @@ The design, piece by piece:
   grouped field — tags, courses, whatever a view groups by — with
   `slug` (route-facing, locale-independent, defaults to id), `name`
   (string or per-locale map; fallback locale → default → id), and
-  `intro` (the value's own landing prose — q45 mode A per key: the
+  `intro` (the value's own landing prose — §5h mode A per key: the
   course archive introduces the course, beating the view's intro for
   that route). The French note's pill reads *méta*; the French tag
   ARCHIVE is now titled *« méta »* too, because `{key}` in grouped
@@ -3337,12 +3482,12 @@ and the inert date tail shows the whole date when the collection
 declares no archive chain (a bare day only reads after year › month
 crumbs; main site keeps its day tail, byte-identical). Localized tree
 PAGES walk URL ancestors — the duplicate home crumb on `/fr/…` URLs is
-**cured** (q45: `ancestors()` skips locale-prefix homes; Home is the
+**cured** (§5h: `ancestors()` skips locale-prefix homes; Home is the
 trail root's job), and a section crumb appears in French exactly when
 the section's landing has a French variant (`index.fr.md` → the
 claimed row's URL is `/fr/recipes/`). `collection.index` is still a
-literal URL — `index` naming a VIEW remains q45's open (a), the
-landing chain. `.slots/` fills localize by the same suffix convention
+literal URL — dissolving it into §5h's landing chain is q46.
+`.slots/` fills localize by the same suffix convention
 (`nav.fr.md` beside `nav.md` — built, and their view links resolve per
 consuming page's locale, §6a).
 `month_name` in group params is computed at route build, locale-free —
@@ -3937,15 +4082,15 @@ The same disease survives in four smaller pockets — each is the renderer
    declared-or-unique tags view's template (no tags view = unlinked
    pills). The i18n work is what finally forced it: the hardcodes had
    grown locale prefixes in two places before the cure.
-2. **`build.rs` holds policy keyed on view names** (→ q33). Three spots:
-   `view != "blog_index"` decides which listings get `noindex`;
-   `"blog_index" => Some("blog_index")` supplies a fallback layout; the
-   feed pass selects its view by `template == "atom.xml"` — a
-   serialization chosen by template *filename*. This is §5a's "the shell
-   knows about everything," recurring in miniature in the orchestrator.
+2. **`build.rs` holds policy keyed on view names** (→ q33). ~~Three~~ Two
+   spots remain: `view != "blog_index"` decides which listings get
+   `noindex`, and `"blog_index" => Some("blog_index")` supplies a
+   fallback layout. (The third — the feed pass selecting its view by
+   `template == "atom.xml"` — was cured by shells, §5g: serializations
+   are declared, not filename-matched.) This is §5a's "the shell knows
+   about everything," recurring in miniature in the orchestrator.
    `noindex` wants to be a view attribute (a schema fact like every
-   other); serializations want to be declared layout kinds
-   (`layout = "feed"`), not filename matches.
+   other).
 3. **The sitemap predicate evaluates twice** (→ q33, same family).
    `views::build_star_views` parses and runs the filter to *count* rows;
    `build.rs` re-parses and re-runs it to *enumerate* them. One source
@@ -3985,6 +4130,42 @@ the drift is only ever invisible *until* it isn't.
   serializations can move out; renaming for its own sake isn't worth a
   commit.
 
+### Round 2 *(2026-07-18, after landings, records, links and i18n)*
+
+Taken at Matt's ask after the biggest feature month yet. Verdict: **the
+boundaries held under load** — landings, claiming, enum records, the
+link language and locale-parallel views each landed in exactly one
+owner, and the example config *shrank* while gaining features (two
+filters, a hand-list and every raw course URL deleted). The disease
+inventory:
+
+5. **The landing pass re-shapes rows the bare passes already shape.**
+   posts→summaries (with truncation), tree→cards, objects→figures each
+   exist twice in `build.rs` — once in the bare listing/gallery/card
+   passes, once in §5h's embed construction. "The route's slice as
+   parts" wants to be one function with two callers; until it is, a
+   truncation change can silently disagree with the landing embed. Same
+   pattern smaller: `route_value` (the slug seam) is verbatim twice in
+   `views.rs`.
+6. **`build.rs` is the gravity well** (~1,800 lines): rendering passes
+   plus the whole trail family (`trail_root`, `ancestors`,
+   `listing_title_and_trail`, `post_trail`, `home_url`) plus the
+   intro/prose family. The trail family is a coherent module wanting
+   out (`trails.rs`) — and q46's dissolution work would land cleaner
+   there.
+7. **Semantic drift in the main config**, folded into q33's remainder:
+   `layout` on listing views is a presence flag wearing dead kind names
+   (`"tag_index"` selects nothing since §5e), and `template` no longer
+   templates — it *claims* a legacy file, which is §5h's claiming
+   vocabulary wearing an old name.
+
+Born from this audit: **q46** (dissolve `collection.crumb`/`index` into
+the landing chain — the last non-derived trail names). The example's
+residuals are all scheduled, not leaked: the manual's hand-list waits on
+§6e-as-landing-listing, home waits on the queryless landing + q37's
+board, `index.fr.html`'s raw hrefs wait on the §6d rewrite stage, and
+the search view's one `stem != "index"` dies when home and manual lift.
+
 ## 10. Phasing (each phase has a checkable exit)
 
 | Phase | Deliverable | Exit criterion |
@@ -3993,7 +4174,7 @@ the drift is only ever invisible *until* it isn't.
 | 1 | route mapping: all tables routed, `export` (JSON), `routes` (tree) | ✅ **done** — 1559 routes across posts/pages/objects/views; **every one of the 556 Jekyll sitemap URLs is routed** (0 missing); the 1003 extras are 983 assets jekyll-sitemap never lists + 16 routes explained by the reference build being stale. Loads in ~10ms. |
 | **2a** | markdown-gap spike + `diff` | ✅ **done — the port is viable.** ~~90.7%~~ → **90.0% against an honest reference** (§8c): the original figure was measured against a build with highlighting disabled and was luck, not accuracy. 230 posts: 20 identical, 187 equivalent, 23 differ; 92.2% if smartypants is matched. The residue is parser-side. **Caveat: 97 of 327 posts are skipped as "contains liquid", many falsely** (§8c). |
 | 2b | render pipeline: §5a layers end-to-end | 🟢 **renders** — 327 posts + 164 listings (with **pagination nav**, §5d) + **40/40 pages** + 1025 assets + **260 thumbnails** + **feed + sitemap** in **~0.4s warm** (Jekyll: ~38s). All layout kinds and both themes work; post and page chrome byte-identical to live; **zero skipped pages**. Remaining: highlighting token spans (accepted-inexact §8) and the chrome gaps below — both deferred into the §5e presentation rewrite. |
-| 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by §11.12 (`/static/` by design). |
+| 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by q12 (`/static/` by design). |
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
 | **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** (Dark mode: proven as one CSS block, then removed — content assumes white; §5e step-3 notes.) |
@@ -4002,550 +4183,178 @@ the drift is only ever invisible *until* it isn't.
 
 ## 11. Open questions (to iterate on)
 
+Only OPEN questions live here; a settled question moves its design into
+the section that carries it and leaves one line in the ledger below, so
+`qNN` references elsewhere in this document always resolve. Numbers are
+never reused.
+
 1. **Dependency tracking**: hand-rolled typed invalidation keys (as specced)
    vs `salsa` for automatic fine-grained tracking. Leaning hand-rolled —
    at this scale precision bugs are cheaper than framework complexity.
+   Rides with serve v2 (the phase-4 deferral).
 2. **Row version**: content hash (correct, rehash on every event) vs
    mtime+size (fast, near-correct) vs mtime-then-hash pre-check (specced).
-3. **Config**: fresh `grackle.toml` (specced) vs also reading `_config.yml`
-   site vars during migration.
-4. **Highlighting fidelity**: coarse Rouge-class mapping (keeps `_rouge.scss`)
-   vs adopting syntect classes + regenerating the CSS once. **Half-settled**:
-   the wrapper/inline-code shape is done and exact (§9a); only the token spans
-   remain, and §8c warns the gap is under-measured (4 of 6 highlighted posts
-   are liquid-skipped, so "1 diff" is 1 of 2 compared).
-5. **Page tree source**: explicit include list vs inheriting Jekyll's exclude
-   list. Explicit is more database-y (schema declared, not inferred).
-6. **Drafts**: replicate `_drafts` preview in `serve` from day one, or post-
-   phase-3.
-7. ~~`_hidden/` +14 URLs~~ — **settled** (§4a): profiles gate
-   materialization; the public build emits nothing new, `/hidden/` is a
-   drafts-profile view. URL parity holds.
-8. ~~Adjacency gap vs skip~~ — **settled** (§4a): hidden rows don't exist in
-   the public profile, so no hidden neighbour can ever be rendered.
-9. ~~Colocate assets so name resolution works~~ — **settled** (§6a): buckets
-   make bare names resolve for posts with no restructuring, and bubbling
-   already matches how `code/legacy/*` is organised. Page bundles
-   (`posts/2022/foo/{index.md,image.png}`) remain *optional* — they'd let
-   new posts carry their assets side-by-side, and the two-phase rule already
-   supports it the day you want it, one post at a time. No migration, no
-   `_thumbs` churn.
-9a. **`screenshot5/6.png`** — the only genuine collisions (`assets/2003/07/`
-    vs `assets/2004/01/`, both inside the root bucket). Bare refs error; the
-    path refs that exist today are fine, so this needs no action. Note the
-    positional design supplies its own escape hatch if it ever matters:
-    drop an `assets/` dir nearer those posts and the nearer bucket wins — no
-    config, no interpolation machinery. Recommend: leave it.
+4. **Highlighting fidelity** — *half-settled*: the wrapper/inline-code
+   shape is done and exact (§9a); only the token spans remain (coarse
+   Rouge-class mapping vs syntect classes + regenerated CSS). §8c warns
+   the gap is under-measured: 4 of 6 highlighted posts are liquid-skipped,
+   so "1 diff" is 1 of 2 compared.
+6. **Drafts**: replicate `_drafts` preview in `serve` from day one, or
+   post-phase-3.
 10. **`noindex` the drafts profile?** `grack.com/drafts/` is publicly
     reachable today (unlinked, but rsync'd and crawlable). Given the
     canonical/indexing work, the drafts profile should probably force
-    `noindex` — and with `/hidden/` landing there, that goes from hygiene to
-    important.
+    `noindex` — and with `/hidden/` landing there, that goes from hygiene
+    to important.
 11. **Iframe policy**: §6a resolves and rewrites `<iframe src>` for bare
     names but doesn't thumbnail. Do iframes need any sandbox/loading
     attributes injected by the same pass, or is passthrough correct?
-12. ~~`static.dir` vs URL parity~~ — **settled**: Google Images isn't a
-    concern, so derived assets move to `/static/{hash}{ext}` (§6b). URL
-    parity remains a hard requirement for **pages**; derived assets are
-    explicitly exempt and `diff` scopes its URL-set check to routable rows.
-13. **Embedding model pinning.** `all-MiniLM-L6-v2` output is model-version
-    dependent, so the cache key should include a model identifier
-    (`_cache/embed/{model}/`, as specced) — but should a model upgrade
-    silently re-embed all 327 posts on next build, or require an explicit
+13. **Embedding model pinning.** `all-MiniLM-L6-v2` output is
+    model-version dependent, so the cache key includes a model identifier
+    (`_cache/embed/{model}/`) — but should a model upgrade silently
+    re-embed all 327 posts on next build, or require an explicit
     `grackle reindex`? Silent is friendlier; explicit is more predictable.
 14. **`<style>` auto-scoping default (§6c).** Scoping fixes a real latent
-    leak on `body.multipost` index pages, but it's a behavior change on the 3
-    existing posts. Default-on with `style_scope: false` opt-out (specced),
-    or default-off and opt in per post?
-15. ~~Template language: liquid crate vs slots vs Rust layouts~~ — **settled**
-    (§5d): measured ~60 liquid constructs; only 3 are real templating, and all
-    3 are already Rust components. Rule: *a template may not contain control
-    flow.* The `liquid` dependency — §9a's biggest listed risk — is retired by
-    not taking it. Slots turn out to already exist unnamed
-    (`listing(..., pagination)`), which may mean §5b's slot system never gets
-    built.
-16. ~~Write our own AST → HTML renderer?~~ — **settled: no** (§9a). The
-    fidelity case fails (the gap is parser-side, §8c) and every control need is
-    met by AST mutation + `HtmlBlock`/`HtmlInline` escape hatches, per node type,
-    incrementally. **Tripwire**: revisit if the escape-hatch list exceeds ~⅓ of
-    node types.
-17. ~~The ★ (§6d)~~ — **settled, signed off, built** (§6d stage A): truncation
-    is a `truncated` Flag on the summary part map, stamped `data-truncated`
-    by the binder, star gated in theme CSS — below the fade mask so the mask
-    can never swallow it. It marks exactly the genuinely-cut summaries for
-    the first time (all 5 on `/blog/` page 1; 5 of 10 in the 1998 archive).
-18. **Sidenotes need a third grid column (§6d).** The post grid is
-    `8.75rem | content` with the content escaping leftward — there is no right
-    margin to render notes into. Is the theme change worth it, or do footnotes
-    stay endnotes and the two-stream model just buy us the exact `concat` and
-    the dead-anchor fix? **Under §5e this stops being an engine question**:
-    the `notes` stream is placed by whichever theme claims it, with endnotes
-    as the canonical fallback — a per-theme decision, not a design fork.
-19. ~~Profiles vs a route-level fix for the sitemap leak (§4a).~~ — **route-level
-    fix landed** (§4a): `draft`/`hidden` are on every `Route` and in
-    `route_schema()`; the sitemap filter excludes them; re-probed leak-free at
-    573. Profiles (the proper fix) still ride with phase 3, but the leak is no
-    longer waiting on them.
-20. ~~Themes are Rust (§5d)~~ — **settled, dissolved by §5e** (steps 3–4,
-    built): a theme is a directory of hole-bearing fragments + SCSS, presence
-    conditionals died to empty-slot-collapses, and a fragmentless theme IS
-    the null theme. A third theme is `mkdir`, no recompile. The residual
-    Rust in presentation is the computed head facts (`render.rs`) and the
-    `light` shell — engine surface, not theme surface, by design.
-21. **Tighten `diff`'s liquid skip (§8c).** 97 of 327 posts are excluded, many
-    falsely (`{{ github.event.issue.number }}` in code samples is GitHub
-    Actions, not Liquid). 30% of the corpus is unmeasured and the 90% is over
-    an unrepresentative 230.
-22. **`_site-prod` can no longer be regenerated (§5c, §8c).** `{% view %}` is
-    not Liquid, so Jekyll fails the whole build; refreshing needs
-    `git stash push index.html` first. Given §8c, losing the ability to refresh
-    the reference is exactly the capability that caught the 17-point lie. Script
-    it, or move the reference build behind a flag that stashes automatically.
-23. **The `hero` part (§5e archetype test).** Card/gallery layouts need an
-    image per summary; the part map has none. Front-matter `image:` with
-    first-image-block fallback, thumbnailed via §6b? Recommend: yes, both, in
-    that precedence — it is the same "explicit beats derived" rule as
-    everywhere else. The mindstorms audit (§5) adds a third source for
-    *group* heroes: a designated cover file (`cover.*`, matching the existing
-    `alpharex_1.jpg` covers) beats first-item — explicit beats derived again,
-    expressed positionally. ✅ **Built via the book club (2026-07)**:
-    `hero` is a `Map("figure")` on `document`, sourced from the image-typed
-    schema field named `cover` (beats `image`; §5b), thumbnailed with
-    dimension facts. The card kinds consume the same source. **Still
-    open**: the first-image-block fallback, and the mindstorms group-hero
-    (`cover.*` file) — both arrive with their consumers.
-36. ~~Unify `summary` and `card` into one preview kind (Matt, 2026-07)~~ —
-    **settled, built (2026-07)**: a card is a view's *projection* of a
-    row, and so is a summary — they differ by what the row *has* (posts:
-    date/tags/blocks; books: cover/note), not by what they are: §5a's
-    document argument one level down. `summary` is the one preview kind
-    (its schema gained `src`/`width`/`height`/`note`, presence-driven);
-    `card`/`card_list` are deleted; `card_list` folded into `listing` as
-    a `featured` slot any listing may fill. The predicted main-site
-    chrome cost turned out to be **zero** — the surviving kind kept the
-    name `summary`, the new parts are absent on posts, and the byte
-    oracle stayed clean; renaming `summary` → something projection-y is
-    bundled into the parked micro-kind naming question. The unification
-    forced q24 (variants) with it, exactly as its gate predicted.
-    Documented as the rule, not fixed: the canonical fallback is
-    all-or-nothing per subtree (canonical rendering never consults child
-    fragments) — a theme opts into per-kind fragments from the parent
-    down.
-37. **The `board` kind: composition of views as content *(specced,
-    deliberately pending)*.** The example's homepage reproduces the shape
-    §5c diagnosed on the old `/` — a hand-written wrapper
-    (`.home-grid`, was `.blocks-50`), authored `<h2>` labels, three
-    `{% view %}` embeds — and adds a cost the example made visible: the
-    arrangement is **theme-coupled** (render `/` under the recipes theme
-    and `.home-grid` styles nothing, while `.slots/` identity survives
-    every theme). The dissolution is the §5c move applied to page
-    structure: a board is a *query over queries* —
-    `[views.home] layout = "board"` declaring ordered members, each
-    contributing `{label, content}`; the theme places one slot, CSS does
-    the columns, labels become config the way `title`/`crumb` did. It
-    would retire the last hand-written arrangement on either site's
-    homepage. **Pending on purpose** (build at the second board, or the
-    publish cutover, whichever first): (a) member declaration — a list of
-    view names vs inline view definitions; (b) labels — declared per
-    member on the board vs inherited from each member view's `title`;
-    (c) whether a board can materialize a route or is embed-only;
-    (d) boards-in-boards (leaning no — the §5d tripwire); (e) whether a
-    board's items ride the q36 preview kind or stay opaque fragments.
-38. **The link graph (§7b)** — *backlinks half built (2026-07)*: every
-    rendered body (posts AND pages — a page-bodies prepass now feeds
-    both the tree pass and the scan) is scanned for internal hrefs,
-    inverted, and each document carries a `linked-from` relations group
-    of dateless neighbors, sorted by title. The scan reads the same
-    bytes that ship, so link and index cannot desync. The payoff
-    predicted by the axes design landed exactly: the main theme's
-    `relation.html` rendered the new axis with ZERO fragment changes
-    (46 main-site pages gained it — the bluetooth series backlinks
-    itself via its `post_url` cross-references; the example's carbonara
-    is "Linked from: Recipes · The Typed Kitchen"). **Transclusion**
-    (render row X inline by reference) remains open, waiting on a real
-    consumer, with §5d's no-control-flow rule watching it.
-39. **Set-scoped computed fields (§7b).** §5f fields derive from ONE
-    row; the survey wants aggregates over a view's members —
-    `count()`, `sum(minutes)`, date spans — for meal-plan rollups,
-    subtree stats, calendar counts, term indexes. A natural §5f
-    extension (functions whose source type is a member set), but it
-    changes the field-inheritance story; spec alongside q31's build.
-40. **Structured record fields (§7b).** `.schema.toml` wants a
-    list-of-records type (`ingredients = {type="records", fields={qty=
-    "string", name="string"}}`-ish) for ingredient lists, podcast
-    chapters, cast lists — plus a schema.org/JSON-LD emission deriver
-    fed by it. Extends §5b without changing its shape.
-41. ~~i18n (§7b)~~ — **first slice built (2026-07), promoted to §6f**,
-    which carries the design. Everything this entry predicted it would
-    need turned out to already exist in the model: pairing is one more
-    index (`by_logical`), locale-prefixed routes are the default route
-    prefixed, and the `translations` axis is the §6b design absorbing
-    one more member. Tag records (`[tags.id]` slug + per-locale names,
-    Matt's enum-style-records direction) rode along. Still open in §6f:
-    localized trails/chrome, locale-parallel listings, localized group
-    keys, the prefix selector's first real corpus.
-42. **Client-side faceted filtering (§7b).** Combinable facets (diet ×
-    cuisine × season) can't be enumerated as static views. The
-    search.bin architecture generalizes: ship a typed facet index, run
-    the intersection in the client — a *client-side view*, declared in
-    config like any other, materializing an index instead of routes.
-43. **Media beyond image (§7b).** Audio/video schema field types (with
-    duration/player facts, as image carries dimensions), podcast RSS
-    enclosures as a feed variant, multi-format/srcset renditions from
-    the §6b contest, and externally-hosted originals (a URL-valued
-    image source that skips thumbnailing but can still carry declared
-    dimensions).
-24. ~~Per-view fragment variants (§5e)~~ — **settled, built (2026-07),
-    forced by q36 exactly as predicted** ("needed the day one view wants
-    cards while another wants summaries" — that day was the unification).
-    A fragment file's stem is its *name*; the stem before `--` is its
-    *kind* (`summary--card.html` binds `summary`). A view declares
-    `variant = "cards"`; rendering tries `{kind}--{variant}`, falls back
-    to the base fragment, then canonical — partial themes throughout. In
-    fragments, `data-fragment` selects a variant for stream/map children,
-    and being explicit it must resolve at load, to the right kind.
+    leak on `body.multipost` index pages, but it's a behavior change on
+    the 3 existing posts. Default-on with `style_scope: false` opt-out
+    (specced), or default-off and opt in per post?
+21. **Tighten `diff`'s liquid skip (§8c).** 97 of 327 posts are excluded,
+    many falsely (`{{ github.event.issue.number }}` in code samples is
+    GitHub Actions, not Liquid). 30% of the corpus is unmeasured and the
+    90% is over an unrepresentative 230.
+22. **`_site-prod` can no longer be regenerated (§5c, §8c).** `{% view %}`
+    is not Liquid, so Jekyll fails the whole build; refreshing needs
+    `git stash push index.html` first. Losing the ability to refresh the
+    reference is exactly the capability that caught the 17-point lie.
+    Script it, or move the reference build behind a flag that stashes
+    automatically.
+23. **The `hero` part — the remainder.** Built via the book club (§5e:
+    image-typed `cover` schema field beats `image`, thumbnailed, dimension
+    facts). Still arriving with their consumers: the first-image-block
+    fallback, and the mindstorms *group* hero (a `cover.*` file beside the
+    group — explicit beats derived, expressed positionally).
 25. **Per-block facts (§5e).** A block-level directive (kramdown IAL
     `{:.full-bleed}` or similar) surviving as a `data-` attribute on the
     block, so a theme can span it. Needs a decided authoring syntax — IALs
-    are kramdown, not CommonMark, so this interacts with the §8 dialect gap.
-26. **Dimension facts on images (§5e).** Emit `width`/`height`/`aspect-ratio`
-    on every `<img>` — grackle already knows them at thumbnail time (§6b).
-    No real question except sequencing; it is a pure win and should ride
-    with the thumbnail work in phase 3.
-27. **Index-less directories (§5 audit).** 23 directories under `code/` and
-    `writing/` have no `index.*` (`code/graphics/`, `writing/school/`, every
-    `screenshots/`/`download/` dir). Two undefined behaviors: what
-    `ancestors(page)` emits when the trail crosses a row-less directory
-    (skip it? unlinked label from the dirname? — linking would 404), and
-    whether `/code/graphics/` should exist at all. Needs a decided semantic
-    plus a load-time warning. The model also offers the nice answer nearly
-    free: an auto-index **view** — a `listing` of children materialized for
-    each index-less directory — turning the hole into a page with zero
-    authored content. Recommend: unlinked label now, auto-index view as the
-    upgrade. **Forcing point arrived and the first half shipped (§6e)**:
-    section trees render index-less directories as unlinked labels
-    (`a:not([href])`, live on the example's `manual/advanced/`). The
-    auto-index view remains the upgrade, sharing the `outline_entry`
-    fragment — and q45 subsumes it exactly: an index-less directory
-    is a landing view with no intro row.
+    are kramdown, not CommonMark, so this interacts with the §8 dialect
+    gap.
+26. **Dimension facts — the remainder.** Parts-side images (figures,
+    heroes, cards) carry `width`/`height` from the thumb pass (§5e). Post
+    *bodies* still don't: `{% image %}` output gains dimensions when the
+    §6d rewrite stage exists (its seam), killing layout shift site-wide.
 28. **Mindstorms restructure vs URL parity (§5 audit).** The gallery
     restructure retires `/demos/mindstorms/alpharex_1.html` and its 16
-    siblings — which are in the sitemap and carry **no `noindex`** (only the
-    index page front-matters it; the step pages are front-matter-less
-    passthrough, indexable today by accident). Needs `.htaccess` redirects
-    or an explicit parity exemption like §11.12's — and either way, the
-    accidental indexability is worth fixing before the restructure, not
-    with it.
-29. ~~Custom block widgets `{% callout %}` (§5d)~~ — **settled, built**
-    (§5d "Custom widgets"): `[widgets]` registry in config, paired-tag
-    expansion in `tags.rs` (body expanded recursively; missing end tag
-    errors naming the file; unregistered names verbatim), both 2026 posts
-    rewritten — all three raw shapes collapsed to `{% callout %}`, the
-    `markdown="1"` kramdown idiom gone from the source, the fixture retired.
-    The no-control-flow tripwire stands: no arguments, no conditionals.
+    siblings — in the sitemap, carrying **no `noindex`** (indexable today
+    by accident). Needs `.htaccess` redirects or an explicit parity
+    exemption like q12's — and the accidental indexability is worth fixing
+    *before* the restructure, not with it.
 30. **Pagination × subdivision (§5c).** A grouped view can be subdivided; a
-    paginated one deliberately cannot *yet*. A year archive could plausibly
-    paginate (`/blog/2022/page/2/`) while months subdivide off the same root
-    (`/blog/2022/12/`) — the row-set semantics are coherent (subdivision
-    partitions the *whole* group, not one page of it), but the parent's
-    pagination URLs and its children's routes then share the year root's
-    namespace. **Subdivided collections may overlap if we aren't careful**,
-    and the overlap has two grades worth distinguishing:
+    paginated one deliberately cannot *yet*. A year archive could
+    plausibly paginate (`/blog/2022/page/2/`) while months subdivide off
+    the same root — the row-set semantics are coherent, but parent
+    pagination URLs and child routes then share a namespace. Two grades:
+    **actual collision** (two routes, same URL — checkable as a hard error
+    today, the database advantage) and **pattern-space overlap** (shapes
+    intersect, today's keys don't — should warn, silenced by an explicit
+    `allow_overlap = true`: warn-or-declare, the §4a posture). Also parked
+    here: crumb templates for paginated views (the `Page N` trail entry is
+    an engine rule for now). The config check errors with a pointer to
+    this question.
+33. **View-name policy in `build.rs` (§9b)** — the serialization half
+    settled as shells (§5g); what remains is exactly what the 2026-07-18
+    audit re-flagged: (a) listing `noindex` is decided by
+    `view != "blog_index"` — a site policy living in engine code as a
+    string match; views should declare `noindex = true` (the tag/archive
+    views would, matching Jekyll). (b) The `"blog_index"` layout-presence
+    fallback dies when the view declares a layout. (c) `layout` on the
+    main site's listing views is a presence flag wearing dead names
+    (`"tag_index"`, `"monthly_archive"` select nothing since §5e) —
+    rename to `listing` for truth, byte-identical. (d) `template` no
+    longer templates — it *claims* a legacy file from the tree, which is
+    §5h's claiming vocabulary wearing an old name. (e) The sitemap
+    filter's second evaluation (star routes carry no members).
+34. **Three "not content" lists (§9b).** §4c's three layers govern the
+    tree walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`)
+    carry private skip lists that can silently drift from `exclude`. Both
+    walks should derive from the §4c layers. Serve's one extra legitimate
+    member — `_cache/`, which a rebuild *writes* — stays its own.
+37. **The `board` kind: composition of views as content (§5c-adjacent,
+    specced, deliberately pending).** A board is a *query over queries* —
+    `[views.home] layout = "board"` declaring ordered members, each
+    contributing `{label, content}`; the theme places one slot, CSS does
+    the columns. It would retire the last hand-written arrangement on
+    either site's homepage, and §5h gives it its frame: home is the
+    queryless landing, and the board is what its *listing* becomes.
+    Pending on purpose (build at the second board or the publish cutover):
+    (a) member declaration — names vs inline definitions; (b) labels —
+    per-member vs inherited from each view's `title`; (c) routable or
+    embed-only; (d) boards-in-boards (leaning no — the §5d tripwire);
+    (e) whether board items ride the q36 preview kind or stay opaque.
+38. **Transclusion (§7b).** Render row X inline by reference. The
+    backlinks half of the link graph is built (page-bodies prepass, href
+    scan, `linked-from` relations axis — zero fragment changes to render
+    it); transclusion waits on a real consumer, with §5d's
+    no-control-flow rule watching it.
+39. **Set-scoped computed fields (§7b).** §5f fields derive from ONE row;
+    the survey wants aggregates over a view's members — `count()`,
+    `sum(minutes)`, date spans — for meal-plan rollups, subtree stats,
+    calendar counts. A natural §5f extension (functions whose source type
+    is a member set), but it changes the field-inheritance story; spec
+    alongside q31's build.
+40. **Structured record fields (§7b).** `.schema.toml` wants a
+    list-of-records type (`ingredients = {type="records", fields={qty=
+    "string", name="string"}}`-ish) for ingredient lists, podcast
+    chapters, cast lists — plus a schema.org/JSON-LD emission deriver.
+    Extends §5b without changing its shape. §6f's enum records
+    (`[records.<field>.<id>]`) took the *value-domain* half; this is the
+    *row-field* half.
+42. **Client-side faceted filtering (§7b).** Combinable facets (diet ×
+    cuisine × season) can't be enumerated as static views. The search.bin
+    architecture generalizes: ship a typed facet index, run the
+    intersection in the client — a *client-side view*, declared in config
+    like any other, materializing an index instead of routes.
+43. **Media beyond image (§7b).** Audio/video schema field types (with
+    duration/player facts, as image carries dimensions), podcast RSS
+    enclosures as a feed variant, multi-format/srcset renditions from the
+    §6b contest, and externally-hosted originals (a URL-valued image
+    source that skips thumbnailing but can still carry declared
+    dimensions).
+46. **Dissolve `collection.crumb`/`index` into the landing chain (§5h,
+    from the 2026-07-18 seams audit).** Both configs state the same two
+    facts twice: `crumb = "Blog"` beside `blog_index`'s `title = "Blog"`,
+    `index = "/blog/"` beside its route. With the chain built, a post URL
+    climbs to `/blog/` — a landing route carrying the view's crumb — so
+    `post_trail` can root through the same walk listings and tree pages
+    use, and both fields die. Byte-parity looks provable (same words,
+    same URLs), and §6f's dangling-crumb edge closes for free (the climb
+    finds `/fr/blog/` at the route's locale). `trail` stays — the
+    subdivision chain is genuinely non-derivable.
 
-    - **Actual collision** — two routes materialize the same URL. The whole
-      route set exists at load, so this is checkable as a **hard error**
-      today (the database advantage: collisions are a query, not a 404
-      discovered in production).
-    - **Pattern-space overlap** — the *shapes* intersect but today's keys
-      don't: `/blog/2022/{page/N}` vs `/blog/2022/{month:02}/` can never
-      actually collide (`page` ≠ a two-digit month), and a paged year is
-      unlikely to run into a two-digit date on a low-traffic blog. This
-      grade should **warn**, with an explicit config acknowledgment
-      (something like `allow_overlap = true` on the child view) to silence
-      it where the author has judged the risk — warn-or-declare, the same
-      posture as the §4a leak checks.
+### Settled ledger
 
-    Also parked here: crumb templates for paginated views (the `Page N`
-    trail entry is an engine rule for now). Punted until wanted; the config
-    check errors with a pointer to this question.
-31. **Computed fields want functions (§6d).** The current shape — a field
-    is a table whose single deriver key names the computation
-    (`[views.x.fields.summary] truncate = { max_blocks = 4 }`) — is **not
-    quite right**, and known to be. It hardcodes one implicit source (the
-    row's content blocks), can't compose (truncate of a rewrite? lede of a
-    section?), and each new deriver grows a struct rather than a
-    vocabulary. If the config grows a function/expression form, a field
-    becomes `summary = truncate(content, max_blocks = 4, max_chars = 700)`
-    — explicit source, named args, composable, and validated the way the
-    filter language already is. Revisit rather than extend: adding a second
-    deriver to the struct shape deepens the wrong groove. Inheritance
-    semantics (fields flow with rows along `over`, nearest wins) are right
-    and survive the change.
+One line per retired question; the named section carries the design.
 
-    **Direction settled (2026-07): extend the filter language, borrow no
-    engine.** Surveyed: `liquid`/`liquid-core` rejected a third time (the
-    grammar is the cheap 20%; typed load-time validation against our schema
-    is the value, and liquid doesn't bring it); `minijinja` expressions are
-    credible (real kwargs, zero deps) but dynamically typed — schema
-    checking needs its unstable `machinery` AST — and would split the
-    config into two expression languages; CEL fits conceptually but is
-    dependency weight with a type system to bridge. So: add call syntax
-    with named arguments to `filter.rs`, functions in a typed registry
-    (name → source type, params, return type), same load-time errors naming
-    the knowns; filters become expressions of type bool, fields expressions
-    producing content. Constraint worth keeping: the grammar stays
-    **CEL-compatible** (our filter syntax already is, accidentally), so the
-    hand-rolled parser can be swapped for `cel` later without breaking a
-    config file. Build at the q23 `hero` forcing point. **Spec: §5f** —
-    the CEL contract, surfaces, environment typing, options-as-map-literals,
-    and the divergence ledger.
-32. ~~Producers hardcode routes that config owns (§9b)~~ — **settled,
-    built (2026-07)**, in exactly the predicted shape and with the
-    predicted small answer. Pagination: the producer takes URLs
-    (`pagination(current, urls)` no longer knows what a blog is); build
-    renders them from the owning view's own `routes` templates,
-    locale-prefixed like the routes themselves. Tag pills: the posts
-    collection may declare which view owns tag routes
-    (`tags = "tag_index"`, next to `crumb`/`index`/`trail`), falling
-    back to the unique tags-grouped view — ambiguity without a
-    declaration is a load error, the declared view must be tags-grouped
-    and routed, and its template must render from `{key}` alone
-    (probed at load). `Config::tag_url(id, locale)` renders the
-    template with the record's slug and the view's locale
-    materialization; **no tags view = unlinked pills**, presence-driven
-    like everything else. i18n forced this settlement: the hardcodes
-    had already grown locale prefixes in two places. One deliberate
-    visible change, accounted mechanically: pagination links now carry
-    the route template's trailing slash (`/blog/page/2/`) — 66 files
-    changed, every byte explained by that one substitution; the old
-    slashless form was jekyll-paginate parity that made every click
-    bounce through a server redirect.
-33. **View-name policy in `build.rs` (§9b)** — *the serialization half is
-    settled (2026-07), with better vocabulary than this entry proposed*:
-    Matt's framing is that the feed is not a special pass but a
-    different **shell** — the outermost serialization of the same rows.
-    Views now declare `shell = "atom"` / `"sitemap"` (validated at
-    load), and the template-filename match is retired; q44 carries the
-    full generalization. Still open here: listing `noindex` decided by
-    `view != "blog_index"`, the `blog_index` fallback layout match, and
-    the sitemap filter's second evaluation (star routes carry no
-    members).
-44. **Built-in shell types (Matt, 2026-07)** — promoted to **§5g**, which
-    carries the design: the root HTML shell all themes inherit is BUILT
-    (null theme yields valid documents, `light_shell` dissolved,
-    `subtheme` engine-placed), atom/sitemap view shells are built, the
-    md shell is specced with `/llms.txt` as its forcing consumer.
-    Remaining pending, per §5g: row-level `shell:` (splitting `layout:
-    light`'s conflation), theme `head.html` extras, serializers as
-    part-map consumers, a `json` shell.
-34. **Three "not content" lists (§9b).** §4c's three layers govern the tree
-    walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`) carry
-    private skip lists that duplicate — and can silently drift from —
-    `grackle.toml`'s `exclude`. Both walks should derive from the §4c
-    layers (`store::walker` + config). The serve list has one extra
-    legitimate member the others lack: `_cache/`, which a rebuild *writes*
-    (watching it would loop) — that one is serve's own, and stays.
-35. ~~Scope markers (§6e)~~ — **settled by building** (2026-07): (a) a bare
-    file, engine vocabulary like `.slots/` — no config entry, no payload
-    (options can arrive later as file contents without breaking empty
-    files); (b) yes — `order:` is a page schema field, sorted
-    (order, label), unset last; (c) nested `.section`s nest, nearest wins,
-    pinned by test. A marker with a payload remains available the day
-    depth/ordering options are wanted.
-45. **Index pages vs view roots (Matt, 2026-07): the landing is one
-    concept with four implementations, and none owns it.** A deep
-    review, prompted by "they really seem to be fuzzy." The page that
-    *stands for a set* — a section landing — exists four ways: a
-    **view root** (`/blog/`, `/photos/`, `/books/` — a materialized
-    route, not a row); an **index page** (`recipes/index.md`,
-    `manual/index.md` — a *row*, routed by `**/index.{html,md}`); the
-    **home page** (`index.html` at `/` — a row plus special cases:
-    `home_url`, the engine `home` string); and **`collection.index`**
-    (a raw URL in config standing for a landing in trails). Four
-    mechanisms then answer "what landing is above this thing," each
-    differently: posts via `trail_root` → `collection.index`; listings
-    via the grouped chain's route templates; tree pages via
-    `ancestors()` — a URL-walk that sees only page rows; nav by making
-    the author pick a dialect per section (`view:blog_index` vs
-    `/recipes/index.md`).
-
-    **The symptoms are live, not hypothetical** (all observed on the
-    example): `/books/the-typed-kitchen/` has no Books crumb —
-    `ancestors()` cannot see a view root, so the club is unreachable
-    upward from its own members. `/fr/recipes/red-lentil-dal/` shows
-    `Accueil › Carnet de terrain › …` — home *duplicated* (the `/fr/`
-    prefix makes the homepage row look like a directory ancestor) and
-    Recipes *missing* (no `index.fr.md`). `/fr/recipes/` is a 404
-    while `/fr/blog/` exists — locale-parallel is default-on for views
-    but impossible for index pages, and `index.fr.html` visibly routes
-    around it by linking the lone French recipe directly. `stem !=
-    "index"` appears in three view filters — the landing is a row, so
-    every query over its table must remember to exclude it or the
-    listing lists itself, while view listings are excluded
-    structurally by route kind: one distinction, two mechanisms, one a
-    naming convention. `recipes/index.md` hand-states "serves 2, 25
-    min" beside a schema that owns `servings`/`minutes`, and
-    `manual/index.md` hand-lists the tree §6e derives — hand-maintained
-    materialized views, the classic denormalization drift. And
-    `collection.index = "/blog/"` speaks the raw-URL dialect §6a made
-    a *load error* in content. The one honest seam: route collisions
-    are checked cross-table, so a section at least cannot silently be
-    both (`books/index.md` would error against `views.books`).
-
-    **Diagnosis**: a landing is a **projection** (derived listing)
-    plus, sometimes, **prose** (an owned row). An index page is a row
-    pretending to be a view; a view root is a view missing its row's
-    prose. Every symptom is one of those halves missing or
-    hand-forged. The homepage already demonstrates the working shape —
-    prose that *embeds* views: the row owns the words, the query owns
-    the list.
-
-    **Proposed unification: a landing URL is always owned by a view,
-    and a view may take its prose from a row.** `/recipes/` becomes a
-    view over `pages` like `/books/` already is. A view can declare —
-    or discover by convention — an **intro row**: `index.md` in the
-    matched directory supplies front matter and prose rendered above
-    the derived listing (the homepage hybrid made first-class). The
-    intro row stops being routed standalone and stops being listable,
-    so every `stem != "index"` filter dies structurally. Then the rest
-    falls out: locale-parallel applies uniformly (`/fr/recipes/`
-    materializes with French rows, intro from `index.fr.md` else the
-    default intro — the same suffix fallback slots use); trails unify
-    (`ancestors()` is replaced by a landing chain that view routes
-    participate in); `collection.index` names a **view** (closing the
-    q32-adjacent pending §6f records); nav speaks one dialect —
-    `view:` for every section. Home is the root landing: a view whose
-    intro is `index.html` and whose listing may be empty —
-    prose-only landings are the degenerate case, which also covers
-    `manual/` (its "listing" is §6e's section tree, a different
-    layout), and `home_url` falls out. q27's auto-index upgrade is
-    subsumed exactly: an index-less directory is a landing view with
-    no intro row. q37's board is the sibling question (what home's
-    *listing* is, when it is several views).
-
-    **Open before building**: (a) how a landing derives its *parent*
-    for the chain — URL nesting of landing roots vs an explicit
-    `parent =`; (b) front-matter authority — does the intro row's
-    `title:` beat the view's `title`/`crumb` (leaning: yes, explicit
-    beats derived, per row); (c) discovery — `index.md` in the
-    matched dir by convention vs `intro = "recipes/index.md"`
-    declared (leaning: convention, declared override); (d) what
-    happens to the `**/index.{html,md}` route rule and URL parity on
-    the main site, where index pages are today ordinary rows; (e) the
-    interim for `manual/index.md`'s hand-list before the section-tree
-    landing exists.
-
-    **Direction settled (2026-07, Matt's shape): the engine never
-    guesses the arrangement** — either the theme owns it (a slot) or
-    the author does (the row places the embed); the "prose above
-    listing" concatenation is dead. Three tiers. **Bare**: query +
-    route + `listing`, what `/books/` is today. **Declared text**:
-    the view declares `intro` (the chosen word — over preamble, lede
-    taken by q31, standfirst too clever), a `LocalizedStr` rendered
-    as *markdown through the view's locale-aware link resolver* (an
-    intro can say `view:…` and gets strict validation), filling an
-    `intro` slot on the listing layout — empty collapses (binder
-    rule 2), so every existing listing is byte-identical and the
-    magical view just works. **Referenced content**: the view
-    declares `content = "recipes/index.md"` (mutually exclusive with
-    `intro`; both = load error) — the row becomes the whole body and
-    is *responsible for placing* `{% view <owner> %}`, a load error
-    if it doesn't (the rows would be unreachable), scoped to views
-    that have a query. The row keeps everything rows have: front
-    matter, its rule-derived theme (the landing wears its section's
-    clothes), suffix localization with default-locale fallback.
-
-    **Claiming**: a referenced content row is *claimed* — no
-    standalone route, and excluded from every query **structurally**,
-    by ownership, killing the `stem != "index"` naming convention
-    outright (forgetting the filter becomes impossible rather than a
-    self-listing bug). Claiming is declared, never discovered — a
-    convention would claim rows silently; declared is q5's answer
-    again (schema declared, not inferred). Which makes migration
-    incremental: `**/index.{html,md}` survives for unclaimed rows,
-    the main site is untouched (oracle-safe), and sections lift one
-    `content =` declaration at a time — the q9 page-bundle posture.
-    **Home stops being special**: a *queryless landing*
-    (`route = "/"`, `content = "index.html"`) whose content embeds
-    other views by name — the must-place check has no rows to
-    strand; q37's board hangs in this frame later, and `home_url`
-    becomes "the root landing's route, per locale."
-
-    The subtle semantic: the owning view's self-embed is
-    **route-aware** — it renders *this route's slice* (page 2 of
-    `/blog/` renders page 2's rows; `/fr/recipes/` the French
-    partition), unlike embeds of *other* views, which keep today's
-    whole-view semantics. Intro and content render on every page of
-    a paginated landing: the prose is the landing's face; the slice
-    is what changes.
-
-    ✅ **Built and tasted (2026-07)**, in the settled shape, engine
-    oracle-clean (the unfilled `intro` slot collapses; the fragment
-    glues the intro div to the items line so the collapse leaves no
-    stray whitespace — the binder deletes elements, not their
-    lines). The example's `/recipes/` is a mode-B landing
-    (`content = "recipes/index.md"`, the hand-list replaced by
-    `{% view recipes_index %}` rendered through the RECIPES theme's
-    own new listing/summary fragments — the landing wears its
-    section's clothes, styled as kitchen tabs); `/books/` tastes
-    mode A (`intro` with a resolved `view:blog_index` link).
-    Cascade observed, all predicted: `/fr/recipes/` materializes
-    (index.fr.md prose, the one French row, French chrome
-    throughout); the dal trail reads `Accueil › Recettes › Dal…`
-    (the duplicated home crumb died — `ancestors()` now skips
-    locale-prefix homes, Home is the trail root's job — and the
-    Recipes crumb appeared, because the claimed row keeps title
-    and landing URL, so the ancestors walk still sees it); both
-    `stem != "index"` recipe filters deleted; nav's one
-    `/recipes/index.md` source link resolves per locale (source
-    links gained the view-link invariant: prefix-and-check,
-    fall back); sitemap gains `/fr/recipes/` and loses nothing.
-    Settled by building: row front matter beats view title;
-    claiming is declared-only; migration is incremental (unclaimed
-    index pages behave exactly as before — main site untouched).
-    One deliberate semantic change: claimed rows leave the
-    backlink scan, so listed rows no longer show "Linked from:
-    Recipes" — *membership is not citation*; an authored citation
-    in the prose would still count the day the landing bodies join
-    the scan.
-
-    **The chain's first slice followed (Matt: "since there's a
-    default page listing those books, shouldn't breadcrumbs pick it
-    up?")**: `ancestors()` falls back to a materialized landing
-    route when no page row owns the parent URL — the view's crumb
-    (else title) at the route's locale. A book's trail now climbs
-    `Home › Book of the Month › The Typed Kitchen`; mode-B landings
-    never reach the fallback (the claimed row matches first, row
-    title winning as everywhere). **Listing trails climb the same
-    chain** (deduped by URL against the collection crumb, which
-    already roots `/blog/`-style listings): when the course archives
-    moved under the landing (`/recipes/courses/{key}/`, Matt's ask),
-    `Home › Recipes › Dinner` fell out of the nesting with no
-    declaration — and the move itself cost zero source edits, every
-    `view:` link re-deriving. URL nesting IS the parent derivation
-    for tree rows; what remains of (a) is only the non-nested half:
-    `collection.index` naming a view, and whether a landing may
-    declare `parent =` when nesting lies.
-
-    **Theme provenance settled by Matt's observation** ("the courses
-    didn't inherit the recipe theme"): theme is a ROW attribute
-    (§5a), so a tree-backed listing whose members unanimously wear
-    one theme NAME wears it too — the course archives render through
-    the recipes theme because every row they list does, using its
-    listing/summary fragments and stylesheet. Subtheme tokens
-    (`recipes:spicy`) are one row's dress and never lift to a
-    listing (the spicy dal doesn't spice the dinner archive); mixed
-    or theme-less members keep the default, and posts/objects carry
-    no theme, so the main site is untouched by construction. No new
-    config: derived, like everything else about a projection.
-
-    Narrowed but open: (a)'s non-nested half (above); orphaned
-    translations (`index.fr.md` with no French rows has nowhere to
-    render → warn); whether mode-B prose is searchable (landing
-    routes are structurally excluded — leaning keep them out until
-    someone misses it);
-    and, noticed while tasting: a variant fragment lacking a hole
-    drops that part silently (`listing--cards.html` swallowed the
-    books intro until it grew the slot) — "never ship what a theme
-    hides" may want a load-time warning for schema parts no
-    fragment of a theme places.
+| q | settled as | carried in |
+|---|---|---|
+| 3 | fresh `grackle.toml`, no `_config.yml` migration — settled by building both sites | §4 |
+| 5 | three explicit not-content layers (gitignore / dotfile / declared exclude) | §4c |
+| 7 | profiles gate materialization; `/hidden/` is a drafts-profile view, URL parity holds | §4a |
+| 8 | hidden rows don't exist in the public profile, so no hidden neighbour renders | §4a |
+| 9, 9a | buckets + bubbling resolve bare names with no restructuring; the two genuine collisions stay unreferenced — leave | §6a |
+| 12 | derived assets move to `/static/{hash}`; URL parity stays hard for pages, exempt for derived assets | §6b |
+| 15 | no template language: a template may not contain control flow; `liquid` retired by not taking it | §5d |
+| 16 | no custom AST→HTML renderer; AST mutation + escape hatches per node type (tripwire: ~⅓ of node types) | §9a, §8c |
+| 17 | truncation is a `truncated` Flag → `data-truncated` → theme-CSS ★ | §6d |
+| 18 | sidenotes are a theme decision: the `notes` stream placed by whichever theme claims it, endnotes canonical | §5e, §6d |
+| 19 | route-level fix landed (`draft`/`hidden` on every Route; sitemap filter); profiles still ride phase 3 | §4a |
+| 20 | themes are directories of fragments + SCSS; a third theme is `mkdir` | §5e |
+| 24 | fragment variants: `{kind}--{variant}` → base → canonical; `data-fragment` resolves at load | §5e |
+| 27 | index-less dirs render as unlinked labels in section trees; the auto-index view is a landing with no intro row | §6e, §5h |
+| 29 | `{% callout %}` widgets: `[widgets]` registry, paired-tag expansion, no arguments, no conditionals | §5d |
+| 31 | expressions extend `filter.rs` as a strict CEL subset, no borrowed engine; build at the q23 forcing point | §5f |
+| 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
+| 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
+| 36 | one preview kind: `summary` (presence-driven), `card`/`card_list` deleted, `featured` slot on listing | §5e |
+| 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
+| 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced | §5g |
+| 45 | landings: a view owns the URL, a row may own the words; claiming, the chain, theme provenance | §5h |
