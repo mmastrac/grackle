@@ -158,23 +158,48 @@ a:hover {
 	font-size: 0.85rem;
 }
 
-// Canonical markup (data-kind/data-slot) styled directly — the null theme
-// is the contract, so selectors key on it.
-[data-kind="summary"] {
+// Listings (§6f gave them fragments: crumbs + title + summaries).
+.listing {
+	h1 {
+		margin: 0.25rem 0 1.5rem;
+	}
+}
+
+.summary {
 	margin: 2rem 0;
 	padding-bottom: 1.5rem;
 	border-bottom: 1px solid var(--line);
 
-	[data-slot="title"] {
-		font-size: 1.2rem;
-		font-weight: bold;
-		display: block;
+	&:last-child {
+		border-bottom: none;
 	}
 
-	[data-slot="date_pretty"] {
+	.summary-title {
+		margin: 0 0 0.15rem;
+		font-size: 1.2rem;
+
+		a {
+			color: var(--fg);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--link);
+			}
+		}
+	}
+
+	.summary-meta {
+		margin: 0 0 0.75rem;
 		color: var(--muted);
 		font-size: 0.85rem;
 	}
+}
+
+// Canonical markup (data-kind/data-slot) styled directly — the null theme
+// is the contract, so selectors key on it.
+[data-kind="summary"] [data-slot="date_pretty"] {
+	color: var(--muted);
+	font-size: 0.85rem;
 }
 
 [data-kind="document"] > [data-slot="title"] {

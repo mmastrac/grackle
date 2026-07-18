@@ -21,7 +21,9 @@ author = "Example Author"
 [collections.notes]
 kind = "posts"
 source = "_posts"
-crumb = "Notes"
+# A LocalizedStr (§6f): every display name in config takes either a bare
+# string or a per-locale map — same shape as tag names and view titles.
+crumb = { en = "Notes", fr = "Carnet" }
 index = "/blog/"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -81,6 +83,21 @@ locales = ["fr"]
 en = "English"
 fr = "Français"
 
+# The GLOBAL string map (§6f): the fallback layer of the display-name
+# hierarchy — inline beats global beats engine built-in. Engine keys
+# (home, related, …) override what the engine emits; any other key is a
+# shared string for "@key" references, and must be referenced somewhere
+# (an unused key is a load error — it's how a typo'd engine key surfaces).
+[i18n.strings]
+home = { en = "Home", fr = "Accueil" }
+related = { en = "Related", fr = "Similaires" }
+later = { en = "Later post", fr = "Note suivante" }
+earlier = { en = "Earlier post", fr = "Note précédente" }
+linked_from = { en = "Linked from", fr = "Lié depuis" }
+translations = { en = "Translations", fr = "Traductions" }
+# A shared string: referenced by tag_index below as title = "@tagged".
+tagged = { en = "Notes tagged “{key}”", fr = "Notes étiquetées « {key} »" }
+
 # Tag records (§6f): enum-style config records. Slug and name default to
 # the id; `name` may carry the lang axis.
 [tags.meta]
@@ -106,7 +123,7 @@ over = "published"
 paginate = 5
 routes = ["/blog/", "/blog/page/{n}/"]
 layout = "listing"
-title = "Notes"
+title = { en = "Notes", fr = "Carnet" }
 
 [views.latest]
 over = "published"
@@ -117,8 +134,15 @@ layout = "link_list"
 over = "published"
 group_by = "tags"
 route = "/blog/tags/{key}/"
+# §6f: locale-parallel materialization is DEFAULT-ON — /fr/blog/tags/…
+# holds the French rows, titled from @tagged's fr entry, with no
+# annotation here. A view that should stay single-locale opts out with
+# locales = "default". A tag with no French rows has no French page.
 layout = "listing"
-title = "Notes tagged “{key}”"
+# A "@key" reference into [i18n.strings] — the title is declared once,
+# per locale, and any view could share it. Placeholders render after the
+# locale resolves.
+title = "@tagged"
 crumb = "{key}"
 
 [views.feed]
