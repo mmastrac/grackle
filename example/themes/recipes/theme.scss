@@ -121,3 +121,14 @@ main {
 	font-size: 0.8rem;
 	padding-bottom: 2rem;
 }
+
+// Subtheme subselection (§5a): `theme: "recipes:spicy"` stamps
+// data-subtheme="spicy" on <html> via the shell's attribute hole; the
+// theme's CSS takes it from there — no engine branching, no new theme.
+html[data-subtheme~="spicy"] {
+	--accent: #e04a00;
+
+	[data-kind="document"] > [data-slot="title"]::after {
+		content: " 🌶";
+	}
+}

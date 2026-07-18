@@ -166,7 +166,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let main =
                 thm.fragments.render(&parts::document(db, p, whole, trail, &rel, outline));
             let dir = p.path.parent().unwrap_or(&root);
-            let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, dir)?;
+            let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, dir, None)?;
             Ok((p.url.clone(), html))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -243,7 +243,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .fragments
             .render_with(&parts::listing(&rows, &title, trail, pagination), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
-        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
+        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -283,7 +283,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .fragments
             .render_with(&parts::gallery(&items, &title, trail), v.variant.as_deref());
         let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
+        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -318,7 +318,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             v.variant.as_deref(),
         );
         let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root)?;
+        let html = thm.page(render::head_html(&head, &css_of(None)), &cfg.site.title, main, &root, None)?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
     }
@@ -480,9 +480,18 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
                 // The legacy `layout:` field selects a layout kind; the
                 // row's `theme:` (front matter or rule default) selects the
-                // theme — per row, §5a.
-                let row_thm = themes.get(row.and_then(|p| p.theme.as_deref()))?;
-                let row_css = css_of(row.and_then(|p| p.theme.as_deref()));
+                // theme — per row, §5a — with a colon suffix carrying
+                // subtheme tokens for CSS subselection (`recipes:spicy` →
+                // data-subtheme="spicy" wherever the shell places it).
+                let (theme_name, subtheme) = match row.and_then(|p| p.theme.as_deref()) {
+                    Some(spec) => {
+                        let (n, s) = theme::split_spec(spec);
+                        (Some(n), s)
+                    }
+                    None => (None, None),
+                };
+                let row_thm = themes.get(theme_name)?;
+                let row_css = css_of(theme_name);
                 let head = render::head_simple(&title, &r.url, &site, false);
                 let html = match Theme::parse(layout) {
                     // `light` IS the null theme (§5e step 4): the minimal
@@ -514,6 +523,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                             &cfg.site.title,
                             main,
                             dir,
+                            subtheme.as_deref(),
                         )?
                     }
                 };

@@ -1122,7 +1122,14 @@ embeddings — share one content-addressed cache; see §6b.
 > stay as tolerant as ever. The `.style.scss` and `.slots/`-overlay legs
 > remain as specced; per-row **themes** landed separately (a `theme:`
 > field cascading via rule defaults — §5a's "theme is chosen per row",
-> real at last, with a theme registry and per-theme stylesheets).
+> real at last, with a theme registry and per-theme stylesheets). Theme
+> specs take a colon suffix for **subselection** (Matt, 2026-07):
+> `theme: "recipes:spicy"` renders through `recipes` with the tokens
+> space-joined into a `subtheme` shell part; the shell places it as an
+> attribute hole on `<html>` (`data-slot-data-subtheme`) and CSS
+> subselects via `[data-subtheme~="spicy"]` — rule 3 handles absence,
+> the §5b data-scope token trick handles multiplicity, zero new engine
+> machinery.
 
 **This is the marker pattern (§4b) again**, which is the argument for it: the
 tree declares *where*, the config declares only the vocabulary. A directory

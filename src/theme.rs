@@ -22,6 +22,21 @@ pub struct Theme {
     identity: Vec<(&'static str, bool)>,
 }
 
+/// Split a row's theme spec: the directory name before the first `:`,
+/// subtheme tokens after it, space-joined — `"recipes:spicy"` renders
+/// through the `recipes` theme with `subtheme = "spicy"` on the shell,
+/// which CSS subselects via `[data-subtheme~="spicy"]` (the same
+/// whitespace-token trick as §5b's data-scope).
+pub fn split_spec(spec: &str) -> (&str, Option<String>) {
+    match spec.split_once(':') {
+        Some((name, rest)) => {
+            let toks: Vec<&str> = rest.split(':').filter(|t| !t.is_empty()).collect();
+            (name, (!toks.is_empty()).then(|| toks.join(" ")))
+        }
+        None => (spec, None),
+    }
+}
+
 /// Every theme under `themes/`, keyed by directory name. Theme is chosen
 /// per row (§5a): a row names one (`theme:` front matter, cascadable via
 /// rule defaults); the site default is `default`; a site with no themes at
@@ -102,16 +117,21 @@ impl Theme {
 
     /// Render one full page: `main` is the already-rendered layout kind;
     /// `source_dir` anchors identity-slot resolution (rows deeper in the
-    /// tree can override the site's identity, nearest wins).
+    /// tree can override the site's identity, nearest wins); `subtheme`
+    /// is the row's `theme:` colon suffix, if any.
     pub fn page(
         &self,
         head_html: String,
         site_title: &str,
         main: String,
         source_dir: &Path,
+        subtheme: Option<&str>,
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
         m.set("head", Part::Html(head_html));
+        if let Some(s) = subtheme {
+            m.set("subtheme", Part::Text(s.to_string()));
+        }
         m.set("site_title", Part::Text(site_title.to_string()));
         for (name, phrasing) in &self.identity {
             if let Some(fill) = self.fills.resolve(&self.root, source_dir, name) {
@@ -125,5 +145,22 @@ impl Theme {
         }
         m.set("main", Part::Html(main));
         Ok(self.fragments.render(&m))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_spec;
+
+    #[test]
+    fn theme_specs_split_on_colons() {
+        assert_eq!(split_spec("recipes"), ("recipes", None));
+        assert_eq!(split_spec("recipes:spicy"), ("recipes", Some("spicy".into())));
+        // Multiple tokens space-join for [data-subtheme~="…"] matching.
+        assert_eq!(
+            split_spec("recipes:spicy:festive"),
+            ("recipes", Some("spicy festive".into()))
+        );
+        assert_eq!(split_spec("recipes:"), ("recipes", None));
     }
 }

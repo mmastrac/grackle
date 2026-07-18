@@ -154,6 +154,10 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         // theme owns the words; `main` is the rendered layout kind.
         "shell" => &[
             ("head", Html),
+            // Subtheme tokens from `theme: "name:sub[:sub…]"` (§5a),
+            // space-joined; themes place them as an attribute hole on
+            // <html> and CSS subselects via [data-subtheme~="…"].
+            ("subtheme", Text),
             ("nav", Html),
             ("site_title", Text),
             ("main", Html),
