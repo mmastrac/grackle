@@ -408,22 +408,31 @@ pub fn translations_group(
 /// One dated row, full content: the `document` kind for a post. Temporal
 /// relations (crumb trail, neighbors) are present because the schema has a
 /// date, not because anything asked "am I a post".
-/// The `linked-from` relations group (q38): pages that link here, as
-/// dateless neighbors. The link graph's first face — one more axis, the
-/// §6b design absorbing its first non-similarity member.
+/// The `linked-from` relations group (q38): rows that link here. The link
+/// graph's first face — one more axis, the §6b design absorbing its first
+/// non-similarity member.
+///
+/// Dated where the citing row has a date, which is most of them: a post
+/// citing this one says *when*, and that is what makes the list readable.
+/// A citing PAGE has no date and renders without one — a mixed axis, which
+/// the theme handles by letting an undated neighbour span.
 fn linked_from_group(
     cfg: &crate::config::Config,
     locale: &str,
-    backlinks: &[(String, String)],
+    backlinks: &[(String, String, Option<chrono::NaiveDate>)],
 ) -> Option<PartMap> {
     if backlinks.is_empty() {
         return None;
     }
     let items = backlinks
         .iter()
-        .map(|(title, url)| {
+        .map(|(title, url, date)| {
             let mut nm = PartMap::new("neighbor");
             nm.set("url", Part::Text(url.clone()));
+            if let Some(d) = date {
+                nm.set("date", Part::Text(crate::db::iso_date(*d)));
+                nm.set("date_pretty", Part::Text(crate::db::pretty_date(*d)));
+            }
             nm.set("title", Part::Text(title.clone()));
             nm
         })
@@ -442,7 +451,7 @@ pub fn document(
     content: &str,
     trail: Vec<(String, Option<String>)>,
     related: &[usize],
-    backlinks: &[(String, String)],
+    backlinks: &[(String, String, Option<chrono::NaiveDate>)],
     outline: Vec<PartMap>,
     translations: &[(String, String)],
 ) -> PartMap {
@@ -522,7 +531,7 @@ pub struct TreeDoc<'a> {
     pub outline: Vec<PartMap>,
     pub hero: Option<PartMap>,
     /// Pages that link here (q38) — `(title, url)`.
-    pub backlinks: &'a [(String, String)],
+    pub backlinks: &'a [(String, String, Option<chrono::NaiveDate>)],
     /// This row in other locales (§6f) — `(language label, url)`.
     pub translations: &'a [(String, String)],
 }

@@ -1151,20 +1151,29 @@ fn internal_links(html: &str, site_url: &str) -> Vec<String> {
 /// url)`, deduped per source, sorted by title. Sources are every rendered
 /// body — posts and pages alike; targets are document rows only. Reads
 /// the same bytes that ship, so link and index cannot desync.
+/// `url -> [(title, url, date)]`. The citing row's date rides along: a
+/// backlink's source is usually a post and it has one, so an axis that
+/// dropped it was throwing away *when* the citation happened — the one
+/// fact that makes a backlink list readable in date order.
+type Backlink = (String, String, Option<chrono::NaiveDate>);
+
 fn backlinks_map(
     db: &SiteDb,
     bodies: &HashMap<&str, Doc>,
     page_bodies: &HashMap<String, PageBody>,
     site_url: &str,
-) -> HashMap<String, Vec<(String, String)>> {
+) -> HashMap<String, Vec<Backlink>> {
     let mut is_target: HashSet<&str> =
         db.posts.rows.iter().map(|p| p.url.as_str()).collect();
     is_target.extend(db.pages.rows.iter().filter(|p| p.rendered).map(|p| p.url.as_str()));
 
-    let mut sources: Vec<(&str, String, &str)> = Vec::new();
+    // A page has no date, so the axis is legitimately mixed — which is why
+    // the theme lets an undated item span rather than assuming every
+    // neighbour wears a date column.
+    let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.posts.rows {
         if let Some(d) = bodies.get(p.url.as_str()) {
-            sources.push((p.url.as_str(), p.title.clone(), d.whole.as_str()));
+            sources.push((p.url.as_str(), p.title.clone(), p.date, d.whole.as_str()));
         }
     }
     for p in db.pages.rows.iter().filter(|p| p.rendered) {
@@ -1173,25 +1182,28 @@ fn backlinks_map(
                 sources.push((
                     p.url.as_str(),
                     p.title.clone().unwrap_or_default(),
+                    None,
                     pb.frag.as_str(),
                 ));
             }
         }
     }
 
-    let mut map: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for (src_url, title, html) in sources {
+    let mut map: HashMap<String, Vec<Backlink>> = HashMap::new();
+    for (src_url, title, date, html) in sources {
         let mut seen: HashSet<String> = HashSet::new();
         for t in internal_links(html, site_url) {
             if t != src_url && is_target.contains(t.as_str()) && seen.insert(t.clone()) {
-                map.entry(t).or_default().push((title.clone(), src_url.to_string()));
+                map.entry(t).or_default().push((title.clone(), src_url.to_string(), date));
             }
         }
     }
+    // Newest citation first, undated last — the same ordering `order` gives
+    // the posts table, so a reader meets both lists the same way.
     for v in map.values_mut() {
         v.sort_by(|a, b| {
-            a.0.to_lowercase()
-                .cmp(&b.0.to_lowercase())
+            b.2.cmp(&a.2)
+                .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
                 .then_with(|| a.1.cmp(&b.1))
         });
     }
