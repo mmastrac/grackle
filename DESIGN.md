@@ -2422,14 +2422,17 @@ a real tier with two occupants (q33(f) has the census). The md twin
 below is a *second*, orthogonal axis (which serializations a row
 offers); it does not subsume this one.
 
-Measured, and left alone deliberately: a `shell = "none"` row's content
-is raw HTML, so everything downstream reads it as such — the example's
-pane page puts `backdrop`, `blur` and `rgba` into the search index.
-That is **not** this feature's bug: the main site's index already
-carries `rgba`, `px`, `margin` and `webkit` from §6c's three
-`<style>` posts, because search-text extraction never stripped
-`<style>`/`<script>`. Fix belongs with the search pass, and the pane
-page is now a standing reproduction of it. Also open: the
+A `shell = "none"` row's content is raw HTML, so everything downstream
+reads it as such. Adding one exposed a search bug that predated it:
+`strip_tags` dropped tags but kept what sat between them, so `<style>`
+and `<script>` content became searchable terms — the shipped index
+carried `rgba`, `fafafa` and `ffffff` from §6c's three styled posts.
+**Fixed 2026-07-19** in `search-core` (raw-text elements skip their
+content): those terms are gone, the index lost 1.2 KB, and prose
+survives — two posts discuss `margin` in their text and stay findable
+by it. The example's pane row is `hidden`, which is the honest way to
+keep an imported artifact out of the index; that flag only started
+working on pages the same day (§4b). Also open: the
 atom/sitemap serializers becoming true part-map
 consumers (a feed entry IS a document-parts subset), and a `json` shell
 when something wants one (though a script shell now covers the
