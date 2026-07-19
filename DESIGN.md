@@ -2538,6 +2538,71 @@ distinction. There is no `themes/light` directory; `Theme::Light` is a
 `render::Theme` variant living in a different namespace from the theme
 registry, reached by `shell: light` or the legacy `layout: light`.
 
+### What the tiers actually ask *(2026-07-19)*
+
+The table above says what each tier does. Three readings say why there are
+exactly these and not others. The first is Matt's; the third generalizes
+furthest.
+
+**1. Two bits, and one incoherent corner.** The real choice is two
+independent questions — does the row have **database identity**
+(front matter present, so: schema, content rules, link graph), and does
+the **engine construct its document** (`shell`). That is a 2×2, and only
+three corners exist:
+
+| | engine builds the document | row owns its document |
+|---|---|---|
+| **no identity** | *incoherent* | static / object — 32 HTML files, ~800 binaries |
+| **identity** | `light` / `html` | `shell: none` — 1 |
+
+The empty corner is not a missing feature, it is a contradiction:
+building a document means computing a `<head>`, a head is computed from
+schema, and schema is what identity *means*. There would be nothing to
+wrap. It is also mechanically unreachable — only `RouteKind::Page` (and
+`Post`) reach the constructing path, while `Static | Object` share one
+bytes arm in `build.rs`. So the 2×2 collapses to a three-state chain, and
+the chain is a **result rather than a modelling choice**. Front-matter
+presence is not an overloaded proxy for two decisions; it is the identity
+bit, and identity is a *precondition* for the other one.
+
+Empty front matter (`---`/`---`, Jekyll's idiom for "render me, I have
+nothing to say") does not reach the empty corner either: it makes a Page
+row with no declared fields, which is the identity bit set. Measured: the
+corpus has zero of them.
+
+**2. The guarantee ladder.** Read upward, each tier is what the engine
+*promises* about the bytes:
+
+- **object / static** — nothing. The bytes are yours.
+- **`none`** — the content rules ran (expansion, object resolution,
+  thumbnails, link rewriting), and document validity is *your* promise.
+- **`light`** — a valid document, minimal facts.
+- **`html`** — a valid document, the full computed head, a theme.
+
+This answers `theme: none` in one line: **a theme cannot lower a
+guarantee it did not make.** The root shell is engine-owned precisely so
+the validity promise sits *above* the theme layer; themes live inside the
+promise and cannot see out of it. `shell: none` may opt out because it
+sits above that line and because the row substitutes a promise of its
+own. It also names the honest risk: `none` is the only tier where a
+malformed row yields a broken page with nothing to catch it.
+`demos/pane.html` is 521 bytes of trust.
+
+**3. The escape hatch, and the tripwire it inherits.** q16 established
+both the shape and the discipline: an escape hatch per layer, with a
+tripwire on how often it gets taken (had ~⅓ of node types needed one, the
+markdown design would have been wrong). grackle has one per layer — raw
+HTML through markdown, the null theme under the fragment binder, `{% %}`
+widgets under the no-template-language rule, `render.unsafe_` under the
+AST. **`shell: none` is the shell layer's.**
+
+Reading it that way supplies the tripwire this tier was missing: *if a
+meaningful share of rows need `none`, the tier vocabulary is wrong and
+the engine is failing to build documents people actually want.* Today it
+is 1 row of the example's 21 and 0 of the main site's 227. The layer is
+healthy, and that ratio is the thing to re-read each time an imported
+artifact lands — not the tier list itself.
+
 ### One word, two axes *(named 2026-07-19)*
 
 `shell` names two unrelated things, and it is worth saying so once:
@@ -4760,7 +4825,7 @@ One line per retired question; the named section carries the design.
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven), `card`/`card_list` deleted, `featured` slot on listing | §5e |
 | 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
-| 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced | §5g |
+| 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced; row tiers are pipeline exits (`none` is the shell layer's escape hatch, not an object and not a theme) | §5g |
 | 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |
 | 45 | landings: a view owns the URL, a row may own the words; claiming, the chain, theme provenance | §5h |
 | 46 | `collection.crumb`/`index` dissolved — the URL climb is the sole source of a landing crumb, `trail` keeps the subdivision chain | §5h |
