@@ -96,7 +96,21 @@ input[type="search"]:focus, select:focus { outline: 2px solid var(--accent); out
 .controls label { font-size: 12px; color: var(--ink-3); }
 .controls .count { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
-.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-height: 0; height: 100%; }
+.panes {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1fr);
+	gap: 0.6rem;
+	min-height: 0;
+	height: 100%;
+}
+
+/* The gutter carries no content of its own — it is the space between the
+   two trees, where the selection's correspondence is drawn. */
+.gutter { position: relative; min-height: 0; }
+.gutter svg { position: absolute; inset: 0; overflow: visible; }
+.gline { fill: none; stroke: var(--accent); stroke-width: 1.25; opacity: 0.75; }
+.ghead { fill: var(--accent); opacity: 0.85; }
+.gline.faint, .ghead.faint { opacity: 0.32; stroke-dasharray: 3 3; }
 
 .pane {
 	background: var(--surface);
@@ -140,6 +154,8 @@ input[type="search"]:focus, select:focus { outline: 2px solid var(--accent); out
 .node[data-sel="1"] .n, .node[data-sel="1"] .dim { color: #cfc9bd; }
 .node .tw { width: 12px; color: var(--ink-3); flex: none; }
 .node .lbl { overflow: hidden; text-overflow: ellipsis; }
+.node.bare .lbl { color: var(--ink-2); }
+.flag.view { background: transparent; border: 1px solid var(--line-strong); color: var(--ink-3); }
 .node .n { margin-left: auto; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 table { border-collapse: collapse; width: 100%; font-size: 12.5px; }

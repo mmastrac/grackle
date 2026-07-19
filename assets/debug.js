@@ -132,27 +132,44 @@ function renderTree(root, which, onPick) {
 			var isDir = k.kids.size > 0;
 			var isOpen = exp.has(k.path);
 			var n = el("div", "node");
+			n.dataset.node = k.path;
 			n.style.paddingLeft = 12 + depth * 13 + "px";
-			n.appendChild(el("span", "tw", isDir ? (isOpen ? "−" : "+") : ""));
-			var lbl = el("span", "lbl", k.name + (isDir ? "/" : ""));
-			n.appendChild(lbl);
+
+			// A node can be both: `/blog/` is blog_index's own route AND the
+			// parent of every archive under it. Conflating "has children"
+			// with "is a folder" made every landing — the most interesting
+			// routes on the site — unselectable, so the twisty owns
+			// expansion and the label owns selection.
+			var tw = el("span", "tw", isDir ? (isOpen ? "\u2212" : "+") : "");
+			if (isDir) {
+				tw.onclick = function (e) {
+					e.stopPropagation();
+					if (isOpen) exp.delete(k.path); else exp.add(k.path);
+					draw();
+				};
+			}
+			n.appendChild(tw);
+
+			n.appendChild(el("span", "lbl", k.name + (isDir ? "/" : "")));
 			if (k.item) {
-				var fl = flagsOf(k.item);
-				if (fl.length) fl.slice(0, 2).forEach(function (f) { n.appendChild(flagSpan(f)); });
+				flagsOf(k.item).slice(0, 2).forEach(function (f) { n.appendChild(flagSpan(f)); });
+				if (k.item.view) n.appendChild(el("span", "flag view", k.item.view));
+			} else {
+				n.classList.add("bare");
 			}
 			if (isDir) n.appendChild(el("span", "n", String(k.n)));
 			if (k.item && sel && sel.kind === "row" && sel.key === k.item.url + "|" + k.item.path)
 				n.dataset.sel = "1";
 			if (k.item && sel && sel.kind === "route" && sel.key === k.item.url)
 				n.dataset.sel = "1";
+
 			n.onclick = function (e) {
 				e.stopPropagation();
+				if (k.item) { onPick(k.item); return; }
 				if (isDir) {
 					if (isOpen) exp.delete(k.path); else exp.add(k.path);
 					draw();
-					return;
 				}
-				if (k.item) onPick(k.item);
 			};
 			wrap.appendChild(n);
 			if (isDir && isOpen) walk(k, depth + 1);
@@ -197,10 +214,110 @@ function lensTree() {
 	p2.appendChild(b2);
 
 	panes.appendChild(p1);
+	var gut = el("div", "gutter");
+	gut.id = "gutter";
+	panes.appendChild(gut);
 	panes.appendChild(p2);
+
+	b1.onscroll = drawGutter;
+	b2.onscroll = drawGutter;
 
 	host.appendChild(panes);
 	return host;
+}
+
+/* ---- the gutter: where the selection lives on both sides ------------ */
+
+/* A tree only renders what is expanded, so a target inside a collapsed
+   branch has no element. Walking up to the nearest rendered ancestor is the
+   honest answer: it points at the folder to open, not at nothing. */
+function nodeFor(pane, path) {
+	var parts = path.split("/").filter(Boolean);
+	while (parts.length) {
+		var hit = pane.querySelector('[data-node="' + parts.join("/") + '"]');
+		if (hit) return { el: hit, exact: parts.length === path.split("/").filter(Boolean).length };
+		parts.pop();
+	}
+	return null;
+}
+
+function treePath(url) {
+	return String(url).split("/").filter(Boolean).join("/");
+}
+
+/* Which (source, url) pairs does the current selection imply? */
+function gutterPairs() {
+	if (!sel) return [];
+	if (sel.kind === "row") {
+		var rt = routeOf(sel.row);
+		return rt ? [[sel.row.path, rt.url]] : [];
+	}
+	if (sel.kind === "route") {
+		var rt2 = sel.route;
+		if (rt2.members && rt2.members.length) {
+			return rt2.members.slice(0, 40).map(function (u) {
+				var row = IX.rows.get(u);
+				return row ? [row.path, u] : null;
+			}).filter(Boolean);
+		}
+		if (rt2.source) return [[rt2.source, rt2.url]];
+	}
+	return [];
+}
+
+function drawGutter() {
+	var gut = document.getElementById("gutter");
+	if (!gut) return;
+	gut.textContent = "";
+	var panes = document.querySelectorAll(".pane .body");
+	if (panes.length < 2) return;
+	var pairs = gutterPairs();
+	if (!pairs.length) return;
+
+	var gb = gut.getBoundingClientRect();
+	var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("width", gb.width);
+	svg.setAttribute("height", gb.height);
+
+	function side(pane, path) {
+		var found = nodeFor(pane, path);
+		if (!found) return null;
+		var r = found.el.getBoundingClientRect();
+		var pb = pane.getBoundingClientRect();
+		var y = r.top + r.height / 2 - gb.top;
+		var off = r.bottom < pb.top ? -1 : (r.top > pb.bottom ? 1 : 0);
+		return { y: Math.max(6, Math.min(gb.height - 6, y)), off: off, exact: found.exact };
+	}
+
+	pairs.slice(0, 40).forEach(function (pair) {
+		var L = side(panes[0], pair[0]);
+		var R = side(panes[1], treePath(pair[1]));
+		if (!L || !R) return;
+		var w = gb.width;
+		var faint = !L.exact || !R.exact ? " faint" : "";
+
+		var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		var mid = w / 2;
+		path.setAttribute("d", "M 8 " + L.y + " C " + mid + " " + L.y + ", " + mid + " " + R.y + ", " + (w - 8) + " " + R.y);
+		path.setAttribute("class", "gline" + faint);
+		svg.appendChild(path);
+
+		[[8, L, -1], [w - 8, R, 1]].forEach(function (a) {
+			var x = a[0], s2 = a[1], dir = a[2];
+			var tri = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+			var pts;
+			// An offscreen target gets an up/down head instead: the arrow
+            // stops meaning "over there" and starts meaning "scroll".
+			if (s2.off < 0) pts = (x) + "," + (s2.y - 5) + " " + (x - 4) + "," + (s2.y + 3) + " " + (x + 4) + "," + (s2.y + 3);
+			else if (s2.off > 0) pts = (x) + "," + (s2.y + 5) + " " + (x - 4) + "," + (s2.y - 3) + " " + (x + 4) + "," + (s2.y - 3);
+			else if (dir < 0) pts = (x - 5) + "," + s2.y + " " + (x + 3) + "," + (s2.y - 4) + " " + (x + 3) + "," + (s2.y + 4);
+			else pts = (x + 5) + "," + s2.y + " " + (x - 3) + "," + (s2.y - 4) + " " + (x - 3) + "," + (s2.y + 4);
+			tri.setAttribute("points", pts);
+			tri.setAttribute("class", "ghead" + faint);
+			svg.appendChild(tri);
+		});
+	});
+	gut.appendChild(svg);
 }
 
 /* ---- rows ----------------------------------------------------------- */
@@ -628,6 +745,7 @@ function draw() {
 	else det.appendChild(detailView(sel.view));
 
 	restoreScroll();
+	drawGutter();
 }
 
 /* Re-resolve the selection against a fresh payload: the object identity is

@@ -3801,6 +3801,24 @@ it, because here the row and the URL are not the same object — a claimed
 row has no route (§5h), a translated row has two (§6f), and a view route
 has 66 members and no row at all.
 
+Between the two trees is a **gutter** that draws the current selection's
+correspondence: an arrowhead into each side and a line joining them, one
+per pair (a row and its route; a view route and each of its members).
+Two states make it useful rather than decorative. A target scrolled out
+of its pane turns its head **up or down** — the arrow stops meaning
+"over there" and starts meaning "scroll". A target inside a *collapsed*
+branch has no element at all, so the connector points at the nearest
+rendered ancestor and goes dashed: it names the folder to open instead
+of pointing at nothing.
+
+**A node can be both a route and a parent.** `/blog/` is `blog_index`'s
+own route *and* the ancestor of every archive beneath it, and the first
+cut conflated "has children" with "is a folder" — which made every
+landing, the most interesting routes on the site, impossible to select.
+The twisty owns expansion, the label owns selection, and a route node
+wears its view's name so a view page is distinguishable from a page
+page at a glance.
+
 Two things it taught, immediately. Route order is **lexical** —
 `db.routes.sort_by(url)` for determinism — which is right for the
 sitemap and wrong for reading: `/blog/page/10/` sorts before
