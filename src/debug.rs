@@ -221,11 +221,34 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         })
         .collect();
 
+    // A star view (`over = "*"`) ranges over ROUTES, not a table, so it
+    // carries no `members` — the render passes re-evaluate its filter. The
+    // set is real all the same (the search index has 327 documents), so
+    // evaluate it here rather than show an empty list and imply otherwise.
+    let star_members = |name: &str| -> Vec<String> {
+        let Some(v) = cfg.views.get(name) else { return Vec::new() };
+        let pred = match &v.filter {
+            Some(src) => match crate::filter::Filter::parse(src, &crate::db::route_schema()) {
+                Ok(p) => p,
+                Err(_) => return Vec::new(),
+            },
+            None => crate::filter::Filter::always(),
+        };
+        db.routes
+            .iter()
+            .filter(|r| pred.eval(*r))
+            .map(|r| r.url.clone())
+            .collect()
+    };
+
     // Members are indices into the view's base table, so resolving them to
     // URLs needs the base kind — the one thing a client could not work out
     // for itself.
     let member_urls = |r: &crate::db::Route| -> Vec<String> {
         let Some(view) = r.view.as_deref() else { return Vec::new() };
+        if cfg.views.get(view).is_some_and(|v| v.over == "*") {
+            return star_members(view);
+        }
         let Some(kind) = cfg
             .query(view)
             .ok()

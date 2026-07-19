@@ -220,6 +220,12 @@ function lensTree() {
 
 	b1.onscroll = drawGutter;
 	b2.onscroll = drawGutter;
+	gut.onwheel = function (e) {
+		var r = gut.getBoundingClientRect();
+		var target = e.clientX < r.left + r.width / 2 ? b1 : b2;
+		target.scrollTop += e.deltaY;
+		e.preventDefault();
+	};
 
 	host.appendChild(panes);
 	return host;
@@ -528,6 +534,14 @@ function kv(pairs) {
 	return d;
 }
 
+function openLink(url) {
+	var a = el("a", null, url);
+	a.href = url;
+	a.target = "_blank";
+	a.rel = "noreferrer";
+	return a;
+}
+
 function pillList(items, onPick) {
 	var w = el("div", "pickups");
 	items.forEach(function (it) {
@@ -560,7 +574,8 @@ function detailRow(row) {
 		["shell", row.shell],
 		["theme", row.theme],
 		["size", row.size == null ? "" : row.size + " bytes"],
-		["flags", flagsOf(row).length ? fl : ""]
+		["flags", flagsOf(row).length ? fl : ""],
+		["open", rt || !row.claimed ? openLink(row.url) : ""]
 	]));
 
 	if (row.fields && row.fields.length) {
@@ -603,7 +618,7 @@ function detailRoute(rt) {
 		["locale", rt.locale],
 		["params", (rt.params || []).map(function (p) { return p[0] + "=" + p[1]; }).join(" ")],
 		["source", rt.source],
-		["open", (function () { var a = el("a", null, rt.url); a.href = rt.url; a.target = "_blank"; return a; })()]
+		["open", openLink(rt.url)]
 	]));
 
 	var mem = rt.members || [];
