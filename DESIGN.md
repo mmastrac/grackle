@@ -547,110 +547,57 @@ you reinvent the config merge), and the `_config-fast.yml` profile that
 skipped `code/` and `writing/` — it existed because Jekyll took 38s, and
 a 0.4s build deleted its reason to exist.
 
-### The original reality check
+### What the corpus actually holds
 
+- `_hidden/` holds **14 real dated posts** that **nothing has ever built** —
+  not Jekyll (no config references it) and not grackle (it is not a
+  collection source). They are tracked writing, not published content.
+- `_drafts/` holds **4 undated drafts**, moved there from `_drafts_temp`
+  on 2026-07-19 and loaded since (§4, several sources one table).
+- **No post sets `hidden:`.** Page rows can and one does — the example's
+  `demos/pane.html` — since pages gained the flag family on 2026-07-19.
 
+### Flags reach the row, the route and the head
 
-Reality check on the current site:
+`draft` and `hidden` are carried onto every `Route` and exposed in
+`route_schema()`, so a star view's filter can see them. `noindex` reaches
+the head. Both families cascade from markers and rules exactly as any
+other default does (§4b).
 
-- `_hidden/` holds **14 real dated posts** and is **not built at all** today —
-  it starts with `_`, so Jekyll ignores it.
-- **No post anywhere sets `hidden:`.** `post.hidden` is therefore always
-  false, and the `{% unless post.hidden %}` guards in `atom.xml`,
-  `post.html` (next/prev/related), and `monthly_archive.html` are vestigial —
-  written for exactly this feature, never yet exercised.
+Pages carried **none** of this until 2026-07-19 — `Page` had no flag
+fields at all, so a page's `hidden:` evaporated and its `noindex:` never
+reached the head. `demos/mindstorms/index.html` had declared
+`noindex: true` in its front matter for years and shipped without a
+robots meta. The claim "only posts can be flagged", true when the route
+flags were added, is no longer.
 
-**Flags gate materialization, and the public profile emits nothing new.**
-A build **profile** declares which flagged rows exist at all:
+### The sitemap leak, and why route-level flags exist
 
-```toml
-[profiles.public]                       # default; what publish.sh ships
-include = "!draft && !hidden"           # flagged rows are not materialized
+Worth keeping because it is why the flags live on routes at all. Probed
+by adding two posts dated newer than anything real — one draft, one
+hidden — the flagged rows landed **in the sitemap** (573 → 575) even
+though `published`, `latest` and `/blog/` correctly excluded them. A
+section titled "add no public URLs" was emitting the most public URL
+there is.
 
-[profiles.drafts]                       # the /drafts mirror build
-baseurl = "/drafts"
-include = "*"                           # everything, flags and all
-views   = ["hidden_index", "drafts_index"]   # profile-scoped views
+This was **grackle's divergence, not Jekyll's**: `publish.sh` builds
+drafts as a *separate site*, so Jekyll's main sitemap never saw them.
+Routing drafts into the main build created the exposure. The fix was the
+route-level flag plus the sitemap's own filter, and it re-probed clean at
+573 with both probes present. Given this project began with *"I'm having
+trouble with Google crawling this site"*, it was precisely the wrong
+failure mode to ship.
 
-[views.hidden_index]
-over     = "blog"
-filter   = "hidden"
-route    = "/hidden/"                   # only exists in the drafts profile
-layout   = "monthly_archive"            # a plain list of shelved posts
-```
+Profiles (above) are the general answer the probe pointed at, and they
+arrived on 2026-07-19 — though not in the shape sketched here first. The
+original sketch proposed profile-scoped `include = "!draft && !hidden"`
+and profile-scoped view *lists*; what shipped is narrower and, I think,
+better: a profile overrides an existing view's `filter`, so selection
+stays the view's job and a profile invents no queries of its own. The
+sketch's `[views.hidden_index]` — a `/hidden/` listing that exists only
+in the drafts profile — is not built and is not currently wanted; `_hidden/`
+is not even loaded.
 
-Consequences, all good:
-
-- **Public build: zero new URLs.** Hidden posts aren't routed, aren't in
-  `site.posts`, don't reach the feed — identical to today's "not built at
-  all", so URL parity stays inviolable and q7 is settled.
-- **`/hidden/` is a drafts-profile view**, listing the shelved posts for
-  review. It rides the existing `_config-prod-drafts.yml` mirror (which is
-  already a second build to `_site/drafts`), so it costs no new machinery.
-- **The dormant guards become correct rather than vestigial**: inside the
-  drafts profile, hidden posts *are* in `site.posts`, and
-  `{% unless post.hidden %}` is what keeps them out of that build's feed and
-  archives. Same template, right behavior in both profiles.
-- **The adjacency bug evaporates** (q8 settled). Public build: hidden rows
-  don't exist, so `page.next` can never point at one and no empty "Later
-  post" block can render. The gap-vs-skip question only ever arises inside
-  the drafts profile, where it doesn't matter.
-
-| Flag | profile `public` | profile `drafts` |
-|---|---|---|
-| `hidden` | not materialized — no URL, no feed, no lists | routed; listed at `/hidden/`; excluded from feed/archives by the template guards |
-| `draft` | not materialized | routed `/drafts/{slug}/`; listed at `/drafts/` |
-
-Note the `/drafts` mirror is itself published (rsync'd to `_site/drafts`
-today) — unlinked, but publicly reachable. Worth a `noindex` on that
-profile given this month's indexing work (→ open question 10).
-
-### ⚠️ Profiles are still specced-not-built — but the leak is now closed
-
-Profiles do not exist in code. `grackle.toml` has no `[profiles.*]`; instead
-the blog collection's rules route flagged rows into the **main build**:
-
-```toml
-[[collections.blog.rules]]
-match = "drafts/**"
-defaults = { draft = true }
-route = "/drafts/{slug}/"
-```
-
-That routing once leaked. Probed by adding two posts dated *newer* than anything
-real — one draft, one hidden — the flagged rows landed in the sitemap (573 → 575)
-even though `published`/`latest`/`/blog/` correctly excluded them. A section
-titled "add no public URLs" was emitting the most public URL there is.
-
-**Fix (1) has now landed** (the small one, recommended "before any draft is
-written"). `draft` and `hidden` are carried onto every `Route` — false for every
-non-post, since only posts can be flagged — and exposed in `route_schema()`, so
-the sitemap filter reads what it needs to:
-
-```toml
-[views.sitemap]
-filter = '!draft && !hidden && (dir || ext == "html" || ext == "pdf")'
-```
-
-Re-probed after the fix: with the two future-dated probes present (329 posts),
-the sitemap stays at **573** and neither probe appears, while the draft still
-routes and renders at `/drafts/probe-draft/`. The flags are now *safe*, not just
-latent — armed the moment a draft is written, and correct by construction rather
-than by the corpus happening to have 0 drafts.
-
-This was **grackle's divergence, not Jekyll's**. `publish.sh` builds drafts as a
-*separate site* (`--config _config-prod-drafts.yml --destination
-/site/_site/drafts`), so Jekyll's main sitemap never saw them. Routing drafts
-into the main build created the exposure; the route-level flag closes it.
-
-Fix (2) — **profiles** — still stands as the proper answer, and dissolves the
-question entirely: a row that isn't materialized cannot be in a route set, so no
-view can leak it and no view has to remember not to. It lands with phase 3.
-Until then, the filter carries the discipline, and open question 19 is settled.
-
-Given this whole project began with *"I'm having trouble with Google crawling
-this site"*, this was precisely the wrong failure mode to ship — so it is the
-first correctness gap closed on the way to a full `build`.
 
 ## 4b. Marker files: defaults declared by the tree
 
@@ -3870,8 +3817,22 @@ relationships are all derived make a poor ER diagram.
 - **views** — every declared query and its fan-out.
 - **diagnose** — anomaly first, inventory second. The top question is not
   "show me my rows" but *why isn't this page showing up*, and every
-  answer to that is an exception: excluded, claimed, hidden, draft,
-  passthrough, a locale partition that never materialized.
+  answer to that is an exception: no route, claimed, draft, hidden,
+  noindex, no title, an undated post, a view route with no members.
+
+  The bar for a finding: **it must be able to be wrong.** An undated
+  *draft* is not a finding — undated is what a draft is, and four
+  permanently-correct entries teach you to skim the list. An undated
+  *publishable* post is, because the cost is silent and threefold: no
+  year or month archive membership, a trail that stops at the collection,
+  and last place in every ordering.
+
+Star views (`over = "*"`) carry no `members` — they range over routes and
+the render passes re-evaluate their filter — so the payload evaluates it
+the same way rather than showing an empty list and implying the search
+index is empty. `/search.bin` reports 327 members and `/sitemap.xml` 589,
+the latter matching the emitted sitemap exactly, which is the check that
+the evaluation reproduces the pass rather than approximating it.
 
 The centrepiece is the **provenance strip**: source → route → the views
 that picked it up. A generic database viewer structurally cannot show
@@ -4400,10 +4361,10 @@ the search view's one `stem != "index"` dies when home and manual lift.
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | 0 | FsStore + posts table + `query` | ✅ **done** — 327 rows; URL set matches the Jekyll sitemap exactly (325 shared + the 2 posts published after that sitemap was built); loads in **~3.5ms warm / ~11ms cold**, vs a 200ms budget. Snapshots/watcher deferred to phase 3, where they're actually exercised. |
-| 1 | route mapping: all tables routed, `export` (JSON), `routes` (tree) | ✅ **done** — 1559 routes across posts/pages/objects/views; **every one of the 556 Jekyll sitemap URLs is routed** (0 missing); the 1003 extras are 983 assets jekyll-sitemap never lists + 16 routes explained by the reference build being stale. Loads in ~10ms. |
+| 1 | route mapping: all tables routed, `export` (JSON), `routes` (tree) | ✅ **done** — 1559 routes across posts/pages/objects/views (1579 as of 2026-07-19: content has been added since, incl. `_drafts`); **every one of the 556 Jekyll sitemap URLs is routed** (0 missing); the 1003 extras are 983 assets jekyll-sitemap never lists + 16 routes explained by the reference build being stale. Loads in ~10ms. |
 | **2a** | markdown-gap spike + `diff` | ✅ **done — the port is viable.** ~~90.7%~~ → **90.0% against an honest reference** (§8c): the original figure was measured against a build with highlighting disabled and was luck, not accuracy. 230 posts: 20 identical, 187 equivalent, 23 differ; 92.2% if smartypants is matched. The residue is parser-side. **Caveat: 97 of 327 posts are skipped as "contains liquid", many falsely** (§8c). |
 | 2b | render pipeline: §5a layers end-to-end | 🟢 **renders** — 327 posts + 164 listings (with **pagination nav**, §5d) + **40/40 pages** + 1025 assets + **260 thumbnails** + **feed + sitemap** in **~0.4s warm** (Jekyll: ~38s). All layout kinds and both themes work; post and page chrome byte-identical to live; **zero skipped pages**. Remaining: highlighting token spans (accepted-inexact §8) and the chrome gaps below — both deferred into the §5e presentation rewrite. |
-| 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs, byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by q12 (`/static/` by design). |
+| 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs at the time, 589 as of 2026-07-19; byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by q12 (`/static/` by design). |
 | 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
 | **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** (Dark mode: proven as one CSS block, then removed — content assumes white; §5e step-3 notes.) |
@@ -4430,11 +4391,6 @@ never reused.
    so "1 diff" is 1 of 2 compared.
 6. **Drafts**: replicate `_drafts` preview in `serve` from day one, or
    post-phase-3.
-10. **`noindex` the drafts profile?** `grack.com/drafts/` is publicly
-    reachable today (unlinked, but rsync'd and crawlable). Given the
-    canonical/indexing work, the drafts profile should probably force
-    `noindex` — and with `/hidden/` landing there, that goes from hygiene
-    to important.
 11. **Iframe policy**: §6a resolves and rewrites `<iframe src>` for bare
     names but doesn't thumbnail. Do iframes need any sandbox/loading
     attributes injected by the same pass, or is passthrough correct?
@@ -4700,5 +4656,6 @@ One line per retired question; the named section carries the design.
 | 36 | one preview kind: `summary` (presence-driven), `card`/`card_list` deleted, `featured` slot on listing | §5e |
 | 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced | §5g |
+| 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |
 | 45 | landings: a view owns the URL, a row may own the words; claiming, the chain, theme provenance | §5h |
 | 46 | `collection.crumb`/`index` dissolved — the URL climb is the sole source of a landing crumb, `trail` keeps the subdivision chain | §5h |
