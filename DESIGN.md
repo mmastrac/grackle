@@ -494,7 +494,62 @@ inventing draft-specific suppression now would be guessing at what §4a's
 profiles (q6, q10) should decide later. The gate is the cutover, not the
 loader.
 
-## 4a. Profiles: `hidden` and `draft` add no public URLs
+## 4a. Profiles: a projection, not a different database *(v1 built 2026-07-19)*
+
+A profile changes **three things and no others**: which rows the views
+admit, the absolute URL the output is addressed under, and a marker
+themes may style on. It never changes what *loads* — the database is
+identical under every profile, which is what makes two projections
+comparable, lets one resident db answer for several, and keeps the
+inspector able to say "included in drafts, excluded from default".
+
+```toml
+[profiles.drafts]
+noindex = true
+
+  [profiles.drafts.views.published]
+  filter = "!hidden"          # relax the one filter that hides drafts
+```
+
+`build` uses the default projection — the config exactly as written —
+because that is what publishes. `serve` defaults to `dev`, which needs
+no declaration: undeclared, it changes nothing. Any other name must be
+declared, so a typo is a load error naming what exists
+(`unknown profile "drafst" — declared: dev, drafts`), and the key set is
+closed (`unknown field 'baseurl', expected one of 'url', 'noindex',
+'views'`) because a profile that can override anything is a config merge,
+and config merges drift.
+
+**Selection is the view's job.** Relaxing `published`'s filter carries
+every listing, archive and feed with it, because they all read
+`published`. Measured: the default projection has no draft in its feed,
+blog index or search index; the drafts projection has all four.
+
+**Presentation costs no engine code.** The root shell stamps
+`data-profile` beside `data-subtheme`, so a dev banner is a theme CSS
+rule on `[data-profile="dev"]`. Themes opt in; a theme that ignores it is
+unaffected.
+
+**What this deleted.** Two hardcoded draft behaviours: `search_docs`
+filtered `!draft && !hidden` in Rust while the search *view* declared the
+same filter (q33(e)'s second evaluation), and `post_trail` gave a draft
+the crumb `Drafts → /drafts` with the URL written literally in the trail
+builder — a profile's address assumption living in engine code.
+
+**Punted, deliberately.** `baseurl` is not a profile key: today it
+prefixes assets but not routes, so setting it per profile would relocate
+the stylesheet while leaving every canonical URL pointing at the real
+site. Making it a true route prefix is the other half of the address
+axis. Also not here, and not ported from Jekyll's five configs:
+`exclude` (§4c owns what is content), per-profile `defaults` (collection
+rules own those), analytics (a site fact conditioned on a profile is how
+you reinvent the config merge), and the `_config-fast.yml` profile that
+skipped `code/` and `writing/` — it existed because Jekyll took 38s, and
+a 0.4s build deleted its reason to exist.
+
+### The original reality check
+
+
 
 Reality check on the current site:
 

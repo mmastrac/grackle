@@ -33,6 +33,11 @@ use std::path::PathBuf;
 struct Cli {
     #[arg(long, default_value = "grackle.toml", global = true)]
     config: PathBuf,
+    /// Build profile (§4a). Absent means the default projection — the
+    /// config exactly as written, which is what publishing uses. `serve`
+    /// defaults to `dev` instead.
+    #[arg(long, global = true)]
+    profile: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -129,7 +134,12 @@ enum Query {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let t0 = std::time::Instant::now();
-    let cfg = config::Config::load(&cli.config)?;
+    // `serve` develops, so it defaults to `dev`; everything else — `build`
+    // above all — defaults to the projection that publishes.
+    let profile = cli.profile.clone().or_else(|| {
+        matches!(cli.cmd, Cmd::Serve { .. }).then(|| "dev".to_string())
+    });
+    let cfg = config::Config::load_profile(&cli.config, profile.as_deref())?;
     let db = db::SiteDb::load(&cfg).context("loading site database")?;
     let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
@@ -168,7 +178,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Cmd::Serve { port } => serve::serve(&cli.config, port)?,
+        Cmd::Serve { port } => serve::serve(&cli.config, port, profile.as_deref())?,
         Cmd::Routes { depth, under } => routes_tree(&db, depth, under.as_deref()),
         Cmd::Diff { against, liquid_free, only, show } => {
             run_diff(&db, &against, liquid_free, only.as_deref(), show.as_deref())?

@@ -131,8 +131,10 @@ pub fn listing_title_and_trail(
 /// A post's breadcrumb trail: Home, the landings its URL nests under, then
 /// the collection's declared `trail` view chain rendered with the post's
 /// own group keys — each level linked to its archive — ending in the inert
-/// day. All provenance (§5c); the only special case left is drafts, which
-/// wait on the profiles work (§4a).
+/// day. All provenance (§5c) — no special cases: a draft trails like any
+/// other row, because a profile decides whether it is selected at all
+/// (§4a), and its address is the profile's `baseurl`, not a literal the
+/// trail builder carries.
 ///
 /// The two walks divide cleanly: [`ancestors`] matches only *ungrouped*
 /// view roots, so `/blog/2022/12/16/x.html` finds the `/blog/` landing and
@@ -148,11 +150,6 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<St
     let mut t = trail_root(cfg, db, loc);
     for (url, label) in ancestors(cfg, db, &p.url) {
         t.push((label, Some(url)));
-    }
-    if p.draft {
-        t.push((cfg.i18n.string("drafts", loc).to_string(), Some("/drafts".to_string())));
-        t.push((p.title.clone(), None));
-        return t;
     }
     let trail_view = col.and_then(|(_, c)| c.trail.as_deref());
     let mut chained = false;

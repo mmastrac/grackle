@@ -54,9 +54,9 @@ type Shared = SharedMut<Snapshot>;
 
 const VERSION_PATH: &str = "/__grackle/version";
 
-pub fn serve(config_path: &Path, port: u16) -> Result<()> {
+pub fn serve(config_path: &Path, port: u16, profile: Option<&str>) -> Result<()> {
     let t = Instant::now();
-    let (snap, pending) = render(config_path, 1)?;
+    let (snap, pending) = render(config_path, 1, profile)?;
     println!(
         "grackle: rendered {} routes in {:.0}ms",
         snap.pages.len(),
@@ -73,7 +73,14 @@ pub fn serve(config_path: &Path, port: u16) -> Result<()> {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
         // Keep the watcher alive for the process lifetime by binding it here.
         let _watcher =
-            spawn_watcher(config_path.to_path_buf(), root.clone(), shared.clone(), tx.clone(), rx)?;
+            spawn_watcher(
+                config_path.to_path_buf(),
+                root.clone(),
+                profile.map(str::to_string),
+                shared.clone(),
+                tx.clone(),
+                rx,
+            )?;
         // Stale-while-revalidate (§6b): the first render served whatever
         // embeddings the cache had; bring them current off-thread and
         // re-render when done.
@@ -180,8 +187,12 @@ fn reply(status: StatusCode, ct: &'static str, body: Vec<u8>) -> Response<Full<B
 /// edit to `grackle.toml`, a post, a page, or the SCSS all take effect.
 /// Also returns the embeddings that are missing or stale — the render used
 /// the old vectors (stale-while-revalidate); the caller re-embeds off-thread.
-fn render(config_path: &Path, version: u64) -> Result<(Snapshot, Vec<crate::embed::Pending>)> {
-    let cfg = Config::load(config_path)?;
+fn render(
+    config_path: &Path,
+    version: u64,
+    profile: Option<&str>,
+) -> Result<(Snapshot, Vec<crate::embed::Pending>)> {
+    let cfg = Config::load_profile(config_path, profile)?;
     let db = SiteDb::load(&cfg).context("loading site database")?;
     let (pages, mut stats) = build::render_site(&cfg, &db)?;
     let pending = std::mem::take(&mut stats.embed_pending);
@@ -224,6 +235,7 @@ fn embed_in_background(
 fn spawn_watcher(
     config_path: PathBuf,
     root: PathBuf,
+    profile: Option<String>,
     shared: Shared,
     tx: tokio::sync::mpsc::UnboundedSender<()>,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<()>,
@@ -253,7 +265,9 @@ fn spawn_watcher(
             version += 1;
             let t = Instant::now();
             let cp = config_path.clone();
-            let result = tokio::task::spawn_blocking(move || render(&cp, version)).await;
+            let pr = profile.clone();
+            let result =
+                tokio::task::spawn_blocking(move || render(&cp, version, pr.as_deref())).await;
             match result {
                 Ok(Ok((snap, pending))) => {
                     let n = snap.pages.len();

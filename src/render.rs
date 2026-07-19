@@ -54,6 +54,9 @@ pub struct Site<'a> {
     pub title: &'a str,
     pub author: &'a str,
     pub email: Option<&'a str>,
+    /// From the profile (§4a): a projection in its own URL space asks
+    /// search engines away, site-wide, without touching a row.
+    pub noindex: bool,
 }
 
 pub fn head_for_post(p: &Post, site: &Site) -> Head {
@@ -81,7 +84,7 @@ pub fn head_for_post(p: &Post, site: &Site) -> Head {
         title: p.title.clone(),
         description: p.description.clone(),
         canonical,
-        noindex: p.noindex,
+        noindex: p.noindex || site.noindex,
         og_type: if p.date.is_some() { "article" } else { "website" },
         published,
         author: site.author.to_string(),
@@ -90,6 +93,7 @@ pub fn head_for_post(p: &Post, site: &Site) -> Head {
 }
 
 pub fn head_simple(title: &str, url: &str, site: &Site, noindex: bool) -> Head {
+    let noindex = noindex || site.noindex;
     Head {
         title: title.into(),
         description: None,
@@ -124,12 +128,24 @@ impl Theme {
 /// from the computed facts, `<body>` from the theme's body chrome. Themes
 /// never write the skeleton, and a fragmentless (null) theme still
 /// produces a valid document.
-pub fn root_shell(head: &str, subtheme: Option<&str>, body: &str) -> String {
+pub fn root_shell(
+    head: &str,
+    subtheme: Option<&str>,
+    profile: Option<&str>,
+    body: &str,
+) -> String {
     let sub = subtheme
         .map(|s| format!(" data-subtheme=\"{}\"", esc(s)))
         .unwrap_or_default();
+    // §4a: the profile is stamped, not rendered. A dev banner is then a
+    // theme CSS rule on `[data-profile="dev"]` — themes opt in, the engine
+    // ships no chrome, and a theme that ignores it is unaffected. Same shape
+    // as the subtheme token beside it.
+    let prof = profile
+        .map(|p| format!(" data-profile=\"{}\"", esc(p)))
+        .unwrap_or_default();
     format!(
-        "<!doctype html>\n<html lang=\"en\" data-kind=\"shell\"{sub}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"en\" data-kind=\"shell\"{sub}{prof}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
         body.trim_end()
     )
 }

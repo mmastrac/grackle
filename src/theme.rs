@@ -131,6 +131,7 @@ impl Theme {
         locale: &str,
         resolve_link: &dyn Fn(&Path, &str) -> Result<Option<String>>,
         subtheme: Option<&str>,
+        profile: Option<&str>,
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
         m.set("site_title", Part::Text(site_title.to_string()));
@@ -150,7 +151,7 @@ impl Theme {
         // supplies doctype/<html>/<head>/<body> around it — so even a
         // theme with no shell fragment yields a valid document.
         let body = self.fragments.render_body(&m);
-        Ok(crate::render::root_shell(&head_html, subtheme, &body))
+        Ok(crate::render::root_shell(&head_html, subtheme, profile, &body))
     }
 }
 

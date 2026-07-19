@@ -147,6 +147,38 @@ limit = 4
 min_score = 0.4
 year_penalty = 0.01
 
+# --------------------------------------------------------------- profiles
+
+# A profile is a different PROJECTION of the same database (§4a), never a
+# different database: drafts load either way, and a profile only decides
+# which views admit them, what URL space the output is addressed in, and
+# what marker themes may style on. `dev` needs no entry — undeclared it
+# changes nothing, which is what `serve` defaults to.
+#
+# v1 has no `baseurl`: it prefixes assets but not routes, so setting it per
+# profile would relocate the stylesheet and leave every canonical URL
+# pointing at the real site. That half of the address axis is punted.
+#
+# Deliberately NOT here, and not Jekyll's five configs: `exclude` (§4c owns
+# what is content), per-profile `defaults` (collection rules own those),
+# and a "fast" profile that skipped `code/` and `writing/` — that one
+# existed because Jekyll took 38s, and a 0.4s build deleted its reason to
+# exist rather than porting it.
+
+[profiles.drafts]
+noindex = true
+
+  # Selection is the view's job: relax the one filter that hides drafts and
+  # every listing, archive and feed downstream follows, because they all
+  # read `published`.
+  [profiles.drafts.views.published]
+  filter = "!hidden"
+
+  # Its own search index too, or the projection would ship a searchable set
+  # that disagrees with the pages beside it.
+  [profiles.drafts.views.search]
+  filter = 'kind == "post" && !hidden'
+
 # ---------------------------------------------------------------- views
 
 # The one named set. Jekyll had five hand-written `{% unless %}` clauses that

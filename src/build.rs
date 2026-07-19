@@ -93,7 +93,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         title: &cfg.site.title,
         author: &cfg.site.author,
         email: cfg.site.email.as_deref(),
+        noindex: cfg.site.noindex,
     };
+    let profile = cfg.profile.as_deref();
     // Each theme compiles its own stylesheet; `default` keeps /css/main.css
     // (URL parity with the reference), others get /css/{name}.css.
     let css_of = |theme: Option<&str>| match theme {
@@ -205,6 +207,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 &p.locale,
                 &fill_link_resolver(cfg, &linkspace, &p.locale),
                 None,
+                profile,
             )?;
             Ok((p.url.clone(), html))
         })
@@ -282,6 +285,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             loc,
             &fill_link_resolver(cfg, &linkspace, loc),
             None,
+            profile,
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -335,6 +339,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             loc,
             &fill_link_resolver(cfg, &linkspace, loc),
             None,
+            profile,
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -402,6 +407,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             loc,
             &fill_link_resolver(cfg, &linkspace, loc),
             None,
+            profile,
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -631,6 +637,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             loc,
             &fill_link_resolver(cfg, &linkspace, loc),
             subtheme.as_deref(),
+            profile,
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -859,6 +866,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     Theme::Light => render::root_shell(
                         &render::light_head(&head),
                         None,
+                        profile,
                         &parts::canonical(&parts::raw(frag)),
                     ),
                     Theme::Default => {
@@ -910,6 +918,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                             row_locale,
                             &fill_link_resolver(cfg, &linkspace, row_locale),
                             subtheme.as_deref(),
+                            profile,
                         )?
                     }
                 };
@@ -1216,7 +1225,6 @@ pub fn search_docs(
     db.posts
         .rows
         .iter()
-        .filter(|p| !p.draft && !p.hidden)
         .map(|p| grackle_search_core::SearchDoc {
             url: p.url.clone(),
             title: p.title.clone(),

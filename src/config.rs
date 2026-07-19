@@ -53,6 +53,19 @@ pub struct Config {
     /// error loudly with the new form instead of ignoring it silently.
     #[serde(default)]
     pub tags: BTreeMap<String, toml::Value>,
+    /// Build profiles (§4a): a profile is a different PROJECTION of the same
+    /// database, never a different database. It may change three things and
+    /// no others — which rows the views admit, what URL space the output is
+    /// addressed in, and a marker themes can style on. Anything else stays
+    /// site config, because a profile that can override any key is a config
+    /// merge, and config merges drift (the Jekyll profiles this replaces had
+    /// three different opinions about `exclude`).
+    #[serde(default)]
+    pub profiles: BTreeMap<String, ProfileCfg>,
+    /// The profile in force, once `apply_profile` has run. `None` is the
+    /// default profile: the config exactly as written.
+    #[serde(skip)]
+    pub profile: Option<String>,
     /// Internal-link policy (§6a, Matt's rule): links reference what the
     /// database owns — rows by SOURCE PATH, views by `view:` reference —
     /// because final URLs are derived values (locales, slugs, templates).
@@ -63,6 +76,38 @@ pub struct Config {
     pub links: LinksCfg,
     #[serde(skip)]
     pub dir: PathBuf,
+}
+
+/// One profile's overrides. Closed vocabulary, checked at load: an unknown
+/// key is a parse error rather than a silently ignored intention.
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileCfg {
+    /// Address: the absolute URL this projection is published under, which
+    /// canonical links, the feed and the sitemap all read.
+    ///
+    /// `baseurl` is deliberately NOT here in v1. Today it prefixes assets
+    /// and nothing else — routes are generated without it — so a profile
+    /// setting it would claim to relocate a projection while leaving every
+    /// canonical URL pointing at the real site. Making it a true route
+    /// prefix is the punted half of this axis.
+    pub url: Option<String>,
+    /// A profile publishing to its own URL space usually should not be
+    /// indexed — q10 is exactly this case, stated once instead of per page.
+    #[serde(default)]
+    pub noindex: bool,
+    /// Selection: per-view filter replacements. Views are the only selection
+    /// mechanism, so a profile never changes what LOADS — the database is
+    /// identical under every profile, which is what makes two profiles
+    /// comparable and lets one resident db answer for several.
+    #[serde(default)]
+    pub views: BTreeMap<String, ProfileView>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileView {
+    pub filter: Option<String>,
 }
 
 fn default_root() -> PathBuf {
@@ -287,6 +332,11 @@ pub struct Site {
     pub author: String,
     /// The feed's `<author><email>`; omitted from the feed when absent.
     pub email: Option<String>,
+    /// Set by a profile, never by the site: a projection published to its
+    /// own URL space asks search engines away (q10). Site-wide, so it needs
+    /// stating once rather than per row.
+    #[serde(skip)]
+    pub noindex: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -512,13 +562,60 @@ impl Query {
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
+        Config::load_profile(path, None)
+    }
+
+    /// Load, then project through a profile (§4a).
+    ///
+    /// `dev` is implicit: it needs no declaration, and undeclared it changes
+    /// nothing — which is what makes `serve` safe to default to it. Any
+    /// other name must be declared, so a typo is a load error naming what
+    /// exists rather than a build that silently ships the wrong projection.
+    pub fn load_profile(path: &Path, profile: Option<&str>) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
         let mut cfg: Config = toml::from_str(&text)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         cfg.validate()?;
+        if let Some(name) = profile {
+            cfg.apply_profile(name)?;
+        }
         Ok(cfg)
+    }
+
+    fn apply_profile(&mut self, name: &str) -> Result<()> {
+        let Some(p) = self.profiles.remove(name) else {
+            if name == "dev" {
+                self.profile = Some(name.to_string());
+                return Ok(());
+            }
+            let mut known: Vec<&str> = self.profiles.keys().map(String::as_str).collect();
+            known.push("dev");
+            known.sort_unstable();
+            anyhow::bail!("unknown profile {name:?} — declared: {}", known.join(", "));
+        };
+        if let Some(u) = p.url {
+            self.site.url = u;
+        }
+        self.site.noindex = p.noindex;
+        for (vname, over) in p.views {
+            let v = self.views.get_mut(&vname).with_context(|| {
+                format!("profile {name}: no view named {vname:?}")
+            })?;
+            if let Some(f) = over.filter {
+                // Parsed here so a bad profile filter fails at load like any
+                // other, rather than at the pass that first evaluates it.
+                crate::filter::Filter::parse(&f, &crate::db::post_schema())
+                    .or_else(|_| {
+                        crate::filter::Filter::parse(&f, &crate::db::route_schema())
+                    })
+                    .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
+                v.filter = Some(f);
+            }
+        }
+        self.profile = Some(name.to_string());
+        Ok(())
     }
 
     /// Every load-time config check (split from `load` so tests can run
