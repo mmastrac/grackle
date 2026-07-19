@@ -3524,8 +3524,10 @@ PAGES walk URL ancestors — the duplicate home crumb on `/fr/…` URLs is
 **cured** (§5h: `ancestors()` skips locale-prefix homes; Home is the
 trail root's job), and a section crumb appears in French exactly when
 the section's landing has a French variant (`index.fr.md` → the
-claimed row's URL is `/fr/recipes/`). `collection.index` is still a
-literal URL — dissolving it into §5h's landing chain is q46.
+claimed row's URL is `/fr/recipes/`). The collection no longer names its
+own index: q46 dissolved `collection.crumb`/`index` into the landing
+chain, so the French crumb is *found* by climbing to `/fr/blog/` rather
+than built by prefixing a configured URL (§5h).
 `.slots/` fills localize by the same suffix convention
 (`nav.fr.md` beside `nav.md` — built, and their view links resolve per
 consuming page's locale, §6a).
