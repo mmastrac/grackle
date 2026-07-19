@@ -484,6 +484,12 @@ function findings() {
 			out.push({ row: r, why: "no title — listings and search will show a bare URL" });
 		}
 		if (r.draft) out.push({ row: r, why: "draft — routed and rendered, but every view's !draft filter excludes it" });
+		// Undated is the DEFINED state for a draft (it gets its date when it
+		// publishes), so only a publishable row is a finding here. For one,
+		// the cost is silent: no year/month archive membership, a trail that
+		// stops at the collection, and last place in every ordering.
+		if (r.table === "posts" && !r.draft && !r.date)
+			out.push({ row: r, why: "no date — absent from year and month archives, no date trail, sorts last" });
 		if (r.hidden) out.push({ row: r, why: "hidden — served, but out of listings, sitemap and search" });
 		if (r.noindex) out.push({ row: r, why: "noindex — served and listed, but asks search engines away" });
 	});
