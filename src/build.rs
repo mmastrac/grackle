@@ -830,7 +830,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 };
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
-                let head = render::head_simple(&title, &r.url, &site, false);
+                let head = render::head_simple(
+                    &title,
+                    &r.url,
+                    &site,
+                    row.is_some_and(|p| p.noindex),
+                );
                 // §5g/q44: the row picks its shell. `none` is the whole
                 // point of the field — the body IS the output, so an
                 // imported document can carry front matter (title, tags,

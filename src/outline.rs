@@ -199,6 +199,8 @@ mod tests {
             toc: false,
             theme: None,
             shell: None,
+            hidden: false,
+            noindex: false,
             fields: Default::default(),
             images: Default::default(),
             locale: "en".into(),

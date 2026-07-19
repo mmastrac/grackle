@@ -111,6 +111,11 @@ pub struct Page {
     /// an imported document carry front matter without being nested
     /// inside a second `<html>`.
     pub shell: Option<String>,
+    /// The flag family, cascading from markers and rules exactly as a
+    /// post's does (§4b): `hidden` reaches the row's route so star views
+    /// filter it, `noindex` reaches the head.
+    pub hidden: bool,
+    pub noindex: bool,
     /// Typed extra fields, validated against the governing `.schema.toml`
     /// (§5b). Empty for ungoverned rows.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -933,10 +938,9 @@ fn build_tree_and_objects(
                     .and_then(|v| v.as_str())
                     .map(String::from)
             });
-            // A typo'd shell would silently render the wrong tier, which is
-            // the failure this codebase keeps finding (q46's paginated
-            // landing, q33(f)'s dead layout names). Closed vocabulary,
-            // named at load.
+            // A typo'd shell would silently render the wrong tier — the
+            // failure mode this codebase keeps finding. Closed vocabulary,
+            // checked at load.
             if let Some(sh) = shell.as_deref() {
                 if !matches!(sh, "none" | "light" | "html") {
                     anyhow::bail!(
@@ -945,6 +949,8 @@ fn build_tree_and_objects(
                     );
                 }
             }
+            let hidden = fm.hidden.unwrap_or_else(|| as_bool(&defaults, "hidden"));
+            let noindex = fm.noindex.unwrap_or_else(|| as_bool(&defaults, "noindex"));
             let logical = logical_rel.to_string_lossy().to_string();
             if f.has_front_matter {
                 pages.by_logical.entry(logical.clone()).or_default().push(pages.rows.len());
@@ -973,6 +979,8 @@ fn build_tree_and_objects(
                 toc: fm.toc.unwrap_or(false),
                 theme,
                 shell,
+                hidden,
+                noindex,
                 fields: checked.values,
                 images: checked.images,
                 locale,
@@ -1243,6 +1251,7 @@ impl SiteDb {
             db.routes.push(Route {
                 source: Some(p.path.clone()),
                 locale: route_locale(&p.locale),
+                hidden: p.hidden,
                 ..Route::new(p.url.clone(), kind)
             });
         }

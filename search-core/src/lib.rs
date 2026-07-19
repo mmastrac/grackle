@@ -60,21 +60,46 @@ pub fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Visible text of an HTML fragment: characters outside tags.
+/// Visible text of an HTML fragment: characters outside tags, and outside
+/// the raw-text elements whose content is code rather than prose.
+///
+/// Dropping only the tags is not enough: `<style>` and `<script>` hold text
+/// by the parser's reckoning, so a stylesheet's identifiers would land in
+/// the index as terms. The main corpus was searchable for `rgba`, `fafafa`
+/// and `ffffff` — from §6c's three styled posts, and nowhere else. Prose
+/// mentions survive, which is the point: two posts discuss `margin` in
+/// their text and stay findable by it.
 pub fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 2);
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => {
-                in_tag = false;
-                out.push(' ');
+    let mut rest = html;
+    while let Some(i) = rest.find('<') {
+        out.push_str(&rest[..i]);
+        out.push(' ');
+        let tail = &rest[i..];
+        // `get` rather than a slice: the byte after a `<` may be the middle
+        // of a multi-byte char (the corpus is full of `’`), and slicing
+        // there panics.
+        let raw = ["<script", "<style"].into_iter().find(|open| {
+            tail.get(..open.len()).is_some_and(|h| h.eq_ignore_ascii_case(open))
+                && tail[open.len()..].starts_with(|c: char| c == '>' || c.is_whitespace())
+        });
+        rest = match raw {
+            // Resume at the close tag, which the next pass skips as an
+            // ordinary tag.
+            Some(open) => {
+                let close = format!("</{}", &open[1..]);
+                match tail.to_ascii_lowercase().find(&close) {
+                    Some(j) => &tail[j..],
+                    None => "",
+                }
             }
-            _ if !in_tag => out.push(c),
-            _ => {}
-        }
+            None => match tail.find('>') {
+                Some(j) => &tail[j + 1..],
+                None => "",
+            },
+        };
     }
+    out.push_str(rest);
     out
 }
 
@@ -326,5 +351,29 @@ mod tests {
         let (idx, _) = build_index(&corpus());
         assert!(idx.search("", 10).is_empty());
         assert!(idx.search("   ", 10).is_empty());
+    }
+
+    /// `<style>`/`<script>` content is code, not prose: it must not become
+    /// searchable terms. Regression for the CSS that was in the shipped
+    /// index (rgba, px, margin, webkit).
+    #[test]
+    fn raw_text_elements_are_not_indexable_prose() {
+        let html = "<p>real prose</p><style>.a { color: rgba(0,0,0,.5); }</style>\
+                    <p>more</p><script>var margin = 4;</script><p>end</p>";
+        let text = strip_tags(html);
+        for code in ["rgba", "color", "margin", "var"] {
+            assert!(!text.contains(code), "{code:?} leaked into {text:?}");
+        }
+        for prose in ["real prose", "more", "end"] {
+            assert!(text.contains(prose), "{prose:?} lost from {text:?}");
+        }
+        // A `<` followed by a multi-byte char must not split it. (An
+        // unterminated `<` still drops the rest, as it always has.)
+        assert_eq!(strip_tags("a < \u{2019}b\u{2019} c").trim(), "a");
+        assert!(strip_tags("<p>\u{2019}quoted\u{2019}</p>").contains('\u{2019}'));
+        // Uppercase and attribute-bearing forms close too.
+        let t2 = strip_tags("<p>a</p><STYLE type=\"text/css\">.x{color:red}</STYLE><p>b</p>");
+        assert!(!t2.contains("color"), "{t2:?}");
+        assert!(t2.contains('a') && t2.contains('b'), "{t2:?}");
     }
 }

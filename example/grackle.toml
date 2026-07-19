@@ -44,7 +44,10 @@ bucket = "assets"
 [collections.pages]
 kind = "tree"
 source = "."
-exclude = ["themes/**", "*.toml"]
+# `shells/**` is build tooling, not content (§4c): a script shell's source
+# is input to the build, and without this the engine routed it as a static
+# page and served llms.py to the public.
+exclude = ["themes/**", "shells/**", "*.toml"]
 
   # Theme is chosen per row (§5a); a rule default restyles a subtree —
   # the recipes section deliberately looks nothing like the rest.
