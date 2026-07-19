@@ -180,8 +180,7 @@ function renderTree(root, which, onPick) {
 }
 
 function lensTree() {
-	var host = el("div");
-	host.style.height = "100%";
+	var host = el("div", "lens-host");
 	var panes = el("div", "panes");
 
 	var srcRoot = buildTree(IX.allRows, function (r) { return r.path; });
@@ -336,7 +335,7 @@ function cellText(row, col) {
 }
 
 function lensRows() {
-	var host = el("div");
+	var host = el("div", "lens-host");
 	var ctl = el("div", "controls");
 
 	var selT = el("select");
@@ -422,8 +421,7 @@ function lensRows() {
 /* ---- views ---------------------------------------------------------- */
 
 function lensViews() {
-	var host = el("div");
-	host.style.height = "100%";
+	var host = el("div", "lens-host");
 	var pane = el("div", "pane");
 	var body = el("div", "body");
 	body.dataset.scroll = "views";
@@ -482,12 +480,10 @@ function findings() {
 }
 
 function lensDiag() {
-	var host = el("div");
-	host.style.height = "100%";
+	var host = el("div", "lens-host");
 	var f = findings();
 	var wrap = el("div", "diag");
 	wrap.dataset.scroll = "diag";
-	wrap.style.height = "100%";
 	if (!f.length) wrap.appendChild(el("p", "none", "Nothing unusual."));
 	f.slice(0, 300).forEach(function (item) {
 		var row = el("div", "row");

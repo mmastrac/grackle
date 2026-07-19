@@ -47,6 +47,10 @@ main {
 	display: grid;
 	grid-template-rows: auto auto minmax(0, 1fr);
 	min-height: 0;
+	/* Grid and flex children default to min-width:auto, so a wide table's
+	   min-content width shoves its container past the viewport instead of
+	   scrolling inside its own pane. Every link in the chain has to opt out. */
+	min-width: 0;
 }
 
 /* The two halves each take half of whatever the header and tabs leave. */
@@ -57,7 +61,7 @@ main {
 	min-height: 0;
 }
 
-.split > * { min-height: 0; }
+.split > * { min-height: 0; min-width: 0; }
 
 .lenses { display: flex; margin-bottom: 1.1rem; }
 
@@ -96,6 +100,25 @@ input[type="search"]:focus, select:focus { outline: 2px solid var(--accent); out
 .controls label { font-size: 12px; color: var(--ink-3); }
 .controls .count { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
+/* Every lens fills its half and scrolls inside it. Without this the rows
+   table sized to its content — 9500px of table in a 356px box, with the
+   detail pane stranded somewhere in the middle of it. */
+.lens-host {
+	height: 100%;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.lens-host > .pane,
+.lens-host > .panes,
+.lens-host > .diag {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+
 .panes {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1fr);
@@ -120,6 +143,7 @@ input[type="search"]:focus, select:focus { outline: 2px solid var(--accent); out
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	min-width: 0;
 }
 
 .pane > h2 {
