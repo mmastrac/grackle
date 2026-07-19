@@ -106,6 +106,11 @@ pub struct Page {
     /// Which theme renders this row (§5a) — front matter beats rule
     /// defaults; None means the site default.
     pub theme: Option<String>,
+    /// Which shell wraps this row (§5g, q44). `none` means the body is
+    /// the whole output — no root skeleton, no theme — which is what lets
+    /// an imported document carry front matter without being nested
+    /// inside a second `<html>`.
+    pub shell: Option<String>,
     /// Typed extra fields, validated against the governing `.schema.toml`
     /// (§5b). Empty for ungoverned rows.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -922,6 +927,24 @@ fn build_tree_and_objects(
                     .and_then(|v| v.as_str())
                     .map(String::from)
             });
+            let shell = fm.shell.clone().or_else(|| {
+                defaults
+                    .get("shell")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            });
+            // A typo'd shell would silently render the wrong tier, which is
+            // the failure this codebase keeps finding (q46's paginated
+            // landing, q33(f)'s dead layout names). Closed vocabulary,
+            // named at load.
+            if let Some(sh) = shell.as_deref() {
+                if !matches!(sh, "none" | "light" | "html") {
+                    anyhow::bail!(
+                        "{}: shell = \"{sh}\" is not a shell — expected none, light or html (§5g)",
+                        f.rel.display()
+                    );
+                }
+            }
             let logical = logical_rel.to_string_lossy().to_string();
             if f.has_front_matter {
                 pages.by_logical.entry(logical.clone()).or_default().push(pages.rows.len());
@@ -949,6 +972,7 @@ fn build_tree_and_objects(
                 order: fm.order,
                 toc: fm.toc.unwrap_or(false),
                 theme,
+                shell,
                 fields: checked.values,
                 images: checked.images,
                 locale,

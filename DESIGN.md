@@ -2398,16 +2398,38 @@ or unexpanded source?).
 
 ### Still open (q44)
 
-Row-level shells — **amended 2026-07-19, and narrower than it reads
-above**. The theme half of the conflation is already gone: one theme
-exists, so `layout: light` selects nothing and merely isn't
-`page`/`post` (q33(f) has the census). What remains is not
-chrome-shaped either — the five rows that take the bare branch are all
-landings, which §5h owns, so a row `shell:` of `html`/`light`/`none`
-would be naming a distinction that should stop existing. The value set
-a row actually wants is **format**-shaped, and its forcing consumer is
-the md twin below: *which serializations does this row offer*, not how
-much chrome it wears. Build it there, not here. Also open: the
+Row-level shells — **BUILT 2026-07-19**. A row declares `shell:` and
+picks its own wrapper: **`none`** (the body IS the output — no
+skeleton, no theme), **`light`** (engine skeleton, canonical parts, no
+theme chrome) or **`html`** (the theme). Closed vocabulary, checked at
+load and named with the file, because a typo'd shell would otherwise
+render the wrong tier silently — the failure this document keeps
+finding. Absent, the legacy `layout:` still chooses, so nothing
+migrated and the main site is byte-identical.
+
+`none` is the one that adds a capability rather than a spelling: an
+imported artifact can now carry front matter *and* emit itself. Before,
+adding front matter to a full HTML document nested it inside a second
+`<html>`; the only way to ship it verbatim was to have no front matter,
+which meant it was not a row at all — no title, no metadata, invisible
+to every query. The example's `demos/pane.html` is the occupant: 521
+bytes of its own document, with a `title` the database can see.
+
+An earlier draft of this entry argued the whole thing was chrome-shaped
+and should be redirected to format; that rested on misreading `light`
+as a dead name. It is not — `Theme::parse` routes it to the null theme,
+a real tier with two occupants (q33(f) has the census). The md twin
+below is a *second*, orthogonal axis (which serializations a row
+offers); it does not subsume this one.
+
+Measured, and left alone deliberately: a `shell = "none"` row's content
+is raw HTML, so everything downstream reads it as such — the example's
+pane page puts `backdrop`, `blur` and `rgba` into the search index.
+That is **not** this feature's bug: the main site's index already
+carries `rgba`, `px`, `margin` and `webkit` from §6c's three
+`<style>` posts, because search-text extraction never stripped
+`<style>`/`<script>`. Fix belongs with the search pass, and the pane
+page is now a standing reproduction of it. Also open: the
 atom/sitemap serializers becoming true part-map
 consumers (a feed entry IS a document-parts subset), and a `json` shell
 when something wants one (though a script shell now covers the
@@ -4329,25 +4351,38 @@ never reused.
     §5h's claiming vocabulary wearing an old name. (e) The sitemap
     filter's second evaluation (star routes carry no members).
 
-    (f) **Row `layout:` is the same disease on the row side, and it
-    dissolves rather than gets renamed** *(measured 2026-07-19)*. One
-    engine site reads it — `Some("page") | Some("post")` is a single
-    match arm, so the two words are one value; five spellings across both
-    corpora collapse to two behaviours; `light` selects nothing (one
-    theme exists); the `_layouts/*.html` it names have been unread since
-    §5e; it sits in the post and page filter schemas and nothing filters
-    on it. Census: the main site's 227 page rows are 187 passthrough (no
-    front matter — never reach the switch) + 37 framed + **3 bare**; the
-    example's 21 are 1 + 18 + **2**. Every one of those five bare rows is
-    a landing — `/`, `/fr/`, `/demos/mindstorms/`, `/writing/linuxwp/doc/`
-    — so **55 files declare the common case in order that 5 may declare
-    the exception**, and omitting the field silently drops a row's
-    furniture (probe row: 0 crumb/relation/neighbour elements against a
-    sibling's 3, no error). Three mechanisms already carve the three
-    tiers: front-matter absence for raw bytes, §5h landings for rows that
-    own their arrangement, the default for framed prose. Lifting the
-    three main-site landings is the work; `/` waits on q37's board, so
-    this is **not** the cheap half of q33.
+    (f) **Row `layout:` is the same disease on the row side — a Jekyll
+    word that survived as a flag** *(measured 2026-07-19; corrected
+    below)*. `Some("page") | Some("post")` is a single match arm, so
+    those two words are one value; the `_layouts/*.html` it names have
+    been unread since §5e; it sits in the post and page filter schemas
+    and nothing filters on it. Census of the four tiers a row can land
+    in — main site's 227 page rows / example's 21:
+
+    | tier | selected by | main | example |
+    |---|---|---|---|
+    | verbatim bytes | front-matter absence | 187 | 1 |
+    | null theme | `layout: light` | 2 | 0 |
+    | chrome, no furniture | `default`/absent | 1 | 2 |
+    | chrome + furniture | `page`/`post` | 37 | 18 |
+
+    So **55 files declare the common case in order that 3 may declare an
+    exception**, and omitting the field silently drops a row's furniture
+    (probe row: 0 crumb/relation/neighbour elements against a sibling's
+    3, no error). The `default` tier's three occupants are all homepages,
+    which §5h landings absorb.
+
+    **Correction (2026-07-19):** an earlier draft of this entry said
+    `light` "selects nothing", read the tiers as three, and concluded the
+    field dissolves. Wrong on all three counts, from grepping for a
+    `light` theme directory instead of reading the render path.
+    `Theme::parse` routes `light` to the **null theme** — minimal head,
+    canonical parts, no theme chrome (measured: 57-byte head, no css, no
+    nav, no footer, against `default`'s 715 and `page`'s 737). It is a
+    real tier with two occupants, and it is the mechanism q50's
+    transplant wants. What dissolves is the *spelling*, not the
+    distinction: the tiers are shell levels, so they belong under q44's
+    row `shell:` (`none`/`light`/`html`), not under a layout name.
 34. **Three "not content" lists (§9b).** §4c's three layers govern the
     tree walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`)
     carry private skip lists that can silently drift from `exclude`. Both
@@ -4455,6 +4490,36 @@ never reused.
     and §5h already has the rule — the engine never guesses the
     arrangement. The two exceptions are exactly what the sidecar half is
     sized for.
+50. **Transplanting an imported page** *(Matt's case)*. Import a raw HTML
+    page, then lift the *meat* out of it and render that through the
+    theme. No mechanism today: add front matter to a full document and
+    the whole `<!doctype html><html>…` becomes the row's content, which
+    the shell then nests inside another document. Two operations, and
+    they should not fuse into one word the way `layout: light` fused
+    shell and theme:
+
+    **Extraction** — where is the meat? `<body>`'s children, or a
+    selector-scoped region. This is a *parse* instruction, not a
+    presentation one, and it rides with machinery already scheduled: the
+    same HTML parse as q49's derive half (reading `<head>` for a title is
+    one step from reading `<body>` for content) and §6d stage B's
+    selector-driven rewrite stage.
+
+    **How much chrome the transplant then wears** is q44's row `shell:`
+    (`none`/`light`/`html`) — already a real axis with real occupants,
+    not something this question needs to invent.
+
+    Left open by the split: a transplanted page arrives with its own CSS
+    and structural assumptions, so `light` may be the honest destination
+    for most imports and `html` the ambitious one — and a theme that
+    wants to render a transplant with *less* furniture can only say so
+    today by **omitting the hole** for a part, which the binder does not
+    flag. That makes a deliberate omission byte-identical to a forgotten
+    one (§5h's `listing--cards` footgun), and §5h wants a load-time
+    warning for the forgotten case — which cannot be built until the two
+    are distinguishable. **How does a theme say "I deliberately do not
+    place this part"?** Settle that and a `light`-style theme is a theme
+    file rather than an engine feature.
 
 ### Settled ledger
 

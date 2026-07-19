@@ -831,7 +831,23 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
                 let head = render::head_simple(&title, &r.url, &site, false);
-                let html = match Theme::parse(layout) {
+                // §5g/q44: the row picks its shell. `none` is the whole
+                // point of the field — the body IS the output, so an
+                // imported document can carry front matter (title, tags,
+                // hidden) without being nested inside a second `<html>`.
+                // Absent, the legacy `layout:` still chooses (q33(f)).
+                let shell = row.and_then(|p| p.shell.as_deref());
+                if shell == Some("none") {
+                    out_map.insert(r.url.clone(), frag.clone().into_bytes());
+                    stats.pages += 1;
+                    continue;
+                }
+                let tier = match shell {
+                    Some("light") => Theme::Light,
+                    Some("html") => Theme::Default,
+                    _ => Theme::parse(layout),
+                };
+                let html = match tier {
                     // `light` IS the null theme (§5e step 4): the minimal
                     // head (title + robots) in the same root shell (§5g)
                     // as everything, around the canonical rendering.

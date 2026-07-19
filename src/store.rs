@@ -30,6 +30,11 @@ pub struct FrontMatter {
     /// Which theme renders this row (§5a: theme is chosen per row).
     /// Cascades from rules, so a subtree changes look with one rule.
     pub theme: Option<String>,
+    /// Which shell wraps this row (§5g, q44): `none` emits the body with
+    /// no skeleton at all, so an imported artifact can carry front matter
+    /// without being nested inside a second document. Cascades like
+    /// `theme`.
+    pub shell: Option<String>,
     /// Everything else: captured for per-subtree schema validation (§5b).
     /// Ungoverned rows tolerate unknown keys exactly as before; a row under
     /// a `.schema.toml` gets them checked.

@@ -198,6 +198,7 @@ mod tests {
             order,
             toc: false,
             theme: None,
+            shell: None,
             fields: Default::default(),
             images: Default::default(),
             locale: "en".into(),

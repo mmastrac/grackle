@@ -791,6 +791,7 @@ mod grouping_tests {
             order: None,
             toc: false,
             theme: None,
+            shell: None,
             fields: Default::default(),
             images: Default::default(),
             locale: "en".into(),
