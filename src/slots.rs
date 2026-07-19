@@ -62,7 +62,12 @@ impl Fill {
             _ => self.raw.trim().to_string(),
         };
         let (block_count, inline) = block_shape(&html);
-        Ok(RenderedFill { blocks: html, inline, block_count, file: self.file.clone() })
+        Ok(RenderedFill {
+            blocks: html,
+            inline,
+            block_count,
+            file: self.file.clone(),
+        })
     }
 }
 
@@ -123,10 +128,21 @@ impl SlotFills {
 
 fn walk(root: &Path, dir: &Path, fills: &mut SlotFills) -> Result<()> {
     const SKIP: &[&str] = &[
-        "node_modules", "vendor", "docker", "scripts", "CHANGES", "grackle",
-        "themes", "_site", "_cache", "_log", "target",
+        "node_modules",
+        "vendor",
+        "docker",
+        "scripts",
+        "CHANGES",
+        "grackle",
+        "themes",
+        "_site",
+        "_cache",
+        "_log",
+        "target",
     ];
-    let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
     for e in entries.filter_map(|e| e.ok()) {
         let p = e.path();
         if !p.is_dir() {
@@ -162,11 +178,15 @@ fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()>
                 p.display()
             );
         }
-        fills
-            .by_dir
-            .entry(owner.to_path_buf())
-            .or_default()
-            .insert(stem, Fill { raw: text, ext, owner: owner.to_path_buf(), file: p });
+        fills.by_dir.entry(owner.to_path_buf()).or_default().insert(
+            stem,
+            Fill {
+                raw: text,
+                ext,
+                owner: owner.to_path_buf(),
+                file: p,
+            },
+        );
     }
     Ok(())
 }
@@ -247,7 +267,10 @@ mod tests {
     fn single_paragraph_unwraps() {
         let (n, inline) = block_shape("<p>© 1998 <a href=\"/c/\">contact</a></p>\n");
         assert_eq!(n, 1);
-        assert_eq!(inline.as_deref(), Some("© 1998 <a href=\"/c/\">contact</a>"));
+        assert_eq!(
+            inline.as_deref(),
+            Some("© 1998 <a href=\"/c/\">contact</a>")
+        );
     }
 
     #[test]

@@ -16,17 +16,14 @@ use std::collections::{BTreeMap, HashMap};
 
 /// Very common words that would dominate postings without informing them.
 const STOPWORDS: &[&str] = &[
-    "a", "about", "after", "all", "also", "an", "and", "any", "are", "as",
-    "at", "be", "because", "been", "before", "but", "by", "can", "could",
-    "did", "do", "does", "for", "from", "get", "had", "has", "have", "here",
-    "how", "i", "if", "in", "into", "is", "it", "its", "just", "like", "ll",
-    "me", "more", "most", "my", "no", "not", "now", "of", "on", "one",
-    "only", "or", "other", "our", "out", "over", "re", "s", "same", "so",
-    "some", "such", "t", "than", "that", "the", "their", "them", "then",
-    "there", "these", "they", "this", "those", "through", "to", "too",
-    "under", "up", "ve", "very", "was", "we", "were", "what", "when",
-    "where", "which", "while", "who", "why", "will", "with", "would", "you",
-    "your",
+    "a", "about", "after", "all", "also", "an", "and", "any", "are", "as", "at", "be", "because",
+    "been", "before", "but", "by", "can", "could", "did", "do", "does", "for", "from", "get",
+    "had", "has", "have", "here", "how", "i", "if", "in", "into", "is", "it", "its", "just",
+    "like", "ll", "me", "more", "most", "my", "no", "not", "now", "of", "on", "one", "only", "or",
+    "other", "our", "out", "over", "re", "s", "same", "so", "some", "such", "t", "than", "that",
+    "the", "their", "them", "then", "there", "these", "they", "this", "those", "through", "to",
+    "too", "under", "up", "ve", "very", "was", "we", "were", "what", "when", "where", "which",
+    "while", "who", "why", "will", "with", "would", "you", "your",
 ];
 
 /// Light, guarded suffix stripping. Deliberately simple; see the module doc
@@ -40,12 +37,22 @@ pub fn stem(word: &str) -> Option<String> {
     if let Some(p) = s.strip_suffix("'s") {
         s = p.to_string();
     }
-    for (suffix, min_stem) in
-        [("ies", 3), ("ing", 4), ("edly", 4), ("ed", 4), ("ly", 4), ("es", 3), ("s", 3)]
-    {
+    for (suffix, min_stem) in [
+        ("ies", 3),
+        ("ing", 4),
+        ("edly", 4),
+        ("ed", 4),
+        ("ly", 4),
+        ("es", 3),
+        ("s", 3),
+    ] {
         if let Some(p) = s.strip_suffix(suffix) {
             if p.len() >= min_stem {
-                s = if suffix == "ies" { format!("{p}y") } else { p.to_string() };
+                s = if suffix == "ies" {
+                    format!("{p}y")
+                } else {
+                    p.to_string()
+                };
                 break;
             }
         }
@@ -80,7 +87,8 @@ pub fn strip_tags(html: &str) -> String {
         // of a multi-byte char (the corpus is full of `’`), and slicing
         // there panics.
         let raw = ["<script", "<style"].into_iter().find(|open| {
-            tail.get(..open.len()).is_some_and(|h| h.eq_ignore_ascii_case(open))
+            tail.get(..open.len())
+                .is_some_and(|h| h.eq_ignore_ascii_case(open))
                 && tail[open.len()..].starts_with(|c: char| c == '>' || c.is_whitespace())
         });
         rest = match raw {
@@ -169,7 +177,10 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
         for (term, &count) in tf {
             let idf = (n as f32 / df[term.as_str()] as f32).ln().max(0.05);
             let score = ((count as f32 * idf) * 100.0).min(65535.0) as u16;
-            terms.entry(term.clone()).or_default().push((i as u32, score));
+            terms
+                .entry(term.clone())
+                .or_default()
+                .push((i as u32, score));
         }
     }
     let mut postings = 0;
@@ -179,9 +190,19 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
         postings += list.len();
     }
 
-    let stats = IndexStats { docs: docs.len(), terms: terms.len(), postings };
+    let stats = IndexStats {
+        docs: docs.len(),
+        terms: terms.len(),
+        postings,
+    };
     (
-        Index { docs: docs.iter().map(|d| (d.url.clone(), d.title.clone(), d.date.clone())).collect(), terms },
+        Index {
+            docs: docs
+                .iter()
+                .map(|d| (d.url.clone(), d.title.clone(), d.date.clone()))
+                .collect(),
+            terms,
+        },
         stats,
     )
 }
@@ -216,7 +237,10 @@ impl Index {
         // (distinct hits, summed score) per doc.
         let mut matched: HashMap<u32, (u32, u32)> = HashMap::new();
 
-        let exact: Vec<String> = raw[..raw.len() - 1].iter().filter_map(|t| stem(t)).collect();
+        let exact: Vec<String> = raw[..raw.len() - 1]
+            .iter()
+            .filter_map(|t| stem(t))
+            .collect();
         for s in &exact {
             if let Some(postings) = self.terms.get(s) {
                 for &(doc, score) in postings {

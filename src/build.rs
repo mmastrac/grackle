@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use crate::config::{Config, Kind, View};
 use crate::db::{Post, Route, RouteKind, SiteDb};
 use crate::markdown::Doc;
-use crate::render::{self, Site, Theme};
 use crate::parts;
+use crate::render::{self, Site, Theme};
 use crate::store::split_front_matter;
 use crate::tags;
 use crate::theme;
@@ -109,15 +109,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let theme_dir = root.join("themes/default");
 
     let thumbs = thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
-    let thumb_urls: HashMap<String, String> =
-        thumbs.iter().map(|(k, t)| (k.clone(), t.url.clone())).collect();
+    let thumb_urls: HashMap<String, String> = thumbs
+        .iter()
+        .map(|(k, t)| (k.clone(), t.url.clone()))
+        .collect();
 
     // ---- themes: every directory under themes/, loaded once (§5e). All
     // theme errors — malformed fragment, unknown slot, arity violation —
     // surface here, before anything renders. Theme is chosen per ROW (§5a);
     // everything not a tree page renders through the default.
-    let themes = theme::Themes::load_all(&root.join("themes"), &root)
-        .context("loading themes")?;
+    let themes = theme::Themes::load_all(&root.join("themes"), &root).context("loading themes")?;
     let thm = themes.get(None)?;
 
     // §6a row/view links: the resolution space, once per build.
@@ -141,7 +142,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         Ok(l) => l,
         Err(e) => {
             eprintln!("grackle: embeddings unavailable, skipping related posts: {e:#}");
-            crate::embed::Loaded { vectors: Vec::new(), pending: Vec::new() }
+            crate::embed::Loaded {
+                vectors: Vec::new(),
+                pending: Vec::new(),
+            }
         }
     };
     let related = crate::embed::rank(db, &loaded.vectors, &cfg.related);
@@ -167,8 +171,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             // from the same rendered bytes. h2–h3 is the v1 depth window
             // (production policy, not CSS — never ship what a theme hides).
             let outline = if p.toc {
-                let tree =
-                    crate::outline::heading_tree(&bodies[p.url.as_str()].headings(), 2, 3);
+                let tree = crate::outline::heading_tree(&bodies[p.url.as_str()].headings(), 2, 3);
                 crate::outline::to_parts(&tree, &p.url)
             } else {
                 Vec::new()
@@ -226,7 +229,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // could silently disagree. The renderer no longer knows what a tag is.
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
         // q45: a view that claims content renders in the landing pass —
         // the row owns the arrangement there.
         if v.content.is_some() {
@@ -273,9 +278,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
 
-        let main = thm
-            .fragments
-            .render_with(&parts::listing(cfg, &rows, &title, trail, intro, pagination), v.variant.as_deref());
+        let main = thm.fragments.render_with(
+            &parts::listing(cfg, &rows, &title, trail, intro, pagination),
+            v.variant.as_deref(),
+        );
         let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
         let html = thm.page(
             render::head_html(&head, &css_of(None)),
@@ -301,7 +307,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         if view_base_kind(cfg, view) != Some(Kind::Objects) {
             continue;
         }
-        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
         if v.content.is_some() {
             continue; // q45: renders in the landing pass
         }
@@ -327,9 +335,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .collect();
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
-        let main = thm
-            .fragments
-            .render_with(&parts::gallery(&items, &title, trail, intro), v.variant.as_deref());
+        let main = thm.fragments.render_with(
+            &parts::gallery(&items, &title, trail, intro),
+            v.variant.as_deref(),
+        );
         let head = render::head_simple(&title, &r.url, &site, false);
         let html = thm.page(
             render::head_html(&head, &css_of(None)),
@@ -353,7 +362,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         if view_base_kind(cfg, view) != Some(Kind::Tree) {
             continue;
         }
-        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
         if v.content.is_some() {
             continue; // q45: renders in the landing pass
         }
@@ -386,7 +397,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // tree-backed listings can inherit.
         let theme_name = {
             let mut names = r.members.iter().map(|&i| {
-                db.pages.rows[i].theme.as_deref().map(|s| theme::split_spec(s).0)
+                db.pages.rows[i]
+                    .theme
+                    .as_deref()
+                    .map(|s| theme::split_spec(s).0)
             });
             match names.next().flatten() {
                 Some(first) if names.all(|n| n == Some(first)) => Some(first),
@@ -425,8 +439,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let mut section_trees: HashMap<PathBuf, Vec<crate::outline::Node>> = HashMap::new();
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else { continue };
-        let Some(content) = v.content.as_deref() else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
+        let Some(content) = v.content.as_deref() else {
+            continue;
+        };
         if r.kind != RouteKind::View {
             continue;
         }
@@ -434,7 +452,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
         // The claimed row, in the route's locale — else the default's
         // prose (the same fallback slot fills use).
-        let sibs = db.pages.by_logical.get(content).cloned().unwrap_or_default();
+        let sibs = db
+            .pages
+            .by_logical
+            .get(content)
+            .cloned()
+            .unwrap_or_default();
         let row = sibs
             .iter()
             .map(|&i| &db.pages.rows[i])
@@ -450,8 +473,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // This route's slice, by the view's base kind.
         let embed_parts = match view_base_kind(cfg, view) {
             Some(Kind::Posts) => {
-                let summary_field =
-                    cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
+                let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
                 let rows: Vec<(&crate::db::Post, String, bool)> = r
                     .members
                     .iter()
@@ -523,12 +545,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             None => (None, None),
         };
         let row_thm = themes.get(theme_name)?;
-        let embed_html = row_thm.fragments.render_with(&embed_parts, v.variant.as_deref());
+        let embed_html = row_thm
+            .fragments
+            .render_with(&embed_parts, v.variant.as_deref());
 
         // Must-place (q45): the claimed row owns the arrangement — a body
         // that never places the owner's embed strands the view's rows.
-        let text = std::fs::read_to_string(src)
-            .with_context(|| format!("reading {}", src.display()))?;
+        let text =
+            std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, body) = split_front_matter(&text);
         let tag = format!("{{% view {view} %}}");
         if !body.contains(&tag) {
@@ -649,10 +673,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // "feed bypasses themes; serializations have no look"). The route already
     // carries its members (the 20 newest published, newest-first); we render
     // each body and apply the feed's content transforms.
-    let updated = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00").to_string();
+    let updated = chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S+00:00")
+        .to_string();
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
         // The atom SHELL: the same rows, a different outermost wrapper —
         // declared, not inferred from a template filename (q33's string
         // match, retired; q44 is the full generalization).
@@ -663,7 +691,15 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .members
             .iter()
             .map(|&i| &db.posts.rows[i])
-            .map(|p| (p, bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or("")))
+            .map(|p| {
+                (
+                    p,
+                    bodies
+                        .get(p.url.as_str())
+                        .map(|d| d.whole.as_str())
+                        .unwrap_or(""),
+                )
+            })
             .collect();
         let xml = render::feed(&site, &r.url, &updated, &entries);
         out_map.insert(r.url.clone(), xml.into_bytes());
@@ -724,9 +760,15 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // promoted to a built-in.
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else { continue };
-        let Some(shell) = v.shell.as_deref() else { continue };
-        let Some(def) = cfg.shells.get(shell) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
+        let Some(shell) = v.shell.as_deref() else {
+            continue;
+        };
+        let Some(def) = cfg.shells.get(shell) else {
+            continue;
+        };
         let rows: Vec<serde_json::Value> = r
             .members
             .iter()
@@ -765,8 +807,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         match r.kind {
             RouteKind::Static | RouteKind::Object => {
                 let Some(src) = &r.source else { continue };
-                let bytes = std::fs::read(src)
-                    .with_context(|| format!("reading {}", src.display()))?;
+                let bytes =
+                    std::fs::read(src).with_context(|| format!("reading {}", src.display()))?;
                 out_map.insert(r.url.clone(), bytes);
                 stats.copied += 1;
             }
@@ -774,14 +816,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let Some(src) = &r.source else { continue };
                 let row = db.pages.rows.iter().find(|p| p.url == r.url);
                 let layout = row.and_then(|p| p.layout.as_deref());
-                let title = row
-                    .and_then(|p| p.title.clone())
-                    .unwrap_or_default();
+                let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
 
                 // Bodies were rendered in the prepass (so the link graph
                 // could scan them); scss and unknown-construct pages were
                 // recorded there too.
-                let Some(pb) = page_bodies.get(&r.url) else { continue };
+                let Some(pb) = page_bodies.get(&r.url) else {
+                    continue;
+                };
                 if pb.skipped {
                     stats.skipped.push(r.url.clone());
                     continue;
@@ -801,27 +843,26 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let section: Vec<parts::PartMap> = row
                     .and_then(|p| crate::outline::nearest(&db.sections, &p.rel))
                     .map(|sec| {
-                        let tree = section_trees
-                            .entry(sec.to_path_buf())
-                            .or_insert_with(|| crate::outline::section_tree(db, sec, &cfg.i18n.default));
+                        let tree = section_trees.entry(sec.to_path_buf()).or_insert_with(|| {
+                            crate::outline::section_tree(db, sec, &cfg.i18n.default)
+                        });
                         crate::outline::to_parts(tree, &r.url)
                     })
                     .unwrap_or_default();
 
                 // The hero (q23): an image-typed schema field, thumbnailed,
                 // dimension facts attached.
-                let hero = row
-                    .and_then(|p| p.hero_source())
-                    .map(|s| {
-                        let t = thumbs.get(s);
-                        parts::figure(&parts::Figure {
-                            url: format!("{}/{s}", cfg.site.baseurl),
-                            src: t.map(|t| t.url.clone())
-                                .unwrap_or_else(|| format!("{}/{s}", cfg.site.baseurl)),
-                            dims: t.and_then(|t| t.dims),
-                            alt: title.clone(),
-                        })
-                    });
+                let hero = row.and_then(|p| p.hero_source()).map(|s| {
+                    let t = thumbs.get(s);
+                    parts::figure(&parts::Figure {
+                        url: format!("{}/{s}", cfg.site.baseurl),
+                        src: t
+                            .map(|t| t.url.clone())
+                            .unwrap_or_else(|| format!("{}/{s}", cfg.site.baseurl)),
+                        dims: t.and_then(|t| t.dims),
+                        alt: title.clone(),
+                    })
+                });
 
                 // The legacy `layout:` field selects a layout kind; the
                 // row's `theme:` (front matter or rule default) selects the
@@ -837,12 +878,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 };
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
-                let head = render::head_simple(
-                    &title,
-                    &r.url,
-                    &site,
-                    row.is_some_and(|p| p.noindex),
-                );
+                let head =
+                    render::head_simple(&title, &r.url, &site, row.is_some_and(|p| p.noindex));
                 // §5g/q44: the row picks its shell. `none` is the whole
                 // point of the field — the body IS the output, so an
                 // imported document can carry front matter (title, tags,
@@ -879,19 +916,21 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                         let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
                         // §6f: this page in other locales.
                         let translations: Vec<(String, String)> = row
-                            .and_then(|p| db.pages.by_logical.get(&p.logical).map(|sibs| {
-                                sibs.iter()
-                                    .map(|&j| &db.pages.rows[j])
-                                    .filter(|s| s.url != p.url)
-                                    .map(|s| {
-                                        (cfg.i18n.name_of(&s.locale).to_string(), s.url.clone())
-                                    })
-                                    .collect()
-                            }))
+                            .and_then(|p| {
+                                db.pages.by_logical.get(&p.logical).map(|sibs| {
+                                    sibs.iter()
+                                        .map(|&j| &db.pages.rows[j])
+                                        .filter(|s| s.url != p.url)
+                                        .map(|s| {
+                                            (cfg.i18n.name_of(&s.locale).to_string(), s.url.clone())
+                                        })
+                                        .collect()
+                                })
+                            })
                             .unwrap_or_default();
                         let main = match layout {
-                            Some("page") | Some("post") => row_thm.fragments.render(
-                                &parts::document_tree(
+                            Some("page") | Some("post") => {
+                                row_thm.fragments.render(&parts::document_tree(
                                     cfg,
                                     row_locale,
                                     &crate::trails::home_url(cfg, db, row_locale),
@@ -906,8 +945,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                         translations: &translations,
                                     },
                                     frag,
-                                ),
-                            ),
+                                ))
+                            }
                             // `default`, `null`: the row builds its own `main`.
                             _ => frag.clone(),
                         };
@@ -1078,8 +1117,8 @@ fn render_page_bodies(
         if src.extension().is_some_and(|e| e == "scss" || e == "sass") {
             continue;
         }
-        let text = std::fs::read_to_string(src)
-            .with_context(|| format!("reading {}", src.display()))?;
+        let text =
+            std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, body) = split_front_matter(&text);
         // Expand what we know FIRST, then decide. Skipping on a bare
         // "contains {%" was wrong: 17 of the 18 skipped pages used only
@@ -1094,7 +1133,14 @@ fn render_page_bodies(
         };
         let expanded = tags::expand(body, &cx)?;
         if expanded.contains("{%") {
-            out.insert(r.url.clone(), PageBody { frag: String::new(), doc: None, skipped: true });
+            out.insert(
+                r.url.clone(),
+                PageBody {
+                    frag: String::new(),
+                    doc: None,
+                    skipped: true,
+                },
+            );
             continue;
         }
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
@@ -1105,7 +1151,9 @@ fn render_page_bodies(
                 .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
                 .unwrap_or_default();
             let locale = row.map(|p| p.locale.as_str()).unwrap_or(&cfg.i18n.default);
-            let rel = row.map(|p| p.rel.to_string_lossy().to_string()).unwrap_or_default();
+            let rel = row
+                .map(|p| p.rel.to_string_lossy().to_string())
+                .unwrap_or_default();
             let d = crate::markdown::render_doc_with(&expanded, &|href| {
                 crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, href)
             })?;
@@ -1113,7 +1161,14 @@ fn render_page_bodies(
         } else {
             (expanded, None)
         };
-        out.insert(r.url.clone(), PageBody { frag, doc, skipped: false });
+        out.insert(
+            r.url.clone(),
+            PageBody {
+                frag,
+                doc,
+                skipped: false,
+            },
+        );
     }
     Ok(out)
 }
@@ -1165,9 +1220,14 @@ fn backlinks_map(
     page_bodies: &HashMap<String, PageBody>,
     site_url: &str,
 ) -> HashMap<String, Vec<Backlink>> {
-    let mut is_target: HashSet<&str> =
-        db.posts.rows.iter().map(|p| p.url.as_str()).collect();
-    is_target.extend(db.pages.rows.iter().filter(|p| p.rendered).map(|p| p.url.as_str()));
+    let mut is_target: HashSet<&str> = db.posts.rows.iter().map(|p| p.url.as_str()).collect();
+    is_target.extend(
+        db.pages
+            .rows
+            .iter()
+            .filter(|p| p.rendered)
+            .map(|p| p.url.as_str()),
+    );
 
     // A page has no date, so the axis is legitimately mixed — which is why
     // the theme lets an undated item span rather than assuming every
@@ -1196,7 +1256,9 @@ fn backlinks_map(
         let mut seen: HashSet<String> = HashSet::new();
         for t in internal_links(html, site_url) {
             if t != src_url && is_target.contains(t.as_str()) && seen.insert(t.clone()) {
-                map.entry(t).or_default().push((title.clone(), src_url.to_string(), date));
+                map.entry(t)
+                    .or_default()
+                    .push((title.clone(), src_url.to_string(), date));
             }
         }
     }
@@ -1254,11 +1316,7 @@ pub fn search_docs(
 /// stderr — a script shell fails loud, like everything else. Stdin is fed
 /// from a thread so a script that streams output before draining its input
 /// can't deadlock against the pipe buffer.
-fn run_script_shell(
-    root: &Path,
-    command: &str,
-    payload: &serde_json::Value,
-) -> Result<Vec<u8>> {
+fn run_script_shell(root: &Path, command: &str, payload: &serde_json::Value) -> Result<Vec<u8>> {
     use std::io::Write;
     use std::process::{Command as Proc, Stdio};
     let mut child = Proc::new("sh")
@@ -1321,20 +1379,21 @@ fn search_pass(
             .iter()
             .filter(|r| pred.eval(*r))
             .filter_map(|r| match r.kind {
-                crate::db::RouteKind::Post => {
-                    db.posts.by_url.get(&r.url).map(|&i| &db.posts.rows[i]).map(|p| {
-                        grackle_search_core::SearchDoc {
-                            url: p.url.clone(),
-                            title: p.title.clone(),
-                            date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
-                            html: bodies
-                                .get(p.url.as_str())
-                                .map(|d| d.whole.clone())
-                                .unwrap_or_default(),
-                            tags: p.tags.clone(),
-                        }
-                    })
-                }
+                crate::db::RouteKind::Post => db
+                    .posts
+                    .by_url
+                    .get(&r.url)
+                    .map(|&i| &db.posts.rows[i])
+                    .map(|p| grackle_search_core::SearchDoc {
+                        url: p.url.clone(),
+                        title: p.title.clone(),
+                        date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
+                        html: bodies
+                            .get(p.url.as_str())
+                            .map(|d| d.whole.clone())
+                            .unwrap_or_default(),
+                        tags: p.tags.clone(),
+                    }),
                 crate::db::RouteKind::Page => {
                     let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
                     let p = page_by_url.get(r.url.as_str())?;
@@ -1458,7 +1517,11 @@ fn pagination_parts(
         .iter()
         .filter(|x| x.view == r.view && x.page.is_some() && x.locale == r.locale)
         .count();
-    let prefix = r.locale.as_deref().map(|l| format!("/{l}")).unwrap_or_default();
+    let prefix = r
+        .locale
+        .as_deref()
+        .map(|l| format!("/{l}"))
+        .unwrap_or_default();
     let urls: Vec<String> = (1..=total)
         .map(|n| -> Result<String> {
             let tmpl = if n == 1 {
@@ -1583,4 +1646,3 @@ fn inline_imports(src: &str, load: &Path, seen: &mut Vec<String>) -> Result<Stri
     }
     Ok(out)
 }
-

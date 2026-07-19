@@ -12,15 +12,15 @@ mod markers;
 mod outline;
 mod parts;
 mod render;
-mod slots;
-mod theme;
-mod serve;
-mod tags;
-mod trails;
-mod thumbs;
 mod route;
 mod schema;
+mod serve;
+mod slots;
 mod store;
+mod tags;
+mod theme;
+mod thumbs;
+mod trails;
 mod views;
 
 use anyhow::{Context, Result};
@@ -136,9 +136,10 @@ fn main() -> Result<()> {
     let t0 = std::time::Instant::now();
     // `serve` develops, so it defaults to `dev`; everything else — `build`
     // above all — defaults to the projection that publishes.
-    let profile = cli.profile.clone().or_else(|| {
-        matches!(cli.cmd, Cmd::Serve { .. }).then(|| "dev".to_string())
-    });
+    let profile = cli
+        .profile
+        .clone()
+        .or_else(|| matches!(cli.cmd, Cmd::Serve { .. }).then(|| "dev".to_string()));
     let cfg = config::Config::load_profile(&cli.config, profile.as_deref())?;
     let db = db::SiteDb::load(&cfg).context("loading site database")?;
     let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -172,7 +173,10 @@ fn main() -> Result<()> {
             println!("  xml       {} (feed + sitemap)", s.serialized);
             println!("  css       {} bytes", s.css);
             if !s.skipped.is_empty() {
-                println!("  skipped   {} (page templates using liquid)", s.skipped.len());
+                println!(
+                    "  skipped   {} (page templates using liquid)",
+                    s.skipped.len()
+                );
                 for u in s.skipped.iter().take(8) {
                     println!("              {u}");
                 }
@@ -180,9 +184,12 @@ fn main() -> Result<()> {
         }
         Cmd::Serve { port } => serve::serve(&cli.config, port, profile.as_deref())?,
         Cmd::Routes { depth, under } => routes_tree(&db, depth, under.as_deref()),
-        Cmd::Diff { against, liquid_free, only, show } => {
-            run_diff(&db, &against, liquid_free, only.as_deref(), show.as_deref())?
-        }
+        Cmd::Diff {
+            against,
+            liquid_free,
+            only,
+            show,
+        } => run_diff(&db, &against, liquid_free, only.as_deref(), show.as_deref())?,
     }
     Ok(())
 }
@@ -277,12 +284,27 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             let shared: Vec<_> = p.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
             println!("posts           {}", p.rows.len());
             println!("  dated         {}", dated);
-            println!("  tagged        {}", p.rows.iter().filter(|r| !r.tags.is_empty()).count());
-            println!("  drafts        {}", p.rows.iter().filter(|r| r.draft).count());
-            println!("  hidden        {}", p.rows.iter().filter(|r| r.hidden).count());
+            println!(
+                "  tagged        {}",
+                p.rows.iter().filter(|r| !r.tags.is_empty()).count()
+            );
+            println!(
+                "  drafts        {}",
+                p.rows.iter().filter(|r| r.draft).count()
+            );
+            println!(
+                "  hidden        {}",
+                p.rows.iter().filter(|r| r.hidden).count()
+            );
             println!("pages           {}", db.pages.rows.len());
-            println!("  rendered      {}", db.pages.rows.iter().filter(|r| r.rendered).count());
-            println!("  static        {}", db.pages.rows.iter().filter(|r| !r.rendered).count());
+            println!(
+                "  rendered      {}",
+                db.pages.rows.iter().filter(|r| r.rendered).count()
+            );
+            println!(
+                "  static        {}",
+                db.pages.rows.iter().filter(|r| !r.rendered).count()
+            );
             println!("objects         {}", db.objects.rows.len());
             println!("  distinct names{:>4}", db.objects.by_name.len());
             let dupes = db.objects.by_name.values().filter(|v| v.len() > 1).count();
@@ -290,10 +312,17 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             println!("indexes");
             println!("  by_key        {}  (date, slug) unique", p.by_key.len());
             println!("  by_name       {}  post_url", p.by_name.len());
-            println!("  by_slug       {}  ({} reused across dates)", p.by_slug.len(), shared.len());
+            println!(
+                "  by_slug       {}  ({} reused across dates)",
+                p.by_slug.len(),
+                shared.len()
+            );
             println!("  by_tag        {}", p.by_tag.len());
             println!("  by_year_month {}", p.by_year_month.len());
-            println!("markers         {}  files found ({:.1}ms scan)", db.stats.markers, db.stats.markers_ms);
+            println!(
+                "markers         {}  files found ({:.1}ms scan)",
+                db.stats.markers, db.stats.markers_ms
+            );
             println!("routes          {}", db.routes.len());
             let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
             for r in &db.routes {
@@ -398,7 +427,11 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("hidden      {}", r.hidden);
                 println!(
                     "tags        {}",
-                    if r.tags.is_empty() { "-".into() } else { r.tags.join(", ") }
+                    if r.tags.is_empty() {
+                        "-".into()
+                    } else {
+                        r.tags.join(", ")
+                    }
                 );
                 println!("body        {} bytes", r.body_bytes);
                 let (newer, older) = p.neighbors(i);
@@ -429,7 +462,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
 }
 
 fn fmt_date(p: &db::Post) -> String {
-    p.date.map(db::iso_date).unwrap_or_else(|| "----------".into())
+    p.date
+        .map(db::iso_date)
+        .unwrap_or_else(|| "----------".into())
 }
 
 fn has_liquid(s: &str) -> bool {
@@ -463,7 +498,11 @@ fn run_diff(
         }
         if let Some(a) = &allow {
             // `only` lists repo-relative paths; rows carry absolute ones.
-            let hit = a.iter().any(|x| p.path.to_string_lossy().ends_with(x.trim_start_matches("./")));
+            let hit = a.iter().any(|x| {
+                p.path
+                    .to_string_lossy()
+                    .ends_with(x.trim_start_matches("./"))
+            });
             if !hit {
                 continue;
             }
@@ -494,7 +533,11 @@ fn run_diff(
         }
     }
     let n = rows.len().max(1);
-    println!("compared {} posts against {}", rows.len(), against.display());
+    println!(
+        "compared {} posts against {}",
+        rows.len(),
+        against.display()
+    );
     if skipped_liquid > 0 {
         println!("  ({skipped_liquid} skipped: body contains liquid)");
     }
@@ -506,20 +549,31 @@ fn run_diff(
         diff::Verdict::Missing,
     ] {
         let c = tally.get(&v).copied().unwrap_or(0);
-        println!("  {:<12} {:>4}   {:>5.1}%", format!("{v:?}"), c, 100.0 * c as f64 / n as f64);
+        println!(
+            "  {:<12} {:>4}   {:>5.1}%",
+            format!("{v:?}"),
+            c,
+            100.0 * c as f64 / n as f64
+        );
     }
     let ok = tally.get(&diff::Verdict::Identical).copied().unwrap_or(0)
         + tally.get(&diff::Verdict::Equivalent).copied().unwrap_or(0);
-    println!("\n  usable (identical+equivalent): {ok}/{}  ({:.1}%)", rows.len(), 100.0 * ok as f64 / n as f64);
+    println!(
+        "\n  usable (identical+equivalent): {ok}/{}  ({:.1}%)",
+        rows.len(),
+        100.0 * ok as f64 / n as f64
+    );
 
     let q = rows.iter().filter(|r| r.quotes_only).count();
     if q > 0 {
         let d = tally.get(&diff::Verdict::Differs).copied().unwrap_or(0);
+        println!("\n  of the {d} that differ, {q} differ ONLY in curly-quote choice",);
         println!(
-            "\n  of the {d} that differ, {q} differ ONLY in curly-quote choice",
+            "  (smartypants heuristic, not markup: {}/{} would be usable if matched -> {:.1}%)",
+            ok + q,
+            rows.len(),
+            100.0 * (ok + q) as f64 / n as f64
         );
-        println!("  (smartypants heuristic, not markup: {}/{} would be usable if matched -> {:.1}%)",
-            ok + q, rows.len(), 100.0 * (ok + q) as f64 / n as f64);
     }
 
     if !causes.is_empty() {
@@ -530,10 +584,17 @@ fn run_diff(
             println!("  {n:>4}  {c}");
         }
         println!("\nexamples:");
-        for r in rows.iter().filter(|r| r.verdict == diff::Verdict::Differs).take(5) {
+        for r in rows
+            .iter()
+            .filter(|r| r.verdict == diff::Verdict::Differs)
+            .take(5)
+        {
             println!("  {}  ({})", r.url, r.cause.unwrap_or(""));
         }
-        println!("\n  grackle diff --against {} --show <url>   to see a delta", against.display());
+        println!(
+            "\n  grackle diff --against {} --show <url>   to see a delta",
+            against.display()
+        );
     }
     Ok(())
 }

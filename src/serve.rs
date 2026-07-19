@@ -72,15 +72,14 @@ pub fn serve(config_path: &Path, port: u16, profile: Option<&str>) -> Result<()>
     rt.block_on(async move {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<()>();
         // Keep the watcher alive for the process lifetime by binding it here.
-        let _watcher =
-            spawn_watcher(
-                config_path.to_path_buf(),
-                root.clone(),
-                profile.map(str::to_string),
-                shared.clone(),
-                tx.clone(),
-                rx,
-            )?;
+        let _watcher = spawn_watcher(
+            config_path.to_path_buf(),
+            root.clone(),
+            profile.map(str::to_string),
+            shared.clone(),
+            tx.clone(),
+            rx,
+        )?;
         // Stale-while-revalidate (§6b): the first render served whatever
         // embeddings the cache had; bring them current off-thread and
         // re-render when done.
@@ -120,7 +119,11 @@ async fn handle(
 
     // Live-reload: the injected script polls this for the current version.
     if path == VERSION_PATH {
-        return Ok(reply(StatusCode::OK, "text/plain", snap.version.to_string().into_bytes()));
+        return Ok(reply(
+            StatusCode::OK,
+            "text/plain",
+            snap.version.to_string().into_bytes(),
+        ));
     }
 
     // The inspector owns `/__debug/` outright (§7c): served from the binary,
@@ -129,11 +132,19 @@ async fn handle(
     // shadow it.
     if crate::debug::is_debug_path(&path) {
         if path == "/__debug/site.json" {
-            return Ok(reply(StatusCode::OK, "application/json", snap.debug.clone()));
+            return Ok(reply(
+                StatusCode::OK,
+                "application/json",
+                snap.debug.clone(),
+            ));
         }
         return Ok(match crate::debug::asset(&path) {
             Some((ct, bytes)) => reply(StatusCode::OK, ct, bytes.to_vec()),
-            None => reply(StatusCode::NOT_FOUND, "text/plain", b"no such inspector asset".to_vec()),
+            None => reply(
+                StatusCode::NOT_FOUND,
+                "text/plain",
+                b"no such inspector asset".to_vec(),
+            ),
         });
     }
 
@@ -155,10 +166,12 @@ async fn handle(
     Ok(reply(
         StatusCode::NOT_FOUND,
         "text/html; charset=utf-8",
-        format!("<!doctype html><meta charset=utf-8><title>404</title>\
+        format!(
+            "<!doctype html><meta charset=utf-8><title>404</title>\
                  <h1>404 — no route</h1><p><code>{}</code> is not in the database.</p>",
-            crate::render::esc(&path))
-            .into_bytes(),
+            crate::render::esc(&path)
+        )
+        .into_bytes(),
     ))
 }
 
@@ -197,7 +210,14 @@ fn render(
     let (pages, mut stats) = build::render_site(&cfg, &db)?;
     let pending = std::mem::take(&mut stats.embed_pending);
     let debug = crate::debug::payload(&cfg, &db)?;
-    Ok((Snapshot { version, pages, debug }, pending))
+    Ok((
+        Snapshot {
+            version,
+            pages,
+            debug,
+        },
+        pending,
+    ))
 }
 
 /// Embed pending posts on a plain thread, then poke the rebuild channel so
@@ -294,8 +314,15 @@ fn spawn_watcher(
 /// into (watching it would loop) — and typical editor temp files.
 fn is_content(p: &Path) -> bool {
     const IGNORE: &[&str] = &[
-        "/_cache", "/.git", "/grackle/target", "/_site", "/node_modules",
-        "/vendor", "/.jekyll-cache", "/.sass-cache", "/_log",
+        "/_cache",
+        "/.git",
+        "/grackle/target",
+        "/_site",
+        "/node_modules",
+        "/vendor",
+        "/.jekyll-cache",
+        "/.sass-cache",
+        "/_log",
     ];
     let s = p.to_string_lossy();
     if IGNORE.iter().any(|d| s.contains(d)) {

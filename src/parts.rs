@@ -48,19 +48,25 @@ pub struct PartMap {
 impl PartMap {
     pub fn new(kind: &'static str) -> Self {
         debug_assert!(schema(kind).is_some(), "unknown part-map kind `{kind}`");
-        PartMap { kind, parts: Vec::new() }
+        PartMap {
+            kind,
+            parts: Vec::new(),
+        }
     }
 
     pub fn set(&mut self, name: &'static str, part: Part) {
         let ty = part_type(self.kind, name);
-        debug_assert!(ty.is_some(), "part `{name}` is not in the `{}` schema", self.kind);
+        debug_assert!(
+            ty.is_some(),
+            "part `{name}` is not in the `{}` schema",
+            self.kind
+        );
         debug_assert!(
             match (&part, ty) {
                 (_, None) => true, // the name assert above already fired
                 (Part::Text(_), Some(PartType::Text | PartType::Url)) => true,
                 (Part::Html(_), Some(PartType::Html)) => true,
-                (Part::Stream(v), Some(PartType::Stream(k))) =>
-                    v.iter().all(|m| m.kind == k),
+                (Part::Stream(v), Some(PartType::Stream(k))) => v.iter().all(|m| m.kind == k),
                 (Part::Map(m), Some(PartType::Map(k))) => m.kind == k,
                 (Part::Flag(_), Some(PartType::Flag)) => true,
                 _ => false,
@@ -250,7 +256,11 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
         // earlier, later, and whatever comes next (same-tag, series). Each
         // axis is one relation group; the post pivots along all of them.
         // The axis rides as an attribute hole (`data-axis`) for CSS.
-        "relation" => &[("axis", Text), ("label", Text), ("items", Stream("neighbor"))],
+        "relation" => &[
+            ("axis", Text),
+            ("label", Text),
+            ("items", Stream("neighbor")),
+        ],
         "neighbor" => &[
             ("url", Url),
             ("date", Text),
@@ -271,7 +281,10 @@ pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
 
 /// Look up one part's declared type.
 pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
-    schema(kind)?.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
+    schema(kind)?
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, t)| *t)
 }
 
 // --------------------------------------------------------------- canonical
@@ -310,7 +323,11 @@ fn canonical_into(m: &PartMap, out: &mut String) {
                     let e = crate::render::esc(v);
                     let _ = write!(out, "<a data-slot=\"{n}\" href=\"{e}\">{e}</a>\n");
                 } else {
-                    let _ = write!(out, "<span data-slot=\"{n}\">{}</span>\n", crate::render::esc(v));
+                    let _ = write!(
+                        out,
+                        "<span data-slot=\"{n}\">{}</span>\n",
+                        crate::render::esc(v)
+                    );
                 }
             }
             Part::Html(v) => {
@@ -567,8 +584,10 @@ pub fn document_tree(
     m.set("title", Part::Text(title.to_string()));
     m.set("url", Part::Text(url.to_string()));
     m.set("tree", Part::Flag(true));
-    let mut v =
-        vec![(cfg.i18n.string("home", locale).to_string(), Some(home.to_string()))];
+    let mut v = vec![(
+        cfg.i18n.string("home", locale).to_string(),
+        Some(home.to_string()),
+    )];
     for (u, t) in d.ancestors {
         v.push((t.clone(), Some(u.clone())));
     }
@@ -592,7 +611,6 @@ pub fn document_tree(
     }
     m
 }
-
 
 fn summary(cfg: &crate::config::Config, p: &Post, content: &str, truncated: bool) -> PartMap {
     let mut m = PartMap::new("summary");
@@ -631,7 +649,11 @@ pub fn listing(
     }
     m.set(
         "items",
-        Part::Stream(rows.iter().map(|(p, c, t)| summary(cfg, p, c, *t)).collect()),
+        Part::Stream(
+            rows.iter()
+                .map(|(p, c, t)| summary(cfg, p, c, *t))
+                .collect(),
+        ),
     );
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
@@ -651,7 +673,11 @@ pub fn listing_embed(
     let mut m = PartMap::new("listing");
     m.set(
         "items",
-        Part::Stream(rows.iter().map(|(p, c, t)| summary(cfg, p, c, *t)).collect()),
+        Part::Stream(
+            rows.iter()
+                .map(|(p, c, t)| summary(cfg, p, c, *t))
+                .collect(),
+        ),
     );
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
@@ -842,11 +868,10 @@ mod tests {
 
     #[test]
     fn crumb_stream_marks_inert_tail_by_missing_url() {
-        let s = crumb_stream(vec![
-            ("Home".into(), Some("/".into())),
-            ("16".into(), None),
-        ]);
-        let Part::Stream(v) = s else { panic!("not a stream") };
+        let s = crumb_stream(vec![("Home".into(), Some("/".into())), ("16".into(), None)]);
+        let Part::Stream(v) = s else {
+            panic!("not a stream")
+        };
         assert_eq!(v[0].text("url"), Some("/"));
         assert_eq!(v[1].text("label"), Some("16"));
         assert_eq!(v[1].text("url"), None);
@@ -855,8 +880,10 @@ mod tests {
     #[test]
     fn pagination_is_data_not_markup() {
         assert!(pagination(1, &["/blog/".to_string()]).is_none());
-        let urls: Vec<String> =
-            ["/blog/", "/blog/page/2", "/blog/page/3"].iter().map(|s| s.to_string()).collect();
+        let urls: Vec<String> = ["/blog/", "/blog/page/2", "/blog/page/3"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let m = pagination(2, &urls).unwrap();
         assert_eq!(m.text("prev"), Some("/blog/"));
         assert_eq!(m.text("next"), Some("/blog/page/3"));
@@ -889,9 +916,18 @@ mod tests {
             None,
         );
         let out = canonical(&m);
-        assert!(out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#), "{out}");
-        assert!(out.contains(r#"<span data-slot="width">320</span>"#), "{out}");
-        assert!(out.contains(r#"<span data-slot="height">200</span>"#), "{out}");
+        assert!(
+            out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<span data-slot="width">320</span>"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<span data-slot="height">200</span>"#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -902,10 +938,19 @@ mod tests {
         m.set("tree", Part::Flag(true));
         m.set("content", Part::Html("<p>hi</p>".into()));
         let out = canonical(&m);
-        assert!(out.starts_with(r#"<section data-kind="document" data-tree>"#), "{out}");
-        assert!(out.contains(r#"<span data-slot="title">A &amp; B</span>"#), "{out}");
+        assert!(
+            out.starts_with(r#"<section data-kind="document" data-tree>"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<span data-slot="title">A &amp; B</span>"#),
+            "{out}"
+        );
         // Url-typed parts are real links — the null theme is navigable.
-        assert!(out.contains(r#"<a data-slot="url" href="/x/">/x/</a>"#), "{out}");
+        assert!(
+            out.contains(r#"<a data-slot="url" href="/x/">/x/</a>"#),
+            "{out}"
+        );
         let t = out.find("data-slot=\"title\"").unwrap();
         let c = out.find("data-slot=\"content\"").unwrap();
         assert!(t < c, "canonical order is insertion order");
@@ -967,8 +1012,7 @@ mod tests {
                 vec![("Home".to_string(), Some("/".to_string()))],
                 None,
                 r.page.and_then(|n| {
-                    let urls: Vec<String> =
-                        (1..=66).map(|i| format!("/blog/page/{i}")).collect();
+                    let urls: Vec<String> = (1..=66).map(|i| format!("/blog/page/{i}")).collect();
                     pagination(n, &urls)
                 }),
             );

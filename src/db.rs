@@ -193,7 +193,11 @@ impl PostsTable {
         let Some(pos) = self.order.iter().position(|&i| i == idx) else {
             return (None, None);
         };
-        let newer = if pos > 0 { Some(self.order[pos - 1]) } else { None };
+        let newer = if pos > 0 {
+            Some(self.order[pos - 1])
+        } else {
+            None
+        };
         let older = self.order.get(pos + 1).copied();
         (newer, older)
     }
@@ -612,17 +616,16 @@ fn read_posts(
             .to_string();
 
         // `{% post_url %}` keys on the collection-relative path minus extension.
-        let name = raw
-            .rel
-            .with_extension("")
-            .to_string_lossy()
-            .to_string();
+        let name = raw.rel.with_extension("").to_string_lossy().to_string();
         let logical = logical_rel.with_extension("").to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
         let date = match &key {
             Some(k) => Some(
                 NaiveDate::from_ymd_opt(k.year, k.month, k.day).with_context(|| {
-                    format!("{} has an impossible date in its filename", raw.path.display())
+                    format!(
+                        "{} has an impossible date in its filename",
+                        raw.path.display()
+                    )
                 })?,
             ),
             None => None,
@@ -635,7 +638,11 @@ fn read_posts(
         let (route_tmpl, rule_defaults) = apply_rules(&rules, &logical_rel, true);
         // Precedence (§4b): front matter > nearest marker > rule. Markers are
         // inserted first so `or_insert` cannot let a rule override them.
-        let root_rel = raw.path.strip_prefix(&root).unwrap_or(&raw.rel).to_path_buf();
+        let root_rel = raw
+            .path
+            .strip_prefix(&root)
+            .unwrap_or(&raw.rel)
+            .to_path_buf();
         let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
         let marker_defaults = markers.defaults_for(&root_rel);
         for (k, v) in &marker_defaults {
@@ -649,7 +656,10 @@ fn read_posts(
             .title
             .clone()
             .unwrap_or_else(|| slug.replace('-', " "));
-        let draft = raw.front.draft.unwrap_or_else(|| as_bool(&defaults, "draft"));
+        let draft = raw
+            .front
+            .draft
+            .unwrap_or_else(|| as_bool(&defaults, "draft"));
         let hidden = raw
             .front
             .hidden
@@ -698,7 +708,11 @@ fn read_posts(
         };
         // §6f: a translation lands at the locale-prefixed twin of its
         // original's URL.
-        let url = if locale != cfg.i18n.default { format!("/{locale}{url}") } else { url };
+        let url = if locale != cfg.i18n.default {
+            format!("/{locale}{url}")
+        } else {
+            url
+        };
 
         rows.push(Post {
             path: raw.path,
@@ -734,8 +748,9 @@ fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
     // §6f: `order` drives views, feeds, archives and adjacency — it admits
     // the default locale only, which makes every one of them single-locale
     // in one place. Translations render as pages and live in `by_logical`.
-    let mut order: Vec<usize> =
-        (0..rows.len()).filter(|&i| rows[i].locale == cfg.i18n.default).collect();
+    let mut order: Vec<usize> = (0..rows.len())
+        .filter(|&i| rows[i].locale == cfg.i18n.default)
+        .collect();
     order.sort_by(|&a, &b| {
         match (rows[a].date, rows[b].date) {
             (Some(x), Some(y)) => y.cmp(&x),
@@ -770,7 +785,11 @@ fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
                 p.path.display()
             );
         }
-        table.by_logical.entry(p.logical.clone()).or_default().push(i);
+        table
+            .by_logical
+            .entry(p.logical.clone())
+            .or_default()
+            .push(i);
         // Query indexes are single-locale, like `order` (§6f): a
         // translation shares its original's (date, slug) by design.
         if p.locale != cfg.i18n.default {
@@ -890,8 +909,11 @@ fn build_tree_and_objects(
             route::render(tmpl, |k| path_tokens(&logical_rel, k))
                 .with_context(|| format!("routing {}", f.path.display()))?,
         );
-        let url =
-            if locale != cfg.i18n.default { format!("/{locale}{url}") } else { url };
+        let url = if locale != cfg.i18n.default {
+            format!("/{locale}{url}")
+        } else {
+            url
+        };
 
         if is_object {
             let name = f
@@ -961,7 +983,11 @@ fn build_tree_and_objects(
             let noindex = fm.noindex.unwrap_or_else(|| as_bool(&defaults, "noindex"));
             let logical = logical_rel.to_string_lossy().to_string();
             if f.has_front_matter {
-                pages.by_logical.entry(logical.clone()).or_default().push(pages.rows.len());
+                pages
+                    .by_logical
+                    .entry(logical.clone())
+                    .or_default()
+                    .push(pages.rows.len());
             }
             // q45: a row named by some view's `content` is claimed — every
             // locale variant of it (the claim is on the logical identity).
@@ -1012,11 +1038,10 @@ fn build_tree_and_objects(
 /// bad YAML into an empty schema, and an unquoted `title: A: B` shipped a
 /// silently titleless page. Loud beats lenient (§4's constraint ethos).
 fn read_page_schema(path: &Path) -> Result<crate::store::FrontMatter> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let (yaml, _) = store::split_front_matter(&text);
-    serde_yaml_ng::from_str(yaml)
-        .with_context(|| format!("front matter of {}", path.display()))
+    serde_yaml_ng::from_str(yaml).with_context(|| format!("front matter of {}", path.display()))
 }
 
 // ------------------------------------------------------------------ views
@@ -1201,7 +1226,9 @@ impl SiteDb {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            let Ok(rel) = entry.path().strip_prefix(&root) else { continue };
+            let Ok(rel) = entry.path().strip_prefix(&root) else {
+                continue;
+            };
             let Some(dir) = rel.parent() else { continue };
             if entry.file_name() == ".section" {
                 db.sections.push(dir.to_path_buf());
@@ -1235,17 +1262,14 @@ impl SiteDb {
         db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
         let t = std::time::Instant::now();
-        let (pages, objects) =
-            build_tree_and_objects(cfg, tree_c, obj_c, &markers, &db.schemas)?;
+        let (pages, objects) = build_tree_and_objects(cfg, tree_c, obj_c, &markers, &db.schemas)?;
         db.pages = pages;
         db.objects = objects;
         db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
 
         // Unified route list.
         let t = std::time::Instant::now();
-        let route_locale = |l: &str| {
-            (l != cfg.i18n.default).then(|| l.to_string())
-        };
+        let route_locale = |l: &str| (l != cfg.i18n.default).then(|| l.to_string());
         for p in &db.posts.rows {
             db.routes.push(Route {
                 source: Some(p.path.clone()),
@@ -1261,7 +1285,11 @@ impl SiteDb {
             if p.claimed {
                 continue;
             }
-            let kind = if p.rendered { RouteKind::Page } else { RouteKind::Static };
+            let kind = if p.rendered {
+                RouteKind::Page
+            } else {
+                RouteKind::Static
+            };
             db.routes.push(Route {
                 source: Some(p.path.clone()),
                 locale: route_locale(&p.locale),

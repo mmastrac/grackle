@@ -298,7 +298,11 @@ mod link_tests {
         })
         .unwrap();
         assert!(doc.whole.contains(r#"href="/x/""#), "{}", doc.whole);
-        assert!(doc.whole.contains(r#"href="https://e.com/""#), "{}", doc.whole);
+        assert!(
+            doc.whole.contains(r#"href="https://e.com/""#),
+            "{}",
+            doc.whole
+        );
         let err = render_doc_with("[a](nope.md)", &|_| anyhow::bail!("no such source"));
         assert!(err.is_err());
     }
@@ -378,7 +382,10 @@ mod block_tests {
         // A rouge code block is markup-heavy; the budget sees only its text.
         let d = render_doc("    code\n\nnext");
         let (html, _) = d.truncate(None, Some(30));
-        assert!(html.contains("next"), "markup counted against budget: {html}");
+        assert!(
+            html.contains("next"),
+            "markup counted against budget: {html}"
+        );
     }
 
     #[test]
@@ -407,7 +414,10 @@ mod block_tests {
         let root = std::path::Path::new("..");
         let mut n = 0;
         let mut mismatched: Vec<String> = Vec::new();
-        for e in walkdir::WalkDir::new(root.join("_posts")).into_iter().flatten() {
+        for e in walkdir::WalkDir::new(root.join("_posts"))
+            .into_iter()
+            .flatten()
+        {
             if !e.file_type().is_file() {
                 continue;
             }

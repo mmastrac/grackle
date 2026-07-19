@@ -64,7 +64,12 @@ impl Dir {
             .map(|(name, d)| {
                 let label = d.title.clone().unwrap_or_else(|| name.clone());
                 let (url, order) = (d.url.clone(), d.order);
-                Node { label, url, order, children: d.into_nodes() }
+                Node {
+                    label,
+                    url,
+                    order,
+                    children: d.into_nodes(),
+                }
             })
             .collect();
         out.extend(self.pages);
@@ -88,13 +93,22 @@ pub fn section_tree(db: &SiteDb, root: &Path, default_locale: &str) -> Vec<Node>
     // §6f: a section tree is single-locale like every other derived set —
     // a translation shares its original's logical rel and would otherwise
     // collide with it node-for-node.
-    for p in db.pages.rows.iter().filter(|p| p.rendered && p.locale == default_locale) {
-        let Ok(rest) = p.rel.strip_prefix(root) else { continue };
+    for p in db
+        .pages
+        .rows
+        .iter()
+        .filter(|p| p.rendered && p.locale == default_locale)
+    {
+        let Ok(rest) = p.rel.strip_prefix(root) else {
+            continue;
+        };
         let comps: Vec<String> = rest
             .iter()
             .map(|c| c.to_string_lossy().to_string())
             .collect();
-        let Some((file, dirs)) = comps.split_last() else { continue };
+        let Some((file, dirs)) = comps.split_last() else {
+            continue;
+        };
         let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
         let label = p.title.clone().unwrap_or_else(|| stem.to_string());
 
@@ -152,7 +166,10 @@ pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<Node> {
         }
         out
     }
-    let kept: Vec<&Heading> = hs.iter().filter(|h| h.level >= min && h.level <= max).collect();
+    let kept: Vec<&Heading> = hs
+        .iter()
+        .filter(|h| h.level >= min && h.level <= max)
+        .collect();
     build(&kept, &mut 0, 0)
 }
 
@@ -219,19 +236,47 @@ mod tests {
     fn nests_orders_and_labels_indexless_dirs() {
         let db = db(vec![
             page("manual/index.md", "/manual/", Some("Manual"), None),
-            page("manual/install.md", "/manual/install/", Some("Install"), Some(1)),
-            page("manual/themes.md", "/manual/themes/", Some("Themes"), Some(3)),
-            page("manual/configuration.md", "/manual/configuration/", Some("Configuration"), Some(2)),
+            page(
+                "manual/install.md",
+                "/manual/install/",
+                Some("Install"),
+                Some(1),
+            ),
+            page(
+                "manual/themes.md",
+                "/manual/themes/",
+                Some("Themes"),
+                Some(3),
+            ),
+            page(
+                "manual/configuration.md",
+                "/manual/configuration/",
+                Some("Configuration"),
+                Some(2),
+            ),
             // advanced/ has no index: unlinked label, after ordered siblings.
-            page("manual/advanced/markers.md", "/manual/advanced/markers/", Some("Markers"), Some(2)),
-            page("manual/advanced/expressions.md", "/manual/advanced/expressions/", Some("Expressions"), Some(1)),
+            page(
+                "manual/advanced/markers.md",
+                "/manual/advanced/markers/",
+                Some("Markers"),
+                Some(2),
+            ),
+            page(
+                "manual/advanced/expressions.md",
+                "/manual/advanced/expressions/",
+                Some("Expressions"),
+                Some(1),
+            ),
             // outside the section: absent.
             page("recipes/index.md", "/recipes/", Some("Recipes"), None),
         ]);
         let t = section_tree(&db, Path::new("manual"), "en");
         let labels: Vec<&str> = t.iter().map(|n| n.label.as_str()).collect();
         // Root index first, then declared order, then the unordered dir.
-        assert_eq!(labels, vec!["Manual", "Install", "Configuration", "Themes", "advanced"]);
+        assert_eq!(
+            labels,
+            vec!["Manual", "Install", "Configuration", "Themes", "advanced"]
+        );
         let adv = &t[4];
         assert_eq!(adv.url, None, "index-less directory is unlinked");
         let kids: Vec<&str> = adv.children.iter().map(|n| n.label.as_str()).collect();
@@ -248,7 +293,9 @@ mod tests {
         let parts = to_parts(&t, "/m/a/x/");
         // The dir node "a" carries X as a child; X is current.
         let a = &parts[1];
-        let Some(Part::Stream(kids)) = a.get("children") else { panic!("no children") };
+        let Some(Part::Stream(kids)) = a.get("children") else {
+            panic!("no children")
+        };
         assert_eq!(kids[0].text("current"), Some("page"));
         assert_eq!(parts[0].text("current"), None);
         // And the canonical rendering recurses without loss.
@@ -265,7 +312,11 @@ mod tests {
             (2, "b", "B"),
         ]
         .iter()
-        .map(|(l, id, t)| Heading { level: *l, id: id.to_string(), text: t.to_string() })
+        .map(|(l, id, t)| Heading {
+            level: *l,
+            id: id.to_string(),
+            text: t.to_string(),
+        })
         .collect();
         let t = heading_tree(&hs, 2, 3);
         assert_eq!(t.len(), 2);
@@ -277,7 +328,11 @@ mod tests {
         // depth window drops what production policy says to drop.
         let jump: Vec<Heading> = [(2, "x", "X"), (4, "deep", "Deep"), (3, "y", "Y")]
             .iter()
-            .map(|(l, id, t)| Heading { level: *l, id: id.to_string(), text: t.to_string() })
+            .map(|(l, id, t)| Heading {
+                level: *l,
+                id: id.to_string(),
+                text: t.to_string(),
+            })
             .collect();
         let t = heading_tree(&jump, 2, 4);
         assert_eq!(t[0].children.len(), 2, "Deep and Y both under X");

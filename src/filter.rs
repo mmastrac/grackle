@@ -219,7 +219,9 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
                 out.push(Tok::Str(b[start..i].iter().collect()));
                 i += 1;
             }
-            c if c.is_ascii_digit() || (c == '-' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit())) => {
+            c if c.is_ascii_digit()
+                || (c == '-' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit())) =>
+            {
                 let start = i;
                 if c == '-' {
                     i += 1;

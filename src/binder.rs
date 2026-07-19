@@ -236,7 +236,11 @@ impl Fragments {
 
     fn known_fragments(&self) -> String {
         let v: Vec<&str> = self.map.keys().map(String::as_str).collect();
-        if v.is_empty() { "(none)".into() } else { v.join(", ") }
+        if v.is_empty() {
+            "(none)".into()
+        } else {
+            v.join(", ")
+        }
     }
 
     /// `(slot name, element tag)` for every content hole in a fragment — the
@@ -403,8 +407,23 @@ fn collect_slot_tags(nodes: &[Node], out: &mut Vec<(String, String)>) {
 pub fn is_phrasing_only(tag: &str) -> bool {
     matches!(
         tag,
-        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "span" | "a" | "em"
-            | "strong" | "small" | "time" | "abbr" | "b" | "i" | "code" | "label"
+        "p" | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "span"
+            | "a"
+            | "em"
+            | "strong"
+            | "small"
+            | "time"
+            | "abbr"
+            | "b"
+            | "i"
+            | "code"
+            | "label"
     )
 }
 
@@ -424,8 +443,8 @@ fn known_kinds() -> &'static str {
 /// The HTML void elements — the one list; `slots.rs` block counting uses it
 /// too.
 pub const VOID: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-    "param", "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
 
 struct Parser<'a> {
@@ -535,9 +554,7 @@ impl<'a> Parser<'a> {
             }
             let value = if self.eat("=") {
                 if !self.eat("\"") {
-                    return Err(self.err(&format!(
-                        "attribute `{name}` must be double-quoted"
-                    )));
+                    return Err(self.err(&format!("attribute `{name}` must be double-quoted")));
                 }
                 let end = self
                     .rest()
@@ -559,8 +576,7 @@ impl<'a> Parser<'a> {
                 }
                 _ if name.starts_with("data-slot-") => {
                     let attr = name["data-slot-".len()..].to_string();
-                    let part =
-                        value.ok_or_else(|| self.err(&format!("{name} needs a value")))?;
+                    let part = value.ok_or_else(|| self.err(&format!("{name} needs a value")))?;
                     el.attrs.push(Attr::Slot(attr, part));
                 }
                 _ => el.attrs.push(Attr::Literal(name, value)),
@@ -669,7 +685,10 @@ mod tests {
         assert!(!out.contains("<time"), "{out}");
         // And an empty stream deletes its container too.
         let f = frags(&[
-            ("summary", r#"<article><div data-slot="tags"></div></article>"#),
+            (
+                "summary",
+                r#"<article><div data-slot="tags"></div></article>"#,
+            ),
             ("tag", r#"<a data-slot="name"></a>"#),
         ])
         .unwrap();
@@ -681,7 +700,10 @@ mod tests {
     fn stream_maps_child_fragment_per_item() {
         let f = frags(&[
             ("document", r#"<nav data-slot="crumbs"></nav>"#),
-            ("crumb", r#"<span><a data-slot-href="url" data-slot="label"></a></span>"#),
+            (
+                "crumb",
+                r#"<span><a data-slot-href="url" data-slot="label"></a></span>"#,
+            ),
         ])
         .unwrap();
         let mut m = PartMap::new("document");
@@ -701,24 +723,45 @@ mod tests {
     #[test]
     fn map_part_renders_named_fragment() {
         let f = frags(&[
-            ("listing", r#"<div><nav data-slot="pagination"></nav></div>"#),
+            (
+                "listing",
+                r#"<div><nav data-slot="pagination"></nav></div>"#,
+            ),
             (
                 "pagination",
                 r#"<div><a data-slot-href="prev">Prev</a><ol data-slot="pages"></ol></div>"#,
             ),
-            ("page_link", r#"<li><a data-slot-href="url" data-slot="n"></a></li>"#),
+            (
+                "page_link",
+                r#"<li><a data-slot-href="url" data-slot="n"></a></li>"#,
+            ),
         ])
         .unwrap();
         let mut m = PartMap::new("listing");
-        m.set("pagination", Part::Map(crate::parts::pagination(
-                2,
-                &["/blog/".into(), "/blog/page/2".into(), "/blog/page/3".into()],
-            )
-            .unwrap()));
+        m.set(
+            "pagination",
+            Part::Map(
+                crate::parts::pagination(
+                    2,
+                    &[
+                        "/blog/".into(),
+                        "/blog/page/2".into(),
+                        "/blog/page/3".into(),
+                    ],
+                )
+                .unwrap(),
+            ),
+        );
         let out = f.render(&m);
         assert!(out.contains(r#"<a href="/blog/">Prev</a>"#), "{out}");
-        assert!(out.contains(r#"<li data-kind="page_link"><a data-slot="n">2</a></li>"#), "{out}");
-        assert!(out.contains(r#"<a href="/blog/page/3" data-slot="n">3</a>"#), "{out}");
+        assert!(
+            out.contains(r#"<li data-kind="page_link"><a data-slot="n">2</a></li>"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<a href="/blog/page/3" data-slot="n">3</a>"#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -732,7 +775,10 @@ mod tests {
         m.set("tree", Part::Flag(true));
         m.set("content", Part::Html("x".into()));
         let out = f.render(&m);
-        assert!(out.starts_with(r#"<article data-kind="document" data-tree>"#), "{out}");
+        assert!(
+            out.starts_with(r#"<article data-kind="document" data-tree>"#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -756,8 +802,14 @@ mod tests {
         );
         let out = f.render(&m);
         assert!(out.contains(r#"<section data-kind="crumb">"#), "{out}");
-        assert!(out.contains(r#"<a data-slot="url" href="/">/</a>"#), "{out}");
-        assert!(out.contains(r#"<span data-slot="label">16</span>"#), "{out}");
+        assert!(
+            out.contains(r#"<a data-slot="url" href="/">/</a>"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<span data-slot="label">16</span>"#),
+            "{out}"
+        );
     }
 
     /// And a map whose own kind has no fragment renders canonically wholesale
@@ -770,7 +822,10 @@ mod tests {
         m.set("content", Part::Html("<p>x</p>".into()));
         let out = f.render(&m);
         assert!(out.starts_with(r#"<section data-kind="summary">"#), "{out}");
-        assert!(out.contains(r#"<div data-slot="content"><p>x</p></div>"#), "{out}");
+        assert!(
+            out.contains(r#"<div data-slot="content"><p>x</p></div>"#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -825,14 +880,22 @@ mod tests {
     #[test]
     fn variants_bind_their_base_kind_and_render_by_choice() {
         let f = frags(&[
-            ("summary", r#"<article><h2 data-slot="title"></h2></article>"#),
-            ("summary--card", r#"<a data-slot-href="url" data-slot="title"></a>"#),
+            (
+                "summary",
+                r#"<article><h2 data-slot="title"></h2></article>"#,
+            ),
+            (
+                "summary--card",
+                r#"<a data-slot-href="url" data-slot="title"></a>"#,
+            ),
         ])
         .unwrap();
         let mut m = PartMap::new("summary");
         m.set("title", Part::Text("T".into()));
         m.set("url", Part::Text("/x/".into()));
-        assert!(f.render_with(&m, Some("card")).starts_with(r#"<a href="/x/""#));
+        assert!(f
+            .render_with(&m, Some("card"))
+            .starts_with(r#"<a href="/x/""#));
         assert!(f.render_with(&m, None).starts_with("<article"));
         assert!(f.render_with(&m, Some("nope")).starts_with("<article"));
     }
@@ -842,8 +905,14 @@ mod tests {
     #[test]
     fn data_fragment_selects_a_variant_and_must_resolve() {
         let f = frags(&[
-            ("listing", r#"<div data-slot="items" data-fragment="summary--card"></div>"#),
-            ("summary--card", r#"<a data-slot-href="url" data-slot="title"></a>"#),
+            (
+                "listing",
+                r#"<div data-slot="items" data-fragment="summary--card"></div>"#,
+            ),
+            (
+                "summary--card",
+                r#"<a data-slot-href="url" data-slot="title"></a>"#,
+            ),
         ])
         .unwrap();
         let mut m = PartMap::new("listing");
@@ -851,7 +920,11 @@ mod tests {
         s.set("title", Part::Text("T".into()));
         s.set("url", Part::Text("/x/".into()));
         m.set("items", Part::Stream(vec![s]));
-        assert!(f.render(&m).contains(r#"<a href="/x/""#), "{}", f.render(&m));
+        assert!(
+            f.render(&m).contains(r#"<a href="/x/""#),
+            "{}",
+            f.render(&m)
+        );
 
         let e = frags(&[(
             "listing",
@@ -861,7 +934,10 @@ mod tests {
         assert!(format!("{e}").contains("names no fragment"), "{e}");
 
         let e = frags(&[
-            ("listing", r#"<div data-slot="items" data-fragment="crumb"></div>"#),
+            (
+                "listing",
+                r#"<div data-slot="items" data-fragment="crumb"></div>"#,
+            ),
             ("crumb", r#"<span data-slot="label"></span>"#),
         ])
         .unwrap_err();

@@ -76,7 +76,10 @@ pub fn generate(
     let pairs: Vec<(String, Thumb)> = uniq
         .par_iter()
         .map(|src| -> Result<(String, Thumb)> {
-            Ok(((*src).clone(), one(root, cache_dir, baseurl, src, &existing)?))
+            Ok((
+                (*src).clone(),
+                one(root, cache_dir, baseurl, src, &existing)?,
+            ))
         })
         .collect::<Result<_>>()?;
     Ok(pairs.into_iter().collect())
@@ -180,7 +183,12 @@ fn encode_png(img: &image::DynamicImage) -> Result<Vec<u8>> {
     use image::ImageEncoder;
     let mut buf = Vec::new();
     let enc = PngEncoder::new_with_quality(&mut buf, CompressionType::Best, FilterType::Adaptive);
-    enc.write_image(img.as_bytes(), img.width(), img.height(), img.color().into())?;
+    enc.write_image(
+        img.as_bytes(),
+        img.width(),
+        img.height(),
+        img.color().into(),
+    )?;
     Ok(buf)
 }
 
@@ -231,7 +239,12 @@ mod tests {
     fn large_image_is_shrunk_to_fit() {
         let (out, ext) = best_variant(&png_bytes(800, 800), "png").unwrap();
         let img = image::load_from_memory(&out).unwrap();
-        assert!(img.width() <= MAX_W && img.height() <= MAX_H, "{}x{}", img.width(), img.height());
+        assert!(
+            img.width() <= MAX_W && img.height() <= MAX_H,
+            "{}x{}",
+            img.width(),
+            img.height()
+        );
         assert!(ext == "png" || ext == "jpg", "{ext}");
     }
 

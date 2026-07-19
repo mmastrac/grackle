@@ -51,8 +51,18 @@ pub(crate) fn spec_field(spec: &str) -> &str {
 }
 
 const MONTH_NAMES: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July",
-    "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 /// The group keys a row holds under one spec, read through the same typed
@@ -162,7 +172,10 @@ fn grouped_routes(
             groups
                 .entry(sort)
                 .or_insert_with(|| {
-                    (combo.iter().flat_map(|k| k.params.clone()).collect(), Vec::new())
+                    (
+                        combo.iter().flat_map(|k| k.params.clone()).collect(),
+                        Vec::new(),
+                    )
                 })
                 .1
                 .push(i);
@@ -170,9 +183,14 @@ fn grouped_routes(
     }
     let mut out = Vec::new();
     for (sort, (params, members)) in groups {
-        let url =
-            route::render(tmpl, |k| route::param(&params, k).map(|v| route_value(k, &v)))?;
-        let key = sort.iter().map(SortKey::display).collect::<Vec<_>>().join("-");
+        let url = route::render(tmpl, |k| {
+            route::param(&params, k).map(|v| route_value(k, &v))
+        })?;
+        let key = sort
+            .iter()
+            .map(SortKey::display)
+            .collect::<Vec<_>>()
+            .join("-");
         out.push(Route {
             view: Some(name.to_string()),
             key: Some(key),
@@ -200,7 +218,9 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // replaced the phase-1 `q.base != "blog"` gate the day the example
         // site (§7a) named its posts collection `notes` — the falsifier
         // doing its job.
-        let Some(base) = cfg.collections.get(&q.base) else { continue };
+        let Some(base) = cfg.collections.get(&q.base) else {
+            continue;
+        };
         match base.kind {
             Kind::Posts => {} // the flow below
             Kind::Objects => {
@@ -229,8 +249,10 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 
         // No route: one row set, and nowhere to hang it but the view itself.
         if !v.is_materialized() {
-            let members: Vec<usize> =
-                visible.into_iter().take(v.limit.unwrap_or(usize::MAX)).collect();
+            let members: Vec<usize> = visible
+                .into_iter()
+                .take(v.limit.unwrap_or(usize::MAX))
+                .collect();
             db.views.insert(
                 name.clone(),
                 ViewRows {
@@ -350,8 +372,12 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                             "n" => Some(n.to_string()),
                             _ => None,
                         })?;
-                        let members: Vec<usize> =
-                            row_ix.iter().copied().skip(per * (n - 1)).take(per).collect();
+                        let members: Vec<usize> = row_ix
+                            .iter()
+                            .copied()
+                            .skip(per * (n - 1))
+                            .take(per)
+                            .collect();
                         db.routes.push(Route {
                             view: Some(name.clone()),
                             key: Some(format!("page {n}")),
@@ -419,10 +445,9 @@ fn build_object_view(
     let Some(route) = v.route.as_deref() else {
         bail!("view {name} needs a route");
     };
-    let order = v
-        .order_by
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("view {name}: object views need an order_by (have: name)"))?;
+    let order = v.order_by.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("view {name}: object views need an order_by (have: name)")
+    })?;
     if order != "name" {
         bail!("view {name}: unknown order_by {order:?} (have: name)");
     }
@@ -563,8 +588,11 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
         let chain = cfg.group_specs(name);
         check_group_chain(db, name, &chain, Kind::Tree)?;
         for locale in &locales {
-            let row_ix =
-                if *locale == cfg.i18n.default { members.clone() } else { rows_for(locale) };
+            let row_ix = if *locale == cfg.i18n.default {
+                members.clone()
+            } else {
+                rows_for(locale)
+            };
             let tmpl = if *locale == cfg.i18n.default {
                 tmpl.to_string()
             } else {
@@ -612,8 +640,11 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
         bail!("view {name} needs a route");
     };
     for locale in &locales {
-        let row_ix =
-            if *locale == cfg.i18n.default { members.clone() } else { rows_for(locale) };
+        let row_ix = if *locale == cfg.i18n.default {
+            members.clone()
+        } else {
+            rows_for(locale)
+        };
         // No rows in this locale = no page (the partition is real).
         if row_ix.is_empty() && *locale != cfg.i18n.default {
             continue;
@@ -688,15 +719,20 @@ mod object_view_tests {
 
     #[test]
     fn object_view_scopes_sorts_and_routes() {
-        let c = cfg(
-            "[views.g]\nover = \"objects\"\nmatch = \"photos/**\"\n\
-             order_by = \"name\"\nroute = \"/photos/\"\nlayout = \"gallery\"\n",
-        );
+        let c = cfg("[views.g]\nover = \"objects\"\nmatch = \"photos/**\"\n\
+             order_by = \"name\"\nroute = \"/photos/\"\nlayout = \"gallery\"\n");
         let mut db = SiteDb::default();
-        db.objects.rows =
-            vec![obj("assets/x.png"), obj("photos/b.png"), obj("photos/a.png")];
+        db.objects.rows = vec![
+            obj("assets/x.png"),
+            obj("photos/b.png"),
+            obj("photos/a.png"),
+        ];
         build_views(&c, &mut db).unwrap();
-        let r = db.routes.iter().find(|r| r.url == "/photos/").expect("route");
+        let r = db
+            .routes
+            .iter()
+            .find(|r| r.url == "/photos/")
+            .expect("route");
         assert_eq!(r.rows, Some(2));
         // Sorted by name (a before b); the out-of-scope asset is absent.
         assert_eq!(r.members, vec![2, 1]);
@@ -705,16 +741,16 @@ mod object_view_tests {
     #[test]
     fn object_view_requires_order_by() {
         let c = cfg("[views.g]\nover = \"objects\"\nroute = \"/p/\"\nlayout = \"gallery\"\n");
-        let e = build_views(&c, &mut SiteDb::default()).unwrap_err().to_string();
+        let e = build_views(&c, &mut SiteDb::default())
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("order_by"), "{e}");
     }
 
     #[test]
     fn object_filters_typecheck_against_the_object_schema() {
-        let c = cfg(
-            "[views.g]\nover = \"objects\"\nfilter = \"draft\"\n\
-             order_by = \"name\"\nroute = \"/p/\"\nlayout = \"gallery\"\n",
-        );
+        let c = cfg("[views.g]\nover = \"objects\"\nfilter = \"draft\"\n\
+             order_by = \"name\"\nroute = \"/p/\"\nlayout = \"gallery\"\n");
         let e = format!("{:#}", build_views(&c, &mut SiteDb::default()).unwrap_err());
         assert!(e.contains("unknown field `draft`"), "{e}");
     }
@@ -742,9 +778,15 @@ mod grouping_tests {
         assert_eq!(combos.len(), 1);
         let params: Vec<(String, String)> =
             combos[0].iter().flat_map(|k| k.params.clone()).collect();
-        assert!(params.contains(&("year".into(), "2022".into())), "{params:?}");
+        assert!(
+            params.contains(&("year".into(), "2022".into())),
+            "{params:?}"
+        );
         assert!(params.contains(&("month".into(), "3".into())), "{params:?}");
-        assert!(params.contains(&("month_name".into(), "March".into())), "{params:?}");
+        assert!(
+            params.contains(&("month_name".into(), "March".into())),
+            "{params:?}"
+        );
         // Composite display joins with zero-padded numerics: "2022-03".
         let key: Vec<String> = combos[0].iter().map(|k| k.sort.display()).collect();
         assert_eq!(key.join("-"), "2022-03");
@@ -800,12 +842,19 @@ mod grouping_tests {
             logical: "recipes/carbonara.md".into(),
             claimed: false,
         };
-        p.fields.insert("course".into(), filter::Value::Str("dinner".into()));
+        p.fields
+            .insert("course".into(), filter::Value::Str("dinner".into()));
         let combos = key_combos(&p, &["course".into()]);
         assert_eq!(combos.len(), 1);
         let params = &combos[0][0].params;
-        assert!(params.contains(&("key".into(), "dinner".into())), "{params:?}");
-        assert!(params.contains(&("course".into(), "dinner".into())), "{params:?}");
+        assert!(
+            params.contains(&("key".into(), "dinner".into())),
+            "{params:?}"
+        );
+        assert!(
+            params.contains(&("course".into(), "dinner".into())),
+            "{params:?}"
+        );
 
         // No course: absent from the partition, same as undated-under-year.
         p.fields.clear();
@@ -820,6 +869,8 @@ mod grouping_tests {
         // The month display derivative survives the generalization.
         let p = post(Some("2022-12-16"), &[]);
         let keys = group_keys(&p, "date.month");
-        assert!(keys[0].params.contains(&("month_name".into(), "December".into())));
+        assert!(keys[0]
+            .params
+            .contains(&("month_name".into(), "December".into())));
     }
 }

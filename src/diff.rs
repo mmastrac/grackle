@@ -53,7 +53,9 @@ pub fn extract_body(html: &str) -> Option<String> {
 fn strip_layout_chrome(body: &str) -> String {
     let mut out = body.to_string();
     while let Some(i) = out.find("<a class=\"fullpost\"") {
-        let Some(j) = out[i..].find("</a>") else { break };
+        let Some(j) = out[i..].find("</a>") else {
+            break;
+        };
         out.replace_range(i..i + j + "</a>".len(), "");
     }
     out
@@ -202,8 +204,8 @@ pub fn compare_post(url: &str, body_md: &str, site: &Path) -> Result<Row> {
             mine: String::new(),
         });
     }
-    let html = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let html =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let reference = extract_body(&html).unwrap_or_default();
     let mine = crate::markdown::render(body_md);
 
@@ -240,7 +242,9 @@ pub fn first_delta(reference: &str, mine: &str) -> (String, String) {
     }
     let start = i.saturating_sub(60);
     let win = |v: &Vec<char>| -> String {
-        v[start.min(v.len())..(i + 90).min(v.len())].iter().collect()
+        v[start.min(v.len())..(i + 90).min(v.len())]
+            .iter()
+            .collect()
     };
     (win(&a), win(&b))
 }
@@ -268,7 +272,10 @@ mod tests {
     </section></article>"#;
         let b = extract_body(h).unwrap();
         assert!(b.contains("<p>hi</p>"));
-        assert!(!b.contains("fullpost"), "layout chrome leaked into the body: {b}");
+        assert!(
+            !b.contains("fullpost"),
+            "layout chrome leaked into the body: {b}"
+        );
     }
 
     #[test]
@@ -284,7 +291,10 @@ mod tests {
 
     #[test]
     fn normalize_collapses_only_invisible_differences() {
-        assert_eq!(normalize("<p>a</p>\n\n<p>b</p>"), normalize("<p>a</p><p>b</p>"));
+        assert_eq!(
+            normalize("<p>a</p>\n\n<p>b</p>"),
+            normalize("<p>a</p><p>b</p>")
+        );
         assert_eq!(normalize("<p>it&#8217;s</p>"), normalize("<p>it’s</p>"));
         assert_eq!(normalize("<br/>"), normalize("<br>"));
         assert_eq!(normalize("<p>a  b</p>"), "<p>a b</p>");

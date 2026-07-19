@@ -42,7 +42,9 @@ impl FilenameFormat {
         }
         re.push_str(&regex::escape(rest));
         re.push('$');
-        Ok(Self { re: Regex::new(&re)? })
+        Ok(Self {
+            re: Regex::new(&re)?,
+        })
     }
 
     /// Parse a file stem (basename without extension).
@@ -81,8 +83,9 @@ pub fn render(tmpl: &str, get: impl Fn(&str) -> Option<String>) -> Result<String
             }
             None => (token, None),
         };
-        let value = get(name)
-            .ok_or_else(|| anyhow!("route template {tmpl:?} references unknown token {{{name}}}"))?;
+        let value = get(name).ok_or_else(|| {
+            anyhow!("route template {tmpl:?} references unknown token {{{name}}}")
+        })?;
         match pad {
             Some(w) if value.len() < w => {
                 for _ in 0..(w - value.len()) {

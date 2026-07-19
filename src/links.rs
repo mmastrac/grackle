@@ -69,7 +69,11 @@ impl LinkSpace {
                 url_form.insert(r.url.clone(), f);
             }
         }
-        LinkSpace { source_to_url, routes, url_form }
+        LinkSpace {
+            source_to_url,
+            routes,
+            url_form,
+        }
     }
 }
 
@@ -141,7 +145,9 @@ pub fn resolve(
     let mut candidates: Vec<(String, bool)> = Vec::new(); // (source path, was relative)
     if !path_part.starts_with('/') {
         candidates.push((
-            normalize(&linking_dir.join(path_part)).to_string_lossy().to_string(),
+            normalize(&linking_dir.join(path_part))
+                .to_string_lossy()
+                .to_string(),
             true,
         ));
     }
@@ -245,14 +251,20 @@ fn view_link(
         v.route
             .as_deref()
             .or_else(|| v.routes.first().map(String::as_str))
-            .ok_or_else(|| anyhow::anyhow!("{source}: view {name} has no route (is it embed-only?)"))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("{source}: view {name} has no route (is it embed-only?)")
+            })?
             .to_string()
     };
     // Locale-parallel views (§6f): a translated row links into its own
     // locale's archive when that variant materialized.
     let url = if locale != cfg.i18n.default {
         let prefixed = format!("/{locale}{url}");
-        if space.routes.contains(&prefixed) { prefixed } else { url }
+        if space.routes.contains(&prefixed) {
+            prefixed
+        } else {
+            url
+        }
     } else {
         url
     };
@@ -268,7 +280,11 @@ fn view_link(
         bail!(
             "{source}: view:{rest} renders {url:?}, which is not materialized \
              (have: {})",
-            if have.is_empty() { "none".to_string() } else { have.join(", ") }
+            if have.is_empty() {
+                "none".to_string()
+            } else {
+                have.join(", ")
+            }
         );
     }
     Ok(url)
@@ -294,7 +310,11 @@ mod tests {
         )
         .unwrap();
         let mut db = SiteDb::default();
-        for url in ["/blog/tags/meta/", "/fr/blog/tags/meta/", "/blog/tags/rust/"] {
+        for url in [
+            "/blog/tags/meta/",
+            "/fr/blog/tags/meta/",
+            "/blog/tags/rust/",
+        ] {
             db.routes.push(Route::new(url.to_string(), RouteKind::View));
         }
         let space = LinkSpace::new(&cfg, &db, Path::new("."));

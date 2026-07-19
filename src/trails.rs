@@ -25,7 +25,12 @@ use crate::db::{Post, Route, RouteKind, SiteDb};
 pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
     if locale != cfg.i18n.default {
         let prefixed = format!("/{locale}/");
-        if db.pages.rows.iter().any(|p| p.rendered && p.url == prefixed) {
+        if db
+            .pages
+            .rows
+            .iter()
+            .any(|p| p.rendered && p.url == prefixed)
+        {
             return prefixed;
         }
     }
@@ -41,7 +46,10 @@ pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
 /// collection never names itself. `/fr/blog/` is found that way rather
 /// than built by string-prefixing a configured index.
 pub fn trail_root(cfg: &Config, db: &SiteDb, locale: &str) -> Vec<(String, Option<String>)> {
-    vec![(cfg.i18n.string("home", locale).to_string(), Some(home_url(cfg, db, locale)))]
+    vec![(
+        cfg.i18n.string("home", locale).to_string(),
+        Some(home_url(cfg, db, locale)),
+    )]
 }
 
 /// A listing route's title and provenance trail (§5c): the view's declared
@@ -83,8 +91,9 @@ pub fn listing_title_and_trail(
     };
     let text = |t: &crate::config::LocalizedStr| cfg.i18n.text(t, loc).to_string();
     let title = match &v.title {
-        Some(t) => crate::route::render(&text(t), param)
-            .with_context(|| format!("view {view}: title"))?,
+        Some(t) => {
+            crate::route::render(&text(t), param).with_context(|| format!("view {view}: title"))?
+        }
         None => r.key.clone().unwrap_or_else(|| view.to_string()),
     };
     let tail = match r.page {
@@ -93,14 +102,14 @@ pub fn listing_title_and_trail(
         // (pagination × subdivision). Page *one* is not a page-of, though:
         // it is the view's root, so it names itself in the tail the way
         // every other listing does.
-        Some(p) if p > 1 => {
-            Some(cfg.i18n.string("page", loc).replace("{n}", &p.to_string()))
-        }
+        Some(p) if p > 1 => Some(cfg.i18n.string("page", loc).replace("{n}", &p.to_string())),
         _ => {
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             match tmpl {
-                Some(t) => Some(crate::route::render(&text(t), param)
-                    .with_context(|| format!("view {view}: crumb"))?),
+                Some(t) => Some(
+                    crate::route::render(&text(t), param)
+                        .with_context(|| format!("view {view}: crumb"))?,
+                ),
                 None => r.key.clone(),
             }
         }
@@ -155,7 +164,9 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<St
     let mut chained = false;
     if let Some(trail_view) = trail_view {
         for name in cfg.grouped_chain(trail_view) {
-            let Some(v) = cfg.views.get(&name) else { continue };
+            let Some(v) = cfg.views.get(&name) else {
+                continue;
+            };
             let specs = cfg.group_specs(&name);
             let combos = crate::views::key_combos(p, &specs);
             let Some(combo) = combos.first() else { break }; // undated: no trail

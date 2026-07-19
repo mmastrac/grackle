@@ -300,9 +300,7 @@ impl LocalizedStr {
     /// The `"@key"` reference form, if this is one.
     pub fn reference(&self) -> Option<&str> {
         match self {
-            LocalizedStr::One(s) => {
-                s.strip_prefix('@').filter(|rest| !rest.starts_with('@'))
-            }
+            LocalizedStr::One(s) => s.strip_prefix('@').filter(|rest| !rest.starts_with('@')),
             LocalizedStr::PerLocale(_) => None,
         }
     }
@@ -504,7 +502,12 @@ pub struct RelatedCfg {
 
 impl Default for RelatedCfg {
     fn default() -> Self {
-        RelatedCfg { limit: 4, min_score: None, year_penalty: None, max_years: None }
+        RelatedCfg {
+            limit: 4,
+            min_score: None,
+            year_penalty: None,
+            max_years: None,
+        }
     }
 }
 
@@ -574,8 +577,8 @@ impl Config {
     pub fn load_profile(path: &Path, profile: Option<&str>) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        let mut cfg: Config = toml::from_str(&text)
-            .with_context(|| format!("parsing config {}", path.display()))?;
+        let mut cfg: Config =
+            toml::from_str(&text).with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         cfg.validate()?;
         if let Some(name) = profile {
@@ -600,16 +603,15 @@ impl Config {
         }
         self.site.noindex = p.noindex;
         for (vname, over) in p.views {
-            let v = self.views.get_mut(&vname).with_context(|| {
-                format!("profile {name}: no view named {vname:?}")
-            })?;
+            let v = self
+                .views
+                .get_mut(&vname)
+                .with_context(|| format!("profile {name}: no view named {vname:?}"))?;
             if let Some(f) = over.filter {
                 // Parsed here so a bad profile filter fails at load like any
                 // other, rather than at the pass that first evaluates it.
                 crate::filter::Filter::parse(&f, &crate::db::post_schema())
-                    .or_else(|_| {
-                        crate::filter::Filter::parse(&f, &crate::db::route_schema())
-                    })
+                    .or_else(|_| crate::filter::Filter::parse(&f, &crate::db::route_schema()))
                     .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
                 v.filter = Some(f);
             }
@@ -693,7 +695,9 @@ impl Config {
         // is a load error, not a silently unused name.
         {
             let check = |what: &str, s: &LocalizedStr| -> Result<()> {
-                let LocalizedStr::PerLocale(m) = s else { return Ok(()) };
+                let LocalizedStr::PerLocale(m) = s else {
+                    return Ok(());
+                };
                 for loc in m.keys() {
                     if *loc != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == loc) {
                         anyhow::bail!(
@@ -719,7 +723,11 @@ impl Config {
                 );
             }
             for (name, c) in &cfg.collections {
-                let stale = c.crumb.as_ref().map(|_| "crumb").or(c.index.as_ref().map(|_| "index"));
+                let stale = c
+                    .crumb
+                    .as_ref()
+                    .map(|_| "crumb")
+                    .or(c.index.as_ref().map(|_| "index"));
                 if let Some(field) = stale {
                     anyhow::bail!(
                         "collections.{name}: `{field}` is retired — a trail climbs \
@@ -1032,7 +1040,9 @@ impl Config {
     /// URLs are the only surface slugs touch; keys, params and titles
     /// keep the id.
     pub fn record_slug<'a>(&'a self, field: &str, id: &'a str) -> &'a str {
-        self.record(field, id).and_then(|t| t.slug.as_deref()).unwrap_or(id)
+        self.record(field, id)
+            .and_then(|t| t.slug.as_deref())
+            .unwrap_or(id)
     }
 
     /// The slug a tag uses in routes (§6f). Defaults to the id.
@@ -1120,7 +1130,10 @@ mod tests {
     /// The load-time error a config produces, as a full anyhow chain.
     fn cfg_err(views: &str) -> String {
         let c = cfg_raw(views);
-        format!("{:#}", c.validate().expect_err("config should fail validation"))
+        format!(
+            "{:#}",
+            c.validate().expect_err("config should fail validation")
+        )
     }
 
     #[test]
@@ -1138,10 +1151,7 @@ mod tests {
         let q = c.query("latest").unwrap();
         assert_eq!(q.base, "blog");
         // Outermost last, and every link in the chain must hold.
-        assert_eq!(
-            q.predicate().unwrap(),
-            "(!draft && !hidden) && (!noindex)"
-        );
+        assert_eq!(q.predicate().unwrap(), "(!draft && !hidden) && (!noindex)");
     }
 
     #[test]
@@ -1282,41 +1292,60 @@ mod tests {
     #[test]
     fn i18n_selectors_split_paths() {
         use std::path::Path;
-        let mut i = I18nCfg { locales: vec!["fr".into()], ..Default::default() };
+        let mut i = I18nCfg {
+            locales: vec!["fr".into()],
+            ..Default::default()
+        };
 
         // suffix: dal.fr.md -> (dal.md, fr); dal.md untouched.
         let (l, loc) = i.split(Path::new("recipes/dal.fr.md"));
-        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "fr"));
+        assert_eq!(
+            (l.to_str().unwrap(), loc.as_str()),
+            ("recipes/dal.md", "fr")
+        );
         let (l, loc) = i.split(Path::new("recipes/dal.md"));
-        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "en"));
+        assert_eq!(
+            (l.to_str().unwrap(), loc.as_str()),
+            ("recipes/dal.md", "en")
+        );
         // an undeclared locale-looking suffix is just a dotted filename
         let (l, loc) = i.split(Path::new("a/jquery.min.js"));
-        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("a/jquery.min.js", "en"));
+        assert_eq!(
+            (l.to_str().unwrap(), loc.as_str()),
+            ("a/jquery.min.js", "en")
+        );
 
         // prefix: fr/recipes/dal.md -> (recipes/dal.md, fr).
         i.selector = Selector::Prefix;
         let (l, loc) = i.split(Path::new("fr/recipes/dal.md"));
-        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "fr"));
+        assert_eq!(
+            (l.to_str().unwrap(), loc.as_str()),
+            ("recipes/dal.md", "fr")
+        );
         let (l, loc) = i.split(Path::new("recipes/dal.md"));
-        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.md", "en"));
+        assert_eq!(
+            (l.to_str().unwrap(), loc.as_str()),
+            ("recipes/dal.md", "en")
+        );
 
         // i18n off: nothing fires, ever.
         let off = I18nCfg::default();
         let (l, loc) = off.split(Path::new("recipes/dal.fr.md"));
-        assert_eq!((l.to_str().unwrap(), loc.as_str()), ("recipes/dal.fr.md", "en"));
+        assert_eq!(
+            (l.to_str().unwrap(), loc.as_str()),
+            ("recipes/dal.fr.md", "en")
+        );
     }
 
     /// §6f display-name hierarchy: inline beats global beats built-in;
     /// "@key" references the global map; "@@" escapes a literal @.
     #[test]
     fn string_hierarchy_resolves() {
-        let c = cfg(
-            "[views.a]\nover = \"posts\"\ntitle = \"@kitchen\"\n\n\
+        let c = cfg("[views.a]\nover = \"posts\"\ntitle = \"@kitchen\"\n\n\
              [views.b]\nover = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
              [i18n]\nlocales = [\"fr\"]\n\n\
              [i18n.strings]\nkitchen = { en = \"Kitchen\", fr = \"Cuisine\" }\n\
-             home = { en = \"Home\", fr = \"Accueil\" }\n",
-        );
+             home = { en = \"Home\", fr = \"Accueil\" }\n");
         let t = c.views["a"].title.as_ref().unwrap();
         assert_eq!(c.i18n.text(t, "en"), "Kitchen");
         assert_eq!(c.i18n.text(t, "fr"), "Cuisine");
@@ -1361,7 +1390,12 @@ mod tests {
         assert_eq!(c.tag_name("rust", "fr"), "rust");
         assert_eq!(c.record_slug("course", "dinner"), "dinner");
         assert_eq!(c.record_name("course", "dinner", "fr"), "dinner");
-        let i = c.record("course", "dinner").unwrap().intro.as_ref().unwrap();
+        let i = c
+            .record("course", "dinner")
+            .unwrap()
+            .intro
+            .as_ref()
+            .unwrap();
         assert_eq!(c.i18n.text(i, "en"), "Sure to please!");
 
         let e = cfg_err("[tags.contes]\nslug = \"x\"\n");

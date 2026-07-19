@@ -109,8 +109,8 @@ fn version_of(meta: &std::fs::Metadata) -> u64 {
 
 fn load_one(path: &Path, source: &Path) -> Result<RawRow> {
     let meta = std::fs::metadata(path)?;
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let (yaml, body) = split_front_matter(&text);
     let front: FrontMatter = if yaml.trim().is_empty() {
         FrontMatter::default()

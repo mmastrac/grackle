@@ -85,7 +85,11 @@ pub fn head_for_post(p: &Post, site: &Site) -> Head {
         description: p.description.clone(),
         canonical,
         noindex: p.noindex || site.noindex,
-        og_type: if p.date.is_some() { "article" } else { "website" },
+        og_type: if p.date.is_some() {
+            "article"
+        } else {
+            "website"
+        },
         published,
         author: site.author.to_string(),
         jsonld,
@@ -184,25 +188,62 @@ const FAVICONS: &str = r#"
 pub fn head_html(head: &Head, css: &str) -> String {
     let mut h = String::with_capacity(2048);
     let _ = write!(h, "\n\t<title>{}</title>\n", esc(&head.title));
-    let _ = write!(h, "\t<meta property=\"og:title\" content=\"{}\">\n", esc(&head.title));
+    let _ = write!(
+        h,
+        "\t<meta property=\"og:title\" content=\"{}\">\n",
+        esc(&head.title)
+    );
     if let Some(d) = &head.description {
         let _ = write!(h, "\t<meta name=\"description\" content=\"{}\">\n", esc(d));
-        let _ = write!(h, "\t<meta property=\"og:description\" content=\"{}\">\n", esc(d));
+        let _ = write!(
+            h,
+            "\t<meta property=\"og:description\" content=\"{}\">\n",
+            esc(d)
+        );
     }
-    let _ = write!(h, "\t<link rel=\"canonical\" href=\"{}\">\n", esc(&head.canonical));
-    let _ = write!(h, "\t<meta name=\"author\" content=\"{}\">\n", esc(&head.author));
-    let _ = write!(h, "\t<meta property=\"og:url\" content=\"{}\">\n", esc(&head.canonical));
-    let _ = write!(h, "\t<meta property=\"og:type\" content=\"{}\">\n", head.og_type);
+    let _ = write!(
+        h,
+        "\t<link rel=\"canonical\" href=\"{}\">\n",
+        esc(&head.canonical)
+    );
+    let _ = write!(
+        h,
+        "\t<meta name=\"author\" content=\"{}\">\n",
+        esc(&head.author)
+    );
+    let _ = write!(
+        h,
+        "\t<meta property=\"og:url\" content=\"{}\">\n",
+        esc(&head.canonical)
+    );
+    let _ = write!(
+        h,
+        "\t<meta property=\"og:type\" content=\"{}\">\n",
+        head.og_type
+    );
     if let Some(ts) = &head.published {
-        let _ = write!(h, "\t<meta property=\"article:published_time\" content=\"{ts}\">\n");
-        let _ = write!(h, "\t<meta property=\"article:author\" content=\"{}\">\n", esc(&head.author));
+        let _ = write!(
+            h,
+            "\t<meta property=\"article:published_time\" content=\"{ts}\">\n"
+        );
+        let _ = write!(
+            h,
+            "\t<meta property=\"article:author\" content=\"{}\">\n",
+            esc(&head.author)
+        );
     }
     if let Some(j) = &head.jsonld {
-        let _ = write!(h, "\t<script type=\"application/ld+json\">\n\t{j}\n\t</script>\n");
+        let _ = write!(
+            h,
+            "\t<script type=\"application/ld+json\">\n\t{j}\n\t</script>\n"
+        );
     }
     h.push_str("\t<meta charset=\"utf-8\">\n");
     h.push_str("\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-    let _ = write!(h, "\t<link href='{css}' rel='stylesheet' type='text/css'>\n");
+    let _ = write!(
+        h,
+        "\t<link href='{css}' rel='stylesheet' type='text/css'>\n"
+    );
     h.push_str(FAVICONS);
     if head.noindex {
         h.push_str("\n\t<meta name=\"robots\" content=\"noindex,follow\">");
@@ -222,8 +263,10 @@ pub fn xmlschema(d: chrono::NaiveDate) -> String {
 /// absolute. Protocol-relative `//host` is left alone (the `[^/>]` guard).
 fn expand_urls(html: &str, url: &str) -> String {
     let re = regex::Regex::new(r#"(\s+(?:href|src)\s*=\s*["'])(/[^/>][^"'>]*)"#).unwrap();
-    re.replace_all(html, |c: &regex::Captures| format!("{}{}{}", &c[1], url, &c[2]))
-        .into_owned()
+    re.replace_all(html, |c: &regex::Captures| {
+        format!("{}{}{}", &c[1], url, &c[2])
+    })
+    .into_owned()
 }
 
 /// `feed_images` (feed_images.rb): float images get `align`/`width` so feed
@@ -232,12 +275,13 @@ fn expand_urls(html: &str, url: &str) -> String {
 /// emits that shape (see tags::image), so a targeted rewrite matches it.
 fn feed_images(html: &str) -> String {
     let inject = |html: String, class: &str, align: &str| -> String {
-        let re = regex::Regex::new(&format!(
-            r#"(<a class='image {class}'[^>]*><img [^>]*?)>"#
-        ))
-        .unwrap();
-        re.replace_all(&html, format!(r#"$1 align="{align}" width="200">"#).as_str())
-            .into_owned()
+        let re =
+            regex::Regex::new(&format!(r#"(<a class='image {class}'[^>]*><img [^>]*?)>"#)).unwrap();
+        re.replace_all(
+            &html,
+            format!(r#"$1 align="{align}" width="200">"#).as_str(),
+        )
+        .into_owned()
     };
     let s = inject(html.to_string(), "floatright", "right");
     inject(s, "floatleft", "left")
@@ -256,11 +300,27 @@ pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Post, &str
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     s.push_str("\t<feed xmlns=\"http://www.w3.org/2005/Atom\">\n");
-    let _ = write!(s, "\t<title><![CDATA[{}]]></title>\n", cdata_escape(site.title));
-    let _ = write!(s, "\t<link href=\"{u}{self_path}\" rel=\"self\"/>\n", u = site.url);
+    let _ = write!(
+        s,
+        "\t<title><![CDATA[{}]]></title>\n",
+        cdata_escape(site.title)
+    );
+    let _ = write!(
+        s,
+        "\t<link href=\"{u}{self_path}\" rel=\"self\"/>\n",
+        u = site.url
+    );
     let _ = write!(s, "\t<link href=\"{u}/\"/>\n", u = site.url);
-    let _ = write!(s, "\t<icon>{u}/resource/favicon/favicon-160x160.png</icon>\n", u = site.url);
-    let _ = write!(s, "\t<logo>{u}/resource/favicon/favicon-160x160.png</logo>\n", u = site.url);
+    let _ = write!(
+        s,
+        "\t<icon>{u}/resource/favicon/favicon-160x160.png</icon>\n",
+        u = site.url
+    );
+    let _ = write!(
+        s,
+        "\t<logo>{u}/resource/favicon/favicon-160x160.png</logo>\n",
+        u = site.url
+    );
     let _ = write!(s, "\t<updated>{updated}</updated>\n");
     let _ = write!(s, "\t<id>{u}/</id>\n", u = site.url);
     s.push_str("\t<author>\n");
@@ -281,8 +341,16 @@ pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Post, &str
         );
         let _ = write!(s, "\t\t<link href=\"{}{}\"/>\n", site.url, p.url);
         let _ = write!(s, "\t\t<updated>{updated}</updated>\n");
-        let _ = write!(s, "\t\t<id>{}{}</id>\n", site.url, p.url.trim_end_matches('/'));
-        let _ = write!(s, "\t\t<content type=\"html\"><![CDATA[{content}]]></content>\n");
+        let _ = write!(
+            s,
+            "\t\t<id>{}{}</id>\n",
+            site.url,
+            p.url.trim_end_matches('/')
+        );
+        let _ = write!(
+            s,
+            "\t\t<content type=\"html\"><![CDATA[{content}]]></content>\n"
+        );
         s.push_str("\t</entry>\n");
     }
     s.push_str("</feed>\n");
@@ -295,8 +363,14 @@ mod feed_tests {
 
     #[test]
     fn expand_urls_makes_root_relative_absolute() {
-        let out = expand_urls(r#"<a href="/blog/x/"><img src="/a.png"></a>"#, "https://grack.com");
-        assert_eq!(out, r#"<a href="https://grack.com/blog/x/"><img src="https://grack.com/a.png"></a>"#);
+        let out = expand_urls(
+            r#"<a href="/blog/x/"><img src="/a.png"></a>"#,
+            "https://grack.com",
+        );
+        assert_eq!(
+            out,
+            r#"<a href="https://grack.com/blog/x/"><img src="https://grack.com/a.png"></a>"#
+        );
     }
 
     #[test]
@@ -310,7 +384,10 @@ mod feed_tests {
     fn feed_images_injects_align_and_width() {
         let src = "<a class='image floatright' href='https://grack.com/a.jpg'><img src='https://grack.com/a.jpg' alt=''></a>";
         let out = feed_images(src);
-        assert!(out.contains(r#"alt='' align="right" width="200">"#), "{out}");
+        assert!(
+            out.contains(r#"alt='' align="right" width="200">"#),
+            "{out}"
+        );
     }
 
     #[test]

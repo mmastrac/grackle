@@ -191,9 +191,14 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
         // One featured row as a card — the homepage's book of the month.
         Some("card") => {
             if v.table != Kind::Tree {
-                bail!("{}: view {name}: card embedding is for tree rows", cx.source);
+                bail!(
+                    "{}: view {name}: card embedding is for tree rows",
+                    cx.source
+                );
             }
-            let Some(&i) = v.members.first() else { return Ok(String::new()) };
+            let Some(&i) = v.members.first() else {
+                return Ok(String::new());
+            };
             let p = &cx.db.pages.rows[i];
             let src = p
                 .hero_source()
@@ -237,7 +242,10 @@ fn include(arg: &str, cx: &Ctx) -> Result<String> {
         );
     }
     let Some(dir) = &cx.includes else {
-        bail!("{}: {{% include {arg} %}} but no includes directory is configured", cx.source);
+        bail!(
+            "{}: {{% include {arg} %}} but no includes directory is configured",
+            cx.source
+        );
     };
     let path = dir.join(arg);
     let text = std::fs::read_to_string(&path)
@@ -245,7 +253,10 @@ fn include(arg: &str, cx: &Ctx) -> Result<String> {
     // Includes are expanded in their own right, so a partial may use the same
     // tags a page can. Depth is bounded by the filesystem, not by a counter:
     // an include cycle would recurse, which no partial in the corpus does.
-    let inner = Ctx { source: path.display().to_string(), ..cx.clone() };
+    let inner = Ctx {
+        source: path.display().to_string(),
+        ..cx.clone()
+    };
     expand(&text, &inner)
 }
 
@@ -369,18 +380,29 @@ mod tests {
     fn expands_baseurl() {
         let db = SiteDb::default();
         let c = Ctx::new(&db, "/pre", "t");
-        assert_eq!(expand("a {{ site.baseurl }}/x b", &c).unwrap(), "a /pre/x b");
+        assert_eq!(
+            expand("a {{ site.baseurl }}/x b", &c).unwrap(),
+            "a /pre/x b"
+        );
     }
 
     #[test]
     fn image_modes_map_to_classes() {
         let db = SiteDb::default();
         let c = ctx(&db);
-        assert!(expand("{% image right a/b.png %}", &c).unwrap().contains("class='image floatright'"));
-        assert!(expand("{% image left a/b.png %}", &c).unwrap().contains("class='image floatleft'"));
-        assert!(expand("{% image a/b.png %}", &c).unwrap().contains("class='image standard'"));
+        assert!(expand("{% image right a/b.png %}", &c)
+            .unwrap()
+            .contains("class='image floatright'"));
+        assert!(expand("{% image left a/b.png %}", &c)
+            .unwrap()
+            .contains("class='image floatleft'"));
+        assert!(expand("{% image a/b.png %}", &c)
+            .unwrap()
+            .contains("class='image standard'"));
         // With no thumbnail map, the img falls back to the full-size original.
-        assert!(expand("{% image a/b.png %}", &c).unwrap().contains("src='/a/b.png'"));
+        assert!(expand("{% image a/b.png %}", &c)
+            .unwrap()
+            .contains("src='/a/b.png'"));
     }
 
     #[test]
@@ -388,7 +410,10 @@ mod tests {
         let db = SiteDb::default();
         let mut map = HashMap::new();
         map.insert("a/b.png".to_string(), "/static/deadbeef.jpg".to_string());
-        let c = Ctx { thumbs: Some(&map), ..Ctx::new(&db, "", "t") };
+        let c = Ctx {
+            thumbs: Some(&map),
+            ..Ctx::new(&db, "", "t")
+        };
         let out = expand("{% image right a/b.png %}", &c).unwrap();
         // Thumbnail in the <img>, full-size original still in the <a href>.
         assert!(out.contains("<img src='/static/deadbeef.jpg'"), "{out}");
@@ -413,7 +438,11 @@ mod tests {
         let db = SiteDb::default();
         let c = Ctx::new(&db, "/pre", "t");
         assert_eq!(
-            expand("<a href=\"{{ '/blog' | prepend: site.baseurl }}\">x</a>", &c).unwrap(),
+            expand(
+                "<a href=\"{{ '/blog' | prepend: site.baseurl }}\">x</a>",
+                &c
+            )
+            .unwrap(),
             "<a href=\"/pre/blog\">x</a>"
         );
     }
@@ -429,7 +458,9 @@ mod tests {
     #[test]
     fn view_must_name_a_routeless_view() {
         let db = SiteDb::default();
-        let e = expand("{% view nope %}", &ctx(&db)).unwrap_err().to_string();
+        let e = expand("{% view nope %}", &ctx(&db))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("matches no routeless view"), "{e}");
         assert!(e.contains("test.md"), "{e}");
     }
@@ -449,14 +480,18 @@ mod tests {
     #[test]
     fn include_without_a_configured_dir_is_an_error() {
         let db = SiteDb::default();
-        let e = expand("{% include social.html %}", &ctx(&db)).unwrap_err().to_string();
+        let e = expand("{% include social.html %}", &ctx(&db))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("no includes directory"), "{e}");
     }
 
     #[test]
     fn dangling_post_url_is_an_error_naming_the_file() {
         let db = SiteDb::default();
-        let e = expand("{% post_url nope %}", &ctx(&db)).unwrap_err().to_string();
+        let e = expand("{% post_url nope %}", &ctx(&db))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("test.md"), "{e}");
         assert!(e.contains("matches no post"), "{e}");
     }
@@ -480,17 +515,30 @@ mod widget_tests {
     fn widget_splices_body_into_wrapper() {
         let db = SiteDb::default();
         let w = widgets();
-        let cx = Ctx { widgets: Some(&w), ..Ctx::new(&db, "", "t") };
+        let cx = Ctx {
+            widgets: Some(&w),
+            ..Ctx::new(&db, "", "t")
+        };
         let out = expand("a\n\n{% callout %}\n**bold**\n{% endcallout %}\n\nb", &cx).unwrap();
-        assert_eq!(out, "a\n\n<callout>\n<div>\n\n**bold**\n\n</div>\n</callout>\n\n\nb");
+        assert_eq!(
+            out,
+            "a\n\n<callout>\n<div>\n\n**bold**\n\n</div>\n</callout>\n\n\nb"
+        );
     }
 
     #[test]
     fn widget_body_is_expanded_recursively() {
         let db = SiteDb::default();
         let w = widgets();
-        let cx = Ctx { widgets: Some(&w), ..Ctx::new(&db, "/b", "t") };
-        let out = expand("{% callout %}\nsee {{ site.baseurl }}/x\n{% endcallout %}", &cx).unwrap();
+        let cx = Ctx {
+            widgets: Some(&w),
+            ..Ctx::new(&db, "/b", "t")
+        };
+        let out = expand(
+            "{% callout %}\nsee {{ site.baseurl }}/x\n{% endcallout %}",
+            &cx,
+        )
+        .unwrap();
         assert!(out.contains("see /b/x"), "{out}");
     }
 
@@ -498,8 +546,13 @@ mod widget_tests {
     fn unterminated_widget_is_an_error_naming_the_source() {
         let db = SiteDb::default();
         let w = widgets();
-        let cx = Ctx { widgets: Some(&w), ..Ctx::new(&db, "", "post.md") };
-        let e = expand("{% callout %}\nnever closed", &cx).unwrap_err().to_string();
+        let cx = Ctx {
+            widgets: Some(&w),
+            ..Ctx::new(&db, "", "post.md")
+        };
+        let e = expand("{% callout %}\nnever closed", &cx)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("post.md"), "{e}");
         assert!(e.contains("endcallout"), "{e}");
     }

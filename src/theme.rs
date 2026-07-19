@@ -57,7 +57,10 @@ impl Themes {
                 }
             }
         }
-        Ok(Themes { map, null: Theme::null(site_root)? })
+        Ok(Themes {
+            map,
+            null: Theme::null(site_root)?,
+        })
     }
 
     /// Resolve a row's theme. None = the site default (`default`, or the
@@ -71,7 +74,11 @@ impl Themes {
                 let known: Vec<&str> = self.map.keys().map(String::as_str).collect();
                 anyhow::anyhow!(
                     "no theme named {n:?} — themes: {}",
-                    if known.is_empty() { "(none)".into() } else { known.join(", ") }
+                    if known.is_empty() {
+                        "(none)".into()
+                    } else {
+                        known.join(", ")
+                    }
                 )
             }),
         }
@@ -112,7 +119,12 @@ impl Theme {
                 .with_context(|| format!("shell fragment slots unknown part `{slot}`"))?;
             identity.push((name, binder::is_phrasing_only(&tag)));
         }
-        Ok(Theme { fragments, fills, root: site_root.to_path_buf(), identity })
+        Ok(Theme {
+            fragments,
+            fills,
+            root: site_root.to_path_buf(),
+            identity,
+        })
     }
 
     /// Render one full page: `main` is the already-rendered layout kind;
@@ -151,7 +163,9 @@ impl Theme {
         // supplies doctype/<html>/<head>/<body> around it — so even a
         // theme with no shell fragment yields a valid document.
         let body = self.fragments.render_body(&m);
-        Ok(crate::render::root_shell(&head_html, locale, subtheme, profile, &body))
+        Ok(crate::render::root_shell(
+            &head_html, locale, subtheme, profile, &body,
+        ))
     }
 }
 
@@ -162,7 +176,10 @@ mod tests {
     #[test]
     fn theme_specs_split_on_colons() {
         assert_eq!(split_spec("recipes"), ("recipes", None));
-        assert_eq!(split_spec("recipes:spicy"), ("recipes", Some("spicy".into())));
+        assert_eq!(
+            split_spec("recipes:spicy"),
+            ("recipes", Some("spicy".into()))
+        );
         // Multiple tokens space-join for [data-subtheme~="…"] matching.
         assert_eq!(
             split_spec("recipes:spicy:festive"),

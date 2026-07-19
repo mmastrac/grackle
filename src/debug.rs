@@ -135,7 +135,10 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     // several collections feed this table and only the path knows which one
     // a row came from.
     let rel_to_root = |abs: &std::path::Path| {
-        abs.strip_prefix(cfg.root()).unwrap_or(abs).to_string_lossy().to_string()
+        abs.strip_prefix(cfg.root())
+            .unwrap_or(abs)
+            .to_string_lossy()
+            .to_string()
     };
     let posts: Vec<Row> = db
         .posts
@@ -221,7 +224,9 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     // set is real all the same (the search index has 327 documents), so
     // evaluate it here rather than show an empty list and imply otherwise.
     let star_members = |name: &str| -> Vec<String> {
-        let Some(v) = cfg.views.get(name) else { return Vec::new() };
+        let Some(v) = cfg.views.get(name) else {
+            return Vec::new();
+        };
         let pred = match &v.filter {
             Some(src) => match crate::filter::Filter::parse(src, &crate::db::route_schema()) {
                 Ok(p) => p,
@@ -240,7 +245,9 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     // URLs needs the base kind — the one thing a client could not work out
     // for itself.
     let member_urls = |r: &crate::db::Route| -> Vec<String> {
-        let Some(view) = r.view.as_deref() else { return Vec::new() };
+        let Some(view) = r.view.as_deref() else {
+            return Vec::new();
+        };
         if cfg.views.get(view).is_some_and(|v| v.over == "*") {
             return star_members(view);
         }
@@ -340,12 +347,14 @@ pub fn is_debug_path(path: &str) -> bool {
 /// never emits these).
 pub fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
     match path {
-        "/__debug" | "/__debug/" => {
-            Some(("text/html; charset=utf-8", include_bytes!("../assets/debug.html")))
-        }
-        "/__debug/debug.css" => {
-            Some(("text/css; charset=utf-8", include_bytes!("../assets/debug.css")))
-        }
+        "/__debug" | "/__debug/" => Some((
+            "text/html; charset=utf-8",
+            include_bytes!("../assets/debug.html"),
+        )),
+        "/__debug/debug.css" => Some((
+            "text/css; charset=utf-8",
+            include_bytes!("../assets/debug.css"),
+        )),
         "/__debug/debug.js" => Some((
             "text/javascript; charset=utf-8",
             include_bytes!("../assets/debug.js"),

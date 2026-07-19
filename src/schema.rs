@@ -209,7 +209,10 @@ mod tests {
         let deep = s.resolve(Path::new("books/special")).unwrap();
         assert_eq!(deep["author"], FieldType::Int, "nearest wins");
         assert_eq!(deep["month"], FieldType::Str, "ancestors accumulate");
-        assert!(s.resolve(Path::new("recipes")).is_none(), "ungoverned dirs stay free");
+        assert!(
+            s.resolve(Path::new("recipes")).is_none(),
+            "ungoverned dirs stay free"
+        );
     }
 
     #[test]
@@ -217,14 +220,21 @@ mod tests {
         let s = schemas();
         let schema = s.resolve(Path::new("books")).unwrap();
         let mut extra = BTreeMap::new();
-        extra.insert("autor".to_string(), serde_yaml_ng::Value::String("x".into()));
-        let e = validate(&schema, &extra, Path::new("books/j.md")).unwrap_err().to_string();
+        extra.insert(
+            "autor".to_string(),
+            serde_yaml_ng::Value::String("x".into()),
+        );
+        let e = validate(&schema, &extra, Path::new("books/j.md"))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("not declared"), "{e}");
         assert!(e.contains("author, cover, month"), "{e}");
 
         let mut extra = BTreeMap::new();
         extra.insert("author".to_string(), serde_yaml_ng::Value::Number(3.into()));
-        let e = validate(&schema, &extra, Path::new("books/j.md")).unwrap_err().to_string();
+        let e = validate(&schema, &extra, Path::new("books/j.md"))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("declared string"), "{e}");
     }
 

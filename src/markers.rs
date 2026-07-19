@@ -134,7 +134,9 @@ mod tests {
     #[test]
     fn does_not_leak_to_siblings_or_parents() {
         let m = markers(&[("_posts/hidden", "hidden", true)]);
-        assert!(m.defaults_for(Path::new("_posts/2003-07-31-x.md")).is_empty());
+        assert!(m
+            .defaults_for(Path::new("_posts/2003-07-31-x.md"))
+            .is_empty());
         assert!(m.defaults_for(Path::new("_posts/other/x.md")).is_empty());
         assert!(m.defaults_for(Path::new("index.html")).is_empty());
     }
@@ -154,7 +156,9 @@ mod tests {
         let m = markers(&[("", "noindex", true)]);
         for p in ["index.html", "a/b/c/d.html", "_posts/2003/x.md"] {
             assert_eq!(
-                m.defaults_for(Path::new(p)).get("noindex").and_then(|v| v.as_bool()),
+                m.defaults_for(Path::new(p))
+                    .get("noindex")
+                    .and_then(|v| v.as_bool()),
                 Some(true),
                 "{p}"
             );

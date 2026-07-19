@@ -72,7 +72,11 @@ pub fn load(db: &SiteDb, cache_dir: &Path) -> Result<Loaded> {
                 .get(&p.name)
                 .and_then(|old| read_vec(&vec_path(cache_dir, old)));
             vectors.push(stale);
-            pending.push(Pending { name: p.name.clone(), hash, text });
+            pending.push(Pending {
+                name: p.name.clone(),
+                hash,
+                text,
+            });
         } else {
             vectors.push(fresh);
         }
@@ -270,12 +274,26 @@ mod tests {
         let db = mkdb(vec![p0, p1, p2]);
         let vecs = vec![v0, v1, v2];
 
-        let raw = rank(&db, &vecs, &RelatedCfg { limit: 2, ..Default::default() });
+        let raw = rank(
+            &db,
+            &vecs,
+            &RelatedCfg {
+                limit: 2,
+                ..Default::default()
+            },
+        );
         assert_eq!(raw.by_post[&0][0].0, 1, "raw cosine prefers the old post");
 
-        let pen = RelatedCfg { limit: 2, year_penalty: Some(0.01), ..Default::default() };
+        let pen = RelatedCfg {
+            limit: 2,
+            year_penalty: Some(0.01),
+            ..Default::default()
+        };
         let penalized = rank(&db, &vecs, &pen);
-        assert_eq!(penalized.by_post[&0][0].0, 2, "penalty prefers the recent post");
+        assert_eq!(
+            penalized.by_post[&0][0].0, 2,
+            "penalty prefers the recent post"
+        );
 
         let strict = RelatedCfg {
             limit: 2,
@@ -284,7 +302,11 @@ mod tests {
             ..Default::default()
         };
         let dropped = rank(&db, &vecs, &strict);
-        assert_eq!(dropped.by_post[&0].len(), 1, "the penalized old post falls below min");
+        assert_eq!(
+            dropped.by_post[&0].len(),
+            1,
+            "the penalized old post falls below min"
+        );
     }
 
     #[test]
@@ -307,7 +329,11 @@ mod tests {
         let (p0, v0) = post("a", 2020, Some(vec![1.0, 0.0]));
         let (p1, v1) = post("b", 2004, Some(vec![1.0, 0.0]));
         let db = mkdb(vec![p0, p1]);
-        let cfg = RelatedCfg { limit: 4, max_years: Some(10), ..Default::default() };
+        let cfg = RelatedCfg {
+            limit: 4,
+            max_years: Some(10),
+            ..Default::default()
+        };
         let r = rank(&db, &vec![v0, v1], &cfg);
         assert!(r.by_post[&0].is_empty());
     }
@@ -334,7 +360,11 @@ mod tests {
         p.title = "new title".into();
         let db = mkdb(vec![p]);
         let loaded = load(&db, &dir).unwrap();
-        assert_eq!(loaded.vectors[0].as_ref().unwrap(), &v, "stale vector served");
+        assert_eq!(
+            loaded.vectors[0].as_ref().unwrap(),
+            &v,
+            "stale vector served"
+        );
         assert_eq!(loaded.pending.len(), 1, "re-embed queued");
         assert!(loaded.pending[0].text.contains("new title"));
 
