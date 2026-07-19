@@ -220,9 +220,18 @@ function lensTree() {
 
 	b1.onscroll = drawGutter;
 	b2.onscroll = drawGutter;
-	gut.onwheel = function (e) {
-		var r = gut.getBoundingClientRect();
-		var target = e.clientX < r.left + r.width / 2 ? b1 : b2;
+	// Wheel anywhere between the trees drives the nearer one. The handler
+	// belongs on the container, not the gutter: the grid gaps flanking it
+	// are 10px of no element at all, and a wheel just right of the left
+	// scrollbar landed in one of them and did nothing.
+	panes.onwheel = function (e) {
+		if (b1.contains(e.target) || b2.contains(e.target)) return;
+		var gap = function (el2) {
+			var r = el2.getBoundingClientRect();
+			return e.clientX < r.left ? r.left - e.clientX
+				: e.clientX > r.right ? e.clientX - r.right : 0;
+		};
+		var target = gap(b1) <= gap(b2) ? b1 : b2;
 		target.scrollTop += e.deltaY;
 		e.preventDefault();
 	};
