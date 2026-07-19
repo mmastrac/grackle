@@ -2398,9 +2398,17 @@ or unexpanded source?).
 
 ### Still open (q44)
 
-Row-level shells — `layout: light` still conflates "minimal shell" with
-a theme choice; a `shell:` row field (`html`/`light`/`none`-bytes) would
-split them — and the atom/sitemap serializers becoming true part-map
+Row-level shells — **amended 2026-07-19, and narrower than it reads
+above**. The theme half of the conflation is already gone: one theme
+exists, so `layout: light` selects nothing and merely isn't
+`page`/`post` (q33(f) has the census). What remains is not
+chrome-shaped either — the five rows that take the bare branch are all
+landings, which §5h owns, so a row `shell:` of `html`/`light`/`none`
+would be naming a distinction that should stop existing. The value set
+a row actually wants is **format**-shaped, and its forcing consumer is
+the md twin below: *which serializations does this row offer*, not how
+much chrome it wears. Build it there, not here. Also open: the
+atom/sitemap serializers becoming true part-map
 consumers (a feed entry IS a document-parts subset), and a `json` shell
 when something wants one (though a script shell now covers the
 experiment: the payload already is JSON — `cat` is a json shell).
@@ -4320,6 +4328,26 @@ never reused.
     longer templates — it *claims* a legacy file from the tree, which is
     §5h's claiming vocabulary wearing an old name. (e) The sitemap
     filter's second evaluation (star routes carry no members).
+
+    (f) **Row `layout:` is the same disease on the row side, and it
+    dissolves rather than gets renamed** *(measured 2026-07-19)*. One
+    engine site reads it — `Some("page") | Some("post")` is a single
+    match arm, so the two words are one value; five spellings across both
+    corpora collapse to two behaviours; `light` selects nothing (one
+    theme exists); the `_layouts/*.html` it names have been unread since
+    §5e; it sits in the post and page filter schemas and nothing filters
+    on it. Census: the main site's 227 page rows are 187 passthrough (no
+    front matter — never reach the switch) + 37 framed + **3 bare**; the
+    example's 21 are 1 + 18 + **2**. Every one of those five bare rows is
+    a landing — `/`, `/fr/`, `/demos/mindstorms/`, `/writing/linuxwp/doc/`
+    — so **55 files declare the common case in order that 5 may declare
+    the exception**, and omitting the field silently drops a row's
+    furniture (probe row: 0 crumb/relation/neighbour elements against a
+    sibling's 3, no error). Three mechanisms already carve the three
+    tiers: front-matter absence for raw bytes, §5h landings for rows that
+    own their arrangement, the default for framed prose. Lifting the
+    three main-site landings is the work; `/` waits on q37's board, so
+    this is **not** the cheap half of q33.
 34. **Three "not content" lists (§9b).** §4c's three layers govern the
     tree walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`)
     carry private skip lists that can silently drift from `exclude`. Both
@@ -4366,6 +4394,67 @@ never reused.
     §6b contest, and externally-hosted originals (a URL-valued image
     source that skips thumbnailing but can still carry declared
     dimensions).
+47. **Listing views render no language switcher (§6f).** The
+    `translations` axis is a ROW relation, so a row and a mode-B landing
+    (whose claimed row carries it) get the switcher; a plain listing view
+    does not. Measured: `/fr/blog/` and `/fr/books/` emit zero
+    `data-axis="translations"` blocks, so a French reader who arrives at
+    a listing has no way back. The parallel routes to link already exist
+    — locale-parallel views are default-on, and §5h computes a landing's
+    switcher from its owner's materialized routes — so this is that
+    computation applied one level out, plus the question of whether an
+    axis belongs to a route at all when nothing about it is a row.
+48. **`type:` as row data, not presentation** *(Matt's shape)*. A row
+    should declare *what it is*, not how to draw it — `type: recipe`,
+    with config mapping the type onto presentation, which is §4b's rule
+    (the config says what a marker means; the tree says where). It would
+    be rule-defaulted like `theme:`, per-row only for exceptions, so most
+    files carry nothing. **The test it must pass: a type is real only if
+    something other than the renderer consumes it** — a cross-tree filter
+    (`type == "recipe"` instead of the `match = "recipes/**"` glob),
+    q40's JSON-LD emission (schema.org maps onto it directly), or
+    non-positional schema selection. Held deliberately: neither site
+    needs one today, subtree position already implies type wherever a
+    `.schema.toml` sits, and a type that only picks a theme is q33(f)
+    with a better name. q40's build is the moment to decide.
+49. **Where a row's metadata comes from when the file can't carry front
+    matter** *(measured 2026-07-19)*. Two halves, in precedence order.
+    **Derive first**: the artifact usually already states this, and
+    reading it costs nothing and never drifts — 14 of 57 raw HTML files
+    carry a real `<title>` ("Colossal Cave Adventure", "Online
+    Psychologist") that the database currently ignores, leaving 39
+    user-facing passthrough rows titleless; and all 838 object rows could
+    carry bounds and format from their own headers, which is a cleaner
+    source than today's thumb pass and is what q26 wants for
+    `{% image %}` in bodies. Measured and rejected as speculative for
+    *this* corpus: EXIF (0 of 200 jpegs — stripped long ago) and PDF
+    metadata (3 files). **Then declare**: a per-file sidecar,
+    `.p01.png.toml` — leading dot so §4c's dotfile layer already excludes
+    it and the §6f stem parser never sees it, full name so it stays
+    unambiguous under §6a's deliberately non-unique object names. It is
+    the file-scoped member of a family that already exists at directory
+    scope (`[markers]`, `.schema.toml`, `.section`, q23's `cover.*`), it
+    is the *fallback* for rows that cannot carry front matter rather than
+    an alternative for rows that can, and an orphaned sidecar should be a
+    load error naming its missing subject. Open: precedence against
+    markers and rule defaults; whether a sidecar makes a passthrough row
+    `rendered`; and how much of the sidecar half is real at all, since
+    its only current consumer is alt text for 838 images that nobody has
+    committed to writing.
+
+    **What this must NOT do is infer page-vs-component from an
+    absence.** The heuristic is tempting and measures well — `<title>`
+    presence predicts 55 of 57, document completeness 56 — and both are
+    wrong, in the way this document keeps finding things wrong.
+    `demos/1996/mystery.html` has a `<TITLE>` and no `<html>` because
+    1996 made those tags optional: a complete page the completeness test
+    calls a fragment. `demos/css-glass-pane/index.html` is a real
+    880-byte demo with no title and no `<h1>` at all. Reading a title
+    that exists is derivation; concluding from its absence that a page is
+    a component is guessing, it fails toward *not rendering something*,
+    and §5h already has the rule — the engine never guesses the
+    arrangement. The two exceptions are exactly what the sidecar half is
+    sized for.
 
 ### Settled ledger
 
