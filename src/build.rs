@@ -902,9 +902,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     .map(|p| p.locale.as_str())
                     .unwrap_or(cfg.i18n.default.as_str());
                 let html = match tier {
-                    // `light` IS the null theme (§5e step 4): the minimal
-                    // head (title + robots) in the same root shell (§5g)
-                    // as everything, around the canonical rendering.
+                    // A TIER, not a theme (§5g "Row tiers"): the minimal
+                    // head (title + robots) in the same root shell as
+                    // everything, around the canonical rendering. It
+                    // bypasses the theme registry rather than selecting
+                    // the null theme, which takes the full head.
                     Theme::Light => render::root_shell(
                         &render::light_head(&head),
                         row_locale,

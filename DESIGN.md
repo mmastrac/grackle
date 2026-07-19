@@ -2115,10 +2115,12 @@ could need must be in the schema.** The four gaps are the current delta.
 - **A third theme is a directory.** Copy `themes/default/`, edit HTML and
   SCSS, done. Open question 20 dissolves: no Rust, no recompile, and the
   engine's load-time checks tell you every hole you got wrong.
-- **`light` upgrades from falsifier to null theme.** No fragments, no CSS
+- **`light` upgrades from falsifier to a shipped tier.** No fragments, no CSS
   means the canonical part order must be semantically complete markup on its
   own — a stronger test than "renders under two themes", run automatically on
-  every row.
+  every row. (It renders the same canonical parts the null theme does, but it
+  is not that theme: §5g "Row tiers" has the head measurement that separates
+  them.)
 - **Includes are subsumed.** An include is a fragment with no holes filling a
   slot (`social` fills a shell slot in the default theme and a `/` slot).
   The parameterless refusal (§5c) stands; parameters are what part maps are.
@@ -2442,10 +2444,11 @@ bytes of its own document, with a `title` the database can see.
 
 An earlier draft of this entry argued the whole thing was chrome-shaped
 and should be redirected to format; that rested on misreading `light`
-as a dead name. It is not — `Theme::parse` routes it to the null theme,
-a real tier with two occupants (q33(f) has the census). The md twin
-below is a *second*, orthogonal axis (which serializations a row
-offers); it does not subsume this one.
+as a dead name. It is not — `Theme::parse` routes it to a real tier with
+two occupants (q33(f) has the census), distinct from §5e's null theme by
+its head; "Row tiers" below has the measurement. The md twin below is a
+*second*, orthogonal axis (which serializations a row offers); it does
+not subsume this one.
 
 A `shell = "none"` row's content is raw HTML, so everything downstream
 reads it as such. Adding one exposed a search bug that predated it:
@@ -2464,6 +2467,98 @@ when something wants one (though a script shell now covers the
 experiment: the payload already is JSON — `cat` is a json shell).
 Versioning the script-shell payload schema rides with the first
 non-experimental consumer.
+
+### Row tiers: where a row leaves the pipeline *(Matt's two questions, settled 2026-07-19)*
+
+Both questions below sound like they dissolve the row `shell:` field, and
+both are answered the same way: the tiers are not alternatives to
+something else, they are **exit points on one pipeline**.
+
+| tier | head | body | skeleton |
+|---|---|---|---|
+| object | — | bytes off disk | none |
+| `none` | — | rendered parts, emitted verbatim | **none** |
+| `light` | minimal — 85 B (title, charset), 118 B when the row is `noindex` | canonical parts, no theme | engine |
+| `html` | full — 739 B (og:\*, canonical, author, css, favicons) | theme fragments | engine |
+
+Measured on the main site, `<head>` tags included: `writing/linuxwp/doc/`
+and `demos/mindstorms/` for the two `light` rows, `/blog/` for `html`.
+
+**"Aren't `shell: none` rows just objects?"** They emit their bytes
+verbatim, which is what an object does — but that is the *last* step and
+the only one they share. A `shell: none` row enters the pipeline
+completely: `tags::expand` runs on every page route in
+`render_page_bodies`, ~250 lines before the `shell` check ever happens.
+Measured by putting `{% image %}` inside the example's pane row: a bad
+path **fails the build** (`{% image %} source not found`), and a good one
+ships `<img src='/static/9dd1f25….jpg'>` — tag expansion, object
+resolution, thumbnailing and the content-addressed asset pipeline, with
+load-time enforcement throughout. **Objects are what that `/static/` URL
+points at.** They never enter the pipeline at all; their bytes come off
+disk.
+
+The rest of the gap is schema. `demos/pane.html` carries `title` and
+`hidden: true`; `object_schema()` has path/dir/name/stem/ext/url/size and
+nothing else — no title, no flags, no locale, no tags. Membership would
+have to move too: objects are selected by extension and membership is
+disjoint (§3), so making `.html` an object extension swallows every page
+on the site. **"Object" means no schema participation; `shell: none`
+exists to get schema participation without a wrapper.** Opposite
+requirements that happen to agree on the final step.
+
+**"Isn't `shell: light` just `theme: light`, and `shell: none` just
+`theme: none`?"** No, and the reason is the `<head>`. A theme chooses
+BODY chrome — which fragments arrange which parts. The head is computed
+from the schema (§5a) and **no theme may write it**; the root shell above
+exists to enforce exactly that. So the head is the one thing theme
+selection cannot vary, and the head is precisely what separates `light`
+from `html`: 85 bytes against 739, no stylesheet link, no canonical, no
+favicons.
+
+`theme: none` fails for a second and sharper reason: **the null theme
+still emits a valid document.** That was a deliberate fix — this section
+lists "a fragmentless theme yields a valid document" among the defects
+the root shell cured, because the null theme used to render as a bare
+`<section data-kind="shell">`. A `theme: none` that emitted no skeleton
+would re-introduce the exact bug the root shell was built to kill.
+`shell: none` may emit no document *because the row promises its body
+already is one* — `demos/pane.html` is 521 bytes carrying its own
+doctype, and the built output contains no engine `<html>` element at
+all. A theme can make no such promise: it does not know what body it
+will wrap.
+
+**Correction, and the reason the question is a fair one:** this section
+and q33(f) both called `light` "the null theme". That conflates two
+things and is what makes the answer sound like yes. §5e's null theme is a
+**theme** with no fragments — it takes the *full* computed head and a
+stylesheet link, and goes through `Theme::Default`. `light` is a **tier**
+— it bypasses the theme registry entirely and takes `light_head`. They
+agree on "no body chrome" and differ on the head, which is the entire
+distinction. There is no `themes/light` directory; `Theme::Light` is a
+`render::Theme` variant living in a different namespace from the theme
+registry, reached by `shell: light` or the legacy `layout: light`.
+
+### One word, two axes *(named 2026-07-19)*
+
+`shell` names two unrelated things, and it is worth saying so once:
+
+- **row `shell:`** — `none | light | html`: the wrapper tier above.
+- **view `shell =`** — `atom | sitemap | search` plus `[shells]` script
+  shells: the outermost serialization.
+
+The value domains are disjoint and neither validator accepts the other's
+words. They are also read in disjoint passes — `v.shell` in the view
+passes, `p.shell` only in the tree-page pass — so **no row ever meets a
+view's shell as a shell.** Rows do flow *through* view shells as data (the
+feed serializes their title and content), but `p.shell` is never consulted
+when they do.
+
+So this is a naming collision, not a design flaw: nothing can drift
+because the two never meet. What it costs is the sentence a reader spends
+deciding which `shell` a passage means. If it is ever renamed, the
+row-level one is the **tier** (how much wrapper) and the view-level one
+keeps `shell` (what serialization) — but that touches a documented config
+surface for one row's benefit, so it wants a better reason than tidiness.
 
 ## 5h. Landings: a view owns the URL, a row may own the words *(q45, Matt's shape; built 2026-07)*
 
@@ -4470,7 +4565,7 @@ never reused.
     | tier | selected by | main | example |
     |---|---|---|---|
     | verbatim bytes | front-matter absence | 187 | 1 |
-    | null theme | `layout: light` | 2 | 0 |
+    | `light` tier | `layout: light` | 2 | 0 |
     | chrome, no furniture | `default`/absent | 1 | 2 |
     | chrome + furniture | `page`/`post` | 37 | 18 |
 
@@ -4484,13 +4579,23 @@ never reused.
     `light` "selects nothing", read the tiers as three, and concluded the
     field dissolves. Wrong on all three counts, from grepping for a
     `light` theme directory instead of reading the render path.
-    `Theme::parse` routes `light` to the **null theme** — minimal head,
+    `Theme::parse` routes `light` to a real tier — minimal head,
     canonical parts, no theme chrome (measured: 57-byte head, no css, no
     nav, no footer, against `default`'s 715 and `page`'s 737). It is a
     real tier with two occupants, and it is the mechanism q50's
     transplant wants. What dissolves is the *spelling*, not the
     distinction: the tiers are shell levels, so they belong under q44's
     row `shell:` (`none`/`light`/`html`), not under a layout name.
+
+    **Second correction (2026-07-19):** this entry called that tier "the
+    null theme", and §5g did too. It is not one — §5e's null theme is a
+    fragmentless *theme* and takes the FULL head; `light` bypasses the
+    theme registry and takes the minimal one. They differ in exactly the
+    head, which is what makes "isn't `shell: light` just `theme: light`?"
+    a fair question with a no for an answer. §5g's "Row tiers" carries
+    it. (The 57-byte figure above is inner content of the row without
+    `noindex`; the same head measures 85 bytes counting the `<head>`
+    tags, and 118 on the `noindex` row, which carries a robots meta.)
 34. **Three "not content" lists (§9b).** §4c's three layers govern the
     tree walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`)
     carry private skip lists that can silently drift from `exclude`. Both

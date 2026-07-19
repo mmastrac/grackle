@@ -6,8 +6,8 @@
 //!   feed/sitemap -> serializations, no look (below)
 //!
 //! What remains here is what has no theme: the computed `<head>` facts, the
-//! `light` shell (the null theme's minimal wrapper, §5e step 4), and the XML
-//! serializations.
+//! `light` tier's minimal wrapper (§5g "Row tiers" — a tier, not the null
+//! theme, which takes the full head), and the XML serializations.
 
 use crate::db::Post;
 use std::fmt::Write as _;
