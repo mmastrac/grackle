@@ -41,6 +41,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 struct Snapshot {
     version: u64,
     pages: SiteOutput,
+    /// The inspector's payload (§7c), rebuilt with the site so it can never
+    /// describe a database the pages didn't come from.
+    debug: Vec<u8>,
 }
 
 /// An RCU cell (keepcalm): reads are lock-free clones of the current snapshot
@@ -113,6 +116,20 @@ async fn handle(
         return Ok(reply(StatusCode::OK, "text/plain", snap.version.to_string().into_bytes()));
     }
 
+    // The inspector owns `/__debug/` outright (§7c): served from the binary,
+    // never from the site, never emitted by a build — and a miss inside the
+    // prefix 404s here rather than falling through, so a site page cannot
+    // shadow it.
+    if crate::debug::is_debug_path(&path) {
+        if path == "/__debug/site.json" {
+            return Ok(reply(StatusCode::OK, "application/json", snap.debug.clone()));
+        }
+        return Ok(match crate::debug::asset(&path) {
+            Some((ct, bytes)) => reply(StatusCode::OK, ct, bytes.to_vec()),
+            None => reply(StatusCode::NOT_FOUND, "text/plain", b"no such inspector asset".to_vec()),
+        });
+    }
+
     if let Some(bytes) = snap.pages.get(&path) {
         return Ok(page(&path, bytes));
     }
@@ -168,7 +185,8 @@ fn render(config_path: &Path, version: u64) -> Result<(Snapshot, Vec<crate::embe
     let db = SiteDb::load(&cfg).context("loading site database")?;
     let (pages, mut stats) = build::render_site(&cfg, &db)?;
     let pending = std::mem::take(&mut stats.embed_pending);
-    Ok((Snapshot { version, pages }, pending))
+    let debug = crate::debug::payload(&cfg, &db)?;
+    Ok((Snapshot { version, pages, debug }, pending))
 }
 
 /// Embed pending posts on a plain thread, then poke the rebuild channel so

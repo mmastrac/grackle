@@ -2,6 +2,7 @@ mod binder;
 mod build;
 mod config;
 mod db;
+mod debug;
 mod diff;
 mod embed;
 mod filter;

@@ -3758,6 +3758,59 @@ output; user-generated content is an external embed. gwern's URL-keyed
 annotation database and hover-transclusion remain the one genuinely
 sui-generis structural outlier surveyed.
 
+## 7c. The inspector: the database explaining itself *(built 2026-07-19)*
+
+`grackle serve` reserves `/__debug/` and answers it from the binary: an
+`index.html`, `debug.css`, `debug.js` and a `site.json`. Serve-only by
+construction — a build emits none of it, and the prefix is a **closed
+namespace**, so a miss inside it 404s rather than falling through to a
+site page that would otherwise shadow the tool.
+
+**The payload is deliberately not `grackle export`.** The export is the
+database as the database sees it; this is the database as someone
+diagnosing it needs to see it, and the two differ in exactly two ways.
+It carries what the export skips — route `members` and the row flags are
+`#[serde(skip)]` there, and they are precisely what answers *what picks
+this up* and *why is this missing*. And it resolves members to **URLs
+rather than indices**: an index only means something beside the table it
+indexes, so emitting URLs lets the client join everything to everything
+without knowing which table a view ranges over. The payload rides in the
+serve snapshot, rebuilt with the site, so it can never describe a
+database the served pages didn't come from.
+
+**Four lenses, and the cardinality picks the form.** Measured on the main
+corpus: 838 of 1575 routes are objects, posts are 1:1 with theirs, and
+**7 views produce 183 routes**. So trees and tables for the big
+homogeneous sets, and no node-graph anywhere — 1575 routes as a
+force-directed hairball would teach nothing, and 3 tables whose
+relationships are all derived make a poor ER diagram.
+
+- **tree** — the same corpus in its two shapes, source and URL, side by
+  side. The difference between them *is* the route template: `_posts/`
+  is flat with 327 files, `/blog/2022/12/20/…` is four levels deep.
+- **rows** — a table per table, typed columns, flags visible.
+- **views** — every declared query and its fan-out.
+- **diagnose** — anomaly first, inventory second. The top question is not
+  "show me my rows" but *why isn't this page showing up*, and every
+  answer to that is an exception: excluded, claimed, hidden, draft,
+  passthrough, a locale partition that never materialized.
+
+The centrepiece is the **provenance strip**: source → route → the views
+that picked it up. A generic database viewer structurally cannot show
+it, because here the row and the URL are not the same object — a claimed
+row has no route (§5h), a translated row has two (§6f), and a view route
+has 66 members and no row at all.
+
+Two things it taught, immediately. Route order is **lexical** —
+`db.routes.sort_by(url)` for determinism — which is right for the
+sitemap and wrong for reading: `/blog/page/10/` sorts before
+`/blog/page/2/`. Archives escape it only because `{month:02}` is
+zero-padded, and pagination shouldn't be, so the client owns display
+order (a numeric-aware comparator) and the engine keeps its
+determinism. And the assets are `include_bytes!`-embedded, so editing
+the inspector needs a rebuild before a restart shows it — right for
+shipping a single binary, a papercut for developing the tool itself.
+
 ## 8. Known-inexact from day one (accepted, iterate later)
 
 | Area | Why | Plan |
