@@ -15,15 +15,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 /// Very common words that would dominate postings without informing them.
+/// Hand-set 10 to a line and alphabetical, so a word can be eyeballed as
+/// present or absent; rustfmt's packing loses that, hence the skip.
+#[rustfmt::skip]
 const STOPWORDS: &[&str] = &[
-    "a", "about", "after", "all", "also", "an", "and", "any", "are", "as", "at", "be", "because",
-    "been", "before", "but", "by", "can", "could", "did", "do", "does", "for", "from", "get",
-    "had", "has", "have", "here", "how", "i", "if", "in", "into", "is", "it", "its", "just",
-    "like", "ll", "me", "more", "most", "my", "no", "not", "now", "of", "on", "one", "only", "or",
-    "other", "our", "out", "over", "re", "s", "same", "so", "some", "such", "t", "than", "that",
-    "the", "their", "them", "then", "there", "these", "they", "this", "those", "through", "to",
-    "too", "under", "up", "ve", "very", "was", "we", "were", "what", "when", "where", "which",
-    "while", "who", "why", "will", "with", "would", "you", "your",
+    "a", "about", "after", "all", "also", "an", "and", "any", "are", "as",
+    "at", "be", "because", "been", "before", "but", "by", "can", "could",
+    "did", "do", "does", "for", "from", "get", "had", "has", "have", "here",
+    "how", "i", "if", "in", "into", "is", "it", "its", "just", "like", "ll",
+    "me", "more", "most", "my", "no", "not", "now", "of", "on", "one",
+    "only", "or", "other", "our", "out", "over", "re", "s", "same", "so",
+    "some", "such", "t", "than", "that", "the", "their", "them", "then",
+    "there", "these", "they", "this", "those", "through", "to", "too",
+    "under", "up", "ve", "very", "was", "we", "were", "what", "when",
+    "where", "which", "while", "who", "why", "will", "with", "would", "you",
+    "your",
 ];
 
 /// Light, guarded suffix stripping. Deliberately simple; see the module doc
