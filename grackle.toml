@@ -32,11 +32,6 @@ trail = "monthly_archive"
 filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
 
   [[collections.blog.rules]]
-  match = "drafts/**"
-  defaults = { draft = true }
-  route = "/drafts/{slug}/"
-
-  [[collections.blog.rules]]
   match = "hidden/**"
   defaults = { hidden = true }
 
@@ -44,6 +39,22 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
   match = "**"
   defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+# Drafts are a SECOND SOURCE for the one posts table, not a second table:
+# same row shape, same schema, same views — flagged `draft`, which every
+# view's `!draft` filter already excludes. Undated by Jekyll convention
+# (`_drafts` filenames carry no date), so no `filename_formats` here.
+[collections.drafts]
+kind = "posts"
+source = "_drafts"
+# The whole stem is the slug: a draft has no date until it is published, so
+# `{slug}` is the honest format rather than a date the file does not carry.
+filename_formats = ["{slug}"]
+
+  [[collections.drafts.rules]]
+  match = "**"
+  defaults = { layout = "post", draft = true }
+  route = "/drafts/{slug}/"
 
 # ---------------------------------------------------------------- objects
 

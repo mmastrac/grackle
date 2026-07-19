@@ -567,12 +567,17 @@ fn tidy(url: String) -> String {
 
 // ------------------------------------------------------------------ posts
 
-fn build_posts(
+/// Read one posts collection's rows. Indexing is deliberately NOT here:
+/// several collections can contribute to the one posts table (`_posts` and
+/// `_drafts`), and an index built per collection would see only part of the
+/// corpus — `by_url` could not detect a collision between them, and `order`
+/// would restart per source.
+fn read_posts(
     cfg: &Config,
     name: &str,
     c: &Collection,
     markers: &Markers,
-) -> Result<(PostsTable, f64, f64)> {
+) -> Result<(Vec<Post>, f64)> {
     let root = cfg.root();
     let source = root.join(
         c.source
@@ -584,7 +589,6 @@ fn build_posts(
     let raws: Vec<RawRow> = store::load_dir(&source, &["md", "markdown"])?;
     let read_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    let t1 = std::time::Instant::now();
     let formats: Vec<FilenameFormat> = c
         .filename_formats
         .iter()
@@ -720,6 +724,11 @@ fn build_posts(
         });
     }
 
+    Ok((rows, read_ms))
+}
+
+/// Index the whole posts table at once, over every collection's rows.
+fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
 
     // §6f: `order` drives views, feeds, archives and adjacency — it admits
@@ -786,8 +795,7 @@ fn build_posts(
     }
 
     table.rows = rows;
-    let index_ms = t1.elapsed().as_secs_f64() * 1000.0;
-    Ok((table, read_ms, index_ms))
+    Ok(table)
 }
 
 // ------------------------------------------------------- tree + objects
@@ -1207,18 +1215,24 @@ impl SiteDb {
         let mut tree_c = None;
         let mut obj_c = None;
 
+        // Several collections may feed the posts table — `_posts` and
+        // `_drafts` are two sources of one corpus — so rows are gathered
+        // first and indexed once, over all of them.
+        let mut post_rows: Vec<Post> = Vec::new();
         for (name, c) in &cfg.collections {
             match c.kind {
                 Kind::Posts => {
-                    let (table, read_ms, index_ms) = build_posts(cfg, name, c, &markers)?;
-                    db.posts = table;
+                    let (rows, read_ms) = read_posts(cfg, name, c, &markers)?;
+                    post_rows.extend(rows);
                     db.stats.read_ms += read_ms;
-                    db.stats.index_ms += index_ms;
                 }
                 Kind::Tree => tree_c = Some(c),
                 Kind::Objects => obj_c = Some(c),
             }
         }
+        let t_index = std::time::Instant::now();
+        db.posts = index_posts(cfg, post_rows)?;
+        db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
         let t = std::time::Instant::now();
         let (pages, objects) =

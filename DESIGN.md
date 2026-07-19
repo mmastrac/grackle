@@ -471,6 +471,29 @@ rules.
 The route map doubles as the **reverse index for serving**: URL → row is a
 lookup in the same structure, so `serve` needs no output directory at all.
 
+### Several collections, one table *(built 2026-07-19)*
+
+A collection is a *source*, not a table. `_posts` and `_drafts` are two
+sources of one corpus — same row shape, same schema, same views — so
+every `kind = "posts"` collection contributes rows and the posts table is
+indexed **once, over all of them**. Indexing per collection would have
+built each index over a fragment: `by_url` could not have seen a
+collision between two sources, and `order` would have restarted at every
+one.
+
+Before this, a second posts collection silently did `db.posts = table`
+and the last one won. Nothing warned; the first collection's rows simply
+vanished.
+
+Drafts ride this: `_drafts` is a source whose rule sets `draft = true`,
+and the `!draft` filters the views already carry keep them out of the
+feed, the listings and the search index. They are ordinary rows in every
+other respect — they materialize `/drafts/{slug}/` routes and take part
+in the link graph — because **nothing publishes from grackle yet**, and
+inventing draft-specific suppression now would be guessing at what §4a's
+profiles (q6, q10) should decide later. The gate is the cutover, not the
+loader.
+
 ## 4a. Profiles: `hidden` and `draft` add no public URLs
 
 Reality check on the current site:
