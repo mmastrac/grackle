@@ -377,73 +377,119 @@ fn tag_stream(cfg: &crate::config::Config, p: &Post) -> Option<Part> {
     Some(Part::Stream(v))
 }
 
-/// The `translations` relations group (§6f): this row in other locales,
-/// as dateless neighbors labelled by language — the language switcher is
-/// one more axis, not a new mechanism. The group label is engine
-/// vocabulary, resolved for the row's locale.
+/// The relations axes (§6b). Each is a traversal of an index: `Similar`
+/// ranks a metric, `Later`/`Earlier` step the chronological ordering,
+/// `LinkedFrom` follows the link graph, and `Translations` pivots
+/// `by_logical` — hold the logical path fixed, vary the locale (§6f).
+///
+/// Closed and typed because the axis string is a THEME CONTRACT: themes
+/// key CSS on `[data-axis]`, so a renamed literal breaks them silently.
+/// A new axis is a variant plus an `ENGINE_STRINGS` key — no schema
+/// change, and the `relation` fragment renders axes it has never heard of.
+#[derive(Clone, Copy)]
+enum Axis {
+    Translations,
+    Similar,
+    LinkedFrom,
+    Later,
+    Earlier,
+}
+
+impl Axis {
+    /// The `data-axis` value themes style on.
+    fn as_str(self) -> &'static str {
+        match self {
+            Axis::Translations => "translations",
+            Axis::Similar => "similar",
+            // The one axis hyphenated on the wire but underscored as a
+            // vocabulary key.
+            Axis::LinkedFrom => "linked-from",
+            Axis::Later => "later",
+            Axis::Earlier => "earlier",
+        }
+    }
+
+    /// The `ENGINE_STRINGS` key naming this axis (§6f), resolved per locale.
+    fn string_key(self) -> &'static str {
+        match self {
+            Axis::Translations => "translations",
+            Axis::Similar => "related",
+            Axis::LinkedFrom => "linked_from",
+            Axis::Later => "later",
+            Axis::Earlier => "earlier",
+        }
+    }
+}
+
+/// One neighbor: the shape every axis yields, dated or not.
+fn neighbor(title: &str, url: &str, date: Option<chrono::NaiveDate>) -> PartMap {
+    let mut nm = PartMap::new("neighbor");
+    nm.set("url", Part::Text(url.to_string()));
+    if let Some(d) = date {
+        nm.set("date", Part::Text(crate::db::iso_date(d)));
+        nm.set("date_pretty", Part::Text(crate::db::pretty_date(d)));
+    }
+    nm.set("title", Part::Text(title.to_string()));
+    nm
+}
+
+/// One relations group. An axis with nothing to say contributes no group
+/// (rule 2), so every caller can push unconditionally.
+fn relation(
+    cfg: &crate::config::Config,
+    locale: &str,
+    axis: Axis,
+    items: Vec<PartMap>,
+) -> Option<PartMap> {
+    if items.is_empty() {
+        return None;
+    }
+    let mut g = PartMap::new("relation");
+    g.set("axis", Part::Text(axis.as_str().into()));
+    g.set(
+        "label",
+        Part::Text(cfg.i18n.string(axis.string_key(), locale).to_string()),
+    );
+    g.set("items", Part::Stream(items));
+    Some(g)
+}
+
+/// The `translations` group (§6f): this row in other locales, as dateless
+/// neighbors labelled by language — the language switcher is one more
+/// axis, not a new mechanism.
 pub fn translations_group(
     cfg: &crate::config::Config,
     locale: &str,
     translations: &[(String, String)],
 ) -> Option<PartMap> {
-    if translations.is_empty() {
-        return None;
-    }
     let items = translations
         .iter()
-        .map(|(label, url)| {
-            let mut nm = PartMap::new("neighbor");
-            nm.set("url", Part::Text(url.clone()));
-            nm.set("title", Part::Text(label.clone()));
-            nm
-        })
+        .map(|(label, url)| neighbor(label, url, None))
         .collect();
-    let mut g = PartMap::new("relation");
-    g.set("axis", Part::Text("translations".into()));
-    g.set("label", Part::Text(cfg.i18n.string("translations", locale).to_string()));
-    g.set("items", Part::Stream(items));
-    Some(g)
+    relation(cfg, locale, Axis::Translations, items)
 }
 
-/// One dated row, full content: the `document` kind for a post. Temporal
-/// relations (crumb trail, neighbors) are present because the schema has a
-/// date, not because anything asked "am I a post".
-/// The `linked-from` relations group (q38): rows that link here. The link
-/// graph's first face — one more axis, the §6b design absorbing its first
-/// non-similarity member.
-///
-/// Dated where the citing row has a date, which is most of them: a post
-/// citing this one says *when*, and that is what makes the list readable.
-/// A citing PAGE has no date and renders without one — a mixed axis, which
-/// the theme handles by letting an undated neighbour span.
+/// The `linked-from` group (q38): rows that link here. The link graph's
+/// first face — one more axis, the §6b design absorbing its first
+/// non-similarity member. Dated where the citing row has a date, which is
+/// most of them: a post citing this one says *when*, and that is what
+/// makes the list readable; a citing PAGE has none, and the theme lets an
+/// undated neighbour span.
 fn linked_from_group(
     cfg: &crate::config::Config,
     locale: &str,
     backlinks: &[(String, String, Option<chrono::NaiveDate>)],
 ) -> Option<PartMap> {
-    if backlinks.is_empty() {
-        return None;
-    }
     let items = backlinks
         .iter()
-        .map(|(title, url, date)| {
-            let mut nm = PartMap::new("neighbor");
-            nm.set("url", Part::Text(url.clone()));
-            if let Some(d) = date {
-                nm.set("date", Part::Text(crate::db::iso_date(*d)));
-                nm.set("date_pretty", Part::Text(crate::db::pretty_date(*d)));
-            }
-            nm.set("title", Part::Text(title.clone()));
-            nm
-        })
+        .map(|(title, url, date)| neighbor(title, url, *date))
         .collect();
-    let mut g = PartMap::new("relation");
-    g.set("axis", Part::Text("linked-from".into()));
-    g.set("label", Part::Text(cfg.i18n.string("linked_from", locale).to_string()));
-    g.set("items", Part::Stream(items));
-    Some(g)
+    relation(cfg, locale, Axis::LinkedFrom, items)
 }
 
+/// One dated row, full content: the `document` kind for a post. Temporal
+/// relations (crumb trail, neighbors) are present because the schema has a
+/// date, not because anything asked "am I a post".
 pub fn document(
     cfg: &crate::config::Config,
     db: &SiteDb,
@@ -466,51 +512,23 @@ pub fn document(
         m.set("outline", Part::Stream(outline));
     }
     m.set("content", Part::Html(content.to_string()));
-    // Relations (§6b): the post pivots along multiple AXES — embedding
-    // similarity, then the temporal pair. Each axis is one group carrying
-    // its own label; an axis with nothing to say contributes no group, and
-    // a future axis (same-tag, series) is one more push, no schema or
-    // theme change.
-    let neighbor = |j: usize| -> Option<PartMap> {
+    let row_neighbor = |j: usize| -> Option<PartMap> {
         let n = db.posts.rows.get(j)?;
-        let mut nm = PartMap::new("neighbor");
-        nm.set("url", Part::Text(n.url.clone()));
-        if let Some(d) = n.date {
-            nm.set("date", Part::Text(crate::db::iso_date(d)));
-            nm.set("date_pretty", Part::Text(crate::db::pretty_date(d)));
-        }
-        nm.set("title", Part::Text(n.title.clone()));
-        Some(nm)
+        Some(neighbor(&n.title, &n.url, n.date))
     };
-    let group = |axis: &str, label: &str, items: Vec<PartMap>| -> Option<PartMap> {
-        if items.is_empty() {
-            return None;
-        }
-        let mut g = PartMap::new("relation");
-        g.set("axis", Part::Text(axis.into()));
-        g.set("label", Part::Text(label.into()));
-        g.set("items", Part::Stream(items));
-        Some(g)
-    };
+    // Push order is render order.
     let mut relations = Vec::new();
-    // Axis labels are engine vocabulary (§6f), resolved per row locale.
-    let word = |k: &str| cfg.i18n.string(k, &p.locale);
     relations.extend(translations_group(cfg, &p.locale, translations));
-    let similar: Vec<PartMap> = related.iter().filter_map(|&j| neighbor(j)).collect();
-    relations.extend(group("similar", word("related"), similar));
+    let similar: Vec<PartMap> = related.iter().filter_map(|&j| row_neighbor(j)).collect();
+    relations.extend(relation(cfg, &p.locale, Axis::Similar, similar));
     relations.extend(linked_from_group(cfg, &p.locale, backlinks));
     if let Some(&i) = db.posts.by_url.get(&p.url) {
+        // One traversal read in two directions.
         let (newer, older) = db.posts.neighbors(i);
-        relations.extend(group(
-            "later",
-            word("later"),
-            newer.and_then(&neighbor).into_iter().collect(),
-        ));
-        relations.extend(group(
-            "earlier",
-            word("earlier"),
-            older.and_then(&neighbor).into_iter().collect(),
-        ));
+        for (axis, ix) in [(Axis::Later, newer), (Axis::Earlier, older)] {
+            let items = ix.and_then(&row_neighbor).into_iter().collect();
+            relations.extend(relation(cfg, &p.locale, axis, items));
+        }
     }
     if !relations.is_empty() {
         m.set("relations", Part::Stream(relations));

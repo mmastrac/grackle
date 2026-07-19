@@ -859,12 +859,18 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     Some("html") => Theme::Default,
                     _ => Theme::parse(layout),
                 };
+                // §6f: engine vocabulary and the shell's `lang` resolve
+                // per row locale, in both tiers.
+                let row_locale = row
+                    .map(|p| p.locale.as_str())
+                    .unwrap_or(cfg.i18n.default.as_str());
                 let html = match tier {
                     // `light` IS the null theme (§5e step 4): the minimal
                     // head (title + robots) in the same root shell (§5g)
                     // as everything, around the canonical rendering.
                     Theme::Light => render::root_shell(
                         &render::light_head(&head),
+                        row_locale,
                         None,
                         profile,
                         &parts::canonical(&parts::raw(frag)),
@@ -883,10 +889,6 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                     .collect()
                             }))
                             .unwrap_or_default();
-                        // §6f: engine vocabulary resolves per row locale.
-                        let row_locale = row
-                            .map(|p| p.locale.as_str())
-                            .unwrap_or(cfg.i18n.default.as_str());
                         let main = match layout {
                             Some("page") | Some("post") => row_thm.fragments.render(
                                 &parts::document_tree(

@@ -151,7 +151,7 @@ impl Theme {
         // supplies doctype/<html>/<head>/<body> around it — so even a
         // theme with no shell fragment yields a valid document.
         let body = self.fragments.render_body(&m);
-        Ok(crate::render::root_shell(&head_html, subtheme, profile, &body))
+        Ok(crate::render::root_shell(&head_html, locale, subtheme, profile, &body))
     }
 }
 

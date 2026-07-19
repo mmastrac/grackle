@@ -130,6 +130,7 @@ impl Theme {
 /// produces a valid document.
 pub fn root_shell(
     head: &str,
+    locale: &str,
     subtheme: Option<&str>,
     profile: Option<&str>,
     body: &str,
@@ -144,8 +145,13 @@ pub fn root_shell(
     let prof = profile
         .map(|p| format!(" data-profile=\"{}\"", esc(p)))
         .unwrap_or_default();
+    // §6f: a French row wears French labels and a French URL, so the
+    // skeleton around it must not claim `en` to screen readers and
+    // crawlers. i18n off means every row carries the default locale, so
+    // a site without translations is unaffected.
+    let lang = esc(locale);
     format!(
-        "<!doctype html>\n<html lang=\"en\" data-kind=\"shell\"{sub}{prof}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{lang}\" data-kind=\"shell\"{sub}{prof}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
         body.trim_end()
     )
 }
