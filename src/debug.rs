@@ -130,14 +130,13 @@ struct View {
 
 pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     // Post `rel` is collection-relative; pages are root-relative. The tree
-    // lens joins them into one filesystem, so re-root the posts here rather
-    // than teaching the client about collection sources.
-    let posts_dir = cfg
-        .collections
-        .values()
-        .find(|c| c.kind == Kind::Posts)
-        .and_then(|c| c.source.clone())
-        .unwrap_or_default();
+    // lens joins them into one filesystem, so re-root the posts — from the
+    // row's own absolute path, not from a collection's source, because
+    // several collections feed this table and only the path knows which one
+    // a row came from.
+    let rel_to_root = |abs: &std::path::Path| {
+        abs.strip_prefix(cfg.root()).unwrap_or(abs).to_string_lossy().to_string()
+    };
     let posts: Vec<Row> = db
         .posts
         .rows
@@ -145,11 +144,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         .map(|p| Row {
             table: "posts",
             url: p.url.clone(),
-            path: if posts_dir.is_empty() {
-                p.rel.to_string_lossy().to_string()
-            } else {
-                format!("{posts_dir}/{}", p.rel.to_string_lossy())
-            },
+            path: rel_to_root(&p.path),
             title: Some(p.title.clone()),
             date: p.date.map(|d| d.to_string()),
             tags: p.tags.clone(),
