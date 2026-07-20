@@ -3669,6 +3669,16 @@ which language variant to select, and that is configurable** — and the
 model absorbed it with less machinery than the survey feared, because
 every hard part mapped onto something already built.
 
+> The selector is the **second** instance of a mechanism this document now
+> names once: a path carries properties, an extractor pulls them out, and
+> what remains is the row's identity (q51). `filename_formats` is the
+> first. The prefix selector is the one that proves it is a *path*
+> mechanism rather than a filename one — it reads a directory component,
+> so `fr/recipes/dal.md` and a hypothetical `2026/01/01/hello.md` are the
+> same shape. What differs is only whether the extractor *strips* what it
+> found: locale must (a row and its translation pair on `by_logical`,
+> which needs the locale gone from the identity), dates need not.
+
 ```toml
 [i18n]
 default = "en"
@@ -4878,125 +4888,130 @@ never reused.
     place this part"?** Settle that and a `light`-style theme is a theme
     file rather than an engine feature.
 
-51. **One row type, typed by directory** *(Matt's shape, 2026-07-19)*.
-    Matt: *"I still feel a bit weird that some things are posts and some
-    are pages — there is no fundamental difference."* Measured, and he is
-    right. Census of the 29 `Kind`/`RouteKind` dispatch sites:
-    **13 (45%) exist only because `Post` and `Page` are different Rust
-    structs**, 5 are loader-shaped, 4 are legacy, and of the 7
-    index-shaped ones only **2** actually discriminate posts from pages
-    on index grounds (`trails.rs:157`, `views.rs:224`) — about 7%.
-    `debug.rs:264` is the proof: three match arms, one expression, zero
-    semantic difference. The inversion nobody predicts: **`Post` is the
-    LESS capable type.** It lacks `theme`, `shell`, custom `fields`,
-    `images` and `order`; `Page` lacks only `date` and `tags` — and every
-    Post exclusive is a consequence of *having a date/tags column*, not of
-    being a different kind of thing.
+51. **One row type: a path carries properties, a route decides where it
+    lands** *(Matt's shape, reframed 2026-07-20)*.
 
-    The asymmetry already leaks. `FrontMatter` is shared, so both tables
-    parse `theme`, `shell`, `draft` and `extra` — and each keeps a
+    Matt: *"Why don't we merge kind=post and kind=tree. The filename format
+    becomes an automatic way to assign a property from a filename. Then the
+    ROUTE determines where a file lives. In a tree it uses the file's full
+    path. In a blog, the date overrules the file's full path."*
+
+    **The spine.** A file's path carries *properties*. A route template
+    spends them. What is left over is the row's identity. `posts` and
+    `tree` are not two kinds of thing — they are two habits about which
+    property a route spends.
+
+    **This mechanism already exists three times**, which is the argument
+    for naming it once:
+
+    | extractor | reads | yields | strips it from the identity? |
+    |---|---|---|---|
+    | `filename_formats` | the filename | `date`, `slug` | no |
+    | i18n suffix selector | the filename (`dal.fr.md`) | `locale` | yes |
+    | i18n prefix selector | **a directory** (`fr/recipes/dal.md`) | `locale` | yes |
+
+    The third is the one that settles the shape: it reads a *directory
+    component*, so this is not a filename mechanism, it is a **path**
+    mechanism. `2026/01/01/hello.md` is the same shape as
+    `fr/recipes/dal.md`. Whether the property is stripped is a property of
+    the extractor, not of the engine: locale must strip (a row and its
+    translation pair on `by_logical`, which only works if the locale is
+    gone from the identity), dates need not (nothing pairs on them today) —
+    though stripping the date would make `{path}` routing sane for posts,
+    which it currently is not.
+
+    **What actually blocks the merge**: there are two disjoint route-token
+    suppliers, and neither offers the other's.
+
+    | | tokens a route may spend |
+    |---|---|
+    | posts (`db.rs`, inline) | `year`, `month`, `day`, `slug` |
+    | tree (`path_tokens`) | `path`, `dir`, `stem`, `name`, `ext` |
+
+    So `_posts/rust/hello.md` **cannot** route to `/rust/hello/` — a post
+    cannot see its own folder — and `writing/2019-thing.md` cannot route by
+    year, because nothing parses a tree file's name. Merging is: one
+    supplier offering path tokens always, plus whatever an extractor
+    produced. Both become expressible; neither is today.
+
+    The validation this needs is **already written**, and only reachable
+    from the posts path:
+
+        _posts/undated.md has no date (filename doesn't match any
+        filename_formats), but its route "/blog/{year}/…" requires {year}
+
+    That is exactly *"this route asked for a property the path did not
+    produce."* Generalizing it is moving it, not inventing it.
+
+    **Three decisions the merge forces:**
+
+    - **Ordering and adjacency.** Reverse-chronological order is a property
+      of the posts *table*, and `next`/`previous` walk it. Merged there is
+      no such table, so order must be declared. Probably an improvement:
+      "previous post" means *previous in a sequence*, and a sequence is a
+      set. Today adjacency walks the table and excludes drafts only by
+      accident (they are undated, so they fall out of the ordering index) —
+      "previous in `published`" would be explicit and more correct.
+    - **Overlapping sources.** `_posts` sits *inside* `.`, so with one kind
+      a post file matches two collections. Jekyll's underscore rule hides
+      this today. Needs a stated rule — most-specific source wins.
+    - **Which indexes a row gets**, which is the real substance: they
+      become conditional on the properties present. A path that yielded a
+      `date` gets the chronological indexes; every row gets the path
+      hierarchy. This is the same conclusion the schema-side draft reached,
+      but the route-first framing gives it a concrete trigger instead of a
+      taxonomy argument.
+
+    **What it buys.** Census of the 29 `Kind`/`RouteKind` dispatch sites:
+    **13 (45%) exist only because `Post` and `Page` are different Rust
+    structs**; 5 are loader-shaped, 4 legacy, and of the 7 index-shaped
+    only **2** discriminate posts from pages on index grounds
+    (`trails.rs`, `views.rs`). `debug.rs:264` is the proof — three match
+    arms, one expression, zero semantic difference.
+
+    The arbitrary limits go with them. **`Post` is the LESS capable type**:
+    it lacks `theme`, `shell`, custom `fields`, `images` and `order`, while
+    `Page` lacks only `date` and `tags` — and every Post exclusive is a
+    consequence of *having a date column*. `FrontMatter` is shared, so both
+    tables parse `theme`, `shell`, `draft` and `extra` and each keeps a
     different subset, silently. Measured on a scratchpad copy:
     `theme:`/`shell:` on a post are dropped with no diagnostic, and
     **`draft: true` on a page publishes the row and lists it in
     `sitemap.xml`** — the §4a leak, still open for pages because
-    `Route.draft` is hardcoded false for them (`db.rs:271` says so). That
-    is separately fixable and should not wait for this question.
+    `Route.draft` is hardcoded false for them (`db.rs` says so in a
+    comment). Separately fixable; should not wait for this.
 
-    **The shape.** A directory boundary declares the type and shape of
-    the rows beneath it; undeclared, **the directory name is the type**.
-    This is §5b's law (*"the tree declares where, the config declares
-    only the vocabulary"*) applied to the one thing still exempt from it —
-    membership, today declared in `grackle.toml` as `source`/`extensions`.
-    The root table is **`entries`**, and its schema is the base every
-    other type extends.
+    **And `kind` shrinks to what it always meant: parsed, or not.** One
+    kind for content, one for objects — which is the identity bit §5g's
+    tier work arrived at from the opposite direction, and the reason
+    objects cannot join: they are selected by extension *anywhere*, never
+    opened (a measured ~140ms skip over ~800 binaries), and have no
+    directory to name or type them.
 
-    Decisions taken while specced:
+    **Already built, 2026-07-19:** the naming half. `[[collections]]` is an
+    array because the name comes from the source directory (`_posts` is
+    `posts`); `name =` overrides; a rootward source is `entries`; a
+    sourceless collection must be named. **The correction it forced**:
+    `post_trail` took the first posts collection the map yielded and read
+    its `trail`, which worked only because `blog` sorted before `drafts` —
+    deriving names put `drafts` first and every post silently lost its
+    archive crumbs. Now keyed on the declaration.
 
-    - **Names are plural, matching the table** (`posts`, `recipes`,
-      `entries`), and ✅ **built 2026-07-19**: `[[collections]]` is an
-      array because the name comes from the SOURCE DIRECTORY (`_posts` is
-      `posts`, leading underscore stripped) and TOML has no keyless
-      table; `name =` overrides where the two genuinely differ (the
-      example keeps `notes`); a rootward source (`.`) has no directory to
-      name it and is `entries`; a sourceless collection (objects, matched
-      by extension) must be named. **The correction it forced**:
-      `post_trail` took the *first* posts collection the map yielded and
-      read its `trail`, which worked only because `blog` sorted before
-      `drafts` — deriving names put `drafts` first and every post silently
-      lost its archive crumbs. Now keyed on the declaration.
-    - ~~**`table == "posts"` for membership**~~ — **superseded** by the
-      `[sets]`/`[routes]` split (§5): membership is `from`, which is a
-      clause, not a predicate. Putting it in the filter language was the
-      same conflation this question is about. What survives is the
-      observation underneath: `kind` mixes *which table* (`post`, `page`)
-      with *what sort of route* (`static`, `object`, `view`), and only
-      star views ever filter on it — where the source genuinely is a
-      heterogeneous route set and the table IS a column. All four uses of
-      `kind == "post"` are in `from = "*"` queries, so a rename there
-      touches nothing else.
-    - **NOT `document`** for the root type, though it was the first
-      instinct: every theme ships a `document.html`, one of §5a's layout
-      kinds. Unlike the row/view `shell` collision (§5g), these two would
-      *meet* — a user writes `type = "recipes"`, opens the theme, finds
-      `document.html`, and must be told that a recipe is not a document
-      (type) but renders as a document (layout). `entry` is unclaimed.
-    - **Any field beyond the base requires a `.schema.toml`**, and the
-      load error *is* the generator — it prints the line to paste, the way
-      the retired `[tags.<id>]` and `collection.crumb` errors name their
-      replacements. Measured cost: across both sites **11 rows carry a
-      non-base key, 10 are already declared**, and the eleventh is
-      `blog/index.html`'s `multipost` — dead Jekyll residue read only by
-      `_layouts/*`. **Zero live rows break.** Also measured: `date` never
-      appears in front matter at all (327 posts, all filename-derived), so
-      it is not a base field but something a type *acquires* by declaring
-      `filename_formats`.
-    - **Schema inheritance is data, never behavior.** The base-schema-for-
-      every-type is a root class, which is worth saying out loud given
-      §9b's standing verdict that this engine keeps sanding OOP off. Field
-      cascades are the benign kind and there are already three
-      (markers, `.schema.toml`, view `fields`). A type that could override
-      *how it renders or routes* would rebuild what `from` refuses and
-      what q46 deleted from collections.
-    - **Objects stay out**, and for the reason §5g's tier work found
-      independently: they are the unparsed side of the identity bit,
-      selected by extension *anywhere* in the tree (§3 — `by_name` is
-      non-unique on purpose), so they cannot be directory-typed. The model
-      becomes: unparsed -> objects; parsed -> one row type, N tables,
-      per-type indexes.
+    **Superseded:** an earlier draft proposed `table == "posts"` as the
+    membership predicate. The `[sets]`/`[routes]` split (§5c) answered it —
+    membership is `from`, a clause, not a predicate; putting it in the
+    filter language would have been the same conflation this question is
+    about. What survives is the observation underneath: only star views
+    filter on `kind`, where the source genuinely is a heterogeneous route
+    set and the table IS a column.
 
-    Open inside this:
-
-    - **`_drafts` is the case that breaks name-as-type.** Defaulting it to
-      a `drafts` table reintroduces exactly what "Several collections, one
-      table" fixed on 2026-07-19 (indexed once, so `by_url` sees
-      collisions and `order` does not restart). The fix is already in the
-      vocabulary — a marker declaring `posts`, the same shape as `.draft` —
-      which makes the common case free and the multi-source case declared.
-      Confirm that is the whole answer.
-    - **"Dedicated tables" must mean dedicated INDEX SETS, not dedicated
-      structs.** A struct per type regenerates the 45% for every type a
-      site declares. One row type carrying a table tag, with indexes built
-      from which fields exist: chronological + adjacency where there is a
-      date, `by_tag` where there are tags, hierarchical always.
-    - **Root files** (`index.html`, `about.md`) have no directory to name
-      them — `entries` is the answer, but that is ~187 rows on the main
-      site landing in a table named by fallback rather than intent.
-    - **Nesting**: `recipes/desserts/` — outermost boundary sets the
-      table, deeper `.schema.toml` refines the shape (nearest-wins, as
-      today). Stated so it is not discovered.
-    - **Type name is not URL space.** `_posts` -> table `posts` but routes
-      to `/blog/`; rules still own routing. The pretty case (`recipes/` is
-      both) and the Jekyll case will look different, and people will
-      expect the first.
-
-    Counterweight, recorded so this does not read as urgent: the §7b
-    backtest ran 36 real sites and **none of its eight gap clusters was
-    this**. Nothing is blocked; the value is internal coherence plus the
-    leak. Which argues for staging — **stage 1 is additive**: give `Post`
-    the `theme`/`shell`/`fields`/`images` slots it already parses and
-    discards, and make `draft` on a page work or fail loudly. After that
-    the structs differ only by date/tags vs order/rendered, and the merge
-    is mechanical rather than architectural.
+    **Counterweight, so this does not read as urgent:** §7b's 36-site
+    backtest produced eight gap clusters and this was not among them.
+    Nothing is blocked; the value is coherence plus the leak. **Stage 1 is
+    additive** — give `Post` the `theme`/`shell`/`fields` slots it already
+    parses and discards, and make `draft` on a page work or fail loudly.
+    After that the structs differ only by date/tags vs order/rendered, and
+    the merge is mechanical rather than architectural.
 
 ### Settled ledger
 
