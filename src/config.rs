@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "default_root")]
     pub root: PathBuf,
@@ -36,10 +37,6 @@ pub struct Config {
     /// Queries that land: every URL the site emits from a query.
     #[serde(default)]
     routes: BTreeMap<String, View>,
-    /// The retired `[views]` spelling, kept only so `validate` can name the
-    /// replacement instead of silently ignoring a whole section.
-    #[serde(default, rename = "views")]
-    retired_views: BTreeMap<String, toml::Value>,
     /// Marker filename -> defaults it applies to its directory and below.
     /// The config says what a marker means; the tree says where (DESIGN.md §4b).
     #[serde(default)]
@@ -73,10 +70,6 @@ pub struct Config {
     /// — mode-A landing prose for that value's own archive page.
     #[serde(default)]
     pub records: BTreeMap<String, BTreeMap<String, RecordCfg>>,
-    /// The retired `[tags.<id>]` spelling — kept only so validate() can
-    /// error loudly with the new form instead of ignoring it silently.
-    #[serde(default)]
-    pub tags: BTreeMap<String, toml::Value>,
     /// Build profiles (§4a): a profile is a different PROJECTION of the same
     /// database, never a different database. It may change three things and
     /// no others — which rows the views admit, what URL space the output is
@@ -132,9 +125,6 @@ pub struct ProfileCfg {
     pub sets: BTreeMap<String, ProfileView>,
     #[serde(default)]
     pub routes: BTreeMap<String, ProfileView>,
-    /// Retired `[profiles.X.views]`, kept so validate can name the split.
-    #[serde(default, rename = "views")]
-    pub retired_views: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -380,6 +370,7 @@ pub enum Kind {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Collection {
     pub kind: Kind,
     /// The table name, when the source directory is the wrong word for it
@@ -401,16 +392,9 @@ pub struct Collection {
     pub include: Vec<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
-    /// The retired `crumb`/`index` spellings — kept, like `[tags.<id>]`,
-    /// only so validate() can name the replacement (§5h, q46) instead of
-    /// ignoring them. Silence is the wrong failure here: a stale
-    /// `crumb = "Blog"` costs nothing at load and yields a page quietly
-    /// missing a crumb.
+    /// `trail` stays where `crumb`/`index` did not: a subdivision chain
+    /// renders from a row's group keys, which no URL walk can recover.
     ///
-    /// `trail` stays: a subdivision chain renders from a row's group keys,
-    /// which no URL walk can recover.
-    pub crumb: Option<toml::Value>,
-    pub index: Option<toml::Value>,
     /// The view whose subdivision chain forms this collection's row trails
     /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
     pub trail: Option<String>,
@@ -442,6 +426,7 @@ pub struct Rule {
 ///   * query + layout, no route         — embeddable, e.g. `latest`
 ///   * query + layout + route(s)        — materialized, e.g. `blog_index`
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct View {
     /// A collection name, another set/route's name, or `*` for the route
     /// set. Spelled `from` — one namespace, so what it names decides
@@ -697,14 +682,6 @@ impl Config {
     }
 
     fn merge_queries(&mut self) -> Result<()> {
-        if let Some(name) = self.retired_views.keys().next() {
-            anyhow::bail!(
-                "[views.{name}] — `[views]` split into `[sets]` (a query, no \
-                 path) and `[routes]` (a query that lands). Move this entry \
-                 to whichever it is, and spell `over`/`filter`/`route(s)` as \
-                 `from`/`where`/`path(s)`."
-            );
-        }
         let sets = std::mem::take(&mut self.sets);
         let routes = std::mem::take(&mut self.routes);
         for (name, v) in &sets {
@@ -752,12 +729,6 @@ impl Config {
             self.site.url = u;
         }
         self.site.noindex = p.noindex;
-        if let Some(v) = p.retired_views.keys().next() {
-            anyhow::bail!(
-                "profile {name}: [profiles.{name}.views.{v}] — split into \
-                 `.sets` and `.routes` to match the config surface."
-            );
-        }
         for (vname, over) in p.sets.into_iter().chain(p.routes) {
             let v = self
                 .views
@@ -872,27 +843,6 @@ impl Config {
                 }
                 Ok(())
             };
-            if let Some(id) = cfg.tags.keys().next() {
-                anyhow::bail!(
-                    "[tags.{id}]: tag records generalized to enum records — \
-                     declare [records.tags.{id}] instead (§6f)"
-                );
-            }
-            for (name, c) in &cfg.collections {
-                let stale = c
-                    .crumb
-                    .as_ref()
-                    .map(|_| "crumb")
-                    .or(c.index.as_ref().map(|_| "index"));
-                if let Some(field) = stale {
-                    anyhow::bail!(
-                        "collections.{name}: `{field}` is retired — a trail climbs \
-                         the URL to the landing view that owns the collection's \
-                         index, so the view's own `title`/`crumb` and route say \
-                         this once (§5h, q46)"
-                    );
-                }
-            }
             for (field, recs) in &cfg.records {
                 for (id, t) in recs {
                     if let Some(n) = &t.name {
@@ -1540,11 +1490,27 @@ mod tests {
         assert!(e.contains("both a set and a route"), "{e}");
     }
 
-    /// The retired section names the split rather than being ignored.
+    /// Retired spellings carry no bespoke message any more (two consumers,
+    /// both migrated) — but they must still not be SILENTLY IGNORED, which
+    /// is what `deny_unknown_fields` buys: a stale key is a parse error
+    /// listing what is valid.
     #[test]
-    fn retired_views_section_names_the_replacement() {
-        let e = merge_err("[views.published]\nfrom = \"blog\"\n");
-        assert!(e.contains("[sets]") && e.contains("[routes]"), "{e}");
+    fn an_unknown_config_key_is_a_parse_error() {
+        for stale in [
+            "[views.published]\nfrom = \"blog\"\n",
+            "[sets.s]\nover = \"blog\"\n",
+            "[sets.s]\nfrom = \"blog\"\nfilter = \"!draft\"\n",
+            "[routes.r]\nfrom = \"blog\"\nroute = \"/r/\"\n",
+        ] {
+            let src = format!(
+                "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n{stale}"
+            );
+            let e = Config::from_toml(&src)
+                .expect_err("stale spelling should not parse")
+                .to_string();
+            assert!(e.contains("unknown field"), "{stale} -> {e}");
+        }
     }
 
     #[test]
@@ -1674,22 +1640,5 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(c.i18n.text(i, "en"), "Sure to please!");
-
-        let e = cfg_err("[tags.contes]\nslug = \"x\"\n");
-        assert!(e.contains("records.tags.contes"), "{e}");
-    }
-
-    /// q46: `collection.crumb`/`index` are retired, and a stale one is a
-    /// load error naming what replaced it. Silence would be worse than an
-    /// error here — the config keeps reading as if it still did something,
-    /// while the page it names loses nothing visible for the author to
-    /// notice.
-    #[test]
-    fn retired_collection_crumb_errors() {
-        // cfg_err's harness opens [collections.blog], so these land in it.
-        for field in ["crumb = \"Blog\"\n", "index = \"/blog/\"\n"] {
-            let e = cfg_err(field);
-            assert!(e.contains("retired") && e.contains("§5h"), "{e}");
-        }
     }
 }
