@@ -93,6 +93,13 @@ pub struct Config {
     pub links: LinksCfg,
     #[serde(skip)]
     pub dir: PathBuf,
+    /// The config file itself. Never content: a site's own config is input
+    /// to the build, and without this it routes as an ordinary tree row and
+    /// gets published — which is how `grackle.toml` ended up on a website.
+    /// Excluded by identity rather than by an `exclude` glob, so no site has
+    /// to know the trap exists.
+    #[serde(skip)]
+    pub config_file: PathBuf,
 }
 
 /// One profile's overrides. Closed vocabulary, checked at load: an unknown
@@ -624,6 +631,7 @@ impl Config {
         let mut cfg = Config::from_toml(&text)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        cfg.config_file = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         cfg.validate()?;
         if let Some(name) = profile {
             cfg.apply_profile(name)?;
@@ -761,6 +769,20 @@ impl Config {
     /// them on in-memory configs).
     fn validate(&self) -> Result<()> {
         let cfg = self;
+        // Zero collections means zero rows, zero routes, and a build that
+        // reports success over an empty directory. Always a mistake, and
+        // silence is the worst way to report it: the first config a
+        // newcomer writes is `[site]` and nothing else.
+        if cfg.collections.is_empty() {
+            anyhow::bail!(
+                "no collections declared — nothing would be built. A site \
+                 needs at least one `[[collections]]` saying where its \
+                 content lives, e.g.\n\n  \
+                 [[collections]]\n  kind = \"posts\"\n  source = \"_posts\"\n\n  \
+                   [[collections.rules]]\n  match = \"**\"\n  \
+                 route = \"/blog/{{year}}/{{month:02}}/{{slug}}/\""
+            );
+        }
         for (vname, v) in &cfg.views {
             for (fname, f) in &v.fields {
                 if f.truncate.is_none() {
@@ -1487,6 +1509,20 @@ mod tests {
 
     /// `match` conjoins along the chain: a child narrows within its
     /// parent's subtree. Nearest-wins would let a child silently escape it.
+    /// The first config anyone writes is `[site]` and nothing else. It used
+    /// to build successfully over an empty directory.
+    #[test]
+    fn a_config_with_no_collections_says_so() {
+        let src = "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n";
+        let c = Config::from_toml(src).unwrap();
+        let e = c.validate().unwrap_err().to_string();
+        assert!(e.contains("no collections declared"), "{e}");
+        assert!(
+            e.contains("[[collections]]"),
+            "the error should show the shape: {e}"
+        );
+    }
+
     #[test]
     fn match_conjoins_along_the_chain() {
         let c = cfg("[sets.recipes]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n\

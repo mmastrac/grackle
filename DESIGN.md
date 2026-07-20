@@ -3877,16 +3877,44 @@ why `light` exists (§5a) and why the null theme runs as a falsifier (§5e).
 **A second site is the same move one level up**: the falsifier for
 site-independence.
 
-`grackle/example/` is that site — self-contained (own `grackle.toml`, own
-theme, own `.slots/`, own `_cache/`), invisible to the main corpus (the
-`grackle/**` exclude already covers it), built and served like any site:
+`grackle/examples/field-notes/` is that site — self-contained (own
+`grackle.toml`, own theme, own `.slots/`, own `_cache/`), invisible to the
+main corpus (the `grackle/**` exclude already covers it), built and served
+like any site:
 
 ```
-grackle --config example/grackle.toml serve --port 8081
+grackle --config examples/field-notes/grackle.toml serve --port 8081
 ```
 
 It is deliberately a **kitchen sink**: each section exists to force a
 parked feature, in parallel rather than in sequence.
+
+### The second example is a yardstick, not a showcase *(2026-07-20)*
+
+`examples/minimal/` is the opposite site: two posts, one page, and the
+smallest config that produces a working blog. It exists to be **measured**.
+Every line in it is a line a newcomer must write before anything appears,
+so the count is the number to watch — it should fall as defaults land, and
+a rise wants a reason.
+
+It was built by starting from `[site]` alone and adding until the build
+produced something, which is how both of the following surfaced. Measured
+at introduction: **27 non-blank, non-comment lines**, of which roughly half
+are identical on any site anyone would build — the three tree rules, the
+`!draft && !hidden` set, the post layout default.
+
+Two traps it found immediately, both now closed:
+
+- **A config with no collections built successfully and emitted nothing.**
+  No error, no warning, an empty output directory. That is the first config
+  anyone writes. It is now a load error naming what is missing and showing
+  the shape of a collection.
+- **The site published its own `grackle.toml`.** The config is input to the
+  build, but it sat in the tree like any other file and routed through the
+  passthrough rule. Sites were papering over it with an `exclude` glob —
+  which a newcomer has no way to know they need. The engine now excludes
+  the config **by identity**, and field-notes' `*.toml` exclude went away
+  with it.
 
 | section | exists to force |
 |---|---|

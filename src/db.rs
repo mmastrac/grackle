@@ -850,6 +850,14 @@ fn build_tree_and_objects(
         .filter(|f| !templates.iter().any(|t| *t == f.rel))
         // A marker declares defaults; it is not itself content.
         .filter(|f| !markers.is_marker(&f.path))
+        // Nor is the config that declared all of this. Matched by identity,
+        // not by glob, so a site needs no `exclude` entry to avoid
+        // publishing its own grackle.toml.
+        .filter(|f| {
+            std::fs::canonicalize(&f.path)
+                .map(|p| p != cfg.config_file)
+                .unwrap_or(true)
+        })
         .collect();
 
     // q45: rows named by a view's `content` — claimed landings. Matched
