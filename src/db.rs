@@ -43,6 +43,13 @@ pub struct Post {
     pub description: Option<String>,
     pub layout: Option<String>,
     pub tags: Vec<String>,
+    /// Which theme renders this row, and how much wrapper it wears (§5a,
+    /// §5g). `Page` has carried both since they existed; `Post` did not,
+    /// so `FrontMatter` parsed `theme:`/`shell:` on a post and dropped
+    /// them without a word. Step one of q51's merge is that both row types
+    /// hold the same fields.
+    pub theme: Option<String>,
+    pub shell: Option<String>,
     pub draft: bool,
     pub hidden: bool,
     pub noindex: bool,
@@ -740,6 +747,18 @@ fn read_posts(
             .title
             .clone()
             .unwrap_or_else(|| slug.replace('-', " "));
+        let theme = raw.front.theme.clone().or_else(|| {
+            defaults
+                .get("theme")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
+        let shell = raw.front.shell.clone().or_else(|| {
+            defaults
+                .get("shell")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
         let draft = raw
             .front
             .draft
@@ -811,6 +830,8 @@ fn read_posts(
             description: raw.front.description,
             layout,
             tags: raw.front.tags,
+            theme,
+            shell,
             draft,
             hidden,
             noindex,

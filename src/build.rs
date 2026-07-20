@@ -251,14 +251,26 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 &translations,
             ));
             let dir = p.path.parent().unwrap_or(&root);
-            let html = thm.page(
-                render::head_html(&head, &css_of(None)),
+            // Theme is per ROW (§5a), and that now includes posts — the
+            // page pass has resolved it this way since themes existed,
+            // while posts rendered through the default unconditionally and
+            // their `theme:` was read and thrown away.
+            let (theme_name, subtheme) = match p.theme.as_deref() {
+                Some(spec) => {
+                    let (n, s) = theme::split_spec(spec);
+                    (Some(n), s)
+                }
+                None => (None, None),
+            };
+            let row_thm = themes.get(theme_name)?;
+            let html = row_thm.page(
+                render::head_html(&head, &css_of(theme_name)),
                 &cfg.site.title,
                 main,
                 dir,
                 &p.locale,
                 &fill_link_resolver(cfg, &linkspace, &p.locale),
-                None,
+                subtheme.as_deref(),
                 profile,
             )?;
             Ok((p.url.clone(), html))
