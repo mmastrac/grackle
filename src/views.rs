@@ -712,7 +712,7 @@ mod object_view_tests {
     fn cfg(views: &str) -> Config {
         let src = format!(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [collections.objects]\nkind = \"objects\"\n{views}"
+             [[collections]]\nname = \"objects\"\nkind = \"objects\"\n{views}"
         );
         Config::from_toml(&src).expect("test config parses")
     }

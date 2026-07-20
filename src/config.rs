@@ -12,8 +12,17 @@ pub struct Config {
     #[serde(default = "default_true")]
     pub gitignore: bool,
     pub site: Site,
-    #[serde(default)]
+    /// Keyed by table name, resolved from each entry's `name` or its
+    /// source directory. Built at load from `declared_collections`.
+    #[serde(skip)]
     pub collections: BTreeMap<String, Collection>,
+    /// `[[collections]]` — an array, because the table name comes from the
+    /// SOURCE DIRECTORY (`_posts` -> `posts`, leading underscore stripped)
+    /// and TOML has no keyless table. `name =` overrides where the two
+    /// genuinely differ. A rootward source (`.`) has no directory to name
+    /// it and falls back to `entries` (q51).
+    #[serde(default, rename = "collections")]
+    declared_collections: Vec<Collection>,
     /// Sets and routes, merged. One namespace (§5c): `from` names a
     /// collection, a set or a route, so the three cannot collide — checked
     /// in `validate`. Internally this stays one map because the split is a
@@ -373,6 +382,10 @@ pub enum Kind {
 #[derive(Debug, Deserialize)]
 pub struct Collection {
     pub kind: Kind,
+    /// The table name, when the source directory is the wrong word for it
+    /// (`_posts` holding a table called `notes`). Absent, the directory
+    /// names the table — one place, not two.
+    pub name: Option<String>,
     pub source: Option<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
@@ -627,6 +640,7 @@ impl Config {
     /// built in a test is the same shape as one read from disk.
     pub(crate) fn from_toml(text: &str) -> Result<Config> {
         let mut cfg: Config = toml::from_str(text)?;
+        cfg.merge_collections()?;
         cfg.merge_queries()?;
         Ok(cfg)
     }
@@ -636,6 +650,52 @@ impl Config {
     /// namespace is shared with collections, so a name may live in exactly
     /// one place — `from` resolves against all three, and before this the
     /// lookup silently preferred a view over a same-named collection.
+    /// The table a collection contributes to: its `name`, else its source
+    /// directory with any leading underscore stripped. `_posts` is the
+    /// `posts` table; `recipes/` is the `recipes` table; a source of `.`
+    /// has no directory to name it and is `entries`.
+    fn table_name(c: &Collection) -> Result<String> {
+        if let Some(n) = &c.name {
+            return Ok(n.clone());
+        }
+        let Some(src) = c.source.as_deref() else {
+            anyhow::bail!(
+                "a collection with no `source` (objects are matched by \
+                 extension, not by directory) has no directory to name it — \
+                 give it a `name`."
+            );
+        };
+        let base = Path::new(src)
+            .file_name()
+            .map(|s| s.to_string_lossy().trim_start_matches('_').to_string())
+            .unwrap_or_default();
+        Ok(if base.is_empty() {
+            "entries".to_string()
+        } else {
+            base
+        })
+    }
+
+    /// Key every collection by its resolved name. This names the thing
+    /// `from` refers to — it does NOT decide which table rows land in, which
+    /// is still `kind` (`_posts` and `_drafts` are two `posts` collections
+    /// feeding one corpus, §4, and stay two entries here).
+    fn merge_collections(&mut self) -> Result<()> {
+        for c in std::mem::take(&mut self.declared_collections) {
+            let name = Config::table_name(&c)?;
+            let src = c.source.clone().unwrap_or_default();
+            if let Some(prev) = self.collections.insert(name.clone(), c) {
+                anyhow::bail!(
+                    "two collections resolve to the name {name:?} (sources \
+                     {:?} and {src:?}) — `from` needs one name per thing, so \
+                     give one of them an explicit `name`.",
+                    prev.source.unwrap_or_default(),
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn merge_queries(&mut self) -> Result<()> {
         if let Some(name) = self.retired_views.keys().next() {
             anyhow::bail!(
@@ -1222,13 +1282,17 @@ mod tests {
         c
     }
 
-    /// Parsed but not merged — for the checks `merge_queries` itself owns.
+    /// Parsed, with collections keyed — but queries not yet folded, which is
+    /// what the `merge_queries` checks below are about.
     fn cfg_unmerged(views: &str) -> Config {
         let src = format!(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
+             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
         );
-        toml::from_str(&src).expect("test config should parse")
+        let mut c: Config = toml::from_str(&src).expect("test config should parse");
+        c.merge_collections()
+            .expect("test collections should resolve");
+        c
     }
 
     /// The error `merge_queries` produces, as a full anyhow chain.
@@ -1385,6 +1449,68 @@ mod tests {
         assert_eq!(inherited["summary"].truncate.unwrap().max_blocks, Some(4));
         let overridden = c.fields_for("tag_index");
         assert_eq!(overridden["summary"].truncate.unwrap().max_blocks, Some(1));
+    }
+
+    /// The directory names the table, so it is written once.
+    #[test]
+    fn a_collection_takes_its_name_from_its_source_directory() {
+        let c = Config::from_toml(
+            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nkind = \"tree\"\nsource = \"recipes\"\n",
+        )
+        .unwrap();
+        let names: Vec<&str> = c.collections.keys().map(String::as_str).collect();
+        assert_eq!(names, vec!["posts", "recipes"]);
+    }
+
+    /// A rootward source has no directory to name it (q51).
+    #[test]
+    fn a_root_collection_is_named_entries() {
+        let c = Config::from_toml(
+            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind = \"tree\"\nsource = \".\"\n",
+        )
+        .unwrap();
+        assert!(
+            c.collections.contains_key("entries"),
+            "{:?}",
+            c.collections.keys()
+        );
+    }
+
+    #[test]
+    fn an_explicit_name_overrides_the_directory() {
+        let c = Config::from_toml(
+            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n",
+        )
+        .unwrap();
+        assert!(c.collections.contains_key("notes"));
+    }
+
+    /// Objects are matched by extension, so no directory names them.
+    #[test]
+    fn a_sourceless_collection_must_be_named() {
+        let e = Config::from_toml(
+            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind = \"objects\"\nextensions = [\"png\"]\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("give it a `name`"), "{e}");
+    }
+
+    #[test]
+    fn two_collections_may_not_resolve_to_one_name() {
+        let e = Config::from_toml(
+            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nkind = \"tree\"\nsource = \"posts\"\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("resolve to the name"), "{e}");
     }
 
     #[test]

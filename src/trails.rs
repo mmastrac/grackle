@@ -152,15 +152,21 @@ pub fn listing_title_and_trail(
 /// URL (it renders each level from the post's own group keys, not from
 /// path segments).
 pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<String>)> {
-    // The posts collection, whatever it is named (§7a: the example's is
-    // `notes`). One posts table means one posts collection today.
-    let col = cfg.collections.iter().find(|(_, c)| c.kind == Kind::Posts);
     let loc = p.locale.as_str();
     let mut t = trail_root(cfg, db, loc);
     for (url, label) in ancestors(cfg, db, &p.url) {
         t.push((label, Some(url)));
     }
-    let trail_view = col.and_then(|(_, c)| c.trail.as_deref());
+    // The posts collection that declares a trail, whatever it is named
+    // (§7a: the example's is `notes`). Keyed on the DECLARATION, not on
+    // being first: `_posts` and `_drafts` are two posts collections, and
+    // taking whichever the map yielded first made this depend on their
+    // names sorting the lucky way.
+    let trail_view = cfg
+        .collections
+        .values()
+        .filter(|c| c.kind == Kind::Posts)
+        .find_map(|c| c.trail.as_deref());
     let mut chained = false;
     if let Some(trail_view) = trail_view {
         for name in cfg.grouped_chain(trail_view) {
@@ -270,7 +276,7 @@ mod tests {
     fn ancestors_finds_a_paginated_landing() {
         let cfg: Config = Config::from_toml(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.blog_index]\nfrom = \"published\"\npaginate = 5\n\
              paths = [\"/blog/\", \"/blog/page/{n}/\"]\ntitle = \"Blog\"\n\
@@ -291,5 +297,41 @@ mod tests {
 
         let anc = ancestors(&cfg, &db, "/blog/2022/12/16/a-post.html");
         assert_eq!(anc, vec![("/blog/".to_string(), "Blog".to_string())]);
+    }
+
+    /// Two posts collections (`_posts` and `_drafts`, §4) and only one
+    /// declares the `trail`. Pinned because taking whichever the map
+    /// yielded FIRST made this depend on their names sorting the lucky
+    /// way — `drafts` sorts before `posts`, so deriving collection names
+    /// from directories silently dropped every post's archive chain.
+    #[test]
+    fn the_trail_comes_from_the_collection_that_declares_it() {
+        let cfg: Config = Config::from_toml(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [[collections]]\nkind = \"posts\"\nsource = \"_drafts\"\n\
+             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             trail = \"yearly_archive\"\n\
+             [sets.published]\nfrom = \"posts\"\n\
+             [routes.yearly_archive]\nfrom = \"published\"\ngroup_by = \"date.year\"\n\
+             path = \"/blog/{year}/\"\ntitle = \"{year}\"\n",
+        )
+        .unwrap();
+        // `drafts` sorts first and declares no trail; `posts` declares it.
+        assert_eq!(
+            cfg.collections.keys().next().map(String::as_str),
+            Some("drafts")
+        );
+        let db = SiteDb::default();
+        let p = Post {
+            url: "/blog/2022/12/16/a-post/".to_string(),
+            date: chrono::NaiveDate::from_ymd_opt(2022, 12, 16),
+            locale: "en".to_string(),
+            ..Default::default()
+        };
+        let t = post_trail(&cfg, &db, &p);
+        assert!(
+            t.iter().any(|(label, _)| label == "2022"),
+            "year crumb missing from {t:?}"
+        );
     }
 }

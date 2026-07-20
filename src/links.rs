@@ -302,7 +302,7 @@ mod tests {
     fn view_links_are_locale_aware() {
         let cfg: Config = Config::from_toml(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
              [i18n]\nlocales = [\"fr\"]\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\

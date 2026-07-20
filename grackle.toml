@@ -18,7 +18,7 @@ email = "matthew@mastracci.com"
 
 # ---------------------------------------------------------------- posts
 
-[collections.blog]
+[[collections]]
 kind = "posts"
 source = "_posts"
 # A post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
@@ -31,11 +31,11 @@ trail = "monthly_archive"
 # in _posts, but the format list costs nothing to keep.
 filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
 
-  [[collections.blog.rules]]
+  [[collections.rules]]
   match = "hidden/**"
   defaults = { hidden = true }
 
-  [[collections.blog.rules]]
+  [[collections.rules]]
   match = "**"
   defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
@@ -44,14 +44,14 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
 # same row shape, same schema, same views — flagged `draft`, which every
 # view's `!draft` filter already excludes. Undated by Jekyll convention
 # (`_drafts` filenames carry no date), so no `filename_formats` here.
-[collections.drafts]
+[[collections]]
 kind = "posts"
 source = "_drafts"
 # The whole stem is the slug: a draft has no date until it is published, so
 # `{slug}` is the honest format rather than a date the file does not carry.
 filename_formats = ["{slug}"]
 
-  [[collections.drafts.rules]]
+  [[collections.rules]]
   match = "**"
   defaults = { layout = "post", draft = true }
   route = "/drafts/{slug}/"
@@ -61,18 +61,19 @@ filename_formats = ["{slug}"]
 # Matched by extension anywhere in the tree; membership precedence is
 # posts -> objects -> tree (DESIGN.md §3), so these never collide with the
 # tree's passthrough rule.
-[collections.objects]
+[[collections]]
+name = "objects"
 kind = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
 bucket = "assets"
 
-  [[collections.objects.rules]]
+  [[collections.rules]]
   match = "**"
   route = "/{path}"
 
 # ---------------------------------------------------------------- pages
 
-[collections.pages]
+[[collections]]
 kind = "tree"
 source = "."
 
@@ -94,13 +95,13 @@ exclude = [
 include = [".well-known/**", ".htaccess"]
 
   # An index file is served as its directory, whether it is rendered or static.
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
 
   # Sass with front matter is compiled, so the output extension changes.
   # css/main.scss -> /css/main.css, which the layout hardcodes.
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*.{scss,sass}"
   front_matter = true
   route = "/{dir}/{stem}.css"
@@ -109,13 +110,13 @@ include = [".well-known/**", ".htaccess"]
   # URLs. Measured: index.html and blog/index.html have front matter, while
   # everything under demos/, code/legacy/ and writing/school/ does not — which
   # is exactly why /demos/mindstorms/alpharex_1.html keeps its extension.
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*.{html,md}"
   front_matter = true
   route = "/{dir}/{stem}/"
 
   # Everything else is copied verbatim at its literal path.
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
@@ -198,7 +199,7 @@ noindex = true
 # Free to correct: the corpus has 0 drafts and 0 hidden posts, so no output
 # moves today. It moves the first time a draft exists, which is the point.
 [sets.published]
-from = "blog"
+from = "posts"
 where = "!draft && !hidden"
 
   # A computed field (§6d): a derived column on this query's rows, inherited

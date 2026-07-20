@@ -18,30 +18,32 @@ author = "Example Author"
 
 # Named "notes", NOT "blog" — §7a contradiction #1, resolved: views now
 # dispatch on collection *kind*, so the name is ours to choose.
-[collections.notes]
+[[collections]]
+name = "notes"
 kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
-  [[collections.notes.rules]]
+  [[collections.rules]]
   match = "**"
   defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
 # ---------------------------------------------------------------- objects
 
-[collections.objects]
+[[collections]]
+name = "objects"
 kind = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 bucket = "assets"
 
-  [[collections.objects.rules]]
+  [[collections.rules]]
   match = "**"
   route = "/{path}"
 
 # ---------------------------------------------------------------- pages
 
-[collections.pages]
+[[collections]]
 kind = "tree"
 source = "."
 # `shells/**` is build tooling, not content (§4c): a script shell's source
@@ -51,20 +53,20 @@ exclude = ["themes/**", "shells/**", "*.toml"]
 
   # Theme is chosen per row (§5a); a rule default restyles a subtree —
   # the recipes section deliberately looks nothing like the rest.
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "recipes/**"
   defaults = { theme = "recipes" }
 
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
 
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*.{html,md}"
   front_matter = true
   route = "/{dir}/{stem}/"
 
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
@@ -147,14 +149,14 @@ limit = 3
 layout = "link_list"
 
 [sets.latest_recipes]
-from = "pages"
+from = "entries"
 match = "recipes/**"
 order_by = "title"
 limit = 3
 layout = "link_list"
 
 [sets.book_of_the_month]
-from = "pages"
+from = "entries"
 match = "books/**"
 order_by = "-month"
 limit = 1
@@ -237,7 +239,7 @@ title = "Photos"
 
 [routes.books]
 path = "/books/"
-from = "pages"
+from = "entries"
 match = "books/**"
 order_by = "-month"
 layout = "listing"
@@ -259,7 +261,7 @@ intro = { en = "One book a month, argued with, shelved beside the [notes](view:b
 
 [routes.recipes_index]
 path = "/recipes/"
-from = "pages"
+from = "entries"
 match = "recipes/**"
 order_by = "title"
 layout = "listing"
@@ -276,7 +278,7 @@ title = { en = "Recipes", fr = "Recettes" }
 
 [routes.recipes_by_course]
 path = "/recipes/courses/{key}/"
-from = "pages"
+from = "entries"
 match = "recipes/**"
 group_by = "course"
 order_by = "title"
