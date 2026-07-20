@@ -168,18 +168,24 @@ year_penalty = 0.01
 [profiles.drafts]
 noindex = true
 
-  # Selection is the view's job: relax the one filter that hides drafts and
+  # Selection is the query's job: relax the one `where` that hides drafts and
   # every listing, archive and feed downstream follows, because they all
-  # read `published`.
-  [profiles.drafts.views.published]
-  filter = "!hidden"
+  # read `published`. Patching a SET patches a query...
+  [profiles.drafts.sets.published]
+  where = "!hidden"
 
-  # Its own search index too, or the projection would ship a searchable set
-  # that disagrees with the pages beside it.
-  [profiles.drafts.views.search]
-  filter = 'kind == "post" && !hidden'
+  # ...and patching a ROUTE patches a landing. Its own search index too, or
+  # the projection would ship a searchable set that disagrees with the pages
+  # beside it.
+  [profiles.drafts.routes.search]
+  where = 'kind == "post" && !hidden'
 
-# ---------------------------------------------------------------- views
+# ------------------------------------------------------------------ sets
+#
+# A query that never lands. `from` names a collection, another set, or a
+# route (composing over a routed, grouped query is SUBDIVISION, §5c — the
+# engine derives which from what the name refers to, so there is one
+# keyword and one namespace).
 
 # The one named set. Jekyll had five hand-written `{% unless %}` clauses that
 # had drifted into three different opinions: atom.xml excluded only `hidden`
@@ -191,32 +197,47 @@ noindex = true
 #
 # Free to correct: the corpus has 0 drafts and 0 hidden posts, so no output
 # moves today. It moves the first time a draft exists, which is the point.
-[views.published]
-over = "blog"
-filter = "!draft && !hidden"
+[sets.published]
+from = "blog"
+where = "!draft && !hidden"
 
-  # A computed field (§6d): a derived column on this view's rows, inherited
-  # by every view composed over it (nearest declaration wins). `summary` is
+  # A computed field (§6d): a derived column on this query's rows, inherited
+  # by every query composed over it (nearest declaration wins). `summary` is
   # what listing previews consume — content blocks kept until a budget runs
   # out; the theme's fade clamps at ~7 lines, so max_chars tracks what is
   # actually visible. The deriver also yields the `truncated` fact (the ★).
-  [views.published.fields.summary]
+  [sets.published.fields.summary]
   truncate = { max_blocks = 4, max_chars = 700 }
+
+# No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
+# with `{% assign latest_count %}` because `site.posts | limit: 3` slices before
+# it filters, so hidden posts would eat the slots. `where` and `limit` are
+# separate stages here, so this says what it means.
+[sets.latest]
+from = "published"
+limit = 3
+layout = "link_list"
+
+# ---------------------------------------------------------------- routes
+#
+# Every URL this site emits from a query. `path` is what makes an entry a
+# route rather than a set; `title`, `crumb`, `shell`, `paginate` and
+# `group_by` are meaningless without one, which is why they only appear here.
 
 # `blog/index.html` iterates `paginator.posts`: jekyll-paginate renders that one
 # file once per page. It is this view's template, not an independently routable
 # page — so the view owns both routes and the tree collection skips the file.
-[views.blog_index]
-over = "published"
+[routes.blog_index]
+paths = ["/blog/", "/blog/page/{n}/"]
+from = "published"
 paginate = 5
-routes = ["/blog/", "/blog/page/{n}/"]
 template = "blog/index.html"
 title = "Blog"
 
-[views.feed]
-over = "published"
+[routes.feed]
+path = "/atom.xml"
+from = "published"
 limit = 20
-route = "/atom.xml"
 template = "atom.xml"
 shell = "atom"
 
@@ -224,20 +245,11 @@ shell = "atom"
 # serialized as the postcard index /search.js consumes. Posts only for now —
 # adding `|| kind == "page"` would make /code/ and /writing/ searchable, but
 # that's a deliberate index change, not a mechanism default.
-[views.search]
-over = "*"
-route = "/search.bin"
+[routes.search]
+path = "/search.bin"
+from = "*"
 shell = "search"
-filter = 'kind == "post" && !draft && !hidden'
-
-# No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
-# with `{% assign latest_count %}` because `site.posts | limit: 3` slices before
-# it filters, so hidden posts would eat the slots. `filter` and `limit` are
-# separate stages here, so this says what it means.
-[views.latest]
-over = "published"
-limit = 3
-layout = "link_list"
+where = 'kind == "post" && !draft && !hidden'
 
 # No source file: jekyll-sitemap generates this one outright.
 #
@@ -252,42 +264,43 @@ layout = "link_list"
 # `dir` is distinct from `ext == ""`: a directory URL outputs an index.html,
 # whereas an extensionless *file* (code/legacy/nnet/nnet) outputs itself and is
 # not a page. Keying on ext alone let four such binaries into the sitemap.
-[views.sitemap]
-over = "*"
-route = "/sitemap.xml"
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
 shell = "sitemap"
 # `!draft && !hidden` closes the leak §4a flagged: without it a future draft —
 # routed into the main build today — lands in the most public URL there is,
 # which is exactly the crawling problem this project exists to fix. Latent now
 # (0 drafts/hidden), armed the moment one is written. `draft`/`hidden` are
 # carried onto every Route (false for non-posts) so the filter can say this.
-filter = '!draft && !hidden && (dir || ext == "html" || ext == "pdf")'
+where = '!draft && !hidden && (dir || ext == "html" || ext == "pdf")'
 
-[views.tag_index]
-over = "published"
+[routes.tag_index]
+path = "/blog/tags/{key}/"
+from = "published"
 group_by = "tags"
-route = "/blog/tags/{key}/"
 layout = "tag_index"
 title = "Posts Tagged “{key}”"
 crumb = "{key}"
 
 # Year archives are new with grackle — the Jekyll site only ever had months,
 # so `/blog/2010/` was a 404 between `/blog/` and `/blog/2010/01/`.
-[views.yearly_archive]
-over = "published"
+[routes.yearly_archive]
+path = "/blog/{year}/"
+from = "published"
 group_by = "date.year"
-route = "/blog/{year}/"
 layout = "yearly_archive"
 title = "{year}"
 
-# Subdivision (§5c): `over` a grouped view refines its partition, so this is
+# Subdivision (§5c): `from` a grouped ROUTE refines its partition, so this is
 # GROUP BY year, month — the year key comes from the parent, and provenance
 # for breadcrumb chains comes free: trails render as 2022 > December with the
-# year linked to its own archive.
-[views.monthly_archive]
-over = "yearly_archive"
+# year linked to its own archive. One keyword, because what `from` names is
+# what decides: a set selects, a grouped route subdivides.
+[routes.monthly_archive]
+path = "/blog/{year}/{month:02}/"
+from = "yearly_archive"
 group_by = "date.month"
-route = "/blog/{year}/{month:02}/"
 layout = "monthly_archive"
 title = "{year} {month_name}"
 crumb = "{month_name}"

@@ -268,14 +268,14 @@ mod tests {
     /// not, and the crumb is the view's own name.
     #[test]
     fn ancestors_finds_a_paginated_landing() {
-        let cfg: Config = toml::from_str(
+        let cfg: Config = Config::from_toml(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n\
-             [views.published]\nover = \"blog\"\n\
-             [views.blog_index]\nover = \"published\"\npaginate = 5\n\
-             routes = [\"/blog/\", \"/blog/page/{n}/\"]\ntitle = \"Blog\"\n\
-             [views.yearly_archive]\nover = \"published\"\ngroup_by = \"date.year\"\n\
-             route = \"/blog/{year}/\"\ntitle = \"{year}\"\n",
+             [sets.published]\nfrom = \"blog\"\n\
+             [routes.blog_index]\nfrom = \"published\"\npaginate = 5\n\
+             paths = [\"/blog/\", \"/blog/page/{n}/\"]\ntitle = \"Blog\"\n\
+             [routes.yearly_archive]\nfrom = \"published\"\ngroup_by = \"date.year\"\n\
+             path = \"/blog/{year}/\"\ntitle = \"{year}\"\n",
         )
         .unwrap();
         let mut db = SiteDb::default();

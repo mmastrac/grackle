@@ -714,13 +714,13 @@ mod object_view_tests {
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [collections.objects]\nkind = \"objects\"\n{views}"
         );
-        toml::from_str(&src).expect("test config parses")
+        Config::from_toml(&src).expect("test config parses")
     }
 
     #[test]
     fn object_view_scopes_sorts_and_routes() {
-        let c = cfg("[views.g]\nover = \"objects\"\nmatch = \"photos/**\"\n\
-             order_by = \"name\"\nroute = \"/photos/\"\nlayout = \"gallery\"\n");
+        let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
+             order_by = \"name\"\npath = \"/photos/\"\nlayout = \"gallery\"\n");
         let mut db = SiteDb::default();
         db.objects.rows = vec![
             obj("assets/x.png"),
@@ -740,7 +740,7 @@ mod object_view_tests {
 
     #[test]
     fn object_view_requires_order_by() {
-        let c = cfg("[views.g]\nover = \"objects\"\nroute = \"/p/\"\nlayout = \"gallery\"\n");
+        let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
         let e = build_views(&c, &mut SiteDb::default())
             .unwrap_err()
             .to_string();
@@ -749,8 +749,8 @@ mod object_view_tests {
 
     #[test]
     fn object_filters_typecheck_against_the_object_schema() {
-        let c = cfg("[views.g]\nover = \"objects\"\nfilter = \"draft\"\n\
-             order_by = \"name\"\nroute = \"/p/\"\nlayout = \"gallery\"\n");
+        let c = cfg("[routes.g]\nfrom = \"objects\"\nwhere = \"draft\"\n\
+             order_by = \"name\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
         let e = format!("{:#}", build_views(&c, &mut SiteDb::default()).unwrap_err());
         assert!(e.contains("unknown field `draft`"), "{e}");
     }

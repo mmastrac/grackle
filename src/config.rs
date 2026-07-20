@@ -14,8 +14,23 @@ pub struct Config {
     pub site: Site,
     #[serde(default)]
     pub collections: BTreeMap<String, Collection>,
-    #[serde(default)]
+    /// Sets and routes, merged. One namespace (§5c): `from` names a
+    /// collection, a set or a route, so the three cannot collide — checked
+    /// in `validate`. Internally this stays one map because the split is a
+    /// config-surface distinction, not an engine one: a set is a route
+    /// with no path, exactly as before.
+    #[serde(skip)]
     pub views: BTreeMap<String, View>,
+    /// Queries that never land — no `path`. Composable, embeddable.
+    #[serde(default)]
+    sets: BTreeMap<String, View>,
+    /// Queries that land: every URL the site emits from a query.
+    #[serde(default)]
+    routes: BTreeMap<String, View>,
+    /// The retired `[views]` spelling, kept only so `validate` can name the
+    /// replacement instead of silently ignoring a whole section.
+    #[serde(default, rename = "views")]
+    retired_views: BTreeMap<String, toml::Value>,
     /// Marker filename -> defaults it applies to its directory and below.
     /// The config says what a marker means; the tree says where (DESIGN.md §4b).
     #[serde(default)]
@@ -96,17 +111,27 @@ pub struct ProfileCfg {
     /// indexed — q10 is exactly this case, stated once instead of per page.
     #[serde(default)]
     pub noindex: bool,
-    /// Selection: per-view filter replacements. Views are the only selection
-    /// mechanism, so a profile never changes what LOADS — the database is
-    /// identical under every profile, which is what makes two profiles
-    /// comparable and lets one resident db answer for several.
+    /// Selection: per-query `where` replacements. Queries are the only
+    /// selection mechanism, so a profile never changes what LOADS — the
+    /// database is identical under every profile, which is what makes two
+    /// projections comparable and lets one resident db answer for several.
+    ///
+    /// Split to match the config surface: relaxing a set patches a QUERY,
+    /// relaxing a route patches a LANDING, and which one a profile means is
+    /// worth seeing. Merged at load, since the namespace is one.
     #[serde(default)]
-    pub views: BTreeMap<String, ProfileView>,
+    pub sets: BTreeMap<String, ProfileView>,
+    #[serde(default)]
+    pub routes: BTreeMap<String, ProfileView>,
+    /// Retired `[profiles.X.views]`, kept so validate can name the split.
+    #[serde(default, rename = "views")]
+    pub retired_views: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileView {
+    #[serde(rename = "where")]
     pub filter: Option<String>,
 }
 
@@ -405,8 +430,13 @@ pub struct Rule {
 ///   * query + layout + route(s)        — materialized, e.g. `blog_index`
 #[derive(Debug, Deserialize)]
 pub struct View {
-    /// A collection name, another view's name, or `*` for the route set.
+    /// A collection name, another set/route's name, or `*` for the route
+    /// set. Spelled `from` — one namespace, so what it names decides
+    /// whether this selects or subdivides (§5c); the engine derives that
+    /// from the referent rather than taking a second keyword for it.
+    #[serde(rename = "from")]
     pub over: String,
+    #[serde(rename = "where")]
     pub filter: Option<String>,
     /// Path-glob scoping (§5 audit): globs already exist in rules (§4), so
     /// view scoping reuses them rather than growing the filter language a
@@ -420,8 +450,14 @@ pub struct View {
     pub order_by: Option<String>,
     pub group_by: Option<String>,
     pub paginate: Option<usize>,
+    /// Where this lands. Present ⇒ it is a `[routes]` entry; absent ⇒ a
+    /// `[sets]` entry, which never materializes (§5c's three shapes, now
+    /// visible as which section an entry lives in).
+    #[serde(rename = "path")]
     pub route: Option<String>,
-    #[serde(default)]
+    /// Several templates for one query — pagination lands on more than one
+    /// URL, so the path cannot be the key.
+    #[serde(default, rename = "paths")]
     pub routes: Vec<String>,
     pub layout: Option<String>,
     /// Fragment variant (q24): the theme renders this view through
@@ -577,14 +613,68 @@ impl Config {
     pub fn load_profile(path: &Path, profile: Option<&str>) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        let mut cfg: Config =
-            toml::from_str(&text).with_context(|| format!("parsing config {}", path.display()))?;
+        let mut cfg = Config::from_toml(&text)
+            .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         cfg.validate()?;
         if let Some(name) = profile {
             cfg.apply_profile(name)?;
         }
         Ok(cfg)
+    }
+
+    /// Parse and fold the query sections. The one parse path, so a config
+    /// built in a test is the same shape as one read from disk.
+    pub(crate) fn from_toml(text: &str) -> Result<Config> {
+        let mut cfg: Config = toml::from_str(text)?;
+        cfg.merge_queries()?;
+        Ok(cfg)
+    }
+
+    /// Fold `[sets]` and `[routes]` into the one `views` map, enforcing what
+    /// each section means: a set never lands, a route always does. The
+    /// namespace is shared with collections, so a name may live in exactly
+    /// one place — `from` resolves against all three, and before this the
+    /// lookup silently preferred a view over a same-named collection.
+    fn merge_queries(&mut self) -> Result<()> {
+        if let Some(name) = self.retired_views.keys().next() {
+            anyhow::bail!(
+                "[views.{name}] — `[views]` split into `[sets]` (a query, no \
+                 path) and `[routes]` (a query that lands). Move this entry \
+                 to whichever it is, and spell `over`/`filter`/`route(s)` as \
+                 `from`/`where`/`path(s)`."
+            );
+        }
+        let sets = std::mem::take(&mut self.sets);
+        let routes = std::mem::take(&mut self.routes);
+        for (name, v) in &sets {
+            if v.route.is_some() || !v.routes.is_empty() {
+                anyhow::bail!(
+                    "[sets.{name}] declares a path. A set is a query that \
+                     never lands — move it to [routes.{name}]."
+                );
+            }
+        }
+        for (name, v) in &routes {
+            if v.route.is_none() && v.routes.is_empty() {
+                anyhow::bail!(
+                    "[routes.{name}] declares no `path`. A route is a query \
+                     that lands — give it one, or move it to [sets.{name}]."
+                );
+            }
+        }
+        for (name, v) in sets.into_iter().chain(routes) {
+            if self.collections.contains_key(&name) {
+                anyhow::bail!(
+                    "{name:?} names both a collection and a set/route. `from` \
+                     resolves against one namespace, so the name must be unique."
+                );
+            }
+            if self.views.insert(name.clone(), v).is_some() {
+                anyhow::bail!("{name:?} is declared as both a set and a route.");
+            }
+        }
+        Ok(())
     }
 
     fn apply_profile(&mut self, name: &str) -> Result<()> {
@@ -602,7 +692,13 @@ impl Config {
             self.site.url = u;
         }
         self.site.noindex = p.noindex;
-        for (vname, over) in p.views {
+        if let Some(v) = p.retired_views.keys().next() {
+            anyhow::bail!(
+                "profile {name}: [profiles.{name}.views.{v}] — split into \
+                 `.sets` and `.routes` to match the config surface."
+            );
+        }
+        for (vname, over) in p.sets.into_iter().chain(p.routes) {
             let v = self
                 .views
                 .get_mut(&vname)
@@ -923,7 +1019,7 @@ impl Config {
             let Some(next) = self.views.get(v.over.as_str()) else {
                 if v.over != "*" && !self.collections.contains_key(&v.over) {
                     anyhow::bail!(
-                        "view {name}: `over = {:?}` is neither a collection nor a view",
+                        "{name}: `from = {:?}` is neither a collection, a set nor a route",
                         v.over
                     );
                 }
@@ -940,17 +1036,17 @@ impl Config {
                     && next.template.is_none();
                 if !subdividable {
                     anyhow::bail!(
-                        "view {name}: `over = {:?}` names a view that is neither query-only \
-                         nor grouped. Only query-only views and grouped unpaginated views \
-                         (subdivision, §5c) may be composed over; pagination × subdivision \
-                         is punted (open question 30).",
+                        "{name}: `from = {:?}` names something that is neither a set nor a \
+                         grouped route. Only sets and grouped, unpaginated routes may be \
+                         composed over (subdivision, §5c); pagination × subdivision is \
+                         punted (open question 30).",
                         v.over
                     );
                 }
                 if v.group_by.is_none() {
                     anyhow::bail!(
-                        "view {name}: `over = {:?}` names a grouped view, but {name} has no \
-                         `group_by`. Composing over a grouped view means subdividing its \
+                        "{name}: `from = {:?}` names a grouped route, but {name} has no \
+                         `group_by`. Composing over a grouped route means subdividing its \
                          partition (§5c), so the composer must be grouped too.",
                         v.over
                     );
@@ -1120,11 +1216,29 @@ mod tests {
     }
 
     fn cfg_raw(views: &str) -> Config {
+        let mut c = cfg_unmerged(views);
+        c.merge_queries()
+            .expect("test config sections should merge");
+        c
+    }
+
+    /// Parsed but not merged — for the checks `merge_queries` itself owns.
+    fn cfg_unmerged(views: &str) -> Config {
         let src = format!(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
         );
         toml::from_str(&src).expect("test config should parse")
+    }
+
+    /// The error `merge_queries` produces, as a full anyhow chain.
+    fn merge_err(views: &str) -> String {
+        let mut c = cfg_unmerged(views);
+        format!(
+            "{:#}",
+            c.merge_queries()
+                .expect_err("sections should fail to merge")
+        )
     }
 
     /// The load-time error a config produces, as a full anyhow chain.
@@ -1139,13 +1253,13 @@ mod tests {
     #[test]
     fn chain_flattens_and_conjoins_filters() {
         let c = cfg(r#"
-            [views.published]
-            over = "blog"
-            filter = "!draft && !hidden"
+            [sets.published]
+            from = "blog"
+            where = "!draft && !hidden"
 
-            [views.latest]
-            over = "published"
-            filter = "!noindex"
+            [sets.latest]
+            from = "published"
+            where = "!noindex"
             limit = 3
         "#);
         let q = c.query("latest").unwrap();
@@ -1156,13 +1270,13 @@ mod tests {
 
     #[test]
     fn single_filter_is_not_parenthesised() {
-        let c = cfg("[views.published]\nover = \"blog\"\nfilter = \"!draft\"\n");
+        let c = cfg("[sets.published]\nfrom = \"blog\"\nwhere = \"!draft\"\n");
         assert_eq!(c.query("published").unwrap().predicate().unwrap(), "!draft");
     }
 
     #[test]
     fn unfiltered_chain_has_no_predicate() {
-        let c = cfg("[views.all]\nover = \"blog\"\n");
+        let c = cfg("[sets.all]\nfrom = \"blog\"\n");
         assert!(c.query("all").unwrap().predicate().is_none());
     }
 
@@ -1170,18 +1284,21 @@ mod tests {
     #[test]
     fn composing_over_a_materialized_view_is_an_error() {
         let c = cfg(r#"
-            [views.blog_index]
-            over = "blog"
-            filter = "!draft"
+            [routes.blog_index]
+            from = "blog"
+            where = "!draft"
             paginate = 5
-            routes = ["/blog/"]
+            paths = ["/blog/"]
 
-            [views.latest]
-            over = "blog_index"
+            [sets.latest]
+            from = "blog_index"
             limit = 3
         "#);
         let e = c.query("latest").unwrap_err().to_string();
-        assert!(e.contains("query-only"), "unexpected error: {e}");
+        assert!(
+            e.contains("neither a set nor a grouped route"),
+            "unexpected error: {e}"
+        );
     }
 
     /// Subdivision (§5c): a grouped view may compose over a grouped view —
@@ -1189,16 +1306,16 @@ mod tests {
     #[test]
     fn grouped_over_grouped_is_subdivision() {
         let c = cfg(r#"
-            [views.yearly]
-            over = "blog"
-            filter = "!draft"
+            [routes.yearly]
+            from = "blog"
+            where = "!draft"
             group_by = "date.year"
-            route = "/blog/{year}/"
+            path = "/blog/{year}/"
 
-            [views.monthly]
-            over = "yearly"
+            [routes.monthly]
+            from = "yearly"
             group_by = "date.month"
-            route = "/blog/{year}/{month:02}/"
+            path = "/blog/{year}/{month:02}/"
         "#);
         let q = c.query("monthly").unwrap();
         assert_eq!(q.base, "blog");
@@ -1210,13 +1327,13 @@ mod tests {
     #[test]
     fn non_grouped_over_grouped_is_an_error() {
         let c = cfg(r#"
-            [views.yearly]
-            over = "blog"
+            [routes.yearly]
+            from = "blog"
             group_by = "date.year"
-            route = "/blog/{year}/"
+            path = "/blog/{year}/"
 
-            [views.latest]
-            over = "yearly"
+            [sets.latest]
+            from = "yearly"
             limit = 3
         "#);
         let e = c.query("latest").unwrap_err().to_string();
@@ -1226,16 +1343,16 @@ mod tests {
     #[test]
     fn subdividing_a_paginated_view_is_punted() {
         let c = cfg(r#"
-            [views.yearly]
-            over = "blog"
+            [routes.yearly]
+            from = "blog"
             group_by = "date.year"
             paginate = 10
-            route = "/blog/{year}/"
+            path = "/blog/{year}/"
 
-            [views.monthly]
-            over = "yearly"
+            [routes.monthly]
+            from = "yearly"
             group_by = "date.month"
-            route = "/blog/{year}/{month:02}/"
+            path = "/blog/{year}/{month:02}/"
         "#);
         let e = c.query("monthly").unwrap_err().to_string();
         assert!(e.contains("punted"), "unexpected error: {e}");
@@ -1247,21 +1364,21 @@ mod tests {
     #[test]
     fn fields_inherit_along_over_nearest_wins() {
         let c = cfg(r#"
-            [views.published]
-            over = "blog"
-            [views.published.fields.summary]
+            [sets.published]
+            from = "blog"
+            [sets.published.fields.summary]
             truncate = { max_blocks = 4 }
 
-            [views.blog_index]
-            over = "published"
+            [routes.blog_index]
+            from = "published"
             paginate = 5
-            routes = ["/blog/"]
+            paths = ["/blog/"]
 
-            [views.tag_index]
-            over = "published"
+            [routes.tag_index]
+            from = "published"
             group_by = "tags"
-            route = "/blog/tags/{key}/"
-            [views.tag_index.fields.summary]
+            path = "/blog/tags/{key}/"
+            [routes.tag_index.fields.summary]
             truncate = { max_blocks = 1 }
         "#);
         let inherited = c.fields_for("blog_index");
@@ -1271,18 +1388,52 @@ mod tests {
     }
 
     #[test]
+    fn a_set_may_not_declare_a_path() {
+        let e = merge_err("[sets.s]\nfrom = \"blog\"\npath = \"/s/\"\n");
+        assert!(e.contains("[routes.s]"), "{e}");
+    }
+
+    #[test]
+    fn a_route_must_declare_a_path() {
+        let e = merge_err("[routes.r]\nfrom = \"blog\"\n");
+        assert!(e.contains("[sets.r]"), "{e}");
+    }
+
+    /// One namespace: `from` resolves against collections, sets and routes
+    /// alike, and the lookup used to prefer a view silently.
+    #[test]
+    fn a_name_may_not_be_both_a_collection_and_a_query() {
+        let e = merge_err("[sets.blog]\nfrom = \"blog\"\n");
+        assert!(e.contains("one namespace"), "{e}");
+    }
+
+    #[test]
+    fn a_name_may_not_be_both_a_set_and_a_route() {
+        let e =
+            merge_err("[sets.x]\nfrom = \"blog\"\n[routes.x]\nfrom = \"blog\"\npath = \"/x/\"\n");
+        assert!(e.contains("both a set and a route"), "{e}");
+    }
+
+    /// The retired section names the split rather than being ignored.
+    #[test]
+    fn retired_views_section_names_the_replacement() {
+        let e = merge_err("[views.published]\nfrom = \"blog\"\n");
+        assert!(e.contains("[sets]") && e.contains("[routes]"), "{e}");
+    }
+
+    #[test]
     fn unknown_over_is_an_error() {
-        let c = cfg("[views.latest]\nover = \"pubished\"\nlimit = 3\n");
+        let c = cfg("[sets.latest]\nfrom = \"pubished\"\nlimit = 3\n");
         let e = c.query("latest").unwrap_err().to_string();
         assert!(
-            e.contains("neither a collection nor a view"),
+            e.contains("neither a collection, a set nor a route"),
             "unexpected error: {e}"
         );
     }
 
     #[test]
     fn cyclic_chain_terminates() {
-        let c = cfg("[views.a]\nover = \"b\"\n\n[views.b]\nover = \"a\"\n");
+        let c = cfg("[sets.a]\nfrom = \"b\"\n\n[sets.b]\nfrom = \"a\"\n");
         let e = c.query("a").unwrap_err().to_string();
         assert!(e.contains("cyclic"), "unexpected error: {e}");
     }
@@ -1341,8 +1492,8 @@ mod tests {
     /// "@key" references the global map; "@@" escapes a literal @.
     #[test]
     fn string_hierarchy_resolves() {
-        let c = cfg("[views.a]\nover = \"posts\"\ntitle = \"@kitchen\"\n\n\
-             [views.b]\nover = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
+        let c = cfg("[sets.a]\nfrom = \"posts\"\ntitle = \"@kitchen\"\n\n\
+             [sets.b]\nfrom = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
              [i18n]\nlocales = [\"fr\"]\n\n\
              [i18n.strings]\nkitchen = { en = \"Kitchen\", fr = \"Cuisine\" }\n\
              home = { en = \"Home\", fr = \"Accueil\" }\n");
@@ -1362,12 +1513,12 @@ mod tests {
     /// errors — the latter is what catches a typo'd engine-key override.
     #[test]
     fn string_hierarchy_fails_loud() {
-        let e = cfg_err("[views.a]\nover = \"posts\"\ntitle = \"@nope\"\n");
+        let e = cfg_err("[sets.a]\nfrom = \"posts\"\ntitle = \"@nope\"\n");
         assert!(e.contains("names no string"), "{e}");
         let e = cfg_err("[i18n.strings]\nhom = \"Home\"\n");
         assert!(e.contains("unused string"), "{e}");
         let e = cfg_err(
-            "[views.a]\nover = \"posts\"\ntitle = \"@x\"\n\n[i18n.strings]\nx = \"@y\"\ny = \"z\"\n",
+            "[sets.a]\nfrom = \"posts\"\ntitle = \"@x\"\n\n[i18n.strings]\nx = \"@y\"\ny = \"z\"\n",
         );
         assert!(e.contains("no chains"), "{e}");
     }

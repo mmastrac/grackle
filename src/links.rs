@@ -300,13 +300,13 @@ mod tests {
     /// default when it didn't. This is the invariant, not an accident.
     #[test]
     fn view_links_are_locale_aware() {
-        let cfg: Config = toml::from_str(
+        let cfg: Config = Config::from_toml(
             "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [collections.blog]\nkind = \"posts\"\nsource = \"_posts\"\n\
              [i18n]\nlocales = [\"fr\"]\n\
-             [views.published]\nover = \"blog\"\n\
-             [views.tag_index]\nover = \"published\"\ngroup_by = \"tags\"\n\
-             route = \"/blog/tags/{key}/\"\nlayout = \"listing\"\n",
+             [sets.published]\nfrom = \"blog\"\n\
+             [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
+             path = \"/blog/tags/{key}/\"\nlayout = \"listing\"\n",
         )
         .unwrap();
         let mut db = SiteDb::default();

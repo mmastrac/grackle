@@ -130,31 +130,52 @@ intro = { en = "Flour, patience, and a hot oven.", fr = "De la farine, de la pat
 limit = 3
 min_score = 0.3
 
-# ---------------------------------------------------------------- views
+# ------------------------------------------------------------------ sets
+#
+# Queries that never land. `from` names a collection, a set, or a route.
 
-[views.published]
-over = "notes"
-filter = "!draft && !hidden"
+[sets.published]
+from = "notes"
+where = "!draft && !hidden"
 
-  [views.published.fields.summary]
+  [sets.published.fields.summary]
   truncate = { max_blocks = 3, max_chars = 500 }
 
-[views.blog_index]
-over = "published"
-paginate = 5
-routes = ["/blog/", "/blog/page/{n}/"]
-layout = "listing"
-title = { en = "Notes", fr = "Carnet" }
-
-[views.latest]
-over = "published"
+[sets.latest]
+from = "published"
 limit = 3
 layout = "link_list"
 
-[views.tag_index]
-over = "published"
+[sets.latest_recipes]
+from = "pages"
+match = "recipes/**"
+order_by = "title"
+limit = 3
+layout = "link_list"
+
+[sets.book_of_the_month]
+from = "pages"
+match = "books/**"
+order_by = "-month"
+limit = 1
+layout = "card"
+variant = "card"
+
+# ---------------------------------------------------------------- routes
+#
+# Every URL this site emits from a query. `path` is what makes it a route.
+
+[routes.blog_index]
+paths = ["/blog/", "/blog/page/{n}/"]
+from = "published"
+paginate = 5
+layout = "listing"
+title = { en = "Notes", fr = "Carnet" }
+
+[routes.tag_index]
+path = "/blog/tags/{key}/"
+from = "published"
 group_by = "tags"
-route = "/blog/tags/{key}/"
 # §6f: locale-parallel materialization is DEFAULT-ON — /fr/blog/tags/…
 # holds the French rows, titled from @tagged's fr entry, with no
 # annotation here. A view that should stay single-locale opts out with
@@ -166,10 +187,10 @@ layout = "listing"
 title = "@tagged"
 crumb = "{key}"
 
-[views.feed]
-over = "published"
+[routes.feed]
+path = "/atom.xml"
+from = "published"
 limit = 20
-route = "/atom.xml"
 template = "atom.xml"
 shell = "atom"
 
@@ -180,9 +201,9 @@ shell = "atom"
 [shells.llms]
 command = "python3 shells/llms.py"
 
-[views.llms]
-over = "published"
-route = "/llms.txt"
+[routes.llms]
+path = "/llms.txt"
+from = "published"
 shell = "llms"
 
 # Search spans tables (§5g): notes AND every rendered page — recipes, books,
@@ -190,20 +211,22 @@ shell = "llms"
 # hardcoded projection of the posts table. `stem != "index"` keeps
 # listing-shaped pages (the homepage, section indexes) out: they would
 # match every term their link titles mention.
-[views.search]
-over = "*"
-route = "/search.bin"
+
+[routes.search]
+path = "/search.bin"
+from = "*"
 shell = "search"
-filter = '(kind == "post" || kind == "page") && !draft && !hidden && stem != "index"'
+where = '(kind == "post" || kind == "page") && !draft && !hidden && stem != "index"'
 
 # The gallery (§5 audit, built): a view over the objects table. `match`
 # scopes by path glob, `order_by` is declared (lexical-by-luck is not a
 # contract), and the route replaces what was a hand-written index page.
-[views.gallery]
-over = "objects"
+
+[routes.gallery]
+path = "/photos/"
+from = "objects"
 match = "photos/**"
 order_by = "name"
-route = "/photos/"
 layout = "gallery"
 title = "Photos"
 
@@ -211,11 +234,12 @@ title = "Photos"
 # fields (books/.schema.toml). Newest month leads (the listing's
 # `featured` slot); `variant` picks the theme's card face (q24/q36) —
 # /books/ and /blog/ are both listings, wearing different fragments.
-[views.books]
-over = "pages"
+
+[routes.books]
+path = "/books/"
+from = "pages"
 match = "books/**"
 order_by = "-month"
-route = "/books/"
 layout = "listing"
 variant = "cards"
 featured = true
@@ -232,11 +256,12 @@ intro = { en = "One book a month, argued with, shelved beside the [notes](view:b
 # /fr/recipes/ materializes from the French rows with index.fr.md's
 # prose. Claiming retired the stem != "index" filters below: a claimed
 # row leaves every query structurally.
-[views.recipes_index]
-over = "pages"
+
+[routes.recipes_index]
+path = "/recipes/"
+from = "pages"
 match = "recipes/**"
 order_by = "title"
-route = "/recipes/"
 layout = "listing"
 content = "recipes/index.md"
 title = { en = "Recipes", fr = "Recettes" }
@@ -248,12 +273,13 @@ title = { en = "Recipes", fr = "Recettes" }
 # nested URL is what makes the trail climb — Home › Recipes › Dinner
 # falls out of the q45 landing chain, no declaration. {key} renders the
 # course record's localized name; the URL wears its slug.
-[views.recipes_by_course]
-over = "pages"
+
+[routes.recipes_by_course]
+path = "/recipes/courses/{key}/"
+from = "pages"
 match = "recipes/**"
 group_by = "course"
 order_by = "title"
-route = "/recipes/courses/{key}/"
 layout = "listing"
 variant = "cards"
 title = { en = "Recipes: {key}", fr = "Recettes : {key}" }
@@ -261,23 +287,9 @@ crumb = "{key}"
 
 # Routeless, embedded on the homepage: the same query language, composed
 # across tables — posts (latest), pages (recipes, the current book).
-[views.latest_recipes]
-over = "pages"
-match = "recipes/**"
-order_by = "title"
-limit = 3
-layout = "link_list"
 
-[views.book_of_the_month]
-over = "pages"
-match = "books/**"
-order_by = "-month"
-limit = 1
-layout = "card"
-variant = "card"
-
-[views.sitemap]
-over = "*"
-route = "/sitemap.xml"
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
 shell = "sitemap"
-filter = '!draft && !hidden && (dir || ext == "html")'
+where = '!draft && !hidden && (dir || ext == "html")'
