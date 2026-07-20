@@ -5033,9 +5033,11 @@ never reused.
     reached for. That was already wrong — adjacency crossing two dated
     collections was measured and fixed (q51's neighbours), and `similar`
     and `linked_from` are still unanchored. Matt's rule is that every
-    relation states its reach and only `translations` may go unstated,
-    its reach being structural (it pairs on logical path, inherently
-    within one collection).
+    relation states its reach. The rule originally carved out
+    `translations` as the one that could go unstated — and that exception
+    turned out to be the tell that it is not a relation at all (q53): it
+    points at another form of the SAME row, not at other rows. With it
+    gone, the rule is total: **every relation declares its reach.**
 
     **The reach is a SET, not a collection.** `prev(published)` rather
     than `prev(posts)`: a set is already the vocabulary for a named query
@@ -5105,8 +5107,8 @@ never reused.
 
     - **Operators are the closed set; compositions are open.** The engine
       owns `prev`, `next`, `similar`, `links_to`, `linked_from`,
-      `translations` — a typo in `of` is a load error naming the six. The
-      *names* (`related`, `later`) become site vocabulary.
+      and the tree family — a typo in `of` is a load error naming them.
+      The *names* (`related`, `later`) become site vocabulary.
     - **Which retires part of the `Axis` enum.** That set was closed
       earlier the same day precisely because the axis string is a theme
       contract, and this reopens it: axis strings become site-defined and
@@ -5120,8 +5122,21 @@ never reused.
       declares no relations should get the conventional five. This is
       defensible where a built-in passthrough rule was not (§7a): relations
       are *convention*, and the passthrough rule is a *policy statement*
-      about what goes on the internet. Declaring any relation replaces the
-      defaults wholesale — a small cliff, but predictable.
+      about what goes on the internet.
+
+      **Overriding is per NAME, not wholesale.** An earlier draft said
+      declaring any relation replaced every default; writing the entry out
+      against field-notes killed it. That site wants to change exactly one
+      thing — `related` gaining `exclude` and `limit` — and wholesale
+      replacement made it restate all five, plus both on the tree
+      collection: twenty-eight lines to customise one. Per-name override
+      costs five. Removing a default then needs a spelling (`enabled =
+      false`), a far smaller wart than the cliff.
+    - **Labels are `@references`, not inline locale maps.** field-notes
+      already keeps `related`/`later`/`earlier` in `[i18n.strings]`, and
+      `title = "@tagged"` already references them. `label = "@related"`
+      reuses that; five inline `{ en = …, fr = … }` maps per collection is
+      the worse version, and was what the first draft sketched.
     - **`linked_from` stays global** (`over = "*"`) and must now say so.
       A page linking to a post is a real backlink; anchoring it would break
       it. Under Matt's rule it declares its reach like everything else.
@@ -5144,7 +5159,9 @@ never reused.
     | **order** | `prev`, `next` | a sequence |
     | **metric** | `similar` | embedding distance |
     | **graph** | `links_to`, `linked_from` | the link graph |
-    | **identity** | `translations` | logical path across locales |
+
+    (`translations` was in an earlier draft of this table. It left for
+    q53 — an alternative form of the row, not a pointer at other rows.)
 
     **The load-bearing separation: an operator supplies ROWS; what
     consumes them decides presentation.** A breadcrumb trail is ordered
@@ -5156,12 +5173,12 @@ never reused.
     an operator and presentation lives in separate keys, over shape A,
     where a select-string implies a rendering.
 
-    **Reach matters here, unlike translations.** `children(published)`
-    means *do not list draft children* — a real choice, so the tree
-    operators declare their reach like everything except `translations`,
-    whose reach is structural because locale variants of one logical path
-    admit no filtering choice. Matt's rule survives contact with the tree
-    family intact.
+    **Reach matters here.** `children(published)` means *do not list draft
+    children* — a real choice, so the tree operators declare their reach
+    like every other relation. This is where the old `translations`
+    carve-out looked shakiest and where q53 resolved it: the tree family
+    needs a reach, so a family that needs none was never the same kind of
+    thing.
 
     **Sequencing caution.** Trails and section trees work and are
     byte-verified against the oracle. Rewriting them onto this mechanism is
@@ -5184,6 +5201,96 @@ never reused.
     Migration: both sites declare their relations to keep current output,
     or take the defaults and change nothing. Verifiable byte-identical
     either way.
+
+53. **Axes: alternative forms of a row** *(Matt, 2026-07-20)*.
+
+    Matt: *"I'm starting to reconsider whether translation is a relation —
+    it's really just an alternative of the current document. What if we
+    split axis and relation. There might actually be other axes for
+    entries — for example, a wikimedia-style HTML page for objects. The
+    images have thumbnails on an axis."*
+
+    **The split.**
+
+    | | **relation** (q52) | **axis** |
+    |---|---|---|
+    | points at | *other rows* | *other forms of THIS row* |
+    | examples | prev, next, similar, links_to, linked_from, parent, children, siblings | translations, thumbnails, serializations, an object's description page |
+    | renders as | a labelled group in the body | `<link rel="alternate">` in the head, plus an inline affordance |
+    | needs a reach? | yes — which set does it range over | no — the row determines its own members |
+
+    **The last row is how this was found.** Under q52, `translations` was
+    the one relation needing no `over`, and the first draft wrote a
+    justification for the anomaly instead of reading it. It is not an
+    anomaly. A relation asks *which other rows*; an axis asks *which other
+    forms of me*, and there is nothing to range over.
+
+    **This document already used the word this way**, before the
+    distinction was drawn: §5g calls the md twin *"a second, orthogonal
+    axis (which serializations a row offers)"*.
+
+    ### The mechanical definition
+
+    **One row, several routes, keyed by a variant.** Which unifies four
+    things, three of them already built by three different mechanisms that
+    were never seen as the same shape:
+
+    | instance | variant | status |
+    |---|---|---|
+    | locale-parallel routes (§6f) | the locale | built |
+    | thumbnails (§6b) | the size, content-addressed | built |
+    | the md twin (§5g, q44) | the serialization | specced |
+    | an object's description page | "the page about this" | **inexpressible today** |
+
+    The last is Matt's Wikimedia case, and it is the one that shows the gap:
+    an object is bytes at a URL with no way to have a page *about* it. A
+    file-description page is an axis member whose variant is "page" and
+    whose route is `/file/{name}/`.
+
+    The web models this already, which is a good sign the cut is real:
+    `rel="alternate" hreflang` for translations, `srcset` for thumbnails,
+    `rel="alternate" type=…` for formats. **Axes are `rel="alternate"`.**
+
+    ### What the split immediately reveals
+
+    **Nothing emits `hreflang` or `rel="alternate"`.** Grepped: not in the
+    engine, not in either theme. A French page never announces its English
+    twin to a crawler. Translations render as a body footer group that CSS
+    hoists into a corner chip, and nowhere else — which is exactly the
+    blind spot the misclassification produced, because relations live in
+    the body and nobody thought to look in the head. This is a real SEO
+    defect, small and self-contained, and the obvious first thing to build
+    off this entry.
+
+    ### What it costs
+
+    **`data-axis` becomes misnamed.** Relations stamp it into markup and
+    both themes key CSS on it; under the split it should be
+    `data-relation`. A part-schema change plus both themes — small, but a
+    theme contract, and the word would otherwise mean the opposite of what
+    it says.
+
+    Worth recording that this is the **third** revision of that vocabulary
+    in one day: the axis strings were closed into an enum in the morning
+    *because* they are a theme contract, reopened by q52 (site-declared
+    relation names), and renamed here. The churn is fine; doing it by
+    accident would not be.
+
+    ### Open inside this
+
+    - **Does an axis member get a full row, or a projection?** A thumbnail
+      is not a row (no front matter, no schema); a translation is a full
+      row; a file-description page is generated. Probably: an axis member
+      is a ROUTE plus enough facts to render an alternate link, and only
+      *some* axes have rows behind them.
+    - **Declared where?** Relations land on the collection (q52). Axes
+      plausibly do too — `[collections.axes.translations]` — but
+      thumbnails are declared by the image pipeline and locales by
+      `[i18n]`, so unifying the declaration may be more disruption than the
+      idea is worth. The vocabulary may matter more than the config.
+    - **Does the md twin ride this?** §5g punted "whether `md` is view-only
+      or a row can request it (`/post-slug.md` twins)". Under this entry it
+      is plainly an axis, which answers the shape if not the priority.
 
 ### Settled ledger
 
