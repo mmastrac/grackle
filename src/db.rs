@@ -112,8 +112,13 @@ pub struct Page {
     /// inside a second `<html>`.
     pub shell: Option<String>,
     /// The flag family, cascading from markers and rules exactly as a
-    /// post's does (§4b): `hidden` reaches the row's route so star views
-    /// filter it, `noindex` reaches the head.
+    /// post's does (§4b): `draft` and `hidden` reach the row's route so
+    /// star views filter them, `noindex` reaches the head.
+    ///
+    /// `draft` used to be post-only. `FrontMatter` parsed it either way, so
+    /// `draft: true` on a PAGE was read and dropped, and the page published
+    /// — into `sitemap.xml` included, which is the §4a leak this closes.
+    pub draft: bool,
     pub hidden: bool,
     pub noindex: bool,
     /// Typed extra fields, validated against the governing `.schema.toml`
@@ -987,6 +992,7 @@ fn build_tree_and_objects(
                     );
                 }
             }
+            let draft = fm.draft.unwrap_or_else(|| as_bool(&defaults, "draft"));
             let hidden = fm.hidden.unwrap_or_else(|| as_bool(&defaults, "hidden"));
             let noindex = fm.noindex.unwrap_or_else(|| as_bool(&defaults, "noindex"));
             let logical = logical_rel.to_string_lossy().to_string();
@@ -1021,6 +1027,7 @@ fn build_tree_and_objects(
                 toc: fm.toc.unwrap_or(false),
                 theme,
                 shell,
+                draft,
                 hidden,
                 noindex,
                 fields: checked.values,
@@ -1121,6 +1128,13 @@ impl filter::Row for Post {
 pub fn page_schema() -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
+    // The flag family, all three. They cascade from markers and rules onto
+    // every page and reach the row's route — but only `draft` was ever
+    // queryable, and only on posts, so a tree set could not say
+    // `!draft && !hidden` at all.
+    s.insert("draft", Bool);
+    s.insert("hidden", Bool);
+    s.insert("noindex", Bool);
     s.insert("title", Str);
     s.insert("url", Str);
     s.insert("path", Str);
@@ -1144,6 +1158,9 @@ impl filter::Row for Page {
             None => V::Null,
         };
         match name {
+            "draft" => V::Bool(self.draft),
+            "hidden" => V::Bool(self.hidden),
+            "noindex" => V::Bool(self.noindex),
             "title" => opt(&self.title),
             "url" => V::Str(self.url.clone()),
             "path" => V::Str(self.rel.to_string_lossy().to_string()),
@@ -1301,6 +1318,7 @@ impl SiteDb {
             db.routes.push(Route {
                 source: Some(p.path.clone()),
                 locale: route_locale(&p.locale),
+                draft: p.draft,
                 hidden: p.hidden,
                 ..Route::new(p.url.clone(), kind)
             });

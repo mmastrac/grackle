@@ -835,6 +835,7 @@ mod grouping_tests {
             toc: false,
             theme: None,
             shell: None,
+            draft: false,
             hidden: false,
             noindex: false,
             fields: Default::default(),

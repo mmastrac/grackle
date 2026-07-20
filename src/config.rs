@@ -1511,6 +1511,24 @@ mod tests {
     /// parent's subtree. Nearest-wins would let a child silently escape it.
     /// The first config anyone writes is `[site]` and nothing else. It used
     /// to build successfully over an empty directory.
+    /// §4a's leak, closed for pages. `FrontMatter` parses `draft` for every
+    /// row, but only posts kept it — so `draft: true` on a page was read,
+    /// dropped, and the page published into `sitemap.xml`. The flags now
+    /// reach the page schema too: before this, a tree set could not say
+    /// `!draft && !hidden` at all, because neither field was known.
+    #[test]
+    fn the_flag_family_is_queryable_on_pages() {
+        let s = crate::db::page_schema();
+        for f in ["draft", "hidden", "noindex"] {
+            assert!(s.contains_key(f), "page schema is missing {f:?}");
+        }
+        // And a tree set can actually name them.
+        let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden\"\n");
+        let q = c.query("pages").unwrap();
+        crate::filter::Filter::parse(&q.predicate().unwrap(), &crate::db::page_schema())
+            .expect("!draft && !hidden should type-check against a page");
+    }
+
     #[test]
     fn a_config_with_no_collections_says_so() {
         let src = "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n";

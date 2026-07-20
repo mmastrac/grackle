@@ -154,13 +154,18 @@ layout = "link_list"
 # the sort is nearest-wins. Before this the three recipe consumers each
 # restated all three clauses, so a re-sort of /recipes/ silently desynced
 # the homepage block.
+# `!draft && !hidden` on a TREE set, which was not expressible until the
+# flag family joined the page schema — the flags cascaded onto every page
+# and reached its route, but no query could name them.
 [sets.recipes]
 from = "entries"
+where = "!draft && !hidden"
 match = "recipes/**"
 order_by = "title"
 
 [sets.books]
 from = "entries"
+where = "!draft && !hidden"
 match = "books/**"
 order_by = "-month"
 
