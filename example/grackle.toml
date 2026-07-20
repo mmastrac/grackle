@@ -148,17 +148,28 @@ from = "published"
 limit = 3
 layout = "link_list"
 
-[sets.latest_recipes]
+# The corpus queries, named once. `match` and `order_by` flow to every
+# consumer along `from` — the glob CONJOINS (a child narrows, never widens),
+# the sort is nearest-wins. Before this the three recipe consumers each
+# restated all three clauses, so a re-sort of /recipes/ silently desynced
+# the homepage block.
+[sets.recipes]
 from = "entries"
 match = "recipes/**"
 order_by = "title"
+
+[sets.books]
+from = "entries"
+match = "books/**"
+order_by = "-month"
+
+[sets.latest_recipes]
+from = "recipes"
 limit = 3
 layout = "link_list"
 
 [sets.book_of_the_month]
-from = "entries"
-match = "books/**"
-order_by = "-month"
+from = "books"
 limit = 1
 layout = "card"
 variant = "card"
@@ -237,11 +248,9 @@ title = "Photos"
 # `featured` slot); `variant` picks the theme's card face (q24/q36) —
 # /books/ and /blog/ are both listings, wearing different fragments.
 
-[routes.books]
+[routes.books_index]
 path = "/books/"
-from = "entries"
-match = "books/**"
-order_by = "-month"
+from = "books"
 layout = "listing"
 variant = "cards"
 featured = true
@@ -261,9 +270,7 @@ intro = { en = "One book a month, argued with, shelved beside the [notes](view:b
 
 [routes.recipes_index]
 path = "/recipes/"
-from = "entries"
-match = "recipes/**"
-order_by = "title"
+from = "recipes"
 layout = "listing"
 content = "recipes/index.md"
 title = { en = "Recipes", fr = "Recettes" }
@@ -278,10 +285,8 @@ title = { en = "Recipes", fr = "Recettes" }
 
 [routes.recipes_by_course]
 path = "/recipes/courses/{key}/"
-from = "entries"
-match = "recipes/**"
+from = "recipes"
 group_by = "course"
-order_by = "title"
 layout = "listing"
 variant = "cards"
 title = { en = "Recipes: {key}", fr = "Recettes : {key}" }

@@ -427,6 +427,21 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 /// language), `filter` type-checks against the object schema, `order_by`
 /// is *required* — objects have no natural order, and lexical-by-luck is
 /// not a contract — and the route's `members` index into `objects.rows`.
+/// The chain's `match` globs, compiled and CONJOINED: a row must satisfy
+/// every one, so a child narrows within its parent's subtree and can never
+/// widen out of it (§5c). Empty chain = no scoping, and `.all()` on an empty
+/// slice is true, so callers need no special case.
+fn scope_matchers(name: &str, q: &Query) -> Result<Vec<globset::GlobMatcher>> {
+    q.scopes
+        .iter()
+        .map(|g| {
+            Ok(globset::Glob::new(g)
+                .with_context(|| format!("view {name}: match {g:?}"))?
+                .compile_matcher())
+        })
+        .collect()
+}
+
 fn build_object_view(
     _cfg: &Config,
     db: &mut SiteDb,
@@ -445,20 +460,13 @@ fn build_object_view(
     let Some(route) = v.route.as_deref() else {
         bail!("view {name} needs a route");
     };
-    let order = v.order_by.as_deref().ok_or_else(|| {
+    let order = q.order_by.as_deref().ok_or_else(|| {
         anyhow::anyhow!("view {name}: object views need an order_by (have: name)")
     })?;
     if order != "name" {
         bail!("view {name}: unknown order_by {order:?} (have: name)");
     }
-    let scope = match &v.scope {
-        Some(g) => Some(
-            globset::Glob::new(g)
-                .with_context(|| format!("view {name}: match {g:?}"))?
-                .compile_matcher(),
-        ),
-        None => None,
-    };
+    let scope = scope_matchers(name, q)?;
     let pred = match q.predicate() {
         Some(src) => filter::Filter::parse(&src, &object_schema())
             .with_context(|| format!("view {name}: filter {src:?}"))?,
@@ -469,7 +477,7 @@ fn build_object_view(
         .rows
         .iter()
         .enumerate()
-        .filter(|(_, o)| scope.as_ref().is_none_or(|m| m.is_match(&o.rel)))
+        .filter(|(_, o)| scope.iter().all(|m| m.is_match(&o.rel)))
         .filter(|(_, o)| pred.eval(*o))
         .map(|(i, _)| i)
         .collect();
@@ -511,7 +519,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
     if v.paginate.is_some() {
         bail!("view {name}: paginate on tree views is not supported yet");
     }
-    let order = v
+    let order = q
         .order_by
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("view {name}: tree views need an order_by"))?;
@@ -528,14 +536,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             known.join(", ")
         );
     }
-    let scope = match &v.scope {
-        Some(g) => Some(
-            globset::Glob::new(g)
-                .with_context(|| format!("view {name}: match {g:?}"))?
-                .compile_matcher(),
-        ),
-        None => None,
-    };
+    let scope = scope_matchers(name, q)?;
     let pred = match q.predicate() {
         Some(src) => filter::Filter::parse(&src, &crate::db::page_schema())
             .with_context(|| format!("view {name}: filter {src:?}"))?,
@@ -555,7 +556,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             // `stem != "index"` convention).
             .filter(|(_, p)| !p.claimed)
             .filter(|(_, p)| p.locale == locale)
-            .filter(|(_, p)| scope.as_ref().is_none_or(|m| m.is_match(&p.rel)))
+            .filter(|(_, p)| scope.iter().all(|m| m.is_match(&p.rel)))
             .filter(|(_, p)| pred.eval(*p))
             .map(|(i, _)| i)
             .collect();

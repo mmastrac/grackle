@@ -2,4 +2,4 @@
 - [Recettes](/recipes/index.md)
 - [Manuel](/manual/index.md)
 - [Photos](view:gallery)
-- [Livres](view:books)
+- [Livres](view:books_index)

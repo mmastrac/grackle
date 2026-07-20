@@ -578,6 +578,16 @@ pub struct Query {
     pub base: String,
     /// Every filter along the chain, outermost view last. All must hold.
     pub filters: Vec<String>,
+    /// Every `match` glob along the chain. **Conjoined, like filters**: a
+    /// child narrows within its parent's subtree and can never widen out of
+    /// it. `match` is a path predicate that happens to be spelled as a glob
+    /// (§5 chose globs over a filter path-operator to avoid growing the
+    /// filter language, not because it is a different kind of clause), so it
+    /// composes the way a predicate does.
+    pub scopes: Vec<String>,
+    /// The nearest `order_by` along the chain — nearest wins, like `fields`.
+    /// Re-sorting a parent's rows is ordinary; there is nothing to conjoin.
+    pub order_by: Option<String>,
 }
 
 impl Query {
@@ -1011,6 +1021,9 @@ impl Config {
     /// we haven't answered.
     pub fn query(&self, name: &str) -> Result<Query> {
         let mut filters = Vec::new();
+        let mut scopes = Vec::new();
+        // Nearest wins, and we walk outermost-first, so the first one seen.
+        let mut order_by: Option<String> = None;
         let mut seen: Vec<&str> = Vec::new();
         let mut cur = name;
         loop {
@@ -1025,6 +1038,12 @@ impl Config {
             if let Some(f) = &v.filter {
                 filters.push(f.clone());
             }
+            if let Some(s) = &v.scope {
+                scopes.push(s.clone());
+            }
+            if order_by.is_none() {
+                order_by.clone_from(&v.order_by);
+            }
             // A collection or `*` terminates the chain.
             let Some(next) = self.views.get(v.over.as_str()) else {
                 if v.over != "*" && !self.collections.contains_key(&v.over) {
@@ -1034,9 +1053,12 @@ impl Config {
                     );
                 }
                 filters.reverse();
+                scopes.reverse();
                 return Ok(Query {
                     base: v.over.clone(),
                     filters,
+                    scopes,
+                    order_by,
                 });
             };
             if !next.is_query_only() {
@@ -1461,6 +1483,40 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(e.contains("resolve to the name"), "{e}");
+    }
+
+    /// `match` conjoins along the chain: a child narrows within its
+    /// parent's subtree. Nearest-wins would let a child silently escape it.
+    #[test]
+    fn match_conjoins_along_the_chain() {
+        let c = cfg("[sets.recipes]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n\
+             [sets.desserts]\nfrom = \"recipes\"\nmatch = \"**/sweet/**\"\n");
+        assert_eq!(
+            c.query("desserts").unwrap().scopes,
+            vec!["recipes/**".to_string(), "**/sweet/**".to_string()]
+        );
+        // The parent keeps only its own.
+        assert_eq!(
+            c.query("recipes").unwrap().scopes,
+            vec!["recipes/**".to_string()]
+        );
+    }
+
+    /// `order_by` is nearest-wins — re-sorting a parent's rows is ordinary.
+    #[test]
+    fn order_by_inherits_nearest_wins() {
+        let c = cfg("[sets.books]\nfrom = \"blog\"\norder_by = \"-month\"\n\
+             [sets.by_title]\nfrom = \"books\"\norder_by = \"title\"\n\
+             [sets.newest]\nfrom = \"books\"\nlimit = 1\n");
+        assert_eq!(
+            c.query("by_title").unwrap().order_by.as_deref(),
+            Some("title")
+        );
+        // Undeclared: inherited from the parent rather than lost.
+        assert_eq!(
+            c.query("newest").unwrap().order_by.as_deref(),
+            Some("-month")
+        );
     }
 
     #[test]
