@@ -472,8 +472,11 @@ fn relation(
 }
 
 /// The `translations` group (§6f): this row in other locales, as dateless
-/// neighbors labelled by language — the language switcher is one more
-/// axis, not a new mechanism.
+/// neighbors labelled by language.
+///
+/// Takes `(locale, url)` and names the locale here, because the LOCALE is
+/// what the head needs for `hreflang` (q53) and the name is only wanted
+/// for display. One computation, two consumers.
 pub fn translations_group(
     cfg: &crate::config::Config,
     locale: &str,
@@ -481,7 +484,7 @@ pub fn translations_group(
 ) -> Option<PartMap> {
     let items = translations
         .iter()
-        .map(|(label, url)| neighbor(label, url, None))
+        .map(|(loc, url)| neighbor(cfg.i18n.name_of(loc), url, None))
         .collect();
     relation(cfg, locale, Axis::Translations, items)
 }

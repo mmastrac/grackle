@@ -47,6 +47,16 @@ pub struct Head {
     pub published: Option<String>,
     pub author: String,
     pub jsonld: Option<String>,
+    /// q53 axis members: alternative FORMS of this row, as
+    /// `(hreflang, absolute url)`. Today only the locale axis fills this;
+    /// thumbnails and the md twin are the other occupants when they land.
+    ///
+    /// A relation points at other rows and renders in the body; an axis
+    /// points at other forms of THIS row and renders here, as
+    /// `rel="alternate"`. Translations were classed as a relation, so they
+    /// only ever reached the body — a French page never announced its
+    /// English twin to a crawler.
+    pub alternates: Vec<(String, String)>,
 }
 
 pub struct Site<'a> {
@@ -93,6 +103,7 @@ pub fn head_for_post(p: &Post, site: &Site) -> Head {
         published,
         author: site.author.to_string(),
         jsonld,
+        alternates: Vec::new(),
     }
 }
 
@@ -107,6 +118,7 @@ pub fn head_simple(title: &str, url: &str, site: &Site, noindex: bool) -> Head {
         published: None,
         author: site.author.to_string(),
         jsonld: None,
+        alternates: Vec::new(),
     }
 }
 
@@ -206,6 +218,16 @@ pub fn head_html(head: &Head, css: &str) -> String {
         "\t<link rel=\"canonical\" href=\"{}\">\n",
         esc(&head.canonical)
     );
+    // q53: the locale axis in the head. Self included, which is what the
+    // spec asks for — every version lists every version, itself among them.
+    for (lang, href) in &head.alternates {
+        let _ = write!(
+            h,
+            "\t<link rel=\"alternate\" hreflang=\"{}\" href=\"{}\">\n",
+            esc(lang),
+            esc(href)
+        );
+    }
     let _ = write!(
         h,
         "\t<meta name=\"author\" content=\"{}\">\n",

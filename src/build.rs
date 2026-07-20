@@ -61,6 +61,53 @@ fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
+/// q53: the locale axis as head alternates. Every version lists every
+/// version, ITSELF INCLUDED, which is what `hreflang` asks for — a page
+/// that omits itself is a common and quiet mistake.
+///
+/// Empty when the row has no twins, so a monolingual site emits nothing.
+fn locale_alternates(
+    site_url: &str,
+    self_locale: &str,
+    self_url: &str,
+    twins: &[(String, String)],
+) -> Vec<(String, String)> {
+    if twins.is_empty() {
+        return Vec::new();
+    }
+    let mut v = vec![(self_locale.to_string(), format!("{site_url}{self_url}"))];
+    v.extend(
+        twins
+            .iter()
+            .map(|(loc, url)| (loc.clone(), format!("{site_url}{url}"))),
+    );
+    v
+}
+
+#[cfg(test)]
+mod alternates_tests {
+    use super::*;
+
+    #[test]
+    fn a_row_with_no_twins_announces_nothing() {
+        assert!(locale_alternates("https://s", "en", "/a/", &[]).is_empty());
+    }
+
+    /// Every version lists every version, itself first. Omitting self is
+    /// the classic hreflang mistake.
+    #[test]
+    fn every_version_lists_itself_and_its_twins() {
+        let twins = vec![("fr".to_string(), "/fr/a/".to_string())];
+        assert_eq!(
+            locale_alternates("https://s", "en", "/a/", &twins),
+            vec![
+                ("en".to_string(), "https://s/a/".to_string()),
+                ("fr".to_string(), "https://s/fr/a/".to_string()),
+            ]
+        );
+    }
+}
+
 /// Write a rendered site to a directory (AOT). Thin wrapper over `render_site`.
 pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
     // AOT builds publish, so they wait for fresh embeddings: bring the cache
@@ -186,10 +233,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     sibs.iter()
                         .map(|&j| &db.posts.rows[j])
                         .filter(|s| s.url != p.url)
-                        .map(|s| (cfg.i18n.name_of(&s.locale).to_string(), s.url.clone()))
+                        .map(|s| (s.locale.clone(), s.url.clone()))
                         .collect()
                 })
                 .unwrap_or_default();
+            let mut head = head;
+            head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
             let main = thm.fragments.render(&parts::document(
                 cfg,
                 db,
@@ -923,13 +972,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                                     sibs.iter()
                                         .map(|&j| &db.pages.rows[j])
                                         .filter(|s| s.url != p.url)
-                                        .map(|s| {
-                                            (cfg.i18n.name_of(&s.locale).to_string(), s.url.clone())
-                                        })
+                                        .map(|s| (s.locale.clone(), s.url.clone()))
                                         .collect()
                                 })
                             })
                             .unwrap_or_default();
+                        let mut head = head;
+                        head.alternates =
+                            locale_alternates(&cfg.site.url, row_locale, &r.url, &translations);
                         let main = match layout {
                             Some("page") | Some("post") => {
                                 row_thm.fragments.render(&parts::document_tree(
