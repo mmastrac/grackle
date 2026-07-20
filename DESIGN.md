@@ -5126,6 +5126,54 @@ never reused.
       A page linking to a post is a real backlink; anchoring it would break
       it. Under Matt's rule it declares its reach like everything else.
 
+    ### The tree family belongs here too *(Matt, 2026-07-20)*
+
+    `parent` and `children` are relations, and the first draft of this
+    entry missed them. So are `ancestors`, `siblings` and `descendants`.
+    They exist today but as two special-purpose consumers rather than a
+    vocabulary: `trails::ancestors` climbs URLs for breadcrumbs, and
+    `outline::section_tree` walks paths for section navigation. §3 already
+    claims `children(page)` as a derived relation; no such function exists.
+
+    Adding them makes the operator set four families, which is the
+    "relational math" this question is really about:
+
+    | family | operators | keyed on |
+    |---|---|---|
+    | **path** | `parent`, `children`, `ancestors`, `siblings`, `descendants` | the row's position in the tree |
+    | **order** | `prev`, `next` | a sequence |
+    | **metric** | `similar` | embedding distance |
+    | **graph** | `links_to`, `linked_from` | the link graph |
+    | **identity** | `translations` | logical path across locales |
+
+    **The load-bearing separation: an operator supplies ROWS; what
+    consumes them decides presentation.** A breadcrumb trail is ordered
+    ancestry rendered as a path; a relations footer is a labelled group of
+    neighbours; a section tree is a recursive nav. All three could select
+    through the same vocabulary and still render through their own
+    fragments. That is what makes adding the tree family safe rather than a
+    conflation — and it is a second argument for shape B, where `of` names
+    an operator and presentation lives in separate keys, over shape A,
+    where a select-string implies a rendering.
+
+    **Reach matters here, unlike translations.** `children(published)`
+    means *do not list draft children* — a real choice, so the tree
+    operators declare their reach like everything except `translations`,
+    whose reach is structural because locale variants of one logical path
+    admit no filtering choice. Matt's rule survives contact with the tree
+    family intact.
+
+    **Sequencing caution.** Trails and section trees work and are
+    byte-verified against the oracle. Rewriting them onto this mechanism is
+    a large refactor with real regression risk and no user-visible gain.
+    Add the operators to the vocabulary so new relations can use them;
+    leave the two working consumers alone until something needs them
+    unified. The vocabulary is the deliverable, not the rewrite.
+
+    With eleven operators rather than six, both B arguments get stronger: a
+    closed, load-checked operator set is worth more, and `exclude` by name
+    scales where repeated select-expressions would not.
+
     ### Feasibility
 
     `links_to` is free: `backlinks_map` already computes the forward
