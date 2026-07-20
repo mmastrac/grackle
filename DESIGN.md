@@ -4799,6 +4799,111 @@ never reused.
     place this part"?** Settle that and a `light`-style theme is a theme
     file rather than an engine feature.
 
+51. **One row type, typed by directory** *(Matt's shape, 2026-07-19)*.
+    Matt: *"I still feel a bit weird that some things are posts and some
+    are pages — there is no fundamental difference."* Measured, and he is
+    right. Census of the 29 `Kind`/`RouteKind` dispatch sites:
+    **13 (45%) exist only because `Post` and `Page` are different Rust
+    structs**, 5 are loader-shaped, 4 are legacy, and of the 7
+    index-shaped ones only **2** actually discriminate posts from pages
+    on index grounds (`trails.rs:157`, `views.rs:224`) — about 7%.
+    `debug.rs:264` is the proof: three match arms, one expression, zero
+    semantic difference. The inversion nobody predicts: **`Post` is the
+    LESS capable type.** It lacks `theme`, `shell`, custom `fields`,
+    `images` and `order`; `Page` lacks only `date` and `tags` — and every
+    Post exclusive is a consequence of *having a date/tags column*, not of
+    being a different kind of thing.
+
+    The asymmetry already leaks. `FrontMatter` is shared, so both tables
+    parse `theme`, `shell`, `draft` and `extra` — and each keeps a
+    different subset, silently. Measured on a scratchpad copy:
+    `theme:`/`shell:` on a post are dropped with no diagnostic, and
+    **`draft: true` on a page publishes the row and lists it in
+    `sitemap.xml`** — the §4a leak, still open for pages because
+    `Route.draft` is hardcoded false for them (`db.rs:271` says so). That
+    is separately fixable and should not wait for this question.
+
+    **The shape.** A directory boundary declares the type and shape of
+    the rows beneath it; undeclared, **the directory name is the type**.
+    This is §5b's law (*"the tree declares where, the config declares
+    only the vocabulary"*) applied to the one thing still exempt from it —
+    membership, today declared in `grackle.toml` as `source`/`extensions`.
+    The root table is **`entries`**, and its schema is the base every
+    other type extends.
+
+    Decisions taken while specced:
+
+    - **Names are plural, matching the table** (`posts`, `recipes`,
+      `entries`). That forces a split the model wants anyway: today's
+      `kind` conflates *which table* (`post`, `page`) with *what sort of
+      route* (`static`, `object`, `view`). Plurals read wrong on the
+      first (`kind == "posts"` for one row) and right on a renamed field —
+      so **`table == "posts"`** for membership, `kind` left to mean route
+      sort. The four config filters using `kind == "post"` migrate.
+    - **NOT `document`** for the root type, though it was the first
+      instinct: every theme ships a `document.html`, one of §5a's layout
+      kinds. Unlike the row/view `shell` collision (§5g), these two would
+      *meet* — a user writes `type = "recipes"`, opens the theme, finds
+      `document.html`, and must be told that a recipe is not a document
+      (type) but renders as a document (layout). `entry` is unclaimed.
+    - **Any field beyond the base requires a `.schema.toml`**, and the
+      load error *is* the generator — it prints the line to paste, the way
+      the retired `[tags.<id>]` and `collection.crumb` errors name their
+      replacements. Measured cost: across both sites **11 rows carry a
+      non-base key, 10 are already declared**, and the eleventh is
+      `blog/index.html`'s `multipost` — dead Jekyll residue read only by
+      `_layouts/*`. **Zero live rows break.** Also measured: `date` never
+      appears in front matter at all (327 posts, all filename-derived), so
+      it is not a base field but something a type *acquires* by declaring
+      `filename_formats`.
+    - **Schema inheritance is data, never behavior.** The base-schema-for-
+      every-type is a root class, which is worth saying out loud given
+      §9b's standing verdict that this engine keeps sanding OOP off. Field
+      cascades are the benign kind and there are already three
+      (markers, `.schema.toml`, view `fields`). A type that could override
+      *how it renders or routes* would rebuild what `over` refuses and
+      what q46 deleted from collections.
+    - **Objects stay out**, and for the reason §5g's tier work found
+      independently: they are the unparsed side of the identity bit,
+      selected by extension *anywhere* in the tree (§3 — `by_name` is
+      non-unique on purpose), so they cannot be directory-typed. The model
+      becomes: unparsed -> objects; parsed -> one row type, N tables,
+      per-type indexes.
+
+    Open inside this:
+
+    - **`_drafts` is the case that breaks name-as-type.** Defaulting it to
+      a `drafts` table reintroduces exactly what "Several collections, one
+      table" fixed on 2026-07-19 (indexed once, so `by_url` sees
+      collisions and `order` does not restart). The fix is already in the
+      vocabulary — a marker declaring `posts`, the same shape as `.draft` —
+      which makes the common case free and the multi-source case declared.
+      Confirm that is the whole answer.
+    - **"Dedicated tables" must mean dedicated INDEX SETS, not dedicated
+      structs.** A struct per type regenerates the 45% for every type a
+      site declares. One row type carrying a table tag, with indexes built
+      from which fields exist: chronological + adjacency where there is a
+      date, `by_tag` where there are tags, hierarchical always.
+    - **Root files** (`index.html`, `about.md`) have no directory to name
+      them — `entries` is the answer, but that is ~187 rows on the main
+      site landing in a table named by fallback rather than intent.
+    - **Nesting**: `recipes/desserts/` — outermost boundary sets the
+      table, deeper `.schema.toml` refines the shape (nearest-wins, as
+      today). Stated so it is not discovered.
+    - **Type name is not URL space.** `_posts` -> table `posts` but routes
+      to `/blog/`; rules still own routing. The pretty case (`recipes/` is
+      both) and the Jekyll case will look different, and people will
+      expect the first.
+
+    Counterweight, recorded so this does not read as urgent: the §7b
+    backtest ran 36 real sites and **none of its eight gap clusters was
+    this**. Nothing is blocked; the value is internal coherence plus the
+    leak. Which argues for staging — **stage 1 is additive**: give `Post`
+    the `theme`/`shell`/`fields`/`images` slots it already parses and
+    discards, and make `draft` on a page work or fail loudly. After that
+    the structs differ only by date/tags vs order/rendered, and the merge
+    is mechanical rather than architectural.
+
 ### Settled ledger
 
 One line per retired question; the named section carries the design.
