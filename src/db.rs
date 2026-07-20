@@ -61,6 +61,12 @@ pub struct Post {
     /// The image-typed subset: field name -> root-relative source path.
     #[serde(skip)]
     pub images: BTreeMap<String, String>,
+    /// Declared position (§6e), the last field `Page` had and `Post` did
+    /// not. `FrontMatter` parsed `order:` either way and the posts loader
+    /// dropped it, so the asymmetry was invisible rather than intentional.
+    /// A post's *table* order is chronological; this is what a view sorts
+    /// on when it says so — see `order_by` in `build_views`.
+    pub order: Option<i64>,
     pub draft: bool,
     pub hidden: bool,
     pub noindex: bool,
@@ -863,6 +869,7 @@ fn read_posts(
             shell,
             fields: checked.values,
             images: checked.images,
+            order: raw.front.order,
             draft,
             hidden,
             noindex,
@@ -1215,6 +1222,7 @@ pub fn post_schema() -> filter::Schema {
     s.insert("month", Int);
     s.insert("day", Int);
     s.insert("body_bytes", Int);
+    s.insert("order", Int);
     s.insert("tags", List);
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
@@ -1247,6 +1255,7 @@ impl filter::Row for Post {
             "month" => self.date.map_or(V::Null, |d| V::Int(d.month() as i64)),
             "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
             "body_bytes" => V::Int(self.body_bytes as i64),
+            "order" => self.order.map_or(V::Null, V::Int),
             "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
             // Schema fields (§5b) resolve after the base names — the same

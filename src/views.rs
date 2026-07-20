@@ -122,6 +122,7 @@ fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> R
         };
         if !known.contains(&field) {
             known.sort_unstable();
+            known.dedup();
             bail!(
                 "view {name}: group_by names unknown field {field:?}\n  known fields: {}",
                 known.join(", ")
@@ -243,13 +244,56 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .with_context(|| format!("view {name}: filter {src:?}"))?,
             None => filter::Filter::always(),
         };
+        // `order_by` on a posts view was parsed, inherited along `from` like
+        // any other set clause — and then ignored. The table's
+        // reverse-chronological index was the only ordering a posts view
+        // could have, so a declared sort produced chronological output with
+        // no diagnostic, and a TYPO in one produced the same. Both are now
+        // what they say: a validated key sorts, an unknown one is a load
+        // error naming the view, exactly as on the tree side.
+        let sort: Option<(String, bool)> = match q.order_by.as_deref() {
+            Some(spec) => {
+                let (key, desc) = match spec.strip_prefix('-') {
+                    Some(k) => (k, true),
+                    None => (spec, false),
+                };
+                if !post_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+                    let mut known: Vec<&str> = post_schema().keys().copied().collect();
+                    known.extend(db.schemas.declared().keys().copied());
+                    known.sort_unstable();
+                    known.dedup();
+                    bail!(
+                        "view {name}: order_by names unknown field {key:?}\n  known fields: {}",
+                        known.join(", ")
+                    );
+                }
+                Some((key.to_string(), desc))
+            }
+            None => None,
+        };
         let posts = &db.posts;
-        let visible: Vec<usize> = posts
+        // Stable, so an undeclared or tied key leaves the chronological
+        // ordering underneath untouched — declaring `order` on two posts of
+        // fifty re-seats those two and nothing else.
+        let apply_sort = |ix: &mut Vec<usize>| {
+            let Some((key, desc)) = &sort else { return };
+            use crate::filter::Row as _;
+            ix.sort_by(|&a, &b| {
+                let ord = value_cmp(&posts.rows[a].field(key), &posts.rows[b].field(key));
+                if *desc {
+                    ord.reverse()
+                } else {
+                    ord
+                }
+            });
+        };
+        let mut visible: Vec<usize> = posts
             .order
             .iter()
             .copied()
             .filter(|&i| pred.eval(&posts.rows[i]))
             .collect();
+        apply_sort(&mut visible);
 
         // No route: one row set, and nowhere to hang it but the view itself.
         if !v.is_materialized() {
@@ -303,6 +347,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 let (x, y) = (&posts.rows[a], &posts.rows[b]);
                 y.date.cmp(&x.date).then_with(|| x.slug.cmp(&y.slug))
             });
+            apply_sort(&mut ix);
             ix
         };
         let prefixed = |locale: &str, tmpl: &str| -> String {
@@ -535,6 +580,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
         let mut known: Vec<&str> = crate::db::page_schema().keys().copied().collect();
         known.extend(db.schemas.declared().keys().copied());
         known.sort_unstable();
+        known.dedup();
         bail!(
             "view {name}: order_by names unknown field {key:?}\n  known fields: {}",
             known.join(", ")
@@ -758,6 +804,85 @@ mod object_view_tests {
              order_by = \"name\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
         let e = format!("{:#}", build_views(&c, &mut SiteDb::default()).unwrap_err());
         assert!(e.contains("unknown field `draft`"), "{e}");
+    }
+}
+
+/// A posts view's ordering. The table's index is chronological and was the
+/// only ordering a posts view could have — `order_by` inherited along `from`
+/// and was then dropped on the floor, so both a real sort and a typo'd one
+/// rendered as "newest first" with nothing said.
+#[cfg(test)]
+mod posts_order_tests {
+    use super::*;
+    use crate::db::Post;
+    use chrono::NaiveDate;
+
+    fn post(url: &str, date: &str, order: Option<i64>) -> Post {
+        Post {
+            collection: "notes".into(),
+            url: url.into(),
+            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
+            order,
+            ..Post::default()
+        }
+    }
+
+    fn db() -> SiteDb {
+        let mut db = SiteDb::default();
+        db.posts.rows = vec![
+            post("/a/", "2026-01-10", Some(1)), // oldest, pinned first
+            post("/b/", "2026-03-05", None),
+            post("/c/", "2026-06-21", None),
+            post("/d/", "2026-07-19", Some(9)), // newest, pinned last
+        ];
+        // Reverse-chronological, as `index_posts` builds it.
+        db.posts.order = vec![3, 2, 1, 0];
+        db
+    }
+
+    fn cfg(clauses: &str) -> Config {
+        let src = format!(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
+             [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"listing\"\n{clauses}"
+        );
+        Config::from_toml(&src).expect("test config parses")
+    }
+
+    fn members(clauses: &str) -> Vec<String> {
+        let (c, mut db) = (cfg(clauses), db());
+        build_views(&c, &mut db).unwrap();
+        let r = db.routes.iter().find(|r| r.url == "/g/").expect("route");
+        r.members
+            .iter()
+            .map(|&i| db.posts.rows[i].url.clone())
+            .collect()
+    }
+
+    #[test]
+    fn no_order_by_leaves_the_table_ordering_alone() {
+        assert_eq!(members(""), ["/d/", "/c/", "/b/", "/a/"]);
+    }
+
+    /// The declared positions seat first and last; the two rows that declare
+    /// nothing sort Null-last and keep the chronological order underneath,
+    /// because the sort is stable. Pinning two posts of four moves two.
+    #[test]
+    fn a_declared_order_reseats_only_what_declares_one() {
+        assert_eq!(
+            members("order_by = \"order\"\n"),
+            ["/a/", "/d/", "/c/", "/b/"]
+        );
+    }
+
+    #[test]
+    fn order_by_names_a_field_or_it_is_a_load_error() {
+        let e = build_views(&cfg("order_by = \"ordre\"\n"), &mut db())
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("unknown field \"ordre\""), "{e}");
+        assert!(e.contains("order"), "the diagnostic lists what exists: {e}");
     }
 }
 

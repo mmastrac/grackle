@@ -5013,6 +5013,27 @@ never reused.
     After that the structs differ only by date/tags vs order/rendered, and
     the merge is mechanical rather than architectural.
 
+    **Stage 1 done, 2026-07-20**, in four slices: the flag family onto
+    `Page` (closing the `draft` leak), `theme`/`shell` onto `Post`, typed
+    schema `fields`/`images` onto `Post`, and `order` onto `Post`. The
+    structs now differ by **`date`/`tags` vs `rendered`** alone — which is
+    the whole of stage 3, and the one with consequences, because dating a
+    page is what makes the chronological indexes conditional on the
+    properties a path yielded rather than on which Rust struct held it.
+
+    Each slice was byte-identical on all three sites and each was still
+    partly broken until a probe drove it. The `fields` slice shipped with
+    two silent failures a diff could never see (a schema lookup that
+    resolved nothing, a filter arm that never landed); the `order` slice
+    surfaced that **`order_by` on a posts view was inherited and then
+    ignored** — the table's chronological index was the only ordering a
+    posts view could have, so a declared sort and a typo'd one rendered
+    identically and silently. That is the same silent-drop this question
+    is about, one layer up: the loader dropped `order:`, the view layer
+    dropped `order_by`. Both now say what they mean. **For an additive
+    capability, byte-identical is necessary and proves nothing** — it says
+    the old paths still work, never that the new one does.
+
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.
 
