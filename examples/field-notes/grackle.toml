@@ -167,7 +167,7 @@ order_by = "title"
 from = "entries"
 where = "!draft && !hidden"
 match = "books/**"
-order_by = "-month"
+order_by = "-date"
 
 [sets.latest_recipes]
 from = "recipes"

@@ -2,7 +2,7 @@
 title: The Typed Kitchen
 layout: page
 author: A. Grace
-month: "2026-06"
+date: 2026-06-01
 cover: books/covers/the-typed-kitchen.png
 description: A. Grace · June 2026
 ---

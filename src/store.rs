@@ -18,6 +18,12 @@ pub struct FrontMatter {
     pub permalink: Option<String>,
     #[serde(default, deserialize_with = "string_or_seq")]
     pub tags: Vec<String>,
+    /// `YYYY-MM-DD`. A post's date comes from its filename (§3), so this is
+    /// the override there and the ONLY source on a tree page — which is
+    /// what makes "has a date" a property of the row's data rather than of
+    /// which table holds it (q51). Parsed at load, so a malformed one is a
+    /// load error naming the file rather than a row that quietly sorts last.
+    pub date: Option<String>,
     pub hidden: Option<bool>,
     pub draft: Option<bool>,
     pub noindex: Option<bool>,

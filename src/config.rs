@@ -831,7 +831,8 @@ impl Config {
                     .collect();
                 if tag_views.len() > 1 {
                     anyhow::bail!(
-                        "multiple views group by tags ({}) — declare which owns tag                          routes: [collections.<posts>] tags = \"<view>\"",
+                        "multiple views group by tags ({}) — declare which owns \
+                         tag routes: [collections.<posts>] tags = \"<view>\"",
                         tag_views.join(", ")
                     );
                 }

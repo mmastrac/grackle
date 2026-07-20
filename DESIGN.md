@@ -5021,9 +5021,36 @@ never reused.
     page is what makes the chronological indexes conditional on the
     properties a path yielded rather than on which Rust struct held it.
 
-    Each slice was byte-identical on all three sites and each was still
-    partly broken until a probe drove it. The `fields` slice shipped with
-    two silent failures a diff could never see (a schema lookup that
+    **Stage 3 done, 2026-07-20**, and the structs now differ by `rendered`
+    alone. `Page` holds `date` and `tags`; `page_schema` carries them plus
+    the derived `year`/`month`/`day`, so **`group_by = "date.year"` over the
+    tree materializes** — chronology is a question about the row's
+    properties, not about which struct holds it. `date:` in front matter
+    beats a post's filename too, the same precedence every other field has;
+    before, it landed in `extra`, where a governed post rejected it as
+    undeclared and an ungoverned one dropped it.
+
+    Two things fell out of it:
+
+    - **A `.schema.toml` may no longer declare a base field name.**
+      `Post::field`/`Page::field` answer base names first and fall through
+      to declared fields, so such a declaration parsed, validated, and was
+      then unreachable. It was latent until `page_schema` grew `month` —
+      which shadowed field-notes' `month = { type = "string" }`, the
+      stand-in the book club used *because* a page could not hold a date.
+      Now a load error naming the file; the club declares a real `date:`
+      and sorts `-date` instead of a lexical string. That the workaround
+      existed at all is the best evidence the merge was worth doing.
+    - **Tags are one namespace, and now two tables can fill it.** A second
+      view grouping by `tags` is ambiguous rather than illegal: the
+      existing `[collections.<posts>] tags = "<view>"` declares which view
+      owns canonical tag routes, and with it declared, `/blog/tags/meta/`
+      and `/books/tag/reference/` coexist. Proved live. The rule was
+      written for one tag space and turns out to generalize unchanged.
+
+    Every slice was byte-identical on all three sites, and every slice was
+    still partly broken until a probe drove it. The `fields` slice shipped
+    with two silent failures a diff could never see (a schema lookup that
     resolved nothing, a filter arm that never landed); the `order` slice
     surfaced that **`order_by` on a posts view was inherited and then
     ignored** — the table's chronological index was the only ordering a
@@ -5033,6 +5060,13 @@ never reused.
     dropped `order_by`. Both now say what they mean. **For an additive
     capability, byte-identical is necessary and proves nothing** — it says
     the old paths still work, never that the new one does.
+
+    **What is left** is the merge itself, and it is now the mechanical half
+    the counterweight promised: one row type instead of two, one route-token
+    supplier offering path tokens plus whatever an extractor produced, the
+    stated most-specific-source rule for `_posts` sitting inside `.`, and
+    ordering/adjacency declared as a set rather than inherited from the
+    posts table. No field work remains to block any of it.
 
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.

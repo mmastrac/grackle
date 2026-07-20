@@ -2,7 +2,7 @@
 title: A Field Guide to Engines
 layout: page
 author: R. Diesel
-month: "2026-05"
+date: 2026-05-01
 cover: books/covers/a-field-guide-to-engines.png
 description: R. Diesel · May 2026
 ---

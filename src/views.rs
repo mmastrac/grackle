@@ -961,6 +961,8 @@ mod grouping_tests {
             layout: None,
             description: None,
             order: None,
+            date: None,
+            tags: Vec::new(),
             toc: false,
             theme: None,
             shell: None,
@@ -990,6 +992,21 @@ mod grouping_tests {
         // No course: absent from the partition, same as undated-under-year.
         p.fields.clear();
         assert!(key_combos(&p, &["course".into()]).is_empty());
+
+        // And the point of q51 step 3: `date.year` over a PAGE. Grouping
+        // never cared what a post or a page was — until now only one of
+        // them could hold the date the spec reads. An undated page is
+        // absent from the year partition, exactly as an undated post is.
+        assert!(key_combos(&p, &["date.year".into()]).is_empty());
+        p.date = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        let combos = key_combos(&p, &["date.year".into(), "date.month".into()]);
+        assert_eq!(combos.len(), 1);
+        let params: Vec<_> = combos[0].iter().flat_map(|k| k.params.clone()).collect();
+        assert!(
+            params.contains(&("year".into(), "2026".into())),
+            "{params:?}"
+        );
+        assert!(params.contains(&("month".into(), "7".into())), "{params:?}");
     }
 
     #[test]

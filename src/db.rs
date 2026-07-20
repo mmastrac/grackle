@@ -103,6 +103,21 @@ impl Page {
     }
 }
 
+/// Front matter's `date:`, for either table. `YYYY-MM-DD`; a bare
+/// `YYYY-MM` means the first of that month, which is what the tree side
+/// was spelling as a string field before it could hold a real date.
+fn front_matter_date(raw: &str, path: &Path) -> Result<NaiveDate> {
+    let s = raw.trim();
+    let parsed = NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .or_else(|_| NaiveDate::parse_from_str(&format!("{s}-01"), "%Y-%m-%d"));
+    parsed.with_context(|| {
+        format!(
+            "{}: date: {s:?} is not YYYY-MM-DD (or YYYY-MM)",
+            path.display()
+        )
+    })
+}
+
 /// `2022-03-16` — sortable; the machine-readable date everywhere.
 pub fn iso_date(d: NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
@@ -130,6 +145,17 @@ pub struct Page {
     pub description: Option<String>,
     /// Declared position within a section tree (§6e).
     pub order: Option<i64>,
+    /// The chronological axis, from front matter — the last thing that was
+    /// true of a post and impossible on a page (q51). A dated page is what
+    /// makes "gets the chronological indexes" a question about the row's
+    /// PROPERTIES rather than about which Rust struct holds it: `books/`
+    /// wanted a date badly enough to declare `month = { type = "string" }`
+    /// and sort it lexically.
+    pub date: Option<NaiveDate>,
+    /// The tag axis. `FrontMatter` has always parsed `tags:`; the tree
+    /// loader dropped it, so `tags:` on a page was read and discarded in
+    /// silence, exactly as `theme:` was on a post.
+    pub tags: Vec<String>,
     /// Render the heading outline (§6e).
     pub toc: bool,
     /// Which theme renders this row (§5a) — front matter beats rule
@@ -729,7 +755,7 @@ fn read_posts(
         let name = raw.rel.with_extension("").to_string_lossy().to_string();
         let logical = logical_rel.with_extension("").to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
-        let date = match &key {
+        let from_name = match &key {
             Some(k) => Some(
                 NaiveDate::from_ymd_opt(k.year, k.month, k.day).with_context(|| {
                     format!(
@@ -739,6 +765,14 @@ fn read_posts(
                 })?,
             ),
             None => None,
+        };
+        // Front matter beats the filename, the same precedence every other
+        // field has (§4b) — and the same `date:` a tree page now carries.
+        // Before this it landed in `extra`, where a governed post rejected
+        // it as undeclared and an ungoverned one dropped it.
+        let date = match &raw.front.date {
+            Some(s) => Some(front_matter_date(s, &raw.path)?),
+            None => from_name,
         };
         let slug = key
             .as_ref()
@@ -1134,6 +1168,10 @@ fn build_tree_and_objects(
             let draft = fm.draft.unwrap_or_else(|| as_bool(&defaults, "draft"));
             let hidden = fm.hidden.unwrap_or_else(|| as_bool(&defaults, "hidden"));
             let noindex = fm.noindex.unwrap_or_else(|| as_bool(&defaults, "noindex"));
+            let date = match &fm.date {
+                Some(s) => Some(front_matter_date(s, &f.path)?),
+                None => None,
+            };
             let logical = logical_rel.to_string_lossy().to_string();
             if f.has_front_matter {
                 pages
@@ -1163,6 +1201,8 @@ fn build_tree_and_objects(
                 layout: fm.layout,
                 description: fm.description,
                 order: fm.order,
+                date,
+                tags: fm.tags,
                 toc: fm.toc.unwrap_or(false),
                 theme,
                 shell,
@@ -1288,6 +1328,15 @@ pub fn page_schema() -> filter::Schema {
     s.insert("rendered", Bool);
     s.insert("toc", Bool);
     s.insert("order", Int);
+    // The chronological axis, with the same derived components a post has
+    // (§5c grouping reads `date.year` through `year`) — so "group by year"
+    // and "the last five, newest first" are one operation over any dated
+    // row, not a posts-table privilege.
+    s.insert("date", Str);
+    s.insert("year", Int);
+    s.insert("month", Int);
+    s.insert("day", Int);
+    s.insert("tags", List);
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
     s
@@ -1295,6 +1344,7 @@ pub fn page_schema() -> filter::Schema {
 
 impl filter::Row for Page {
     fn field(&self, name: &str) -> filter::Value {
+        use chrono::Datelike;
         use filter::Value as V;
         let opt = |o: &Option<String>| match o {
             Some(s) => V::Str(s.clone()),
@@ -1324,6 +1374,14 @@ impl filter::Row for Page {
             "rendered" => V::Bool(self.rendered),
             "toc" => V::Bool(self.toc),
             "order" => self.order.map_or(V::Null, V::Int),
+            "date" => match self.date {
+                Some(d) => V::Str(iso_date(d)),
+                None => V::Null,
+            },
+            "year" => self.date.map_or(V::Null, |d| V::Int(d.year() as i64)),
+            "month" => self.date.map_or(V::Null, |d| V::Int(d.month() as i64)),
+            "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
+            "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
             // Schema fields (§5b) resolve after the base names.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),

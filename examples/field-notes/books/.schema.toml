@@ -1,6 +1,8 @@
 # The book-of-the-month club (§7a): rows with typed fields whose index
-# features the newest. `cover` is image-typed — thumbnailed, dimension
-# facts attached, and the hero source (q23).
+# features the newest. The club used to declare `month = { type = "string" }`
+# and sort it lexically, because a page could not hold a date — q51's merge
+# gave every row one, so this declares only what is genuinely its own.
+# `cover` is image-typed — thumbnailed, dimension facts attached, and the
+# hero source (q23).
 author = { type = "string" }
-month = { type = "string" }
 cover = { type = "image" }

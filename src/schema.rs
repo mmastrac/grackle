@@ -49,6 +49,21 @@ impl FieldType {
     }
 }
 
+/// Names the row types already own. `Post::field` and `Page::field` match
+/// the base names FIRST and fall through to declared fields, so a schema
+/// declaring one of these parsed, validated, and was then never read — the
+/// value went in and no query could reach it.
+///
+/// The check was latent until q51's merge made it live: `page_schema`
+/// growing `date`/`year`/`month`/`day` for parity turned `month = { type =
+/// "string" }` (field-notes' stand-in for the date a page could not have)
+/// from a working field into a shadowed one, and only a diff of the built
+/// site would have said so. Both tables' names are reserved, not just the
+/// governed row's — one `.schema.toml` can govern posts and pages both.
+fn is_base_field(name: &str) -> bool {
+    crate::db::post_schema().contains_key(name) || crate::db::page_schema().contains_key(name)
+}
+
 /// Every `.schema.toml` in the tree, keyed by its directory.
 #[derive(Debug, Default)]
 pub struct Schemas {
@@ -83,6 +98,14 @@ impl Schemas {
                     file.display()
                 );
             };
+            if is_base_field(&name) {
+                bail!(
+                    "{}: field {name:?} is a built-in row field, so declaring \
+                     it would be silently overruled — every row already has \
+                     one. Rename the declaration.",
+                    file.display()
+                );
+            }
             fields.insert(name, ty);
         }
         self.by_dir.insert(dir.to_path_buf(), fields);
@@ -188,7 +211,7 @@ mod tests {
         let mut s = Schemas::default();
         s.add(
             Path::new("books"),
-            "author = { type = \"string\" }\nmonth = { type = \"string\" }\ncover = { type = \"image\" }\n",
+            "author = { type = \"string\" }\nshelf = { type = \"string\" }\ncover = { type = \"image\" }\n",
             Path::new("books/.schema.toml"),
         )
         .unwrap();
@@ -208,7 +231,7 @@ mod tests {
         assert_eq!(base["author"], FieldType::Str);
         let deep = s.resolve(Path::new("books/special")).unwrap();
         assert_eq!(deep["author"], FieldType::Int, "nearest wins");
-        assert_eq!(deep["month"], FieldType::Str, "ancestors accumulate");
+        assert_eq!(deep["shelf"], FieldType::Str, "ancestors accumulate");
         assert!(
             s.resolve(Path::new("recipes")).is_none(),
             "ungoverned dirs stay free"
@@ -228,7 +251,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("not declared"), "{e}");
-        assert!(e.contains("author, cover, month"), "{e}");
+        assert!(e.contains("author, cover, shelf"), "{e}");
 
         let mut extra = BTreeMap::new();
         extra.insert("author".to_string(), serde_yaml_ng::Value::Number(3.into()));
@@ -236,6 +259,35 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("declared string"), "{e}");
+    }
+
+    /// A declaration that collides with a base row field parsed, validated
+    /// and was then unreachable — `Post::field`/`Page::field` answer the
+    /// base name first. field-notes had a live one (`month`, the stand-in
+    /// for the date a page could not hold), and nothing said so.
+    #[test]
+    fn declaring_a_built_in_field_is_a_load_error() {
+        let mut s = Schemas::default();
+        let e = s
+            .add(
+                Path::new("books"),
+                "month = { type = \"string\" }\n",
+                Path::new("books/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("built-in row field"), "{e}");
+        assert!(e.contains("books/.schema.toml"), "{e}");
+
+        // Reserved across BOTH tables: one `.schema.toml` can govern posts
+        // and pages, so a page-only name is not free on the post side.
+        assert!(s
+            .add(
+                Path::new("books"),
+                "rendered = { type = \"bool\" }\n",
+                Path::new("books/.schema.toml"),
+            )
+            .is_err());
     }
 
     #[test]

@@ -213,6 +213,8 @@ mod tests {
             layout: Some("page".into()),
             description: None,
             order,
+            date: None,
+            tags: Vec::new(),
             toc: false,
             theme: None,
             shell: None,
