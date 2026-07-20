@@ -19,6 +19,11 @@ use crate::store::{self, RawRow};
 
 #[derive(Debug, Default, Serialize)]
 pub struct Post {
+    /// The collection whose source claimed this file. Relations anchor to
+    /// it: adjacency over the whole posts TABLE interleaved two dated
+    /// collections, so a blog post's "later post" could be a note (proved
+    /// on a two-collection site before this existed).
+    pub collection: String,
     pub path: PathBuf,
     pub rel: PathBuf,
     #[serde(serialize_with = "hex")]
@@ -192,18 +197,89 @@ pub struct PostsTable {
     pub by_logical: HashMap<String, Vec<usize>>,
 }
 
+#[cfg(test)]
+mod adjacency_tests {
+    use super::*;
+
+    fn post(collection: &str, url: &str, ymd: (i32, u32, u32)) -> Post {
+        Post {
+            collection: collection.to_string(),
+            url: url.to_string(),
+            date: chrono::NaiveDate::from_ymd_opt(ymd.0, ymd.1, ymd.2),
+            ..Default::default()
+        }
+    }
+
+    /// Two dated collections interleave in one table, so walking `order`
+    /// raw made a blog post's neighbour a note. Measured on a real
+    /// two-collection site before the anchor existed: the January blog
+    /// post linked February's and April's *notes*.
+    fn table() -> PostsTable {
+        let mut t = PostsTable {
+            rows: vec![
+                post("posts", "/blog/jan/", (2026, 1, 1)),
+                post("notes", "/notes/feb/", (2026, 2, 1)),
+                post("posts", "/blog/mar/", (2026, 3, 1)),
+                post("notes", "/notes/apr/", (2026, 4, 1)),
+            ],
+            ..Default::default()
+        };
+        // `order` is reverse-chronological across every contributing
+        // collection, exactly as `index_posts` builds it.
+        t.order = vec![3, 2, 1, 0];
+        t
+    }
+
+    #[test]
+    fn adjacency_stays_inside_the_collection() {
+        let t = table();
+        let (newer, older) = t.neighbors(0); // /blog/jan/
+        assert_eq!(newer.map(|i| t.rows[i].url.as_str()), Some("/blog/mar/"));
+        assert_eq!(older, None, "jan is the oldest POST, whatever notes exist");
+
+        let (newer, older) = t.neighbors(1); // /notes/feb/
+        assert_eq!(newer.map(|i| t.rows[i].url.as_str()), Some("/notes/apr/"));
+        assert_eq!(older, None);
+    }
+
+    /// The same rule kept a published post from linking a DRAFT as its
+    /// earlier neighbour — `_drafts` is a second collection feeding the
+    /// posts table, and undated rows sort last, so the site's oldest post
+    /// pointed at `/drafts/…`.
+    #[test]
+    fn a_post_does_not_neighbour_a_draft() {
+        let mut t = table();
+        t.rows.push(Post {
+            collection: "drafts".to_string(),
+            url: "/drafts/wip/".to_string(),
+            date: None,
+            ..Default::default()
+        });
+        t.order.push(4); // undated sorts last
+        let (_, older) = t.neighbors(0); // /blog/jan/, the oldest post
+        assert_eq!(older, None, "a draft is not the earlier post");
+    }
+}
+
 impl PostsTable {
-    /// Adjacency over `order`. Returns (newer, older) as index into `rows`.
+    /// Adjacency over `order`, ANCHORED to the row's own collection.
+    ///
+    /// `order` spans every collection that feeds this table, so walking it
+    /// raw made a blog post's neighbour a note whenever two dated
+    /// collections existed — measured on a two-collection site: the
+    /// January blog post linked February's and April's *notes*. `_posts`
+    /// and `_drafts` never showed it because drafts are undated and so
+    /// absent from `order` entirely.
     pub fn neighbors(&self, idx: usize) -> (Option<usize>, Option<usize>) {
         let Some(pos) = self.order.iter().position(|&i| i == idx) else {
             return (None, None);
         };
-        let newer = if pos > 0 {
-            Some(self.order[pos - 1])
-        } else {
-            None
+        let Some(anchor) = self.rows.get(idx).map(|r| r.collection.as_str()) else {
+            return (None, None);
         };
-        let older = self.order.get(pos + 1).copied();
+        let same = |i: &usize| self.rows.get(*i).is_some_and(|r| r.collection == anchor);
+        let newer = self.order[..pos].iter().rev().find(|i| same(i)).copied();
+        let older = self.order[pos + 1..].iter().find(|i| same(i)).copied();
         (newer, older)
     }
 }
@@ -587,6 +663,9 @@ fn read_posts(
     c: &Collection,
     markers: &Markers,
 ) -> Result<(Vec<Post>, f64)> {
+    // Bound here because the row loop shadows `name` with the post's own
+    // path identity — silently, since both are strings.
+    let collection = name.to_string();
     let root = cfg.root();
     let source = root.join(
         c.source
@@ -720,6 +799,7 @@ fn read_posts(
         };
 
         rows.push(Post {
+            collection: collection.clone(),
             path: raw.path,
             rel: raw.rel,
             version: raw.version,
