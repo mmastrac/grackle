@@ -46,17 +46,18 @@ Directories are tables, files are rows. Every file belongs to **exactly one**
 table, by precedence — posts, then objects (by extension), then tree:
 
 ```toml
-[collections.blog]
-kind   = "posts"
-source = "_posts"
+[[collections]]                          # the source directory names the
+kind             = "posts"               # table: `_posts` is `posts`
+source           = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
-[collections.objects]
-kind = "objects"
+[[collections]]                          # matched by extension, so no
+name       = "objects"                   # directory names it — say it
+kind       = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 
-[collections.pages]
-kind = "tree"
+[[collections]]                          # a rootward source has no
+kind   = "tree"                          # directory either: `entries`
 source = "."
 ```
 
@@ -75,7 +76,7 @@ everywhere: nearest wins, first writer per key** —
 ".draft" = { draft = true }        # config says what a marker MEANS;
                                    # the tree says WHERE it applies
 
-[[collections.blog.rules]]
+[[collections.rules]]
 match    = "**"
 defaults = { layout = "post" }
 route    = "/blog/{year}/{month:02}/{day:02}/{slug}/"
@@ -92,17 +93,17 @@ Nobody writes `{% for post in site.posts %}{% unless post.draft %}`. Queries
 are declared once:
 
 ```toml
-[views.published]                  # a named query: no route, no layout
-over   = "blog"
-filter = "!draft && !hidden"
+[sets.published]                    # a query that never lands
+from  = "posts"
+where = "!draft && !hidden"
 
-[views.blog_index]                 # materialized: query + routes
-over = "published"
+[routes.blog_index]                 # a query that lands, on two paths
+from     = "published"
 paginate = 5
-routes = ["/blog/", "/blog/page/{n}/"]
+paths    = ["/blog/", "/blog/page/{n}/"]
 
-[views.latest]                     # embeddable: query + layout, no route
-over = "published"
+[sets.latest]                       # embedded by `/` (§5c)
+from  = "published"
 limit = 3
 ```
 
@@ -234,7 +235,7 @@ $ grackle explain /blog/2026/07/17/espresso-grinder/
 |---|---|
 | a new post | one markdown file |
 | hide a subtree from search | `touch code/legacy/.noindex` |
-| a "recent Rust posts" box | a `[views.*]` entry: `filter = '"rust" in tags'` |
+| a "recent Rust posts" box | a `[sets]` entry: `where = '"rust" in tags'` |
 | a photo-gallery page | a view `variant` + a `card` fragment + grid CSS |
 | a new look, dark mode included | copy a theme directory, edit HTML + CSS |
 | one weird table in one post | a `<style>` block there — scoped, compiled, validated (§6c) |
@@ -362,54 +363,56 @@ baseurl = ""            # dev override via --config or CLI flag
 title   = "grack.com"
 author  = "Matt Mastracci"
 
-[collections.blog]
+[[collections]]
 kind   = "posts"
 source = "_posts"
 # Filename → (date, slug) extraction, tried in order.
 # Second form covers the legacy MM-DD-YYYY posts; no match ⇒ undated row.
 filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
 
-  [[collections.blog.rules]]
+  [[collections.rules]]
   match    = "drafts/**"
   defaults = { draft = true }
   route    = "/drafts/{slug}/"          # undated: route must not use {year}
 
-  [[collections.blog.rules]]
+  [[collections.rules]]
   match    = "hidden/**"
   defaults = { hidden = true }          # routed normally; excluded from lists
 
-  [[collections.blog.rules]]
+  [[collections.rules]]
   match    = "**"                       # everything else, default flags
   defaults = { layout = "post" }
   route    = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
-[collections.pages]
+[[collections]]
+name   = "pages"
 kind   = "tree"
 source = "."
 
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
 
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*.{html,md}"
   route = "/{dir}/{stem}/"
 
-  [[collections.pages.rules]]
+  [[collections.rules]]
   match = "**/*"
   route = "/{path}"                     # static passthrough
 
-[collections.objects]
+[[collections]]
+name       = "objects"
 kind       = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 bucket     = "assets"                   # §6a: bucket dir NAME, not a path
 
   # Named routes: pin an object to a stable URL regardless of where it lives
-  [[collections.objects.rules]]
+  [[collections.rules]]
   match = "assets/branding/logo-v3-final.png"
   route = "/logo.png"
 
-  [[collections.objects.rules]]
+  [[collections.rules]]
   match = "**"
   route = "/{path}"                     # default: publish at literal source path
 ```
@@ -508,7 +511,7 @@ inspector able to say "included in drafts, excluded from default".
 noindex = true
 
   [profiles.drafts.views.published]
-  filter = "!hidden"          # relax the one filter that hides drafts
+  where = "!hidden"          # relax the one filter that hides drafts
 ```
 
 `build` uses the default projection — the config exactly as written —
@@ -592,9 +595,9 @@ Profiles (above) are the general answer the probe pointed at, and they
 arrived on 2026-07-19 — though not in the shape sketched here first. The
 original sketch proposed profile-scoped `include = "!draft && !hidden"`
 and profile-scoped view *lists*; what shipped is narrower and, I think,
-better: a profile overrides an existing view's `filter`, so selection
+better: a profile overrides an existing query's `where`, so selection
 stays the view's job and a profile invents no queries of its own. The
-sketch's `[views.hidden_index]` — a `/hidden/` listing that exists only
+sketch's `[routes.hidden_index]` — a `/hidden/` listing that exists only
 in the drafts profile — is not built and is not currently wanted; `_hidden/`
 is not even loaded.
 
@@ -658,8 +661,8 @@ declares itself:
 
 ```toml
 # before: config encodes the path
-[[collections.blog.rules]]
-match = "hidden/**"
+[[collections.rules]]
+match    = "hidden/**"
 defaults = { hidden = true }
 
 # after: the tree encodes the path
@@ -727,40 +730,48 @@ site root, must never change what the site publishes.
 Everything Jekyll plugins generated becomes a declared, incrementally
 maintained view over a table:
 
+> **Vocabulary** *(2026-07-19)*. This document says **view** for the shared
+> concept, as SQL does — a query, materialized or not. Config splits it:
+> **`[sets]`** never lands, **`[routes]`** does, and `path` is what tells
+> them apart (§5c has the key census). A collection rule keeps `route` — it
+> makes one URL per row, not per query.
+
 ```toml
-[views.tag_index]
-over     = "blog"
+[routes.tag_index]
+from     = "posts"
 group_by = "tags"                       # one output row-group per tag value
-route    = "/blog/tags/{key}/"
+path     = "/blog/tags/{key}/"
 layout   = "tag_index"
 
-[views.yearly_archive]                  # new with grackle: /blog/2010/ was a
-over     = "blog"                       # 404 between /blog/ and /blog/2010/01/
+[routes.yearly_archive]                  # new with grackle: /blog/2010/ was a
+from     = "posts"                       # 404 between /blog/ and /blog/2010/01/
 group_by = "date.year"
-route    = "/blog/{year}/"
+path     = "/blog/{year}/"
 layout   = "yearly_archive"
 
-[views.monthly_archive]
-over     = "yearly_archive"             # subdivision (§5c): GROUP BY year, month;
+[routes.monthly_archive]
+from     = "yearly_archive"             # subdivision (§5c): GROUP BY year, month;
 group_by = "date.month"                 # {year} comes from the parent's key
-route    = "/blog/{year}/{month:02}/"
+path     = "/blog/{year}/{month:02}/"
 layout   = "monthly_archive"
 
-[views.blog_index]
-over     = "blog"
-filter   = "!hidden && !draft"
+[routes.blog_index]
+from     = "posts"
+where    = "!hidden && !draft"
 paginate = 5
-routes   = ["/blog/", "/blog/page/{n}/"]
+paths    = ["/blog/", "/blog/page/{n}/"]
 
-[views.feed]
-over     = "blog"
-filter   = "!hidden"
+[routes.feed]
+path     = "/atom.xml"
+from     = "posts"
+where    = "!hidden"
 limit    = 20
 template = "atom.xml"                   # rendered as a bare liquid page
 
-[views.sitemap]
-over     = "*"                          # all routable rows
-filter   = 'dir || ext == "html" || ext == "pdf"'
+[routes.sitemap]
+path  = "/sitemap.xml"
+from  = "*"                          # all routable rows
+where = 'dir || ext == "html" || ext == "pdf"'
 ```
 
 ⚠️ **That filter was originally guessed as `exclude = "noindex || paginated>1"`,
@@ -795,7 +806,7 @@ Views iterate in name order, which meant `sitemap` originally ran before
 `tag_index` and reported 1544 rows instead of 1559 — the row count was the
 symptom that exposed it.
 
-`filter`/`group_by`/`limit` are deliberately tiny — a predicate language over
+`where`/`group_by`/`limit` are deliberately tiny — a predicate language over
 row fields, not SQL. Anything fancier is a Rust `Generator` impl registered
 under a name the config references. View outputs are routable rows like any
 other, so they land in the same URL→row reverse index.
@@ -824,9 +835,9 @@ Post fields: `draft` `hidden` (bool); `title` `slug` `stem` `layout`
 `date >= "2020-01-01"` works without a date type.
 
 ```toml
-filter = '!draft && !hidden'
-filter = 'year >= 2020 && "rust" in tags'
-filter = '!(draft || hidden) && description'
+where = '!draft && !hidden'
+where = 'year >= 2020 && "rust" in tags'
+where = '!(draft || hidden) && description'
 ```
 
 **Expressions are parsed and type-checked once per view at load time**, against
@@ -882,13 +893,13 @@ restructured, the tree encodes it (`demos/mindstorms/alpharex/part-2/…`),
 and the view wants to be:
 
 ```toml
-[views.mindstorms]
-over     = "objects"
+[routes.mindstorms]
+from     = "objects"
 match    = "demos/mindstorms/**"     # gap 2
 group_by = "dir"
 order_by = "name"                    # gap 3
 variant  = "gallery"                 # §5e variants (q24, settled)
-route    = "/demos/mindstorms/{key}/"
+path     = "/demos/mindstorms/{key}/"
 ```
 
 The three gaps, in order of generality — **all three built (2026-07)**
@@ -951,7 +962,7 @@ theoretical — the conflation is measurable in this site.
 disagree* (evidence above): `monthly_archive` excludes `hidden or draft`,
 while `tag_index` and `blog/index` exclude only `draft`. So hidden posts leak
 into tag pages and the blog index but not archives. The query is *already*
-declared once in config (§5, `[views.*]`) — the templates are re-deriving what
+declared once in config (§5, `[sets]`/`[routes]`) — the templates are re-deriving what
 the database knows.
 
 *Two document layouts*: `post.html` (article + temporal neighbours) and
@@ -1065,7 +1076,7 @@ layer boundary:
 | **layout hint** | the layout | `hide_sidebar`, `wide` |
 
 ```toml
-[collections.blog.schema]
+[collections.posts.schema]   # sketch, not built: §5b's .schema.toml won
 title = { type = "string", required = true }
 date  = { type = "date",   required = true }
 tags  = { type = "list" }
@@ -1322,7 +1333,7 @@ Design it all now; build (1) and (2); let the third use case justify (3).
 
 ## 5c. A view is a query; a route is where it lands
 
-§5 declared views as generators: each one had a `route`, and routes were the
+§5 declared views as generators: each one had a `path`, and routes were the
 only reason a view existed. The home page broke that, and the break was
 load-bearing.
 
@@ -1365,12 +1376,12 @@ drafts and 0 hidden posts — the flags are pure potential energy.
 So: **one named set**, and everything composes over it.
 
 ```toml
-[views.published]          # query only: no route, no layout
-over   = "blog"
-filter = "!draft && !hidden"
+[sets.published]          # query only: no route, no layout
+from  = "posts"
+where = "!draft && !hidden"
 
-[views.blog_index]  over = "published"  paginate = 5  routes = [...]
-[views.latest]      over = "published"  limit = 3     layout = "link_list"
+[routes.blog_index]  from = "published"  paginate = 5  paths = [...]
+[sets.latest]      from = "published"  limit = 3     layout = "link_list"
 ```
 
 Fixing all five was provably free: build output stayed byte-identical, because
@@ -1385,7 +1396,8 @@ which is the point.
 | embeddable | — | ✓ | `latest` |
 | materialized | ✓ | ✓ | `blog_index` |
 
-`route` is optional. `over` may name a collection, `*`, or **another view — but
+`path` is optional — its presence is what makes an entry a `[routes]` rather
+than a `[sets]`. `from` may name a collection, `*`, or **another query — but
 only a query-only one.** That restriction is the whole reason composition stays
 simple: allowing `over = "blog_index"` would raise "is `paginate = 5`
 inherited?", and every answer surprises someone. Compose over things with
@@ -1404,7 +1416,7 @@ match view.as_str() {
 }
 ```
 
-That is the config declaring `filter`/`group_by`/`paginate` and the renderer
+That is the config declaring `where`/`group_by`/`paginate` and the renderer
 ignoring all of it — including hardcoding `per = 5` beside a `paginate = 5` it
 never read. It is exactly how `blog_index` and its config could silently
 disagree. Now the renderer iterates `members` and matches only on the *layout
@@ -1428,7 +1440,7 @@ The tempting shape is `over = "/blog"`. It does not work:
 ### The embedding seam
 
 ```
-grackle.toml   [views.latest] over="published" limit=3 layout="link_list"
+grackle.toml   [sets.latest] from="published" limit=3 layout="link_list"
   ↓ db.rs      routeless + ungrouped → one row set → db.views["latest"]
   ↓ tags.rs    {% view latest %} → look up rows, dispatch on layout
   ↓ render.rs  link_list(rows, site)
@@ -1480,23 +1492,23 @@ subdivision chains included. Residue, kept knowingly: `month_name` is a
 display derivative special-cased on the `month` field until §5f
 formatters give it a home.
 
-### Subdivision: `over` a grouped view refines its partition *(built 2026-07)*
+### Subdivision: `from` a grouped route refines its partition *(built 2026-07)*
 
-A grouped view is a partition of its base; a grouped view **`over` a grouped
+A grouped view is a partition of its base; a grouped view **`from` a grouped
 view is a finer partition of the parent's groups** — GROUP BY year, month,
 expressed compositionally:
 
 ```toml
-[views.yearly_archive]
-over     = "published"
+[routes.yearly_archive]
+from     = "published"
 group_by = "date.year"
-route    = "/blog/{year}/"
+path     = "/blog/{year}/"
 title    = "{year}"
 
-[views.monthly_archive]
-over     = "yearly_archive"          # subdivision: year key comes from here
+[routes.monthly_archive]
+from     = "yearly_archive"          # subdivision: year key comes from here
 group_by = "date.month"
-route    = "/blog/{year}/{month:02}/"
+path     = "/blog/{year}/{month:02}/"
 title    = "{year} {month_name}"
 ```
 
@@ -1528,9 +1540,9 @@ Three consequences, none of them new machinery:
 
 **URLs are derived values, all the way down** *(q32, settled 2026-07)*:
 producers take URLs and never construct them. Pagination links render from
-the owning view's own `routes` templates (locale-prefixed like the routes
+the owning view's own `paths` templates (locale-prefixed like the routes
 were); tag pills render from the tags-owning view's template
-(`[collections.<posts>] tags = "<view>"`, falling back to the unique
+(a posts collection's `tags = "<route>"`, falling back to the unique
 tags-grouped view — ambiguity is a load error, no tags view means unlinked
 pills); slugs apply at exactly one seam per base kind (`route_value`).
 i18n forced this settlement: the hardcodes had already grown locale
@@ -1540,7 +1552,7 @@ every byte one substitution. The collection's own `crumb`/`index` fields
 are the last non-derived names in a trail (q46 proposes dissolving them
 into §5h's landing chain).
 
-Composition rules, enforced at load: `over` may name a query-only view
+Composition rules, enforced at load: `from` may name a set
 (unchanged) or a **grouped, unpaginated** view — and the composer must then
 be grouped itself, because subdivision is the only defined meaning; a
 non-grouped view over a grouped one is an error. **Pagination × subdivision
@@ -1548,6 +1560,44 @@ is deliberately punted** (open question 30): a year *could* paginate while
 months subdivide off the year's root, but `/blog/2022/page/2/` and child
 routes then share the year root's URL namespace, and that conflict deserves
 real thought rather than a rule chosen in passing.
+
+### The split the section title always implied *(built 2026-07-19)*
+
+"A view is a query; a route is where it lands" was a sentence in this
+document and one `[views]` section in config, where the only way to tell
+the two apart was whether `route` happened to be present. It is now the
+shape: **`[sets]`** for a query that never lands, **`[routes]`** for one
+that does.
+
+Measured across both sites' 23 queries before deciding: `path(s)`,
+`title`, `crumb`, `shell`, `template`, `content`, `intro`, `featured`,
+`paginate` and `group_by` NEVER appear without a route; `from`, `where`,
+`match`, `order_by`, `limit`, `layout` and `variant` appear in both. Ten
+keys are meaningless without a URL. `group_by` is the one worth saying
+out loud: grouping exists to produce one route per key, so a grouped
+query with nowhere to land has no meaning — a fact previously discoverable
+only by reading this section.
+
+**One keyword, not two.** A draft had `under` for subdivision, to spare
+the reader the cross-reference of "what does `yearly_archive` refer to?".
+Dropped: `Config::query` already derives selection-from-subdivision from
+what the name refers to, and errors on every ambiguous case, so `under`
+would have restated a check that exists. `from` names a collection, a set
+or a route, and what it names decides what it means.
+
+**One namespace, now enforced.** Which exposed a latent collision: the
+resolver tried views *before* collections with no guard, so `[views.blog]`
+beside `[collections.blog]` silently shadowed the collection and made it
+unreachable by name. A name now lives in exactly one of the three.
+
+**Profiles split the same way**, and say more for it: relaxing
+`[profiles.drafts.sets.published]` patches a QUERY, relaxing
+`[profiles.drafts.routes.search]` patches a LANDING. §4a insists on that
+distinction and it previously had to be inferred.
+
+Internally this is a config-layer change only — both sections deserialize
+into the same `View`, so a set is a route with no path exactly as before.
+Both sites' output is byte-identical across the cut.
 
 ## 5d. Templating: there is almost none, so don't build for it
 
@@ -1562,7 +1612,7 @@ and `index.html`:
 
 | looks like | count | what it **is** | where it belongs |
 |---|---|---|---|
-| `for post in site.posts` + `unless post.draft`, `if page.next`, `for related limit: 4` | **17** | a **query** | view config: `filter`/`limit`/`group_by` (§5, §5c) |
+| `for post in site.posts` + `unless post.draft`, `if page.next`, `for related limit: 4` | **17** | a **query** | query config: `where`/`limit`/`group_by` (§5, §5c) |
 | `if page.date`, `if seo_description`, `if noindex`, `if multipost`, `if hide_sidebar`, `if summary`, `if is_page`, `if site.google_analytics` | **22** | a **schema fact** | a typed field (§5a: "a fact, not a branch") |
 | `assign post = page`, `assign content = post.content`, `capture margin_html`, `capture listing_title` | **12** | **argument passing** | a function call |
 | `for p in page.ancestors`, `for tag in post.tags`, `for page in (1..total_pages)` | **8** | real display iteration | **3 components** |
@@ -1602,7 +1652,7 @@ errors, not 404s; Liquid is the opposite by construction.
 ```
 
 HTML, typed holes, **zero control flow** — matching the reference exactly. The
-nine-line counter loop became `filter` + `limit`.
+nine-line counter loop became `where` + `limit`.
 
 ### This retires the `liquid` crate
 
@@ -2238,7 +2288,7 @@ never a grackle-only dialect.
 
 | config key | expression type | status |
 |---|---|---|
-| `filter =` | `bool` over the row schema | built — the §5 language, already CEL |
+| `where =` | `bool` over the row schema | built — the §5 language, already CEL |
 | `fields.NAME =` | a typed value over the row (content, text, …) | q31's target; replaces the deriver-struct |
 | future derivers (`hero`, `lede`) | same | q23 / q25 |
 
@@ -2259,7 +2309,7 @@ is not optional — an expression that doesn't type-check is a config error.
 ### Functions: registered in Rust, never defined in config
 
 ```toml
-[views.published.fields]
+[sets.published.fields]
 summary = 'truncate(content, {"max_blocks": 4, "max_chars": 700})'
 ```
 
@@ -2282,7 +2332,7 @@ summary = 'truncate(content, {"max_blocks": 4, "max_chars": 700})'
 Two places the existing language is not CEL, both contained:
 
 - **`*` (match-all) is not CEL grammar.** It is a whole-string sentinel,
-  equivalent to omitting `filter` — recognised before the parser runs, not
+  equivalent to omitting `where` — recognised before the parser runs, not
   part of the grammar. Stays.
 - **Bare-field truthiness is not CEL semantics.** `description` meaning
   "has one" is grammatically fine (an ident expression) but CEL's checker
@@ -2356,11 +2406,11 @@ projection baked into the pass. Now a view declares it, in exactly the
 sitemap's star shape:
 
 ```toml
-[views.search]
-over = "*"
-route = "/search.bin"
+[routes.search]
+from  = "*"
+path  = "/search.bin"
 shell = "search"
-filter = '(kind == "post" || kind == "page") && !draft && !hidden'
+where = '(kind == "post" || kind == "page") && !draft && !hidden'
 ```
 
 The rows that pass the route-schema filter are the searchable set,
@@ -2816,7 +2866,8 @@ Exhaust the root → error.
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 bucket     = "assets"              # directory NAME that marks a bucket, not a path
 
-[collections.blog]
+[[collections]]
+name = "blog"
 # bucket = "img"                   # optional per-collection override of the pattern
 ```
 
@@ -3211,7 +3262,7 @@ every post twice. **The summary is a computed field on the view's rows** —
 a derived column, not a rendering attribute:
 
 ```toml
-[views.published.fields.summary]
+[sets.published.fields.summary]
 truncate = { max_blocks = 4, max_chars = 700 }
 ```
 
@@ -3219,7 +3270,7 @@ truncate = { max_blocks = 4, max_chars = 700 }
 block granularity, at least one always kept, `max_chars` counting visible
 text); the *deriver* (`truncate`) discriminates the field definition and is
 validated at load — no deriver, or an unknown one, errors naming the known
-set. **Fields flow with rows through `over` composition** the way filters
+set. **Fields flow with rows through `from` composition** the way filters
 do: declared once on `published`, every listing composed over it inherits
 the column; redeclaring the name overrides, nearest wins. The deriver's
 fact (`truncated`) rides along, feeding `data-truncated`. Listing previews
@@ -3632,7 +3683,7 @@ name = { en = "meta", fr = "méta" }   # display name carries the lang axis
 # slug = "…"           # route slug, defaults to the id
 
 [records.course.dinner]               # ANY grouped field, not just tags
-name = { en = "Dinner", fr = "Dîner" }
+name  = { en = "Dinner", fr = "Dîner" }
 intro = { en = "These dinner recipes are sure to please!", fr = "…" }
 ```
 
@@ -4407,7 +4458,7 @@ The crisp tests all still pass on inspection: producers never see `Site`,
 no theme can compute, no fragment can loop, and the recent features entered
 without bending anything — relations-as-axes arrived as one more producer
 push (no schema, binder or theme change), and summaries arrived as a config
-field flowing through `over` (no rendering attribute, no engine policy).
+field flowing through `from` (no rendering attribute, no engine policy).
 The predictor of this health is the discipline itself: **everything
 declared is load-checked** (filters, fragments, fields, widgets, slots), so
 a responsibility placed in config *stays* there — code can't quietly
@@ -4415,14 +4466,14 @@ reinterpret what it would first have to type-check.
 
 ### The one recurring disease
 
-§5c named it: *the config declared `filter`/`group_by`/`paginate` and the
+§5c named it: *the config declared `where`/`group_by`/`paginate` and the
 renderer ignored all of it*. That was cured for row membership (`members`).
 The same disease survives in four smaller pockets — each is the renderer
 (or a producer) re-deriving something config already owns:
 
 1. ~~Producers hardcode routes config owns~~ (→ q32) — **cured
    (2026-07)**: pagination takes URLs rendered from the owning view's
-   `routes` templates, and tag pills render `Config::tag_url` from the
+   `paths` templates, and tag pills render `Config::tag_url` from the
    declared-or-unique tags view's template (no tags view = unlinked
    pills). The i18n work is what finally forced it: the hardcodes had
    grown locale prefixes in two places before the cure.
@@ -4529,7 +4580,7 @@ the search view's one `stem != "index"` dies when home and manual lift.
 | 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
 | **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** (Dark mode: proven as one CSS block, then removed — content assumes white; §5e step-3 notes.) |
 | **8** | §6b content intelligence: embeddings + search | ✅ **done** — embeddings (fastembed/MiniLM, `[related]` policy, relations-as-axes, stale-while-revalidate in serve; **LSI retired**) and TF-IDF search (`search-core` shared by build and browser via `search-wasm`; `/search.bin` 195 KB/22ms; lazy `/search.js`; **Swiftype retired**). The Jekyll build's last two external services are gone. |
-| **7** | content intelligence: §6d blocks | 🟡 **stage A done** — `render_doc` (one parse: whole + blocks), **the summary is a computed field** (`[views.published.fields.summary] truncate = {…}` — a derived column inheriting along `over`, nearest wins; `Doc::truncate` is mechanism, the deriver validated at load; `hero`/`lede` (q23) are future derivers), `truncated` fact → `data-truncated` → ★ (q17 settled), nth-of-type CSS deleted, concat==whole pinned as a corpus test (footnote post the sole exception). **Measured: `/blog/` 160→15.7 KB; `/blog/tags/rust/` 180→11.3 KB (93.8%).** Post pages and feed byte-identical; the double render is gone. Stage B: notes stream + sidenotes (q18), the `lol_html` rewrite stage; also `{% callout %}` widgets landed (q29). |
+| **7** | content intelligence: §6d blocks | 🟡 **stage A done** — `render_doc` (one parse: whole + blocks), **the summary is a computed field** (`[sets.published.fields.summary] truncate = {…}` — a derived column inheriting along `from`, nearest wins; `Doc::truncate` is mechanism, the deriver validated at load; `hero`/`lede` (q23) are future derivers), `truncated` fact → `data-truncated` → ★ (q17 settled), nth-of-type CSS deleted, concat==whole pinned as a corpus test (footnote post the sole exception). **Measured: `/blog/` 160→15.7 KB; `/blog/tags/rust/` 180→11.3 KB (93.8%).** Post pages and feed byte-identical; the double render is gone. Stage B: notes stream + sidenotes (q18), the `lol_html` rewrite stage; also `{% callout %}` widgets landed (q29). |
 
 ## 11. Open questions (to iterate on)
 
@@ -4668,7 +4719,7 @@ never reused.
     member — `_cache/`, which a rebuild *writes* — stays its own.
 37. **The `board` kind: composition of views as content (§5c-adjacent,
     specced, deliberately pending).** A board is a *query over queries* —
-    `[views.home] layout = "board"` declaring ordered members, each
+    `[routes.home] layout = "board"` declaring ordered members, each
     contributing `{label, content}`; the theme places one slot, CSS does
     the columns. It would retire the last hand-written arrangement on
     either site's homepage, and §5h gives it its frame: home is the
@@ -4834,12 +4885,27 @@ never reused.
     Decisions taken while specced:
 
     - **Names are plural, matching the table** (`posts`, `recipes`,
-      `entries`). That forces a split the model wants anyway: today's
-      `kind` conflates *which table* (`post`, `page`) with *what sort of
-      route* (`static`, `object`, `view`). Plurals read wrong on the
-      first (`kind == "posts"` for one row) and right on a renamed field —
-      so **`table == "posts"`** for membership, `kind` left to mean route
-      sort. The four config filters using `kind == "post"` migrate.
+      `entries`), and ✅ **built 2026-07-19**: `[[collections]]` is an
+      array because the name comes from the SOURCE DIRECTORY (`_posts` is
+      `posts`, leading underscore stripped) and TOML has no keyless
+      table; `name =` overrides where the two genuinely differ (the
+      example keeps `notes`); a rootward source (`.`) has no directory to
+      name it and is `entries`; a sourceless collection (objects, matched
+      by extension) must be named. **The correction it forced**:
+      `post_trail` took the *first* posts collection the map yielded and
+      read its `trail`, which worked only because `blog` sorted before
+      `drafts` — deriving names put `drafts` first and every post silently
+      lost its archive crumbs. Now keyed on the declaration.
+    - ~~**`table == "posts"` for membership**~~ — **superseded** by the
+      `[sets]`/`[routes]` split (§5): membership is `from`, which is a
+      clause, not a predicate. Putting it in the filter language was the
+      same conflation this question is about. What survives is the
+      observation underneath: `kind` mixes *which table* (`post`, `page`)
+      with *what sort of route* (`static`, `object`, `view`), and only
+      star views ever filter on it — where the source genuinely is a
+      heterogeneous route set and the table IS a column. All four uses of
+      `kind == "post"` are in `from = "*"` queries, so a rename there
+      touches nothing else.
     - **NOT `document`** for the root type, though it was the first
       instinct: every theme ships a `document.html`, one of §5a's layout
       kinds. Unlike the row/view `shell` collision (§5g), these two would
@@ -4861,7 +4927,7 @@ never reused.
       §9b's standing verdict that this engine keeps sanding OOP off. Field
       cascades are the benign kind and there are already three
       (markers, `.schema.toml`, view `fields`). A type that could override
-      *how it renders or routes* would rebuild what `over` refuses and
+      *how it renders or routes* would rebuild what `from` refuses and
       what q46 deleted from collections.
     - **Objects stay out**, and for the reason §5g's tier work found
       independently: they are the unparsed side of the identity bit,
