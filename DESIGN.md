@@ -5013,6 +5013,130 @@ never reused.
     After that the structs differ only by date/tags vs order/rendered, and
     the merge is mechanical rather than architectural.
 
+52. **Relations declared per collection, with exclusions** *(Matt's
+    direction, 2026-07-20; shapes weighed below)*.
+
+    Matt: *"Each collection should define its own relations in the config
+    tree — prev/next/similar/etc, as well as the source for it. We should
+    also be able to add compound operations. For example, a related post
+    for published is `relation(published) - prev(published) -
+    next(published) - links_to(*)`."*
+
+    The motivating case is exact and worth keeping in view: a **Related**
+    list should not re-show the post you already link to in the body, nor
+    the two the Later/Earlier links already point at. Today it can and
+    does — `similar` ranks over the whole posts table and knows nothing
+    about the other axes.
+
+    **Where this comes from.** Relations are hardcoded: five of them, in
+    `parts.rs`, unconditional, ranging over whatever table the code
+    reached for. That was already wrong — adjacency crossing two dated
+    collections was measured and fixed (q51's neighbours), and `similar`
+    and `linked_from` are still unanchored. Matt's rule is that every
+    relation states its reach and only `translations` may go unstated,
+    its reach being structural (it pairs on logical path, inherently
+    within one collection).
+
+    **The reach is a SET, not a collection.** `prev(published)` rather
+    than `prev(posts)`: a set is already the vocabulary for a named query
+    (§5c), and `published` carries `!draft && !hidden`, so adjacency over
+    it drops drafts by construction — which is the same correction the
+    collection anchor made, reached more cleanly.
+
+    ### Three shapes, weighed
+
+    **A. Set algebra in a string** (Matt's spelling).
+
+    ```toml
+    [collections.relations.related]
+    select = "similar(published) - prev(published) - next(published) - links_to(*)"
+    ```
+
+    Compact and general. Two costs. It is a **second expression language**
+    beside §5f's CEL subset — small (five operators and a difference), but
+    §5d and §5f are emphatic about not growing languages, and this would be
+    the first grammar added since. And it **repeats definitions**:
+    `- prev(published)` restates what the `earlier` relation already says,
+    so changing one silently desyncs the other — the §5c disease, in a new
+    place.
+
+    **B. Structured fields, exclusions by NAME** *(recommended)*.
+
+    ```toml
+    [collections.relations.earlier]
+    of    = "prev"
+    over  = "published"
+    label = { en = "Earlier post", fr = "Note précédente" }
+
+    [collections.relations.related]
+    of      = "similar"
+    over    = "published"
+    exclude = ["earlier", "later", "links_to"]
+    limit   = 4
+    label   = { en = "Related", fr = "Similaires" }
+    ```
+
+    No new grammar; every part is a key, load-checked like every other key.
+    **`exclude` names other declared relations**, so it cannot drift from
+    their definitions the way `- prev(published)` can — say "not whatever
+    Earlier shows" and it stays true when Earlier changes. Ordering stops
+    being a convention: `of` names the ranking operator, so *it* supplies
+    the order and `limit` applies after exclusion, statable in one line
+    instead of inferred from term position.
+
+    What it gives up is arbitrary algebra — no unions of three sources. The
+    motivating case does not need it: it is **one ranked source minus some
+    exclusions**, which is a far smaller feature than general set algebra.
+    Grow it when something real wants a union.
+
+    **C. Relations as sets.** Tempting — `[sets]` already names queries —
+    but a set is row-independent by construction and a relation is
+    row-relative. Making sets know "the current row" would break the thing
+    that makes them composable. Rejected.
+
+    **D. Keep relations engine-defined; declare only reach and
+    exclusions.** The smallest change: the five stay built-in, each
+    collection says what they range over. Keeps the closed axis vocabulary
+    and the `ENGINE_STRINGS` labels. But a new relation (same-tag, series)
+    still needs engine code, and `related_excludes` is an ad-hoc key rather
+    than a mechanism. Worth taking only if B proves too big.
+
+    ### Decisions inside B
+
+    - **Operators are the closed set; compositions are open.** The engine
+      owns `prev`, `next`, `similar`, `links_to`, `linked_from`,
+      `translations` — a typo in `of` is a load error naming the six. The
+      *names* (`related`, `later`) become site vocabulary.
+    - **Which retires part of the `Axis` enum.** That set was closed
+      earlier the same day precisely because the axis string is a theme
+      contract, and this reopens it: axis strings become site-defined and
+      labels move out of `ENGINE_STRINGS` into each relation's `label`.
+      Themes already cope (the `relation` fragment renders axes it has
+      never heard of), but the reversal should be deliberate and is
+      recorded here rather than discovered in a diff.
+    - **Defaults, so the yardstick does not regress.** Relations are free
+      and automatic today; making them declared costs `examples/minimal`
+      roughly +12 lines on a config now tracked at 27. A collection that
+      declares no relations should get the conventional five. This is
+      defensible where a built-in passthrough rule was not (§7a): relations
+      are *convention*, and the passthrough rule is a *policy statement*
+      about what goes on the internet. Declaring any relation replaces the
+      defaults wholesale — a small cliff, but predictable.
+    - **`linked_from` stays global** (`over = "*"`) and must now say so.
+      A page linking to a post is a real backlink; anchoring it would break
+      it. Under Matt's rule it declares its reach like everything else.
+
+    ### Feasibility
+
+    `links_to` is free: `backlinks_map` already computes the forward
+    direction and inverts it, so the pre-inversion data is in hand.
+    `similar` already restricts to a locale, which becomes one more
+    implicit term to make explicit or leave as engine behaviour.
+
+    Migration: both sites declare their relations to keep current output,
+    or take the defaults and change nothing. Verifiable byte-identical
+    either way.
+
 ### Settled ledger
 
 One line per retired question; the named section carries the design.
