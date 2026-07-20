@@ -50,6 +50,17 @@ pub struct Post {
     /// hold the same fields.
     pub theme: Option<String>,
     pub shell: Option<String>,
+    /// Typed extra fields, validated against the governing `.schema.toml`
+    /// (§5b) — the same mechanism pages have had. `.schema.toml` files were
+    /// already collected by a ROOT-WIDE walk, so the declarations were
+    /// visible to every table and only the tree loader consulted them;
+    /// `read_posts` never called `validate` and never read
+    /// `raw.front.extra`, so a post's extra keys parsed and evaporated.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, filter::Value>,
+    /// The image-typed subset: field name -> root-relative source path.
+    #[serde(skip)]
+    pub images: BTreeMap<String, String>,
     pub draft: bool,
     pub hidden: bool,
     pub noindex: bool,
@@ -669,16 +680,18 @@ fn read_posts(
     name: &str,
     c: &Collection,
     markers: &Markers,
+    schemas: &crate::schema::Schemas,
 ) -> Result<(Vec<Post>, f64)> {
     // Bound here because the row loop shadows `name` with the post's own
     // path identity — silently, since both are strings.
     let collection = name.to_string();
     let root = cfg.root();
-    let source = root.join(
+    let source_rel = PathBuf::from(
         c.source
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("collection {name} has kind=posts but no source"))?,
     );
+    let source = root.join(&source_rel);
 
     let t0 = std::time::Instant::now();
     let raws: Vec<RawRow> = store::load_dir(&source, &["md", "markdown"])?;
@@ -747,6 +760,22 @@ fn read_posts(
             .title
             .clone()
             .unwrap_or_else(|| slug.replace('-', " "));
+        // Governance follows the LOGICAL path (§6f), exactly as the tree
+        // loader does it: a translation is governed by its original's
+        // `.schema.toml`.
+        // `raw.rel` is relative to the collection SOURCE, while schemas are
+        // keyed root-relative by the root-wide `.schema.toml` walk — so a
+        // `_posts/.schema.toml` is registered under `_posts` and resolving
+        // the bare filename would never find it.
+        let parent = source_rel
+            .join(&raw.rel)
+            .parent()
+            .unwrap_or(Path::new(""))
+            .to_path_buf();
+        let checked = match schemas.resolve(&parent) {
+            Some(schema) => crate::schema::validate(&schema, &raw.front.extra, &raw.path)?,
+            None => Default::default(),
+        };
         let theme = raw.front.theme.clone().or_else(|| {
             defaults
                 .get("theme")
@@ -832,6 +861,8 @@ fn read_posts(
             tags: raw.front.tags,
             theme,
             shell,
+            fields: checked.values,
+            images: checked.images,
             draft,
             hidden,
             noindex,
@@ -1218,7 +1249,9 @@ impl filter::Row for Post {
             "body_bytes" => V::Int(self.body_bytes as i64),
             "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
-            _ => V::Null,
+            // Schema fields (§5b) resolve after the base names — the same
+            // fallthrough a page has had.
+            other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
     }
 }
@@ -1375,7 +1408,7 @@ impl SiteDb {
         for (name, c) in &cfg.collections {
             match c.kind {
                 Kind::Posts => {
-                    let (rows, read_ms) = read_posts(cfg, name, c, &markers)?;
+                    let (rows, read_ms) = read_posts(cfg, name, c, &markers, &db.schemas)?;
                     post_rows.extend(rows);
                     db.stats.read_ms += read_ms;
                 }

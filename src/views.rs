@@ -108,7 +108,11 @@ fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> R
     for spec in chain {
         let field = spec_field(spec);
         let mut known: Vec<&str> = match kind {
-            Kind::Posts => post_schema().keys().copied().collect(),
+            Kind::Posts => {
+                let mut v: Vec<&str> = post_schema().keys().copied().collect();
+                v.extend(db.schemas.declared().keys().copied());
+                v
+            }
             Kind::Objects => object_schema().keys().copied().collect(),
             Kind::Tree => {
                 let mut v: Vec<&str> = crate::db::page_schema().keys().copied().collect();
