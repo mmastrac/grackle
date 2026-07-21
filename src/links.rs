@@ -33,12 +33,10 @@ pub struct LinkSpace {
 impl LinkSpace {
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
-        for p in &db.posts.rows {
-            if let Ok(rel) = p.path.strip_prefix(root) {
-                source_to_url.insert(rel.to_string_lossy().to_string(), p.url.clone());
-            }
-        }
-        for p in &db.pages.rows {
+        // One loop over both tables. It was two only because a post's `rel`
+        // was collection-relative, so the post arm had to re-derive the
+        // root-relative form from `path`; `rel` means one thing now (q51).
+        for p in db.posts.rows.iter().chain(db.pages.rows.iter()) {
             // q45: a claimed locale variant whose partition never
             // materialized has no URL; offering it would rewrite links
             // to "".

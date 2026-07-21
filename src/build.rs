@@ -1319,14 +1319,15 @@ fn backlinks_map(
     page_bodies: &HashMap<String, PageBody>,
     site_url: &str,
 ) -> HashMap<String, Vec<Backlink>> {
-    let mut is_target: HashSet<&str> = db.posts.rows.iter().map(|p| p.url.as_str()).collect();
-    is_target.extend(
-        db.pages
-            .rows
-            .iter()
-            .filter(|p| p.rendered)
-            .map(|p| p.url.as_str()),
-    );
+    // `rendered` is true for every post, so one predicate serves both.
+    let is_target: HashSet<&str> = db
+        .posts
+        .rows
+        .iter()
+        .chain(db.pages.rows.iter())
+        .filter(|p| p.rendered)
+        .map(|p| p.url.as_str())
+        .collect();
 
     // The axis is legitimately mixed — an undated row is allowed, which is
     // why the theme lets an item span rather than assuming every neighbour
@@ -1334,27 +1335,26 @@ fn backlinks_map(
     // loop passed `None` for every page because `Page` had no date. It has
     // one since q51 step 3, so a page-sourced citation now sorts by when it
     // was written instead of always landing last.
+    // One loop. The rows are the same type now; only the body map differs,
+    // and that is loader-shaped (posts hold their body, pages are re-read).
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
-    for p in &db.posts.rows {
-        if let Some(d) = bodies.get(p.url.as_str()) {
+    for p in db.posts.rows.iter().chain(db.pages.rows.iter()) {
+        let html = bodies
+            .get(p.url.as_str())
+            .map(|d| d.whole.as_str())
+            .or_else(|| {
+                page_bodies
+                    .get(&p.url)
+                    .filter(|pb| !pb.skipped)
+                    .map(|pb| pb.frag.as_str())
+            });
+        if let Some(html) = html {
             sources.push((
                 p.url.as_str(),
                 p.title.clone().unwrap_or_default(),
                 p.date,
-                d.whole.as_str(),
+                html,
             ));
-        }
-    }
-    for p in db.pages.rows.iter().filter(|p| p.rendered) {
-        if let Some(pb) = page_bodies.get(&p.url) {
-            if !pb.skipped {
-                sources.push((
-                    p.url.as_str(),
-                    p.title.clone().unwrap_or_default(),
-                    p.date,
-                    pb.frag.as_str(),
-                ));
-            }
         }
     }
 
