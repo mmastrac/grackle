@@ -1063,6 +1063,7 @@ mod grouping_tests {
             locale: "en".into(),
             logical: "recipes/carbonara.md".into(),
             claimed: false,
+            ..Default::default()
         };
         p.fields
             .insert("course".into(), filter::Value::Str("dinner".into()));

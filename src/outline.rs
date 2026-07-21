@@ -226,6 +226,7 @@ mod tests {
             locale: "en".into(),
             logical: rel.to_string(),
             claimed: false,
+            ..Default::default()
         }
     }
 

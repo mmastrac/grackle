@@ -18,7 +18,7 @@ use crate::store::{self, RawRow};
 // ------------------------------------------------------------------ rows
 
 #[derive(Debug, Default, Serialize)]
-pub struct Post {
+pub struct Row {
     /// The collection whose source claimed this file. Relations anchor to
     /// it: adjacency over the whole posts TABLE interleaved two dated
     /// collections, so a blog post's "later post" could be a note (proved
@@ -91,7 +91,22 @@ pub struct Post {
     pub body_bytes: usize,
     #[serde(skip)]
     pub body: String,
+    /// Tree heritage: a rendered row (front matter) vs a static file copied
+    /// verbatim. Always true for a row that came from a posts collection —
+    /// a post with no front matter is still parsed.
+    pub rendered: bool,
+    pub size: u64,
+    /// q45: this row is a landing view's content — no standalone route,
+    /// excluded from every query structurally.
+    #[serde(skip)]
+    pub claimed: bool,
 }
+
+/// The two row types were `Post` and `Page` until q51's merge. They are one
+/// type now; the aliases survive so call sites can keep saying which table
+/// they mean while the duplicated code paths collapse behind them.
+pub type Post = Row;
+pub type Page = Row;
 
 impl Post {
     pub fn year_month(&self) -> Option<(i32, u32)> {
@@ -135,76 +150,6 @@ pub fn iso_date(d: NaiveDate) -> String {
 /// `16 March 2022` — what themes and search hits show.
 pub fn pretty_date(d: NaiveDate) -> String {
     d.format("%-d %B %Y").to_string()
-}
-
-/// A tree row: rendered page (has front matter) or static file (does not).
-#[derive(Debug, Serialize)]
-pub struct Page {
-    pub path: PathBuf,
-    pub rel: PathBuf,
-    #[serde(serialize_with = "hex")]
-    pub version: u64,
-    pub url: String,
-    pub rendered: bool,
-    pub size: u64,
-    /// Schema, for rendered rows only (§5a). `layout` is the legacy field that
-    /// now selects a *theme* plus a layout kind.
-    pub title: Option<String>,
-    pub layout: Option<String>,
-    pub description: Option<String>,
-    /// Declared position within a section tree (§6e).
-    pub order: Option<i64>,
-    /// The chronological axis, from front matter — the last thing that was
-    /// true of a post and impossible on a page (q51). A dated page is what
-    /// makes "gets the chronological indexes" a question about the row's
-    /// PROPERTIES rather than about which Rust struct holds it: `books/`
-    /// wanted a date badly enough to declare `month = { type = "string" }`
-    /// and sort it lexically.
-    pub date: Option<NaiveDate>,
-    /// The tag axis. `FrontMatter` has always parsed `tags:`; the tree
-    /// loader dropped it, so `tags:` on a page was read and discarded in
-    /// silence, exactly as `theme:` was on a post.
-    pub tags: Vec<String>,
-    /// Render the heading outline (§6e).
-    pub toc: bool,
-    /// Which theme renders this row (§5a) — front matter beats rule
-    /// defaults; None means the site default.
-    pub theme: Option<String>,
-    /// Which shell wraps this row (§5g, q44). `none` means the body is
-    /// the whole output — no root skeleton, no theme — which is what lets
-    /// an imported document carry front matter without being nested
-    /// inside a second `<html>`.
-    pub shell: Option<String>,
-    /// The flag family, cascading from markers and rules exactly as a
-    /// post's does (§4b): `draft` and `hidden` reach the row's route so
-    /// star views filter them, `noindex` reaches the head.
-    ///
-    /// `draft` used to be post-only. `FrontMatter` parsed it either way, so
-    /// `draft: true` on a PAGE was read and dropped, and the page published
-    /// — into `sitemap.xml` included, which is the §4a leak this closes.
-    pub draft: bool,
-    pub hidden: bool,
-    pub noindex: bool,
-    /// Typed extra fields, validated against the governing `.schema.toml`
-    /// (§5b). Empty for ungoverned rows.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub fields: BTreeMap<String, filter::Value>,
-    /// The image-typed subset: field name → root-relative source path.
-    /// Feeds the thumb pass and the `hero` part (q23).
-    #[serde(skip)]
-    pub images: BTreeMap<String, String>,
-    /// The locale axis (§6f): assigned by the path selector at load.
-    pub locale: String,
-    /// The locale-stripped identity shared by a row and its translations.
-    #[serde(skip)]
-    pub logical: String,
-    /// q45: this row is a landing view's content — no standalone route,
-    /// excluded from every query structurally (ownership, not the
-    /// `stem != "index"` convention). `url` is fixed up to the owning
-    /// view's route after views build, so source links resolve to the
-    /// landing.
-    #[serde(skip)]
-    pub claimed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -720,9 +665,15 @@ fn read_posts(
             .unwrap_or_default()
             .to_string();
 
-        // The embedding cache key: collection-relative path minus extension.
+        // The embedding cache key stays COLLECTION-relative: it is the only
+        // thing keyed on this shape, and leaving it alone keeps the 333
+        // cached vectors valid across the merge.
         let name = raw.rel.with_extension("").to_string_lossy().to_string();
-        let logical = logical_rel.with_extension("").to_string_lossy().to_string();
+        // `logical` keeps its extension, matching the tree side — where the
+        // convention is config-visible (`content = "recipes/index.md"`).
+        // The two loaders used OPPOSITE conventions for this field, and
+        // `Page::field` only derived `stem` correctly because of it.
+        let logical = logical_rel.to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
         let from_name = match &key {
             Some(k) => Some(
@@ -856,10 +807,14 @@ fn read_posts(
             url
         };
 
-        rows.push(Post {
+        rows.push(Row {
             collection: collection.clone(),
             path: raw.path,
-            rel: raw.rel,
+            // ROOT-relative since the merge, so `path`/`dir` mean one thing
+            // on either table. Rule globs still match the collection-
+            // relative form (`apply_rules` takes `logical_rel`), which is
+            // what `match = "hidden/**"` inside `_posts` has always meant.
+            rel: source_rel.join(&raw.rel),
             version: raw.version,
             date,
             slug,
@@ -883,6 +838,10 @@ fn read_posts(
             url,
             body_bytes: raw.body.len(),
             body: raw.body,
+            // A post is always parsed; the tree distinction does not apply.
+            rendered: true,
+            size: 0,
+            claimed: false,
         });
     }
 
@@ -961,6 +920,7 @@ fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
 /// (DESIGN.md §3): objects win by extension, tree takes the rest.
 fn build_tree_and_objects(
     cfg: &Config,
+    tree_name: &str,
     tree_c: Option<&Collection>,
     obj_c: Option<&Collection>,
     markers: &Markers,
@@ -1150,7 +1110,26 @@ fn build_tree_and_objects(
                     claims[logical.as_str()]
                 );
             }
-            pages.rows.push(Page {
+            // `stem` is STORED, not derived. `Page::field` used to recompute
+            // it from `logical` via `file_stem()`, which was correct only
+            // because the tree kept the extension that the posts loader
+            // stripped — a page named `v1.2-release.md` would have come back
+            // `v1` the moment those conventions were unified. Computed once
+            // here from the real path, the question stops existing.
+            let stem = logical_rel
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            pages.rows.push(Row {
+                collection: tree_name.to_string(),
+                slug: stem.clone(),
+                stem,
+                name: f.rel.with_extension("").to_string_lossy().to_string(),
+                // The tree loader does not hold bodies: pages are re-read at
+                // render time (§2). That asymmetry is loader-shaped, not row-
+                // shaped, and outlives the merge.
+                body: String::new(),
+                body_bytes: 0,
                 path: f.path,
                 rel: f.rel,
                 version: f.version,
@@ -1264,6 +1243,16 @@ impl filter::Row for Post {
             "body_bytes" => V::Int(self.body_bytes as i64),
             "order" => self.order.map_or(V::Null, V::Int),
             "toc" => V::Bool(self.toc),
+            "rendered" => V::Bool(self.rendered),
+            // `rel` is root-relative for every row since the merge, so
+            // these mean one thing whichever table the row came from.
+            "path" => V::Str(self.rel.to_string_lossy().to_string()),
+            "dir" => V::Str(
+                self.rel
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
             "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
             // Schema fields (§5b) resolve after the base names — the same
@@ -1308,53 +1297,6 @@ pub fn page_schema() -> filter::Schema {
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
     s
-}
-
-impl filter::Row for Page {
-    fn field(&self, name: &str) -> filter::Value {
-        use chrono::Datelike;
-        use filter::Value as V;
-        let opt = |o: &Option<String>| match o {
-            Some(s) => V::Str(s.clone()),
-            None => V::Null,
-        };
-        match name {
-            "draft" => V::Bool(self.draft),
-            "hidden" => V::Bool(self.hidden),
-            "noindex" => V::Bool(self.noindex),
-            "title" => opt(&self.title),
-            "url" => V::Str(self.url.clone()),
-            "path" => V::Str(self.rel.to_string_lossy().to_string()),
-            "dir" => V::Str(
-                self.rel
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
-            ),
-            // §6f: the LOGICAL stem — `red-lentil-dal.fr.md` is still
-            // `red-lentil-dal`, so `stem != "index"` means the same thing
-            // in every locale.
-            "stem" => Path::new(&self.logical)
-                .file_stem()
-                .map_or(V::Null, |s| V::Str(s.to_string_lossy().to_string())),
-            "layout" => opt(&self.layout),
-            "description" => opt(&self.description),
-            "rendered" => V::Bool(self.rendered),
-            "toc" => V::Bool(self.toc),
-            "order" => self.order.map_or(V::Null, V::Int),
-            "date" => match self.date {
-                Some(d) => V::Str(iso_date(d)),
-                None => V::Null,
-            },
-            "year" => self.date.map_or(V::Null, |d| V::Int(d.year() as i64)),
-            "month" => self.date.map_or(V::Null, |d| V::Int(d.month() as i64)),
-            "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
-            "tags" => V::List(self.tags.clone()),
-            "locale" => V::Str(self.locale.clone()),
-            // Schema fields (§5b) resolve after the base names.
-            other => self.fields.get(other).cloned().unwrap_or(V::Null),
-        }
-    }
 }
 
 /// Fields a filter may reference on an object row (§5 audit gap 1: objects
@@ -1440,6 +1382,7 @@ impl SiteDb {
         // `_drafts` are two sources of one corpus — so rows are gathered
         // first and indexed once, over all of them.
         let mut post_rows: Vec<Post> = Vec::new();
+        let mut tree_name = String::new();
         for (name, c) in &cfg.collections {
             match c.kind {
                 Kind::Posts => {
@@ -1447,7 +1390,10 @@ impl SiteDb {
                     post_rows.extend(rows);
                     db.stats.read_ms += read_ms;
                 }
-                Kind::Tree => tree_c = Some(c),
+                Kind::Tree => {
+                    tree_c = Some(c);
+                    tree_name = name.clone();
+                }
                 Kind::Objects => obj_c = Some(c),
             }
         }
@@ -1456,7 +1402,8 @@ impl SiteDb {
         db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
         let t = std::time::Instant::now();
-        let (pages, objects) = build_tree_and_objects(cfg, tree_c, obj_c, &markers, &db.schemas)?;
+        let (pages, objects) =
+            build_tree_and_objects(cfg, &tree_name, tree_c, obj_c, &markers, &db.schemas)?;
         db.pages = pages;
         db.objects = objects;
         db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;

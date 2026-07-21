@@ -347,6 +347,7 @@ mod tests {
             locale: "en".into(),
             logical: "writing/saturn/index".into(),
             claimed: false,
+            ..Default::default()
         });
         let space = LinkSpace::new(&cfg, &db, Path::new("."));
 
