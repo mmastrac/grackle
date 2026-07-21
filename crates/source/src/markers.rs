@@ -9,7 +9,7 @@ use anyhow::Result;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-type Defaults = BTreeMap<String, toml::Value>;
+pub type Defaults = BTreeMap<String, toml::Value>;
 
 #[derive(Debug, Default)]
 pub struct Markers {

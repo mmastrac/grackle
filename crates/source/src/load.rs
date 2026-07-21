@@ -15,7 +15,7 @@ use grackle_model::{Kind, Object, ObjectsTable, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
 use crate::filename::FilenameFormat;
-use crate::markers::Markers;
+use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
 use crate::store::{self, RawRow};
 
@@ -89,6 +89,74 @@ fn apply_rules<'a>(
 
 fn as_bool(defaults: &BTreeMap<&str, &toml::Value>, key: &str) -> bool {
     defaults.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Precedence (§4b): front matter > nearest marker > rule. Markers go in
+/// first so `or_insert` cannot let a rule override them.
+fn merged_defaults<'a>(
+    marker_defaults: &'a Defaults,
+    rule_defaults: BTreeMap<&'a str, &'a toml::Value>,
+) -> BTreeMap<&'a str, &'a toml::Value> {
+    let mut out: BTreeMap<&str, &toml::Value> = BTreeMap::new();
+    for (k, v) in marker_defaults {
+        out.insert(k.as_str(), v);
+    }
+    for (k, v) in rule_defaults {
+        out.entry(k).or_insert(v);
+    }
+    out
+}
+
+/// What a row wears, after the cascade: the fields front matter shares with
+/// markers and rules.
+#[derive(Debug)]
+struct Cascaded {
+    theme: Option<String>,
+    shell: Option<String>,
+    layout: Option<String>,
+    draft: bool,
+    hidden: bool,
+    noindex: bool,
+    toc: bool,
+}
+
+/// Resolve those fields once, for any row.
+///
+/// Both loaders spelled this out separately and the two spellings had drifted
+/// apart: `toc` and `layout` cascaded for a post and not for a tree row, and
+/// the shell vocabulary was checked on a tree row and not on a post. Neither
+/// asymmetry was intended and neither was reachable from this site's config,
+/// which is how they survived.
+fn cascade(
+    front: &store::FrontMatter,
+    defaults: &BTreeMap<&str, &toml::Value>,
+    whose: &Path,
+) -> Result<Cascaded> {
+    let inherit = |key: &str| defaults.get(key).and_then(|v| v.as_str()).map(String::from);
+    // A typo'd shell would silently render the wrong tier — the failure mode
+    // this codebase keeps finding. Closed vocabulary, checked at load.
+    let shell = front.shell.clone().or_else(|| inherit("shell"));
+    if let Some(sh) = shell.as_deref() {
+        if !matches!(sh, "none" | "light" | "html") {
+            bail!(
+                "{}: shell = \"{sh}\" is not a shell — expected none, light or html (§5g)",
+                whose.display()
+            );
+        }
+    }
+    Ok(Cascaded {
+        // Theme is chosen per row (§5a): front matter beats the rule default,
+        // so one rule can restyle a subtree.
+        theme: front.theme.clone().or_else(|| inherit("theme")),
+        shell,
+        layout: front.layout.clone().or_else(|| inherit("layout")),
+        draft: front.draft.unwrap_or_else(|| as_bool(defaults, "draft")),
+        hidden: front.hidden.unwrap_or_else(|| as_bool(defaults, "hidden")),
+        noindex: front
+            .noindex
+            .unwrap_or_else(|| as_bool(defaults, "noindex")),
+        toc: front.toc.unwrap_or_else(|| as_bool(defaults, "toc")),
+    })
 }
 
 fn build_globset(pats: &[String]) -> Result<GlobSet> {
@@ -223,22 +291,17 @@ fn read_posts(
             .map(|k| k.slug.clone())
             .unwrap_or_else(|| stem.clone());
 
+        // `true`, not `raw.has_front_matter`: every post is a rendered row
+        // (`rendered` below says the same), so a `front_matter = false` rule
+        // describes a static file and cannot describe a post.
         let (route_tmpl, rule_defaults) = apply_rules(&rules, &logical_rel, true);
-        // Precedence (§4b): front matter > nearest marker > rule. Markers are
-        // inserted first so `or_insert` cannot let a rule override them.
         let root_rel = raw
             .path
             .strip_prefix(&root)
             .unwrap_or(&raw.rel)
             .to_path_buf();
-        let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
         let marker_defaults = markers.defaults_for(&root_rel);
-        for (k, v) in &marker_defaults {
-            defaults.insert(k.as_str(), v);
-        }
-        for (k, v) in rule_defaults {
-            defaults.entry(k).or_insert(v);
-        }
+        let defaults = merged_defaults(&marker_defaults, rule_defaults);
         let title = Some(
             raw.front
                 .title
@@ -248,12 +311,12 @@ fn read_posts(
         // Governance follows the LOGICAL path (§6f), exactly as the tree
         // loader does it: a translation is governed by its original's
         // `.schema.toml`.
-        // `raw.rel` is relative to the collection SOURCE, while schemas are
-        // keyed root-relative by the root-wide `.schema.toml` walk — so a
-        // `_posts/.schema.toml` is registered under `_posts` and resolving
+        // The path is made root-relative first, because schemas are keyed
+        // root-relative by the root-wide `.schema.toml` walk — a
+        // `_posts/.schema.toml` is registered under `_posts`, and resolving
         // the bare filename would never find it.
         let parent = source_rel
-            .join(&raw.rel)
+            .join(&logical_rel)
             .parent()
             .unwrap_or(Path::new(""))
             .to_path_buf();
@@ -261,37 +324,7 @@ fn read_posts(
             Some(schema) => schema::validate(&schema, &raw.front.extra, &raw.path)?,
             None => Default::default(),
         };
-        let theme = raw.front.theme.clone().or_else(|| {
-            defaults
-                .get("theme")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        });
-        let shell = raw.front.shell.clone().or_else(|| {
-            defaults
-                .get("shell")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        });
-        let draft = raw
-            .front
-            .draft
-            .unwrap_or_else(|| as_bool(&defaults, "draft"));
-        let hidden = raw
-            .front
-            .hidden
-            .unwrap_or_else(|| as_bool(&defaults, "hidden"));
-        let noindex = raw
-            .front
-            .noindex
-            .unwrap_or_else(|| as_bool(&defaults, "noindex"));
-        let toc = raw.front.toc.unwrap_or_else(|| as_bool(&defaults, "toc"));
-        let layout = raw.front.layout.clone().or_else(|| {
-            defaults
-                .get("layout")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        });
+        let worn = cascade(&raw.front, &defaults, &raw.path)?;
 
         let url = if let Some(p) = &raw.front.permalink {
             p.clone()
@@ -345,17 +378,17 @@ fn read_posts(
             stem,
             title,
             description: raw.front.description,
-            layout,
+            layout: worn.layout,
             tags: raw.front.tags,
-            theme,
-            shell,
+            theme: worn.theme,
+            shell: worn.shell,
             fields: checked.values,
             images: checked.images,
             order: raw.front.order,
-            draft,
-            hidden,
-            noindex,
-            toc,
+            draft: worn.draft,
+            hidden: worn.hidden,
+            noindex: worn.noindex,
+            toc: worn.toc,
             locale,
             logical,
             url,
@@ -472,7 +505,9 @@ fn build_tree_and_objects(
         };
 
         let rules = if is_object { &obj_rules } else { &tree_rules };
-        let (tmpl, defaults) = apply_rules(rules, &logical_rel, f.has_front_matter);
+        let (tmpl, rule_defaults) = apply_rules(rules, &logical_rel, f.has_front_matter);
+        let marker_defaults = markers.defaults_for(&f.rel);
+        let defaults = merged_defaults(&marker_defaults, rule_defaults);
         let Some(tmpl) = tmpl else {
             bail!("no rule supplies a route for {}", f.path.display());
         };
@@ -525,34 +560,7 @@ fn build_tree_and_objects(
                 }
                 _ => Default::default(),
             };
-            // Theme is chosen per row (§5a): front matter beats the rule
-            // default, so one rule can restyle a subtree.
-            let theme = fm.theme.clone().or_else(|| {
-                defaults
-                    .get("theme")
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-            });
-            let shell = fm.shell.clone().or_else(|| {
-                defaults
-                    .get("shell")
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-            });
-            // A typo'd shell would silently render the wrong tier — the
-            // failure mode this codebase keeps finding. Closed vocabulary,
-            // checked at load.
-            if let Some(sh) = shell.as_deref() {
-                if !matches!(sh, "none" | "light" | "html") {
-                    anyhow::bail!(
-                        "{}: shell = \"{sh}\" is not a shell — expected none, light or html (§5g)",
-                        f.rel.display()
-                    );
-                }
-            }
-            let draft = fm.draft.unwrap_or_else(|| as_bool(&defaults, "draft"));
-            let hidden = fm.hidden.unwrap_or_else(|| as_bool(&defaults, "hidden"));
-            let noindex = fm.noindex.unwrap_or_else(|| as_bool(&defaults, "noindex"));
+            let worn = cascade(&fm, &defaults, &f.rel)?;
             let date = match &fm.date {
                 Some(s) => Some(front_matter_date(s, &f.path)?),
                 None => None,
@@ -590,17 +598,17 @@ fn build_tree_and_objects(
                 rendered: f.has_front_matter,
                 size: f.size,
                 title: fm.title,
-                layout: fm.layout,
+                layout: worn.layout,
                 description: fm.description,
                 order: fm.order,
                 date,
                 tags: fm.tags,
-                toc: fm.toc.unwrap_or(false),
-                theme,
-                shell,
-                draft,
-                hidden,
-                noindex,
+                toc: worn.toc,
+                theme: worn.theme,
+                shell: worn.shell,
+                draft: worn.draft,
+                hidden: worn.hidden,
+                noindex: worn.noindex,
                 fields: checked.values,
                 images: checked.images,
                 locale,
@@ -805,4 +813,112 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));
     Ok(db)
+}
+
+#[cfg(test)]
+mod cascade_tests {
+    use super::*;
+
+    fn text(s: &str) -> toml::Value {
+        toml::Value::String(s.to_string())
+    }
+
+    fn yes() -> toml::Value {
+        toml::Value::Boolean(true)
+    }
+
+    fn defaults<'a>(
+        pairs: &'a [(&'static str, toml::Value)],
+    ) -> BTreeMap<&'static str, &'a toml::Value> {
+        pairs.iter().map(|(k, v)| (*k, v)).collect()
+    }
+
+    fn front(yaml: &str) -> store::FrontMatter {
+        serde_yaml_ng::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn front_matter_beats_a_default() {
+        let d = [("theme", text("inherited")), ("toc", yes())];
+        let c = cascade(
+            &front("theme: own\ntoc: false\n"),
+            &defaults(&d),
+            Path::new("x"),
+        )
+        .unwrap();
+        assert_eq!(c.theme.as_deref(), Some("own"));
+        assert!(!c.toc);
+    }
+
+    /// The four that a silent row inherits. `toc` and `layout` are here
+    /// because they reached a post and not a tree row.
+    #[test]
+    fn a_silent_row_inherits_every_cascading_field() {
+        let d = [
+            ("theme", text("t")),
+            ("shell", text("light")),
+            ("layout", text("l")),
+            ("draft", yes()),
+            ("hidden", yes()),
+            ("noindex", yes()),
+            ("toc", yes()),
+        ];
+        let c = cascade(&front("{}"), &defaults(&d), Path::new("x")).unwrap();
+        assert_eq!(c.theme.as_deref(), Some("t"));
+        assert_eq!(c.shell.as_deref(), Some("light"));
+        assert_eq!(c.layout.as_deref(), Some("l"));
+        assert!(c.draft && c.hidden && c.noindex && c.toc);
+    }
+
+    #[test]
+    fn an_unset_field_stays_unset() {
+        let c = cascade(&front("{}"), &defaults(&[]), Path::new("x")).unwrap();
+        assert_eq!(c.theme, None);
+        assert_eq!(c.layout, None);
+        assert!(!c.draft && !c.toc);
+    }
+
+    /// The shell vocabulary was checked on tree rows only, so a post could
+    /// name a tier that does not exist and render the wrong one in silence.
+    #[test]
+    fn a_shell_outside_the_vocabulary_is_a_load_error() {
+        let e = cascade(&front("shell: htlm\n"), &defaults(&[]), Path::new("p.md"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("is not a shell"), "{e}");
+        assert!(e.contains("p.md"), "{e}");
+        for ok in ["none", "light", "html"] {
+            assert!(cascade(
+                &front(&format!("shell: {ok}\n")),
+                &defaults(&[]),
+                Path::new("x")
+            )
+            .is_ok());
+        }
+    }
+
+    /// An inherited shell is checked too — a rule can typo it as easily as
+    /// front matter can.
+    #[test]
+    fn an_inherited_shell_is_checked() {
+        let d = [("shell", text("lite"))];
+        assert!(cascade(&front("{}"), &defaults(&d), Path::new("x")).is_err());
+    }
+
+    #[test]
+    fn a_marker_beats_a_rule() {
+        let markers: Defaults = [("theme".to_string(), text("marker"))]
+            .into_iter()
+            .collect();
+        let rule = text("rule");
+        let rules: BTreeMap<&str, &toml::Value> =
+            [("theme", &rule), ("toc", &rule)].into_iter().collect();
+        let merged = merged_defaults(&markers, rules);
+        assert_eq!(merged["theme"].as_str(), Some("marker"));
+        assert_eq!(
+            merged["toc"].as_str(),
+            Some("rule"),
+            "rules still fill gaps"
+        );
+    }
 }
