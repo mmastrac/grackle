@@ -1441,7 +1441,7 @@ The tempting shape is `over = "/blog"`. It does not work:
 
 ```
 grackle.toml   [sets.latest] from="published" limit=3 layout="link_list"
-  ↓ db.rs      routeless + ungrouped → one row set → db.views["latest"]
+  ↓ source/views.rs   routeless + ungrouped → one row set → db.views["latest"]
   ↓ tags.rs    {% view latest %} → look up rows, dispatch on layout
   ↓ render.rs  link_list(rows, site)
 ```
@@ -4388,43 +4388,87 @@ number further — and note this same blind spot hides the highlighting gap: onl
 
 ## 9. Crate layout *(as built; the original sketch is in git history)*
 
-A cargo workspace: the engine, plus the search core split out so the same
-code compiles to wasm (§6b).
+A cargo workspace of five members under `crates/`. The split is one
+dependency direction, and Cargo is what enforces it: **`grackle-db` depends
+on nothing in the workspace.**
 
 ```
-grackle/                     workspace root = the engine binary
-  src/
-    main.rs      CLI (query / export / build / serve / routes / diff)
-    config.rs    grackle.toml; view composition semantics (query/chain/
-                 group_specs/fields_for — the ONE over-chain walker)
-    store.rs     FsStore: front-matter split, tree walk, .gitignore law (§4c)
-    markers.rs   marker scan + nearest-wins defaults (§4b)
-    route.rs     filename formats, route templates, template params
-    db.rs        tables, rows, indexes, routes, load-time constraints (§3, §4)
-    views.rs     views become routes: row sets, grouping, subdivision (§5, §5c)
-    filter.rs    the typed predicate language (§5); q31 grows it into
-                 the expression language
-    tags.rs      the {% %} expander: image/post_url/view/include + widgets
-    markdown.rs  comrak-as-kramdown; Doc = whole + blocks (§6d)
-    parts.rs     part maps: typed schemas, producers, canonical() (§5e)
-    binder.rs    fragment parser + hole algebra + load-time checks (§5e)
-    slots.rs     .slots/ tree fills, block-arity rule (§5e)
-    theme.rs     theme = fragments + fills; shell assembly
-    render.rs    head facts, escaping, light shell, feed/sitemap XML
-    embed.rs     embeddings cache + related-posts ranking (§6b)
-    thumbs.rs    content-addressed thumbnails (§6b)
-    build.rs     render_site: the passes; build = write map to disk (§7)
-    serve.rs     resident snapshot behind raw hyper; watcher; live reload
-    diff.rs      golden comparison vs the Jekyll reference (§8)
-  search-core/   stem/tokenize/index/rank — used by build AND the browser
-  search-wasm/   the same core behind a raw no-bindgen wasm ABI (§6b)
+grackle/
+  Cargo.toml                 virtual manifest + [workspace.dependencies]
+  grackle.toml               the site (root = "..")
+  crates/
+    db/                      THE QUERY ENGINE — domain-free by construction
+      filter.rs    the typed predicate language + functions (§5)
+      table.rs     Table<R>: rows of one type, keyed, queried
+      view.rs      View = filter + order + limit; Table resolves one
+      index.rs     the two index shapes (unique, multi)
+      key.rs       Key: a row's identity, stable across loads
+      template.rs  {name} substitution with zero-padding (§4)
+    model/                   THE DATA MODEL — everything grack.com-specific
+      lib.rs       Row, Object-as-Row, Route, SiteDb, the three schemas
+    source/                  THE LOADER — config + filesystem -> database
+      config.rs    grackle.toml; the ONE over-chain walker
+      store.rs     FsStore: front-matter split, tree walk, .gitignore (§4c)
+      markers.rs   marker scan + nearest-wins defaults (§4b)
+      schema.rs    .schema.toml per-subtree field declarations (§5b)
+      filename.rs  filename formats: stem -> (date, slug)
+      views.rs     views become routes: row sets, grouping, subdivision
+      load.rs      one walk of the site, and the rows it produces
+    grackle/                 THE BINARY — render, serve, report
+      main.rs      CLI (query / export / build / serve / routes / diff)
+      build.rs     render_site: the passes; build = write map to disk (§7)
+      parts.rs     part maps: typed schemas, producers, canonical() (§5e)
+      binder.rs    fragment parser + hole algebra + load-time checks (§5e)
+      slots.rs · theme.rs · render.rs · markdown.rs · tags.rs
+      outline.rs · trails.rs · links.rs · embed.rs · thumbs.rs
+      serve.rs · debug.rs · diff.rs
+      assets/      include_bytes! payloads (debug UI, search.js/wasm)
+    search-core/             stem/tokenize/index/rank — build AND browser
+    search-wasm/             the same core behind a raw no-bindgen wasm ABI
 ```
 
-~8.3k lines in the engine + ~450 in the search crates (vs the ~3–4k
-ballparked before §5e/§6b/§6d existed). The sketch this replaced imagined
+`model -> db`. `source -> model, db`. `grackle -> all`. Nothing points back.
+
+### Why `db` is a crate and not a module
+
+Because the boundary is worth paying for. The engine's query half kept
+absorbing domain: `config` validation called `db::row_schema()`, the row
+schema sat beside the loader that filled it, and "what a filter can name"
+drifted from "what a row answers" twice (§q51). Splitting it means the
+compiler refuses the shortcut — `grackle-db` cannot name a `Row`, so a
+filter feature cannot quietly become a blog feature.
+
+What it holds is a mini database, not a bag of helpers:
+
+- **A row is whatever answers `filter::Row`** — a name in, a typed value
+  out. That one contract is why `Table` serves posts, objects and routes
+  without knowing what any of them are.
+- **A key, not a position.** Every index, membership list and query result
+  names rows by `Key` (an `Arc<str>`, compared by value). Positions are only
+  meaningful inside one load — sort the table and every one is wrong, which
+  cost two real bugs before this landed. A key survives a rebuild, which is
+  what `serve`'s incremental story will need.
+- **Functions are the filter language's extension point.** `under(path, x)`
+  and `glob(path, x)` are entries in a table; a field, a literal and a call
+  are one thing (an operand), so a call goes anywhere a field does and is
+  type-checked by the same pass. `glob` compiles its pattern once, at parse
+  time.
+- **A view is a value**: filter + order + limit, resolved by `Table`.
+
+### The ordering rule *(2026-07)*
+
+`path` ascending, unless the view names a column; `path` is the last
+tiebreak either way. The engine used to assume every corpus was a blog and
+sort newest-first — a tree is a list of files, paths order, and that is the
+contract. A collection whose rows carry dates says `order_by = "-date"`.
+Adjacency is the exception and says so: `neighbors_in` reads *position in a
+sequence*, so "later post" is the entry before, and its default stays
+newest-first.
+
+~12k lines across the workspace. The sketch this replaced imagined
 `store/watch/snapshot` and `db/{posts,tree,views}` submodule trees, a
-`render/liquid.rs`, and axum+SSE serving; reality is flatter, liquid never
-happened (§5d), and serve is raw hyper with polling (§7).
+`render/liquid.rs`, and axum+SSE serving; reality is five crates, liquid
+never happened (§5d), and serve is raw hyper with polling (§7).
 
 ## 9a. Dependencies: the inventory is `Cargo.toml`, this doc keeps decisions
 
@@ -4558,21 +4602,28 @@ The same disease survives in four smaller pockets — each is the renderer
    declared-or-unique tags view's template (no tags view = unlinked
    pills). The i18n work is what finally forced it: the hardcodes had
    grown locale prefixes in two places before the cure.
-2. **`build.rs` holds policy keyed on view names** (→ q33). ~~Three~~ Two
-   spots remain: `view != "blog_index"` decides which listings get
-   `noindex`, and `"blog_index" => Some("blog_index")` supplies a
-   fallback layout. (The third — the feed pass selecting its view by
-   `template == "atom.xml"` — was cured by shells, §5g: serializations
-   are declared, not filename-matched.) This is §5a's "the shell knows
-   about everything," recurring in miniature in the orchestrator.
-   `noindex` wants to be a view attribute (a schema fact like every
-   other).
-3. **The sitemap predicate evaluates twice** (→ q33, same family).
-   `views::build_star_views` parses and runs the filter to *count* rows;
-   `build.rs` re-parses and re-runs it to *enumerate* them. One source
-   string, so they cannot disagree today — but two evaluation sites is
-   precisely how Jekyll's three listing filters drifted (§5a). Star routes
-   should carry their members like every other route.
+2. **`build.rs` holds policy keyed on view names** (→ q33). ~~Three~~
+   ~~Two~~ **One** spot remains: `view != "blog_index"` decides which
+   listings get `noindex`. (The feed pass selecting its view by
+   `template == "atom.xml"` was cured by shells, §5g. The layout
+   fallback `"blog_index" => Some("blog_index")` was cured 2026-07-21:
+   the render passes dispatch on `layout` now, so grack.com's blog index
+   declares `layout = "listing"` instead of the engine knowing its name
+   — see below.) `noindex` wants to be a view attribute (a schema fact
+   like every other).
+3. ~~**The sitemap predicate evaluates twice**~~ — **cured (2026-07-21)**,
+   and it was three times, not two: `build_star_views` parsed it to count,
+   `build.rs` re-parsed it for the sitemap and again for the search index.
+   Star routes carry `route_members` now, resolved once. Resolution moved
+   *after* the route sort, which is where the real bug was — views resolve
+   in name order, so `sitemap` counted against a route list that did not
+   yet contain its own route or any later view's. It agreed with what got
+   built only because both filters exclude `.bin` and `.xml` by extension.
+
+   `route_members` is a separate field from `members` deliberately: the
+   latter indexes the ROW store, the former the ROUTE store, and a caller
+   cannot tell which from the field alone. The first attempt overloaded
+   one field and a test caught it by panicking.
 4. **Three definitions of "not content"** (→ q34). §4c legislated the
    three layers (gitignore + dot/underscore skip + `exclude`) — for the
    tree walk. But `slots.rs` carries a private `SKIP` list duplicating
@@ -4647,6 +4698,57 @@ residuals are all scheduled, not leaked: the manual's hand-list waits on
 §6e-as-landing-listing, home waits on the queryless landing + q37's
 board, `index.fr.html`'s raw hrefs wait on the §6d rewrite stage, and
 the search view's one `stem != "index"` dies when home and manual lift.
+
+### Round 3 *(2026-07-21, after the crate split)*
+
+The engine became five crates (§9), and the split was itself the audit: a
+boundary you have to declare to Cargo is one you cannot half-hold. Four
+things it found, none of which a re-read had:
+
+1. **`config` validation called into `db`.** It looked like a cycle to
+   break; it was a layering error. Once `db` sat *below* config rather than
+   beside it, the call became legal and the "prerequisite refactor"
+   evaporated. The lesson is the same one §5c keeps teaching in another
+   key: an awkward dependency is usually a mislabelled layer.
+
+2. **`pub` in a library crate silences dead-code detection.** `Schemas::
+   is_empty` was flagged unused before the split and went quiet after it.
+   Anything genuinely internal to a crate should stay private or it rots
+   invisibly — which is why `index`'s primitives are private and only
+   `Table` reaches them.
+
+3. **`layout` was declared and ignored.** grack.com named three layouts
+   (`tag_index`, `yearly_archive`, `monthly_archive`) that matched no
+   fragment; the theme fell back to canonical rendering and the render pass
+   discarded the name anyway, choosing by the base collection's KIND
+   instead. Two views both declaring `layout = "listing"` rendered
+   structurally different HTML. Swapping all three for `listing` changed
+   not one byte, which is how they were found. Cured: the passes dispatch
+   on `layout`, and an unknown one is a load error against a closed
+   vocabulary.
+
+4. **A test fixture is not identity.** Keys made every row's identity its
+   path, and six fixture helpers had never set `rel` — so a table holding
+   four fixture rows held *one*. The failures were loud
+   (`["/blog/mar/", "/blog/mar/", "/blog/mar/"]`), but the general point is
+   worth keeping: a keyed store makes identity something fixtures have to
+   MEAN, not something they inherit from being in a `Vec`.
+
+### Still owed
+
+- **Two view flows.** `build_views`' posts flow and `build_tree_view` are
+  still separate functions. The shared machinery is extracted (locale list,
+  prefixing, routeless insert) and the ordering rule is unified, so what
+  remains is the base list (`post_ix` vs `page_ix`), the eligibility
+  predicate, and where `limit` lands. Until they are one, a set cannot span
+  tables — which is why field-notes spells `!draft && !hidden` five times.
+- **`Kind` still branches in ~26 places**, ten of them in `views.rs` — the
+  concentration is exactly the unmerged flows.
+- **The single tree** (§3's endgame: one table, views as partitions) has not
+  started. Measured obstacles: `store.rs` skips `.`/`_` names, so `_posts`
+  is invisible to the tree walk by convention rather than config; six
+  tracked underscore directories would need explicit excludes; and
+  `filename_formats` is per-collection where it would have to be per-rule.
 
 ## 10. Phasing (each phase has a checkable exit)
 
