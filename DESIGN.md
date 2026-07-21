@@ -915,10 +915,17 @@ gate: views now dispatch on the base collection's *kind*, never its name:
 2. **View scoping needs `match`, not a bigger filter language.** ✅ A
    `match` glob on views, reusing rule globs; the filter language stays
    typed-fields-only.
-3. **`order_by` does not exist.** ✅ Built and *required* for object views
-   (`order_by = "name"` is the one value so far) — declared, not
-   defaulted, exactly because the corpus's zero-padding making lexical
-   order correct is luck.
+3. **`order_by` does not exist.** ✅ Built. It was *required* for object
+   views at first, and had to be `"name"` — declared rather than
+   defaulted, on the grounds that the corpus's zero-padding making
+   lexical order correct is luck.
+
+   **Both halves retired 2026-07-21.** An object is a `Row` now, so it
+   has a path; paths order, and that is a contract rather than luck. An
+   object view takes the same rule as every other — `path` unless the
+   view names a column, `path` as the final tiebreak — against the
+   narrower `object_schema` vocabulary, so it still cannot sort on a
+   column only a content row has.
 
 Still open for the mindstorms case specifically: `group_by` over object
 paths (one gallery route per directory) and the group `hero` (q23) —
@@ -4734,16 +4741,53 @@ things it found, none of which a re-read had:
    worth keeping: a keyed store makes identity something fixtures have to
    MEAN, not something they inherit from being in a `Vec`.
 
+### Since, and what is left *(2026-07-21, later the same day)*
+
+**The two row flows are one.** `build_views`' posts flow and
+`build_tree_view` are `build_row_view`. What made the merge possible was
+saying eligibility as a predicate: the tree flow filtered
+`rendered && !claimed` and the posts flow filtered neither, and both are
+no-ops on the posts side — every post is parsed, and only a tree row can be
+a view's claimed content (q45). Applied to both, they describe the eligible
+SET rather than which table it came from.
+
+`limit` landed in one place with it (the resolved set, not inside
+`rows_for`, so a grouped view is not limited globally), and pagination works
+for tree views, which had bailed `"not supported yet"` on no stronger
+grounds than never having been written.
+
+**The base table is a filter.** `post_ix` vs `page_ix` was the last place a
+view's table chose its code path; it is `collection == "posts" || collection
+== "drafts"`, built from config and ANDed onto the view's own filter. That is
+what `published` needed — a set could not span tables while the base was an
+index list.
+
+**The last positional assumption is gone.** `RouteKind::Post` was decided by
+`i < n_posts`; it is set membership on `post_ix`. Three such assumptions
+existed and keys retired all three (`insert_rows`' dated indexes,
+`embed::rank`, and this).
+
+`Kind` branches: 26 -> 20, and none is a flow. What is left: the objects
+dispatch (a genuinely different table with a narrower schema), the loader
+choosing which collection reads which way, config validation, and
+presentation policy.
+
 ### Still owed
 
-- **Two view flows.** `build_views`' posts flow and `build_tree_view` are
-  still separate functions. The shared machinery is extracted (locale list,
-  prefixing, routeless insert) and the ordering rule is unified, so what
-  remains is the base list (`post_ix` vs `page_ix`), the eligibility
-  predicate, and where `limit` lands. Until they are one, a set cannot span
-  tables — which is why field-notes spells `!draft && !hidden` five times.
-- **`Kind` still branches in ~26 places**, ten of them in `views.rs` — the
-  concentration is exactly the unmerged flows.
+- **The objects dispatch.** `build_object_view` stays separate, and the
+  reason is worth recording so it is not "merged" thoughtlessly: it is a
+  different table, a narrower schema *by design* (§5b — `where = "draft"` on
+  a gallery should be a load error), and object rows are `rendered: false`,
+  which the row flow's eligibility predicate excludes. Folding it in would
+  mean passing table, schema AND eligibility as parameters — at which point
+  the parameters are the two functions. What was stale has been deleted;
+  `group_by`/`paginate` still bail there because that function does not
+  implement them.
+- **The single tree** (§3's endgame: one table, views as partitions) has not
+  started. Measured obstacles: `store.rs` skips `.`/`_` names, so `_posts` is
+  invisible to the tree walk by convention rather than config; six tracked
+  underscore directories would need explicit excludes; and
+  `filename_formats` is per-collection where it would have to be per-rule.
 - **The single tree** (§3's endgame: one table, views as partitions) has not
   started. Measured obstacles: `store.rs` skips `.`/`_` names, so `_posts`
   is invisible to the tree walk by convention rather than config; six

@@ -280,20 +280,15 @@ fn newest_first() -> Vec<grackle_db::Order> {
 /// and their paths are the one ordering every row has. A collection whose
 /// rows carry dates says so — `order_by = "-date"` — rather than the engine
 /// assuming every corpus is a blog.
-fn declared_order(
-    schemas: &Schemas,
-    who: &str,
-    spec: Option<&str>,
-) -> Result<Vec<grackle_db::Order>> {
+fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<grackle_db::Order>> {
     let mut out = Vec::new();
     if let Some(spec) = spec {
         let (key, desc) = match spec.strip_prefix('-') {
             Some(k) => (k, true),
             None => (spec, false),
         };
-        if !row_schema().contains_key(key) && !schemas.declared().contains_key(key) {
-            let mut known: Vec<&str> = row_schema().keys().copied().collect();
-            known.extend(schemas.declared().keys().copied());
+        if !known.contains(&key) {
+            let mut known: Vec<&str> = known.to_vec();
             known.sort_unstable();
             known.dedup();
             bail!(
@@ -351,7 +346,12 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
                 // and `neighbors_in` reads position, not dates — "later
                 // post" would have meant the one before.
                 let order = match q.order_by.as_deref() {
-                    Some(spec) => declared_order(schemas, &who, Some(spec))?,
+                    Some(spec) => {
+                        let declared = schemas.declared();
+                        let mut known: Vec<&str> = row_schema().keys().copied().collect();
+                        known.extend(declared.keys().copied());
+                        declared_order(&known, &who, Some(spec))?
+                    }
                     None => newest_first(),
                 };
                 (pred, order)
@@ -425,11 +425,15 @@ fn build_row_view(
     // startup error naming the view.
     let view = grackle_db::View::all()
         .filter(base_filter(cfg, kind, &row_schema())?.and(scoped_filter(name, q, &row_schema())?))
-        .order(declared_order(
-            schemas,
-            &format!("view {name}"),
-            q.order_by.as_deref(),
-        )?);
+        .order({
+            // The row schema plus whatever `.schema.toml` declares (§5b).
+            // Objects have no front matter, so theirs is `object_schema`
+            // alone — which is why the vocabulary is the caller's to state.
+            let declared = schemas.declared();
+            let mut known: Vec<&str> = row_schema().keys().copied().collect();
+            known.extend(declared.keys().copied());
+            declared_order(&known, &format!("view {name}"), q.order_by.as_deref())?
+        });
     let rows = &db.rows;
 
     // One row set per locale (§6f), built the same way for every locale —
@@ -647,20 +651,21 @@ fn build_object_view(
     let Some(route) = v.route.as_deref() else {
         bail!("view {name} needs a route");
     };
-    let order = q.order_by.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("view {name}: object views need an order_by (have: name)")
-    })?;
-    if order != "name" {
-        bail!("view {name}: unknown order_by {order:?} (have: name)");
-    }
+    // `order_by` used to be REQUIRED here and had to be `"name"`, because
+    // "objects have no natural order and lexical-by-luck is not a contract".
+    // Both halves are stale: an object is a `Row`, so it has a path and paths
+    // order, and `name`/`ext`/`size` are ordinary columns now. Same rule as
+    // every other view — `path` unless the view says otherwise, `path` last
+    // either way — against the narrower object vocabulary.
+    let known: Vec<&str> = object_schema().keys().copied().collect();
     let view = grackle_db::View::all()
         .filter(scoped_filter(name, q, &object_schema())?)
-        // `path` breaks the tie: two objects can share a filename, and
-        // directory order is not an ordering.
-        .order(vec![
-            grackle_db::Order::asc("name"),
-            grackle_db::Order::asc("path"),
-        ]);
+        .order(declared_order(
+            &known,
+            &format!("view {name}"),
+            q.order_by.as_deref(),
+        )?)
+        .limit(v.limit);
     let members: Vec<grackle_db::Key> = db.objects.rows.view(&view);
     db.routes.push(Route {
         view: Some(name.to_string()),
@@ -786,13 +791,35 @@ mod object_view_tests {
         );
     }
 
+    /// `order_by` used to be REQUIRED on an object view, and had to be
+    /// `"name"`. Both halves died when an object became a `Row`: it has a
+    /// path, paths order, and that is the same default every other view got.
     #[test]
-    fn object_view_requires_order_by() {
+    fn an_object_view_needs_no_order_by() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
-        let e = build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema()))
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("order_by"), "{e}");
+        let mut db = SiteDb::default();
+        db.objects.rows = grackle_db::Table::new(vec![obj("photos/b.png"), obj("photos/a.png")]);
+        build_views(&c, &mut db, &Schemas::new(row_schema())).expect("path is an ordering");
+        let r = db.routes.iter().find(|r| r.url == "/p/").expect("route");
+        assert_eq!(
+            r.members.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
+            ["photos/a.png", "photos/b.png"],
+            "path order, like every other view"
+        );
+    }
+
+    /// The vocabulary is still the narrow one: an object cannot sort on a
+    /// column only a content row has.
+    #[test]
+    fn an_object_view_sorts_only_on_object_columns() {
+        let c = cfg("[routes.g]\nfrom = \"objects\"\norder_by = \"title\"\n\
+             path = \"/p/\"\nlayout = \"gallery\"\n");
+        let e = format!(
+            "{:#}",
+            build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()
+        );
+        assert!(e.contains("order_by names unknown field \"title\""), "{e}");
+        assert!(e.contains("ext, name, path"), "{e}");
     }
 
     #[test]
