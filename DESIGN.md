@@ -5167,6 +5167,35 @@ never reused.
     With the index gone, `PostsTable` holds identity indexes only, and the
     merge has nothing left to inherit from it.
 
+    ### The consumer sweep, 2026-07-20
+
+    A census of every site that branches on which row type it has — read,
+    not name-matched — came back **46 exists-only-because-two-structs, 9
+    genuinely index-shaped, 4 loader-shaped, 10 legacy/debug**. The original
+    "13 of 29" undercounted because it looked only at `Kind`/`RouteKind`
+    match arms and missed the larger shape: *two near-identical functions
+    with no branch in them at all* (`document`/`document_tree`,
+    `render_bodies`/`render_page_bodies`, the two ~80-line render passes).
+    The 9 real ones reduce to three row predicates — `date.is_some()`,
+    `rendered`, `!claimed`.
+
+    It also found four live bugs, and **two of them were freshly created by
+    step 3**: fields were added to `Page` and the consumers still hardcoded
+    the old assumption. Backlink sources passed `None` for every page's
+    date, and search documents hardcoded `date: ""` / `tags: vec![]`. Both
+    were byte-identical *because* the consumer ignored the new field —
+    precisely the trap this question keeps re-teaching, one layer further
+    out each time. A third was older and worse: the script-shell and atom
+    passes indexed `db.posts.rows[i]` for **any** view's members, so a
+    tree-backed shell view read whatever post shared that index. The fourth
+    was `toc`, queryable on a page and not on a post, found by diffing the
+    two schemas rather than by re-reading the field census.
+
+    The lesson is now specific enough to state as a rule: **adding a field
+    to a row type is not done when the field exists.** It is done when every
+    consumer that hardcoded its absence has been found — and the compiler
+    cannot find them, because the old code still type-checks.
+
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.
 

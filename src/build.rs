@@ -748,6 +748,18 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         if v.shell.as_deref() != Some("atom") {
             continue;
         }
+        // Same latent indexing bug as the script shells below: `members`
+        // indexes the view's own table and this reads `db.posts.rows`.
+        // Unlike those, the fix is not local — `render::feed` is typed on
+        // `&Post` — so this refuses instead of silently feeding whatever
+        // post shares the index. A dated tree row SHOULD be feedable; that
+        // waits on the merge.
+        if view_base_kind(cfg, view) == Some(Kind::Tree) {
+            bail!(
+                "view {view}: shell = \"atom\" over a tree collection is not \
+                 supported yet (the feed renderer is typed on posts)"
+            );
+        }
         let entries: Vec<(&crate::db::Post, &str)> = r
             .members
             .iter()
@@ -830,21 +842,44 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let Some(def) = cfg.shells.get(shell) else {
             continue;
         };
-        let rows: Vec<serde_json::Value> = r
-            .members
-            .iter()
-            .map(|&i| {
-                let p = &db.posts.rows[i];
-                serde_json::json!({
-                    "url": p.url,
-                    "title": p.title,
-                    "date": p.date.map(crate::db::iso_date),
-                    "date_pretty": p.date.map(crate::db::pretty_date),
-                    "tags": p.tags,
-                    "html": bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or(""),
+        // `members` indexes the view's OWN table. This read `db.posts.rows`
+        // for every view regardless, so a tree-backed shell view served
+        // whatever post happened to sit at that index — or panicked. Rows
+        // carry the same shape either way now that `Page` has a date and
+        // tags (q51 step 3), so the payload does not change, only which
+        // table it is read from.
+        let rows: Vec<serde_json::Value> = match view_base_kind(cfg, view) {
+            Some(Kind::Tree) => r
+                .members
+                .iter()
+                .map(|&i| {
+                    let p = &db.pages.rows[i];
+                    serde_json::json!({
+                        "url": p.url,
+                        "title": p.title,
+                        "date": p.date.map(crate::db::iso_date),
+                        "date_pretty": p.date.map(crate::db::pretty_date),
+                        "tags": p.tags,
+                        "html": page_bodies.get(&p.url).map(|pb| pb.frag.as_str()).unwrap_or(""),
+                    })
                 })
-            })
-            .collect();
+                .collect(),
+            _ => r
+                .members
+                .iter()
+                .map(|&i| {
+                    let p = &db.posts.rows[i];
+                    serde_json::json!({
+                        "url": p.url,
+                        "title": p.title,
+                        "date": p.date.map(crate::db::iso_date),
+                        "date_pretty": p.date.map(crate::db::pretty_date),
+                        "tags": p.tags,
+                        "html": bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or(""),
+                    })
+                })
+                .collect(),
+        };
         let payload = serde_json::json!({
             "schema": "grackle-shell/0",
             "shell": shell,
@@ -1293,9 +1328,12 @@ fn backlinks_map(
             .map(|p| p.url.as_str()),
     );
 
-    // A page has no date, so the axis is legitimately mixed — which is why
-    // the theme lets an undated item span rather than assuming every
-    // neighbour wears a date column.
+    // The axis is legitimately mixed — an undated row is allowed, which is
+    // why the theme lets an item span rather than assuming every neighbour
+    // wears a date column. It used to be mixed for the wrong reason: this
+    // loop passed `None` for every page because `Page` had no date. It has
+    // one since q51 step 3, so a page-sourced citation now sorts by when it
+    // was written instead of always landing last.
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.posts.rows {
         if let Some(d) = bodies.get(p.url.as_str()) {
@@ -1308,7 +1346,7 @@ fn backlinks_map(
                 sources.push((
                     p.url.as_str(),
                     p.title.clone().unwrap_or_default(),
-                    None,
+                    p.date,
                     pb.frag.as_str(),
                 ));
             }
@@ -1466,7 +1504,11 @@ fn search_pass(
                         // A titleless page is still searchable by body; its
                         // URL is the only honest label a hit can wear.
                         title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-                        date: String::new(),
+                        // Both of these were hardcoded empty because `Page`
+                        // had neither field; it has had both since q51 step
+                        // 3, and a dated, tagged page is searchable on them
+                        // exactly as a post is.
+                        date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
                         // Markdown pages searched from the same bytes that
                         // ship; raw-HTML pages from their body fragment.
                         html: pb
@@ -1474,7 +1516,7 @@ fn search_pass(
                             .as_ref()
                             .map(|d| d.whole.clone())
                             .unwrap_or_else(|| pb.frag.clone()),
-                        tags: Vec::new(),
+                        tags: p.tags.clone(),
                     })
                 }
                 _ => None,

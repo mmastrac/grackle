@@ -1217,6 +1217,13 @@ pub fn post_schema() -> filter::Schema {
     s.insert("day", Int);
     s.insert("body_bytes", Int);
     s.insert("order", Int);
+    // A post has carried `toc` as long as pages have, cascading from
+    // markers and rules and driving the render — but `post_schema` never
+    // declared it and `Post::field` never answered, so no query could name
+    // it while a page's could. Found by diffing the two schemas rather than
+    // by reading the field census, which is how it survived four slices
+    // aimed squarely at this class of bug.
+    s.insert("toc", Bool);
     s.insert("tags", List);
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
@@ -1250,6 +1257,7 @@ impl filter::Row for Post {
             "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
             "body_bytes" => V::Int(self.body_bytes as i64),
             "order" => self.order.map_or(V::Null, V::Int),
+            "toc" => V::Bool(self.toc),
             "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
             // Schema fields (§5b) resolve after the base names — the same
