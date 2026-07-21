@@ -32,17 +32,6 @@ pub struct Row {
     pub slug: String,
     /// Filename without extension — unique, because it carries the date.
     pub stem: String,
-    /// Source path relative to the collection, without the extension:
-    /// `2009/2009-07-28-a-quieter-window-name-transport-for-ie`.
-    ///
-    /// Was the key `{% post_url %}` took; with that retired its only
-    /// remaining job is the embedding cache identity (`embed::run` keys
-    /// `_cache/embeddings/index.json` on it), which wants a stable unique
-    /// string and does not care about the shape. It is kept collection-
-    /// relative purely so the 333 cached vectors stay valid; the merge is
-    /// what should settle it, since root-relative `rel` would serve better
-    /// (unique across collections) at the cost of one regeneration.
-    pub name: String,
     /// `Option` because a PAGE may genuinely have none — a titleless page
     /// is searchable by body and wears its URL as the only honest label.
     /// A post's loader always fills it (front matter, else the slug read
@@ -659,10 +648,6 @@ fn read_posts(
             .unwrap_or_default()
             .to_string();
 
-        // The embedding cache key stays COLLECTION-relative: it is the only
-        // thing keyed on this shape, and leaving it alone keeps the 333
-        // cached vectors valid across the merge.
-        let name = raw.rel.with_extension("").to_string_lossy().to_string();
         // `logical` keeps its extension, matching the tree side — where the
         // convention is config-visible (`content = "recipes/index.md"`).
         // The two loaders used OPPOSITE conventions for this field, and
@@ -813,7 +798,6 @@ fn read_posts(
             date,
             slug,
             stem,
-            name,
             title,
             description: raw.front.description,
             layout,
@@ -856,18 +840,11 @@ fn index_posts(cfg: &Config, mut rows: Vec<Row>) -> Result<PostsTable> {
 
     let mut seen_names: HashMap<String, usize> = HashMap::new();
     for (i, p) in rows.iter().enumerate() {
-        // Identity indexes span all locales: URLs are globally unique, and
-        // `name` (physical path) must stay unique because the embedding
-        // cache is keyed on it — two rows sharing a name would share a
-        // vector. Reachable via `foo.md` beside `foo.markdown`.
-        if let Some(prev) = seen_names.insert(p.name.clone(), i) {
-            bail!(
-                "duplicate post name {:?} (the embedding cache keys on it):\n  {}\n  {}",
-                p.name,
-                rows[prev].path.display(),
-                p.path.display()
-            );
-        }
+        // Identity indexes span all locales: URLs are globally unique. The
+        // `name` uniqueness guard that used to sit here is retired with the
+        // field — it existed because `name` dropped the extension, so
+        // `foo.md` and `foo.markdown` collided. A root-relative `rel` keeps
+        // them distinct by construction.
         if let Some(prev) = table.by_url.insert(p.url.clone(), i) {
             bail!(
                 "route collision at {}:\n  {}\n  {}",
@@ -1118,7 +1095,6 @@ fn build_tree_and_objects(
                 collection: tree_name.to_string(),
                 slug: stem.clone(),
                 stem,
-                name: f.rel.with_extension("").to_string_lossy().to_string(),
                 // The tree loader does not hold bodies: pages are re-read at
                 // render time (§2). That asymmetry is loader-shaped, not row-
                 // shaped, and outlives the merge.

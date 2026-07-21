@@ -433,7 +433,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("date        {}", fmt_date(r));
                 println!("slug        {}", r.slug);
                 println!("stem        {}", r.stem);
-                println!("name        {}  (embedding cache key)", r.name);
+                println!("source      {}  (embedding cache key)", r.rel.display());
                 println!("title       {}", r.title.as_deref().unwrap_or("-"));
                 println!("layout      {}", r.layout.as_deref().unwrap_or("-"));
                 println!("draft       {}", r.draft);

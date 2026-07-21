@@ -25,6 +25,14 @@ const DIM: usize = 384;
 
 pub type Vector = Vec<f32>;
 
+/// The cache identity of a row: its source path, root-relative. Was
+/// `Row.name` — a collection-relative path minus extension that existed
+/// only to serve `{% post_url %}` and outlived it by one field. `rel` says
+/// the same thing and is unique across collections (q51).
+pub fn cache_key(p: &crate::db::Row) -> String {
+    p.rel.to_string_lossy().to_string()
+}
+
 /// The text a post embeds as. Title and tags are signal, not metadata.
 pub fn text_of(p: &crate::db::Row) -> String {
     format!(
@@ -69,11 +77,11 @@ pub fn load(db: &SiteDb, cache_dir: &Path) -> Result<Loaded> {
         if fresh.is_none() {
             // Stale fallback: the vector this post's *previous* text produced.
             let stale = index
-                .get(&p.name)
+                .get(&cache_key(p))
                 .and_then(|old| read_vec(&vec_path(cache_dir, old)));
             vectors.push(stale);
             pending.push(Pending {
-                name: p.name.clone(),
+                name: cache_key(p),
                 hash,
                 text,
             });
@@ -346,7 +354,7 @@ mod tests {
 
         // A post whose OLD text was embedded and indexed…
         let mut p = Row {
-            name: "2020/a".into(),
+            rel: std::path::PathBuf::from("_posts/2020/a.md"),
             title: Some("old title".into()),
             body: "body".into(),
             ..Row::default()
@@ -354,7 +362,7 @@ mod tests {
         let old_hash = blake3::hash(text_of(&p).as_bytes()).to_hex().to_string();
         let v: Vec<f32> = (0..DIM).map(|i| i as f32).collect();
         write_vec(&vec_path(&dir, &old_hash), &v).unwrap();
-        write_index(&dir, &HashMap::from([(p.name.clone(), old_hash)])).unwrap();
+        write_index(&dir, &HashMap::from([(cache_key(&p), old_hash)])).unwrap();
 
         // …then edited: load serves the stale vector and queues a re-embed.
         p.title = Some("new title".into());
