@@ -5229,6 +5229,43 @@ never reused.
     `document`/`document_tree`, `render_bodies`/`render_page_bodies`, the
     two render passes, the two `LinkSpace` loops, the two backlink loops.
 
+    ### The last step: one table. NOT pure deletion.
+
+    Step B and the collapses are done (2026-07-21). What is left is folding
+    `PostsTable` and `TreeTable` into one `SiteDb.rows`. The per-site census
+    said ~45 of the remaining branches are bookkeeping — "which `Vec` do I
+    index" — which made this look like pure deletion. Working the mechanics
+    says otherwise, and the two reasons are worth writing down before anyone
+    starts:
+
+    - **Indices shift.** The tree loader builds `by_logical`, `by_url` and
+      the q45 claim checks against its own 0-based row vector. Appending
+      tree rows after posts offsets every one of them. Either both loaders
+      return bare `Vec<Row>` and every index is rebuilt once over the
+      concatenation, or each tree-local index needs an explicit `+ offset`.
+      The first is right; it is also not a deletion.
+    - **A membership predicate is genuinely needed.** A posts view does not
+      range over its base collection — it ranges over the whole posts
+      *table*, across every posts collection, with `published` narrowing by
+      FLAG (`!draft && !hidden`) rather than by source. With one table that
+      set has to be named some other way. `cfg.collections[&row.collection]
+      .kind == Kind::Posts` is a per-row config lookup; a precomputed
+      `post_rows: Vec<usize>` is the cheaper shape. Either way something
+      replaces "the posts table", so this is the one place where the merge
+      really does need a new expression rather than the removal of an old
+      one.
+
+    Everything else in that step is substitution: `db.posts.rows[i]` and
+    `db.pages.rows[i]` both become `db.rows[i]` (67 sites), the `by_url` and
+    `by_logical` maps merge (safe now that `rel` and `logical` are
+    root-relative on both), and `ViewRows.table` stops meaning anything.
+
+    **The loader asymmetry survives all of it and should.** Posts hold their
+    body in memory; pages are re-read at render time (§2). Twelve of the
+    remaining branches ask only that question. It is a real decision about
+    ~800 files of memory, it has nothing to do with row identity, and it is
+    honest to leave standing.
+
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.
 
