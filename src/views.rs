@@ -287,13 +287,42 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 }
             });
         };
-        let mut visible: Vec<usize> = posts
-            .order
-            .iter()
-            .copied()
-            .filter(|&i| pred.eval(&posts.rows[i]))
-            .collect();
-        apply_sort(&mut visible);
+        // The DEFAULT ordering, stated here rather than inherited from
+        // `posts.order` (q51). The table's index carried three things at
+        // once — reverse-chronological sort, undated-last, and a
+        // default-locale FILTER — and a view that merely read it inherited
+        // all three without saying so. The merge removes the table, so each
+        // has to have a home: the filter is now the explicit `p.locale ==
+        // locale` the tree side always used, and the sort is this
+        // comparator. Same result, and now it survives losing the table.
+        let chronological = |a: &usize, b: &usize| {
+            let (x, y) = (&posts.rows[*a], &posts.rows[*b]);
+            match (x.date, y.date) {
+                (Some(p), Some(q)) => q.cmp(&p),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+            .then_with(|| x.slug.cmp(&y.slug))
+        };
+        // One row set per locale, built the same way for every locale —
+        // including the default, which used to be the special case that
+        // read the table's index. Declared `order_by` applies on top,
+        // stably, so it re-seats only what it names.
+        let rows_for = |locale: &str| -> Vec<usize> {
+            let mut ix: Vec<usize> = posts
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.locale == locale)
+                .filter(|(_, p)| pred.eval(*p))
+                .map(|(i, _)| i)
+                .collect();
+            ix.sort_by(&chronological);
+            apply_sort(&mut ix);
+            ix
+        };
+        let visible = rows_for(&cfg.i18n.default);
 
         // No route: one row set, and nowhere to hang it but the view itself.
         if !v.is_materialized() {
@@ -327,28 +356,6 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             _ => std::iter::once(cfg.i18n.default.as_str())
                 .chain(cfg.i18n.locales.iter().map(String::as_str))
                 .collect(),
-        };
-        // The default locale reuses `visible` (order-derived); others get
-        // the same query over their rows, newest first — the ordering
-        // `order` gives the default.
-        let rows_for = |locale: &str| -> Vec<usize> {
-            if locale == cfg.i18n.default {
-                return visible.clone();
-            }
-            let mut ix: Vec<usize> = posts
-                .rows
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| p.locale == locale)
-                .filter(|(_, p)| pred.eval(*p))
-                .map(|(i, _)| i)
-                .collect();
-            ix.sort_by(|&a, &b| {
-                let (x, y) = (&posts.rows[a], &posts.rows[b]);
-                y.date.cmp(&x.date).then_with(|| x.slug.cmp(&y.slug))
-            });
-            apply_sort(&mut ix);
-            ix
         };
         let prefixed = |locale: &str, tmpl: &str| -> String {
             if locale == cfg.i18n.default {
@@ -823,6 +830,11 @@ mod posts_order_tests {
             url: url.into(),
             date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
             order,
+            // The locale filter is explicit in the view now (it used to
+            // ride along inside `posts.order`), so a fixture row has to
+            // carry the default locale to be visible at all.
+            locale: "en".into(),
+            slug: url.trim_matches('/').into(),
             ..Post::default()
         }
     }
@@ -835,8 +847,10 @@ mod posts_order_tests {
             post("/c/", "2026-06-21", None),
             post("/d/", "2026-07-19", Some(9)), // newest, pinned last
         ];
-        // Reverse-chronological, as `index_posts` builds it.
-        db.posts.order = vec![3, 2, 1, 0];
+        // Deliberately NOT setting `db.posts.order`: since q51's ordering
+        // slice the view derives its own ordering from the rows and never
+        // reads the table's index. Leaving it empty is the test that this
+        // is true.
         db
     }
 
@@ -861,7 +875,7 @@ mod posts_order_tests {
     }
 
     #[test]
-    fn no_order_by_leaves_the_table_ordering_alone() {
+    fn no_order_by_means_newest_first() {
         assert_eq!(members(""), ["/d/", "/c/", "/b/", "/a/"]);
     }
 

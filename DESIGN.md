@@ -5111,6 +5111,41 @@ never reused.
     ordering/adjacency declared as a set rather than inherited from the
     posts table. No field work remains to block any of it.
 
+    ### The ordering decision, settled 2026-07-20
+
+    The asymmetry was that a posts view fell back to `posts.order` while a
+    tree view *required* an explicit `order_by` — the same construct, one
+    guessing and one refusing to. That was never a choice; it was a
+    consequence of `PostsTable` having an index and `TreeTable` not.
+
+    The trap is that `posts.order` carried **three** things at once:
+    reverse-chronological sort, undated-last, and a **default-locale
+    filter** — and any view that merely read it inherited all three without
+    saying so. The third is the dangerous one: it is what keeps every
+    listing, feed and archive single-locale, and it is a filter wearing a
+    sort's clothes. A merge that moved the sort and forgot the filter would
+    start mixing languages into listings with nothing to catch it.
+
+    **Decided:** ordering belongs to the SET, not the table — which needs no
+    new mechanism, because `order_by` already inherits along `from`,
+    nearest-wins (§5c). A set that declares nothing, over rows that have
+    dates, defaults to newest-first. That keeps every existing config
+    working while making the ordering a property of the query rather than of
+    which struct the rows live in. It settles adjacency in the same stroke:
+    "previous in `published`" reads the set's order, and since a set carries
+    `!draft && !hidden`, adjacency skips drafts *by construction* instead of
+    by the accident that drafts are undated.
+
+    **Step one shipped:** the posts view path no longer reads `posts.order`
+    at all. It filters by locale explicitly — the same `p.locale == locale`
+    the tree side always used — and sorts by a stated comparator, with
+    declared `order_by` applying stably on top. The default locale stopped
+    being a special case; every locale is built the same way. All three
+    sites byte-identical.
+
+    `posts.order` now has exactly **one** consumer left, `neighbors()`, so
+    adjacency-on-a-set is the whole of what remains before the table can go.
+
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.
 
