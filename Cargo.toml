@@ -4,31 +4,29 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = [".", "search-core", "search-wasm"]
-default-members = [".", "search-core"]
+members = [".", "db", "source", "search-core", "search-wasm"]
+default-members = [".", "db", "source", "search-core"]
 
 [dependencies]
 grackle-search-core = { path = "search-core" }
+grackle-db = { path = "db" }
+grackle-source = { path = "source" }
 anyhow = "1"
 blake3 = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 comrak = "0.54"
 image = "0.25"
-globset = "0.4"
 grass = "0.13"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-ignore = "0.4"
 notify = "8"
 rayon = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "sync", "time"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
-serde_yaml_ng = "0.10"
 serde_json = "1"
-toml = "0.8"
 walkdir = "2"
 keepcalm = "0.6.0"
 fastembed = "5.17.3"

@@ -254,7 +254,7 @@ fn view_link(
         // `key` = the leaf, tag slugs on the URL (§6f).
         let mut params: Vec<(String, String)> = Vec::new();
         for (spec, key) in chain.iter().zip(&keys) {
-            let field = crate::views::spec_field(spec);
+            let field = crate::db::spec_field(spec);
             // §6f enum records: the URL wears any grouped field's slug.
             let value = cfg.record_slug(field, key).to_string();
             params.push((field.to_string(), value.clone()));

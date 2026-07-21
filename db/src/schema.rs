@@ -61,7 +61,7 @@ impl FieldType {
 /// site would have said so. One schema now, so this is one lookup — it took
 /// the union of both tables' names even when they were two.
 fn is_base_field(name: &str) -> bool {
-    crate::db::row_schema().contains_key(name)
+    crate::row_schema().contains_key(name)
 }
 
 /// Every `.schema.toml` in the tree, keyed by its directory.
@@ -110,10 +110,6 @@ impl Schemas {
         }
         self.by_dir.insert(dir.to_path_buf(), fields);
         Ok(())
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_dir.is_empty()
     }
 
     /// The schema governing a row in `dir`: ancestors accumulated,

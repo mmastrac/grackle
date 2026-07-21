@@ -7,18 +7,18 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
 use crate::config::{Config, Kind, Query, View};
-use crate::db::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
-use crate::filter;
-use crate::route;
+use grackle_db::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
+use grackle_db::filter;
+use grackle_db::route;
 
 /// One group key a row contributes under a single `group_by` spec: the typed
 /// sort component (years/months order numerically, tags lexically), the
 /// display component (joined into `Route.key`), and the parameters the key
 /// exposes to route/`title`/`crumb` templates.
 #[derive(Clone, Debug)]
-pub(crate) struct GroupKey {
+pub struct GroupKey {
     sort: SortKey,
-    pub(crate) params: Vec<(String, String)>,
+    pub params: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,14 +42,6 @@ impl SortKey {
 /// The canonical spelling of a `group_by` spec. The date specs were always
 /// aliases for schema fields the filter language already had — grouping by
 /// tags, by year, by course is ONE operation: group by a typed field.
-pub(crate) fn spec_field(spec: &str) -> &str {
-    match spec {
-        "date.year" => "year",
-        "date.month" => "month",
-        s => s,
-    }
-}
-
 const MONTH_NAMES: [&str; 12] = [
     "January",
     "February",
@@ -73,7 +65,7 @@ const MONTH_NAMES: [&str; 12] = [
 /// after the field; `month` keeps its display derivative (`{month_name}`)
 /// until §5f formatters give it a proper home.
 fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
-    let field = spec_field(spec);
+    let field = grackle_db::spec_field(spec);
     let mk = |sort: SortKey, display: String| {
         let mut params = vec![("key".to_string(), display.clone())];
         if field != "key" {
@@ -110,7 +102,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
 /// declare fields in.
 fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> Result<()> {
     for spec in chain {
-        let field = spec_field(spec);
+        let field = grackle_db::spec_field(spec);
         let mut known: Vec<&str> = match kind {
             Kind::Objects => object_schema().keys().copied().collect(),
             Kind::Posts | Kind::Tree => {
@@ -135,7 +127,7 @@ fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> R
 /// cartesian product across levels (a list field can multi-key a row;
 /// scalar fields contribute at most one each). Empty when the row is
 /// absent at any level.
-pub(crate) fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>> {
+pub fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>> {
     let mut combos: Vec<Vec<GroupKey>> = vec![Vec::new()];
     for spec in chain {
         let keys = group_keys(row, spec);
@@ -210,7 +202,7 @@ fn grouped_routes(
 /// The default ordering for dated rows: newest first, undated last, slug as
 /// the tiebreak. Was `PostsTable::order`, an index built once at load; it is
 /// a comparator now so that losing the table costs nothing (q51).
-pub(crate) fn chronological(rows: &[crate::db::Row], a: usize, b: usize) -> std::cmp::Ordering {
+pub fn chronological(rows: &[grackle_db::Row], a: usize, b: usize) -> std::cmp::Ordering {
     let (x, y) = (&rows[a], &rows[b]);
     match (x.date, y.date) {
         (Some(p), Some(q)) => q.cmp(&p),
@@ -294,7 +286,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             .collect();
         ix.sort_by(|&a, &b| chronological(&db.rows, a, b));
         if let Some((key, desc)) = &sort {
-            use crate::filter::Row as _;
+            use grackle_db::filter::Row as _;
             ix.sort_by(|&a, &b| {
                 let ord = value_cmp(&db.rows[a].field(key), &db.rows[b].field(key));
                 if *desc {
@@ -360,7 +352,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // fifty re-seats those two and nothing else.
         let apply_sort = |ix: &mut Vec<usize>| {
             let Some((key, desc)) = &sort else { return };
-            use crate::filter::Row as _;
+            use grackle_db::filter::Row as _;
             ix.sort_by(|&a, &b| {
                 let ord = value_cmp(&rows[a].field(key), &rows[b].field(key));
                 if *desc {
@@ -459,7 +451,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             // §6f enum records: URLs wear the record's slug for ANY
             // grouped field (tags, courses, …); keys and titles keep the
             // id. `key` is the leaf level's value.
-            let leaf = chain.last().map(|s| spec_field(s).to_string());
+            let leaf = chain.last().map(|s| grackle_db::spec_field(s).to_string());
             let route_value = |k: &str, v: &str| -> String {
                 let field = if k == "key" { leaf.as_deref() } else { Some(k) };
                 match field {
@@ -693,7 +685,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             .map(|(i, _)| i)
             .collect();
         members.sort_by(|&a, &b| {
-            use crate::filter::Row as _;
+            use grackle_db::filter::Row as _;
             let (x, y) = (&db.rows[a], &db.rows[b]);
             let ord = value_cmp(&x.field(key), &y.field(key));
             let ord = if desc { ord.reverse() } else { ord };
@@ -731,7 +723,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             } else {
                 format!("/{locale}{tmpl}")
             };
-            let leaf = chain.last().map(|s| spec_field(s).to_string());
+            let leaf = chain.last().map(|s| grackle_db::spec_field(s).to_string());
             let route_value = |k: &str, v: &str| -> String {
                 let field = if k == "key" { leaf.as_deref() } else { Some(k) };
                 match field {
@@ -827,7 +819,7 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 #[cfg(test)]
 mod object_view_tests {
     use super::*;
-    use crate::db::Object;
+    use grackle_db::Object;
     use std::path::PathBuf;
 
     fn obj(rel: &str) -> Object {
@@ -896,7 +888,7 @@ mod object_view_tests {
 #[cfg(test)]
 mod posts_order_tests {
     use super::*;
-    use crate::db::Row;
+    use grackle_db::Row;
     use chrono::NaiveDate;
 
     fn post(url: &str, date: &str, order: Option<i64>) -> Row {
@@ -974,7 +966,7 @@ mod posts_order_tests {
 #[cfg(test)]
 mod grouping_tests {
     use super::*;
-    use crate::db::Row;
+    use grackle_db::Row;
     use chrono::NaiveDate;
 
     fn post(date: Option<&str>, tags: &[&str]) -> Row {
@@ -1033,7 +1025,7 @@ mod grouping_tests {
     /// as grouping by tags — Str single-keys, Null is absent.
     #[test]
     fn any_typed_field_groups() {
-        use crate::db::Row;
+        use grackle_db::Row;
         use std::path::PathBuf;
         let mut p = Row {
             path: PathBuf::new(),
@@ -1097,9 +1089,9 @@ mod grouping_tests {
 
     #[test]
     fn date_specs_are_field_aliases() {
-        assert_eq!(spec_field("date.year"), "year");
-        assert_eq!(spec_field("date.month"), "month");
-        assert_eq!(spec_field("course"), "course");
+        assert_eq!(grackle_db::spec_field("date.year"), "year");
+        assert_eq!(grackle_db::spec_field("date.month"), "month");
+        assert_eq!(grackle_db::spec_field("course"), "course");
         // The month display derivative survives the generalization.
         let p = post(Some("2022-12-16"), &[]);
         let keys = group_keys(&p, "date.month");
@@ -1116,7 +1108,7 @@ mod grouping_tests {
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
-    use crate::db::Row;
+    use grackle_db::Row;
     use chrono::NaiveDate;
 
     fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {

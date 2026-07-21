@@ -1179,13 +1179,13 @@ dependencies = [
  "clap",
  "comrak",
  "fastembed",
- "globset",
+ "grackle-db",
  "grackle-search-core",
+ "grackle-source",
  "grass",
  "http-body-util",
  "hyper",
  "hyper-util",
- "ignore",
  "image",
  "keepcalm",
  "notify",
@@ -1193,10 +1193,19 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "serde_yaml_ng",
  "tokio",
- "toml",
  "walkdir",
+]
+
+[[package]]
+name = "grackle-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_yaml_ng",
+ "toml",
 ]
 
 [[package]]
@@ -1213,6 +1222,23 @@ version = "0.1.0"
 dependencies = [
  "grackle-search-core",
  "postcard",
+]
+
+[[package]]
+name = "grackle-source"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "globset",
+ "grackle-db",
+ "ignore",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_yaml_ng",
+ "toml",
+ "walkdir",
 ]
 
 [[package]]

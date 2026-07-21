@@ -1687,7 +1687,7 @@ fn route_intro(
 ) -> Result<Option<String>> {
     if r.key.is_some() {
         let chain = cfg.group_specs(view);
-        if let Some(field) = chain.last().map(|s| crate::views::spec_field(s)) {
+        if let Some(field) = chain.last().map(|s| crate::db::spec_field(s)) {
             if let Some(id) = crate::route::param(&r.params, field) {
                 if let Some(i) = cfg.record(field, &id).and_then(|rec| rec.intro.as_ref()) {
                     let source = format!("record {field}.{id}: intro");

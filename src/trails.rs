@@ -68,7 +68,7 @@ pub fn listing_title_and_trail(
     let fields: Vec<String> = cfg
         .group_specs(view)
         .iter()
-        .map(|s| crate::views::spec_field(s).to_string())
+        .map(|s| crate::db::spec_field(s).to_string())
         .collect();
     let param = |k: &str| -> Option<String> {
         let raw = crate::route::param(&r.params, k)?;

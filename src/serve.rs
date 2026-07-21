@@ -29,7 +29,6 @@ use tokio::net::TcpListener;
 
 use crate::build::{self, SiteOutput};
 use crate::config::Config;
-use crate::db::SiteDb;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A rendered snapshot plus a version the browser polls to know when to reload.
@@ -206,7 +205,7 @@ fn render(
     profile: Option<&str>,
 ) -> Result<(Snapshot, Vec<crate::embed::Pending>)> {
     let cfg = Config::load_profile(config_path, profile)?;
-    let db = SiteDb::load(&cfg).context("loading site database")?;
+    let db = grackle_source::load(&cfg).context("loading site database")?;
     let (pages, mut stats) = build::render_site(&cfg, &db)?;
     let pending = std::mem::take(&mut stats.embed_pending);
     let debug = crate::debug::payload(&cfg, &db)?;

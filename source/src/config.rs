@@ -378,13 +378,9 @@ pub struct Site {
     pub noindex: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    Posts,
-    Tree,
-    Objects,
-}
+/// A collection's table. Declared here, defined by the database — a `kind`
+/// in the TOML deserializes straight into the database's own vocabulary.
+pub use grackle_db::Kind;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -666,7 +662,7 @@ impl Config {
 
     /// Parse and fold the query sections. The one parse path, so a config
     /// built in a test is the same shape as one read from disk.
-    pub(crate) fn from_toml(text: &str) -> Result<Config> {
+    pub fn from_toml(text: &str) -> Result<Config> {
         let mut cfg: Config = toml::from_str(text)?;
         cfg.merge_collections()?;
         cfg.merge_queries()?;
@@ -780,8 +776,8 @@ impl Config {
             if let Some(f) = over.filter {
                 // Parsed here so a bad profile filter fails at load like any
                 // other, rather than at the pass that first evaluates it.
-                crate::filter::Filter::parse(&f, &crate::db::row_schema())
-                    .or_else(|_| crate::filter::Filter::parse(&f, &crate::db::route_schema()))
+                grackle_db::filter::Filter::parse(&f, &grackle_db::row_schema())
+                    .or_else(|_| grackle_db::filter::Filter::parse(&f, &grackle_db::route_schema()))
                     .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
                 v.filter = Some(f);
             }
@@ -839,7 +835,7 @@ impl Config {
                 let Some(v) = cfg.views.get(name) else {
                     anyhow::bail!("collection tags view {name:?} is not a declared view");
                 };
-                if v.group_by.as_deref().map(crate::views::spec_field) != Some("tags") {
+                if v.group_by.as_deref().map(grackle_db::spec_field) != Some("tags") {
                     anyhow::bail!("collection tags view {name:?} is not grouped by tags");
                 }
                 if v.route.is_none() {
@@ -850,7 +846,7 @@ impl Config {
                     .views
                     .iter()
                     .filter(|(_, v)| {
-                        v.group_by.as_deref().map(crate::views::spec_field) == Some("tags")
+                        v.group_by.as_deref().map(grackle_db::spec_field) == Some("tags")
                     })
                     .map(|(n, _)| n.as_str())
                     .collect();
@@ -864,7 +860,7 @@ impl Config {
             }
             if let Some((name, v)) = cfg.tags_view() {
                 if let Some(tmpl) = v.route.as_deref() {
-                    crate::route::render(tmpl, |k| match k {
+                    grackle_db::route::render(tmpl, |k| match k {
                         "key" | "tags" => Some("probe".to_string()),
                         _ => None,
                     })
@@ -1256,7 +1252,7 @@ impl Config {
         }
         let mut found = None;
         for (name, v) in &self.views {
-            if v.group_by.as_deref().map(crate::views::spec_field) == Some("tags") {
+            if v.group_by.as_deref().map(grackle_db::spec_field) == Some("tags") {
                 if found.is_some() {
                     return None; // ambiguous — validation already errored
                 }
@@ -1273,7 +1269,7 @@ impl Config {
     pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
         let (_, v) = self.tags_view()?;
         let tmpl = v.route.as_deref()?;
-        let url = crate::route::render(tmpl, |k| match k {
+        let url = grackle_db::route::render(tmpl, |k| match k {
             "key" | "tags" => Some(self.tag_slug(id).to_string()),
             _ => None,
         })
@@ -1544,14 +1540,14 @@ mod tests {
     /// `!draft && !hidden` at all, because neither field was known.
     #[test]
     fn the_flag_family_is_queryable_on_pages() {
-        let s = crate::db::row_schema();
+        let s = grackle_db::row_schema();
         for f in ["draft", "hidden", "noindex"] {
             assert!(s.contains_key(f), "page schema is missing {f:?}");
         }
         // And a tree set can actually name them.
         let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden\"\n");
         let q = c.query("pages").unwrap();
-        crate::filter::Filter::parse(&q.predicate().unwrap(), &crate::db::row_schema())
+        grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &grackle_db::row_schema())
             .expect("!draft && !hidden should type-check against a page");
     }
 

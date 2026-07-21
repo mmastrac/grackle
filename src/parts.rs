@@ -990,7 +990,7 @@ mod tests {
     fn null_theme_is_complete_over_every_real_row() {
         let cfg = crate::config::Config::load(std::path::Path::new("grackle.toml"))
             .expect("grackle.toml loads");
-        let db = crate::db::SiteDb::load(&cfg).expect("site db loads");
+        let db = grackle_source::load(&cfg).expect("site db loads");
         assert!(db.post_ix.len() > 300, "real corpus expected");
 
         // Every post as a full document (raw body stands in for rendered

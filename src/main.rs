@@ -1,27 +1,23 @@
+use grackle_db as db;
+use grackle_db::{filter, route};
+use grackle_source::{config, store, views};
+
 mod binder;
 mod build;
-mod config;
-mod db;
 mod debug;
 mod diff;
 mod embed;
-mod filter;
 mod links;
 mod markdown;
-mod markers;
 mod outline;
 mod parts;
 mod render;
-mod route;
-mod schema;
 mod serve;
 mod slots;
-mod store;
 mod tags;
 mod theme;
 mod thumbs;
 mod trails;
-mod views;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -141,7 +137,7 @@ fn main() -> Result<()> {
         .clone()
         .or_else(|| matches!(cli.cmd, Cmd::Serve { .. }).then(|| "dev".to_string()));
     let cfg = config::Config::load_profile(&cli.config, profile.as_deref())?;
-    let db = db::SiteDb::load(&cfg).context("loading site database")?;
+    let db = grackle_source::load(&cfg).context("loading site database")?;
     let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     match cli.cmd {
