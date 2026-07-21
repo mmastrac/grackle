@@ -1000,7 +1000,8 @@ mod tests {
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone().unwrap_or_default(), None),
             ];
-            let m = document(&cfg, &db, p, &p.body, trail, &[], &[], Vec::new(), &[]);
+            let body = crate::store::read_body(&p.path).unwrap_or_default();
+            let m = document(&cfg, &db, p, &body, trail, &[], &[], Vec::new(), &[]);
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -1015,7 +1016,8 @@ mod tests {
                 .iter()
                 .map(|&i| {
                     let p = &db.rows[i];
-                    (p, p.body.clone(), i % 2 == 0)
+                    let body = crate::store::read_body(&p.path).unwrap_or_default();
+                    (p, body, i % 2 == 0)
                 })
                 .collect();
             let m = listing(

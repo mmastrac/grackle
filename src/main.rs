@@ -380,7 +380,8 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         Query::Search { query, limit } => {
             // The CLI runs no render pass, so the raw markdown stands in for
             // the rendered body — a smoke query over the same projection.
-            let docs = build::search_docs(db, |p| p.body.clone());
+            let docs =
+                build::search_docs(db, |p| crate::store::read_body(&p.path).unwrap_or_default());
             let (index, _) = grackle_search_core::build_index(&docs);
             let q = query.join(" ");
             for (url, title, date) in index.search(&q, limit) {
@@ -509,7 +510,7 @@ fn run_diff(
     let mut rows = Vec::new();
     let mut skipped_liquid = 0usize;
     for p in db.posts() {
-        if liquid_free && has_liquid(&p.body) {
+        if liquid_free && has_liquid(&store::read_body(&p.path)?) {
             skipped_liquid += 1;
             continue;
         }
@@ -524,7 +525,11 @@ fn run_diff(
                 continue;
             }
         }
-        rows.push(diff::compare_post(&p.url, &p.body, against)?);
+        rows.push(diff::compare_post(
+            &p.url,
+            &store::read_body(&p.path)?,
+            against,
+        )?);
     }
 
     if let Some(url) = show {

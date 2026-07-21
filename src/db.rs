@@ -77,9 +77,9 @@ pub struct Row {
     #[serde(skip)]
     pub logical: String,
     pub url: String,
+    /// Measured at load, when the body is briefly in hand. The body itself
+    /// is not kept — every consumer re-reads it (§2).
     pub body_bytes: usize,
-    #[serde(skip)]
-    pub body: String,
     /// Tree heritage: a rendered row (front matter) vs a static file copied
     /// verbatim. Always true for a row that came from a posts collection —
     /// a post with no front matter is still parsed.
@@ -817,7 +817,6 @@ fn read_posts(
             logical,
             url,
             body_bytes: raw.body.len(),
-            body: raw.body,
             // A post is always parsed; the tree distinction does not apply.
             rendered: true,
             size: 0,
@@ -967,7 +966,7 @@ fn build_tree_and_objects(
             });
         } else {
             // Only rendered rows have schema; 41 files, so parsing is cheap.
-            let fm = if f.has_front_matter {
+            let (fm, body_bytes) = if f.has_front_matter {
                 read_page_schema(&f.path)?
             } else {
                 Default::default()
@@ -1041,11 +1040,7 @@ fn build_tree_and_objects(
                 collection: tree_name.to_string(),
                 slug: stem.clone(),
                 stem,
-                // The tree loader does not hold bodies: pages are re-read at
-                // render time (§2). That asymmetry is loader-shaped, not row-
-                // shaped, and outlives the merge.
-                body: String::new(),
-                body_bytes: 0,
+                body_bytes,
                 path: f.path,
                 rel: f.rel,
                 version: f.version,
@@ -1086,11 +1081,15 @@ fn build_tree_and_objects(
 /// A parse failure is a LOAD ERROR naming the file — this used to swallow
 /// bad YAML into an empty schema, and an unquoted `title: A: B` shipped a
 /// silently titleless page. Loud beats lenient (§4's constraint ethos).
-fn read_page_schema(path: &Path) -> Result<crate::store::FrontMatter> {
+fn read_page_schema(path: &Path) -> Result<(crate::store::FrontMatter, usize)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let (yaml, _) = store::split_front_matter(&text);
-    serde_yaml_ng::from_str(yaml).with_context(|| format!("front matter of {}", path.display()))
+    let (yaml, body) = store::split_front_matter(&text);
+    let fm = serde_yaml_ng::from_str(yaml)
+        .with_context(|| format!("front matter of {}", path.display()))?;
+    // `body_bytes` from the same read, so the field means the same thing on
+    // every row. It was posts-only (0 on a page) before the merge.
+    Ok((fm, body.len()))
 }
 
 // ------------------------------------------------------------------ views

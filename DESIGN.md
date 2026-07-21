@@ -5260,11 +5260,25 @@ never reused.
     `by_logical` maps merge (safe now that `rel` and `logical` are
     root-relative on both), and `ViewRows.table` stops meaning anything.
 
-    **The loader asymmetry survives all of it and should.** Posts hold their
-    body in memory; pages are re-read at render time (§2). Twelve of the
-    remaining branches ask only that question. It is a real decision about
-    ~800 files of memory, it has nothing to do with row identity, and it is
-    honest to leave standing.
+    **The loader asymmetry is gone too** (Matt: *"let's just re-read all
+    files for now"*). No row holds a body. The posts loader kept one in
+    memory and the tree loader did not, which made twelve of the remaining
+    branches ask "where does this row's HTML live" rather than anything
+    about the row. `store::read_body` is now the single answer and every
+    consumer calls it — the render pass, embeddings, thumb sources, the diff
+    harness.
+
+    **It costs nothing measurable.** Warm release builds of the main corpus
+    ran 0.42–0.46s after and 0.54–0.56s before, which is to say the two
+    overlap and the difference is machine noise: ~800 small files sit in the
+    page cache and the build is render-bound, not I/O-bound. The memory the
+    bodies occupied is simply not occupied. Should a corpus ever grow to
+    where re-reading hurts, the fix is a body cache keyed on path — an
+    optimisation with one owner, rather than a difference between row types.
+
+    `body_bytes` came out of it meaning one thing: the tree loader computes
+    it from the same read it already does for front matter, where it used to
+    be posts-only and 0 on a page.
 
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.

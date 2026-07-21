@@ -82,6 +82,17 @@ pub struct RawRow {
     pub body: String,
 }
 
+/// The body of a source file, read from disk. No row holds its body: the
+/// posts loader used to keep one in memory while the tree loader did not,
+/// and that asymmetry outlived the row-type merge (q51) for no reason
+/// except that it was already there. Reading is a few ms over ~800 files
+/// and costs nothing to reason about.
+pub fn read_body(path: &Path) -> Result<String> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(split_front_matter(&text).1.to_string())
+}
+
 /// Split `---\nyaml\n---\nbody`. Returns (yaml, body).
 /// A file with no front matter is all body. The one front-matter fence
 /// parser: page schema reads and the SCSS/template splits all come here.

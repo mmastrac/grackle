@@ -1105,7 +1105,7 @@ fn thumbs_pass(
 ) -> Result<HashMap<String, crate::thumbs::Thumb>> {
     let mut img_sources: Vec<String> = Vec::new();
     for p in db.posts() {
-        img_sources.extend(tags::image_sources(&p.body));
+        img_sources.extend(tags::image_sources(&crate::store::read_body(&p.path)?));
     }
     // Image-typed schema fields (§5b) — covers and the like — thumbnail
     // too: they are what heroes and cards render (q23).
@@ -1169,7 +1169,8 @@ fn render_bodies<'a>(
                 widgets: Some(&cfg.widgets),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
-            let expanded = tags::expand(&p.body, &cx)?;
+            let body = crate::store::read_body(&p.path)?;
+            let expanded = tags::expand(&body, &cx)?;
             // §6a row/view links: destinations resolve against the
             // database, relative to this post's source directory.
             let dir = p

@@ -34,12 +34,12 @@ pub fn cache_key(p: &crate::db::Row) -> String {
 }
 
 /// The text a post embeds as. Title and tags are signal, not metadata.
-pub fn text_of(p: &crate::db::Row) -> String {
+pub fn text_of(p: &crate::db::Row, body: &str) -> String {
     format!(
         "title: {}\ntags: {}\nbody: {}",
         p.title.as_deref().unwrap_or_default(),
         p.tags.join(", "),
-        p.body.trim()
+        body.trim()
     )
 }
 
@@ -67,7 +67,7 @@ pub fn load(db: &SiteDb, cache_dir: &Path) -> Result<Loaded> {
     let mut pending = Vec::new();
 
     for p in db.posts() {
-        let text = text_of(p);
+        let text = text_of(p, &crate::store::read_body(&p.path)?);
         if text.trim().is_empty() {
             vectors.push(None);
             continue;
@@ -260,10 +260,9 @@ mod tests {
         let p = Row {
             title: Some("T".into()),
             tags: vec!["a".into(), "b".into()],
-            body: "hello".into(),
             ..Row::default()
         };
-        assert_eq!(text_of(&p), "title: T\ntags: a, b\nbody: hello");
+        assert_eq!(text_of(&p, "hello"), "title: T\ntags: a, b\nbody: hello");
     }
 
     #[test]
@@ -350,14 +349,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        // A post whose OLD text was embedded and indexed…
+        // A post whose OLD text was embedded and indexed. The body lives on
+        // disk — no row holds one — so the fixture writes a real file.
+        let src = dir.join("a.md");
+        std::fs::write(&src, "---\ntitle: x\n---\nbody").unwrap();
         let mut p = Row {
+            path: src.clone(),
             rel: std::path::PathBuf::from("_posts/2020/a.md"),
             title: Some("old title".into()),
-            body: "body".into(),
             ..Row::default()
         };
-        let old_hash = blake3::hash(text_of(&p).as_bytes()).to_hex().to_string();
+        let old_hash = blake3::hash(text_of(&p, "body").as_bytes())
+            .to_hex()
+            .to_string();
         let v: Vec<f32> = (0..DIM).map(|i| i as f32).collect();
         write_vec(&vec_path(&dir, &old_hash), &v).unwrap();
         write_index(&dir, &HashMap::from([(cache_key(&p), old_hash)])).unwrap();
