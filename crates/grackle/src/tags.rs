@@ -32,9 +32,11 @@ pub struct Ctx<'a> {
     /// Where `{% include %}` resolves names. None disables the tag.
     pub includes: Option<PathBuf>,
     pub site: Option<&'a Site<'a>>,
-    /// `{% image %}` source path -> the thumbnail's published URL (§6b). When
-    /// absent, `{% image %}` falls back to linking the original at full size.
-    pub thumbs: Option<&'a HashMap<String, String>>,
+    /// `{% image %}` source path -> its generated thumbnail (§6b): the
+    /// published URL, and the dimensions that let the tag emit `width`/
+    /// `height` so a body image reserves its space (q26). When absent,
+    /// `{% image %}` falls back to linking the original at full size.
+    pub thumbs: Option<&'a HashMap<String, crate::thumbs::Thumb>>,
     /// The theme, for embedded views ({% view %}) that render through
     /// fragments. None disables embedding.
     pub theme: Option<&'a crate::theme::Theme>,
@@ -116,12 +118,20 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
     if src.is_empty() {
         bail!("{}: {{% image %}} with no source", cx.source);
     }
-    let img_src = match cx.thumbs.and_then(|t| t.get(src)) {
-        Some(url) => url.clone(),
+    let thumb = cx.thumbs.and_then(|t| t.get(src));
+    let img_src = match thumb {
+        Some(t) => t.url.clone(),
         None => format!("{}/{}", cx.baseurl, src),
     };
+    // q26: dimensions on the element that ships, so the browser reserves the
+    // box before the bytes land. Emitted only when the thumb pass measured
+    // them — an unmeasured image gets no attributes rather than guessed ones.
+    let dims = match thumb.and_then(|t| t.dims) {
+        Some((w, h)) => format!(" width='{w}' height='{h}'"),
+        None => String::new(),
+    };
     Ok(format!(
-        "<a class='image {mode}' href='{b}/{src}'><img src='{img_src}' alt=''></a>",
+        "<a class='image {mode}' href='{b}/{src}'><img src='{img_src}' alt=''{dims}></a>",
         b = cx.baseurl,
     ))
 }
@@ -181,15 +191,14 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
             let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
                 return Ok(String::new());
             };
-            let src = p
-                .hero_source()
-                .and_then(|s| cx.thumbs.and_then(|t| t.get(s)))
-                .cloned();
+            let thumb = p.hero_source().and_then(|s| cx.thumbs.and_then(|t| t.get(s)));
             let c = crate::parts::CardRow {
                 title: p.title.clone().unwrap_or_default(),
                 url: p.url.clone(),
-                src,
-                dims: None,
+                src: thumb.map(|t| t.url.clone()),
+                // q26: the embedded card carries its dimensions too. This
+                // read `None` while holding a thumb that had them.
+                dims: thumb.and_then(|t| t.dims),
                 note: p.description.clone(),
             };
             Ok(theme
@@ -389,7 +398,7 @@ mod tests {
     fn image_uses_thumbnail_url_when_present() {
         let db = SiteDb::default();
         let mut map = HashMap::new();
-        map.insert("a/b.png".to_string(), "/static/deadbeef.jpg".to_string());
+        map.insert("a/b.png".to_string(), thumb("/static/deadbeef.jpg", Some((640, 480))));
         let c = Ctx {
             thumbs: Some(&map),
             ..Ctx::new(&db, "", "t")
@@ -398,6 +407,33 @@ mod tests {
         // Thumbnail in the <img>, full-size original still in the <a href>.
         assert!(out.contains("<img src='/static/deadbeef.jpg'"), "{out}");
         assert!(out.contains("href='/a/b.png'"), "{out}");
+        // q26: measured dimensions ride the element that ships.
+        assert!(out.contains("width='640' height='480'"), "{out}");
+    }
+
+    /// A `Thumb` standing in for the thumb pass's output.
+    fn thumb(url: &str, dims: Option<(u32, u32)>) -> crate::thumbs::Thumb {
+        crate::thumbs::Thumb {
+            cache_path: std::path::PathBuf::new(),
+            url: url.to_string(),
+            rel: String::new(),
+            dims,
+        }
+    }
+
+    #[test]
+    fn image_omits_dimensions_when_the_thumb_pass_could_not_measure() {
+        let db = SiteDb::default();
+        let mut map = HashMap::new();
+        map.insert("a/b.png".to_string(), thumb("/static/deadbeef.jpg", None));
+        let c = Ctx {
+            thumbs: Some(&map),
+            ..Ctx::new(&db, "", "t")
+        };
+        let out = expand("{% image a/b.png %}", &c).unwrap();
+        // Unmeasured means no attributes, never guessed ones.
+        assert!(!out.contains("width="), "{out}");
+        assert!(!out.contains("height="), "{out}");
     }
 
     #[test]

@@ -296,13 +296,23 @@ fn expand_urls(html: &str, url: &str) -> String {
 /// selects `a.floatright > img`; `{% image right %}` is the only thing that
 /// emits that shape (see tags::image), so a targeted rewrite matches it.
 fn feed_images(html: &str) -> String {
+    // q26 puts width/height on every body image. The feed wants its own fixed
+    // width for floats, and two `width` attributes is invalid markup in which
+    // the FIRST one wins — so the page's 640 would silently beat the feed's
+    // 200. Strip ours from the matched tag before injecting the feed's.
+    let dims = regex::Regex::new(r#"\s*(?:width|height)='[^']*'"#).unwrap();
     let inject = |html: String, class: &str, align: &str| -> String {
-        let re =
-            regex::Regex::new(&format!(r#"(<a class='image {class}'[^>]*><img [^>]*?)>"#)).unwrap();
-        re.replace_all(
-            &html,
-            format!(r#"$1 align="{align}" width="200">"#).as_str(),
-        )
+        let re = regex::Regex::new(&format!(
+            r#"(<a class='image {class}'[^>]*><img )([^>]*?)>"#
+        ))
+        .unwrap();
+        re.replace_all(&html, |c: &regex::Captures| {
+            format!(
+                r#"{}{} align="{align}" width="200">"#,
+                &c[1],
+                dims.replace_all(&c[2], "").trim_end()
+            )
+        })
         .into_owned()
     };
     let s = inject(html.to_string(), "floatright", "right");

@@ -156,10 +156,6 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let theme_dir = root.join("themes/default");
 
     let thumbs = thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
-    let thumb_urls: HashMap<String, String> = thumbs
-        .iter()
-        .map(|(k, t)| (k.clone(), t.url.clone()))
-        .collect();
 
     // ---- themes: every directory under themes/, loaded once (§5e). All
     // theme errors — malformed fragment, unknown slot, arity violation —
@@ -170,8 +166,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
     // §6a row/view links: the resolution space, once per build.
     let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
-    let bodies = render_bodies(cfg, db, &thumb_urls, &linkspace)?;
-    let page_bodies = render_page_bodies(cfg, db, &site, thm, &thumb_urls, &linkspace)?;
+    let bodies = render_bodies(cfg, db, &thumbs, &linkspace)?;
+    let page_bodies = render_page_bodies(cfg, db, &site, thm, &thumbs, &linkspace)?;
 
     // ---- the link graph (q38): scan every rendered body once — posts and
     // pages alike — and invert. Backlinks are one more relations axis; the
@@ -638,7 +634,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let cx = tags::Ctx {
             includes: Some(cfg.root().join("_includes")),
             site: Some(&site),
-            thumbs: Some(&thumb_urls),
+            thumbs: Some(&thumbs),
             theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
             embed: Some((view.as_str(), SENTINEL)),
@@ -1154,7 +1150,7 @@ fn thumbs_pass(
 fn render_bodies<'a>(
     cfg: &Config,
     db: &'a SiteDb,
-    thumb_urls: &HashMap<String, String>,
+    thumbs: &HashMap<String, crate::thumbs::Thumb>,
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<&'a str, Doc>> {
     let root = cfg.root();
@@ -1166,7 +1162,7 @@ fn render_bodies<'a>(
         .filter_map(|k| db.rows.get(k))
         .map(|p| -> Result<(&str, Doc)> {
             let cx = tags::Ctx {
-                thumbs: Some(thumb_urls),
+                thumbs: Some(thumbs),
                 widgets: Some(&cfg.widgets),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
@@ -1212,7 +1208,7 @@ fn render_page_bodies(
     db: &SiteDb,
     site: &Site,
     thm: &theme::Theme,
-    thumb_urls: &HashMap<String, String>,
+    thumbs: &HashMap<String, crate::thumbs::Thumb>,
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<String, PageBody>> {
     let mut out = HashMap::new();
@@ -1234,7 +1230,7 @@ fn render_page_bodies(
         let cx = tags::Ctx {
             includes: Some(cfg.root().join("_includes")),
             site: Some(site),
-            thumbs: Some(thumb_urls),
+            thumbs: Some(thumbs),
             theme: Some(thm),
             widgets: Some(&cfg.widgets),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
