@@ -576,31 +576,23 @@ flags were added, is no longer.
 
 ### The sitemap leak, and why route-level flags exist
 
-Worth keeping because it is why the flags live on routes at all. Probed
-by adding two posts dated newer than anything real — one draft, one
-hidden — the flagged rows landed **in the sitemap** (573 → 575) even
-though `published`, `latest` and `/blog/` correctly excluded them. A
-section titled "add no public URLs" was emitting the most public URL
-there is.
+Worth keeping because it is why the flags live on routes at all. Probed by
+adding two posts dated newer than anything real — one draft, one hidden — the
+flagged rows landed **in the sitemap** (573 → 575) even though `published`,
+`latest` and `/blog/` correctly excluded them. A section titled "add no public
+URLs" was emitting the most public URL there is.
 
-This was **grackle's divergence, not Jekyll's**: `publish.sh` builds
-drafts as a *separate site*, so Jekyll's main sitemap never saw them.
-Routing drafts into the main build created the exposure. The fix was the
-route-level flag plus the sitemap's own filter, and it re-probed clean at
-573 with both probes present. Given this project began with *"I'm having
-trouble with Google crawling this site"*, it was precisely the wrong
-failure mode to ship.
+This was **grackle's divergence, not Jekyll's**: `publish.sh` builds drafts as
+a *separate site*, so Jekyll's main sitemap never saw them. Routing drafts into
+the main build created the exposure. The fix was the route-level flag plus the
+sitemap's own filter, and it re-probed clean at 573 with both probes present.
+Given this project began with *"I'm having trouble with Google crawling this
+site"*, it was precisely the wrong failure mode to ship.
 
-Profiles (above) are the general answer the probe pointed at, and they
-arrived on 2026-07-19 — though not in the shape sketched here first. The
-original sketch proposed profile-scoped `include = "!draft && !hidden"`
-and profile-scoped view *lists*; what shipped is narrower and, I think,
-better: a profile overrides an existing query's `where`, so selection
-stays the view's job and a profile invents no queries of its own. The
-sketch's `[routes.hidden_index]` — a `/hidden/` listing that exists only
-in the drafts profile — is not built and is not currently wanted; `_hidden/`
-is not even loaded.
-
+Profiles are the general answer the probe pointed at, and what shipped is
+narrower than the original sketch and better: a profile overrides an existing
+query's `where`, so selection stays the view's job and a profile invents no
+queries of its own.
 
 ## 4b. Marker files: defaults declared by the tree
 
@@ -869,80 +861,72 @@ the catch-all's `layout` default to every row).
 
 ### Audited against `/code` and `/writing` (and the mindstorms gallery)
 
-Walking the two big tree sections against this model, plus the assumption
-that `demos/mindstorms` becomes a gallery view, mostly confirms the shape —
+Walking the two big tree sections against this model mostly confirms the shape:
 `code/graphics/raytracer/` is already a page bundle (index.md + sibling
-screenshots + a zip + a sub-page), exactly §6a's measured case, and the
-oddballs (front-matter-less `README.md`s, 1996-era `enel555.html`, the
-extensionless `nnet` binary, download tarballs) all land correctly under
-existing passthrough rules. Two things are worth stating, and three are
-missing.
+screenshots + a zip + a sub-page), exactly §6a's measured case, and the oddballs
+(front-matter-less `README.md`s, 1996-era `enel555.html`, the extensionless
+`nnet` binary, download tarballs) all land correctly under existing passthrough
+rules. Two things are worth stating.
 
-**Curated indexes are content, not views.** `code/index.md` is a
-hand-authored, hand-ordered project list with `{% post_url %}` foreign keys
-reaching across tables into posts. It must *stay* authored — a content-first
-system keeps "a human chose this list" distinct from "a query derived it",
-and the model already does: it is a `document`, and the FK lookup is already
-vocabulary (§5d).
+**Curated indexes are content, not views.** `code/index.md` is a hand-authored,
+hand-ordered project list with foreign keys reaching across tables into posts.
+It must *stay* authored — a content-first system keeps "a human chose this
+list" distinct from "a query derived it", and the model already does: it is a
+`document`.
 
-**The gallery is a restructure the tree already knows how to express.**
-Today mindstorms is 451 zero-padded JPGs flat in one directory, with 17
-hand-written HTML pages encoding disjoint ranges (`alpharex_2.html` owns
-0074–0124) — the grouping exists *only* in the HTML. Positionally
-restructured, the tree encodes it (`demos/mindstorms/alpharex/part-2/…`),
-and the view wants to be:
+**The gallery is a restructure the tree already knows how to express.** Today
+mindstorms is 451 zero-padded JPGs flat in one directory, with 17 hand-written
+HTML pages encoding disjoint ranges (`alpharex_2.html` owns 0074–0124) — the
+grouping exists *only* in the HTML. Positionally restructured, the tree encodes
+it (`demos/mindstorms/alpharex/part-2/…`) and the view is ordinary config:
 
 ```toml
 [routes.mindstorms]
 from     = "objects"
-match    = "demos/mindstorms/**"     # gap 2
+match    = "demos/mindstorms/**"
 group_by = "dir"
-order_by = "name"                    # gap 3
-variant  = "gallery"                 # §5e variants (q24, settled)
+variant  = "gallery"
 path     = "/demos/mindstorms/{key}/"
 ```
 
-The three gaps, in order of generality — **all three built (2026-07)**
-against the example site's gallery (§7a), which also killed the phase-1
-gate: views now dispatch on the base collection's *kind*, never its name:
+The three gaps this audit found are **all built** (2026-07), forced by the
+example site's gallery (§7a), which also killed the phase-1 gate — views now
+dispatch on the base collection's *kind*, never its name:
 
-1. **Objects have no schema.** ✅ `object_schema()`:
-   `path`/`dir`/`name`/`stem`/`ext`/`url` (str) + `size` (int), so
-   `over = "objects"` filters type-check with the usual errors. Dimensions
-   stayed out of the *filter* schema on purpose — they are render-time
-   facts from the thumbnail pass (q26, also built: galleries emit
-   `width`/`height` on every `<img>`), not load-time columns.
-2. **View scoping needs `match`, not a bigger filter language.** ✅ A
-   `match` glob on views, reusing rule globs; the filter language stays
+1. **Objects have no schema** → `object_schema()`:
+   `path`/`dir`/`name`/`stem`/`ext`/`url` + `size`, so `from = "objects"`
+   filters type-check with the usual errors. Dimensions stayed out of the
+   *filter* schema on purpose — they are render-time facts from the thumbnail
+   pass, not load-time columns.
+2. **View scoping needs `match`, not a bigger filter language** → a `match`
+   glob on views, reusing rule globs; the filter language stays
    typed-fields-only.
-3. **`order_by` does not exist.** ✅ Built. It was *required* for object
-   views at first, and had to be `"name"` — declared rather than
-   defaulted, on the grounds that the corpus's zero-padding making
-   lexical order correct is luck.
+3. **`order_by` does not exist** → built, then **half-retired 2026-07-21**: an
+   object is a `Row` now, so it has a path; paths order, and that is a contract
+   rather than the luck of the corpus's zero-padding. An object view takes the
+   same ordering rule as every other view.
 
-   **Both halves retired 2026-07-21.** An object is a `Row` now, so it
-   has a path; paths order, and that is a contract rather than luck. An
-   object view takes the same rule as every other — `path` unless the
-   view names a column, `path` as the final tiebreak — against the
-   narrower `object_schema` vocabulary, so it still cannot sort on a
-   column only a content row has.
-
-Still open for the mindstorms case specifically: `group_by` over object
-paths (one gallery route per directory) and the group `hero` (q23) —
-the example's flat gallery didn't force them.
-
-Two consequences ride along: group part maps need a **hero** (the existing
-`alpharex_1.jpg` cover images argue "designated cover file beats first item"
-— open question 23), and the restructure breaks URL parity for pages that
-are, today, accidentally indexable (open question 28). Doing nothing also
-works: with no front matter, the current pages are pure passthrough, so the
-gallery is an opt-in restructure, one robot at a time. The
-`page-break-inside: avoid` on every step page (these are building
-instructions meant for printing) becomes a `@media print` block in theme
-CSS, and the repeated inline `<style>` becomes the first real second use
-case for §5b's `.style.scss` overlays.
+Still open for mindstorms specifically: `group_by` over object paths (one
+gallery route per directory), the group `hero` (q23), and the URL-parity
+question the restructure raises (q28) — the 17 range pages are in the sitemap
+today, indexable by accident. Doing nothing also works: with no front matter
+the current pages are pure passthrough, so the gallery is an opt-in
+restructure, one robot at a time. The `page-break-inside: avoid` on every step
+page (these are building instructions meant for printing) becomes a
+`@media print` block in theme CSS, and the repeated inline `<style>` becomes
+the first real second use case for §5b's `.style.scss` overlays.
 
 ## 5a. Presentation, from first principles
+
+> Superseded in the build by §5e, which carries the model as shipped. What
+> stays here is the layer cut §5e rests on, and the diagnosis that produced it:
+> **six Jekyll layouts and six includes implemented about three concepts**, and
+> the conflation was measurable — three listings with three hand-written
+> queries whose filters *disagreed* (`monthly_archive` excluded hidden+draft,
+> `tag_index` and `blog/index` only draft), two document layouts carrying two
+> drifted breadcrumb implementations, and a shell branching on `multipost`,
+> `hide_sidebar`, `paginator`, `page.date` and `noindex` because `{{ content }}`
+> bubbled *upward* and forced the outermost template to know every inner case.
 
 Four layers, each changing for its own reason and at its own rate:
 
@@ -953,226 +937,103 @@ Four layers, each changing for its own reason and at its own rate:
 | **Physical layout** | arranging rows + fields into `main` | the information architecture changes |
 | **Visual theme** | the shell around `main` — chrome, `<head>`, CSS | the design changes |
 
-A theme is **shell + CSS**, not CSS alone — the same thing Hugo and Jekyll
-mean by it. `light` is the proof that this is the right cut: it differs from
-`default` by having no nav, no footer *and* no stylesheet. Those aren't two
-layers, they're one package.
-
-Jekyll has no schema layer, and conflates the other three. This is not
-theoretical — the conflation is measurable in this site.
-
-### The diagnosis
-
-**Six layouts and six includes implement about three concepts.**
-
-*Three listings, three hand-written queries, three filters — and the filters
-disagree* (evidence above): `monthly_archive` excludes `hidden or draft`,
-while `tag_index` and `blog/index` exclude only `draft`. So hidden posts leak
-into tag pages and the blog index but not archives. The query is *already*
-declared once in config (§5, `[sets]`/`[routes]`) — the templates are re-deriving what
-the database knows.
-
-*Two document layouts*: `post.html` (article + temporal neighbours) and
-`page.html` (breadcrumbs + article). Same shape — one row, full content —
-differing only in which **relations** they show. And they carry **two
-different breadcrumb implementations** (`page.html` emits
-`<div class="breadcrumbs">`, `post-breadcrumbs.html` emits
-`<nav class="breadcrumbs"><span class="breadcrumbs__part">`) that have drifted
-apart.
-
-*The shell knows about everything.* `default.html` branches on `multipost`,
-`hide_sidebar`, `paginator`, `page.date` and `noindex`. That is the wrapping
-model's fault, not the author's: when `{{ content }}` bubbles **upward**
-through a layout chain, the outermost template ends up needing to know every
-inner case.
+Jekyll has no schema layer, and conflates the other three.
 
 ### Layout kinds: there are three
 
 Not "what this site has" — what a site of this shape *needs*:
 
-| Kind | Input | Instances today |
+| Kind | Input | What it was in Jekyll |
 |---|---|---|
 | **document** | one row, full content + relations | `post.html`, `page.html` |
 | **listing** | N rows, summarised | `tag_index`, `monthly_archive`, `blog/index` |
 | **feed** | N rows, serialised | `atom.xml`, `sitemap.xml` |
 | **raw** | one row, content *is* `main` | the 6 pages using `layout: default` |
 
-`raw` is not a wart: `index.html` builds its own `<article class="page">` with
-its own `<h1>` and a `blocks-50` grid. It wants the shell and nothing else.
-That is a legitimate kind, and naming it stops it from being "the layout that
-means no layout".
+`raw` is not a wart: `index.html` builds its own `<article>` with its own `<h1>`
+and a grid. It wants the shell and nothing else. Naming it stops it from being
+"the layout that means no layout".
 
-A **view** (§5) already supplies the query, the filter and the key. A layout
-kind supplies the arrangement. `tag_index` and `monthly_archive` and
-`blog_index` are then *the same layout* with different views — and their filter
-disagreement cannot recur, because there is one filter, in one place, already
-type-checked (§5).
+A **view** (§5) supplies the query, the filter and the key; a layout kind
+supplies the arrangement. `tag_index`, `monthly_archive` and `blog_index` are
+then *the same layout* with different views — and their filter disagreement
+cannot recur, because there is one filter, in one place, type-checked.
 
 `document` unifies `post`/`page` because the difference is **schema-driven, not
 layout-driven**: a row with a `date` has temporal neighbours; a row in a tree
 has ancestors. The layout asks the schema what relations exist; it does not
 branch on "am I a post".
 
-### Regions, not chains
+### `<head>` is computed, then selected
 
-Content stops bubbling upward. The **theme** owns a shell that declares
-regions; a layout kind fills `main`:
+The schema yields typed **head facts** — `title`, `description`, `canonical`,
+`robots`, `og`, `jsonld` — and each tier renders the subset it wants. A row
+with a `date` yields `og:type=article` + `BlogPosting`; one without yields
+`website`. That's a *fact about the row*, not a branch in a template, and it
+deletes all five of the old shell's if-chains. (§5g settles who owns the head:
+the engine, never a theme — which is what makes the row tiers a real
+distinction rather than a spelling.)
 
-```
-theme (shell + css)
-├── head     <- renders a subset of the computed head facts
-├── header   <- site nav          (default: yes · light: no)
-├── main     <- whatever the layout kind produced
-└── footer   <- site chrome       (default: yes · light: no)
-```
+### Theme is per row; layout kind is inferred
 
-The shell never asks `{% if page.multipost %}` because it never needs to know.
-That question only existed because `{{ content }}` bubbled *upward* and forced
-the outermost template to know every inner case.
+**Theme is chosen per row** (unusual, but it is what this site does): `theme:`
+in front matter or a rule default (§5b), rather than a site-wide setting.
 
-**`<head>` is computed, then selected.** The schema yields typed **head facts**
-— `title`, `description`, `canonical`, `robots`, `og`, `jsonld` — and each
-theme renders the subset it wants:
-
-| | default | light |
-|---|---|---|
-| title | ✓ | ✓ |
-| robots (`noindex`) | ✓ | ✓ |
-| description, canonical, og, JSON-LD, favicons, analytics, CSS | ✓ | — |
-
-A row with a `date` yields `og:type=article` + `BlogPosting`; one without
-yields `website`. That's a *fact about the row*, not a branch in a template —
-and it deletes all five of `default.html`'s if-chains. Note `light` already
-branches on `noindex` today, so it needs the same facts, just fewer of them:
-evidence that "compute facts, let the theme select" is the right shape rather
-than a convenience.
-
-### Two themes, because one is unfalsifiable
-
-`default` (full chrome) and `light` (bare — used by exactly two legacy pages,
-`demos/mindstorms/` and `writing/linuxwp/doc/`).
-
-`light` is kept **deliberately, as the falsifier**. A layer boundary with a
-single implementation is untestable: any leak from layout into theme goes
-unnoticed because there is nothing to leak *against*. Two themes make the seam
-load-bearing — every `document`, `listing` and `feed` must render under both,
-so anything theme-specific that creeps into a layout kind fails immediately
-and visibly. The two legacy pages that need bare chrome are the test suite.
-
-**Theme is chosen per row** (unusual, but it is what this site does): `theme:
-light` in front matter, defaulting to `default`. A layout hint in the §5a
-taxonomy — schema read by the presentation layer.
-
-**Layout kind is inferred, not declared.** It follows from what a row *is*:
-a post or page → `document`; a view with `group_by`/`paginate` → `listing`; a
-feed/sitemap view → `feed`; a row that opts out → `raw`. So today's `layout:`
-front matter (37 `page`, 8 `post`, 6 `default`, 2 `light`) collapses into
-"which theme" plus "did you opt out of the document wrapper" — and `page` vs
-`post`, the most common distinction on the site, stops being a choice at all,
-because the schema already knows which relations a row has.
+**Layout kind follows from what a row *is***: a post or page → `document`; a
+view with `group_by`/`paginate` → `listing`; a feed/sitemap view → `feed`; a
+row that opts out → `raw`. So Jekyll's `layout:` front matter (37 `page`, 8
+`post`, 6 `default`, 2 `light`) collapses into "which theme" plus "did you opt
+out of the document wrapper" — and `page` vs `post`, the most common
+distinction on the site, stops being a choice at all. (The residue of that word
+on both rows and views is q33.)
 
 ### Schema drives rendering, not just display
 
-Per-collection fields fall into three kinds, and the distinction *is* the
-layer boundary:
+Per-collection fields fall into three kinds, and the distinction *is* the layer
+boundary:
 
 | Kind | Read by | Example |
 |---|---|---|
 | **content field** | layout | `title`, `date`, `tags` |
-| **render directive** | the renderer | `toc: true`, `math: true`, `style:` (§6c) |
-| **layout hint** | the layout | `hide_sidebar`, `wide` |
+| **render directive** | the renderer | `toc: true`, `style:` (§6c) |
+| **layout hint** | the layout | `wide` |
 
-```toml
-[collections.posts.schema]   # sketch, not built: §5b's .schema.toml won
-title = { type = "string", required = true }
-date  = { type = "date",   required = true }
-tags  = { type = "list" }
-toc   = { type = "bool", default = false }   # a render directive
-```
+One declaration then drives filters, `<head>` generation, layout requirements
+and validation — so "layout `document` requires `date`, but collection `pages`
+has no `date` field" becomes a load-time error like every other constraint
+(§4). §5b's `.schema.toml` is where that declaration ended up living.
 
-**This unifies with something already built.** `post_schema()` exists today for
-filter type-checking (§5). Making it *the* schema means one declaration drives
-filters, `<head>` generation, layout requirements, and validation — and a
-layout can declare what it needs, so "layout `document` requires `date`, but
-collection `pages` has no `date` field" becomes a load-time error like every
-other constraint (§4).
+### The renderer emits hooks, and that is not a layering violation
 
-### The theme boundary
+`{% image right foo.png %}` is the author saying "this floats right". The
+renderer emits `class="image image--right"`; the theme decides what that means.
+The rule is that a class is a **contract**, never a CSS implementation detail.
 
-A theme supplies the shell and the CSS; it consumes **stable semantic hooks**
-emitted by the layout kinds. The existing BEM-ish naming
-(`post-full__margin`, `multipost-listing__below-title`) is already a decent
-contract; the layouts just need to treat those names as an interface rather
-than an accident.
+### What this cost: chrome parity
 
-The boundary has a crisp test, and `light` is how we run it: **a layout kind
-may never name a theme, and a theme may never know which layout kind filled
-`main`.** `light` ships no CSS at all, so any layout kind that depends on
-styling to be coherent is caught the moment it renders bare.
-
-The renderer emits hooks too, and that is *not* a layering violation: `{% image
-right foo.png %}` is the author saying "this floats right". The renderer emits
-`class="image image--right"`; the theme decides what that means. The rule is
-that a class is a **contract**, never a CSS implementation detail.
-
-### What this costs: chrome parity
-
-Redesigning layouts changes the chrome HTML, so `diff` cannot verify it.
-That is affordable, and the boundary is already where it needs to be:
-
-- **Body rendering stays at parity** — measured, 90.7% (§8a). `diff` compares
-  *bodies only*; chrome was never in that measurement.
-- **URL parity is untouched** — routes are §4, independent of presentation.
-- **Chrome is small, ours, and eyeballable** — six templates, not 327 posts.
-
-So: bodies verified by machine, chrome verified by looking at it.
-
-```
-row (stage 3)
-  → liquid pass          (posts contain {% image %}, {% post_url %}, {{ site.baseurl }})
-  → markdown → HTML      (comrak; .html rows skip this)         = stage 4, cached
-  → layout chain         (post.html → default.html; layout front matter
-                          merged up-chain like Jekyll's place_in_layouts)
-  → bytes for URL
-```
-
-### Liquid surface to replicate
-
-Objects: `site.*` (posts, tags, time, config keys), `page.*`, `layout.*`
-(merged), `paginator.*`, `include.*`, `content`.
-Custom filters: `date` (chrono-backed, `%-d` support), `date_to_xmlschema`,
-`jsonify`, `cdata_escape`, `expand_urls`, `feed_images`, `visible`,
-`titlecase` (registered so templates parse; site doesn't enable it).
-Custom tags: `include` (Jekyll-style, unquoted + `key=value` params),
-`post_url` (a foreign-key lookup into the posts table; missing → error),
-`image` (below).
-
-### Derived assets
-
-`{% image [left|right|inline] ref %}` (194 uses / 68 posts) produces a
-**derived-asset row**. All derived artifacts — thumbnails, compiled CSS,
-embeddings — share one content-addressed cache; see §6b.
+Redesigning layouts changes the chrome HTML, so `diff` cannot verify it. That
+was affordable and the budget was spent once, on §5e: **bodies verified by
+machine** (327/327 post content regions byte-identical across the cut),
+**chrome verified by eye**. URL parity was untouched throughout — routes are
+§4, independent of presentation.
 
 ## 5b. Tree overlays: styles, slots and schema declared by position
 
-> ✅ **The schema leg is built** (2026-07, `schema.rs`, forced by §7a's
+> **Status.** The **schema leg is built** (`schema.rs`, forced by §7a's
 > recipes and books): `.schema.toml` declares typed fields
 > (string/int/bool/list/**image**) for its subtree, resolution accumulates
 > nearest-wins like markers, and a governed row's extra front matter is
-> *validated* — undeclared key or wrong type is a load error naming the
-> file and the knowns, exactly the payoff promised below. Image-typed
-> fields feed the thumb pass and the `hero` part (q23). Ungoverned rows
-> stay as tolerant as ever. The `.style.scss` and `.slots/`-overlay legs
-> remain as specced; per-row **themes** landed separately (a `theme:`
-> field cascading via rule defaults — §5a's "theme is chosen per row",
-> real at last, with a theme registry and per-theme stylesheets). Theme
-> specs take a colon suffix for **subselection** (Matt, 2026-07):
-> `theme: "recipes:spicy"` renders through `recipes` with the tokens
-> space-joined into a `subtheme` shell part; the shell places it as an
-> attribute hole on `<html>` (`data-slot-data-subtheme`) and CSS
-> subselects via `[data-subtheme~="spicy"]` — rule 3 handles absence,
-> the §5b data-scope token trick handles multiplicity, zero new engine
-> machinery.
+> *validated* — undeclared key or wrong type is a load error naming the file
+> and the knowns. Image-typed fields feed the thumb pass and the `hero` part.
+> Ungoverned rows stay as tolerant as ever. **Per-row themes are built**
+> (a `theme:` field cascading via rule defaults — §5a's "theme is chosen per
+> row", with a theme registry and per-theme stylesheets), including
+> **subselection**: `theme: "recipes:spicy"` renders through `recipes` with the
+> tokens space-joined into a `subtheme` shell part, and CSS subselects via
+> `[data-subtheme~="spicy"]` — zero new engine machinery. The **`.style.scss`
+> leg remains unbuilt**, and the `.slots/` leg was **absorbed by §5e**: a slot
+> fill needs no templating, because "an empty part deletes its element" *is*
+> the conditional it wanted.
 
 **This is the marker pattern (§4b) again**, which is the argument for it: the
 tree declares *where*, the config declares only the vocabulary. A directory
@@ -1246,40 +1107,6 @@ At which point **§6c's per-post `<style>` and this become the same feature**,
 with the bundle as the thing that unifies them. That is an argument for bundles
 that §6a did not have.
 
-### Slots: the layout declares, the tree fills
-
-Layout kinds (§5a) expose named slots — finer-grained regions:
-
-| `document` slot | default |
-|---|---|
-| `head_extra` | — |
-| `before_title` | — |
-| `after_title` | — |
-| `margin` | breadcrumbs + tags |
-| `after_content` | — |
-| `relations` | prev/next |
-
-```liquid
-{# code/.slots/after-title.html #}
-{% if page.github_link %}<a class="gh" href="{{ page.github_link }}">GitHub</a>{% endif %}
-```
-
-~~**This is where liquid finally earns its place.** The hand-rolled expander
-(`tags.rs`) covers `{% image %}`/`{% post_url %}` because those are the only
-constructs in *bodies*. A slot fragment needs conditionals — real templating.
-§9a already chose the `liquid` crate; this is the use case that justifies it,
-rather than page templates, of which exactly one survives (`/`).~~
-
-**Superseded (§5e, binder built):** the conditional a slot fill needs *is*
-rule 2 of the hole algebra — an empty part deletes its element. The example
-above becomes `<a class="gh" data-slot-href="github_link">GitHub</a>`, no
-templating anywhere: absent `github_link`, the attribute hole stays empty and
-the element styles as a placeholder link, or the fill wraps it in an element
-slotted on the field and the whole thing collapses. `.slots/` files are
-binder fragments (`.html`) or markdown (`.md`) — see §5e "Tree-filled slots".
-With this, **liquid's last claimed use case is gone**; §5d's retirement of
-the crate is now total.
-
 ### Schema per subtree, and the payoff
 
 `code/.schema.toml` adds fields for rows beneath it, accumulating down the tree
@@ -1323,21 +1150,6 @@ One rule: **shared → the shared file, unique → inline.**
    the mindstorms gallery (§5 audit) supplies the second: 17 pages repeating
    the same inline `<style>` is exactly a subtree `.style.scss`.
 
-### The incremental path
-
-With exactly one use case, a slot system is more machinery than the problem
-needs. The honest ordering:
-
-1. **`github_link` alone** → add it to the pages schema; `document` renders it
-   when present. No slots, no overlays. ~10 lines.
-2. **Scoped `.style.scss`** → the smallest overlay, and the one with no
-   alternative: a section-wide look cannot live in front matter.
-3. **Slots + per-subtree schema** → when a *second* subtree wants something
-   *different*. That is when generality pays; before then it is a framework for
-   one field.
-
-Design it all now; build (1) and (2); let the third use case justify (3).
-
 ## 5c. A view is a query; a route is where it lands
 
 §5 declared views as generators: each one had a `path`, and routes were the
@@ -1364,21 +1176,13 @@ hand-written into a content file because Jekyll gave it nowhere else to live.
 
 The reason to name a set is not to save a line of TOML. Five hand-written
 `{% unless %}` clauses had drifted into three different answers to "what is a
-post list?":
-
-| view | template | excludes |
-|---|---|---|
-| blog_index | `blog/index.html` | draft |
-| feed | `atom.xml` | **hidden only — the feed shipped drafts** |
-| tag_index | `_layouts/tag_index.html` | draft |
-| monthly_archive | `_layouts/monthly_archive.html` | hidden, draft |
-| `/` | `index.html` | hidden, draft |
-
-Nobody decided this; it accreted. Transcribing it faithfully into `grackle.toml`
-also transcribed a bug: `monthly_archive` was written `!draft`, dropping the
-`!hidden` its template actually had, and no diff could catch it because there was
-nothing to catch it with. It is invisible today only because the corpus has 0
-drafts and 0 hidden posts — the flags are pure potential energy.
+post list?" — `blog_index` and `tag_index` excluded drafts, `monthly_archive`
+and `/` excluded hidden *and* drafts, and **the feed excluded only hidden, so
+it shipped drafts.** Nobody decided this; it accreted. Transcribing it
+faithfully into `grackle.toml` also transcribed a bug (`monthly_archive`
+written `!draft`, dropping the `!hidden` its template had), and no diff could
+catch it, because there was nothing to catch it with: the corpus has 0 drafts
+and 0 hidden posts, so the flags are pure potential energy.
 
 So: **one named set**, and everything composes over it.
 
@@ -1388,10 +1192,10 @@ from  = "posts"
 where = "!draft && !hidden"
 
 [routes.blog_index]  from = "published"  paginate = 5  paths = [...]
-[sets.latest]      from = "published"  limit = 3     layout = "link_list"
+[sets.latest]        from = "published"  limit = 3
 ```
 
-Fixing all five was provably free: build output stayed byte-identical, because
+Fixing all five was provably free — build output stayed byte-identical, because
 nothing is filtered today. It stops being free the first time a draft exists,
 which is the point.
 
@@ -1411,23 +1215,15 @@ inherited?", and every answer surprises someone. Compose over things with
 nothing to inherit. Cycles, unknown names, and composing over a materialized
 view are all load-time errors naming the view.
 
-### `self`, and the match it deletes
+### Members: the match this deleted
 
 Each route carries `members`: the rows it materializes, decided once by the
-declared query. Before it existed, `build.rs` re-derived them:
-
-```rust
-match view.as_str() {
-    "tag_index" => { ...!p.draft && !p.hidden && p.tags.contains(key)... }
-    "blog_index" => { let per = 5; ...!p.draft... }
-}
-```
-
-That is the config declaring `where`/`group_by`/`paginate` and the renderer
-ignoring all of it — including hardcoding `per = 5` beside a `paginate = 5` it
-never read. It is exactly how `blog_index` and its config could silently
-disagree. Now the renderer iterates `members` and matches only on the *layout
-kind* for titles: layout kinds are code, view names are the user's.
+declared query. Before it existed, `build.rs` re-derived them in a `match` on
+the view *name* — re-implementing `where`/`group_by`/`paginate` in Rust,
+including a hardcoded `per = 5` beside a `paginate = 5` it never read. That is
+exactly how `blog_index` and its config could silently disagree. The renderer
+now iterates `members` and matches only on the *layout kind*: layout kinds are
+code, view names are the user's.
 
 Routeless views have no route to hang `members` on, so their single row set
 lives in `db.views` — which also makes named queries introspectable via
@@ -1475,7 +1271,7 @@ an unimplemented construct must appear in the output, never evaluate to nothing.
 (`Unknown tag 'view'`), and `publish.sh` exits before its rsync. This is the
 first piece of the site that has actually cut over. The consequence worth
 remembering: **the reference build cannot be regenerated while this stands**, and
-§8b exists because a stale reference lied to us by 17 points. To refresh it,
+§8a exists because a stale reference lied to us by 17 points. To refresh it,
 stash the change first.
 
 ### Grouping is one operation *(generalized 2026-07)*
@@ -1570,67 +1366,46 @@ real thought rather than a rule chosen in passing.
 
 ### The split the section title always implied *(built 2026-07-19)*
 
-"A view is a query; a route is where it lands" was a sentence in this
-document and one `[views]` section in config, where the only way to tell
-the two apart was whether `route` happened to be present. It is now the
-shape: **`[sets]`** for a query that never lands, **`[routes]`** for one
-that does.
+"A view is a query; a route is where it lands" was a sentence in this document
+and one `[views]` section in config, where the only way to tell the two apart
+was whether `route` happened to be present. It is now the shape: **`[sets]`**
+for a query that never lands, **`[routes]`** for one that does.
 
-Measured across both sites' 23 queries before deciding: `path(s)`,
-`title`, `crumb`, `shell`, `template`, `content`, `intro`, `featured`,
-`paginate` and `group_by` NEVER appear without a route; `from`, `where`,
-`match`, `order_by`, `limit`, `layout` and `variant` appear in both. Ten
-keys are meaningless without a URL. `group_by` is the one worth saying
-out loud: grouping exists to produce one route per key, so a grouped
-query with nowhere to land has no meaning — a fact previously discoverable
-only by reading this section.
+Measured across both sites' 23 queries before deciding: `path(s)`, `title`,
+`crumb`, `shell`, `template`, `content`, `intro`, `featured`, `paginate` and
+`group_by` NEVER appear without a route; `from`, `where`, `match`, `order_by`,
+`limit`, `layout` and `variant` appear in both. Ten keys are meaningless
+without a URL. `group_by` is the one worth saying out loud: grouping exists to
+produce one route per key, so a grouped query with nowhere to land has no
+meaning.
 
-**One keyword, not two.** A draft had `under` for subdivision, to spare
-the reader the cross-reference of "what does `yearly_archive` refer to?".
-Dropped: `Config::query` already derives selection-from-subdivision from
-what the name refers to, and errors on every ambiguous case, so `under`
-would have restated a check that exists. `from` names a collection, a set
+**One keyword, not two.** A draft had `under` for subdivision; dropped, because
+`Config::query` already derives selection-from-subdivision from what the name
+refers to and errors on every ambiguous case. `from` names a collection, a set
 or a route, and what it names decides what it means.
 
-**One namespace, now enforced.** Which exposed a latent collision: the
+**One namespace, now enforced** — which exposed a latent collision: the
 resolver tried views *before* collections with no guard, so `[views.blog]`
 beside `[collections.blog]` silently shadowed the collection and made it
 unreachable by name. A name now lives in exactly one of the three.
 
 **Profiles split the same way**, and say more for it: relaxing
 `[profiles.drafts.sets.published]` patches a QUERY, relaxing
-`[profiles.drafts.routes.search]` patches a LANDING. §4a insists on that
-distinction and it previously had to be inferred.
-
-Internally this is a config-layer change only — both sections deserialize
-into the same `View`, so a set is a route with no path exactly as before.
-Both sites' output is byte-identical across the cut.
+`[profiles.drafts.routes.search]` patches a LANDING.
 
 ## 5d. Templating: there is almost none, so don't build for it
 
-The recurring question — a real template language, or §5b's slots, or
-hardcoded Rust layouts — is a false trichotomy. It dissolves once you count
-what the site's templates actually contain.
-
-### Every liquid construct in every template, classified
-
-~60 constructs across `_layouts/`, `_includes/`, `blog/index.html`, `atom.xml`
-and `index.html`:
-
-| looks like | count | what it **is** | where it belongs |
-|---|---|---|---|
-| `for post in site.posts` + `unless post.draft`, `if page.next`, `for related limit: 4` | **17** | a **query** | query config: `where`/`limit`/`group_by` (§5, §5c) |
-| `if page.date`, `if seo_description`, `if noindex`, `if multipost`, `if hide_sidebar`, `if summary`, `if is_page`, `if site.google_analytics` | **22** | a **schema fact** | a typed field (§5a: "a fact, not a branch") |
-| `assign post = page`, `assign content = post.content`, `capture margin_html`, `capture listing_title` | **12** | **argument passing** | a function call |
-| `for p in page.ancestors`, `for tag in post.tags`, `for page in (1..total_pages)` | **8** | real display iteration | **3 components** |
-
-**Only three constructs are genuinely "loop over a list and emit markup"** —
-breadcrumbs, tag pills, pagination nav. All three are already Rust functions in
-`render.rs`. The other ~57 are queries, schema facts, and Liquid plumbing
-wearing templating's clothes. `assign post = page` exists solely because
-`article.html` wants its variable called `post`; `capture margin_html` exists
-because Liquid has no parameters. Twelve constructs vanish the instant you have
-function arguments.
+The recurring question — a real template language, or §5b's slots, or hardcoded
+Rust layouts — is a false trichotomy. It dissolves once you count what the
+site's templates actually contain. Classifying ~60 liquid constructs across
+`_layouts/`, `_includes/`, `blog/index.html`, `atom.xml` and `index.html`:
+**17 were a query** (`for post in site.posts` + `unless post.draft`), **22 were
+a schema fact** (`if page.date`, `if noindex`, `if multipost`), **12 were
+argument passing** (`assign post = page` exists solely because `article.html`
+wants its variable called `post`; `capture margin_html` exists because Liquid
+has no parameters), and **8 were real display iteration** — of which only
+**three** are genuinely "loop over a list and emit markup": breadcrumbs, tag
+pills, pagination nav. All three are components.
 
 The site does not have templating. It has a database and four presentation
 layers, and Liquid was the only vocabulary available to say so.
@@ -1642,38 +1417,30 @@ layers, and Liquid was the only vocabulary available to say so.
 > different layout kind.
 
 This is a **tripwire**, not an aesthetic. Every `{% if %}` you want is a missing
-schema field; every `{% for %}` is an unnamed query. The table above is the
+schema field; every `{% for %}` is an unnamed query. The census is the
 evidence: it holds for ~57 of 60, and the 3 exceptions are components.
 
-It also preserves the discipline the rest of the design already has. `filter.rs`
-is a *typed* expression language with load-time checking and "did you mean"
+It also preserves the discipline the rest of the design has. `filter.rs` is a
+*typed* expression language with load-time checking and "did you mean"
 suggestions. A template language throws that away — untyped, runtime-resolved,
 `{{ post.titel }}` silently rendering nothing. The ethos here is load-time
 errors, not 404s; Liquid is the opposite by construction.
 
-`/` is the existence proof, and it was the hardest page on the site:
-
-```html
-<section class="block-50"><h1>Connect</h1>{% include social.html %}</section>
-<section class="block-50 latest-posts"><h1>Latest Posts</h1>{% view latest %}</section>
-```
-
-HTML, typed holes, **zero control flow** — matching the reference exactly. The
+`/` was the existence proof, and it was the hardest page on the site: HTML,
+typed holes, **zero control flow**, matching the reference exactly. Its
 nine-line counter loop became `where` + `limit`.
 
-### This retires the `liquid` crate
+**So `liquid` was retired by never being taken** — §9a had listed it as the
+biggest dependency risk. `tags.rs` is a targeted expander, not a liquid
+implementation, and the whole vocabulary it needs is:
 
-§9a listed `liquid` 0.26 as **the biggest dependency risk** — stale, wrong
-dialect, needing us to reimplement Jekyll's tags and filters on top. Under this
-rule we never need it. The whole vocabulary is:
-
-| construct | uses | note |
+| construct | uses at the port | note |
 |---|---|---|
 | `{% image %}` | 194 | §6a |
-| `{% post_url %}` | 51 | foreign key into `by_name` |
-| `{{ site.baseurl }}` + `{{ 'x' \| prepend: site.baseurl }}` | 12 | whole shapes, not a filter pipeline |
+| `{{ site.baseurl }}` and its `prepend:` form | 12 | whole shapes, not a filter pipeline |
 | `{% view %}` | 1 | §5c |
 | `{% include %}` | 1 | parameterless only |
+| *(`{% post_url %}`)* | *51* | **retired 2026-07-20** — a foreign key into `by_name`, dissolved into §6a's plain source links |
 
 Anything unrecognised is emitted **verbatim**, so an unimplemented construct
 appears in the output rather than evaluating to nothing.
@@ -1690,14 +1457,10 @@ rewritten to `{% callout %}` — all three raw-HTML shapes collapsed to the
 one form — and the `markdown="1"` kramdown idiom is out of the source
 entirely. 9 callouts render boxed; the fixture is retired.
 
-It should be **easy to add a custom block widget** — `{% callout %} … {% endcallout %}`
-— that translates to a fixed HTML wrapper with the author's markdown inside. This
-is not a new capability so much as the block-level sibling of `{% image %}`: a
-named expansion, not control flow, so it stays inside the §5d rule and needs no
-template engine.
-
-The concrete motivation is a bug this design already hit. The callout boxes on
-the 2026 posts are authored as raw HTML:
+A widget is the block-level sibling of `{% image %}`: a named expansion, not
+control flow, so it stays inside the rule above and needs no template engine.
+The concrete motivation was a real bug — the callout boxes on the 2026 posts
+were authored as raw HTML:
 
 ```html
 <callout><div markdown="1">
@@ -1739,201 +1502,73 @@ markdown with no `markdown="1"` needed and no lazy-continuation trap — the raw
 HTML and the kramdown dependency both leave the source entirely. The author
 writes `{% callout %}`; the fragility is gone.
 
-The shape this wants:
+The rule the registry enforces: still no arguments, still no control flow. An
+argumentful or conditional widget is the tripwire that says "you want a
+template — you don't." A widget is also just another producer of an
+`HtmlBlock`, so §6d's block-splitting and rewrites see through it unchanged.
 
-- A **registry** of `name → wrapper template` (a fragment with one `body` hole).
-  Adding a widget is one entry, no code — the same "data, not code" move themes
-  make in §5e.
-- Recognised by the expander (`tags.rs`) as a **paired** tag
-  (`{% name %}…{% endname %}`), the one structural addition over today's
-  self-closing tags. Still no arguments, still no control flow (§5c's refusals
-  stand); an argumentful or conditional widget is the tripwire that says "you
-  want a template — you don't."
-- **Load-time checked** like everything else: an unknown widget name is an error
-  (or emitted verbatim, per the existing rule), never a silent empty expansion.
-- Composable with §6d: a widget is just another producer of an `HtmlBlock`, so
-  block-splitting and rewrites see through it unchanged.
-
-Open question 29 tracks it. It is small, and it retires the last raw-HTML +
-kramdown idiom on the site.
-
-### Slots already exist; we never named them
-
-```rust
-pub fn listing(rows, title, breadcrumb_tail, site, pagination: Option<&str>) -> String
-```
-
-`breadcrumb_tail` and `pagination` **are slots** — optional injected fragments
-the layout places but does not build. §5b's slot machinery is not a thing to
-design; it is a thing to notice we have. And §5b's own conclusion already
-agreed: `github_link` should be "a pages schema field the layout renders when
-present. No slots, no overlays. ~10 lines."
-
-**So §5b's slot system may never need building.** Its incremental path gated
-slots on "a second subtree wanting something *different*" — under this rule,
-that case resolves to a schema field too.
-
-### The two honest weaknesses
-
-1. **Themes are Rust.** A theme is shell + CSS, and the shell is code, so a
-   third theme means recompiling. Fine today (there are two, and `light` exists
-   only as a falsifier, §5a) — but the shell is the one artifact with a real
-   claim to being a template, and it is also the one place a presence
-   conditional (`{% if description %}`) is genuinely hard to model away. That
-   is *why* `<head>` is computed from `Head` facts instead of templated. Watch
-   whether that stays comfortable; it is the first thing this rule would break
-   on.
-2. ~~The pagination slot is empty.~~ — **filled** (`render::pagination`). The
-   rule held: it was the best stress test of "component, not template" — the one
-   case with a genuine range loop and a three-way conditional
-   (`if page == current` / `elsif page == 1` / `else`) — and it fell out as ~40
-   lines of Rust, semantically identical to the reference nav (whitespace-
-   normalized diff clean). Page 1 links `/blog/`, page N>1 links `/blog/page/N`
-   (no trailing slash), faithful to jekyll-paginate. So the two honest
-   weaknesses are down to one: themes-are-Rust.
+**The rule's two former weaknesses are both closed.** Pagination was the best
+stress test of "component, not template" — a genuine range loop plus a
+three-way conditional (`if page == current` / `elsif page == 1` / `else`) — and
+fell out as ~40 lines of Rust, semantically identical to the reference nav. And
+"themes are Rust", the one weakness this rule looked likely to break on, was
+dissolved by §5e: themes became directories of data.
 
 ## 5e. The presentation synthesis: parts fill slots, CSS does the geometry
 
-**Status: all four steps built — the synthesis is real.** Layout kinds now emit
-part maps (`parts.rs`): named, typed parts — `Text`/`Html`/`Stream`/`Map`/
-`Flag` — in canonical order, names asserted against a per-kind `schema()`,
+**Status: built, and the synthesis is real.** Layout kinds emit part maps
+(`parts.rs`): named, typed parts — `Text`/`Html`/`Url`/`Stream`/`Map`/`Flag` —
+in canonical order, names and types asserted against a per-kind `schema()`,
 producers never touching `Site` (URLs are root-relative; `baseurl` is
-presentation). A **legacy composer** (`legacy.rs`, since deleted with step 3)
-replayed the pre-§5e BEM markup from the maps, verified **byte-identical**
-across the whole site. Two findings from the extraction: (a) all three crumb
-markup shapes turned out to be *one uniform loop over `{label, url?}` crumbs*
-— the drift was only ever in the composer, exactly as predicted; (b)
-`body_class()` was already dead code (the violation lives as a hardcoded
-string at the listing call site). The step records below are the build log,
-with §5a–§5d as the fossil record.
+presentation). The fragment binder (`binder.rs`) is a strict parser plus the
+hole algebra plus complete load-time validation. `themes/default/` is a real
+directory — shell + kind fragments + `theme.scss` — and `_sass` is superseded
+by it. `parts::canonical()` renders any part map with no fragments at all, and
+`Fragments::render` falls back to it for any kind a theme declines to arrange,
+so **themes are partial by construction**: a theme with no fragments IS the
+null theme and needs no directory, and a new theme can start from one fragment
+and grow.
 
-**Step 2 built (the binder).** `binder.rs`: strict fragment parser + the hole
-algebra (now four rules — see below; attribute holes were the one genuine
-addition the build forced) + complete load-time validation, ~450 lines
-including its 12 tests, standalone until the theme directory wires it in.
-The part schemas gained types (`PartType`: text/html/stream-of-kind/
-map-of-kind/flag) so holes are type-checked, not just name-checked, and
-producers assert their own conformance at `set()`.
+Verified exactly as §5a priced it: **bodies by machine** (all 327 post content
+regions byte-identical across the cut), **chrome by eye**. What the cut retired,
+each a defect this document had named: two breadcrumb markup shapes (one
+`crumb` fragment now), two document shapes (one fragment; `[data-tree]` is two
+CSS declarations), `body.multipost` (summary styles select on
+`[data-kind="summary"]` context), and the Rust shell — with it, the whole
+"themes are Rust" weakness (§5d) and the five presentation seams this section
+was written to close.
 
-**Step 3 built (the chrome cut).** `themes/default/` exists: `shell.html` +
-ten kind fragments + `theme.scss`, rendered through the binder
-(`theme.rs`); the legacy composer is deleted; `_sass` is superseded by the
-theme's stylesheet (content-level partials copied verbatim — body markup
-did not change; chrome partials rewritten against `data-slot`/`data-kind`).
-Verified exactly as priced: **bodies by machine** (all 327 post content
-regions byte-identical across the cut), **chrome by eye** (browser pass:
-posts, listings, pagination, tree pages, `/`, phone widths, both color
-schemes). What the cut retired, each named in this section's autopsy list:
-the two breadcrumb markup shapes (one `crumb` fragment now), the two
-document shapes (one fragment, `[data-tree]` is two CSS declarations),
-`body.multipost` (summary styles select on `[data-kind="summary"]`
-context), and the Rust default shell. Notes from the build:
+Three things the build added or corrected:
 
-- **Dark mode landed as pure CSS, then was deliberately removed (2026-07)** —
-  a custom-property palette plus one `prefers-color-scheme` block in
-  `_chrome.scss`, zero engine involvement: the proof §5e promised that CSS is
-  doing the lifting. It proved the mechanism and was then backed out to
-  unconditionally light, because the *content* assumes a white background in
-  a lot of places (screenshots, diagrams, legacy pages). The palette vars
-  stay; a dark value set is one block away once the content can take it.
-- **The placeholder-link rule earns its keep everywhere at once**:
-  disabled pagination arrows, the current page tile, and inert crumb tails
-  are all `<a>` without `href`, styled via `a:not([href])`. `aria-current`
-  rides an attribute hole (`data-slot-aria-current` filled only on the
-  current page), so the CSS gap picker and a11y share one part.
-- **Identity slots are live** (`.slots/nav.md`, `.slots/copyright.md` at
-  the root): the copyright is a single-paragraph fill *unwrapped by the
-  block-arity rule* into the shell's `<p>`; the nav is a markdown list
-  filling a flow `<nav>`. No theme file contains the site's words.
-- **Trails are provenance walks now**: posts render Home > Blog > 2022 >
-  December > 16 with every archive level linked (the §5c payoff, one
-  config edit: `crumb = "{month_name}"` + collection `crumb`/`index`/
-  `trail`). The `Site.baseurl` parameter fell out of the presentation
-  layer entirely — parts are root-relative and fragments are literal.
-- Cascade layering is import-order + scoping rather than `@layer` for now:
-  content styles scope to the content *region* (`.doc-body`), so chrome
-  never fights body typography. `@layer` remains attractive once `grass`'s
-  handling is verified; nothing structural blocks it.
-
-**Step 4 built (the null theme) — and it dissolved into a fallback rule.**
-`parts::canonical()` renders any part map with no fragments at all: kind
-root = `<section data-kind>` stamped with facts, scalars = `<span
-data-slot>`, urls = real links, streams/maps recurse, canonical order
-throughout. The mechanism is better than the design asked for:
-**`Fragments::render` falls back to canonical for any kind the theme
-declines to arrange**, so themes are *partial by construction* — a theme
-with no fragments IS the null theme and needs no directory, and a new theme
-can start from one fragment and grow. Two refinements fell out:
-
+- **The completeness falsifier runs on every real row, in the test suite.**
+  Every part's bytes must survive into the canonical rendering — if a part can
+  vanish, no fragment can put it back — checked over the actual corpus (327
+  posts, 180 listings including pagination maps, every tree-page shape) on
+  every `cargo test`.
 - **`PartType::Url`.** The null theme should be navigable, which forced the
   admission that url-shaped scalars are a *type*, not a naming convention.
-  Attribute holes (`data-slot-href`) now validate against Text-or-Url, and
-  canonical renders urls as links.
-- **The falsifier runs on every real row, in the test suite.** The
-  completeness property — every part's bytes survive into the canonical
-  rendering; if a part can vanish, no fragment can put it back — is checked
-  over the actual corpus (327 posts, 180 listings incl. pagination maps,
-  every tree-page shape) on every `cargo test`.
+- **Dark mode landed as pure CSS, then was deliberately removed** — a
+  custom-property palette plus one `prefers-color-scheme` block, zero engine
+  involvement: the proof this section promised that CSS does the lifting. It
+  was backed out to unconditionally light because the *content* assumes a white
+  background in a lot of places (screenshots, diagrams, legacy pages). The
+  palette vars stay; a dark value set is one block away once the content can
+  take it.
 
-`layout: light` pages (2) render as minimal shell + canonical `raw` — the
-Rust `light_shell` is now three lines of head around the null rendering.
-Incidentally proven the same day: a one-line edit to `.slots/copyright.md`
-moved the copyright year across 500+ pages with no theme file touched —
-identity slots doing exactly what they were built for.
+Two smaller notes worth keeping. The **placeholder-link rule** earns its keep
+everywhere at once — disabled pagination arrows, the current page tile and
+inert crumb tails are all `<a>` without `href`, styled via `a:not([href])`,
+with `aria-current` on an attribute hole so the CSS gap picker and a11y share
+one part. And **identity slots are live**: `.slots/nav.md` and
+`.slots/copyright.md` at the root mean no theme file contains the site's words
+— proven the day a one-line edit to `copyright.md` moved the year across 500+
+pages with no theme file touched.
 
-### One law, already proven twice
-
-The design's best move keeps recurring without being named: **compute typed
-facts, let the presentation select.** `<head>` is computed facts a theme
-renders a subset of (§5a). `/` is HTML with typed holes and zero control flow
-(§5d). Both times, the same shape killed a pile of conditionals and made a new
-class of error load-time-checkable.
-
-Everything between the layout layer and the browser should be that shape.
-Currently it isn't, and the seams are visible in `render.rs`:
-
-1. **The shell knows which layout kind filled `main`.** §5a's crisp test —
-   "a theme may never know which layout kind filled `main`" — is violated by
-   `body_class(kind, multipost)`: the shell is told "multipost" and stamps
-   `class="multipost"` on `<body>` so the theme's CSS can branch. That is
-   `{% if page.multipost %}` rewritten in Rust, which is exactly what §5a said
-   the regions model would delete.
-2. **The breadcrumb drift got ported, not fixed.** §5a diagnosed two divergent
-   breadcrumb implementations in Jekyll (`<div class="breadcrumbs">` vs
-   `<nav class="breadcrumbs"><span class="breadcrumbs__part">`). `render.rs`
-   now contains both: `margin()` emits the `nav`/`span` form, `document_page()`
-   emits the `div` form. Faithful porting preserved the disease — and its cost
-   surfaced: the `div` form was **entirely unstyled** (the breadcrumb CSS is
-   scoped to `.post-full__margin .breadcrumbs`, which the page form is not
-   inside), so on pages it rendered at full body size with no spacing and
-   collided with the `display:inline` title on narrow widths. Patched with a
-   `.content > .breadcrumbs` rule (size + gap) — but that is a *second* style
-   block for a *second* markup shape, exactly the drift this section is about.
-   §5e's unification (one `crumbs` part, one theme fragment) retires both.
-3. **Layout kinds emit arrangement scaffolding.** `document()` wraps content in
-   `post-full` → `post-full__main` → `post-full__below-title` — divs that exist
-   only so the theme's grid has something to grab. Arrangement lives in HTML
-   structure, where it belongs to the theme, not the layout.
-4. **`document` has two shapes** (§8b), because the theme's grid imposed
-   structure back onto the layout layer. The tension was recorded honestly;
-   this section is what resolves it.
-5. **Themes are Rust** (§5d weakness 1, q20 — since dissolved). A third theme means
-   recompiling. "Easily theme-swappable" is the one property the current cut
-   cannot deliver, and it is the property the whole presentation layer exists
-   to provide.
-
-### Slots exist in five places; none of them is called that
-
-| where | what it is |
-|---|---|
-| §5a regions | slots on the shell (`head`/`header`/`main`/`footer`) |
-| §5b `.slots/after-title.html` | slots filled positionally by the tree |
-| §5d `listing(.., breadcrumb_tail, pagination)` | slots as `Option<&str>` fn params |
-| §6d note placement (sidenote/endnote) | a stream choosing a slot |
-| `{% include %}` | a slot filled from a file |
-
-Five mechanisms, one concept. The synthesis: **a slot is a named, typed hole.
-Layout kinds produce fills; themes produce placement; nothing else exists.**
+Slots, incidentally, already existed in five places under five names — shell
+regions, tree-filled `.slots/` files, `Option<&str>` function parameters, note
+placement, `{% include %}`. The synthesis is that **a slot is a named, typed
+hole: layout kinds produce fills, themes produce placement, and nothing else
+exists.**
 
 ### The model
 
@@ -2034,7 +1669,7 @@ they place it with `grid-template-areas` keyed on slot names:
 [data-kind="document"][data-tree] { grid-template-areas: "crumbs" "content"; }
 ```
 
-The §8b two-shapes tension dissolves: one `document` kind, one markup, and
+The §8a two-shapes tension dissolves: one `document` kind, one markup, and
 "post vs page" is two grid declarations in a file the theme owns. `body.multipost`
 dies: the summary styles itself via `[data-slot="items"]` context, and the
 shell is never told anything.
@@ -2082,40 +1717,42 @@ Two consequences:
 
 ### The archetype test: any layout is theme CSS plus a fragment choice
 
-The model's bet is that *all geometry* lives in theme CSS, so "can it do
-layout X" decomposes into "can modern CSS express X" (a browser question) and
-"does the part schema carry what X's CSS needs" (the engine's only
-obligation). Auditing the archetypes:
+The model's bet is that *all geometry* lives in theme CSS, so "can it do layout
+X" decomposes into "can modern CSS express X" (a browser question) and "does
+the part schema carry what X's CSS needs" (the engine's only obligation).
 
-| archetype | fragment side | CSS side | engine gap |
-|---|---|---|---|
-| document, margin or sidenotes | canonical | grid areas, `:has()` | — |
-| album gallery (Finder-ish) | theme maps `items` to a `card` fragment | `repeat(auto-fill, minmax())`, `aspect-ratio`, `object-fit` | **hero part** |
-| Pinterest masonry | `card` fragment | see below | ~~dimension facts~~ ✅ **built** (2026-07): the `gallery`/`figure` kinds + object views; figures carry `width`/`height` from the thumb pass, and the example site runs CSS-columns masonry on them (§7a) |
-| magazine / full-bleed | canonical + per-block hints | named-grid-lines full-bleed pattern | **per-block facts** |
-| timeline / film-strip | `items` → small fragment | grid, `scroll-snap` | — |
-| dense index / table | `items` → row fragment | plain grid | — |
+Auditing the archetypes — document with margin or sidenotes, album gallery,
+Pinterest masonry, magazine full-bleed, timeline, dense index — surfaced **four
+genuine gaps, and every one resolved to "add a part or fact", never to control
+flow.** That is the model behaving as designed: the gallery archetype didn't
+demand a template feature, it demanded a schema field. Three are built:
 
-The audit surfaces **four genuine gaps, and each resolves to "add a part or
-fact" — never to control flow.** That is the model behaving as designed: the
-gallery archetype didn't demand a template feature, it demanded a schema
-field.
+- **The `hero` part** (q23) — a `Map("figure")` on `document`, sourced from the
+  image-typed schema field named `cover` (beats `image`, §5b), thumbnailed with
+  dimension facts; the card preview consumes the same source. Still arriving
+  with their consumers: the first-image-block fallback, and the *group* hero (a
+  `cover.*` file beside the group).
+- **Per-view fragment variants** (q24) — below.
+- **Dimension facts on images** (q26) — gallery figures, heroes and card
+  previews carry `width`/`height` from the thumb pass, so those surfaces never
+  shift. Remaining: `{% image %}` images inside post bodies, whose seam is the
+  §6d rewrite stage.
 
-1. ~~A `hero` part on summaries~~ ✅ **built** (q23, via the book club):
-   `hero` is a `Map("figure")` on `document`, sourced from the image-typed
-   schema field named `cover` (beats `image`; §5b), thumbnailed with
-   dimension facts; the card preview consumes the same source. Still
-   arriving with their consumers: the first-image-block fallback and the
-   group hero (`cover.*` file) — q23's remainder.
-2. ~~Per-view fragment variants~~ ✅ **built** (q24; see "Variants and the
-   one preview kind" below).
-3. **Per-block facts** (→ open question 25). Full-bleed needs one block to
-   escape the content column: a block-level directive → `data-` attribute on
-   that block → the theme spans it. Slots straight into §6d's block stream.
-4. ~~Dimension facts on images~~ ✅ **built where images are parts** (q26):
-   gallery figures, heroes and card previews carry `width`/`height` from
-   the thumb pass, so those surfaces never shift. Remaining: `{% image %}`
-   images inside post bodies (the §6d rewrite stage is their seam).
+The one still open is **per-block facts** (q25): full-bleed needs one block to
+escape the content column — a block-level directive becoming a `data-`
+attribute on that block, which slots straight into §6d's block stream.
+
+**The one honest limit is masonry.** True Pinterest packing with strict reading
+order is the single archetype CSS cannot fully express yet — native masonry is
+still settling in the working group and is not Baseline. Interim: CSS `columns`
+(reading order runs down columns) or row-span tricks fed by the dimension facts
+above. When native masonry lands it is one declaration in one theme file, zero
+engine work — the engine's only job was to have shipped the facts.
+
+The meta-point, worth stating as the completeness criterion: **§5e turns "can
+we do layout X" from an engine question into a browser question, and the
+engine's obligation becomes crisp — every part or fact a plausible theme could
+need must be in the schema.**
 
 ### Variants and the one preview kind *(q24 + q36, built 2026-07)*
 
@@ -2142,45 +1779,6 @@ Documented as the rule, not fixed: the canonical fallback is
 fragments; a theme opts into per-kind fragments from the parent down
 (this is why the recipes theme needed `document.html` before its
 `crumb.html` was consulted).
-
-**The one honest limit is masonry.** True Pinterest packing with strict
-reading order is the single archetype CSS cannot fully express yet — native
-masonry is still settling in the working group (the `display: masonry` vs.
-grid-integration debate) and is not Baseline. Interim: CSS `columns` (reading
-order runs down columns) or row-span tricks fed by the dimension facts above.
-When native masonry lands, it is one declaration in one theme file, zero
-engine work — the engine's only job was to have shipped the facts.
-
-The meta-point, worth stating as the completeness criterion: **§5e turns "can
-we do layout X" from an engine question into a browser question, and the
-engine's obligation becomes crisp — every part or fact a plausible theme
-could need must be in the schema.** The four gaps are the current delta.
-
-### What this buys, concretely
-
-- **Sidenotes become a theme decision** (open question 18, dissolved). The
-  `notes` stream exists (§6d); a theme that wants Tufte margins declares a
-  grid column and places `data-slot="notes"` beside content; a theme that
-  doesn't gets the canonical fallback — an endnote section after content.
-  Same markup, both themes, no layout change.
-- **The ★ gets its vocabulary** (q17, settled): `data-truncated` on the
-  summary, star gated in theme CSS. The fix §6d wanted, expressible now.
-- **Dark mode is a theme concern at last** (§8b found none exists): a
-  `prefers-color-scheme` block in `theme.scss`, zero engine involvement —
-  the proof that CSS is actually doing the lifting. (Proven, then removed:
-  see the step-3 notes — the content isn't dark-safe yet.)
-- **A third theme is a directory.** Copy `themes/default/`, edit HTML and
-  SCSS, done. Open question 20 dissolves: no Rust, no recompile, and the
-  engine's load-time checks tell you every hole you got wrong.
-- **`light` upgrades from falsifier to a shipped tier.** No fragments, no CSS
-  means the canonical part order must be semantically complete markup on its
-  own — a stronger test than "renders under two themes", run automatically on
-  every row. (It renders the same canonical parts the null theme does, but it
-  is not that theme: §5g "Row tiers" has the head measurement that separates
-  them.)
-- **Includes are subsumed.** An include is a fragment with no holes filling a
-  slot (`social` fills a shell slot in the default theme and a `/` slot).
-  The parameterless refusal (§5c) stands; parameters are what part maps are.
 
 ### The precedence law, stated once
 
@@ -2244,17 +1842,6 @@ Inherited wrinkle, restated from §5b: for posts the source tree is not the
 URL tree, so per-subtree fills only get interesting for posts once page
 bundles exist. Identity slots at the root — the actual motivating case — are
 unaffected.
-
-### What it costs
-
-- **Chrome markup changes wholesale.** Already accepted and priced in §5a:
-  bodies verified by machine, chrome by eye. This is the moment that budget
-  gets spent — spend it once, on this, not twice.
-- **`_sass` is rewritten against the new contract.** That rewrite *is* the new
-  default theme, and the natural moment to add the dark mode §8b flagged.
-- **A fragment binder must be written.** ✅ Was (`binder.rs`, ~760 lines with
-  tests, hand-rolled parser — no `lol_html` needed): strictly less machinery
-  than the `liquid` crate §5d retired, for strictly more checking.
 
 ### Tripwires
 
@@ -2480,10 +2067,9 @@ pending until built: whether `md` is view-only or a row can request it
 (`/post-slug.md` twins), and how widgets serialize (expanded HTML in md,
 or unexpanded source?).
 
-### Still open (q44)
+### Row shells: a row picks its own wrapper *(q44, built 2026-07-19)*
 
-Row-level shells — **BUILT 2026-07-19**. A row declares `shell:` and
-picks its own wrapper: **`none`** (the body IS the output — no
+A row declares `shell:` andpicks its own wrapper: **`none`** (the body IS the output — no
 skeleton, no theme), **`light`** (engine skeleton, canonical parts, no
 theme chrome) or **`html`** (the theme). Closed vocabulary, checked at
 load and named with the file, because a typo'd shell would otherwise
@@ -2498,14 +2084,6 @@ adding front matter to a full HTML document nested it inside a second
 which meant it was not a row at all — no title, no metadata, invisible
 to every query. The example's `demos/pane.html` is the occupant: 521
 bytes of its own document, with a `title` the database can see.
-
-An earlier draft of this entry argued the whole thing was chrome-shaped
-and should be redirected to format; that rested on misreading `light`
-as a dead name. It is not — `Theme::parse` routes it to a real tier with
-two occupants (q33(f) has the census), distinct from §5e's null theme by
-its head; "Row tiers" below has the measurement. The md twin below is a
-*second*, orthogonal axis (which serializations a row offers); it does
-not subsume this one.
 
 A `shell = "none"` row's content is raw HTML, so everything downstream
 reads it as such. Adding one exposed a search bug that predated it:
@@ -2584,48 +2162,33 @@ doctype, and the built output contains no engine `<html>` element at
 all. A theme can make no such promise: it does not know what body it
 will wrap.
 
-**Correction, and the reason the question is a fair one:** this section
-and q33(f) both called `light` "the null theme". That conflates two
-things and is what makes the answer sound like yes. §5e's null theme is a
+**One correction, because it makes the question a fair one:** `light` is not
+"the null theme", though this document twice said so. §5e's null theme is a
 **theme** with no fragments — it takes the *full* computed head and a
-stylesheet link, and goes through `Theme::Default`. `light` is a **tier**
-— it bypasses the theme registry entirely and takes `light_head`. They
-agree on "no body chrome" and differ on the head, which is the entire
-distinction. There is no `themes/light` directory; `Theme::Light` is a
-`render::Theme` variant living in a different namespace from the theme
-registry, reached by `shell: light` or the legacy `layout: light`.
+stylesheet link, and goes through `Theme::Default`. `light` is a **tier** — it
+bypasses the theme registry entirely and takes `light_head`. They agree on "no
+body chrome" and differ on the head, which is the entire distinction. There is
+no `themes/light` directory; `Theme::Light` is a `render::Theme` variant in a
+different namespace from the theme registry.
 
 ### What the tiers actually ask *(2026-07-19)*
 
 The table above says what each tier does. Three readings say why there are
-exactly these and not others. The first is Matt's; the third generalizes
-furthest.
+exactly these and not others.
 
-**1. Two bits, and one incoherent corner.** The real choice is two
-independent questions — does the row have **database identity**
-(front matter present, so: schema, content rules, link graph), and does
-the **engine construct its document** (`shell`). That is a 2×2, and only
-three corners exist:
-
-| | engine builds the document | row owns its document |
-|---|---|---|
-| **no identity** | *incoherent* | static / object — 32 HTML files, ~800 binaries |
-| **identity** | `light` / `html` | `shell: none` — 1 |
-
-The empty corner is not a missing feature, it is a contradiction:
-building a document means computing a `<head>`, a head is computed from
-schema, and schema is what identity *means*. There would be nothing to
-wrap. It is also mechanically unreachable — only `RouteKind::Page` (and
-`Post`) reach the constructing path, while `Static | Object` share one
-bytes arm in `build.rs`. So the 2×2 collapses to a three-state chain, and
-the chain is a **result rather than a modelling choice**. Front-matter
-presence is not an overloaded proxy for two decisions; it is the identity
-bit, and identity is a *precondition* for the other one.
-
-Empty front matter (`---`/`---`, Jekyll's idiom for "render me, I have
-nothing to say") does not reach the empty corner either: it makes a Page
-row with no declared fields, which is the identity bit set. Measured: the
-corpus has zero of them.
+**1. Two bits, and one incoherent corner.** The real choice is two independent
+questions — does the row have **database identity** (front matter present, so:
+schema, content rules, link graph), and does the **engine construct its
+document** (`shell`). That is a 2×2 with only three corners: no-identity ×
+engine-builds is *incoherent*, because building a document means computing a
+`<head>`, a head is computed from schema, and schema is what identity *means*.
+There would be nothing to wrap. It is also mechanically unreachable — only
+`RouteKind::Page`/`Post` reach the constructing path. So the 2×2 collapses to a
+three-state chain, and the chain is a **result rather than a modelling
+choice**: identity is a *precondition* for the other bit, not an overloaded
+proxy for two decisions. (Empty front matter — Jekyll's "render me, I have
+nothing to say" — makes a Page row with no declared fields, which is the
+identity bit set. The corpus has zero of them.)
 
 **2. The guarantee ladder.** Read upward, each tier is what the engine
 *promises* about the bytes:
@@ -2956,38 +2519,28 @@ reference what the database owns.**
    archive when it materialized), and verified against the route set: a
    typo'd key errors LISTING the keys that exist.
 3. **`[links] policy`** grades enforcement. `strict` — **the default since
-   2026-07-20** — errors on raw internal URLs, answering with the correct
-   form (`"link the source instead: /recipes/carbonara.md"`), and on links
-   matching no source or route at all. `loose` resolves the new forms but
-   leaves both alone, and survives for importing a corpus that has not been
-   converted yet.
+   2026-07-20** — errors on raw internal URLs, answering with the correct form
+   (`"link the source instead: /recipes/carbonara.md"`), and on links matching
+   no source or route at all. `loose` resolves the new forms but leaves both
+   alone, and survives for importing a corpus that has not been converted yet.
 
-   It was `loose` while the main site still had raw URLs to convert.
-   Flipping it needed three things, and the two engine gaps it exposed are
-   the interesting part:
+   Flipping the main site to `strict` exposed two engine gaps worth keeping:
+   **a link to a directory means its index** (`saturn/` is `saturn/index.md` —
+   the oldest convention on the web, and the resolver did not know it, so
+   strict called 35 perfectly good links dangling), and **`javascript:` is
+   code, not a path** (a bookmarklet href was read as a relative source path;
+   now skipped beside `mailto:` and `data:`).
 
-   - **A link to a directory means its index.** `saturn/` is
-     `saturn/index.md` — the oldest convention on the web, and the resolver
-     did not know it, so strict called **35 perfectly good links dangling**.
-     Candidates now include `{c}/index.md` and `{c}/index.html`.
-   - **`javascript:` is code, not a path.** A bookmarklet href was read as
-     a relative source path. Now skipped beside `mailto:` and `data:`.
-   - 28 raw URLs across 21 files, converted to source form, plus the site's
-     own `nav.md` and `copyright.md` — which were `/blog`, `/writing`,
-     `/code`, `/contact/`, none of them verified by anything.
+   **What the flip caught, which is the argument for it.** `/blog` (no trailing
+   slash) was not the canonical URL and nothing said so. And `/demos/dress` and
+   `/demos/adventure` did not resolve, so the rows they pointed at never
+   registered the citation: **25 pages gained a `Linked from` section** that had
+   been silently dropped. A lenient default was costing real backlinks,
+   quietly — the same silent-drop this codebase keeps closing everywhere else.
 
-   **What the flip caught, which is the argument for it.** `/blog` (no
-   trailing slash) was not the canonical URL and nothing said so. And
-   `/demos/dress` and `/demos/adventure` did not resolve, so the rows they
-   pointed at never registered the citation: **25 pages gained a
-   `Linked from` section** that had been silently dropped. Every other
-   relation axis was unchanged and no page lost anything. A lenient default
-   was costing real backlinks, quietly — which is the same silent-drop this
-   codebase keeps closing everywhere else.
-
-   Still outside the net: raw-HTML pages bypass the resolver entirely (the
-   §6d `lol_html` stage is their seam), so the four genuinely dangling links
-   found in `.html` sources during this pass are unchecked by strict.
+   Still outside the net: raw-HTML pages bypass the resolver entirely (the §6d
+   `lol_html` stage is their seam), so the four genuinely dangling links found
+   in `.html` sources during this pass are unchecked by strict.
 
 Resolution is a comrak AST pass over Link nodes (`render_doc_with`),
 per-row, against a `LinkSpace` built once per build (source→URL over all
@@ -3133,54 +2686,25 @@ flat model needed; an axis with nothing to say contributes no group
 by the producer: no schema change, no theme change, the `relation`
 fragment renders axes it has never heard of.
 
-`_config-prod.yml` sets `lsi: true`, which is the `Populating LSI... /
-Rebuilding index...` phase visible in the build log — a dominant chunk of the
-90-second build, recomputed **from scratch every time** because Jekyll has no
-content-addressed cache for it.
+What this replaced: Jekyll's `lsi: true`, a dominant chunk of the 90-second
+build, recomputed from scratch every time because Jekyll had no
+content-addressed cache for it. LSI's related-posts were mediocre and `diff`
+cannot judge relatedness (§8 lists them as knowingly-inexact), so this is the
+one place the port is deliberately *better* rather than equivalent, at no
+parity cost. Embeddings never publish — build-time only, no URL, no bytes
+shipped.
 
-Replacing it: embed each `.md` body once, cache by content hash, and compute
-`related_posts` as cosine similarity.
-
-- **Model**: `all-MiniLM-L6-v2`, 384-dim. 327 posts → 327×384 f32 ≈ **500 KB**
-  total. Similarity is a brute-force dot product over 327 vectors —
-  microseconds. **No vector index** (HNSW/FAISS) is remotely justified at this
-  scale; adding one would be the classic mistake.
-- **Cache key = hash of the embedded text**, which is
-  `title: … \n tags: … \n body: …` — title and tags carry real signal, so
-  they are part of the text and therefore part of the key. (An earlier
-  draft said the key was the body alone and that retitling was free; the
-  code has embedded all three since `text_of` existed.)
-- **The body is RAW MARKDOWN, so link syntax is semantic signal.** Measured
-  2026-07-20, retiring `{% post_url %}`: rewriting 56 links to file-relative
-  form changed no rendered href at all, and still reshuffled `Related` on
-  **37 of 327 posts** (one lost the section outright), because
-  `{{ site.baseurl }}{% post_url … %}` and `../2010/….md` are different
-  text. Every rendered byte outside the relations blocks was identical.
-  So related-posts are a function of markdown *syntax*, not of prose: a
-  reflow, a typo fix or an `{% image %}` swap silently reshuffles them, and
-  `site.baseurl`/`post_url`/`.md` compete for signal against the writing.
-  The fix is to embed the rendered plain text; it is deferred because it
-  reshuffles every list once. **Until then, do not read "Related changed"
-  as evidence that a refactor changed meaning.**
-- **Incremental by construction**: edit one post → one embedding recomputed →
-  related-posts recalculated in microseconds. The LSI phase disappears from
-  the build entirely, and `serve` can afford to keep it live.
-- **Liquid surface**: `site.related_posts` (Jekyll-compatible, `limit: 4` in
-  `post.html`) → top-N by cosine similarity, excluding self and any row the
-  active profile didn't materialize. `grackle query similar <url>` falls out
-  for free and makes the ranking inspectable.
-- **Embeddings never publish** — build-time only, no URL, no bytes shipped.
-
-This is the one place where the port can be *better* rather than merely
-equivalent: LSI's related-posts were mediocre, and the diff harness can't
-check them (§8 lists related posts as knowingly-inexact anyway), so there's no
-parity cost to improving them.
-
-**Crate: `fastembed`, not `rust-bert`** — rust-bert is 2 years stale, 16k
-downloads, and drags in libtorch (~2 GB), which is hostile to the Docker
-build. `fastembed` is actively maintained, 1.2M downloads, ONNX-based, and
-ships MiniLM directly. (`candle` is the pure-Rust fallback if ONNX ever
-proves awkward.)
+⚠️ **The embedded body is RAW MARKDOWN, so link syntax is semantic signal.**
+Measured 2026-07-20, retiring `{% post_url %}`: rewriting 56 links to
+file-relative form changed no rendered href at all, and still reshuffled
+`Related` on **37 of 327 posts** (one lost the section outright), because
+`{{ site.baseurl }}{% post_url … %}` and `../2010/….md` are different text.
+Every rendered byte outside the relations blocks was identical. So
+related-posts are a function of markdown *syntax*, not of prose: a reflow, a
+typo fix or an `{% image %}` swap silently reshuffles them. The fix is to
+embed the rendered plain text; it is deferred because it reshuffles every list
+once. **Until then, do not read "Related changed" as evidence that a refactor
+changed meaning.**
 
 ### TF-IDF search index — the searcher is the same code, compiled to wasm *(built 2026-07)*
 
@@ -3226,39 +2750,16 @@ the searchable set is a query over the route schema, spanning tables.)*
 shell with the chrome cut, and the launcher this replaces was a
 third-party service tab.
 
-The original sketch, kept for the record — the shape survived even though
-the JSON/JS specifics did not. A different tool for a different job,
-sharing the same cache discipline.
 Embeddings answer *"what is this like"* (fuzzy, build-time, 500 KB of f32);
 TF-IDF answers *"where does this word appear"* (exact, shippable to a browser,
-no model at runtime).
+no model at runtime). Two tools, one cache discipline.
 
-- **Stemming**: `rust-stemmers` (Snowball English) — `parsing`/`parsed`/`parse`
-  collapse to one term.
-- **Decomposition mirrors the cache**: per-post **term frequencies** are a pure
-  function of the body → content-addressed like everything else
-  (`_cache/search/{hash}.tf`). **IDF is global**, so it must be recomputed
-  whenever the document set changes — but that's a cheap fold over 327 cached
-  TF maps, not a re-tokenisation. Same shape as embeddings: the expensive
-  per-row part caches, the corpus-wide part is a fast reduction.
-- **Published as a derived asset**: `/static/{hash}.json` → `immutable`
-  caching for free (§6b), and it self-busts when any post changes.
-- **Shape**: `{terms: {stem: [[docId, score], …]}, docs: [{url, title, date}]}`.
-  Postings sorted by score, scores quantised to u16, stopwords dropped.
-- **Budget**: 327 posts is small, but 20 years of prose is a lot of
-  vocabulary. This needs a **measured size check** before it's a good idea;
-  pruning knobs (min doc frequency, max postings per term, title/heading
-  boosting) are cheap insurance. If the raw index lands multi-MB, the fallback
-  is a small term dictionary plus lazily-fetched postings shards.
-
-**This retires Swiftype.** The header search is currently
-`javascript:document.getElementById('st-launcher-tab').click()` — a launcher
-for a third-party service (Elastic's Swiftype), which is also why the layout
-still carries `data-swiftype-index` attributes and a `<meta class="swiftype">`
-tag. A static JSON index plus a small first-party script removes that
-dependency. Note the main site ships **zero** JS after this month's cleanup,
-so search must **lazily load on interaction only** — the default page weight
-stays at zero.
+This retired **Swiftype**: the header search used to be
+`javascript:document.getElementById('st-launcher-tab').click()`, a launcher for
+a third-party service, which is also why the layout carried
+`data-swiftype-index` attributes and a `<meta class="swiftype">` tag. Those
+left the shell with the chrome cut. The site ships **zero** JS by default, so
+search loads lazily on interaction only.
 
 ## 6c. Per-post `<style>` (SCSS)
 
@@ -3305,42 +2806,39 @@ doing it rather than a reason not to.
 ## 6d. Blocks and rewrites: two ways into the rendered markdown
 
 **Status: blocks built (stage A, 2026-07); notes and rewrites remain.**
-`markdown::render_doc` parses once and yields both the whole render (posts
-and the feed use it unchanged — post pages verified byte-identical) and the
-top-level block sequence, in one render pass where the old pipeline rendered
-every post twice. **The summary is a computed field on the view's rows** —
-a derived column, not a rendering attribute:
+`markdown::render_doc` parses once and yields both the whole render (posts and
+the feed use it unchanged — post pages verified byte-identical) and the
+top-level block sequence, where the old pipeline rendered every post twice.
+**The summary is a computed field on the view's rows** — a derived column, not
+a rendering attribute:
 
 ```toml
 [sets.published.fields.summary]
 truncate = { max_blocks = 4, max_chars = 700 }
 ```
 
-`Doc::truncate` is mechanism only (blocks kept until a budget runs out,
-block granularity, at least one always kept, `max_chars` counting visible
-text); the *deriver* (`truncate`) discriminates the field definition and is
-validated at load — no deriver, or an unknown one, errors naming the known
-set. **Fields flow with rows through `from` composition** the way filters
-do: declared once on `published`, every listing composed over it inherits
-the column; redeclaring the name overrides, nearest wins. The deriver's
-fact (`truncated`) rides along, feeding `data-truncated`. Listing previews
-consume the field named `summary` by convention; no summary field in the
-chain means rows ship whole. This is also where the §5e archetype gaps
-land later: `hero` (open q23) and `lede` are more derivers producing more
-columns. **Marked not-quite-right (open q31)**: deriver-as-struct-key is a
-stopgap shape — if the config grows *functions*, a field wants to be an
-expression (`summary = truncate(content, max_blocks=4)`), and this gets
-revisited rather than extended. (Two wrong altitudes were corrected in one session getting here:
-the cut rule started as engine code — policy belongs in config — and then
-as a view *attribute* — a summary is a property of the rows, not of the
-view's rendering.) **Measured: `/blog/` 160 KB →
-15.7 KB, `/blog/tags/rust/` 180 KB → 11.3 KB (93.8%).** The nth-of-type
-truncation CSS is deleted; `truncated` is a schema fact stamped
-`data-truncated` (★ settled, q17); concat-equals-whole is a corpus test
-pinning the footnote post as the only exception. Deferred to stage B with
-reasons: the **notes stream** (needs its consumer — sidenotes want a third
-grid column, q18) and the **rewrite stage** (its five use cases are mostly
-unbuilt subsystems: §6a names, §6c styles).
+`Doc::truncate` is mechanism only (blocks kept until a budget runs out, block
+granularity, at least one always kept, `max_chars` counting visible text); the
+*deriver* (`truncate`) discriminates the field definition and is validated at
+load. **Fields flow with rows through `from` composition** the way filters do:
+declared once on `published`, every listing composed over it inherits the
+column; redeclaring the name overrides, nearest wins. The deriver's fact
+(`truncated`) rides along, feeding `data-truncated` — which is where the ★ gets
+its vocabulary (q17), gated in theme CSS rather than inferred from the DOM.
+Listing previews consume the field named `summary` by convention; no summary
+field in the chain means rows ship whole. `hero` (q23) and `lede` are more
+derivers producing more columns.
+
+Two wrong altitudes were corrected in one session getting here: the cut rule
+started as engine code — policy belongs in config — and then as a view
+*attribute*, when a summary is a property of the rows, not of the view's
+rendering. **Marked not-quite-right (q31)**: deriver-as-struct-key is a stopgap
+shape; if the config grows *functions*, a field wants to be an expression
+(§5f), and this gets revisited rather than extended.
+
+Deferred to stage B, each with its reason: the **notes stream** (needs its
+consumer — sidenotes want a third grid column, q18) and the **rewrite stage**
+(its use cases are mostly unbuilt subsystems: §6a names, §6c styles).
 
 Markdown is currently an opaque blob: `content` goes into a `<section>` and
 nobody can touch it. Two mechanisms open it up, and they are **not
@@ -3351,42 +2849,37 @@ alternatives** — they solve different problems and compose.
 | **Blocks** | position | *layout* — placing parts of the content | summary takes the first 2 paragraphs |
 | **Rewrites** | CSS selector | *transformation* — changing content in place | wrap every `<table>` in a scroll container |
 
-### Blocks, and the 93% that justifies them
+### Blocks, and the 93% that justified them
 
 Markdown renders to a **sequence of top-level blocks** (paragraph, heading,
 code, list, table, html) rather than one string. A layout kind then takes what
 it needs: `document` takes all of them, `summary` takes the first few, a future
 `lede` slot takes `blocks[0]`.
 
-The justification is measured, not aesthetic. Today the site truncates
-summaries in **CSS**:
+The justification was measured, not aesthetic. The site used to truncate
+summaries in **CSS**, so every listing shipped complete post bodies and hid
+most of them: of `/blog/`'s 140,884 bytes, 134,635 were post bodies and
+**131,071 were shipped then `display:none`'d — 93% of the page**. (There was a
+*second*, independent truncation too: a `max-height` clip with a fade mask, so
+only ~7 lines were ever visible. The DOM cut was far more generous than the
+visual one.)
 
-```scss
-// _style.scss — body.multipost
-.post.post-summary .post-summary__main > section, .post > section {
-  > p:nth-of-type(2), > :nth-of-type(4) { ~ * { display: none !important; } }
-}
-```
+With blocks the summary simply never emits blocks 3..n. **Measured after:
+`/blog/` 160 KB → 15.7 KB, `/blog/tags/rust/` 180 KB → 11.3 KB (93.8%)**, and
+the CSS truncation rules are deleted. Corpus-wide the saving averages 74.5%;
+`/blog/` scores higher because the posts it shows are the long ones.
 
-So every listing ships **complete post bodies** and hides most of them:
+**326 of 327 posts satisfy `concat(blocks) == markdown_to_html(src)` byte for
+byte** — comrak's `format_html` takes any node, so blocks are a loop over
+`root.children()`, not a parser change, and a summary is then a literal
+*prefix* of the document, which the harness can prove rather than eyeball. This
+is now a corpus test rather than an assumption. **The single mismatch is
+footnotes** — see below.
 
-| `/blog/` | bytes |
-|---|---|
-| page total | 140,884 |
-| post bodies | 134,635 (96% of the page) |
-| actually visible | ~3,564 |
-| **shipped, then `display:none`'d** | **131,071 — 93% of the page** |
-
-`/blog/tags/rust/` is **169 KB** to show five previews. With blocks, the
-summary layout simply never emits blocks 3..n — same rendering, ~93% smaller,
-and the CSS truncation rule becomes dead code. That is a bigger win than
-anything in the font/image work earlier this month, and it falls out of the
-model rather than being a special case.
-
-Blocks stay **internal to layout kinds** — they are not exposed to templates.
-A template iterating an AST is a trap (Hugo keeps `.Content` a string for
-exactly this reason); templates get *slots* (§5b) and *rewrites*, which are
-addressed by name and selector rather than by walking a tree.
+Blocks stay **internal to layout kinds** — they are not exposed to templates. A
+template iterating an AST is a trap (Hugo keeps `.Content` a string for exactly
+this reason); templates get *slots* and *rewrites*, addressed by name and
+selector rather than by walking a tree.
 
 ### Rewrites: one selector-driven stage, not five ad-hoc passes
 
@@ -3451,61 +2944,6 @@ source
   `<style>` is an HtmlBlock the layout hoists.
 - **The CSS truncation rule can be deleted** once summaries stop shipping what
   they hide.
-
-### Measured: the spike (327 posts)
-
-```
-posts: 327, mismatched: 1
-blocks/post:  min 1   median 4   max 124
-cut blocks:   min 1   median 2   max 4
-summary bytes if truncated at build: 185,612 of 727,547  (74.5% saved)
-```
-
-**326 of 327 posts satisfy `concat(blocks) == markdown_to_html(src)` byte for
-byte.** comrak's `format_html` takes any node, so blocks are a loop over
-`root.children()`, not a parser change — and a summary is then a literal
-*prefix* of the document, which the diff harness can prove rather than eyeball.
-This is now a corpus test, not an assumption.
-
-74.5% is the whole-corpus average; the 93% above is `/blog/` specifically,
-because the posts it shows are the long ones. Both hold.
-
-**The single mismatch is footnotes** — see "Footnotes are not blocks" below.
-
-### Corrections to the above
-
-Two things this section originally got wrong:
-
-1. **It is `:nth-of-type`, not "4th child".** `> :nth-of-type(4)` is
-   `*:nth-of-type(4)`: it matches any element that is the 4th **of its own tag**
-   — the 4th `<p>`, or the 4th `<h2>`, or the 4th `<pre>`. So the cut is at the
-   earlier of the 2nd paragraph and the 4th-of-anything. The 2nd paragraph
-   nearly always wins; the other arm only fires on posts opening with four
-   headings or four code blocks. Ported faithfully it is ~10 lines.
-2. **There is a *second*, independent truncation.** `_post-summary.scss:189`
-   also clips by height:
-   ```scss
-   $preview-line-height: 16pt; $preview-fade-start-line: 5; $preview-max-lines: 7;
-   > section { max-height: calc(7 * 16pt); overflow: hidden; mask-image: ...fade at line 5; }
-   ```
-   Whatever blocks we ship, **only ~7 lines are ever visible**. The DOM cut is
-   far more generous than the visual one — which means once exactness is banked,
-   there is much more room to cut than the block rule suggests.
-
-### The ★ needs a decision before blocks ship
-
-`_post-summary.scss:205` puts a ★ after `> p:last-child`. Today that `<p>` is
-the post's *genuine* final paragraph, which is `display:none`'d on any truncated
-post — so no star renders. The star only appears on posts short enough **not** to
-be truncated: **79 of 327**. That reads backwards from what a "there's more"
-marker should do, and is probably a latent bug.
-
-Truncate at build time and the last kept block becomes a real `last-child`:
-**321 of 327 summaries would sprout a star.** So blocks are *not* visually
-neutral until this is settled. The clean fix is to stop inferring truncation
-from the DOM and state it — emit `class="truncated"` on the section, gate the
-star on it — which would put the marker on the right 248 posts for the first
-time. That is a visible change to the site and needs sign-off.
 
 ### Footnotes are not blocks — they are a second stream
 
@@ -3585,22 +3023,19 @@ That is the concrete argument for AST-level access — not a preference.
 
 ## 6e. Hierarchy: the page's tree and the tree's tree *(specced and built 2026-07)*
 
-> ✅ **Both axes are built** (`outline.rs`, 2026-07), against the example
-> site (§7a). **Path axis**: `.section` is engine vocabulary like
-> `.slots/` (a bare file, no config), the scan rides the same .gitignore
-> defence as markers, `order:` front matter landed on pages, the root's
-> index leads, index-less directories appear as unlinked labels (q27's
-> semantic, shipped), nested `.section`s resolve nearest-wins, and
-> `aria-current` rides the attribute hole; trees derive once per section
-> per build — only `current` moves per page. **Heading axis**: `toc:`
-> rows carry their outline, extracted *from the rendered block bytes
-> themselves* (id and text read out of the shipped `<h2 id=…>`), so link
-> and target cannot desync — pinned by a sync test; nesting tolerates
-> level jumps; the h2–h3 window is hardcoded v1 policy pending the §5f
-> `outline()` deriver. One recursive `outline_entry` kind serves both
-> axes through one theme fragment — the unification this section bet on,
-> demonstrated on the example's `configuration` page, which renders the
-> section tree and its own outline side by side.
+> **Status: both axes are built** (`outline.rs`, against the example site).
+> **Path axis**: `.section` is engine vocabulary like `.slots/` (a bare file,
+> no config), the scan rides the same `.gitignore` defence as markers, `order:`
+> front matter landed on pages, the root's index leads, index-less directories
+> appear as unlinked labels (q27's semantic), nested `.section`s resolve
+> nearest-wins, and `aria-current` rides the attribute hole; trees derive once
+> per section per build — only `current` moves per page. **Heading axis**:
+> `toc:` rows carry their outline, extracted *from the rendered block bytes
+> themselves* (id and text read out of the shipped `<h2 id=…>`), so link and
+> target cannot desync — pinned by a sync test; nesting tolerates level jumps;
+> the h2–h3 window is hardcoded v1 policy pending the §5f `outline()` deriver.
+> One recursive `outline_entry` kind serves both axes through one theme
+> fragment — the unification this section bet on.
 
 The site has two hierarchies, and they are the same shape seen on two axes:
 **headings nest by level** (h2 contains its h3s) and **pages nest by path**
@@ -3840,60 +3275,42 @@ locale-parallel listings plug in later is already marked in
 `listing_title_and_trail`. Main site: no overrides, all bare strings →
 builtins → byte-identical, verified.
 
-**Honest edges, named now**: a localized POST's trail is complete —
-`Accueil(→ /fr/) › Carnet(→ /fr/blog/) › 10 January 2026`: "Home" is
-**existence-checked** — it links the locale's own homepage when a
-translated index exists (`index.fr.html` → `/fr/`, which the example now
-ships), else the site root; the collection-index
-crumb locale-prefixes (the French index exists whenever French rows do),
-and the inert date tail shows the whole date when the collection
-declares no archive chain (a bare day only reads after year › month
-crumbs; main site keeps its day tail, byte-identical). Localized tree
-PAGES walk URL ancestors — the duplicate home crumb on `/fr/…` URLs is
-**cured** (§5h: `ancestors()` skips locale-prefix homes; Home is the
-trail root's job), and a section crumb appears in French exactly when
-the section's landing has a French variant (`index.fr.md` → the
-claimed row's URL is `/fr/recipes/`). The collection no longer names its
-own index: q46 dissolved `collection.crumb`/`index` into the landing
-chain, so the French crumb is *found* by climbing to `/fr/blog/` rather
-than built by prefixing a configured URL (§5h).
-`.slots/` fills localize by the same suffix convention
-(`nav.fr.md` beside `nav.md` — built, and their view links resolve per
-consuming page's locale, §6a).
-`month_name` in group params is computed at route build, locale-free —
-localizing it belongs to the locale-parallel-views work. The search
-overlay's strings live in `/search.js` (client-side, engine asset) —
-pending until search itself is locale-aware. `site.title` is not yet a
-`LocalizedStr` (the shell renders one site title). **Locale-parallel views: built, and DEFAULT-ON** (forced when Matt asked
-where a French note's tag pill should lead; flipped to opt-out on his
-call — "the default locale sits above the selector, so /atom.xml and
-/fr/atom.xml both fall out"). Every materializing **row-query** view —
-grouped archives, paginated and plain listings, members-backed shells
-like the feed — partitions per declared locale: that locale's rows, the
-locale-prefixed route (default locale unprefixed), title/crumb/trail
-resolved at the route's locale (the route carries `locale`, and
-`listing_title_and_trail` reads it — the seam marked earlier, used on
-schedule). A locale with no rows materializes **nothing**: the partition
-is real, not mirrored — the example gets `/fr/blog/` ("Carnet"),
-`/fr/atom.xml` (its own self-link, French entries only),
-`/fr/blog/tags/meta/` and `/fr/courses/dinner/`, but no `/fr/books/`
-(no French books) and no `/fr/photos/`. Opt-out is
-`locales = "default"`; `"*"` states the default explicitly. Exempt by
-design: **star views** never multiply (they query the finished route set
-and filter on `locale` — one sitemap spans all locales), **object
-views** carry no locale (declaring `locales` there is an error), and
-**embedded views** follow their embedding page (pending). Per-locale
-pagination totals count within their locale; the pagination producer's
-q32-hardcoded routes gained the locale prefix. A monolingual site
-declares no locales and the default is a proven no-op (byte oracle).
-Also noticed: `pretty_date` is locale-free — "10 January 2026" on a
-French page; localized date formatting is pending, probably as an
-engine-strings-adjacent month-name table. Localized group *keys* (a French
-course name) are q40-adjacent. `{% post_url %}` targets the physical
-name, so a French body can cite `…hello-field-notes.fr`. The markers
-walk uses physical paths — irrelevant for suffix, a known caveat for the
-prefix selector, which is built and tested but not yet exercised by a
-corpus.
+### Honest edges, named now
+
+- **A localized post's trail is complete**: `Accueil(→ /fr/) › Carnet(→
+  /fr/blog/) › 10 January 2026`. "Home" is **existence-checked** — it links the
+  locale's own homepage when a translated index exists (`index.fr.html` →
+  `/fr/`), else the site root. The inert date tail shows the whole date when
+  the collection declares no archive chain.
+- **Localized tree pages walk URL ancestors**, and the duplicate home crumb on
+  `/fr/…` URLs is **cured** (§5h: `ancestors()` skips locale-prefix homes;
+  Home is the trail root's job). A section crumb appears in French exactly when
+  the section's landing has a French variant. The collection no longer names
+  its own index (q46), so the French crumb is *found* by climbing to `/fr/blog/`
+  rather than built by prefixing a configured URL.
+- **`.slots/` fills localize by the same suffix convention** (`nav.fr.md`
+  beside `nav.md`), and their view links resolve per consuming page's locale.
+- **Locale-parallel views are built and DEFAULT-ON.** Every materializing
+  row-query view — grouped archives, paginated and plain listings,
+  members-backed shells like the feed — partitions per declared locale: that
+  locale's rows, the locale-prefixed route (default locale unprefixed),
+  title/crumb/trail resolved at the route's locale. **A locale with no rows
+  materializes nothing**: the partition is real, not mirrored — the example
+  gets `/fr/blog/` ("Carnet"), `/fr/atom.xml` (French entries only),
+  `/fr/blog/tags/meta/` and `/fr/courses/dinner/`, but no `/fr/books/` and no
+  `/fr/photos/`. Opt-out is `locales = "default"`. Exempt by design: **star
+  views** never multiply (they query the finished route set and filter on
+  `locale` — one sitemap spans all locales), **object views** carry no locale
+  (declaring `locales` there is an error), and **embedded views** follow their
+  embedding page (pending).
+- **Still locale-free, and known**: `month_name` in group params (computed at
+  route build), `pretty_date` ("10 January 2026" on a French page), the search
+  overlay's strings (client-side, in `/search.js`, pending search being
+  locale-aware), and `site.title` (not yet a `LocalizedStr`). Localized group
+  *keys* are q40-adjacent.
+- The markers walk uses **physical** paths — irrelevant for the suffix
+  selector, a known caveat for the prefix selector, which is built and tested
+  but not yet exercised by a corpus.
 
 ## 7. Clients of the database
 
@@ -4025,50 +3442,33 @@ missed. (One true triviality fell out: matklad's per-post "fix typo"
 GitHub link wants the row's repo-relative source path as a document fact —
 storage is literally git, the fact is free.)
 
-### The gap clusters, ranked (→ new open questions)
+### The gap clusters, and the questions they opened
 
-1. **The link graph** (→ q38). Digital gardens live on backlinks
-   (andymatuschak, maggieappleton, gwern) and the model's only
-   cross-page signal is embedding similarity. But the shape is already
-   built: scan bodies for internal links at load, invert, and backlinks
-   are one more **relations axis** — the §6b axes design absorbing its
-   first non-temporal, non-similarity member. Transclusion ("render row
-   X inline here") is the harder half.
-2. **Set-scoped computed fields** (→ q39). Meal plans rolling up
-   ingredients across referenced recipes, subtree photo/day counts
-   (paulstamatiou), calendar widgets with per-day counts, term indexes
-   (diataxis): all *aggregation over a view's members*, where §5f fields
-   are row-scoped. The expression language wants `count()`/`sum(field)`
-   over member sets.
-3. **Structured record fields** (→ q40). Ingredient lists with
-   qty/unit/name/cost, podcast chapters with time+label, schema.org
-   Recipe emission: `.schema.toml` stops at scalar-and-list; a
-   list-of-records type feeds all three.
-4. **i18n** (→ q41). docs.astro (locale-prefixed parallel trees) and
-   solar.lowtechmagazine (12 languages with cross-links): no
-   translation axis exists on rows. The one classic SSG feature the
-   model simply lacks.
-5. **Client-side faceted filtering** (→ q42). Recipe sites and gardens
-   combine facets at request time (diet × cuisine × season); declared
-   views can't enumerate the combinations. The architecture already
-   exists in miniature: ship a facet index the way `/search.bin` ships
-   tf-idf, filter in the client — a *client-side view*.
-6. **Media beyond image** (→ q43). Audio/video field types (sive.rs's
-   250 interviews, two podcast sites), RSS enclosures, srcset/multi-
-   format renditions (fasterthanli.me), externally-hosted originals
-   (macwright's CDN): the §6b image pipeline generalized.
-7. **Per-row scoped assets** — ciechanowski's per-article JS/CSS pairs
-   are §5b's unbuilt `.style.scss` leg plus its obvious script sibling;
-   already specced in shape. The *interactive-widget* half of
-   ciechanowski (stateful WebGL islands as the site's identity) stays
-   honestly out: raw HTML passthrough + per-row assets carries the
-   delivery, the engine never models the widget.
-8. **External/live data** — trending ranks, HN counts, live solar
-   charge: not expressible from a git tree, and the honest answer is an
-   ETL that *writes* git-tracked data before build (order_by then works
-   on it). Kottke's "vintage post today" is the benign case: a
-   date-seeded deterministic pick is fine for a daily build. Noted, not
-   questioned — the model's answer is "commit the data".
+The survey's job was to generate questions, not to track them. **§11 owns their
+status; this table owns the evidence** — which real sites drove each gap, which
+is the one thing that never goes stale. (An earlier version of this section
+restated each design and its state, and had gone stale on two of them within
+the month: exactly the shadow-copy disease §9b names.)
+
+| gap | driven by | carried in |
+|---|---|---|
+| **The link graph** — backlinks, then transclusion | andymatuschak, maggieappleton, gwern | q38 (backlinks built as a relations axis; transclusion is the harder half) |
+| **Set-scoped computed fields** — aggregation over a view's members, where §5f fields are row-scoped | meal-plan rollups, paulstamatiou's subtree counts, diataxis term indexes | q39 |
+| **Structured record fields** — a list-of-records type, plus schema.org emission | ingredient lists, podcast chapters, cast lists | q40 |
+| **i18n** — a translation axis on rows | docs.astro, solar.lowtechmagazine (12 languages) | **§6f — built.** The one classic SSG feature the model lacked outright |
+| **Client-side faceted filtering** — combinable facets can't be enumerated as static views | recipe sites, digital gardens (diet × cuisine × season) | q42 |
+| **Media beyond image** — audio/video field types, RSS enclosures, srcset renditions, externally-hosted originals | sive.rs's 250 interviews, two podcast sites, fasterthanli.me, macwright's CDN | q43 |
+| **Per-row scoped assets** — §5b's unbuilt `.style.scss` leg plus its script sibling | ciechanowski's per-article JS/CSS pairs | §5b |
+
+Two of these resolve without becoming questions. The *interactive-widget* half
+of ciechanowski (stateful WebGL islands as the site's identity) stays honestly
+out: raw HTML passthrough plus per-row assets carries the delivery, and the
+engine never models the widget. And **external/live data** — trending ranks, HN
+counts, live solar charge — is not expressible from a git tree; the honest
+answer is an ETL that *writes* git-tracked data before the build, after which
+`order_by` works on it normally. Kottke's "vintage post today" is the benign
+case: a date-seeded deterministic pick is fine for a daily build. The model's
+answer is "commit the data".
 
 ### The confirmed non-goal, sized
 
@@ -4140,262 +3540,128 @@ row has no route (§5h), a translated row has two (§6f), and a view route
 has 66 members and no row at all.
 
 Between the two trees is a **gutter** that draws the current selection's
-correspondence: an arrowhead into each side and a line joining them, one
-per pair (a row and its route; a view route and each of its members).
-Two states make it useful rather than decorative. A target scrolled out
-of its pane turns its head **up or down** — the arrow stops meaning
-"over there" and starts meaning "scroll". A target inside a *collapsed*
-branch has no element at all, so the connector points at the nearest
-rendered ancestor and goes dashed: it names the folder to open instead
-of pointing at nothing.
+correspondence: an arrowhead into each side and a line joining them, one per
+pair. Two states make it useful rather than decorative — a target scrolled out
+of its pane turns its head **up or down** (the arrow stops meaning "over there"
+and starts meaning "scroll"), and a target inside a *collapsed* branch has no
+element at all, so the connector points at the nearest rendered ancestor and
+goes dashed: it names the folder to open instead of pointing at nothing.
 
-**A node can be both a route and a parent.** `/blog/` is `blog_index`'s
-own route *and* the ancestor of every archive beneath it, and the first
-cut conflated "has children" with "is a folder" — which made every
-landing, the most interesting routes on the site, impossible to select.
-The twisty owns expansion, the label owns selection, and a route node
-wears its view's name so a view page is distinguishable from a page
-page at a glance.
-
-Two things it taught, immediately. Route order is **lexical** —
-`db.routes.sort_by(url)` for determinism — which is right for the
-sitemap and wrong for reading: `/blog/page/10/` sorts before
-`/blog/page/2/`. Archives escape it only because `{month:02}` is
-zero-padded, and pagination shouldn't be, so the client owns display
-order (a numeric-aware comparator) and the engine keeps its
-determinism. And the assets are `include_bytes!`-embedded, so editing
-the inspector needs a rebuild before a restart shows it — right for
-shipping a single binary, a papercut for developing the tool itself.
+Two things it taught immediately. **A node can be both a route and a parent** —
+`/blog/` is `blog_index`'s own route *and* the ancestor of every archive
+beneath it, and the first cut conflated "has children" with "is a folder",
+which made every landing impossible to select. The twisty owns expansion, the
+label owns selection. And **route order is lexical** (`sort_by(url)`, for
+determinism), which is right for the sitemap and wrong for reading:
+`/blog/page/10/` sorts before `/blog/page/2/`. The client owns display order
+with a numeric-aware comparator; the engine keeps its determinism.
 
 ## 8. Known-inexact from day one (accepted, iterate later)
 
 | Area | Why | Plan |
 |---|---|---|
-| Code highlighting spans | Rouge ≠ syntect token boundaries/classes | 🟡 **half done.** Wrapper divs + inline-code classes emitted via the AST pass (§9a) — rouge-cause diffs 45 → 1. Still missing: Rouge's pygments token spans (`<span class="c1">`) for the ~12% of blocks with a real language. Under-measured: 4 of 6 highlighted posts are liquid-skipped (§8c) |
+| Code highlighting spans | Rouge ≠ syntect token boundaries/classes | 🟡 **half done.** Wrapper divs + inline-code classes emitted via the AST pass (§9a) — rouge-cause diffs 45 → 1. Still missing: Rouge's pygments token spans (`<span class="c1">`) for the ~12% of blocks with a real language. Under-measured: 4 of 6 highlighted posts are liquid-skipped (§8a) |
 | kramdown edge syntax | IALs `{:.x}`, `markdown="1"`, footnote markup | comrak `smart` + extensions first; triage real diffs per-post; hand-normalize stubborn 20-year-old posts. **`markdown="1"` found in the wild** (2 posts, the callout boxes): comrak drops the `<div>` into a `<p>` and the box collapses; one post hand-normalised, the other left raw as the widget's test fixture, because `{% callout %}` widgets (§5d, open q29) are the real fix — they retire the raw-HTML idiom entirely |
 | Related posts | LSI is unreproducible *and* unwanted | **Superseded** (§6b): embeddings replace it outright. Deliberately not equivalent — this is an improvement, and `diff` can't judge relatedness anyway |
-| Feed body HTML | `feed_images`/`expand_urls` operate on rendered HTML | ✅ **done** (regex port, §render). `expand_urls` makes root-relative `href`/`src` absolute; `feed_images` injects `align`/`width` on float images — both byte-verified against the reference. `<content>` bodies still carry the markdown gap (§8c), feed-only, low stakes |
+| Feed body HTML | `feed_images`/`expand_urls` operate on rendered HTML | ✅ **done** (regex port, §render). `expand_urls` makes root-relative `href`/`src` absolute; `feed_images` injects `align`/`width` on float images — both byte-verified against the reference. `<content>` bodies still carry the markdown gap (§8a), feed-only, low stakes |
 
-## 8a. The markdown gap, measured (phase 2a)
+## 8a. The markdown gap, and what measuring it taught
 
-> ⚠️ **Superseded by §8c.** The 90.7% below was measured against a reference
-> built with syntax highlighting *disabled*, five days before the config turned
-> Rouge on. It was two builds agreeing by accident, not accuracy. The honest
-> number against a rebuilt reference is **90.0%** — the same figure, arrived at
-> legitimately, after implementing the Rouge shapes the stale reference had
-> hidden the need for. **The method below is sound and worth reading; the
-> headline is not.**
+The kramdown→comrak gap was the one risk that could sink the port. It is a
+number: **90.0% usable**, 92.2% if smartypants is matched, and the residue is
+**parser-side**.
 
-The kramdown→comrak gap was the one risk that could sink the port. It is now a
-number rather than a worry.
+**Method.** Posts that are both liquid-free *and* untouched since the reference
+build (a naive comparison would have measured content drift and blamed
+comrak). comrak configured to kramdown's defaults: `auto_ids`, smartypants,
+tables, strikethrough, footnotes, description lists, raw HTML passthrough.
+Normalisation folds only invisible differences: whitespace, entity spellings,
+self-closing style. Of 230 posts: 20 identical, 187 equivalent, 23 differ.
 
-**Method.** 225 posts that are both liquid-free *and* untouched since the
-reference build (`git log --since` — the June 27 commit rewrote titles and
-descriptions, so a naive comparison would have measured content drift and
-blamed comrak). comrak configured to kramdown's defaults: `auto_ids`,
-smartypants, tables, strikethrough, footnotes, description lists, raw HTML
-passthrough. Normalisation folds only invisible differences: whitespace,
-entity spellings, self-closing style.
+The residue is `10 inline/prose · 5 list · 4 link · 3 table · 1 code block`,
+and spot-checking says every one is **parse**-stage:
 
-| verdict | n | |
-|---|---|---|
-| Identical | 19 | byte-identical |
-| Equivalent | 185 | after normalisation |
-| **Differs** | **21** | 9.3% |
-| | **204 / 225** | **90.7% usable** |
+- `Windows ‘95` vs `’95` — kramdown renders a decade abbreviation with an
+  *opening* quote, comrak with an apostrophe. comrak is typographically right
+  (`'95` is an elision) but kramdown is the target, and a corpus that opens in
+  1998 says "Windows ‘95" a lot. Fixable in an AST/text pass.
+- `<li>text</li>` vs `<li><p>text</p></li>` — kramdown decides looseness **per
+  item**, CommonMark per **list**. A dialect difference.
+- Raw HTML in prose: a literal `<solution>` written as text is auto-closed by
+  kramdown, left open by comrak.
 
-**Of the 21, five differ *only* in curly-quote choice** → 92.9% once that is
-handled. The two systematic causes:
+**Zero heading, zero footnote, zero image diffs** — the four node types we have
+opinions about are not where we lose. The 90/92% ceiling is a *parser*
+ceiling, which is what decides the renderer question (§9a): if we ever chase
+it, we fork comrak's parser, not its formatter.
 
-1. **Decade abbreviations.** kramdown renders `'95` with an *opening* quote
-   (`‘95`); comrak with an apostrophe (`’95`). comrak is typographically
-   right — `'95` is an elision — but kramdown is the target, and a corpus that
-   opens in 1998 says "Windows ‘95" a lot. Fixable in an AST/text pass.
-2. **Raw HTML in prose.** A literal `<solution>` written as text: kramdown
-   auto-closes it (`<solution></solution>`), comrak leaves it open.
-
-**Read:** the gap is a handful of characterisable patterns, not 225 unique
-problems — "fix a few things", not "the last 1% costs more than the first 99%".
-§8's plan stands, and the pessimistic option (keep kramdown behind a Ruby
-shim) is not needed.
-
-**Two harness bugs worth remembering**, both of which made the first run report
-a meaningless 100% differ:
-
-- `extract_body` searched from `<article>` to end-of-file and took the *last*
-  `</section>` — which belongs to the outer `<section class="content">`, so it
-  swallowed the whole page. The unit test passed only because the test itself
-  pre-sliced the input to `</article>`: **a test that hid the bug it was meant
-  to catch.** It now feeds the real page shape.
-- The reference layout appended `<a class="fullpost">` *inside* the body
-  section. Layout chrome, never markdown output — counting it as a markdown
-  difference is a category error.
-
-Both were found by looking at an actual delta rather than trusting the tally.
-A 100%-fail result is a harness bug until proven otherwise.
-
-## 8b. What the first render pass found
-
-**`_site-prod` is a pre-redesign artifact and is useless as a *visual*
-reference.** It renders the old design entirely — `grack.com` top-left, a
-sidebar, a narrow column. The layouts *and* the CSS changed this month. It
-remains valid for the §8a body diff (markdown→HTML is layout-independent, and
-the 225-post set was filtered to untouched files), but any visual or chrome
-comparison must go against the **live site**.
-
-**`{% post_url %}` takes `dir/stem`, not a bare stem.** All 51 uses are
-`2009/2009-07-28-a-quieter-window-name-transport-for-ie` — because posts live
-in year subdirectories. `by_name` is keyed on the collection-relative path
-minus extension (§3). Caught immediately: the first build failed with a
-dangling-reference error naming the file, which is the §4 constraint
-philosophy working.
-
-**`grass` rejects a nested `@import` that libsass accepts.** `_sass/_post.scss:240`
-has `pre > code { @import "rouge"; }` — scoping Rouge's syntax classes by
-nesting. libsass (what Jekyll uses) allows it; grass errors with "this at-rule
-is not allowed here". The site is legal input that grass will not take. Fixed
-by resolving `@import` textually before handing grass the flattened source, so
-the site's sass is untouched. grass's "dart-sass-compatible" reputation
-needs this caveat.
-
-**grass and sassc agree.** 2232 selectors vs the live build's 2231 — a
-one-rule formatting difference, not a semantic one.
-
-**The document margin has no `<time>`.** On a full post the date is carried by
-the breadcrumb trail (`… > 2022 December > 16`); `post-date` belongs to the
-*summary* layout only. Adding one was a real diff against live, found by
-diffing markup rather than by looking at the page.
-
-**"Skip pages containing liquid" was the wrong test — expand first, then
-decide.** 18 pages were skipped on a bare `contains("{%")` check. Measured, 17
-of them use *only* `{% image %}` (72), `{{ site.baseurl }}` (9) and
-`{% post_url %}` (5) — all already handled. Expanding first and skipping only
-on a *surviving* unknown construct took it to **1**. The output now contains
-zero unexpanded liquid.
-
-Only `/` genuinely needs more: `assign`/`for`/`if`/`unless`/`include` plus a
-`| plus:` filter, to render "latest 3 posts". Note what that block *is* — a
-query over posts (limit 3, `!hidden && !draft`), re-derived in a template
-exactly like the three listings were (§5a). It is a **view** wanting to be
-embedded in a `raw` page, not a reason to implement liquid.
-
-**`document` needs two shapes, and the theme is why.** Pages are not posts
-structurally: the theme styles `.post:not(.post-summary)` as a two-column
-margin layout, and `.page` as a single column with breadcrumbs *above* the
-article and no `post-full` wrapper at all. Reusing the post shape made the page
-header 800px against live's 640. §5a claimed one `document` kind because the
-*relations* unify (date→neighbours, tree→ancestors); the structure does not,
-unless the theme changes too. Recorded as a real tension rather than papered
-over.
-
-**The theme has no dark mode.** Zero `prefers-color-scheme` rules, and
-`html`/`body` set no background, so the page relies on the browser's default
-canvas while `.post-header` is explicitly white. In a dark viewport that
-becomes a white band on a dark page with black text. It affects the live site
-identically — this is a property of the theme, not of grackle — but it is
-worth knowing.
-
-### Chrome gaps still open (unmeasured by construction)
-
-`diff` compares post **bodies**, so none of this is caught by any number we
-quote. §5a said chrome parity was not required — but "not required" and "not
-noticed" have quietly become the same thing. Against `_layouts/default.html`,
-`render::default_shell` is missing:
-
-- the **footer About block** (`{% if page.hide_sidebar != true %}`): profile
-  image + `{% include social.html %}`. So social links are absent site-wide
-  except on `/`, which renders them inline.
-- the **search nav item** (`<h2 class="smaller">` → swiftype launcher).
-- `{{ site.time | date: '%y' }}` in the copyright — we hardcode 2026.
-- the swiftype `<meta>` and several `apple-touch-icon` sizes.
-
-`hide_sidebar: true` in `/`'s front matter is consequently inert: it exists to
-stop the footer About duplicating `/`'s own Connect block, and we render
-neither. It is a schema fact (§5d) with nothing to gate yet.
-
-## 8c. The reference build lied by 17 points
+### The reference build lied by 17 points
 
 The single most important measurement lesson of the project, and it very nearly
-went unnoticed.
-
-§8a's headline — **90.7% usable** — was an artifact. `_site-prod` was built
-June 2. Five days later:
+went unnoticed. The original headline was **90.7%**, measured against a
+`_site-prod` built five days before the config turned Rouge on:
 
 ```
 6437c22  2026-06-05  Code formatting
 -  syntax_highlighter: nil
 +  syntax_highlighter: rouge
-+  syntax_highlighter_opts:
-+    default_lang: text
 ```
 
-The reference was built with **highlighting switched off**. It emitted bare
-`<pre><code>` — which is exactly what our comrak emitted. We were not close; we
-were two builds agreeing because both had Rouge disabled. Rebuilding the
-reference against the *current* config:
-
-| | stale (Jun 2) | fresh | + rouge pass |
-|---|---|---|---|
-| usable | **90.0%** | **72.6%** | **90.0%** |
-| rouge-cause diffs | — | 45 | **1** |
-
-Our output never changed. Only the yardstick did. And the final 90.0% landing on
-the original 90.0% is a **coincidence** — the first was luck, the second is
-earned.
+The reference had highlighting **switched off**. It emitted bare
+`<pre><code>` — exactly what our comrak emitted. We were not close; we were two
+builds agreeing because both had Rouge disabled. Rebuilt against the *current*
+config, "usable" fell to **72.6%** with 45 rouge-cause diffs; implementing the
+Rouge shapes took it back to 90.0% with 1. Our output never changed. Only the
+yardstick did — and the final 90.0% landing on the original 90.0% is a
+coincidence: the first was luck, the second is earned.
 
 **The rules this buys:**
 
-1. **A reference build is an input, and inputs have versions.** It must be
-   rebuilt from the *current* config before any number derived from it is
-   quoted, or the number is about a site that no longer exists.
-2. **Agreement is not evidence unless it can disagree.** Both the 90.7% and the
+1. **A reference build is an input, and inputs have versions.** Rebuild it from
+   the *current* config before quoting any number derived from it, or the
+   number is about a site that no longer exists.
+2. **Agreement is not evidence unless it can disagree.** Both this and the
    later `latest` check (§5c) matched for reasons unrelated to correctness. A
    test that cannot fail is not measuring.
-3. **`classify_cause` over-attributes.** It is a ±window keyword heuristic:
-   `identd` was filed under "link" when the actual delta was `‘95` vs `’95`,
-   because a link happened to be nearby. Read deltas, not tallies.
-4. **`_site-prod` can no longer be regenerated** (§5c): `{% view %}` is not
-   Liquid, so Jekyll fails the whole build. `git stash push index.html` first.
-   Given the above, this is a real cost, not a footnote.
+3. **Read deltas, not tallies.** `classify_cause` is a ±window keyword
+   heuristic and over-attributes: `identd` was filed under "link" when the
+   actual delta was `‘95` vs `’95`, because a link happened to be nearby.
+4. **A 100%-fail result is a harness bug until proven otherwise.** The first
+   run reported a meaningless 100% differ, twice over: `extract_body` took the
+   *last* `</section>` and swallowed the whole page — and its unit test passed
+   only because the test pre-sliced its input, *a test that hid the bug it was
+   meant to catch*. The other half counted the layout's `<a class="fullpost">`
+   as a markdown difference, which is a category error.
 
-### The gap is parser-side, and that decides the renderer question
+### The 97-post blind spot *(open — q21)*
 
-With the reference honest, the residue is:
+`diff` skips 97 of 327 posts as "body contains liquid", and many are **false
+positives**: `{{ github.event.issue.number }}` in the bluetooth posts is a
+GitHub Actions expression inside a code sample. So 30% of the corpus is
+unmeasured and the 90% is computed over an unrepresentative 230. The same blind
+spot hides the highlighting gap: only 6 posts use real-language fences and 4 of
+them are liquid-skipped, so "1 remaining rouge diff" is 1 of 2 compared, not 1
+of 6.
 
-```
-    10  inline / prose      5  list      4  link      3  table      1  code block
-```
+Related and still true: **`_site-prod` can no longer be regenerated** (§5c) —
+`{% view %}` is not Liquid, so Jekyll fails the whole build and refreshing the
+reference needs `git stash push index.html` first (q22). Losing the ability to
+refresh the reference is exactly the capability that caught the 17-point lie.
 
-Spot-checked, these are **parse**-stage, not render-stage:
+### Two SCSS findings worth keeping
 
-- `Windows ‘95` vs `’95` — smartypants, applied into Text nodes by
-  `o.parse.smart`. comrak is typographically *right* (the apostrophe elides
-  "19") and we want to match kramdown being wrong. No renderer touches this.
-- `<li>text</li>` vs `<li><p>text</p></li>` — kramdown decides looseness **per
-  item**, CommonMark per **list**, so comrak `<p>`-wraps all three items in a
-  list where kramdown wrapped one. A dialect difference.
-- At least one "differs" is not a bug at all: `deriving-a-bit-twiddling-hack` is
-  missing a whole *Thanks to…* paragraph in the **reference**, which is stale
-  relative to the post.
-
-**Zero heading, zero footnote, zero image diffs** — the four node types we have
-opinions about are not where we lose. The 90/92% ceiling is a *parser* ceiling.
-If we ever chase it, the fork is comrak's parser, not its formatter (→ §9a).
-
-### The 97-post blind spot
-
-`diff` skips 97 of 327 posts as "body contains liquid". Many are **false
-positives**: `{{ github.event.issue.number }}` and `{{ secrets.DEVICE_NAME }}`
-in the bluetooth posts are GitHub Actions expressions inside code samples, not
-Liquid. So 30% of the corpus is unmeasured, and the 90% is computed over an
-unrepresentative 230. Worth tightening the skip predicate before trusting the
-number further — and note this same blind spot hides the highlighting gap: only
-6 posts use real-language fences, and **4 of them are liquid-skipped**, so the
-"1 remaining rouge diff" is 1 of 2 compared, not 1 of 6.
+- **`grass` rejects a nested `@import` that libsass accepts.**
+  `_sass/_post.scss` has `pre > code { @import "rouge"; }`; grass errors with
+  "this at-rule is not allowed here". The site is legal input that grass will
+  not take. Fixed by resolving `@import` textually before handing grass the
+  flattened source, so the site's sass is untouched. grass's
+  "dart-sass-compatible" reputation needs this caveat.
+- **grass and sassc agree**: 2232 selectors against the live build's 2231 — a
+  one-rule formatting difference, not a semantic one.
 
 ## 9. Crate layout *(as built; the original sketch is in git history)*
 
-A cargo workspace of five members under `crates/`. The split is one
+A cargo workspace of six members under `crates/`. The split is one
 dependency direction, and Cargo is what enforces it: **`grackle-db` depends
 on nothing in the workspace.**
 
@@ -4472,10 +3738,10 @@ Adjacency is the exception and says so: `neighbors_in` reads *position in a
 sequence*, so "later post" is the entry before, and its default stays
 newest-first.
 
-~12k lines across the workspace. The sketch this replaced imagined
-`store/watch/snapshot` and `db/{posts,tree,views}` submodule trees, a
-`render/liquid.rs`, and axum+SSE serving; reality is five crates, liquid
-never happened (§5d), and serve is raw hyper with polling (§7).
+~17.5k lines across the workspace, ~216 tests. The sketch this replaced
+imagined `store/watch/snapshot` and `db/{posts,tree,views}` submodule trees, a
+`render/liquid.rs`, and axum+SSE serving; reality is six crates, liquid never
+happened (§5d), and serve is raw hyper with polling (§7).
 
 ## 9a. Dependencies: the inventory is `Cargo.toml`, this doc keeps decisions
 
@@ -4515,7 +3781,7 @@ here only when the decision itself is interesting.
 The tempting conclusion from §6d (footnotes) and §8 (Rouge shapes) is to own the
 formatter. The measurements say no.
 
-**The fidelity argument fails.** §8c: the residual gap is parse-stage —
+**The fidelity argument fails.** §8a: the residual gap is parse-stage —
 smartypants, tight-vs-loose lists, kramdown table syntax — with **zero heading,
 footnote, or image diffs**. A renderer moves it by approximately nothing. The
 90/92% ceiling is a parser ceiling; if we ever chase it, we fork the *parser*.
@@ -4599,70 +3865,41 @@ reinterpret what it would first have to type-check.
 ### The one recurring disease
 
 §5c named it: *the config declared `where`/`group_by`/`paginate` and the
-renderer ignored all of it*. That was cured for row membership (`members`).
-The same disease survives in four smaller pockets — each is the renderer
-(or a producer) re-deriving something config already owns:
+renderer ignored all of it*. That was cured for row membership (`members`), and
+three more pockets have since closed — producers hardcoding routes config owns
+(q32), the feed pass selecting its view by `template == "atom.xml"` (cured by
+shells), and the sitemap predicate being evaluated three separate times (star
+routes carry `route_members` now, resolved once, *after* the route sort — which
+is where the real bug was: `sitemap` counted against a route list that did not
+yet contain its own route).
 
-1. ~~Producers hardcode routes config owns~~ (→ q32) — **cured
-   (2026-07)**: pagination takes URLs rendered from the owning view's
-   `paths` templates, and tag pills render `Config::tag_url` from the
-   declared-or-unique tags view's template (no tags view = unlinked
-   pills). The i18n work is what finally forced it: the hardcodes had
-   grown locale prefixes in two places before the cure.
-2. **`build.rs` holds policy keyed on view names** (→ q33). ~~Three~~
-   ~~Two~~ **One** spot remains: `view != "blog_index"` decides which
-   listings get `noindex`. (The feed pass selecting its view by
-   `template == "atom.xml"` was cured by shells, §5g. The layout
-   fallback `"blog_index" => Some("blog_index")` was cured 2026-07-21:
-   the render passes dispatch on `layout` now, so grack.com's blog index
-   declares `layout = "listing"` instead of the engine knowing its name
-   — see below.) `noindex` wants to be a view attribute (a schema fact
-   like every other).
-3. ~~**The sitemap predicate evaluates twice**~~ — **cured (2026-07-21)**,
-   and it was three times, not two: `build_star_views` parsed it to count,
-   `build.rs` re-parsed it for the sitemap and again for the search index.
-   Star routes carry `route_members` now, resolved once. Resolution moved
-   *after* the route sort, which is where the real bug was — views resolve
-   in name order, so `sitemap` counted against a route list that did not
-   yet contain its own route or any later view's. It agreed with what got
-   built only because both filters exclude `.bin` and `.xml` by extension.
+Two pockets remain, each the renderer re-deriving something config owns:
 
-   `route_members` is a separate field from `members` deliberately: the
-   latter indexes the ROW store, the former the ROUTE store, and a caller
-   cannot tell which from the field alone. The first attempt overloaded
-   one field and a test caught it by panicking.
-4. **Three definitions of "not content"** (→ q34). §4c legislated the
-   three layers (gitignore + dot/underscore skip + `exclude`) — for the
-   tree walk. But `slots.rs` carries a private `SKIP` list duplicating
-   half of `grackle.toml`'s `exclude`, and `serve.rs::is_content` carries
-   a third. Add an exclude to config today and the watcher still rebuilds
-   on it and the slots walk still descends it. Both walks should derive
-   from the §4c layers.
+1. **`build.rs` holds policy keyed on a view name** (→ q33). One spot: `view !=
+   "blog_index"` decides which listings get `noindex`. It wants to be a view
+   attribute — a schema fact like every other.
+2. **Three definitions of "not content"** (→ q34). §4c legislated the three
+   layers for the tree walk, but `slots.rs` carries a private `SKIP` list
+   duplicating half of `grackle.toml`'s `exclude`, and `serve.rs::is_content`
+   carries a third. Add an exclude to config today and the watcher still
+   rebuilds on it and the slots walk still descends it.
 
-None of these is urgent — every one is invisible until a config value
-changes out from under its shadow copy — but that is also the §5c lesson:
-the drift is only ever invisible *until* it isn't.
+Neither is urgent — both are invisible until a config value changes out from
+under its shadow copy. But that is also the §5c lesson: the drift is only ever
+invisible *until* it isn't.
 
 ### Accepted asymmetries, named so they don't read as leaks
 
-- ~~`if q.base != "blog"` in `views.rs`~~ — **dead (2026-07)**: object views
-  forced kind-based dispatch, and the example site's posts collection is
-  named `notes` to keep it dead.
-- ~~`post_trail` hardcodes `"blog"`~~ — **generalized (2026-07)**: the posts
-  collection is found by kind. Still single-posts-table; a second posts
-  collection remains future work.
-- ~~`themes/default` hardcoded~~ — **dissolved (2026-07)**: `themes/*` is a
-  registry, theme is per row (`theme:` front matter or rule default), each
-  theme compiles its own stylesheet, and a site with no themes directory
-  is the null theme. What remains: `default` as the conventional default
-  name, and search assets living in the default theme.
-- The CLI's `query search` indexes raw markdown where build indexes
-  rendered HTML — documented at `search_docs`; a deliberately cheap smoke
-  query, not an inconsistency to fix.
-- `render.rs` has become "head facts + escaping + XML serializations" —
-  its doc admits it. If stage B touches the feed anyway, the
-  serializations can move out; renaming for its own sake isn't worth a
-  commit.
+- The CLI's `query search` indexes raw markdown where build indexes rendered
+  HTML — documented at `search_docs`; a deliberately cheap smoke query, not an
+  inconsistency to fix.
+- `render.rs` has become "head facts + escaping + XML serializations" — its doc
+  admits it. If stage B touches the feed anyway, the serializations can move
+  out; renaming for its own sake isn't worth a commit.
+- `post_trail` is still single-posts-table; a second posts collection remains
+  future work.
+- `default` survives as the conventional theme name, and search assets live in
+  the default theme.
 
 ### Round 2 *(2026-07-18, after landings, records, links and i18n)*
 
@@ -4708,53 +3945,39 @@ the search view's one `stem != "index"` dies when home and manual lift.
 
 ### Round 3 *(2026-07-21, after the crate split)*
 
-The engine became five crates (§9), and the split was itself the audit: a
+The engine became a workspace (§9), and the split was itself the audit: a
 boundary you have to declare to Cargo is one you cannot half-hold. Four
-things it found, none of which a re-read had:
+durable lessons, none of which a re-read had produced:
 
-1. **`config` validation called into `db`.** It looked like a cycle to
-   break; it was a layering error. Once `db` sat *below* config rather than
-   beside it, the call became legal and the "prerequisite refactor"
-   evaporated. The lesson is the same one §5c keeps teaching in another
-   key: an awkward dependency is usually a mislabelled layer.
+1. **An awkward dependency is usually a mislabelled layer.** `config`
+   validation calling into `db` looked like a cycle to break; once `db` sat
+   *below* config rather than beside it, the call became legal and the
+   "prerequisite refactor" evaporated.
+2. **`pub` in a library crate silences dead-code detection.** Anything
+   genuinely internal to a crate should stay private or it rots invisibly —
+   which is why `index`'s primitives are private and only `Table` reaches them.
+3. **A declared-and-ignored key is invisible until you delete it.** grack.com
+   named three layouts that matched no fragment; the theme fell back to
+   canonical rendering and the render pass discarded the name anyway. Two views
+   both declaring `layout = "listing"` rendered structurally different HTML.
+   Swapping all three for `listing` changed not one byte, which is how they
+   were found. Cured: the passes dispatch on `layout` against a closed
+   vocabulary, and an unknown one is a load error.
+4. **A test fixture is not identity.** Six fixture helpers had never set `rel`,
+   so a table holding four fixture rows held *one*. A keyed store makes
+   identity something fixtures have to MEAN, not something they inherit from
+   being in a `Vec`.
 
-2. **`pub` in a library crate silences dead-code detection.** `Schemas::
-   is_empty` was flagged unused before the split and went quiet after it.
-   Anything genuinely internal to a crate should stay private or it rots
-   invisibly — which is why `index`'s primitives are private and only
-   `Table` reaches them.
+### Since, and what is left *(2026-07-21)*
 
-3. **`layout` was declared and ignored.** grack.com named three layouts
-   (`tag_index`, `yearly_archive`, `monthly_archive`) that matched no
-   fragment; the theme fell back to canonical rendering and the render pass
-   discarded the name anyway, choosing by the base collection's KIND
-   instead. Two views both declaring `layout = "listing"` rendered
-   structurally different HTML. Swapping all three for `listing` changed
-   not one byte, which is how they were found. Cured: the passes dispatch
-   on `layout`, and an unknown one is a load error against a closed
-   vocabulary.
-
-4. **A test fixture is not identity.** Keys made every row's identity its
-   path, and six fixture helpers had never set `rel` — so a table holding
-   four fixture rows held *one*. The failures were loud
-   (`["/blog/mar/", "/blog/mar/", "/blog/mar/"]`), but the general point is
-   worth keeping: a keyed store makes identity something fixtures have to
-   MEAN, not something they inherit from being in a `Vec`.
-
-### Since, and what is left *(2026-07-21, later the same day)*
-
-**The two row flows are one.** `build_views`' posts flow and
-`build_tree_view` are `build_row_view`. What made the merge possible was
-saying eligibility as a predicate: the tree flow filtered
-`rendered && !claimed` and the posts flow filtered neither, and both are
-no-ops on the posts side — every post is parsed, and only a tree row can be
-a view's claimed content (q45). Applied to both, they describe the eligible
-SET rather than which table it came from.
-
-`limit` landed in one place with it (the resolved set, not inside
-`rows_for`, so a grouped view is not limited globally), and pagination works
-for tree views, which had bailed `"not supported yet"` on no stronger
-grounds than never having been written.
+**The two row flows are one.** `build_views`' posts flow and `build_tree_view`
+are `build_row_view`. What made the merge possible was saying eligibility as a
+predicate: the tree flow filtered `rendered && !claimed` and the posts flow
+filtered neither, and both are no-ops on the posts side. Applied to both, they
+describe the eligible SET rather than which table it came from. `limit` landed
+in one place with it, and pagination started working for tree views, which had
+bailed `"not supported yet"` on no stronger grounds than never having been
+written.
 
 **The base table is a filter.** `post_ix` vs `page_ix` was the last place a
 view's table chose its code path; it is `collection == "posts" || collection
@@ -4788,26 +4011,23 @@ presentation policy.
   invisible to the tree walk by convention rather than config; six tracked
   underscore directories would need explicit excludes; and
   `filename_formats` is per-collection where it would have to be per-rule.
-- **The single tree** (§3's endgame: one table, views as partitions) has not
-  started. Measured obstacles: `store.rs` skips `.`/`_` names, so `_posts`
-  is invisible to the tree walk by convention rather than config; six
-  tracked underscore directories would need explicit excludes; and
-  `filename_formats` is per-collection where it would have to be per-rule.
 
 ## 10. Phasing (each phase has a checkable exit)
 
-| Phase | Deliverable | Exit criterion |
+Phases 0–4, 6 and 8 are **done**; 7 is at stage A; 5 is the open one.
+
+| Phase | Deliverable | State |
 |---|---|---|
-| 0 | FsStore + posts table + `query` | ✅ **done** — 327 rows; URL set matches the Jekyll sitemap exactly (325 shared + the 2 posts published after that sitemap was built); loads in **~3.5ms warm / ~11ms cold**, vs a 200ms budget. Snapshots/watcher deferred to phase 3, where they're actually exercised. |
-| 1 | route mapping: all tables routed, `export` (JSON), `routes` (tree) | ✅ **done** — 1559 routes across posts/pages/objects/views (1579 as of 2026-07-19: content has been added since, incl. `_drafts`); **every one of the 556 Jekyll sitemap URLs is routed** (0 missing); the 1003 extras are 983 assets jekyll-sitemap never lists + 16 routes explained by the reference build being stale. Loads in ~10ms. |
-| **2a** | markdown-gap spike + `diff` | ✅ **done — the port is viable.** ~~90.7%~~ → **90.0% against an honest reference** (§8c): the original figure was measured against a build with highlighting disabled and was luck, not accuracy. 230 posts: 20 identical, 187 equivalent, 23 differ; 92.2% if smartypants is matched. The residue is parser-side. **Caveat: 97 of 327 posts are skipped as "contains liquid", many falsely** (§8c). |
-| 2b | render pipeline: §5a layers end-to-end | 🟢 **renders** — 327 posts + 164 listings (with **pagination nav**, §5d) + **40/40 pages** + 1025 assets + **260 thumbnails** + **feed + sitemap** in **~0.4s warm** (Jekyll: ~38s). All layout kinds and both themes work; post and page chrome byte-identical to live; **zero skipped pages**. Remaining: highlighting token spans (accepted-inexact §8) and the chrome gaps below — both deferred into the §5e presentation rewrite. |
-| 3 | ~~feed~~ + ~~sitemap~~ + ~~scss~~ + ~~thumbnails~~ + ~~static passthrough~~ | 🟢 **substantially done.** `atom.xml` (20 newest; `expand_urls`/`feed_images`/CDATA transforms; entry set byte-identical to reference), `sitemap.xml` (573 URLs at the time, 589 as of 2026-07-19; byte-identical set, post-date lastmods; mtime noise dropped, §4a), scss (§8b), and **thumbnails**: 260 derived images (same count as the reference `_thumbs/`) in a content-addressed `_cache/thumbs/` published at `/static/{hash}.{ext}` (§6b) — 25.3 MB of sources → 9.0 MB shipped, cold build 2.5s / warm 0.4s. Remaining: `linklint`, and the `_thumbs`-filename-identity criterion is **superseded** by q12 (`/static/` by design). |
-| 4 | `serve`: resident db + live reload | 🟡 **v1 done** — raw `hyper` (no axum, no TLS), the `SiteDb` + rendered output held resident in memory, served with no output dir. A `notify` watcher **rebuilds the whole world** on any content change (~0.3s), bumping a version a poll-based injected script watches to reload the browser. Measured: edit → live reload in well under a second, verified both directions. `_cache/` is excluded from the watch so thumbnail writes don't self-trigger. **Deferred:** §2's incremental invalidation (rebuild only affected pages), SSE (polling suffices for one browser), and `explain`-shows-invalidations. |
-| 5 | exactness iteration | `diff` matrix: no visually meaningful "differs" |
-| **6** | §5e presentation synthesis | 🟡 **steps 1–3 done** — part maps (`parts.rs`, typed schemas, canonical order); the fragment binder (`binder.rs`, four-rule hole algebra, everything load-checked); **`themes/default/` is real**: shell + ten kind fragments + `theme.scss`, legacy composer deleted, `_sass` superseded. Verified as priced: **bodies by machine** (327/327 post content regions byte-identical across the cut), chrome by eye (posts/listings/pagination/tree/`/`, phone, light+dark). Dark mode = one `prefers-color-scheme` block. `.slots/` identity fills live (nav + copyright, block-arity rule exercised). Trails are §5c provenance walks — every archive level clickable. Also under the oracle en route: yearly archives (+16 routes), subdivision, `title`/`crumb` config templates. **Step 4 done**: `parts::canonical()` + fragment-lookup fallback — themes are partial by construction, a fragmentless theme IS the null theme; `PartType::Url` makes it navigable; the completeness falsifier runs over every real row on every `cargo test`. **§5e complete.** (Dark mode: proven as one CSS block, then removed — content assumes white; §5e step-3 notes.) |
-| **8** | §6b content intelligence: embeddings + search | ✅ **done** — embeddings (fastembed/MiniLM, `[related]` policy, relations-as-axes, stale-while-revalidate in serve; **LSI retired**) and TF-IDF search (`search-core` shared by build and browser via `search-wasm`; `/search.bin` 195 KB/22ms; lazy `/search.js`; **Swiftype retired**). The Jekyll build's last two external services are gone. |
-| **7** | content intelligence: §6d blocks | 🟡 **stage A done** — `render_doc` (one parse: whole + blocks), **the summary is a computed field** (`[sets.published.fields.summary] truncate = {…}` — a derived column inheriting along `from`, nearest wins; `Doc::truncate` is mechanism, the deriver validated at load; `hero`/`lede` (q23) are future derivers), `truncated` fact → `data-truncated` → ★ (q17 settled), nth-of-type CSS deleted, concat==whole pinned as a corpus test (footnote post the sole exception). **Measured: `/blog/` 160→15.7 KB; `/blog/tags/rust/` 180→11.3 KB (93.8%).** Post pages and feed byte-identical; the double render is gone. Stage B: notes stream + sidenotes (q18), the `lol_html` rewrite stage; also `{% callout %}` widgets landed (q29). |
+| 0 | FsStore + posts table + `query` | ✅ 327 rows, URL set matches the Jekyll sitemap exactly; loads in ~3.5ms warm against a 200ms budget |
+| 1 | route mapping, `export`, `routes` | ✅ ~1579 routes across posts/pages/objects/views; **every one of the 556 Jekyll sitemap URLs is routed**, 0 missing (the extras are assets jekyll-sitemap never lists) |
+| 2a | markdown-gap spike + `diff` | ✅ **the port is viable** — 90.0% against an honest reference, 92.2% if smartypants is matched; the residue is parser-side (§8a) |
+| 2b | render pipeline end to end | ✅ 327 posts + listings with pagination + 40/40 pages + 1025 assets + 260 thumbnails + feed + sitemap in **~0.4s warm** (Jekyll: ~38s). Zero skipped pages |
+| 3 | feed, sitemap, scss, thumbnails, passthrough | ✅ entry sets byte-identical to the reference; 25.3 MB of sources → 9.0 MB shipped. Remaining: `linklint` |
+| 4 | `serve`: resident db + live reload | 🟡 **v1** — raw hyper, resident render map, no output dir; a watcher rebuilds the world in ~0.3s and a polled script reloads the browser. Deferred: §2's incremental invalidation, SSE |
+| **5** | **exactness iteration** | **open** — `diff` matrix with no visually meaningful "differs" |
+| 6 | §5e presentation synthesis | ✅ complete — part maps, binder, real theme directory, canonical fallback, completeness falsifier on every `cargo test` |
+| 7 | §6d blocks | 🟡 **stage A** — one parse, summary as a computed field, `data-truncated`. Stage B: notes stream + sidenotes (q18) and the rewrite stage |
+| 8 | §6b embeddings + search | ✅ LSI and Swiftype both retired — the Jekyll build's last two external services |
 
 ## 11. Open questions (to iterate on)
 
@@ -4824,7 +4044,7 @@ never reused.
    mtime+size (fast, near-correct) vs mtime-then-hash pre-check (specced).
 4. **Highlighting fidelity** — *half-settled*: the wrapper/inline-code
    shape is done and exact (§9a); only the token spans remain (coarse
-   Rouge-class mapping vs syntect classes + regenerated CSS). §8c warns
+   Rouge-class mapping vs syntect classes + regenerated CSS). §8a warns
    the gap is under-measured: 4 of 6 highlighted posts are liquid-skipped,
    so "1 diff" is 1 of 2 compared.
 6. **Drafts**: replicate `_drafts` preview in `serve` from day one, or
@@ -4841,11 +4061,11 @@ never reused.
     leak on `body.multipost` index pages, but it's a behavior change on
     the 3 existing posts. Default-on with `style_scope: false` opt-out
     (specced), or default-off and opt in per post?
-21. **Tighten `diff`'s liquid skip (§8c).** 97 of 327 posts are excluded,
+21. **Tighten `diff`'s liquid skip (§8a).** 97 of 327 posts are excluded,
     many falsely (`{{ github.event.issue.number }}` in code samples is
     GitHub Actions, not Liquid). 30% of the corpus is unmeasured and the
     90% is over an unrepresentative 230.
-22. **`_site-prod` can no longer be regenerated (§5c, §8c).** `{% view %}`
+22. **`_site-prod` can no longer be regenerated (§5c, §8a).** `{% view %}`
     is not Liquid, so Jekyll fails the whole build; refreshing needs
     `git stash push index.html` first. Losing the ability to refresh the
     reference is exactly the capability that caught the 17-point lie.
@@ -4898,12 +4118,12 @@ never reused.
     filter's second evaluation (star routes carry no members).
 
     (f) **Row `layout:` is the same disease on the row side — a Jekyll
-    word that survived as a flag** *(measured 2026-07-19; corrected
-    below)*. `Some("page") | Some("post")` is a single match arm, so
-    those two words are one value; the `_layouts/*.html` it names have
-    been unread since §5e; it sits in the post and page filter schemas
-    and nothing filters on it. Census of the four tiers a row can land
-    in — main site's 227 page rows / example's 21:
+    word that survived as a flag** *(measured 2026-07-19)*.
+    `Some("page") | Some("post")` is a single match arm, so those two words
+    are one value; the `_layouts/*.html` they name have been unread since
+    §5e; the field sits in the post and page filter schemas and nothing
+    filters on it. Census of the four tiers a row can land in — main site's
+    227 page rows / example's 21:
 
     | tier | selected by | main | example |
     |---|---|---|---|
@@ -4914,31 +4134,16 @@ never reused.
 
     So **55 files declare the common case in order that 3 may declare an
     exception**, and omitting the field silently drops a row's furniture
-    (probe row: 0 crumb/relation/neighbour elements against a sibling's
-    3, no error). The `default` tier's three occupants are all homepages,
-    which §5h landings absorb.
+    (probe row: 0 crumb/relation/neighbour elements against a sibling's 3, no
+    error). The `default` tier's three occupants are all homepages, which §5h
+    landings absorb.
 
-    **Correction (2026-07-19):** an earlier draft of this entry said
-    `light` "selects nothing", read the tiers as three, and concluded the
-    field dissolves. Wrong on all three counts, from grepping for a
-    `light` theme directory instead of reading the render path.
-    `Theme::parse` routes `light` to a real tier — minimal head,
-    canonical parts, no theme chrome (measured: 57-byte head, no css, no
-    nav, no footer, against `default`'s 715 and `page`'s 737). It is a
-    real tier with two occupants, and it is the mechanism q50's
-    transplant wants. What dissolves is the *spelling*, not the
-    distinction: the tiers are shell levels, so they belong under q44's
-    row `shell:` (`none`/`light`/`html`), not under a layout name.
+    What dissolves is the *spelling*, not the distinction: the tiers are shell
+    levels, so they belong under the row `shell:` vocabulary
+    (`none`/`light`/`html`, §5g) rather than under a layout name. `light` is a
+    real tier with two occupants, **not** the null theme — §5g's "Row tiers"
+    carries the measurement that separates them.
 
-    **Second correction (2026-07-19):** this entry called that tier "the
-    null theme", and §5g did too. It is not one — §5e's null theme is a
-    fragmentless *theme* and takes the FULL head; `light` bypasses the
-    theme registry and takes the minimal one. They differ in exactly the
-    head, which is what makes "isn't `shell: light` just `theme: light`?"
-    a fair question with a no for an answer. §5g's "Row tiers" carries
-    it. (The 57-byte figure above is inner content of the row without
-    `noindex`; the same head measures 85 bytes counting the `<head>`
-    tags, and 118 on the `noindex` row, which carries a robots meta.)
 34. **Three "not content" lists (§9b).** §4c's three layers govern the
     tree walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`)
     carry private skip lists that can silently drift from `exclude`. Both
@@ -5151,280 +4356,96 @@ never reused.
       but the route-first framing gives it a concrete trigger instead of a
       taxonomy argument.
 
-    **What it buys.** Census of the 29 `Kind`/`RouteKind` dispatch sites:
-    **13 (45%) exist only because `Post` and `Page` are different Rust
-    structs**; 5 are loader-shaped, 4 legacy, and of the 7 index-shaped
-    only **2** discriminate posts from pages on index grounds
-    (`trails.rs`, `views.rs`). `debug.rs:264` is the proof — three match
-    arms, one expression, zero semantic difference.
+    **What it buys.** A census of every site that branches on which row type
+    it has came back **46 exists-only-because-two-structs, 9 genuinely
+    index-shaped, 4 loader-shaped, 10 legacy/debug** — and the 9 real ones
+    reduce to three row predicates: `date.is_some()`, `rendered`, `!claimed`.
+    An earlier "13 of 29" undercounted by looking only at match arms and
+    missing the larger shape: *two near-identical functions with no branch in
+    them at all* (`document`/`document_tree`,
+    `render_bodies`/`render_page_bodies`).
 
-    The arbitrary limits go with them. **`Post` is the LESS capable type**:
-    it lacks `theme`, `shell`, custom `fields`, `images` and `order`, while
-    `Page` lacks only `date` and `tags` — and every Post exclusive is a
+    The arbitrary limits go with them. **`Post` was the LESS capable type**: it
+    lacked `theme`, `shell`, custom `fields`, `images` and `order`, while
+    `Page` lacked only `date` and `tags` — and every Post exclusive was a
     consequence of *having a date column*. `FrontMatter` is shared, so both
-    tables parse `theme`, `shell`, `draft` and `extra` and each keeps a
-    different subset, silently. Measured on a scratchpad copy:
-    `theme:`/`shell:` on a post are dropped with no diagnostic, and
-    **`draft: true` on a page publishes the row and lists it in
-    `sitemap.xml`** — the §4a leak, still open for pages because
-    `Route.draft` is hardcoded false for them (`db.rs` says so in a
-    comment). Separately fixable; should not wait for this.
+    tables parsed `theme`, `shell`, `draft` and `extra` and each kept a
+    different subset, silently.
 
-    **And `kind` shrinks to what it always meant: parsed, or not.** One
-    kind for content, one for objects — which is the identity bit §5g's
-    tier work arrived at from the opposite direction, and the reason
-    objects cannot join: they are selected by extension *anywhere*, never
-    opened (a measured ~140ms skip over ~800 binaries), and have no
-    directory to name or type them.
+    **And `kind` shrinks to what it always meant: parsed, or not.** One kind
+    for content, one for objects — which is the identity bit §5g's tier work
+    arrived at from the opposite direction, and the reason objects cannot
+    join: they are selected by extension *anywhere*, never opened (a measured
+    ~140ms skip over ~800 binaries), and have no directory to name or type
+    them.
 
-    **Already built, 2026-07-19:** the naming half. `[[collections]]` is an
-    array because the name comes from the source directory (`_posts` is
-    `posts`); `name =` overrides; a rootward source is `entries`; a
-    sourceless collection must be named. **The correction it forced**:
-    `post_trail` took the first posts collection the map yielded and read
-    its `trail`, which worked only because `blog` sorted before `drafts` —
-    deriving names put `drafts` first and every post silently lost its
-    archive crumbs. Now keyed on the declaration.
+    **Counterweight, so this does not read as urgent:** §7b's 36-site backtest
+    produced eight gap clusters and this was not among them. Nothing is
+    blocked; the value is coherence plus the leak.
 
-    **Superseded:** an earlier draft proposed `table == "posts"` as the
-    membership predicate. The `[sets]`/`[routes]` split (§5c) answered it —
-    membership is `from`, a clause, not a predicate; putting it in the
-    filter language would have been the same conflation this question is
-    about. What survives is the observation underneath: only star views
-    filter on `kind`, where the source genuinely is a heterogeneous route
-    set and the table IS a column.
+    **Built so far** *(2026-07-19 → 07-21, every slice byte-identical on all
+    three sites)*: collection naming derived from the source directory; the
+    flag family onto `Page`, closing a real leak where `draft: true` on a page
+    published the row and listed it in `sitemap.xml`;
+    `theme`/`shell`/`fields`/`images`/`order` onto `Post`; `date`/`tags` onto
+    `Page`, so `group_by = "date.year"` over the tree materializes and
+    chronology became a question about the row's properties rather than which
+    struct held it; `title` optional on both; then one `Row` type and the
+    consumer collapse. No row holds a body any more — `store::read_body` is
+    the single answer, which cost nothing measurable (~800 small files sit in
+    the page cache; the build is render-bound, not I/O-bound).
 
-    **Counterweight, so this does not read as urgent:** §7b's 36-site
-    backtest produced eight gap clusters and this was not among them.
-    Nothing is blocked; the value is coherence plus the leak. **Stage 1 is
-    additive** — give `Post` the `theme`/`shell`/`fields` slots it already
-    parses and discards, and make `draft` on a page work or fail loudly.
-    After that the structs differ only by date/tags vs order/rendered, and
-    the merge is mechanical rather than architectural.
+    Three rules those slices bought, each learned from a silent failure:
 
-    **Stage 1 done, 2026-07-20**, in four slices: the flag family onto
-    `Page` (closing the `draft` leak), `theme`/`shell` onto `Post`, typed
-    schema `fields`/`images` onto `Post`, and `order` onto `Post`. The
-    structs now differ by **`date`/`tags` vs `rendered`** alone — which is
-    the whole of stage 3, and the one with consequences, because dating a
-    page is what makes the chronological indexes conditional on the
-    properties a path yielded rather than on which Rust struct held it.
+    - **A `.schema.toml` may not declare a base field name.** Base fields
+      answer first, so such a declaration parsed, validated, and was then
+      unreachable. Latent until `page_schema` grew `month` and shadowed
+      field-notes' `month` string — the stand-in the book club used *because*
+      a page could not hold a date. Now a load error naming the file.
+    - **Ordering belongs to the SET, not the table.** `posts.order` carried
+      three things at once — reverse-chronological sort, undated-last, and a
+      **default-locale filter** — and any view that merely read it inherited
+      all three without saying so. The third is the dangerous one: it is what
+      keeps every listing single-locale, and it is a filter wearing a sort's
+      clothes. The three now live in three stated places
+      (`views::chronological`, an explicit `p.locale == …`, the set's
+      `where`), and `order_by` already inherits along `from`. Adjacency reads
+      a collection's declared `adjacency` set, so "previous in `published`"
+      skips drafts by construction instead of by the accident that drafts are
+      undated.
+    - **Adding a field to a row type is not done when the field exists.** It
+      is done when every consumer that hardcoded its absence has been found —
+      and the compiler cannot find them, because the old code still
+      type-checks. Step 3 shipped two fresh bugs exactly this way (backlink
+      sources passing `None` for every page's date; search documents
+      hardcoding `date: ""`), both byte-identical *because* the consumer
+      ignored the new field. **For an additive capability, byte-identical is
+      necessary and proves nothing** — it says the old paths still work, never
+      that the new one does.
 
-    **Stage 3 done, 2026-07-20**, and the structs now differ by `rendered`
-    alone. `Page` holds `date` and `tags`; `page_schema` carries them plus
-    the derived `year`/`month`/`day`, so **`group_by = "date.year"` over the
-    tree materializes** — chronology is a question about the row's
-    properties, not about which struct holds it. `date:` in front matter
-    beats a post's filename too, the same precedence every other field has;
-    before, it landed in `extra`, where a governed post rejected it as
-    undeclared and an ungoverned one dropped it.
+    ### What is left: one table. NOT pure deletion.
 
-    Two things fell out of it:
+    Folding `PostsTable` and `TreeTable` into one `SiteDb.rows`. ~45 of the
+    remaining branches are bookkeeping — "which `Vec` do I index" — which
+    makes this look like pure deletion. Two reasons it is not:
 
-    - **A `.schema.toml` may no longer declare a base field name.**
-      `Post::field`/`Page::field` answer base names first and fall through
-      to declared fields, so such a declaration parsed, validated, and was
-      then unreachable. It was latent until `page_schema` grew `month` —
-      which shadowed field-notes' `month = { type = "string" }`, the
-      stand-in the book club used *because* a page could not hold a date.
-      Now a load error naming the file; the club declares a real `date:`
-      and sorts `-date` instead of a lexical string. That the workaround
-      existed at all is the best evidence the merge was worth doing.
-    - **Tags are one namespace, and now two tables can fill it.** A second
-      view grouping by `tags` is ambiguous rather than illegal: the
-      existing `[collections.<posts>] tags = "<view>"` declares which view
-      owns canonical tag routes, and with it declared, `/blog/tags/meta/`
-      and `/books/tag/reference/` coexist. Proved live. The rule was
-      written for one tag space and turns out to generalize unchanged.
-
-    Every slice was byte-identical on all three sites, and every slice was
-    still partly broken until a probe drove it. The `fields` slice shipped
-    with two silent failures a diff could never see (a schema lookup that
-    resolved nothing, a filter arm that never landed); the `order` slice
-    surfaced that **`order_by` on a posts view was inherited and then
-    ignored** — the table's chronological index was the only ordering a
-    posts view could have, so a declared sort and a typo'd one rendered
-    identically and silently. That is the same silent-drop this question
-    is about, one layer up: the loader dropped `order:`, the view layer
-    dropped `order_by`. Both now say what they mean. **For an additive
-    capability, byte-identical is necessary and proves nothing** — it says
-    the old paths still work, never that the new one does.
-
-    **What is left** is the merge itself, and it is now the mechanical half
-    the counterweight promised: one row type instead of two, one route-token
-    supplier offering path tokens plus whatever an extractor produced, the
-    stated most-specific-source rule for `_posts` sitting inside `.`, and
-    ordering/adjacency declared as a set rather than inherited from the
-    posts table. No field work remains to block any of it.
-
-    ### The ordering decision, settled 2026-07-20
-
-    The asymmetry was that a posts view fell back to `posts.order` while a
-    tree view *required* an explicit `order_by` — the same construct, one
-    guessing and one refusing to. That was never a choice; it was a
-    consequence of `PostsTable` having an index and `TreeTable` not.
-
-    The trap is that `posts.order` carried **three** things at once:
-    reverse-chronological sort, undated-last, and a **default-locale
-    filter** — and any view that merely read it inherited all three without
-    saying so. The third is the dangerous one: it is what keeps every
-    listing, feed and archive single-locale, and it is a filter wearing a
-    sort's clothes. A merge that moved the sort and forgot the filter would
-    start mixing languages into listings with nothing to catch it.
-
-    **Decided:** ordering belongs to the SET, not the table — which needs no
-    new mechanism, because `order_by` already inherits along `from`,
-    nearest-wins (§5c). A set that declares nothing, over rows that have
-    dates, defaults to newest-first. That keeps every existing config
-    working while making the ordering a property of the query rather than of
-    which struct the rows live in. It settles adjacency in the same stroke:
-    "previous in `published`" reads the set's order, and since a set carries
-    `!draft && !hidden`, adjacency skips drafts *by construction* instead of
-    by the accident that drafts are undated.
-
-    **Step one shipped:** the posts view path no longer reads `posts.order`
-    at all. It filters by locale explicitly — the same `p.locale == locale`
-    the tree side always used — and sorts by a stated comparator, with
-    declared `order_by` applying stably on top. The default locale stopped
-    being a special case; every locale is built the same way. All three
-    sites byte-identical.
-
-    **Step two shipped, and `PostsTable::order` is gone.** Adjacency reads a
-    sequence built per posts collection from the collection's declared
-    `adjacency` set — `[[collections]] adjacency = "published"` — falling
-    back, when unset, to every row of the collection in the default locale,
-    newest first. `neighbors` no longer filters by collection, because one
-    sequence per collection makes the reach structural instead of a filter
-    applied after the fact. The old index's three jobs now live in three
-    stated places: `views::chronological` for the sort, an explicit
-    `p.locale == …` for the locale filter, and the set's `where` for
-    membership.
-
-    **What the declaration buys, stated precisely.** Both sites are
-    byte-identical with it, and cannot be otherwise: this corpus has 0
-    hidden posts and its 4 drafts are all undated, and drafts live in a
-    *separate collection* anyway, so the bug is unreachable here. It is
-    reachable the moment a draft carries a date inside a posts collection —
-    then it becomes somebody's "later post". The unit test pins both halves:
-    undeclared, a dated draft rides the chain (the accident, stated
-    plainly); declared, it is absent by construction. This is insurance
-    written before the fire, not a fix for a live burn.
-
-    With the index gone, `PostsTable` holds identity indexes only, and the
-    merge has nothing left to inherit from it.
-
-    ### The consumer sweep, 2026-07-20
-
-    A census of every site that branches on which row type it has — read,
-    not name-matched — came back **46 exists-only-because-two-structs, 9
-    genuinely index-shaped, 4 loader-shaped, 10 legacy/debug**. The original
-    "13 of 29" undercounted because it looked only at `Kind`/`RouteKind`
-    match arms and missed the larger shape: *two near-identical functions
-    with no branch in them at all* (`document`/`document_tree`,
-    `render_bodies`/`render_page_bodies`, the two ~80-line render passes).
-    The 9 real ones reduce to three row predicates — `date.is_some()`,
-    `rendered`, `!claimed`.
-
-    It also found four live bugs, and **two of them were freshly created by
-    step 3**: fields were added to `Page` and the consumers still hardcoded
-    the old assumption. Backlink sources passed `None` for every page's
-    date, and search documents hardcoded `date: ""` / `tags: vec![]`. Both
-    were byte-identical *because* the consumer ignored the new field —
-    precisely the trap this question keeps re-teaching, one layer further
-    out each time. A third was older and worse: the script-shell and atom
-    passes indexed `db.posts.rows[i]` for **any** view's members, so a
-    tree-backed shell view read whatever post shared that index. The fourth
-    was `toc`, queryable on a page and not on a post, found by diffing the
-    two schemas rather than by re-reading the field census.
-
-    The lesson is now specific enough to state as a rule: **adding a field
-    to a row type is not done when the field exists.** It is done when every
-    consumer that hardcoded its absence has been found — and the compiler
-    cannot find them, because the old code still type-checks.
-
-    ### Step A done; step B is the one atomic change
-
-    `title` is `Option<String>` on both (2026-07-20), so the two structs now
-    share **twenty identically-typed fields** and differ only by six
-    post-only (`collection`, `slug`, `stem`, `name`, `body`, `body_bytes`)
-    and three page-only (`rendered`, `size`, `claimed`). Byte-identical.
-
-    **Step B — one `Row` type, both tables holding it — cannot be
-    checkpointed.** Every slice so far could be committed byte-identical
-    because it was additive; a half-merged struct does not compile, so there
-    is no intermediate state worth having. It wants to be done in one pass,
-    compiler-error-driven, and it forces two semantic reconciliations that
-    should be settled before the first line is typed:
-
-    - **`stem` is derived from two different places.** `Post::field` returns
-      the stored `stem` (locale-stripped at load); `Page::field` derives it
-      from `logical`. Same intent, different source. The merged row stores
-      it and the tree loader fills it from `logical` — low risk, but it must
-      be a decision rather than a merge accident.
-    - **`path` and `dir` read `rel`, and `rel` has two meanings.** A post's
-      is collection-relative (`2005/foo.md`), a page's root-relative
-      (`writing/saturn/index.md`), so on a merged type `path` would mean
-      different things depending on where the row came from. Retiring
-      `{% post_url %}` freed this to become root-relative everywhere; the
-      care needed is that `name` must then keep being computed from the
-      *collection-relative* form explicitly, or all 333 cached embeddings
-      key differently and regenerate.
-
-    Everything downstream is mechanical once those are fixed: one
-    `row_schema`, one `impl filter::Row`, and the 46 census sites collapse —
-    `document`/`document_tree`, `render_bodies`/`render_page_bodies`, the
-    two render passes, the two `LinkSpace` loops, the two backlink loops.
-
-    ### The last step: one table. NOT pure deletion.
-
-    Step B and the collapses are done (2026-07-21). What is left is folding
-    `PostsTable` and `TreeTable` into one `SiteDb.rows`. The per-site census
-    said ~45 of the remaining branches are bookkeeping — "which `Vec` do I
-    index" — which made this look like pure deletion. Working the mechanics
-    says otherwise, and the two reasons are worth writing down before anyone
-    starts:
-
-    - **Indices shift.** The tree loader builds `by_logical`, `by_url` and
-      the q45 claim checks against its own 0-based row vector. Appending
-      tree rows after posts offsets every one of them. Either both loaders
-      return bare `Vec<Row>` and every index is rebuilt once over the
-      concatenation, or each tree-local index needs an explicit `+ offset`.
-      The first is right; it is also not a deletion.
+    - **Indices shift.** The tree loader builds `by_logical`, `by_url` and the
+      q45 claim checks against its own 0-based row vector; appending tree rows
+      after posts offsets every one. Either both loaders return bare
+      `Vec<Row>` and every index is rebuilt once over the concatenation, or
+      each tree-local index needs an explicit `+ offset`. The first is right;
+      it is also not a deletion.
     - **A membership predicate is genuinely needed.** A posts view does not
-      range over its base collection — it ranges over the whole posts
-      *table*, across every posts collection, with `published` narrowing by
-      FLAG (`!draft && !hidden`) rather than by source. With one table that
-      set has to be named some other way. `cfg.collections[&row.collection]
-      .kind == Kind::Posts` is a per-row config lookup; a precomputed
-      `post_rows: Vec<usize>` is the cheaper shape. Either way something
-      replaces "the posts table", so this is the one place where the merge
-      really does need a new expression rather than the removal of an old
-      one.
+      range over its base collection — it ranges over the whole posts *table*,
+      across every posts collection, with `published` narrowing by FLAG rather
+      than by source. With one table that set has to be named some other way;
+      a precomputed `post_rows: Vec<usize>` is the cheaper shape. This is the
+      one place the merge needs a new expression rather than the removal of an
+      old one.
 
-    Everything else in that step is substitution: `db.posts.rows[i]` and
-    `db.pages.rows[i]` both become `db.rows[i]` (67 sites), the `by_url` and
-    `by_logical` maps merge (safe now that `rel` and `logical` are
-    root-relative on both), and `ViewRows.table` stops meaning anything.
-
-    **The loader asymmetry is gone too** (Matt: *"let's just re-read all
-    files for now"*). No row holds a body. The posts loader kept one in
-    memory and the tree loader did not, which made twelve of the remaining
-    branches ask "where does this row's HTML live" rather than anything
-    about the row. `store::read_body` is now the single answer and every
-    consumer calls it — the render pass, embeddings, thumb sources, the diff
-    harness.
-
-    **It costs nothing measurable.** Warm release builds of the main corpus
-    ran 0.42–0.46s after and 0.54–0.56s before, which is to say the two
-    overlap and the difference is machine noise: ~800 small files sit in the
-    page cache and the build is render-bound, not I/O-bound. The memory the
-    bodies occupied is simply not occupied. Should a corpus ever grow to
-    where re-reading hurts, the fix is a body cache keyed on path — an
-    optimisation with one owner, rather than a difference between row types.
-
-    `body_bytes` came out of it meaning one thing: the tree loader computes
-    it from the same read it already does for front matter, where it used to
-    be posts-only and 0 on a page.
+    Everything else is substitution: `db.posts.rows[i]` and `db.pages.rows[i]`
+    both become `db.rows[i]` (67 sites), the `by_url` and `by_logical` maps
+    merge, and `ViewRows.table` stops meaning anything.
 
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.
@@ -5458,7 +4479,7 @@ never reused.
     it drops drafts by construction — which is the same correction the
     collection anchor made, reached more cleanly.
 
-    ### Three shapes, weighed
+    ### Four shapes, weighed
 
     **A. Set algebra in a string** (Matt's spelling).
 
@@ -5468,12 +4489,10 @@ never reused.
     ```
 
     Compact and general. Two costs. It is a **second expression language**
-    beside §5f's CEL subset — small (five operators and a difference), but
-    §5d and §5f are emphatic about not growing languages, and this would be
-    the first grammar added since. And it **repeats definitions**:
-    `- prev(published)` restates what the `earlier` relation already says,
-    so changing one silently desyncs the other — the §5c disease, in a new
-    place.
+    beside §5f's CEL subset — small, but §5d and §5f are emphatic about not
+    growing languages. And it **repeats definitions**: `- prev(published)`
+    restates what the `earlier` relation already says, so changing one silently
+    desyncs the other — the §5c disease, in a new place.
 
     **B. Structured fields, exclusions by NAME** *(recommended)*.
 
@@ -5481,40 +4500,34 @@ never reused.
     [collections.relations.earlier]
     of    = "prev"
     over  = "published"
-    label = { en = "Earlier post", fr = "Note précédente" }
+    label = "@earlier"
 
     [collections.relations.related]
     of      = "similar"
     over    = "published"
     exclude = ["earlier", "later", "links_to"]
     limit   = 4
-    label   = { en = "Related", fr = "Similaires" }
+    label   = "@related"
     ```
 
     No new grammar; every part is a key, load-checked like every other key.
-    **`exclude` names other declared relations**, so it cannot drift from
-    their definitions the way `- prev(published)` can — say "not whatever
-    Earlier shows" and it stays true when Earlier changes. Ordering stops
-    being a convention: `of` names the ranking operator, so *it* supplies
-    the order and `limit` applies after exclusion, statable in one line
-    instead of inferred from term position.
+    **`exclude` names other declared relations**, so it cannot drift from their
+    definitions the way `- prev(published)` can — say "not whatever Earlier
+    shows" and it stays true when Earlier changes. Ordering stops being a
+    convention: `of` names the ranking operator, so *it* supplies the order and
+    `limit` applies after exclusion. What it gives up is arbitrary algebra — no
+    unions of three sources — and the motivating case does not need it: it is
+    one ranked source minus some exclusions. Grow it when something real wants
+    a union.
 
-    What it gives up is arbitrary algebra — no unions of three sources. The
-    motivating case does not need it: it is **one ranked source minus some
-    exclusions**, which is a far smaller feature than general set algebra.
-    Grow it when something real wants a union.
+    **C. Relations as sets.** Rejected: a set is row-independent by
+    construction and a relation is row-relative. Making sets know "the current
+    row" would break the thing that makes them composable.
 
-    **C. Relations as sets.** Tempting — `[sets]` already names queries —
-    but a set is row-independent by construction and a relation is
-    row-relative. Making sets know "the current row" would break the thing
-    that makes them composable. Rejected.
-
-    **D. Keep relations engine-defined; declare only reach and
-    exclusions.** The smallest change: the five stay built-in, each
-    collection says what they range over. Keeps the closed axis vocabulary
-    and the `ENGINE_STRINGS` labels. But a new relation (same-tag, series)
-    still needs engine code, and `related_excludes` is an ad-hoc key rather
-    than a mechanism. Worth taking only if B proves too big.
+    **D. Keep relations engine-defined; declare only reach and exclusions.**
+    The smallest change, and the fallback if B proves too big — but a new
+    relation (same-tag, series) still needs engine code, and `related_excludes`
+    is an ad-hoc key rather than a mechanism.
 
     ### Decisions inside B
 
@@ -5556,15 +4569,12 @@ never reused.
 
     ### The tree family belongs here too *(Matt, 2026-07-20)*
 
-    `parent` and `children` are relations, and the first draft of this
-    entry missed them. So are `ancestors`, `siblings` and `descendants`.
-    They exist today but as two special-purpose consumers rather than a
-    vocabulary: `trails::ancestors` climbs URLs for breadcrumbs, and
+    `parent`, `children`, `ancestors`, `siblings` and `descendants` are
+    relations too. They exist today but as two special-purpose consumers rather
+    than a vocabulary: `trails::ancestors` climbs URLs for breadcrumbs, and
     `outline::section_tree` walks paths for section navigation. §3 already
     claims `children(page)` as a derived relation; no such function exists.
-
-    Adding them makes the operator set four families, which is the
-    "relational math" this question is really about:
+    Adding them makes the operator set four families:
 
     | family | operators | keyed on |
     |---|---|---|
@@ -5718,7 +4728,7 @@ One line per retired question; the named section carries the design.
 | 9, 9a | buckets + bubbling resolve bare names with no restructuring; the two genuine collisions stay unreferenced — leave | §6a |
 | 12 | derived assets move to `/static/{hash}`; URL parity stays hard for pages, exempt for derived assets | §6b |
 | 15 | no template language: a template may not contain control flow; `liquid` retired by not taking it | §5d |
-| 16 | no custom AST→HTML renderer; AST mutation + escape hatches per node type (tripwire: ~⅓ of node types) | §9a, §8c |
+| 16 | no custom AST→HTML renderer; AST mutation + escape hatches per node type (tripwire: ~⅓ of node types) | §9a, §8a |
 | 17 | truncation is a `truncated` Flag → `data-truncated` → theme-CSS ★ | §6d |
 | 18 | sidenotes are a theme decision: the `notes` stream placed by whichever theme claims it, endnotes canonical | §5e, §6d |
 | 19 | route-level fix landed (`draft`/`hidden` on every Route; sitemap filter); profiles still ride phase 3 | §4a |
