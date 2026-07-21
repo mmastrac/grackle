@@ -311,7 +311,6 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             println!("  ambiguous     {}", dupes);
             println!("indexes");
             println!("  by_key        {}  (date, slug) unique", p.by_key.len());
-            println!("  by_name       {}  post_url", p.by_name.len());
             println!(
                 "  by_slug       {}  ({} reused across dates)",
                 p.by_slug.len(),
@@ -420,7 +419,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("date        {}", fmt_date(r));
                 println!("slug        {}", r.slug);
                 println!("stem        {}", r.stem);
-                println!("name        {}  (post_url key)", r.name);
+                println!("name        {}  (embedding cache key)", r.name);
                 println!("title       {}", r.title);
                 println!("layout      {}", r.layout.as_deref().unwrap_or("-"));
                 println!("draft       {}", r.draft);

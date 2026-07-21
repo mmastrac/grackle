@@ -2,8 +2,12 @@
 //! tree pages.
 //!
 //! A targeted expander, not a liquid implementation. Post bodies use exactly
-//! two tags — `{% image %}` (194 uses / 68 posts) and `{% post_url %}` (51) —
-//! plus `{{ site.baseurl }}` and its `| prepend:` form (12).
+//! one tag — `{% image %}` (194 uses / 68 posts) — plus `{{ site.baseurl }}`
+//! and its `| prepend:` form (12). `{% post_url %}` was the second until the
+//! q51 merge retired it: it was a foreign key into `posts.by_name`, and that
+//! index was the only thing requiring a post's `rel` to be collection-relative
+//! while a page's is root-relative. Its 51 uses are now ordinary file-relative
+//! links, resolved by `links::resolve` like every other source link.
 //!
 //! `{% view %}` and `{% include %}` are grackle's own, added for `/` (§5c).
 //! Each is a whole recognised construct rather than a step toward a template
@@ -120,18 +124,6 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
         "<a class='image {mode}' href='{b}/{src}'><img src='{img_src}' alt=''></a>",
         b = cx.baseurl,
     ))
-}
-
-/// `{% post_url 2003-04-23-not-dead-yet %}` -> the post's URL.
-///
-/// A foreign key into the posts table: the argument is the filename stem, which
-/// is why `by_name` exists and is unique even though `slug` is not (§3).
-fn post_url(arg: &str, cx: &Ctx) -> Result<String> {
-    let name = arg.trim();
-    match cx.db.posts.by_name.get(name) {
-        Some(&i) => Ok(cx.db.posts.rows[i].url.clone()),
-        None => bail!("{}: {{% post_url {name} %}} matches no post", cx.source),
-    }
 }
 
 /// `{% view latest %}` -> a routeless view, rendered by its declared layout.
@@ -340,7 +332,6 @@ pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
         let replacement = if is_tag {
             match inner.split_once(char::is_whitespace) {
                 Some(("image", arg)) => Some(image(arg.trim(), cx)?),
-                Some(("post_url", arg)) => Some(post_url(arg, cx)?),
                 Some(("view", arg)) => Some(view(arg, cx)?),
                 Some(("include", arg)) => Some(include(arg, cx)?),
                 _ => None,
@@ -484,16 +475,6 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("no includes directory"), "{e}");
-    }
-
-    #[test]
-    fn dangling_post_url_is_an_error_naming_the_file() {
-        let db = SiteDb::default();
-        let e = expand("{% post_url nope %}", &ctx(&db))
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("test.md"), "{e}");
-        assert!(e.contains("matches no post"), "{e}");
     }
 }
 

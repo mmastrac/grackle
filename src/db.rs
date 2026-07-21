@@ -35,9 +35,13 @@ pub struct Post {
     /// Source path relative to the collection, without the extension:
     /// `2009/2009-07-28-a-quieter-window-name-transport-for-ie`.
     ///
-    /// This is the key `{% post_url %}` actually takes. Measured: all 51 uses
-    /// in the corpus are this `dir/stem` form, none are a bare stem — because
-    /// posts live in year subdirectories.
+    /// Was the key `{% post_url %}` took; with that retired its only
+    /// remaining job is the embedding cache identity (`embed::run` keys
+    /// `_cache/embeddings/index.json` on it), which wants a stable unique
+    /// string and does not care about the shape. It is kept collection-
+    /// relative purely so the 333 cached vectors stay valid; the merge is
+    /// what should settle it, since root-relative `rel` would serve better
+    /// (unique across collections) at the cost of one regeneration.
     pub name: String,
     pub title: String,
     pub description: Option<String>,
@@ -227,9 +231,6 @@ pub struct PostsTable {
     /// a 2006 post, which is legal because their dates (and so URLs) differ.
     #[serde(skip)]
     pub by_key: HashMap<(Option<NaiveDate>, String), usize>,
-    /// `dir/stem` -> row, for `{% post_url %}`. Unique.
-    #[serde(skip)]
-    pub by_name: HashMap<String, usize>,
     /// Non-unique: slug -> rows. Informational; see `by_key` for identity.
     #[serde(skip)]
     pub by_slug: BTreeMap<String, Vec<usize>>,
@@ -751,7 +752,7 @@ fn read_posts(
             .unwrap_or_default()
             .to_string();
 
-        // `{% post_url %}` keys on the collection-relative path minus extension.
+        // The embedding cache key: collection-relative path minus extension.
         let name = raw.rel.with_extension("").to_string_lossy().to_string();
         let logical = logical_rel.with_extension("").to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
@@ -944,12 +945,15 @@ fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
         ..Default::default()
     };
 
+    let mut seen_names: HashMap<String, usize> = HashMap::new();
     for (i, p) in rows.iter().enumerate() {
         // Identity indexes span all locales: URLs are globally unique, and
-        // `name` (physical path) keeps `{% post_url %}` unambiguous.
-        if let Some(prev) = table.by_name.insert(p.name.clone(), i) {
+        // `name` (physical path) must stay unique because the embedding
+        // cache is keyed on it — two rows sharing a name would share a
+        // vector. Reachable via `foo.md` beside `foo.markdown`.
+        if let Some(prev) = seen_names.insert(p.name.clone(), i) {
             bail!(
-                "duplicate post name {:?} ({{% post_url %}} would be ambiguous):\n  {}\n  {}",
+                "duplicate post name {:?} (the embedding cache keys on it):\n  {}\n  {}",
                 p.name,
                 rows[prev].path.display(),
                 p.path.display()
