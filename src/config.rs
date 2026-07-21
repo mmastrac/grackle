@@ -294,11 +294,21 @@ pub struct LinksCfg {
     pub policy: LinkPolicy,
 }
 
+/// Strict is the DEFAULT (Matt, 2026-07-20): a link that matches no source
+/// file or route is a load error naming the file, and a raw URL to routable
+/// content is an error telling you the source form to use instead. Loose
+/// leaves both untouched, which means a typo ships as a 404.
+///
+/// It was Loose while the corpus still had 28 raw-URL links to convert;
+/// with those gone, defaulting to lenient would be the same silent-drop
+/// this codebase keeps closing everywhere else (§4's constraint ethos).
+/// `policy = "loose"` remains for importing a corpus that has not been
+/// converted yet.
 #[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LinkPolicy {
-    #[default]
     Loose,
+    #[default]
     Strict,
 }
 

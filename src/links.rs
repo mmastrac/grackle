@@ -127,6 +127,10 @@ pub fn resolve(
         || href.contains("://")
         || href.starts_with("mailto:")
         || href.starts_with("data:")
+        // A bookmarklet is code, not a path. Only strict noticed: it read
+        // `javascript:(function(){…})` as a relative source path and called
+        // it dangling.
+        || href.starts_with("javascript:")
     {
         return Ok(None);
     }
@@ -152,6 +156,21 @@ pub fn resolve(
         ));
     }
     candidates.push((path_part.trim_start_matches('/').to_string(), false));
+    // A link to a DIRECTORY means its index, the oldest convention on the
+    // web (`saturn/` is `saturn/index.md`). Without this, strict mode calls
+    // 35 perfectly good links in this corpus dangling — and they resolve to
+    // the URL the browser would have reached anyway, so the rewrite is
+    // usually a no-op and the real work is the verification.
+    for (c, was_relative) in candidates.clone() {
+        for index in ["index.md", "index.html"] {
+            let joined = if c.is_empty() {
+                index.to_string()
+            } else {
+                format!("{}/{index}", c.trim_end_matches('/'))
+            };
+            candidates.push((joined, was_relative));
+        }
+    }
     for (c, was_relative) in &candidates {
         if let Some(url) = space.source_to_url.get(c) {
             if *was_relative {
@@ -294,6 +313,87 @@ fn view_link(
 mod tests {
     use super::*;
     use crate::db::{Route, RouteKind};
+
+    /// A link to a DIRECTORY is a link to its index — the oldest convention
+    /// on the web, and the resolver did not know it. Strict mode called 35
+    /// good links in the main corpus dangling because of this.
+    #[test]
+    fn a_directory_link_resolves_to_its_index() {
+        let cfg: Config =
+            Config::from_toml("root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
+                .unwrap();
+        let mut db = SiteDb::default();
+        db.pages.rows.push(crate::db::Page {
+            path: PathBuf::from("writing/saturn/index.md"),
+            rel: PathBuf::from("writing/saturn/index.md"),
+            version: 0,
+            url: "/writing/saturn/".into(),
+            rendered: true,
+            size: 0,
+            title: None,
+            layout: None,
+            description: None,
+            order: None,
+            date: None,
+            tags: Vec::new(),
+            toc: false,
+            theme: None,
+            shell: None,
+            draft: false,
+            hidden: false,
+            noindex: false,
+            fields: Default::default(),
+            images: Default::default(),
+            locale: "en".into(),
+            logical: "writing/saturn/index".into(),
+            claimed: false,
+        });
+        let space = LinkSpace::new(&cfg, &db, Path::new("."));
+
+        // From the site root, `writing/saturn/` finds the index and the
+        // browser would NOT have got there on its own, so it is rewritten.
+        let got = resolve(
+            &cfg,
+            &space,
+            Path::new(""),
+            "/",
+            "en",
+            "index.md",
+            "writing/saturn/",
+        )
+        .unwrap();
+        assert_eq!(got.as_deref(), Some("/writing/saturn/"));
+
+        // Trailing slash is not required, and an anchor rides along.
+        let got = resolve(
+            &cfg,
+            &space,
+            Path::new(""),
+            "/",
+            "en",
+            "index.md",
+            "/writing/saturn#rings",
+        )
+        .unwrap();
+        assert_eq!(got.as_deref(), Some("/writing/saturn/#rings"));
+
+        // A directory with no index is still dangling — the convention
+        // resolves indexes, it does not invent them. And since strict is
+        // the default, that is a load error naming the file rather than a
+        // link quietly left to 404.
+        let e = resolve(
+            &cfg,
+            &space,
+            Path::new(""),
+            "/",
+            "en",
+            "i.md",
+            "writing/pluto/",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("matches no source file or route"), "{e}");
+    }
 
     /// §6f × §6a, pinned: a view link resolves to the LINKING ROW's locale
     /// when that locale's variant materialized, and falls back to the

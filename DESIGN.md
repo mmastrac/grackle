@@ -2948,11 +2948,39 @@ reference what the database owns.**
    positionally), locale-aware (a French row links into its locale's
    archive when it materialized), and verified against the route set: a
    typo'd key errors LISTING the keys that exist.
-3. **`[links] policy`** grades enforcement. `strict` (the example)
-   errors on raw internal URLs, answering with the correct form —
-   `"link the source instead: /recipes/carbonara.md"`. `loose` (default;
-   the main site until cutover migration) resolves the new forms but
-   leaves raw URLs alone.
+3. **`[links] policy`** grades enforcement. `strict` — **the default since
+   2026-07-20** — errors on raw internal URLs, answering with the correct
+   form (`"link the source instead: /recipes/carbonara.md"`), and on links
+   matching no source or route at all. `loose` resolves the new forms but
+   leaves both alone, and survives for importing a corpus that has not been
+   converted yet.
+
+   It was `loose` while the main site still had raw URLs to convert.
+   Flipping it needed three things, and the two engine gaps it exposed are
+   the interesting part:
+
+   - **A link to a directory means its index.** `saturn/` is
+     `saturn/index.md` — the oldest convention on the web, and the resolver
+     did not know it, so strict called **35 perfectly good links dangling**.
+     Candidates now include `{c}/index.md` and `{c}/index.html`.
+   - **`javascript:` is code, not a path.** A bookmarklet href was read as
+     a relative source path. Now skipped beside `mailto:` and `data:`.
+   - 28 raw URLs across 21 files, converted to source form, plus the site's
+     own `nav.md` and `copyright.md` — which were `/blog`, `/writing`,
+     `/code`, `/contact/`, none of them verified by anything.
+
+   **What the flip caught, which is the argument for it.** `/blog` (no
+   trailing slash) was not the canonical URL and nothing said so. And
+   `/demos/dress` and `/demos/adventure` did not resolve, so the rows they
+   pointed at never registered the citation: **25 pages gained a
+   `Linked from` section** that had been silently dropped. Every other
+   relation axis was unchanged and no page lost anything. A lenient default
+   was costing real backlinks, quietly — which is the same silent-drop this
+   codebase keeps closing everywhere else.
+
+   Still outside the net: raw-HTML pages bypass the resolver entirely (the
+   §6d `lol_html` stage is their seam), so the four genuinely dangling links
+   found in `.html` sources during this pass are unchecked by strict.
 
 Resolution is a comrak AST pass over Link nodes (`render_doc_with`),
 per-row, against a `LinkSpace` built once per build (source→URL over all
