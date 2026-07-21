@@ -8,12 +8,17 @@
 //! hidden || draft
 //! year >= 2020 && "rust" in tags
 //! layout == "post" && !(draft || hidden)
+//! under(path, "recipes") && !draft
 //! *
 //! ```
 //!
 //! Expressions are parsed and **type-checked against a schema at load time**,
 //! so a typo (`!drafts`) is a startup error naming the view — not a filter that
 //! silently matches everything.
+//!
+//! Functions are the extension point. A field, a literal and a call are one
+//! thing — an operand — so a call goes anywhere a field does, nests, and is
+//! type-checked by the same pass. Adding one is an entry in `FUNCS`.
 
 use anyhow::{anyhow, bail, Result};
 use std::collections::BTreeMap;
@@ -113,16 +118,94 @@ impl Lit {
     }
 }
 
+/// Something that produces a value: a field, a literal, or a call.
+///
+/// Calls nest, because there is no reason for `under(dir(path), "x")` to be a
+/// special case — an operand is an operand.
+#[derive(Debug, Clone)]
+enum Operand {
+    Field(String),
+    Lit(Lit),
+    Call(&'static Func, Vec<Operand>),
+}
+
 #[derive(Debug, Clone)]
 enum Expr {
     True,
-    Truthy(String),
+    Truthy(Operand),
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
-    Cmp(String, Op, Lit),
+    Cmp(Operand, Op, Lit),
     /// `"rust" in tags`
-    In(Lit, String),
+    In(Lit, Operand),
+}
+
+// -------------------------------------------------------------- functions
+
+/// A function the language can call. The signature drives type checking and
+/// `eval` drives evaluation, so adding one is a single entry here.
+///
+/// Deliberately a fixed table rather than a registry callers extend: the
+/// function set is part of the language, and a filter that parses against one
+/// caller's vocabulary and not another's is not a language.
+pub struct Func {
+    name: &'static str,
+    params: &'static [Type],
+    returns: Type,
+    eval: fn(&[Value]) -> Value,
+}
+
+impl fmt::Debug for Func {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name)
+    }
+}
+
+/// Is `p` at or below `base`, comparing whole path segments?
+///
+/// Segment-wise is the entire point. `recipes` must not claim `recipes-old`,
+/// which a string prefix would, and which is why this is a function rather
+/// than something spelled with `>=`. Reflexive: `recipes` is under `recipes`,
+/// so a directory's own index page belongs to it. An empty base is the root
+/// and holds everything.
+fn path_under(p: &str, base: &str) -> bool {
+    let base = base.trim_matches('/');
+    if base.is_empty() {
+        return true;
+    }
+    let mut parts = p.trim_matches('/').split('/');
+    base.split('/').all(|b| parts.next() == Some(b))
+}
+
+const FUNCS: &[Func] = &[Func {
+    name: "under",
+    params: &[Type::Str, Type::Str],
+    returns: Type::Bool,
+    eval: |args| match (&args[0], &args[1]) {
+        (Value::Str(p), Value::Str(base)) => Value::Bool(path_under(p, base)),
+        // A null path is under nothing, which is what a row with no path
+        // should mean rather than an error at query time.
+        _ => Value::Bool(false),
+    },
+}];
+
+fn lookup_func(name: &str) -> Result<&'static Func> {
+    if let Some(f) = FUNCS.iter().find(|f| f.name == name) {
+        return Ok(f);
+    }
+    let known: Vec<&str> = FUNCS.iter().map(|f| f.name).collect();
+    let hint = known
+        .iter()
+        .map(|k| (levenshtein(name, k), *k))
+        .filter(|(d, _)| *d <= 2)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, k)| format!(" (did you mean `{k}`?)"))
+        .unwrap_or_default();
+    Err(anyhow!(
+        "unknown function `{name}`{hint}\n  known functions: {}",
+        known.join(", ")
+    ))
 }
 
 // ------------------------------------------------------------------ lexer
@@ -140,6 +223,7 @@ enum Tok {
     In,
     LParen,
     RParen,
+    Comma,
 }
 
 fn lex(src: &str) -> Result<Vec<Tok>> {
@@ -156,6 +240,10 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
             }
             ')' => {
                 out.push(Tok::RParen);
+                i += 1;
+            }
+            ',' => {
+                out.push(Tok::Comma);
                 i += 1;
             }
             '*' => {
@@ -318,13 +406,14 @@ impl Parser {
                 if name == "false" {
                     return Ok(Expr::Not(Box::new(Expr::True)));
                 }
+                let operand = self.parse_call_or_field(name)?;
                 match self.peek().cloned() {
                     Some(Tok::Cmp(op)) => {
                         self.pos += 1;
                         let lit = self.parse_lit()?;
-                        Ok(Expr::Cmp(name, op, lit))
+                        Ok(Expr::Cmp(operand, op, lit))
                     }
-                    _ => Ok(Expr::Truthy(name)),
+                    _ => Ok(Expr::Truthy(operand)),
                 }
             }
             // `"rust" in tags`
@@ -338,12 +427,46 @@ impl Parser {
                     bail!("a literal is only valid on the left of `in` (as in `\"rust\" in tags`)");
                 }
                 match self.next() {
-                    Some(Tok::Ident(field)) => Ok(Expr::In(lit, field)),
+                    Some(Tok::Ident(name)) => Ok(Expr::In(lit, self.parse_call_or_field(name)?)),
                     _ => bail!("expected a field name after `in`"),
                 }
             }
             Some(t) => bail!("unexpected token {t:?}"),
             None => bail!("unexpected end of expression"),
+        }
+    }
+
+    /// An identifier is a call when a `(` follows it, and a field otherwise.
+    fn parse_call_or_field(&mut self, name: String) -> Result<Operand> {
+        if !self.eat(&Tok::LParen) {
+            return Ok(Operand::Field(name));
+        }
+        let func = lookup_func(&name)?;
+        let mut args = Vec::new();
+        if !self.eat(&Tok::RParen) {
+            loop {
+                args.push(self.parse_operand()?);
+                if self.eat(&Tok::RParen) {
+                    break;
+                }
+                if !self.eat(&Tok::Comma) {
+                    bail!("expected `,` or `)` in the arguments to `{name}`");
+                }
+            }
+        }
+        Ok(Operand::Call(func, args))
+    }
+
+    fn parse_operand(&mut self) -> Result<Operand> {
+        match self.next() {
+            Some(Tok::Ident(name)) if name != "true" && name != "false" => {
+                self.parse_call_or_field(name)
+            }
+            Some(Tok::Ident(name)) => Ok(Operand::Lit(Lit::Bool(name == "true"))),
+            Some(Tok::Str(s)) => Ok(Operand::Lit(Lit::Str(s))),
+            Some(Tok::Int(i)) => Ok(Operand::Lit(Lit::Int(i))),
+            Some(t) => bail!("expected a field, literal or call, found {t:?}"),
+            None => bail!("expected an argument"),
         }
     }
 
@@ -395,17 +518,69 @@ fn resolve(schema: &Schema, name: &str) -> Result<Type> {
     ))
 }
 
+impl fmt::Display for Operand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operand::Field(name) => f.write_str(name),
+            Operand::Lit(Lit::Str(s)) => write!(f, "{s:?}"),
+            Operand::Lit(Lit::Int(i)) => write!(f, "{i}"),
+            Operand::Lit(Lit::Bool(b)) => write!(f, "{b}"),
+            Operand::Call(func, args) => {
+                write!(f, "{}(", func.name)?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{a}")?;
+                }
+                f.write_str(")")
+            }
+        }
+    }
+}
+
+/// The type an operand produces, checking a call's arity and argument types
+/// on the way through.
+fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
+    match o {
+        Operand::Field(name) => resolve(schema, name),
+        Operand::Lit(lit) => Ok(lit.ty()),
+        Operand::Call(func, args) => {
+            if args.len() != func.params.len() {
+                bail!(
+                    "`{}` takes {} argument{}, but {} were given",
+                    func.name,
+                    func.params.len(),
+                    if func.params.len() == 1 { "" } else { "s" },
+                    args.len()
+                );
+            }
+            for (i, (arg, want)) in args.iter().zip(func.params).enumerate() {
+                let got = operand_type(arg, schema)?;
+                if got != *want {
+                    bail!(
+                        "`{}` argument {} is {want}, but `{arg}` is {got}",
+                        func.name,
+                        i + 1
+                    );
+                }
+            }
+            Ok(func.returns)
+        }
+    }
+}
+
 fn check(e: &Expr, schema: &Schema) -> Result<()> {
     match e {
         Expr::True => Ok(()),
-        Expr::Truthy(f) => resolve(schema, f).map(|_| ()),
+        Expr::Truthy(o) => operand_type(o, schema).map(|_| ()),
         Expr::Not(x) => check(x, schema),
         Expr::And(a, b) | Expr::Or(a, b) => {
             check(a, schema)?;
             check(b, schema)
         }
         Expr::Cmp(f, op, lit) => {
-            let ft = resolve(schema, f)?;
+            let ft = operand_type(f, schema)?;
             if ft == Type::List {
                 bail!(
                     "`{f}` is a list; use `{} in {f}` instead of a comparison",
@@ -425,7 +600,7 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
             Ok(())
         }
         Expr::In(lit, f) => {
-            let ft = resolve(schema, f)?;
+            let ft = operand_type(f, schema)?;
             if ft != Type::List {
                 bail!("`in` needs a list on the right, but `{f}` is {ft}");
             }
@@ -493,15 +668,28 @@ fn cmp_values(a: &Value, op: Op, b: &Value) -> bool {
     }
 }
 
+/// An operand's value for one row. Arity and types were settled at parse
+/// time, so a call here is a lookup and an apply.
+fn operand_value(o: &Operand, row: &impl Row) -> Value {
+    match o {
+        Operand::Field(name) => row.field(name),
+        Operand::Lit(lit) => lit.value(),
+        Operand::Call(func, args) => {
+            let vals: Vec<Value> = args.iter().map(|a| operand_value(a, row)).collect();
+            (func.eval)(&vals)
+        }
+    }
+}
+
 fn eval(e: &Expr, row: &impl Row) -> bool {
     match e {
         Expr::True => true,
-        Expr::Truthy(f) => row.field(f).truthy(),
+        Expr::Truthy(o) => operand_value(o, row).truthy(),
         Expr::Not(x) => !eval(x, row),
         Expr::And(a, b) => eval(a, row) && eval(b, row),
         Expr::Or(a, b) => eval(a, row) || eval(b, row),
-        Expr::Cmp(f, op, lit) => cmp_values(&row.field(f), *op, &lit.value()),
-        Expr::In(lit, f) => match (row.field(f), lit) {
+        Expr::Cmp(f, op, lit) => cmp_values(&operand_value(f, row), *op, &lit.value()),
+        Expr::In(lit, f) => match (operand_value(f, row), lit) {
             (Value::List(items), Lit::Str(s)) => items.iter().any(|i| i == s),
             _ => false,
         },
@@ -521,6 +709,7 @@ mod tests {
         title: String,
         description: Option<String>,
         tags: Vec<String>,
+        path: String,
     }
 
     impl Default for TestRow {
@@ -532,6 +721,7 @@ mod tests {
                 title: "Hello".into(),
                 description: None,
                 tags: vec!["rust".into(), "c".into()],
+                path: "recipes/pasta/carbonara.md".into(),
             }
         }
     }
@@ -548,6 +738,7 @@ mod tests {
                     None => Value::Null,
                 },
                 "tags" => Value::List(self.tags.clone()),
+                "path" => Value::Str(self.path.clone()),
                 _ => Value::Null,
             }
         }
@@ -561,11 +752,108 @@ mod tests {
         s.insert("title", Type::Str);
         s.insert("description", Type::Str);
         s.insert("tags", Type::List);
+        s.insert("path", Type::Str);
         s
     }
 
     fn ok(src: &str) -> Filter {
         Filter::parse(src, &schema()).expect(src)
+    }
+
+    fn err(src: &str) -> String {
+        Filter::parse(src, &schema()).expect_err(src).to_string()
+    }
+
+    // ------------------------------------------------------------ functions
+
+    #[test]
+    fn under_selects_a_subtree() {
+        let r = TestRow::default(); // recipes/pasta/carbonara.md
+        assert!(ok(r#"under(path, "recipes")"#).eval(&r));
+        assert!(ok(r#"under(path, "recipes/pasta")"#).eval(&r));
+        assert!(!ok(r#"under(path, "books")"#).eval(&r));
+    }
+
+    /// The reason this is a function and not a `starts_with` on strings: a
+    /// sibling directory sharing a name prefix is not a child.
+    #[test]
+    fn under_compares_whole_segments() {
+        let r = TestRow {
+            path: "recipes-old/x.md".into(),
+            ..Default::default()
+        };
+        assert!(!ok(r#"under(path, "recipes")"#).eval(&r));
+    }
+
+    #[test]
+    fn under_is_reflexive_and_rooted() {
+        let r = TestRow {
+            path: "recipes".into(),
+            ..Default::default()
+        };
+        assert!(
+            ok(r#"under(path, "recipes")"#).eval(&r),
+            "a dir is under itself"
+        );
+        assert!(
+            ok(r#"under(path, "")"#).eval(&r),
+            "everything is under the root"
+        );
+        assert!(
+            ok(r#"under(path, "/recipes/")"#).eval(&r),
+            "surrounding slashes are noise"
+        );
+    }
+
+    #[test]
+    fn calls_compose_with_the_rest_of_the_language() {
+        let r = TestRow::default();
+        assert!(ok(r#"under(path, "recipes") && !draft"#).eval(&r));
+        assert!(ok(r#"!under(path, "books")"#).eval(&r));
+        assert!(ok(r#"under(path, "books") || year >= 2020"#).eval(&r));
+    }
+
+    #[test]
+    fn a_call_takes_literals_and_fields_alike() {
+        let r = TestRow::default();
+        assert!(ok(r#"under("recipes/pasta", "recipes")"#).eval(&r));
+        assert!(ok(r#"under(path, title) == false"#).eval(&r));
+    }
+
+    #[test]
+    fn an_unknown_function_is_a_load_error_that_suggests() {
+        let e = err(r#"undor(path, "x")"#);
+        assert!(e.contains("unknown function `undor`"), "{e}");
+        assert!(e.contains("did you mean `under`"), "{e}");
+        assert!(e.contains("known functions: under"), "{e}");
+    }
+
+    #[test]
+    fn a_calls_arity_and_argument_types_are_checked() {
+        let e = err(r#"under(path)"#);
+        assert!(e.contains("takes 2 arguments, but 1 were given"), "{e}");
+        let e = err(r#"under(path, year)"#);
+        assert!(e.contains("argument 2 is string, but `year` is int"), "{e}");
+        let e = err(r#"under(tags, "x")"#);
+        assert!(
+            e.contains("argument 1 is string, but `tags` is list"),
+            "{e}"
+        );
+    }
+
+    /// A call is an operand, so a typo inside one is caught the same way a
+    /// bare field reference would be.
+    #[test]
+    fn an_unknown_field_inside_a_call_is_still_caught() {
+        let e = err(r#"under(pth, "x")"#);
+        assert!(e.contains("unknown field `pth`"), "{e}");
+        assert!(e.contains("did you mean `path`"), "{e}");
+    }
+
+    #[test]
+    fn a_bool_returning_call_type_checks_as_bool() {
+        let e = err(r#"under(path, "x") == "yes""#);
+        assert!(e.contains("is bool, but it is compared to a string"), "{e}");
     }
 
     #[test]
