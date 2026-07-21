@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use grackle_db::route;
+use grackle_db::template;
 use grackle_model::{Kind, Object, ObjectsTable, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
@@ -333,7 +333,7 @@ fn read_posts(
                 anyhow::anyhow!("no rule supplies a route for {}", raw.path.display())
             })?;
             if date.is_none() {
-                let needs: Vec<String> = route::tokens(tmpl)
+                let needs: Vec<String> = template::tokens(tmpl)?
                     .into_iter()
                     .filter(|t| matches!(t.as_str(), "year" | "month" | "day"))
                     .collect();
@@ -347,7 +347,7 @@ fn read_posts(
                     );
                 }
             }
-            route::render(tmpl, |k| match k {
+            template::render(tmpl, |k| match k {
                 "year" => date.map(|d| d.format("%Y").to_string()),
                 "month" => date.map(|d| d.format("%-m").to_string()),
                 "day" => date.map(|d| d.format("%-d").to_string()),
@@ -512,7 +512,7 @@ fn build_tree_and_objects(
             bail!("no rule supplies a route for {}", f.path.display());
         };
         let url = tidy(
-            route::render(tmpl, |k| path_tokens(&logical_rel, k))
+            template::render(tmpl, |k| path_tokens(&logical_rel, k))
                 .with_context(|| format!("routing {}", f.path.display()))?,
         );
         let url = if locale != cfg.i18n.default {

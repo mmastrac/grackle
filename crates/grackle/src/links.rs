@@ -260,7 +260,7 @@ fn view_link(
             params.push((field.to_string(), value.clone()));
             params.push(("key".to_string(), value));
         }
-        crate::route::render(tmpl, |k| crate::route::param(&params, k))?
+        crate::template::render(tmpl, |k| crate::template::param(&params, k))?
     } else {
         if !keys.is_empty() {
             bail!("{source}: view:{rest} — {name} is not grouped; drop the key");

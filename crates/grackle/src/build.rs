@@ -1637,7 +1637,7 @@ fn pagination_parts(
             .ok_or_else(|| anyhow::anyhow!("view {view}: no routes"))?;
             Ok(format!(
                 "{prefix}{}",
-                crate::route::render(tmpl, |k| match k {
+                crate::template::render(tmpl, |k| match k {
                     "n" => Some(n.to_string()),
                     _ => None,
                 })?
@@ -1679,7 +1679,7 @@ fn route_intro(
     if r.key.is_some() {
         let chain = cfg.group_specs(view);
         if let Some(field) = chain.last().map(|s| crate::db::spec_field(s)) {
-            if let Some(id) = crate::route::param(&r.params, field) {
+            if let Some(id) = crate::template::param(&r.params, field) {
                 if let Some(i) = cfg.record(field, &id).and_then(|rec| rec.intro.as_ref()) {
                     let source = format!("record {field}.{id}: intro");
                     return render_config_prose(cfg, linkspace, locale, &source, i);

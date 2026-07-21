@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use crate::config::{Config, Kind, Query, View};
 use crate::schema::Schemas;
 use grackle_db::filter;
-use grackle_db::route;
+use grackle_db::template;
 use grackle_model::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
 
 /// One group key a row contributes under a single `group_by` spec: the typed
@@ -180,8 +180,8 @@ fn grouped_routes(
     }
     let mut out = Vec::new();
     for (sort, (params, members)) in groups {
-        let url = route::render(tmpl, |k| {
-            route::param(&params, k).map(|v| route_value(k, &v))
+        let url = template::render(tmpl, |k| {
+            template::param(&params, k).map(|v| route_value(k, &v))
         })?;
         let key = sort
             .iter()
@@ -498,7 +498,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
                             v.routes.get(1).or_else(|| v.routes.first())
                         };
                         let Some(tmpl) = tmpl else { continue };
-                        let url = route::render(&prefixed(locale, tmpl), |k| match k {
+                        let url = template::render(&prefixed(locale, tmpl), |k| match k {
                             "n" => Some(n.to_string()),
                             _ => None,
                         })?;

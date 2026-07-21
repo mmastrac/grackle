@@ -862,7 +862,7 @@ impl Config {
             }
             if let Some((name, v)) = cfg.tags_view() {
                 if let Some(tmpl) = v.route.as_deref() {
-                    grackle_db::route::render(tmpl, |k| match k {
+                    grackle_db::template::render(tmpl, |k| match k {
                         "key" | "tags" => Some("probe".to_string()),
                         _ => None,
                     })
@@ -1271,7 +1271,7 @@ impl Config {
     pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
         let (_, v) = self.tags_view()?;
         let tmpl = v.route.as_deref()?;
-        let url = grackle_db::route::render(tmpl, |k| match k {
+        let url = grackle_db::template::render(tmpl, |k| match k {
             "key" | "tags" => Some(self.tag_slug(id).to_string()),
             _ => None,
         })

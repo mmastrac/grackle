@@ -1,4 +1,4 @@
-use grackle_db::{filter, route};
+use grackle_db::{filter, template};
 use grackle_model as db;
 use grackle_source::{config, store, views};
 

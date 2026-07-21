@@ -71,7 +71,7 @@ pub fn listing_title_and_trail(
         .map(|s| crate::db::spec_field(s).to_string())
         .collect();
     let param = |k: &str| -> Option<String> {
-        let raw = crate::route::param(&r.params, k)?;
+        let raw = crate::template::param(&r.params, k)?;
         let field = if k == "key" {
             fields.last().map(String::as_str)
         } else if fields.iter().any(|f| f == k) {
@@ -86,9 +86,8 @@ pub fn listing_title_and_trail(
     };
     let text = |t: &crate::config::LocalizedStr| cfg.i18n.text(t, loc).to_string();
     let title = match &v.title {
-        Some(t) => {
-            crate::route::render(&text(t), param).with_context(|| format!("view {view}: title"))?
-        }
+        Some(t) => crate::template::render(&text(t), param)
+            .with_context(|| format!("view {view}: title"))?,
         None => r.key.clone().unwrap_or_else(|| view.to_string()),
     };
     let tail = match r.page {
@@ -102,7 +101,7 @@ pub fn listing_title_and_trail(
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             match tmpl {
                 Some(t) => Some(
-                    crate::route::render(&text(t), param)
+                    crate::template::render(&text(t), param)
                         .with_context(|| format!("view {view}: crumb"))?,
                 ),
                 None => r.key.clone(),
@@ -120,9 +119,9 @@ pub fn listing_title_and_trail(
         let av = &cfg.views[anc.as_str()];
         let tmpl = av.crumb.as_ref().or(av.title.as_ref());
         if let (Some(t), Some(route_t)) = (tmpl, av.route.as_deref()) {
-            let label = crate::route::render(&text(t), param)
+            let label = crate::template::render(&text(t), param)
                 .with_context(|| format!("view {anc}: crumb"))?;
-            let url = crate::route::render(route_t, param)?;
+            let url = crate::template::render(route_t, param)?;
             trail.push((label, Some(url)));
         }
     }
@@ -173,13 +172,14 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
             let Some(combo) = combos.first() else { break }; // undated: no trail
             let params: Vec<(String, String)> =
                 combo.iter().flat_map(|k| k.params.clone()).collect();
-            let get = |k: &str| crate::route::param(&params, k);
+            let get = |k: &str| crate::template::param(&params, k);
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             if let (Some(tm), Some(rt)) = (tmpl, v.route.as_deref()) {
                 let tm = cfg.i18n.text(tm, loc);
-                if let (Ok(label), Ok(url)) =
-                    (crate::route::render(tm, get), crate::route::render(rt, get))
-                {
+                if let (Ok(label), Ok(url)) = (
+                    crate::template::render(tm, get),
+                    crate::template::render(rt, get),
+                ) {
                     t.push((label, Some(url)));
                     chained = true;
                 }

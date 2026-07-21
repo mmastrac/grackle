@@ -3,7 +3,7 @@
 //!
 //! A row here is whatever answers `filter::Row` — a name goes in, a typed
 //! value comes out. That is the whole contract, and it is what lets one
-//! `select` serve posts, objects and routes alike.
+//! `matching` serve every row type a caller defines.
 //!
 //! Positions, not references, are the currency. Every index in this engine is
 //! a position into its table, so a query result composes with an index result
