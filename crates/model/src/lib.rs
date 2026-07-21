@@ -535,6 +535,10 @@ pub fn row_schema() -> filter::Schema {
     s.insert("dir", Str);
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
+    // Which collection claimed the file. Queryable so that a set can name
+    // its rows without `from` naming a table — the thing standing between
+    // one row store and one `published` set over all of it.
+    s.insert("collection", Str);
     // The file itself, which every row is one of. `object_schema` had these
     // and the row schema did not, back when an object was a different type.
     s.insert("name", Str);
@@ -583,6 +587,7 @@ impl filter::Row for Row {
             ),
             "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
+            "collection" => V::Str(self.collection.clone()),
             "name" => self
                 .rel
                 .file_name()
@@ -822,6 +827,19 @@ mod row_column_tests {
             row("a/README").field("ext"),
             filter::Value::Str(String::new())
         );
+    }
+
+    /// The collection is what a set will name once `from` stops naming a
+    /// table — a row store spanning posts and tree needs a column saying
+    /// which claimed each row.
+    #[test]
+    fn collection_is_queryable() {
+        let r = Row {
+            collection: "notes".into(),
+            ..Default::default()
+        };
+        assert_eq!(r.field("collection"), filter::Value::Str("notes".into()));
+        assert!(row_schema().contains_key("collection"));
     }
 
     /// Every column `object_schema` names must be answerable by a `Row`,

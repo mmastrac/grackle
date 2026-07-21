@@ -790,7 +790,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // are absent. (DESIGN §4a is the related draft/hidden concern.)
     for star in &db.routes {
         let Some(view) = &star.view else { continue };
-        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
         // The sitemap SHELL, likewise declared.
         if v.shell.as_deref() != Some("sitemap") {
             continue;
@@ -1470,7 +1472,9 @@ fn search_pass(
     let mut any = false;
     for star in &db.routes {
         let Some(view) = &star.view else { continue };
-        let Some(v) = cfg.views.get(view) else { continue };
+        let Some(v) = cfg.views.get(view) else {
+            continue;
+        };
         if v.shell.as_deref() != Some("search") {
             continue;
         }
