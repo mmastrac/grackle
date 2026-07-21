@@ -24,6 +24,16 @@ use clap::{Parser, Subcommand};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+/// The workspace root, which is where `grackle.toml` sits — the site itself
+/// is its `root = ".."`, one level further up. For tests that read the real
+/// corpus: anchored to the manifest rather than the CWD, which Cargo sets to
+/// this package's directory.
+#[cfg(test)]
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+
 #[derive(Parser)]
 #[command(name = "grackle", about = "A virtual database over the site")]
 struct Cli {

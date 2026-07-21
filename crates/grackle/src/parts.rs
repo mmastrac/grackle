@@ -988,7 +988,7 @@ mod tests {
     /// fragment can put it back — this catches it at the layer that owns it.
     #[test]
     fn null_theme_is_complete_over_every_real_row() {
-        let cfg = crate::config::Config::load(std::path::Path::new("grackle.toml"))
+        let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
             .expect("grackle.toml loads");
         let db = grackle_source::load(&cfg).expect("site db loads");
         assert!(db.post_ix.len() > 300, "real corpus expected");

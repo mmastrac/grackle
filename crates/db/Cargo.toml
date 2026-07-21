@@ -1,0 +1,13 @@
+[package]
+name = "grackle-db"
+version = "0.1.0"
+edition = "2021"
+
+# No workspace dependency, deliberately: storage and query know nothing about
+# where rows come from, and Cargo is what keeps it that way.
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_yaml_ng = { workspace = true }
+toml = { workspace = true }

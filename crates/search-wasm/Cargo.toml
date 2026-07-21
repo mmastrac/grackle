@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-grackle-search-core = { path = "../search-core" }
-postcard = { version = "1", features = ["alloc"] }
+grackle-search-core = { workspace = true }
+postcard = { workspace = true }

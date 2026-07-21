@@ -411,7 +411,7 @@ mod block_tests {
     /// models notes as a second stream, deferred to the sidenote pass).
     #[test]
     fn concat_equals_whole_over_corpus() {
-        let root = std::path::Path::new("..");
+        let root = crate::workspace_root().join("..");
         let mut n = 0;
         let mut mismatched: Vec<String> = Vec::new();
         for e in walkdir::WalkDir::new(root.join("_posts"))
