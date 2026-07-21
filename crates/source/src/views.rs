@@ -159,12 +159,12 @@ fn grouped_routes(
     name: &str,
     tmpl: &str,
     chain: &[String],
-    rows: &[(usize, &dyn filter::Row)],
+    rows: &[(grackle_db::Key, &dyn filter::Row)],
     route_value: &dyn Fn(&str, &str) -> String,
 ) -> Result<Vec<Route>> {
-    let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<usize>)> = BTreeMap::new();
-    for &(i, row) in rows {
-        for combo in key_combos(row, chain) {
+    let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> = BTreeMap::new();
+    for (i, row) in rows {
+        for combo in key_combos(*row, chain) {
             let sort: Vec<SortKey> = combo.iter().map(|k| k.sort.clone()).collect();
             groups
                 .entry(sort)
@@ -175,7 +175,7 @@ fn grouped_routes(
                     )
                 })
                 .1
-                .push(i);
+                .push(i.clone());
         }
     }
     let mut out = Vec::new();
@@ -228,7 +228,13 @@ fn stamp(cfg: &Config, locale: &str) -> Option<String> {
 }
 
 /// A view with no route: one row set, and nowhere to hang it but the view.
-fn insert_routeless(db: &mut SiteDb, name: &str, v: &View, members: Vec<usize>, table: Kind) {
+fn insert_routeless(
+    db: &mut SiteDb,
+    name: &str,
+    v: &View,
+    members: Vec<grackle_db::Key>,
+    table: Kind,
+) {
     db.views.insert(
         name.to_string(),
         ViewRows {
@@ -313,7 +319,7 @@ fn declared_order(
 /// the old accident exactly: every row of the collection, default locale,
 /// newest first — drafts fall off the ends only because they are undated.
 pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
-    let mut out: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
         if c.kind != Kind::Posts {
             continue;
@@ -355,15 +361,14 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             // means previous in time until a declared set says otherwise.
             None => (filter::Filter::always(), newest_first()),
         };
-        let ix: Vec<usize> = db
+        let ix: Vec<grackle_db::Key> = db
             .rows
             .iter()
-            .enumerate()
-            .filter(|(_, p)| p.collection == *cname)
+            .filter(|p| p.collection == *cname)
             // §6f: single-locale, as `PostsTable::order` was — a row's
             // neighbours are in its own language.
-            .filter(|(_, p)| p.locale == cfg.i18n.default)
-            .map(|(i, _)| i)
+            .filter(|p| p.locale == cfg.i18n.default)
+            .map(|p| p.key.clone())
             .collect();
         let seq = grackle_db::View::all().filter(pred).order(sort);
         out.insert(cname.clone(), db.rows.view_within(&ix, &seq));
@@ -428,15 +433,15 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         // including the default, which used to be the special case that
         // read the table's index. Declared `order_by` applies on top,
         // stably, so it re-seats only what it names.
-        let rows_for = |locale: &str| -> Vec<usize> {
+        let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
             // Over the POSTS rows, not every row: "the posts table" is a
             // set of indices now, and a posts view still ranges over all
             // of it across every posts collection (q51).
-            let in_locale: Vec<usize> = db
+            let in_locale: Vec<grackle_db::Key> = db
                 .post_ix
                 .iter()
-                .copied()
-                .filter(|&i| rows[i].locale == locale)
+                .filter(|k| rows.get(k).is_some_and(|r| r.locale == locale))
+                .cloned()
                 .collect();
             db.rows.view_within(&in_locale, &view)
         };
@@ -444,7 +449,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
 
         // No route: one row set, and nowhere to hang it but the view itself.
         if !v.is_materialized() {
-            let members: Vec<usize> = visible
+            let members: Vec<grackle_db::Key> = visible
                 .into_iter()
                 .take(v.limit.unwrap_or(usize::MAX))
                 .collect();
@@ -489,9 +494,9 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             };
             for locale in &locales {
                 let row_ix = rows_for(locale);
-                let rows: Vec<(usize, &dyn filter::Row)> = row_ix
+                let rows: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
                     .iter()
-                    .map(|&i| (i, &db.rows[i] as &dyn filter::Row))
+                    .filter_map(|k| db.rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
                     .collect();
                 let mut routes = grouped_routes(
                     name,
@@ -529,11 +534,11 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
                             "n" => Some(n.to_string()),
                             _ => None,
                         })?;
-                        let members: Vec<usize> = row_ix
+                        let members: Vec<grackle_db::Key> = row_ix
                             .iter()
-                            .copied()
                             .skip(per * (n - 1))
                             .take(per)
+                            .cloned()
                             .collect();
                         db.routes.push(Route {
                             view: Some(name.clone()),
@@ -559,10 +564,10 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
                     if row_ix.is_empty() && *locale != cfg.i18n.default {
                         continue;
                     }
-                    let members: Vec<usize> = row_ix
+                    let members: Vec<grackle_db::Key> = row_ix
                         .iter()
-                        .copied()
                         .take(v.limit.unwrap_or(row_ix.len()))
+                        .cloned()
                         .collect();
                     db.routes.push(Route {
                         view: Some(name.clone()),
@@ -631,15 +636,15 @@ fn build_object_view(
     if order != "name" {
         bail!("view {name}: unknown order_by {order:?} (have: name)");
     }
-    let pred = scoped_filter(name, q, &object_schema())?;
-    let mut members: Vec<usize> = db.objects.rows.select(&pred);
-    members.sort_by(|&a, &b| {
-        let (x, y) = (&db.objects.rows[a], &db.objects.rows[b]);
-        x.rel
-            .file_name()
-            .cmp(&y.rel.file_name())
-            .then_with(|| x.rel.cmp(&y.rel))
-    });
+    let view = grackle_db::View::all()
+        .filter(scoped_filter(name, q, &object_schema())?)
+        // `path` breaks the tie: two objects can share a filename, and
+        // directory order is not an ordering.
+        .order(vec![
+            grackle_db::Order::asc("name"),
+            grackle_db::Order::asc("path"),
+        ]);
+    let members: Vec<grackle_db::Key> = db.objects.rows.view(&view);
     db.routes.push(Route {
         view: Some(name.to_string()),
         rows: Some(members.len()),
@@ -680,18 +685,18 @@ fn build_tree_view(
         .limit(v.limit);
     // §6f: one row collection per locale (default-on, like posts views);
     // embedded views take the default locale's set below.
-    let rows_for = |locale: &str| -> Vec<usize> {
-        let members: Vec<usize> = db
+    let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
+        let members: Vec<grackle_db::Key> = db
             .page_ix
             .iter()
-            .map(|&i| (i, &db.rows[i]))
-            .filter(|(_, p)| p.rendered)
+            .filter_map(|k| db.rows.get(k))
+            .filter(|p| p.rendered)
             // q45: claimed rows serve a landing; they are chrome now, not
             // data — no query sees them (this is what retired the
             // `stem != "index"` convention).
-            .filter(|(_, p)| !p.claimed)
-            .filter(|(_, p)| p.locale == locale)
-            .map(|(i, _)| i)
+            .filter(|p| !p.claimed)
+            .filter(|p| p.locale == locale)
+            .map(|p| p.key.clone())
             .collect();
         db.rows.view_within(&members, &view)
     };
@@ -726,9 +731,9 @@ fn build_tree_view(
                 }
             };
             let mut routes = {
-                let rows: Vec<(usize, &dyn filter::Row)> = row_ix
+                let rows: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
                     .iter()
-                    .map(|&i| (i, &db.rows[i] as &dyn filter::Row))
+                    .filter_map(|k| db.rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
                     .collect();
                 grouped_routes(name, &tmpl, &chain, &rows, &route_value)?
             };
@@ -815,11 +820,12 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         let Some(at) = db
             .routes
             .iter()
-            .position(|r| r.kind == RouteKind::View && r.view.as_deref() == Some(name.as_str()))
+            .find(|r| r.kind == RouteKind::View && r.view.as_deref() == Some(name.as_str()))
+            .map(|r| r.id.clone())
         else {
             continue;
         };
-        if let Some(r) = db.routes.get_mut(at) {
+        if let Some(r) = db.routes.get_mut(&at) {
             r.rows = Some(members.len());
             r.route_members = members;
         }
@@ -837,6 +843,7 @@ mod object_view_tests {
     /// `stem` all derive from `rel`, so there is nothing else to set.
     fn obj(rel: &str) -> Row {
         Row {
+            key: grackle_db::Key::new(rel),
             path: PathBuf::from(rel),
             rel: PathBuf::from(rel),
             url: format!("/{rel}"),
@@ -872,7 +879,13 @@ mod object_view_tests {
             .expect("route");
         assert_eq!(r.rows, Some(2));
         // Sorted by name (a before b); the out-of-scope asset is absent.
-        assert_eq!(r.members, vec![2, 1]);
+        assert_eq!(
+            r.members
+                .iter()
+                .map(|k| k.as_str().to_string())
+                .collect::<Vec<_>>(),
+            ["photos/a.png", "photos/b.png"]
+        );
     }
 
     #[test]
@@ -915,6 +928,9 @@ mod posts_order_tests {
             // carry the default locale to be visible at all.
             locale: "en".into(),
             slug: url.trim_matches('/').into(),
+            // A row's key is its path, so fixtures need distinct ones or
+            // they are all the same row as far as the table is concerned.
+            rel: std::path::PathBuf::from(format!("{}.md", url.trim_matches('/'))),
             ..Row::default()
         }
     }
@@ -947,7 +963,11 @@ mod posts_order_tests {
         let (c, mut db) = (cfg(clauses), db());
         build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         let r = db.routes.iter().find(|r| r.url == "/g/").expect("route");
-        r.members.iter().map(|&i| db.rows[i].url.clone()).collect()
+        r.members
+            .iter()
+            .filter_map(|k| db.rows.get(k))
+            .map(|r| r.url.clone())
+            .collect()
     }
 
     /// A view with no `order_by` orders by PATH. The engine used to assume
@@ -1142,6 +1162,7 @@ mod adjacency_tests {
 
     fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {
         Row {
+            rel: std::path::PathBuf::from(format!("{collection}/{}.md", url.trim_matches('/').replace('/', "-"))),
             collection: collection.into(),
             url: url.into(),
             slug: url.trim_matches('/').replace('/', "-"),
@@ -1168,7 +1189,8 @@ mod adjacency_tests {
     fn seq(db: &SiteDb, collection: &str) -> Vec<String> {
         db.adjacency[collection]
             .iter()
-            .map(|&i| db.rows[i].url.clone())
+            .filter_map(|k| db.rows.get(k))
+            .map(|r| r.url.clone())
             .collect()
     }
 

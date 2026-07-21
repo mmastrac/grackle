@@ -6,9 +6,11 @@
 //! knows none of it. Rows arrive through `SiteDb::insert_rows`; the layer that
 //! produces them is `grackle-source`.
 
-use grackle_db::{filter, Key, Keyed, Table};
+use grackle_db::{filter, Keyed, Table};
 
-use anyhow::Result;
+pub use grackle_db::Key;
+
+use anyhow::{bail, Result};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -118,6 +120,12 @@ pub struct Row {
     pub claimed: bool,
 }
 
+impl Keyed for Route {
+    fn key(&self) -> &Key {
+        &self.id
+    }
+}
+
 impl Keyed for Row {
     fn key(&self) -> &Key {
         &self.key
@@ -168,18 +176,22 @@ mod adjacency_tests {
     /// there for what the sequence contains).
     #[test]
     fn walks_the_sequence_in_both_directions() {
-        let seq = [3, 2, 1, 0];
-        let (newer, older) = neighbors_in(&seq, 2);
-        assert_eq!((newer, older), (Some(3), Some(1)));
+        let k = |s: &str| Key::new(s);
+        let seq = [k("d"), k("c"), k("b"), k("a")];
+        assert_eq!(
+            neighbors_in(&seq, &k("c")),
+            (Some(k("d")), Some(k("b"))),
+            "position in the sequence is what newer and older mean"
+        );
 
         // The ends terminate rather than wrap.
-        assert_eq!(neighbors_in(&seq, 3), (None, Some(2)));
-        assert_eq!(neighbors_in(&seq, 0), (Some(1), None));
+        assert_eq!(neighbors_in(&seq, &k("d")), (None, Some(k("c"))));
+        assert_eq!(neighbors_in(&seq, &k("a")), (Some(k("b")), None));
 
         // A row absent from the sequence has no neighbours at all — which
         // is how a filtered-out row (a draft, under a declared set) stops
         // appearing as someone's later post.
-        assert_eq!(neighbors_in(&seq, 9), (None, None));
+        assert_eq!(neighbors_in(&seq, &k("gone")), (None, None));
     }
 }
 
@@ -194,13 +206,13 @@ mod adjacency_tests {
 /// April's *notes*. `_posts` and `_drafts` never showed it because
 /// drafts are undated and so absent from `order` entirely, which is
 /// exactly the accident a declared set replaces with a rule.
-pub fn neighbors_in(seq: &[usize], idx: usize) -> (Option<usize>, Option<usize>) {
-    let Some(pos) = seq.iter().position(|&i| i == idx) else {
+pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
+    let Some(pos) = seq.iter().position(|k| k == of) else {
         return (None, None);
     };
     (
-        seq[..pos].iter().next_back().copied(),
-        seq.get(pos + 1).copied(),
+        seq[..pos].iter().next_back().cloned(),
+        seq.get(pos + 1).cloned(),
     )
 }
 
@@ -238,6 +250,11 @@ impl RouteKind {
 
 #[derive(Debug, Serialize)]
 pub struct Route {
+    /// A route's identity is its URL: unique by the collision check at load,
+    /// and the same string across rebuilds. Not `key` — that is the GROUP
+    /// key a subdivided view wears, which is a different thing entirely.
+    #[serde(skip)]
+    pub id: Key,
     pub url: String,
     pub kind: RouteKind,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -278,7 +295,7 @@ pub struct Route {
     /// that out by panicking, which is the good outcome and not one to rely
     /// on twice.
     #[serde(skip)]
-    pub route_members: Vec<usize>,
+    pub route_members: Vec<Key>,
     /// `self`: the post rows this route materializes, in order.
     ///
     /// The view's declared query decides these once, here. Before this existed
@@ -287,7 +304,7 @@ pub struct Route {
     /// all of it and reimplemented each view by hand. Empty for `over = "*"`
     /// views, which range over routes rather than posts.
     #[serde(skip)]
-    pub members: Vec<usize>,
+    pub members: Vec<Key>,
 }
 
 impl Route {
@@ -295,6 +312,7 @@ impl Route {
     /// constructor site fills its few meaningful fields over.
     pub fn new(url: String, kind: RouteKind) -> Route {
         Route {
+            id: Key::new(&url),
             url,
             kind,
             source: None,
@@ -423,34 +441,29 @@ pub struct SiteDb {
     /// source. Deleting the table meant naming that set instead of
     /// pointing at a `Vec`.
     #[serde(skip)]
-    pub post_ix: Vec<usize>,
+    pub post_ix: Vec<Key>,
     /// Indices of rows the tree loader produced.
     #[serde(skip)]
-    pub page_ix: Vec<usize>,
+    pub page_ix: Vec<Key>,
     /// The primary index (DESIGN.md §3): `(date, slug)`, unique.
     /// NOT `slug` alone — measured: `not-dead-yet` is used by both a 2003
     /// and a 2006 post, legal because their dates (and so URLs) differ.
     #[serde(skip)]
-    pub by_key: HashMap<(Option<NaiveDate>, String), usize>,
+    pub by_key: HashMap<(Option<NaiveDate>, String), Key>,
     /// Non-unique: slug -> rows. Informational; see `by_key` for identity.
     #[serde(skip)]
-    pub by_slug: BTreeMap<String, Vec<usize>>,
+    pub by_slug: BTreeMap<String, Vec<Key>>,
     #[serde(skip)]
-    pub by_tag: BTreeMap<String, Vec<usize>>,
+    pub by_tag: BTreeMap<String, Vec<Key>>,
     #[serde(skip)]
-    pub by_year_month: BTreeMap<(i32, u32), Vec<usize>>,
+    pub by_year_month: BTreeMap<(i32, u32), Vec<Key>>,
     #[serde(skip)]
-    pub by_url: HashMap<String, usize>,
-    /// Every row by its key. The one index that is not a query shortcut: it
-    /// is how a key becomes a position, which every key-carrying set needs to
-    /// get back to a row.
-    #[serde(skip)]
-    pub by_row_key: HashMap<Key, usize>,
+    pub by_url: HashMap<String, Key>,
     /// §6f: logical identity -> every locale variant (default included).
     /// Safe to share across both origins now that `logical` is
     /// root-relative on each.
     #[serde(skip)]
-    pub by_logical: BTreeMap<String, Vec<usize>>,
+    pub by_logical: BTreeMap<String, Vec<Key>>,
     pub objects: ObjectsTable,
     pub routes: Table<Route>,
     /// Row sets for views that resolve to exactly one — the ones with no route
@@ -467,7 +480,7 @@ pub struct SiteDb {
     /// unset — every row of the collection in the default locale, newest
     /// first, which is what `PostsTable::order` used to supply implicitly.
     #[serde(skip)]
-    pub adjacency: BTreeMap<String, Vec<usize>>,
+    pub adjacency: BTreeMap<String, Vec<Key>>,
     pub stats: LoadStats,
 }
 
@@ -484,7 +497,7 @@ pub struct ViewRows {
     #[serde(skip)]
     pub table: Kind,
     #[serde(skip)]
-    pub members: Vec<usize>,
+    pub members: Vec<Key>,
 }
 
 impl Default for ViewRows {
@@ -647,17 +660,17 @@ impl SiteDb {
     /// The row a route points at, whichever table holds it. Row identity is
     /// one thing since q51; only the storage is still two.
     pub fn row_by_url(&self, url: &str) -> Option<&Row> {
-        self.by_url.get(url).map(|&i| &self.rows[i])
+        self.by_url.get(url).and_then(|k| self.rows.get(k))
     }
 
-    /// The row a key names, in this load.
+    /// The row a key names.
     pub fn row(&self, key: &Key) -> Option<&Row> {
-        self.by_row_key.get(key).map(|&i| &self.rows[i])
+        self.rows.get(key)
     }
 
     /// The rows a posts collection produced, in load order.
     pub fn posts(&self) -> impl Iterator<Item = &Row> {
-        self.post_ix.iter().map(|&i| &self.rows[i])
+        self.post_ix.iter().filter_map(|k| self.rows.get(k))
     }
 
     /// Seed a database with rows of one origin, indexing by URL only.
@@ -667,7 +680,11 @@ impl SiteDb {
     /// this one skips the dated indexes and every uniqueness constraint, so a
     /// fixture can hold rows a site could not.
     pub fn seed(rows: Vec<Row>, posts: bool) -> SiteDb {
-        let ix: Vec<usize> = (0..rows.len()).collect();
+        let mut rows = rows;
+        for r in rows.iter_mut() {
+            r.key = Key::new(r.rel.to_string_lossy());
+        }
+        let ix: Vec<Key> = rows.iter().map(|r| r.key.clone()).collect();
         let mut db = SiteDb {
             rows: Table::new(rows),
             ..Default::default()
@@ -677,17 +694,19 @@ impl SiteDb {
         } else {
             db.page_ix = ix;
         }
-        for (i, r) in db.rows.iter().enumerate() {
-            if !r.url.is_empty() {
-                db.by_url.insert(r.url.clone(), i);
-            }
-        }
+        let urls: Vec<(String, Key)> = db
+            .rows
+            .iter()
+            .filter(|r| !r.url.is_empty())
+            .map(|r| (r.url.clone(), r.key.clone()))
+            .collect();
+        db.by_url.extend(urls);
         db
     }
 
     /// The rows the tree loader produced.
     pub fn pages(&self) -> impl Iterator<Item = &Row> {
-        self.page_ix.iter().map(|&i| &self.rows[i])
+        self.page_ix.iter().filter_map(|k| self.rows.get(k))
     }
 
     /// Fill the row store from its two origins and build every index.
@@ -703,22 +722,21 @@ impl SiteDb {
     /// configuration lives.
     pub fn insert_rows(
         &mut self,
-        posts: Vec<Row>,
-        pages: Vec<Row>,
+        mut posts: Vec<Row>,
+        mut pages: Vec<Row>,
         default_locale: &str,
     ) -> Result<()> {
-        // ONE row store (q51). Posts first, then the tree — the split
-        // survives only as two index lists, which is what "the posts table"
-        // always meant: a set of rows, not a separate type.
-        self.post_ix = (0..posts.len()).collect();
-        self.page_ix = (posts.len()..posts.len() + pages.len()).collect();
+        // Keys are assigned here, where rows stop being the loader's and
+        // become the database's. A row's key is its source file.
+        for r in posts.iter_mut().chain(pages.iter_mut()) {
+            r.key = Key::new(r.rel.to_string_lossy());
+        }
+        // ONE row store (q51). The split survives only as two lists of keys,
+        // which is what "the posts table" always meant: a set of rows.
+        self.post_ix = posts.iter().map(|r| r.key.clone()).collect();
+        self.page_ix = pages.iter().map(|r| r.key.clone()).collect();
         self.rows = Table::new(posts);
         self.rows.extend(pages);
-        for i in 0..self.rows.len() {
-            if let Some(r) = self.rows.get_mut(i) {
-                r.key = Key::new(r.rel.to_string_lossy());
-            }
-        }
         self.index_rows(default_locale)
     }
 
@@ -731,58 +749,60 @@ impl SiteDb {
     /// means for a row to contribute nothing. `grackle_db::index` owns the
     /// rest — the collision rule and the grouping.
     fn index_rows(&mut self, default_locale: &str) -> Result<()> {
-        // Identity first: a key that two rows share is a corpus that cannot
-        // be indexed by key at all, and it should say so here rather than
-        // silently resolving one of them.
-        self.by_row_key = self
-            .rows
-            .unique_index(|_, p| Some(p.key.clone()))
-            .map_err(|c| self.collision(&format!("duplicate row key {}:", c.key), c))?;
+        // Identity first: two rows sharing a key is a corpus that cannot be
+        // indexed by key at all, and the table would silently resolve one of
+        // them. Checked before anything depends on it.
+        let mut seen: HashMap<&Key, &Row> = HashMap::new();
+        for p in self.rows.iter() {
+            if let Some(prev) = seen.insert(&p.key, p) {
+                bail!(
+                    "duplicate row key {}:\n  {}\n  {}",
+                    p.key,
+                    prev.path.display(),
+                    p.path.display()
+                );
+            }
+        }
+
+        // Posts-only and single-locale (§6f): a translation shares its
+        // original's (date, slug) by design.
+        //
+        // Membership, not arithmetic. This was `i < n_posts` — correct only
+        // while posts happened to be laid down first, and silently wrong the
+        // moment anything reordered the store.
+        let posts: std::collections::HashSet<&Key> = self.post_ix.iter().collect();
+        let dated = |p: &Row| posts.contains(&p.key) && p.locale == default_locale;
 
         // A claimed row serves a landing and has no route (q45), so it holds
         // no URL to index.
         let by_url = self
             .rows
-            .unique_index(|_, p| (!p.url.is_empty()).then(|| p.url.clone()));
-
-        // A static file has no logical identity to pair a translation on.
-        self.by_logical = self
-            .rows
-            .multi_index(|_, p| p.rendered.then(|| p.logical.clone()));
-
-        // The dated indexes are posts-only and single-locale (§6f): a
-        // translation shares its original's (date, slug) by design.
-        let n_posts = self.post_ix.len();
-        let dated = |i: usize, p: &Row| i < n_posts && p.locale == default_locale;
-
+            .unique_index(|p| (!p.url.is_empty()).then(|| p.url.clone()));
         let by_key = self
             .rows
-            .unique_index(|i, p| dated(i, p).then(|| (p.date, p.slug.clone())));
-        self.by_slug = self
+            .unique_index(|p| dated(p).then(|| (p.date, p.slug.clone())));
+        // A static file has no logical identity to pair a translation on.
+        let by_logical = self
             .rows
-            .multi_index(|i, p| dated(i, p).then(|| p.slug.clone()));
-        self.by_tag = self.rows.multi_index(|i, p| {
-            if dated(i, p) {
-                p.tags.clone()
-            } else {
-                Vec::new()
-            }
-        });
-        self.by_year_month = self
+            .multi_index(|p| p.rendered.then(|| p.logical.clone()));
+        let by_slug = self.rows.multi_index(|p| dated(p).then(|| p.slug.clone()));
+        let by_tag = self
             .rows
-            .multi_index(|i, p| dated(i, p).then(|| p.year_month()).flatten());
+            .multi_index(|p| if dated(p) { p.tags.clone() } else { Vec::new() });
+        let by_year_month = self
+            .rows
+            .multi_index(|p| dated(p).then(|| p.year_month()).flatten());
 
-        // Resolved after the borrows above, because naming a collision needs
-        // the rows the index layer only knows as positions.
-        self.by_url =
-            by_url.map_err(|c| self.collision(&format!("route collision at {}:", c.key), c))?;
+        self.by_logical = by_logical;
+        self.by_slug = by_slug;
+        self.by_tag = by_tag;
+        self.by_year_month = by_year_month;
+        self.by_url = by_url
+            .map_err(|c| self.collision(&format!("route collision at {}:", c.key), c))?;
         self.by_key = by_key.map_err(|c| {
             let (date, slug) = &c.key;
             let date = date.map(|d| d.to_string()).unwrap_or("none".into());
-            self.collision(
-                &format!("duplicate (date, slug) key ({date}, {slug:?}):"),
-                c,
-            )
+            self.collision(&format!("duplicate (date, slug) key ({date}, {slug:?}):"), c)
         })?;
         Ok(())
     }
@@ -790,11 +810,13 @@ impl SiteDb {
     /// Name the two rows that claimed one key. The index layer reports
     /// positions, having no idea a row has a path to blame.
     fn collision<K>(&self, what: &str, c: grackle_db::Collision<K>) -> anyhow::Error {
-        anyhow::anyhow!(
-            "{what}\n  {}\n  {}",
-            self.rows[c.first].path.display(),
-            self.rows[c.second].path.display()
-        )
+        let path = |k: &Key| {
+            self.rows
+                .get(k)
+                .map(|r| r.path.display().to_string())
+                .unwrap_or_else(|| k.to_string())
+        };
+        anyhow::anyhow!("{what}\n  {}\n  {}", path(&c.first), path(&c.second))
     }
 }
 

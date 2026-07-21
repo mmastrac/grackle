@@ -78,10 +78,23 @@ impl View {
 mod tests {
     use super::*;
     use crate::filter::{Row, Schema, Type, Value};
+    use crate::key::{Key, Keyed};
     use crate::table::Table;
 
     /// `(name, rank)` where a `None` rank is a null column.
-    struct Fixture(&'static str, Option<i64>);
+    struct Fixture(&'static str, Option<i64>, Key);
+
+    impl Fixture {
+        fn new(name: &'static str, rank: Option<i64>) -> Fixture {
+            Fixture(name, rank, Key::new(name))
+        }
+    }
+
+    impl Keyed for Fixture {
+        fn key(&self) -> &Key {
+            &self.2
+        }
+    }
 
     impl Row for Fixture {
         fn field(&self, name: &str) -> Value {
@@ -95,15 +108,15 @@ mod tests {
 
     fn table() -> Table<Fixture> {
         Table::new(vec![
-            Fixture("c", Some(2)),
-            Fixture("a", None),
-            Fixture("b", Some(1)),
-            Fixture("d", Some(2)),
+            Fixture::new("c", Some(2)),
+            Fixture::new("a", None),
+            Fixture::new("b", Some(1)),
+            Fixture::new("d", Some(2)),
         ])
     }
 
     fn names(t: &Table<Fixture>, v: &View) -> Vec<&'static str> {
-        t.view(v).into_iter().map(|i| t[i].0).collect()
+        t.view(v).iter().map(|k| t.get(k).unwrap().0).collect()
     }
 
     #[test]
@@ -156,10 +169,11 @@ mod tests {
     #[test]
     fn view_within_keeps_the_callers_order_when_unsorted() {
         let t = table();
+        let within = [Key::new("d"), Key::new("a"), Key::new("c")];
         assert_eq!(
-            t.view_within(&[3, 1, 0], &View::all())
-                .into_iter()
-                .map(|i| t[i].0)
+            t.view_within(&within, &View::all())
+                .iter()
+                .map(|k| t.get(k).unwrap().0)
                 .collect::<Vec<_>>(),
             vec!["d", "a", "c"]
         );

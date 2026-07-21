@@ -165,8 +165,8 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
             let pairs: Vec<(String, String)> = v
                 .members
                 .iter()
-                .map(|&i| {
-                    let p = &cx.db.rows[i];
+                .filter_map(|k| cx.db.rows.get(k))
+                .map(|p| {
                     (p.title.clone().unwrap_or_default(), p.url.clone())
                 })
                 .collect();
@@ -180,10 +180,9 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                     cx.source
                 );
             }
-            let Some(&i) = v.members.first() else {
+            let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
                 return Ok(String::new());
             };
-            let p = &cx.db.rows[i];
             let src = p
                 .hero_source()
                 .and_then(|s| cx.thumbs.and_then(|t| t.get(s)))

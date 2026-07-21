@@ -130,12 +130,17 @@ pub fn fresh(db: &SiteDb, cache_dir: &Path) -> Result<Vec<Option<Vector>>> {
 /// Related-posts table: post index → top-N (index, adjusted score), best
 /// first, under the config's policy.
 pub struct Related {
-    pub by_post: HashMap<usize, Vec<(usize, f32)>>,
+    pub by_post: HashMap<crate::db::Key, Vec<(crate::db::Key, f32)>>,
 }
 
 pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Related {
     use chrono::Datelike;
-    let year = |i: usize| db.rows[i].date.map(|d| d.year());
+    // `vectors` is parallel to `post_ix`, so a position here names a POST,
+    // not a row. This used to index `db.rows` with it directly, which was
+    // right only while posts were laid down first and contiguously.
+    let keys = &db.post_ix;
+    let row = |i: usize| keys.get(i).and_then(|k| db.rows.get(k));
+    let year = |i: usize| row(i).and_then(|r| r.date).map(|d| d.year());
     let mut by_post = HashMap::new();
     for (i, vi) in vectors.iter().enumerate() {
         let Some(vi) = vi else { continue };
@@ -147,7 +152,9 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Relate
             .filter(|(j, vj)| *j != i && vj.is_some())
             // §6f: similarity stays within a locale — a translation is the
             // SAME text, so it would otherwise top its original's list.
-            .filter(|(j, _)| db.rows[*j].locale == db.rows[i].locale)
+            .filter(|(j, _)| {
+                row(*j).map(|r| &r.locale) == row(i).map(|r| &r.locale)
+            })
             .filter_map(|(j, vj)| {
                 let gap = match (year(i), year(j)) {
                     (Some(a), Some(b)) => (a - b).abs(),
@@ -166,7 +173,14 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Relate
             .collect();
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
         scored.truncate(cfg.limit);
-        by_post.insert(i, scored);
+        let Some(mine) = keys.get(i) else { continue };
+        by_post.insert(
+            mine.clone(),
+            scored
+                .into_iter()
+                .filter_map(|(j, s)| keys.get(j).map(|k| (k.clone(), s)))
+                .collect(),
+        );
     }
     Related { by_post }
 }
@@ -245,6 +259,9 @@ mod tests {
     fn post(title: &str, year: i32, v: Option<Vec<f32>>) -> (Row, Option<Vector>) {
         let p = Row {
             title: Some(title.into()),
+            // Distinct, because a row's key is its path and these rows have
+            // to be tellable apart once ranking names them.
+            rel: std::path::PathBuf::from(format!("{title}.md")),
             date: chrono::NaiveDate::from_ymd_opt(year, 1, 1),
             ..Row::default()
         };
@@ -253,6 +270,11 @@ mod tests {
 
     fn mkdb(posts: Vec<Row>) -> SiteDb {
         SiteDb::seed(posts, true)
+    }
+
+    /// A seeded post's key, which `seed` derives from its `rel`.
+    fn key(title: &str) -> crate::db::Key {
+        crate::db::Key::new(format!("{title}.md"))
     }
 
     #[test]
@@ -287,7 +309,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!(raw.by_post[&0][0].0, 1, "raw cosine prefers the old post");
+        assert_eq!(
+            raw.by_post[&key("anchor")][0].0,
+            key("old"),
+            "raw cosine prefers the old post");
 
         let pen = RelatedCfg {
             limit: 2,
@@ -296,7 +321,8 @@ mod tests {
         };
         let penalized = rank(&db, &vecs, &pen);
         assert_eq!(
-            penalized.by_post[&0][0].0, 2,
+            penalized.by_post[&key("anchor")][0].0,
+            key("recent"),
             "penalty prefers the recent post"
         );
 
@@ -308,7 +334,7 @@ mod tests {
         };
         let dropped = rank(&db, &vecs, &strict);
         assert_eq!(
-            dropped.by_post[&0].len(),
+            dropped.by_post[&key("anchor")].len(),
             1,
             "the penalized old post falls below min"
         );
@@ -326,7 +352,11 @@ mod tests {
         for (i, list) in &r.by_post {
             assert!(list.iter().all(|(j, _)| j != i), "post {i} matched itself");
         }
-        assert_eq!(r.by_post[&0][0].0, 1, "the twin ranks; the self does not");
+        assert_eq!(
+            r.by_post[&key("a")][0].0,
+            key("b"),
+            "the twin ranks; the self does not"
+        );
     }
 
     #[test]
@@ -340,7 +370,7 @@ mod tests {
             ..Default::default()
         };
         let r = rank(&db, &vec![v0, v1], &cfg);
-        assert!(r.by_post[&0].is_empty());
+        assert!(r.by_post[&key("a")].is_empty());
     }
 
     #[test]

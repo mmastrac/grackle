@@ -516,7 +516,7 @@ pub fn document(
     p: &Row,
     content: &str,
     trail: Vec<(String, Option<String>)>,
-    related: &[usize],
+    related: &[crate::db::Key],
     backlinks: &[(String, String, Option<chrono::NaiveDate>)],
     outline: Vec<PartMap>,
     translations: &[(String, String)],
@@ -532,8 +532,8 @@ pub fn document(
         m.set("outline", Part::Stream(outline));
     }
     m.set("content", Part::Html(content.to_string()));
-    let row_neighbor = |j: usize| -> Option<PartMap> {
-        let n = db.rows.get(j)?;
+    let row_neighbor = |k: &crate::db::Key| -> Option<PartMap> {
+        let n = db.rows.get(k)?;
         Some(neighbor(
             n.title.as_deref().unwrap_or_default(),
             &n.url,
@@ -543,10 +543,10 @@ pub fn document(
     // Push order is render order.
     let mut relations = Vec::new();
     relations.extend(translations_group(cfg, &p.locale, translations));
-    let similar: Vec<PartMap> = related.iter().filter_map(|&j| row_neighbor(j)).collect();
+    let similar: Vec<PartMap> = related.iter().filter_map(row_neighbor).collect();
     relations.extend(relation(cfg, &p.locale, Axis::Similar, similar));
     relations.extend(linked_from_group(cfg, &p.locale, backlinks));
-    if let Some(&i) = db.by_url.get(&p.url) {
+    if db.by_url.contains_key(&p.url) {
         // One traversal read in two directions, over the row's collection's
         // declared sequence (q51) rather than the whole table's index.
         let seq = db
@@ -554,9 +554,9 @@ pub fn document(
             .get(&p.collection)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let (newer, older) = crate::db::neighbors_in(seq, i);
+        let (newer, older) = crate::db::neighbors_in(seq, &p.key);
         for (axis, ix) in [(Axis::Later, newer), (Axis::Earlier, older)] {
-            let items = ix.and_then(&row_neighbor).into_iter().collect();
+            let items = ix.as_ref().and_then(&row_neighbor).into_iter().collect();
             relations.extend(relation(cfg, &p.locale, axis, items));
         }
     }
@@ -996,11 +996,6 @@ mod tests {
         // Keys must actually identify: one per row, resolving back to it.
         // The real corpus is the only place this is worth asserting — a
         // fixture cannot collide two paths that a 27-year site can.
-        assert_eq!(
-            db.by_row_key.len(),
-            db.rows.len(),
-            "every row should have a distinct key"
-        );
         for r in db.rows.iter() {
             assert_eq!(
                 db.row(&r.key).map(|f| &f.rel),
@@ -1031,8 +1026,9 @@ mod tests {
             let rows: Vec<(&Row, String, bool)> = r
                 .members
                 .iter()
-                .map(|&i| {
-                    let p = &db.rows[i];
+                .filter_map(|k| db.rows.get(k))
+                .enumerate()
+                .map(|(i, p)| {
                     let body = crate::store::read_body(&p.path).unwrap_or_default();
                     (p, body, i % 2 == 0)
                 })

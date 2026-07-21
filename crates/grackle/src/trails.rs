@@ -224,7 +224,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
         if let Some(p) = db
             .by_url
             .get(parent.as_str())
-            .map(|&i| &db.rows[i])
+            .and_then(|k| db.rows.get(k))
             .filter(|p| p.rendered)
         {
             if let Some(t) = &p.title {

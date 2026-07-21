@@ -204,16 +204,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     let rendered: Vec<(String, String)> = db
         .post_ix
         .par_iter()
-        .map(|&i| &db.rows[i])
+        .filter_map(|k| db.rows.get(k))
         .map(|p| -> Result<(String, String)> {
             let head = render::head_for_post(p, &site);
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[p.url.as_str()].whole.as_str();
-            let rel: Vec<usize> = db
+            let rel: Vec<crate::db::Key> = db
                 .by_url
                 .get(&p.url)
-                .and_then(|i| related.by_post.get(i))
-                .map(|v| v.iter().map(|(j, _)| *j).collect())
+                .and_then(|k| related.by_post.get(k))
+                .map(|v| v.iter().map(|(k, _)| k.clone()).collect())
                 .unwrap_or_default();
             // §6e heading axis: `toc:` rows carry their outline, extracted
             // from the same rendered bytes. h2–h3 is the v1 depth window
@@ -231,7 +231,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 .get(&p.logical)
                 .map(|sibs| {
                     sibs.iter()
-                        .map(|&j| &db.rows[j])
+                        .filter_map(|k| db.rows.get(k))
                         .filter(|s| s.url != p.url)
                         .map(|s| (s.locale.clone(), s.url.clone()))
                         .collect()
@@ -313,7 +313,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let rows: Vec<(&crate::db::Row, String, bool)> = r
             .members
             .iter()
-            .map(|&i| &db.rows[i])
+            .filter_map(|k| db.rows.get(k))
             .map(|p| match bodies.get(p.url.as_str()) {
                 Some(d) => match summary_field {
                     Some(t) => {
@@ -382,7 +382,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let items: Vec<parts::Figure> = r
             .members
             .iter()
-            .map(|&i| &db.objects.rows[i])
+            .filter_map(|k| db.objects.rows.get(k))
             .map(|o| {
                 let key = o.rel.to_string_lossy().to_string();
                 let t = thumbs.get(&key);
@@ -437,7 +437,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let rows: Vec<parts::CardRow> = r
             .members
             .iter()
-            .map(|&i| &db.rows[i])
+            .filter_map(|k| db.rows.get(k))
             .map(|p| {
                 let t = p.hero_source().and_then(|s| thumbs.get(s));
                 parts::CardRow {
@@ -471,7 +471,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let mut names = r
                 .members
                 .iter()
-                .map(|&i| db.rows[i].theme.as_deref().map(|s| theme::split_spec(s).0));
+                .map(|k| db.rows.get(k).and_then(|r| r.theme.as_deref()).map(|s| theme::split_spec(s).0));
             match names.next().flatten() {
                 Some(first) if names.all(|n| n == Some(first)) => Some(first),
                 _ => None,
@@ -525,11 +525,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let sibs = db.by_logical.get(content).cloned().unwrap_or_default();
         let row = sibs
             .iter()
-            .map(|&i| &db.rows[i])
+            .filter_map(|k| db.rows.get(k))
             .find(|p| p.locale == loc)
             .or_else(|| {
                 sibs.iter()
-                    .map(|&i| &db.rows[i])
+                    .filter_map(|k| db.rows.get(k))
                     .find(|p| p.locale == cfg.i18n.default)
             });
         let Some(row) = row else { continue }; // existence-checked at load
@@ -542,7 +542,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let rows: Vec<(&crate::db::Row, String, bool)> = r
                     .members
                     .iter()
-                    .map(|&i| &db.rows[i])
+                    .filter_map(|k| db.rows.get(k))
                     .map(|p| match bodies.get(p.url.as_str()) {
                         Some(d) => match summary_field {
                             Some(t) => {
@@ -561,7 +561,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let rows: Vec<parts::CardRow> = r
                     .members
                     .iter()
-                    .map(|&i| &db.rows[i])
+                    .filter_map(|k| db.rows.get(k))
                     .map(|p| {
                         let t = p.hero_source().and_then(|s| thumbs.get(s));
                         parts::CardRow {
@@ -579,7 +579,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let items: Vec<parts::Figure> = r
                     .members
                     .iter()
-                    .map(|&i| &db.objects.rows[i])
+                    .filter_map(|k| db.objects.rows.get(k))
                     .map(|o| {
                         let key = o.rel.to_string_lossy().to_string();
                         let t = thumbs.get(&key);
@@ -759,7 +759,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let entries: Vec<(&crate::db::Row, &str)> = r
             .members
             .iter()
-            .map(|&i| &db.rows[i])
+            .filter_map(|k| db.rows.get(k))
             .map(|p| {
                 let html = bodies
                     .get(p.url.as_str())
@@ -802,7 +802,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let entries: Vec<(String, Option<String>)> = star
             .route_members
             .iter()
-            .map(|&i| &db.routes[i])
+            .filter_map(|k| db.routes.get(k))
             .map(|r| {
                 let loc = format!("{}{}", site.url, r.url);
                 // `lastmod` follows the DATE, not the table. This asked
@@ -853,8 +853,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             Some(Kind::Tree) => r
                 .members
                 .iter()
-                .map(|&i| {
-                    let p = &db.rows[i];
+                .filter_map(|k| db.rows.get(k))
+                .map(|p| {
                     serde_json::json!({
                         "url": p.url,
                         "title": p.title,
@@ -868,8 +868,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             _ => r
                 .members
                 .iter()
-                .map(|&i| {
-                    let p = &db.rows[i];
+                .filter_map(|k| db.rows.get(k))
+                .map(|p| {
                     serde_json::json!({
                         "url": p.url,
                         "title": p.title,
@@ -911,7 +911,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             }
             RouteKind::Page => {
                 let Some(src) = &r.source else { continue };
-                let row = db.by_url.get(r.url.as_str()).map(|&i| &db.rows[i]);
+                let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
                 let layout = row.and_then(|p| p.layout.as_deref());
                 let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
 
@@ -1018,7 +1018,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                             .and_then(|p| {
                                 db.by_logical.get(&p.logical).map(|sibs| {
                                     sibs.iter()
-                                        .map(|&j| &db.rows[j])
+                                        .filter_map(|k| db.rows.get(k))
                                         .filter(|s| s.url != p.url)
                                         .map(|s| (s.locale.clone(), s.url.clone()))
                                         .collect()
@@ -1122,8 +1122,10 @@ fn thumbs_pass(
         // pass shows thumbs and links originals, same as {% image %}.
         if let Some(view) = &r.view {
             if view_base_kind(cfg, view) == Some(Kind::Objects) {
-                for &i in &r.members {
-                    img_sources.push(db.objects.rows[i].rel.to_string_lossy().to_string());
+                for k in &r.members {
+                    if let Some(o) = db.objects.rows.get(k) {
+                        img_sources.push(o.rel.to_string_lossy().to_string());
+                    }
                 }
             }
         }
@@ -1159,7 +1161,7 @@ fn render_bodies<'a>(
     // loader asymmetry that outlives the row-type merge.
     db.post_ix
         .par_iter()
-        .map(|&i| &db.rows[i])
+        .filter_map(|k| db.rows.get(k))
         .map(|p| -> Result<(&str, Doc)> {
             let cx = tags::Ctx {
                 thumbs: Some(thumb_urls),
@@ -1250,7 +1252,7 @@ fn render_page_bodies(
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
             // §6a row/view links, same as post bodies. Raw-HTML pages are
             // exempt v1 — the lol_html rewrite stage (§6d) is their seam.
-            let row = db.by_url.get(r.url.as_str()).map(|&i| &db.rows[i]);
+            let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
             let dir = row
                 .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
                 .unwrap_or_default();
@@ -1485,10 +1487,10 @@ fn search_pass(
         let docs: Vec<grackle_search_core::SearchDoc> = star
             .route_members
             .iter()
-            .map(|&i| &db.routes[i])
+            .filter_map(|k| db.routes.get(k))
             .filter_map(|r| match r.kind {
                 crate::db::RouteKind::Post => {
-                    db.by_url.get(&r.url).map(|&i| &db.rows[i]).map(|p| {
+                    db.by_url.get(&r.url).and_then(|k| db.rows.get(k)).map(|p| {
                         grackle_search_core::SearchDoc {
                             url: p.url.clone(),
                             title: p.title.clone().unwrap_or_else(|| p.url.clone()),

@@ -776,10 +776,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // URL (nothing may link it).
     {
         let claims = cfg.content_claims();
-        let mut fixed: Vec<(usize, String)> = Vec::new();
+        let mut fixed: Vec<(grackle_db::Key, String)> = Vec::new();
         // The GLOBAL index: `enumerate` over `pages()` counts within
         // the tree rows, and every index is a row-store index now.
-        for (i, p) in db.page_ix.iter().map(|&i| (i, &db.rows[i])) {
+        for (k, p) in db.page_ix.iter().filter_map(|k| db.rows.get(k).map(|r| (k, r))) {
             if !p.claimed {
                 continue;
             }
@@ -795,10 +795,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                         && r.page.is_none_or(|n| n == 1)
                 })
                 .map(|r| r.url.clone());
-            fixed.push((i, url.unwrap_or_default()));
+            fixed.push((k.clone(), url.unwrap_or_default()));
         }
-        for (i, url) in fixed {
-            if let Some(r) = db.rows.get_mut(i) {
+        for (k, url) in fixed {
+            if let Some(r) = db.rows.get_mut(&k) {
                 r.url = url;
             }
         }

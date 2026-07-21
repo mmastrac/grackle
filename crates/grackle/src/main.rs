@@ -398,16 +398,16 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             let mut policy = cfg.related;
             policy.limit = limit;
             let rel = embed::rank(db, &vectors, &policy);
-            let Some(&i) = db.by_url.get(&url) else {
+            let Some(key) = db.by_url.get(&url).cloned() else {
                 anyhow::bail!("no post at {url}");
             };
             println!(
                 "similar to {} — {}",
                 url,
-                db.rows[i].title.as_deref().unwrap_or("-")
+                db.row(&key).and_then(|r| r.title.as_deref()).unwrap_or("-")
             );
-            for (j, score) in rel.by_post.get(&i).map(Vec::as_slice).unwrap_or(&[]) {
-                let p = &db.rows[*j];
+            for (k, score) in rel.by_post.get(&key).map(Vec::as_slice).unwrap_or(&[]) {
+                let Some(p) = db.row(k) else { continue };
                 println!(
                     "  {score:.3}  {}  {}",
                     p.url,
@@ -429,8 +429,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             }
         }
         Query::Explain { url } => {
-            if let Some(&i) = db.by_url.get(&url) {
-                let r = &db.rows[i];
+            if let Some(r) = db.by_url.get(&url).and_then(|k| db.rows.get(k)) {
                 println!("url         {}", r.url);
                 println!("kind        post");
                 println!("source      {}", r.path.display());
@@ -457,15 +456,13 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                     .get(&r.collection)
                     .map(Vec::as_slice)
                     .unwrap_or(&[]);
-                let (newer, older) = crate::db::neighbors_in(seq, i);
-                println!(
-                    "newer       {}",
-                    newer.map(|j| db.rows[j].url.as_str()).unwrap_or("-")
-                );
-                println!(
-                    "older       {}",
-                    older.map(|j| db.rows[j].url.as_str()).unwrap_or("-")
-                );
+                let (newer, older) = crate::db::neighbors_in(seq, &r.key);
+                let url_of = |k: Option<crate::db::Key>| {
+                    k.and_then(|k| db.row(&k).map(|n| n.url.clone()))
+                        .unwrap_or_else(|| "-".into())
+                };
+                println!("newer       {}", url_of(newer));
+                println!("older       {}", url_of(older));
                 return Ok(());
             }
             let Some(r) = db.routes.iter().find(|r| r.url == url) else {
