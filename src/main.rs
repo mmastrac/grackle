@@ -352,7 +352,13 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         }
         Query::Posts { tag, year, limit } => {
             let mut n = 0;
-            for &i in &p.order {
+            // Newest first, default locale — stated here now that the
+            // table carries no ordering index of its own (q51).
+            let mut ix: Vec<usize> = (0..p.rows.len())
+                .filter(|&i| p.rows[i].locale == cfg.i18n.default)
+                .collect();
+            ix.sort_by(|&a, &b| views::chronological(&p.rows, a, b));
+            for &i in &ix {
                 let r = &p.rows[i];
                 if let Some(t) = &tag {
                     if !r.tags.iter().any(|x| x == t) {
@@ -433,7 +439,12 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                     }
                 );
                 println!("body        {} bytes", r.body_bytes);
-                let (newer, older) = p.neighbors(i);
+                let seq = db
+                    .adjacency
+                    .get(&r.collection)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                let (newer, older) = crate::db::PostsTable::neighbors_in(seq, i);
                 println!(
                     "newer       {}",
                     newer.map(|j| p.rows[j].url.as_str()).unwrap_or("-")

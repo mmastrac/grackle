@@ -420,6 +420,21 @@ pub struct Collection {
     /// archive and the chrome follows. Optional — a unique tags-grouped
     /// view is found on its own; no tags view at all = unlinked pills.
     pub tags: Option<String>,
+    /// The SET that `next`/`previous` step through (q51). "Previous post"
+    /// means previous *in a sequence*, and a sequence is a set — so the
+    /// reach is declared rather than inherited from whatever the table
+    /// happened to be sorted by.
+    ///
+    /// The point of naming one: a set carries its filter, so
+    /// `adjacency = "published"` (`!draft && !hidden`) drops drafts **by
+    /// construction**. Today they drop only by accident — a draft is
+    /// usually undated, so it falls to the end of the chronological index
+    /// and off the ends of the chain. Give a draft a date and it appears
+    /// as someone's "later post".
+    ///
+    /// Unset keeps exactly that accident: every row of the collection, in
+    /// the default locale, newest first.
+    pub adjacency: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -21,6 +21,11 @@ email = "matthew@mastracci.com"
 [[collections]]
 kind = "posts"
 source = "_posts"
+# What `next`/`previous` step through (q51). Naming the SET rather than
+# leaning on the table's ordering means drafts drop by construction, not by
+# the accident that a draft has no date — give one a date today and it
+# becomes somebody's "later post".
+adjacency = "published"
 # A post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
 # December > 16, every archive level clickable. The Blog level itself is
 # not declared here: the post's URL nests under /blog/, and the trail

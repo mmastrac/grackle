@@ -5143,8 +5143,29 @@ never reused.
     being a special case; every locale is built the same way. All three
     sites byte-identical.
 
-    `posts.order` now has exactly **one** consumer left, `neighbors()`, so
-    adjacency-on-a-set is the whole of what remains before the table can go.
+    **Step two shipped, and `PostsTable::order` is gone.** Adjacency reads a
+    sequence built per posts collection from the collection's declared
+    `adjacency` set — `[[collections]] adjacency = "published"` — falling
+    back, when unset, to every row of the collection in the default locale,
+    newest first. `neighbors` no longer filters by collection, because one
+    sequence per collection makes the reach structural instead of a filter
+    applied after the fact. The old index's three jobs now live in three
+    stated places: `views::chronological` for the sort, an explicit
+    `p.locale == …` for the locale filter, and the set's `where` for
+    membership.
+
+    **What the declaration buys, stated precisely.** Both sites are
+    byte-identical with it, and cannot be otherwise: this corpus has 0
+    hidden posts and its 4 drafts are all undated, and drafts live in a
+    *separate collection* anyway, so the bug is unreachable here. It is
+    reachable the moment a draft carries a date inside a posts collection —
+    then it becomes somebody's "later post". The unit test pins both halves:
+    undeclared, a dated draft rides the chain (the accident, stated
+    plainly); declared, it is absent by construction. This is insurance
+    written before the fire, not a fix for a live burn.
+
+    With the index gone, `PostsTable` holds identity indexes only, and the
+    merge has nothing left to inherit from it.
 
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.

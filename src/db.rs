@@ -223,9 +223,6 @@ fn hex<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
 #[derive(Debug, Default, Serialize)]
 pub struct PostsTable {
     pub rows: Vec<Post>,
-    /// Reverse-chronological over the dated set; undated rows sort last.
-    #[serde(skip)]
-    pub order: Vec<usize>,
     /// The primary index (DESIGN.md §3): `(date, slug)`, unique.
     /// NOT `slug` alone — measured: `not-dead-yet` is used by both a 2003 and
     /// a 2006 post, which is legal because their dates (and so URLs) differ.
@@ -252,86 +249,46 @@ pub struct PostsTable {
 mod adjacency_tests {
     use super::*;
 
-    fn post(collection: &str, url: &str, ymd: (i32, u32, u32)) -> Post {
-        Post {
-            collection: collection.to_string(),
-            url: url.to_string(),
-            date: chrono::NaiveDate::from_ymd_opt(ymd.0, ymd.1, ymd.2),
-            ..Default::default()
-        }
-    }
-
-    /// Two dated collections interleave in one table, so walking `order`
-    /// raw made a blog post's neighbour a note. Measured on a real
-    /// two-collection site before the anchor existed: the January blog
-    /// post linked February's and April's *notes*.
-    fn table() -> PostsTable {
-        let mut t = PostsTable {
-            rows: vec![
-                post("posts", "/blog/jan/", (2026, 1, 1)),
-                post("notes", "/notes/feb/", (2026, 2, 1)),
-                post("posts", "/blog/mar/", (2026, 3, 1)),
-                post("notes", "/notes/apr/", (2026, 4, 1)),
-            ],
-            ..Default::default()
-        };
-        // `order` is reverse-chronological across every contributing
-        // collection, exactly as `index_posts` builds it.
-        t.order = vec![3, 2, 1, 0];
-        t
-    }
-
+    /// `neighbors_in` is now just a walk — the reach was decided when the
+    /// sequence was built (see `views::build_adjacency`, and the tests
+    /// there for what the sequence contains).
     #[test]
-    fn adjacency_stays_inside_the_collection() {
-        let t = table();
-        let (newer, older) = t.neighbors(0); // /blog/jan/
-        assert_eq!(newer.map(|i| t.rows[i].url.as_str()), Some("/blog/mar/"));
-        assert_eq!(older, None, "jan is the oldest POST, whatever notes exist");
+    fn walks_the_sequence_in_both_directions() {
+        let seq = [3, 2, 1, 0];
+        let (newer, older) = PostsTable::neighbors_in(&seq, 2);
+        assert_eq!((newer, older), (Some(3), Some(1)));
 
-        let (newer, older) = t.neighbors(1); // /notes/feb/
-        assert_eq!(newer.map(|i| t.rows[i].url.as_str()), Some("/notes/apr/"));
-        assert_eq!(older, None);
-    }
+        // The ends terminate rather than wrap.
+        assert_eq!(PostsTable::neighbors_in(&seq, 3), (None, Some(2)));
+        assert_eq!(PostsTable::neighbors_in(&seq, 0), (Some(1), None));
 
-    /// The same rule kept a published post from linking a DRAFT as its
-    /// earlier neighbour — `_drafts` is a second collection feeding the
-    /// posts table, and undated rows sort last, so the site's oldest post
-    /// pointed at `/drafts/…`.
-    #[test]
-    fn a_post_does_not_neighbour_a_draft() {
-        let mut t = table();
-        t.rows.push(Post {
-            collection: "drafts".to_string(),
-            url: "/drafts/wip/".to_string(),
-            date: None,
-            ..Default::default()
-        });
-        t.order.push(4); // undated sorts last
-        let (_, older) = t.neighbors(0); // /blog/jan/, the oldest post
-        assert_eq!(older, None, "a draft is not the earlier post");
+        // A row absent from the sequence has no neighbours at all — which
+        // is how a filtered-out row (a draft, under a declared set) stops
+        // appearing as someone's later post.
+        assert_eq!(PostsTable::neighbors_in(&seq, 9), (None, None));
     }
 }
 
 impl PostsTable {
-    /// Adjacency over `order`, ANCHORED to the row's own collection.
+    /// Walk a prepared sequence. The sequence IS the reach (q51), so there
+    /// is no collection filter here any more: `db.adjacency` is built per
+    /// collection, and a declared `adjacency` set carries its own `from`.
     ///
-    /// `order` spans every collection that feeds this table, so walking it
-    /// raw made a blog post's neighbour a note whenever two dated
-    /// collections existed — measured on a two-collection site: the
-    /// January blog post linked February's and April's *notes*. `_posts`
-    /// and `_drafts` never showed it because drafts are undated and so
-    /// absent from `order` entirely.
-    pub fn neighbors(&self, idx: usize) -> (Option<usize>, Option<usize>) {
-        let Some(pos) = self.order.iter().position(|&i| i == idx) else {
+    /// The bug this replaced: `order` spanned every collection feeding the
+    /// table, so walking it raw made a blog post's neighbour a note
+    /// whenever two dated collections existed — measured on a
+    /// two-collection site, the January blog post linked February's and
+    /// April's *notes*. `_posts` and `_drafts` never showed it because
+    /// drafts are undated and so absent from `order` entirely, which is
+    /// exactly the accident a declared set replaces with a rule.
+    pub fn neighbors_in(seq: &[usize], idx: usize) -> (Option<usize>, Option<usize>) {
+        let Some(pos) = seq.iter().position(|&i| i == idx) else {
             return (None, None);
         };
-        let Some(anchor) = self.rows.get(idx).map(|r| r.collection.as_str()) else {
-            return (None, None);
-        };
-        let same = |i: &usize| self.rows.get(*i).is_some_and(|r| r.collection == anchor);
-        let newer = self.order[..pos].iter().rev().find(|i| same(i)).copied();
-        let older = self.order[pos + 1..].iter().find(|i| same(i)).copied();
-        (newer, older)
+        (
+            seq[..pos].iter().next_back().copied(),
+            seq.get(pos + 1).copied(),
+        )
     }
 }
 
@@ -557,6 +514,12 @@ pub struct SiteDb {
     /// Per-subtree field declarations (§5b), from `.schema.toml` files.
     #[serde(skip)]
     pub schemas: crate::schema::Schemas,
+    /// The sequence `next`/`previous` step through, per posts collection
+    /// (q51). Built from the collection's declared `adjacency` set, or —
+    /// unset — every row of the collection in the default locale, newest
+    /// first, which is what `PostsTable::order` used to supply implicitly.
+    #[serde(skip)]
+    pub adjacency: BTreeMap<String, Vec<usize>>,
     pub stats: LoadStats,
 }
 
@@ -924,26 +887,13 @@ fn read_posts(
 fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
 
-    // §6f: `order` drives views, feeds, archives and adjacency — it admits
-    // the default locale only, which makes every one of them single-locale
-    // in one place. Translations render as pages and live in `by_logical`.
-    let mut order: Vec<usize> = (0..rows.len())
-        .filter(|&i| rows[i].locale == cfg.i18n.default)
-        .collect();
-    order.sort_by(|&a, &b| {
-        match (rows[a].date, rows[b].date) {
-            (Some(x), Some(y)) => y.cmp(&x),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
-        .then_with(|| rows[a].slug.cmp(&rows[b].slug))
-    });
-
-    let mut table = PostsTable {
-        order,
-        ..Default::default()
-    };
+    // The reverse-chronological index used to be built here, and carried
+    // three things at once: the sort, undated-last, and a DEFAULT-LOCALE
+    // filter that quietly made every listing, feed and archive
+    // single-locale. All three are now stated where they are used —
+    // `views::chronological` plus an explicit locale filter — so the table
+    // holds identity indexes only and the merge has nothing to inherit.
+    let mut table = PostsTable::default();
 
     let mut seen_names: HashMap<String, usize> = HashMap::new();
     for (i, p) in rows.iter().enumerate() {
@@ -1534,6 +1484,7 @@ impl SiteDb {
                 ..Route::new(o.url.clone(), RouteKind::Object)
             });
         }
+        crate::views::build_adjacency(cfg, &mut db)?;
         crate::views::build_views(cfg, &mut db)?;
         crate::views::build_star_views(cfg, &mut db)?;
         db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;

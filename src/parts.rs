@@ -543,8 +543,14 @@ pub fn document(
     relations.extend(relation(cfg, &p.locale, Axis::Similar, similar));
     relations.extend(linked_from_group(cfg, &p.locale, backlinks));
     if let Some(&i) = db.posts.by_url.get(&p.url) {
-        // One traversal read in two directions.
-        let (newer, older) = db.posts.neighbors(i);
+        // One traversal read in two directions, over the row's collection's
+        // declared sequence (q51) rather than the whole table's index.
+        let seq = db
+            .adjacency
+            .get(&p.collection)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let (newer, older) = crate::db::PostsTable::neighbors_in(seq, i);
         for (axis, ix) in [(Axis::Later, newer), (Axis::Earlier, older)] {
             let items = ix.and_then(&row_neighbor).into_iter().collect();
             relations.extend(relation(cfg, &p.locale, axis, items));

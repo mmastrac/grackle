@@ -208,6 +208,110 @@ fn grouped_routes(
     Ok(out)
 }
 
+/// The default ordering for dated rows: newest first, undated last, slug as
+/// the tiebreak. Was `PostsTable::order`, an index built once at load; it is
+/// a comparator now so that losing the table costs nothing (q51).
+pub(crate) fn chronological(rows: &[crate::db::Post], a: usize, b: usize) -> std::cmp::Ordering {
+    let (x, y) = (&rows[a], &rows[b]);
+    match (x.date, y.date) {
+        (Some(p), Some(q)) => q.cmp(&p),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+    .then_with(|| x.slug.cmp(&y.slug))
+}
+
+/// Parse and validate an `order_by` spec against the post schema plus every
+/// `.schema.toml` declaration. `None` spec means no re-sort.
+fn post_sort_key(db: &SiteDb, who: &str, spec: Option<&str>) -> Result<Option<(String, bool)>> {
+    let Some(spec) = spec else { return Ok(None) };
+    let (key, desc) = match spec.strip_prefix('-') {
+        Some(k) => (k, true),
+        None => (spec, false),
+    };
+    if !post_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+        let mut known: Vec<&str> = post_schema().keys().copied().collect();
+        known.extend(db.schemas.declared().keys().copied());
+        known.sort_unstable();
+        known.dedup();
+        bail!(
+            "{who}: order_by names unknown field {key:?}\n  known fields: {}",
+            known.join(", ")
+        );
+    }
+    Ok(Some((key.to_string(), desc)))
+}
+
+/// The sequence `next`/`previous` step through, one per posts collection
+/// (q51's ordering decision). "Previous post" means previous *in a
+/// sequence*, and a sequence is a set — so the reach is declared, not
+/// inherited from whatever index the table happened to carry.
+///
+/// A declared `adjacency` set brings its filter AND its `order_by`, so
+/// `adjacency = "published"` drops drafts by construction. Unset reproduces
+/// the old accident exactly: every row of the collection, default locale,
+/// newest first — drafts fall off the ends only because they are undated.
+pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+    let mut out: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (cname, c) in &cfg.collections {
+        if c.kind != Kind::Posts {
+            continue;
+        }
+        let who = format!("collection {cname}: adjacency");
+        let (pred, sort) = match c.adjacency.as_deref() {
+            Some(set) => {
+                let q = cfg
+                    .query(set)
+                    .with_context(|| format!("{who} names set {set:?}"))?;
+                // A set is rooted at one collection; adjacency inside a
+                // collection cannot be defined by a set over a different
+                // one. Caught here rather than producing an empty chain.
+                if q.base != *cname {
+                    bail!(
+                        "{who}: set {set:?} is over {:?}, not this collection",
+                        q.base
+                    );
+                }
+                let pred = match q.predicate() {
+                    Some(src) => filter::Filter::parse(&src, &post_schema())
+                        .with_context(|| format!("{who}: filter {src:?}"))?,
+                    None => filter::Filter::always(),
+                };
+                (pred, post_sort_key(db, &who, q.order_by.as_deref())?)
+            }
+            None => (filter::Filter::always(), None),
+        };
+        let mut ix: Vec<usize> = db
+            .posts
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.collection == *cname)
+            // §6f: single-locale, as `PostsTable::order` was — a row's
+            // neighbours are in its own language.
+            .filter(|(_, p)| p.locale == cfg.i18n.default)
+            .filter(|(_, p)| pred.eval(*p))
+            .map(|(i, _)| i)
+            .collect();
+        ix.sort_by(|&a, &b| chronological(&db.posts.rows, a, b));
+        if let Some((key, desc)) = &sort {
+            use crate::filter::Row as _;
+            ix.sort_by(|&a, &b| {
+                let ord = value_cmp(&db.posts.rows[a].field(key), &db.posts.rows[b].field(key));
+                if *desc {
+                    ord.reverse()
+                } else {
+                    ord
+                }
+            });
+        }
+        out.insert(cname.clone(), ix);
+    }
+    db.adjacency = out;
+    Ok(())
+}
+
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     for (name, v) in &cfg.views {
         // `over = "*"` views read the finished route set, so they run in a
@@ -251,26 +355,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // no diagnostic, and a TYPO in one produced the same. Both are now
         // what they say: a validated key sorts, an unknown one is a load
         // error naming the view, exactly as on the tree side.
-        let sort: Option<(String, bool)> = match q.order_by.as_deref() {
-            Some(spec) => {
-                let (key, desc) = match spec.strip_prefix('-') {
-                    Some(k) => (k, true),
-                    None => (spec, false),
-                };
-                if !post_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
-                    let mut known: Vec<&str> = post_schema().keys().copied().collect();
-                    known.extend(db.schemas.declared().keys().copied());
-                    known.sort_unstable();
-                    known.dedup();
-                    bail!(
-                        "view {name}: order_by names unknown field {key:?}\n  known fields: {}",
-                        known.join(", ")
-                    );
-                }
-                Some((key.to_string(), desc))
-            }
-            None => None,
-        };
+        let sort = post_sort_key(db, &format!("view {name}"), q.order_by.as_deref())?;
         let posts = &db.posts;
         // Stable, so an undeclared or tied key leaves the chronological
         // ordering underneath untouched — declaring `order` on two posts of
@@ -295,16 +380,6 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // has to have a home: the filter is now the explicit `p.locale ==
         // locale` the tree side always used, and the sort is this
         // comparator. Same result, and now it survives losing the table.
-        let chronological = |a: &usize, b: &usize| {
-            let (x, y) = (&posts.rows[*a], &posts.rows[*b]);
-            match (x.date, y.date) {
-                (Some(p), Some(q)) => q.cmp(&p),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            }
-            .then_with(|| x.slug.cmp(&y.slug))
-        };
         // One row set per locale, built the same way for every locale —
         // including the default, which used to be the special case that
         // read the table's index. Declared `order_by` applies on top,
@@ -318,7 +393,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .filter(|(_, p)| pred.eval(*p))
                 .map(|(i, _)| i)
                 .collect();
-            ix.sort_by(&chronological);
+            ix.sort_by(|&a, &b| chronological(&posts.rows, a, b));
             apply_sort(&mut ix);
             ix
         };
@@ -1034,5 +1109,121 @@ mod grouping_tests {
         assert!(keys[0]
             .params
             .contains(&("month_name".into(), "December".into())));
+    }
+}
+
+/// What `next`/`previous` step through (q51). The two properties here were
+/// both real bugs once, and the merge changes which mechanism guarantees
+/// them: the collection anchor used to be a filter inside `neighbors`, and
+/// is now structural — one sequence per collection.
+#[cfg(test)]
+mod adjacency_tests {
+    use super::*;
+    use crate::db::Post;
+    use chrono::NaiveDate;
+
+    fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Post {
+        Post {
+            collection: collection.into(),
+            url: url.into(),
+            slug: url.trim_matches('/').replace('/', "-"),
+            date: date.and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()),
+            draft,
+            locale: "en".into(),
+            ..Post::default()
+        }
+    }
+
+    fn db_with(rows: Vec<Post>) -> SiteDb {
+        let mut db = SiteDb::default();
+        db.posts.rows = rows;
+        db
+    }
+
+    fn cfg(extra: &str) -> Config {
+        Config::from_toml(&format!(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [[collections]]\nname = \"posts\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
+        ))
+        .expect("test config parses")
+    }
+
+    fn seq(db: &SiteDb, collection: &str) -> Vec<String> {
+        db.adjacency[collection]
+            .iter()
+            .map(|&i| db.posts.rows[i].url.clone())
+            .collect()
+    }
+
+    /// Two dated collections interleave in one table, so walking a shared
+    /// index made a blog post's neighbour a note — measured on a real
+    /// two-collection site, the January blog post linked February's and
+    /// April's *notes*. One sequence per collection makes that unable to
+    /// recur, rather than filtered out after the fact.
+    #[test]
+    fn each_collection_gets_its_own_sequence() {
+        let c = cfg("[[collections]]\nname = \"notes\"\nkind = \"posts\"\n\
+                     source = \"_notes\"\nfilename_formats = [\"{year}-{month}-{day}-{slug}\"]\n");
+        let mut db = db_with(vec![
+            post("posts", "/blog/jan/", Some("2026-01-01"), false),
+            post("notes", "/notes/feb/", Some("2026-02-01"), false),
+            post("posts", "/blog/mar/", Some("2026-03-01"), false),
+            post("notes", "/notes/apr/", Some("2026-04-01"), false),
+        ]);
+        build_adjacency(&c, &mut db).unwrap();
+        assert_eq!(seq(&db, "posts"), ["/blog/mar/", "/blog/jan/"]);
+        assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
+    }
+
+    /// The honest version of the draft story. Undeclared, a DATED draft
+    /// really is someone's later post — it only fell out before because
+    /// drafts are usually undated. Declaring the set fixes it by rule.
+    #[test]
+    fn a_declared_set_drops_drafts_by_construction() {
+        let rows = || {
+            vec![
+                post("posts", "/blog/jan/", Some("2026-01-01"), false),
+                post("posts", "/blog/feb/", Some("2026-02-01"), true), // dated DRAFT
+                post("posts", "/blog/mar/", Some("2026-03-01"), false),
+            ]
+        };
+
+        // Undeclared: the accident, stated plainly.
+        let mut db = db_with(rows());
+        build_adjacency(&cfg(""), &mut db).unwrap();
+        assert_eq!(
+            seq(&db, "posts"),
+            ["/blog/mar/", "/blog/feb/", "/blog/jan/"],
+            "a dated draft rides the chain when nothing says otherwise"
+        );
+
+        // Declared: `published` carries `!draft`, so the draft is simply
+        // not in the sequence and January's later post is March.
+        let mut db = db_with(rows());
+        let c = cfg(
+            "adjacency = \"published\"\n[sets.published]\nfrom = \"posts\"\nwhere = \"!draft\"\n",
+        );
+        build_adjacency(&c, &mut db).unwrap();
+        assert_eq!(seq(&db, "posts"), ["/blog/mar/", "/blog/jan/"]);
+    }
+
+    /// A set over a DIFFERENT collection would silently produce an empty
+    /// chain; it is a load error naming both instead.
+    #[test]
+    fn adjacency_set_must_be_over_this_collection() {
+        let c = Config::from_toml(
+            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [[collections]]\nname = \"posts\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             filename_formats = [\"{year}-{month}-{day}-{slug}\"]\nadjacency = \"elsewhere\"\n\
+             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_notes\"\n\
+             filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\
+             [sets.elsewhere]\nfrom = \"notes\"\n",
+        )
+        .unwrap();
+        let e = build_adjacency(&c, &mut db_with(vec![]))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("not this collection"), "{e}");
     }
 }

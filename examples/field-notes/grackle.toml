@@ -23,6 +23,10 @@ name = "notes"
 kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
+# `next`/`previous` step through a SET (q51), so the reach is declared:
+# `published` carries `!draft && !hidden`, and adjacency inherits that
+# rather than relying on drafts being undated.
+adjacency = "published"
 
   [[collections.rules]]
   match = "**"
