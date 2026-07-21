@@ -1204,8 +1204,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "serde",
- "serde_yaml_ng",
- "toml",
 ]
 
 [[package]]

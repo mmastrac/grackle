@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
 use crate::config::{Config, Kind, Query, View};
+use crate::schema::Schemas;
 use grackle_db::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
 use grackle_db::filter;
 use grackle_db::route;
@@ -100,14 +101,14 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
 /// Two of the three arms were identical the moment there was one row
 /// schema; objects remain their own thing, having no front matter to
 /// declare fields in.
-fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> Result<()> {
+fn check_group_chain(schemas: &Schemas, name: &str, chain: &[String], kind: Kind) -> Result<()> {
     for spec in chain {
         let field = grackle_db::spec_field(spec);
         let mut known: Vec<&str> = match kind {
             Kind::Objects => object_schema().keys().copied().collect(),
             Kind::Posts | Kind::Tree => {
                 let mut v: Vec<&str> = row_schema().keys().copied().collect();
-                v.extend(db.schemas.declared().keys().copied());
+                v.extend(schemas.declared().keys().copied());
                 v
             }
         };
@@ -215,15 +216,19 @@ pub fn chronological(rows: &[grackle_db::Row], a: usize, b: usize) -> std::cmp::
 
 /// Parse and validate an `order_by` spec against the post schema plus every
 /// `.schema.toml` declaration. `None` spec means no re-sort.
-fn post_sort_key(db: &SiteDb, who: &str, spec: Option<&str>) -> Result<Option<(String, bool)>> {
+fn post_sort_key(
+    schemas: &Schemas,
+    who: &str,
+    spec: Option<&str>,
+) -> Result<Option<(String, bool)>> {
     let Some(spec) = spec else { return Ok(None) };
     let (key, desc) = match spec.strip_prefix('-') {
         Some(k) => (k, true),
         None => (spec, false),
     };
-    if !row_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+    if !row_schema().contains_key(key) && !schemas.declared().contains_key(key) {
         let mut known: Vec<&str> = row_schema().keys().copied().collect();
-        known.extend(db.schemas.declared().keys().copied());
+        known.extend(schemas.declared().keys().copied());
         known.sort_unstable();
         known.dedup();
         bail!(
@@ -243,7 +248,7 @@ fn post_sort_key(db: &SiteDb, who: &str, spec: Option<&str>) -> Result<Option<(S
 /// `adjacency = "published"` drops drafts by construction. Unset reproduces
 /// the old accident exactly: every row of the collection, default locale,
 /// newest first — drafts fall off the ends only because they are undated.
-pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
         if c.kind != Kind::Posts {
@@ -269,7 +274,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                         .with_context(|| format!("{who}: filter {src:?}"))?,
                     None => filter::Filter::always(),
                 };
-                (pred, post_sort_key(db, &who, q.order_by.as_deref())?)
+                (pred, post_sort_key(schemas, &who, q.order_by.as_deref())?)
             }
             None => (filter::Filter::always(), None),
         };
@@ -302,7 +307,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
         // `over = "*"` views read the finished route set, so they run in a
         // second pass (see build_star_views). Views iterate in name order, so
@@ -327,7 +332,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 continue;
             }
             Kind::Tree => {
-                build_tree_view(cfg, db, name, v, &q)?;
+                build_tree_view(cfg, db, schemas, name, v, &q)?;
                 continue;
             }
         }
@@ -345,7 +350,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // no diagnostic, and a TYPO in one produced the same. Both are now
         // what they say: a validated key sorts, an unknown one is a load
         // error naming the view, exactly as on the tree side.
-        let sort = post_sort_key(db, &format!("view {name}"), q.order_by.as_deref())?;
+        let sort = post_sort_key(schemas, &format!("view {name}"), q.order_by.as_deref())?;
         let rows = &db.rows;
         // Stable, so an undeclared or tied key leaves the chronological
         // ordering underneath untouched — declaring `order` on two posts of
@@ -447,7 +452,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
             let chain = cfg.group_specs(name);
-            check_group_chain(db, name, &chain, Kind::Posts)?;
+            check_group_chain(schemas, name, &chain, Kind::Posts)?;
             // §6f enum records: URLs wear the record's slug for ANY
             // grouped field (tags, courses, …); keys and titles keep the
             // id. `key` is the leaf level's value.
@@ -639,7 +644,14 @@ fn value_cmp(a: &filter::Value, b: &filter::Value) -> std::cmp::Ordering {
 /// page schema, `order_by` is required (`field` or `-field` for descending —
 /// a base page field or one declared by any `.schema.toml`, §5b), and only
 /// *rendered* pages are rows — static passthrough is not content.
-fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Query) -> Result<()> {
+fn build_tree_view(
+    cfg: &Config,
+    db: &mut SiteDb,
+    schemas: &Schemas,
+    name: &str,
+    v: &View,
+    q: &Query,
+) -> Result<()> {
     if v.paginate.is_some() {
         bail!("view {name}: paginate on tree views is not supported yet");
     }
@@ -651,9 +663,9 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
         Some(k) => (k, true),
         None => (order, false),
     };
-    if !row_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+    if !row_schema().contains_key(key) && !schemas.declared().contains_key(key) {
         let mut known: Vec<&str> = row_schema().keys().copied().collect();
-        known.extend(db.schemas.declared().keys().copied());
+        known.extend(schemas.declared().keys().copied());
         known.sort_unstable();
         known.dedup();
         bail!(
@@ -711,7 +723,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
         let chain = cfg.group_specs(name);
-        check_group_chain(db, name, &chain, Kind::Tree)?;
+        check_group_chain(schemas, name, &chain, Kind::Tree)?;
         for locale in &locales {
             let row_ix = if *locale == cfg.i18n.default {
                 members.clone()
@@ -852,7 +864,7 @@ mod object_view_tests {
             obj("photos/b.png"),
             obj("photos/a.png"),
         ];
-        build_views(&c, &mut db).unwrap();
+        build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         let r = db
             .routes
             .iter()
@@ -866,7 +878,7 @@ mod object_view_tests {
     #[test]
     fn object_view_requires_order_by() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
-        let e = build_views(&c, &mut SiteDb::default())
+        let e = build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema()))
             .unwrap_err()
             .to_string();
         assert!(e.contains("order_by"), "{e}");
@@ -876,7 +888,7 @@ mod object_view_tests {
     fn object_filters_typecheck_against_the_object_schema() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nwhere = \"draft\"\n\
              order_by = \"name\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
-        let e = format!("{:#}", build_views(&c, &mut SiteDb::default()).unwrap_err());
+        let e = format!("{:#}", build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err());
         assert!(e.contains("unknown field `draft`"), "{e}");
     }
 }
@@ -932,7 +944,7 @@ mod posts_order_tests {
 
     fn members(clauses: &str) -> Vec<String> {
         let (c, mut db) = (cfg(clauses), db());
-        build_views(&c, &mut db).unwrap();
+        build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         let r = db.routes.iter().find(|r| r.url == "/g/").expect("route");
         r.members.iter().map(|&i| db.rows[i].url.clone()).collect()
     }
@@ -955,7 +967,7 @@ mod posts_order_tests {
 
     #[test]
     fn order_by_names_a_field_or_it_is_a_load_error() {
-        let e = build_views(&cfg("order_by = \"ordre\"\n"), &mut db())
+        let e = build_views(&cfg("order_by = \"ordre\"\n"), &mut db(), &Schemas::new(row_schema()))
             .unwrap_err()
             .to_string();
         assert!(e.contains("unknown field \"ordre\""), "{e}");
@@ -1158,7 +1170,7 @@ mod adjacency_tests {
             post("posts", "/blog/mar/", Some("2026-03-01"), false),
             post("notes", "/notes/apr/", Some("2026-04-01"), false),
         ]);
-        build_adjacency(&c, &mut db).unwrap();
+        build_adjacency(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         assert_eq!(seq(&db, "posts"), ["/blog/mar/", "/blog/jan/"]);
         assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
     }
@@ -1178,7 +1190,7 @@ mod adjacency_tests {
 
         // Undeclared: the accident, stated plainly.
         let mut db = db_with(rows());
-        build_adjacency(&cfg(""), &mut db).unwrap();
+        build_adjacency(&cfg(""), &mut db, &Schemas::new(row_schema())).unwrap();
         assert_eq!(
             seq(&db, "posts"),
             ["/blog/mar/", "/blog/feb/", "/blog/jan/"],
@@ -1191,7 +1203,7 @@ mod adjacency_tests {
         let c = cfg(
             "adjacency = \"published\"\n[sets.published]\nfrom = \"posts\"\nwhere = \"!draft\"\n",
         );
-        build_adjacency(&c, &mut db).unwrap();
+        build_adjacency(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         assert_eq!(seq(&db, "posts"), ["/blog/mar/", "/blog/jan/"]);
     }
 
@@ -1208,7 +1220,7 @@ mod adjacency_tests {
              [sets.elsewhere]\nfrom = \"notes\"\n",
         )
         .unwrap();
-        let e = build_adjacency(&c, &mut db_with(vec![]))
+        let e = build_adjacency(&c, &mut db_with(vec![]), &Schemas::new(row_schema()))
             .unwrap_err()
             .to_string();
         assert!(e.contains("not this collection"), "{e}");

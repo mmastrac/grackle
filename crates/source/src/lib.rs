@@ -9,6 +9,7 @@ pub mod config;
 pub mod filename;
 pub mod load;
 pub mod markers;
+pub mod schema;
 pub mod store;
 pub mod views;
 

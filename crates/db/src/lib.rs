@@ -7,7 +7,6 @@
 
 pub mod filter;
 pub mod route;
-pub mod schema;
 
 use anyhow::{bail, Result};
 use chrono::NaiveDate;
@@ -450,9 +449,6 @@ pub struct SiteDb {
     /// each roots a section tree its rendered rows carry. Engine vocabulary
     /// like `.slots/` — no config entry names it.
     pub sections: Vec<PathBuf>,
-    /// Per-subtree field declarations (§5b), from `.schema.toml` files.
-    #[serde(skip)]
-    pub schemas: schema::Schemas,
     /// The sequence `next`/`previous` step through, per posts collection
     /// (q51). Built from the collection's declared `adjacency` set, or —
     /// unset — every row of the collection in the default locale, newest

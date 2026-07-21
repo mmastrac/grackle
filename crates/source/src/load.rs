@@ -11,10 +11,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::route;
-use grackle_db::schema;
 use grackle_db::{Kind, Object, ObjectsTable, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
+use crate::schema::{self, Schemas};
 use crate::filename::FilenameFormat;
 use crate::markers::Markers;
 use crate::store::{self, RawRow};
@@ -148,7 +148,7 @@ fn read_posts(
     name: &str,
     c: &Collection,
     markers: &Markers,
-    schemas: &schema::Schemas,
+    schemas: &Schemas,
 ) -> Result<(Vec<Row>, f64)> {
     // Bound here because the row loop shadows `name` with the post's own
     // path identity — silently, since both are strings.
@@ -389,7 +389,7 @@ fn build_tree_and_objects(
     tree_c: Option<&Collection>,
     obj_c: Option<&Collection>,
     markers: &Markers,
-    schemas: &schema::Schemas,
+    schemas: &Schemas,
 ) -> Result<(Vec<Row>, ObjectsTable)> {
     let Some(tree_c) = tree_c else {
         return Ok((Vec::new(), ObjectsTable::default()));
@@ -646,6 +646,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // `.schema.toml` field declarations (§5b) — positional names like
     // `.slots/`, no config entries. One name-only pass with the same
     // .gitignore defence as the marker scan.
+    let mut schemas = Schemas::new(grackle_db::row_schema());
     let mut b = store::walker(&root, cfg.gitignore);
     b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
     for entry in b.build().filter_map(|e| e.ok()) {
@@ -661,7 +662,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         } else if entry.file_name() == ".schema.toml" {
             let text = std::fs::read_to_string(entry.path())
                 .with_context(|| format!("reading {}", entry.path().display()))?;
-            db.schemas.add(dir, &text, rel)?;
+            schemas.add(dir, &text, rel)?;
         }
     }
     db.sections.sort();
@@ -676,7 +677,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     for (name, c) in &cfg.collections {
         match c.kind {
             Kind::Posts => {
-                let (rows, read_ms) = read_posts(cfg, name, c, &markers, &db.schemas)?;
+                let (rows, read_ms) = read_posts(cfg, name, c, &markers, &schemas)?;
                 post_rows.extend(rows);
                 db.stats.read_ms += read_ms;
             }
@@ -689,7 +690,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
     let t = std::time::Instant::now();
     let (page_rows, objects) =
-        build_tree_and_objects(cfg, &tree_name, tree_c, obj_c, &markers, &db.schemas)?;
+        build_tree_and_objects(cfg, &tree_name, tree_c, obj_c, &markers, &schemas)?;
     db.objects = objects;
     db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
 
@@ -737,8 +738,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             ..Route::new(o.url.clone(), RouteKind::Object)
         });
     }
-    crate::views::build_adjacency(cfg, &mut db)?;
-    crate::views::build_views(cfg, &mut db)?;
+    crate::views::build_adjacency(cfg, &mut db, &schemas)?;
+    crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_star_views(cfg, &mut db)?;
     db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
 

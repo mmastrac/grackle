@@ -13,7 +13,7 @@ use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::filter::Value;
+use grackle_db::filter::{Schema, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldType {
@@ -49,25 +49,26 @@ impl FieldType {
     }
 }
 
-/// Names the row type already owns. `Row::field` matches the base names
-/// FIRST and falls through to declared fields, so a schema declaring one of
-/// these parsed, validated, and was then never read — the value went in and
-/// no query could reach it.
-///
-/// The check was latent until q51's merge made it live: the page schema
-/// growing `date`/`year`/`month`/`day` for parity turned `month = { type =
-/// "string" }` (field-notes' stand-in for the date a page could not have)
-/// from a working field into a shadowed one, and only a diff of the built
-/// site would have said so. One schema now, so this is one lookup — it took
-/// the union of both tables' names even when they were two.
-fn is_base_field(name: &str) -> bool {
-    crate::row_schema().contains_key(name)
-}
-
 /// Every `.schema.toml` in the tree, keyed by its directory.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Schemas {
     by_dir: BTreeMap<PathBuf, BTreeMap<String, FieldType>>,
+    /// Names the row type already owns. `Row::field` matches these FIRST and
+    /// falls through to declared fields, so a schema declaring one of them
+    /// parses, validates, and is then never read — the value goes in and no
+    /// query can reach it.
+    ///
+    /// The check was latent until q51's merge made it live: the page schema
+    /// growing `date`/`year`/`month`/`day` for parity turned `month = { type
+    /// = "string" }` (field-notes' stand-in for the date a page could not
+    /// have) from a working field into a shadowed one, and only a diff of the
+    /// built site would have said so.
+    ///
+    /// Held rather than looked up: the database's row schema is the
+    /// authority, and this is the layer that reads it. There is deliberately
+    /// no `Default` — a `Schemas` with no reserved names would accept every
+    /// shadowing declaration in silence, which is the bug this rejects.
+    reserved: Schema,
 }
 
 /// A page's validated extra fields: typed values plus the image-typed
@@ -79,6 +80,15 @@ pub struct Fields {
 }
 
 impl Schemas {
+    /// `reserved` is the row schema a declaration may not shadow — pass
+    /// `grackle_db::row_schema()`.
+    pub fn new(reserved: Schema) -> Schemas {
+        Schemas {
+            by_dir: BTreeMap::new(),
+            reserved,
+        }
+    }
+
     /// Parse one `.schema.toml` found at `dir` (root-relative).
     pub fn add(&mut self, dir: &Path, text: &str, file: &Path) -> Result<()> {
         let table: toml::Table = text
@@ -98,7 +108,7 @@ impl Schemas {
                     file.display()
                 );
             };
-            if is_base_field(&name) {
+            if self.reserved.contains_key(name.as_str()) {
                 bail!(
                     "{}: field {name:?} is a built-in row field, so declaring \
                      it would be silently overruled — every row already has \
@@ -204,7 +214,7 @@ mod tests {
     use super::*;
 
     fn schemas() -> Schemas {
-        let mut s = Schemas::default();
+        let mut s = Schemas::new(grackle_db::row_schema());
         s.add(
             Path::new("books"),
             "author = { type = \"string\" }\nshelf = { type = \"string\" }\ncover = { type = \"image\" }\n",
@@ -263,7 +273,7 @@ mod tests {
     /// for the date a page could not hold), and nothing said so.
     #[test]
     fn declaring_a_built_in_field_is_a_load_error() {
-        let mut s = Schemas::default();
+        let mut s = Schemas::new(grackle_db::row_schema());
         let e = s
             .add(
                 Path::new("books"),
