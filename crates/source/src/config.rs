@@ -382,6 +382,11 @@ pub struct Site {
 /// in the TOML deserializes straight into the database's own vocabulary.
 pub use grackle_model::Kind;
 
+/// The arrangements a view can ask for. `listing` and `card_list` are routed
+/// pages; `link_list` and `card` are what an embedded view renders as;
+/// `gallery` is the object one.
+pub const LAYOUTS: &[&str] = &["listing", "card_list", "gallery", "link_list", "card"];
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Collection {
@@ -790,7 +795,7 @@ impl Config {
 
     /// Every load-time config check (split from `load` so tests can run
     /// them on in-memory configs).
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         let cfg = self;
         // Zero collections means zero rows, zero routes, and a build that
         // reports success over an empty directory. Always a mistake, and
@@ -807,6 +812,20 @@ impl Config {
             );
         }
         for (vname, v) in &cfg.views {
+            // §5a: `layout` names the arrangement the engine builds — which
+            // parts a view produces, not which fragment dresses them (that
+            // is `variant`). A closed vocabulary, because an unknown name
+            // used to be inert: it named no fragment, the theme fell back to
+            // canonical rendering, and the routed passes discarded the value
+            // anyway. Three of grack.com's own layouts were dead that way.
+            if let Some(l) = v.layout.as_deref() {
+                if !LAYOUTS.contains(&l) {
+                    anyhow::bail!(
+                        "view {vname}: layout {l:?} is not a layout — expected {}",
+                        LAYOUTS.join(", ")
+                    );
+                }
+            }
             for (fname, f) in &v.fields {
                 if f.truncate.is_none() {
                     anyhow::bail!(
@@ -1535,6 +1554,23 @@ mod tests {
     /// parent's subtree. Nearest-wins would let a child silently escape it.
     /// The first config anyone writes is `[site]` and nothing else. It used
     /// to build successfully over an empty directory.
+    /// A layout that names no arrangement used to be inert: it matched no
+    /// fragment, the theme fell back to canonical rendering, and the routed
+    /// passes discarded the name anyway. grack.com carried three of them —
+    /// `tag_index`, `yearly_archive`, `monthly_archive` — and swapping all
+    /// three for `listing` changed not one byte of the built site.
+    #[test]
+    fn a_layout_outside_the_vocabulary_is_a_load_error() {
+        let src = "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+                   [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+                   filename_formats = [\"{slug}\"]\n\
+                   [routes.x]\npath = \"/x/\"\nfrom = \"posts\"\nlayout = \"tag_index\"\n";
+        let c = Config::from_toml(src).expect("it parses; validation is the gate");
+        let e = format!("{:#}", c.validate().unwrap_err());
+        assert!(e.contains("layout \"tag_index\" is not a layout"), "{e}");
+        assert!(e.contains("listing, card_list, gallery"), "{e}");
+    }
+
     /// §4a's leak, closed for pages. `FrontMatter` parses `draft` for every
     /// row, but only posts kept it — so `draft: true` on a page was read,
     /// dropped, and the page published into `sitemap.xml`. The flags now

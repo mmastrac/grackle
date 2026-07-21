@@ -261,7 +261,7 @@ title = "Photos"
 [routes.books_index]
 path = "/books/"
 from = "books"
-layout = "listing"
+layout = "card_list"
 variant = "cards"
 featured = true
 title = { en = "Book of the Month", fr = "Le livre du mois" }
@@ -297,7 +297,7 @@ title = { en = "Recipes", fr = "Recettes" }
 path = "/recipes/courses/{key}/"
 from = "recipes"
 group_by = "course"
-layout = "listing"
+layout = "card_list"
 variant = "cards"
 title = { en = "Recipes: {key}", fr = "Recettes : {key}" }
 crumb = "{key}"

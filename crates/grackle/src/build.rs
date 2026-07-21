@@ -300,17 +300,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         }
         // Listings are posts-backed; object-backed views render in the
         // gallery pass below (their `members` index a different table).
-        if view_base_kind(cfg, view) != Some(Kind::Posts) {
+        if v.layout.as_deref() != Some("listing") {
             continue;
         }
-        // Only the built-in listing kinds render here; feed/sitemap have their
-        // own passes, and a view with no layout is embedded, not routed.
-        let Some(_layout) = v.layout.as_deref().or(match view.as_str() {
-            "blog_index" => Some("blog_index"),
-            _ => None,
-        }) else {
-            continue;
-        };
         // The preview is the row's computed `summary` field (§6d): a
         // derived column the view declares (or inherits along `over` — the
         // field set flows with rows through composition). The 93% that CSS
@@ -330,7 +322,19 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                     }
                     None => (p, d.whole.clone(), false),
                 },
-                None => (p, String::new(), false),
+                // A tree row's body is re-read rather than held (§2), so a
+                // listing over tree rows finds it in the other map. Reachable
+                // since the pass keys on `layout` rather than on the base
+                // table; before that a tree row could not get here, and an
+                // empty body was the honest answer to a question nobody asked.
+                None => (
+                    p,
+                    page_bodies
+                        .get(&p.url)
+                        .map(|pb| pb.frag.clone())
+                        .unwrap_or_default(),
+                    false,
+                ),
             })
             .collect();
 
@@ -365,12 +369,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // shifts.
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
-        if view_base_kind(cfg, view) != Some(Kind::Objects) {
-            continue;
-        }
         let Some(v) = cfg.views.get(view) else {
             continue;
         };
+        if v.layout.as_deref() != Some("gallery") {
+            continue;
+        }
         if v.content.is_some() {
             continue; // q45: renders in the landing pass
         }
@@ -420,12 +424,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // catalogue follows as cards.
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
-        if view_base_kind(cfg, view) != Some(Kind::Tree) {
-            continue;
-        }
         let Some(v) = cfg.views.get(view) else {
             continue;
         };
+        if v.layout.as_deref() != Some("card_list") {
+            continue;
+        }
         if v.content.is_some() {
             continue; // q45: renders in the landing pass
         }
