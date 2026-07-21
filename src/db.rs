@@ -655,9 +655,15 @@ fn read_posts(
 
         // `logical` keeps its extension, matching the tree side — where the
         // convention is config-visible (`content = "recipes/index.md"`).
-        // The two loaders used OPPOSITE conventions for this field, and
-        // `Page::field` only derived `stem` correctly because of it.
-        let logical = logical_rel.to_string_lossy().to_string();
+        // The two loaders used OPPOSITE conventions for this field, and the
+        // page `field()` only derived `stem` correctly because of it.
+        //
+        // ROOT-relative too, like `rel`: it was collection-relative, so a
+        // post at `2020/x.md` and a tree page at `2020/x.md` shared a
+        // logical identity. That was harmless while the two tables kept
+        // separate `by_logical` maps and is a collision the moment they do
+        // not.
+        let logical = source_rel.join(&logical_rel).to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
         let from_name = match &key {
             Some(k) => Some(
