@@ -3110,8 +3110,23 @@ Replacing it: embed each `.md` body once, cache by content hash, and compute
   total. Similarity is a brute-force dot product over 327 vectors —
   microseconds. **No vector index** (HNSW/FAISS) is remotely justified at this
   scale; adding one would be the classic mistake.
-- **Cache key = hash of the markdown body only** (post-front-matter), so
-  retitling or retagging a post doesn't re-embed it.
+- **Cache key = hash of the embedded text**, which is
+  `title: … \n tags: … \n body: …` — title and tags carry real signal, so
+  they are part of the text and therefore part of the key. (An earlier
+  draft said the key was the body alone and that retitling was free; the
+  code has embedded all three since `text_of` existed.)
+- **The body is RAW MARKDOWN, so link syntax is semantic signal.** Measured
+  2026-07-20, retiring `{% post_url %}`: rewriting 56 links to file-relative
+  form changed no rendered href at all, and still reshuffled `Related` on
+  **37 of 327 posts** (one lost the section outright), because
+  `{{ site.baseurl }}{% post_url … %}` and `../2010/….md` are different
+  text. Every rendered byte outside the relations blocks was identical.
+  So related-posts are a function of markdown *syntax*, not of prose: a
+  reflow, a typo fix or an `{% image %}` swap silently reshuffles them, and
+  `site.baseurl`/`post_url`/`.md` compete for signal against the writing.
+  The fix is to embed the rendered plain text; it is deferred because it
+  reshuffles every list once. **Until then, do not read "Related changed"
+  as evidence that a refactor changed meaning.**
 - **Incremental by construction**: edit one post → one embedding recomputed →
   related-posts recalculated in microseconds. The LSI phase disappears from
   the build entirely, and `serve` can afford to keep it live.
