@@ -75,6 +75,17 @@ impl<R: Row> Table<R> {
         self.0.iter().filter(move |r| f.eval(*r))
     }
 
+    /// Positions a filter admits, in table order — `matching` for callers
+    /// that need to index back into the table rather than read it.
+    pub fn select(&self, f: &Filter) -> Vec<usize> {
+        self.0
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| f.eval(*r))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Positions a filter admits within `within` — a set narrowed by
     /// something the filter language cannot say (a glob scope, a locale), or
     /// one of the table's own index lists.
@@ -144,6 +155,12 @@ mod tests {
         s.insert("name", Type::Str);
         s.insert("n", Type::Int);
         s
+    }
+
+    #[test]
+    fn select_yields_positions_in_table_order() {
+        let f = Filter::parse("n >= 2", &schema()).unwrap();
+        assert_eq!(table().select(&f), vec![1, 2]);
     }
 
     #[test]

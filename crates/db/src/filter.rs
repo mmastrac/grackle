@@ -126,7 +126,7 @@ impl Lit {
 enum Operand {
     Field(String),
     Lit(Lit),
-    Call(&'static Func, Vec<Operand>),
+    Call(&'static Func, Vec<Operand>, Prepared),
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +153,32 @@ pub struct Func {
     name: &'static str,
     params: &'static [Type],
     returns: Type,
-    eval: fn(&[Value]) -> Value,
+    /// Whatever the function can work out once, at parse time, from its
+    /// literal arguments. A glob is a regex; compiling one per row per filter
+    /// is not a trade worth making, and a pattern that varies per row is not
+    /// a thing anyone wants.
+    prepare: fn(&[Operand]) -> Result<Prepared>,
+    eval: fn(&Prepared, &[Value]) -> Value,
+}
+
+/// The closed set of things a function may precompute. Small on purpose: it
+/// is a cache, not a second value type.
+#[derive(Debug, Clone)]
+enum Prepared {
+    None,
+    Glob(globset::GlobMatcher),
+}
+
+fn no_prep(_: &[Operand]) -> Result<Prepared> {
+    Ok(Prepared::None)
+}
+
+/// The literal a function needs at parse time, or an error naming why.
+fn literal_arg<'a>(args: &'a [Operand], i: usize, func: &str) -> Result<&'a str> {
+    match args.get(i) {
+        Some(Operand::Lit(Lit::Str(s))) => Ok(s),
+        _ => bail!("`{func}` argument {} must be a literal string", i + 1),
+    }
 }
 
 impl fmt::Debug for Func {
@@ -178,17 +203,37 @@ fn path_under(p: &str, base: &str) -> bool {
     base.split('/').all(|b| parts.next() == Some(b))
 }
 
-const FUNCS: &[Func] = &[Func {
-    name: "under",
-    params: &[Type::Str, Type::Str],
-    returns: Type::Bool,
-    eval: |args| match (&args[0], &args[1]) {
-        (Value::Str(p), Value::Str(base)) => Value::Bool(path_under(p, base)),
-        // A null path is under nothing, which is what a row with no path
-        // should mean rather than an error at query time.
-        _ => Value::Bool(false),
+const FUNCS: &[Func] = &[
+    Func {
+        name: "under",
+        params: &[Type::Str, Type::Str],
+        returns: Type::Bool,
+        prepare: no_prep,
+        eval: |_, args| match (&args[0], &args[1]) {
+            (Value::Str(p), Value::Str(base)) => Value::Bool(path_under(p, base)),
+            // A null path is under nothing, which is what a row with no path
+            // should mean rather than an error at query time.
+            _ => Value::Bool(false),
+        },
     },
-}];
+    Func {
+        name: "glob",
+        params: &[Type::Str, Type::Str],
+        returns: Type::Bool,
+        prepare: |args| {
+            let pat = literal_arg(args, 1, "glob")?;
+            Ok(Prepared::Glob(
+                globset::Glob::new(pat)
+                    .map_err(|e| anyhow!("bad glob {pat:?}: {e}"))?
+                    .compile_matcher(),
+            ))
+        },
+        eval: |prep, args| match (prep, &args[0]) {
+            (Prepared::Glob(m), Value::Str(p)) => Value::Bool(m.is_match(p)),
+            _ => Value::Bool(false),
+        },
+    },
+];
 
 fn lookup_func(name: &str) -> Result<&'static Func> {
     if let Some(f) = FUNCS.iter().find(|f| f.name == name) {
@@ -454,7 +499,18 @@ impl Parser {
                 }
             }
         }
-        Ok(Operand::Call(func, args))
+        // Arity first: `prepare` reaches for an argument by position, and a
+        // call with too few would otherwise report the wrong complaint.
+        if args.len() != func.params.len() {
+            bail!(
+                "`{name}` takes {} argument{}, but {} were given",
+                func.params.len(),
+                if func.params.len() == 1 { "" } else { "s" },
+                args.len()
+            );
+        }
+        let prep = (func.prepare)(&args)?;
+        Ok(Operand::Call(func, args, prep))
     }
 
     fn parse_operand(&mut self) -> Result<Operand> {
@@ -525,7 +581,7 @@ impl fmt::Display for Operand {
             Operand::Lit(Lit::Str(s)) => write!(f, "{s:?}"),
             Operand::Lit(Lit::Int(i)) => write!(f, "{i}"),
             Operand::Lit(Lit::Bool(b)) => write!(f, "{b}"),
-            Operand::Call(func, args) => {
+            Operand::Call(func, args, _) => {
                 write!(f, "{}(", func.name)?;
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
@@ -545,16 +601,9 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
     match o {
         Operand::Field(name) => resolve(schema, name),
         Operand::Lit(lit) => Ok(lit.ty()),
-        Operand::Call(func, args) => {
-            if args.len() != func.params.len() {
-                bail!(
-                    "`{}` takes {} argument{}, but {} were given",
-                    func.name,
-                    func.params.len(),
-                    if func.params.len() == 1 { "" } else { "s" },
-                    args.len()
-                );
-            }
+        // Arity was settled at parse time, so `zip` cannot silently skip an
+        // argument here.
+        Operand::Call(func, args, _) => {
             for (i, (arg, want)) in args.iter().zip(func.params).enumerate() {
                 let got = operand_type(arg, schema)?;
                 if got != *want {
@@ -620,6 +669,14 @@ pub struct Filter {
 }
 
 impl Filter {
+    /// Both, or nothing. Lets a caller narrow a declared filter with one it
+    /// derived, without either having to know the other's source text.
+    pub fn and(self, other: Filter) -> Filter {
+        Filter {
+            ast: Expr::And(Box::new(self.ast), Box::new(other.ast)),
+        }
+    }
+
     /// Parse and type-check against `schema`.
     pub fn parse(src: &str, schema: &Schema) -> Result<Self> {
         let toks = lex(src)?;
@@ -674,9 +731,9 @@ fn operand_value(o: &Operand, row: &impl Row) -> Value {
     match o {
         Operand::Field(name) => row.field(name),
         Operand::Lit(lit) => lit.value(),
-        Operand::Call(func, args) => {
+        Operand::Call(func, args, prep) => {
             let vals: Vec<Value> = args.iter().map(|a| operand_value(a, row)).collect();
-            (func.eval)(&vals)
+            (func.eval)(prep, &vals)
         }
     }
 }
@@ -806,6 +863,47 @@ mod tests {
     }
 
     #[test]
+    fn glob_matches_patterns_the_config_already_writes() {
+        let r = TestRow::default(); // recipes/pasta/carbonara.md
+        assert!(ok(r#"glob(path, "recipes/**")"#).eval(&r));
+        assert!(ok(r#"glob(path, "**/*.md")"#).eval(&r));
+        assert!(ok(r#"glob(path, "**/*.{md,html}")"#).eval(&r));
+        assert!(!ok(r#"glob(path, "photos/**")"#).eval(&r));
+    }
+
+    /// The pattern compiles once, at parse time, so it must be a literal —
+    /// and a bad one is a load error rather than a filter that matches
+    /// nothing at every row it touches.
+    #[test]
+    fn a_glob_pattern_must_be_a_literal_and_must_compile() {
+        let e = err(r#"glob(path, title)"#);
+        assert!(e.contains("argument 2 must be a literal string"), "{e}");
+        let e = err(r#"glob(path, "recipes/[")"#);
+        assert!(e.contains("bad glob"), "{e}");
+    }
+
+    /// `under` and `glob` answer different questions, and the config picks.
+    #[test]
+    fn glob_is_not_under() {
+        let r = TestRow {
+            path: "recipes".into(),
+            ..Default::default()
+        };
+        assert!(ok(r#"under(path, "recipes")"#).eval(&r));
+        assert!(
+            !ok(r#"glob(path, "recipes/**")"#).eval(&r),
+            "a directory does not match its own subtree glob"
+        );
+    }
+
+    #[test]
+    fn scopes_conjoin_the_way_a_view_chain_does() {
+        let r = TestRow::default();
+        assert!(ok(r#"glob(path, "recipes/**") && glob(path, "**/*.md")"#).eval(&r));
+        assert!(!ok(r#"glob(path, "recipes/**") && glob(path, "**/*.html")"#).eval(&r));
+    }
+
+    #[test]
     fn calls_compose_with_the_rest_of_the_language() {
         let r = TestRow::default();
         assert!(ok(r#"under(path, "recipes") && !draft"#).eval(&r));
@@ -825,7 +923,7 @@ mod tests {
         let e = err(r#"undor(path, "x")"#);
         assert!(e.contains("unknown function `undor`"), "{e}");
         assert!(e.contains("did you mean `under`"), "{e}");
-        assert!(e.contains("known functions: under"), "{e}");
+        assert!(e.contains("known functions: under, glob"), "{e}");
     }
 
     #[test]

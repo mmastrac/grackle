@@ -557,19 +557,27 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
 /// language), `filter` type-checks against the object schema, `order_by`
 /// is *required* — objects have no natural order, and lexical-by-luck is
 /// not a contract — and the route's `members` index into `objects.rows`.
-/// The chain's `match` globs, compiled and CONJOINED: a row must satisfy
-/// every one, so a child narrows within its parent's subtree and can never
-/// widen out of it (§5c). Empty chain = no scoping, and `.all()` on an empty
-/// slice is true, so callers need no special case.
-fn scope_matchers(name: &str, q: &Query) -> Result<Vec<globset::GlobMatcher>> {
-    q.scopes
-        .iter()
-        .map(|g| {
-            Ok(globset::Glob::new(g)
-                .with_context(|| format!("view {name}: match {g:?}"))?
-                .compile_matcher())
-        })
-        .collect()
+/// A view's declared filter, narrowed by its `match` chain.
+///
+/// The chain's globs are CONJOINED: a row must satisfy every one, so a child
+/// narrows within its parent's subtree and can never widen out of it (§5c).
+/// They compile to `glob(path, ...)` rather than running as a separate pass,
+/// which is what makes a scope and a filter one thing — composable, checked
+/// by one type-checker, and applied wherever the filter is applied.
+fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
+    let mut f = match q.predicate() {
+        Some(src) => filter::Filter::parse(&src, schema)
+            .with_context(|| format!("view {name}: filter {src:?}"))?,
+        None => filter::Filter::always(),
+    };
+    for g in &q.scopes {
+        let src = format!("glob(path, {g:?})");
+        f = f.and(
+            filter::Filter::parse(&src, schema)
+                .with_context(|| format!("view {name}: match {g:?}"))?,
+        );
+    }
+    Ok(f)
 }
 
 fn build_object_view(
@@ -596,21 +604,8 @@ fn build_object_view(
     if order != "name" {
         bail!("view {name}: unknown order_by {order:?} (have: name)");
     }
-    let scope = scope_matchers(name, q)?;
-    let pred = match q.predicate() {
-        Some(src) => filter::Filter::parse(&src, &object_schema())
-            .with_context(|| format!("view {name}: filter {src:?}"))?,
-        None => filter::Filter::always(),
-    };
-    let in_scope: Vec<usize> = db
-        .objects
-        .rows
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| scope.iter().all(|m| m.is_match(&o.rel)))
-        .map(|(i, _)| i)
-        .collect();
-    let mut members = db.objects.rows.select_within(&in_scope, &pred);
+    let pred = scoped_filter(name, q, &object_schema())?;
+    let mut members: Vec<usize> = db.objects.rows.select(&pred);
     members.sort_by(|&a, &b| {
         let (x, y) = (&db.objects.rows[a], &db.objects.rows[b]);
         x.name.cmp(&y.name).then_with(|| x.rel.cmp(&y.rel))
@@ -674,12 +669,7 @@ fn build_tree_view(
             known.join(", ")
         );
     }
-    let scope = scope_matchers(name, q)?;
-    let pred = match q.predicate() {
-        Some(src) => filter::Filter::parse(&src, &row_schema())
-            .with_context(|| format!("view {name}: filter {src:?}"))?,
-        None => filter::Filter::always(),
-    };
+    let pred = scoped_filter(name, q, &row_schema())?;
     // §6f: one row collection per locale (default-on, like posts views);
     // embedded views take the default locale's set below.
     let rows_for = |locale: &str| -> Vec<usize> {
@@ -693,7 +683,6 @@ fn build_tree_view(
             // `stem != "index"` convention).
             .filter(|(_, p)| !p.claimed)
             .filter(|(_, p)| p.locale == locale)
-            .filter(|(_, p)| scope.iter().all(|m| m.is_match(&p.rel)))
             .map(|(i, _)| i)
             .collect();
         let mut members = db.rows.select_within(&members, &pred);
