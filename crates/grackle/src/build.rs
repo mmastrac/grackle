@@ -468,10 +468,12 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // posts listing pass is a product question (should an archive wear
         // its rows' dress?), not a merge artifact, so it is left open.
         let theme_name = {
-            let mut names = r
-                .members
-                .iter()
-                .map(|k| db.rows.get(k).and_then(|r| r.theme.as_deref()).map(|s| theme::split_spec(s).0));
+            let mut names = r.members.iter().map(|k| {
+                db.rows
+                    .get(k)
+                    .and_then(|r| r.theme.as_deref())
+                    .map(|s| theme::split_spec(s).0)
+            });
             match names.next().flatten() {
                 Some(first) if names.all(|n| n == Some(first)) => Some(first),
                 _ => None,

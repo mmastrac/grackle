@@ -166,9 +166,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                 .members
                 .iter()
                 .filter_map(|k| cx.db.rows.get(k))
-                .map(|p| {
-                    (p.title.clone().unwrap_or_default(), p.url.clone())
-                })
+                .map(|p| (p.title.clone().unwrap_or_default(), p.url.clone()))
                 .collect();
             Ok(theme.fragments.render(&crate::parts::link_list(&pairs)))
         }

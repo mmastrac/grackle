@@ -321,7 +321,8 @@ mod tests {
             Config::from_toml("root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
                 .unwrap();
         let mut db = SiteDb::seed(Vec::new(), false);
-        db.page_ix.push(grackle_db::Key::new("writing/saturn/index.md"));
+        db.page_ix
+            .push(grackle_db::Key::new("writing/saturn/index.md"));
         db.rows.push(crate::db::Row {
             key: grackle_db::Key::new("writing/saturn/index.md"),
             path: PathBuf::from("writing/saturn/index.md"),

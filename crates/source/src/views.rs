@@ -162,7 +162,8 @@ fn grouped_routes(
     rows: &[(grackle_db::Key, &dyn filter::Row)],
     route_value: &dyn Fn(&str, &str) -> String,
 ) -> Result<Vec<Route>> {
-    let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> = BTreeMap::new();
+    let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> =
+        BTreeMap::new();
     for (i, row) in rows {
         for combo in key_combos(*row, chain) {
             let sort: Vec<SortKey> = combo.iter().map(|k| k.sort.clone()).collect();
@@ -396,190 +397,186 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             continue;
         };
         match base.kind {
-            Kind::Posts => {} // the flow below
-            Kind::Objects => {
-                build_object_view(cfg, db, name, v, &q)?;
-                continue;
-            }
-            Kind::Tree => {
-                build_tree_view(cfg, db, schemas, name, v, &q)?;
-                continue;
-            }
+            Kind::Objects => build_object_view(cfg, db, name, v, &q)?,
+            kind => build_row_view(cfg, db, schemas, name, v, &q, kind)?,
         }
-        // Parsed and type-checked once per view, not per row: a bad filter is a
-        // startup error naming the view.
-        // `order_by` on a posts view was parsed, inherited along `from` like
-        // any other set clause — and then ignored. The table's
-        // reverse-chronological index was the only ordering a posts view
-        // could have, so a declared sort produced chronological output with
-        // no diagnostic, and a TYPO in one produced the same. Both are now
-        // what they say: a validated key sorts, an unknown one is a load
-        // error naming the view, exactly as on the tree side.
-        let order = declared_order(schemas, &format!("view {name}"), q.order_by.as_deref())?;
-        let view = grackle_db::View::all()
-            .filter(scoped_filter(name, &q, &row_schema())?)
-            .order(order);
-        let rows = &db.rows;
+    }
+    Ok(())
+}
 
-        // The DEFAULT ordering, stated here rather than inherited from
-        // `posts.order` (q51). The table's index carried three things at
-        // once — reverse-chronological sort, undated-last, and a
-        // default-locale FILTER — and a view that merely read it inherited
-        // all three without saying so. The merge removes the table, so each
-        // has to have a home: the filter is now the explicit `p.locale ==
-        // locale` the tree side always used, and the sort is this
-        // comparator. Same result, and now it survives losing the table.
-        // One row set per locale, built the same way for every locale —
-        // including the default, which used to be the special case that
-        // read the table's index. Declared `order_by` applies on top,
-        // stably, so it re-seats only what it names.
-        let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
-            // Over the POSTS rows, not every row: "the posts table" is a
-            // set of indices now, and a posts view still ranges over all
-            // of it across every posts collection (q51).
-            let in_locale: Vec<grackle_db::Key> = db
-                .post_ix
-                .iter()
-                .filter(|k| rows.get(k).is_some_and(|r| r.locale == locale))
-                .cloned()
-                .collect();
-            db.rows.view_within(&in_locale, &view)
+/// Materialize a view over ROWS — posts or tree, one flow.
+///
+/// These were two functions, and the base collection's KIND decided which one
+/// ran, so two views declaring the same thing could behave differently. Every
+/// difference that was real has been settled elsewhere: ordering is one rule
+/// (`path` unless the view says otherwise), `match` scopes are part of the
+/// filter, and `limit` lands in one place. What survives is which index list
+/// the view starts from — a set, not a shape.
+fn build_row_view(
+    cfg: &Config,
+    db: &mut SiteDb,
+    schemas: &Schemas,
+    name: &str,
+    v: &View,
+    q: &Query,
+    kind: Kind,
+) -> Result<()> {
+    // Parsed and type-checked once per view, not per row: a bad filter is a
+    // startup error naming the view.
+    let view = grackle_db::View::all()
+        .filter(scoped_filter(name, q, &row_schema())?)
+        .order(declared_order(
+            schemas,
+            &format!("view {name}"),
+            q.order_by.as_deref(),
+        )?);
+    // `from = "posts"` has always meant the posts TABLE rather than the one
+    // collection that names it — `_posts` and `_drafts` both feed it (q51).
+    let base_ix = match kind {
+        Kind::Posts => &db.post_ix,
+        _ => &db.page_ix,
+    };
+    let rows = &db.rows;
+
+    // One row set per locale (§6f), built the same way for every locale —
+    // including the default, which used to be the special case that read the
+    // posts table's index.
+    //
+    // `rendered` and `!claimed` are no-ops on the posts side: every post is
+    // parsed, and only a tree row can be a view's claimed content (q45). They
+    // are here because they say what the eligible set IS, rather than which
+    // table it came from — which is what let the two flows become one.
+    let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
+        let eligible: Vec<grackle_db::Key> = base_ix
+            .iter()
+            .filter_map(|k| rows.get(k))
+            .filter(|p| p.rendered && !p.claimed && p.locale == locale)
+            .map(|p| p.key.clone())
+            .collect();
+        rows.view_within(&eligible, &view)
+    };
+
+    // No route: one row set, and nowhere to hang it but the view itself.
+    if !v.is_materialized() {
+        let members: Vec<grackle_db::Key> = rows_for(&cfg.i18n.default)
+            .into_iter()
+            .take(v.limit.unwrap_or(usize::MAX))
+            .collect();
+        insert_routeless(db, name, v, members, kind);
+        return Ok(());
+    }
+
+    // §6f locale-parallel views, DEFAULT-ON (Matt): a materializing row-query
+    // view partitions by locale unless it opts out with `locales = "default"`.
+    // A locale with no rows materializes nothing: the partition is real, not
+    // mirrored.
+    let locales = locales_for(cfg, v);
+
+    // Grouped views, possibly a subdivision chain (§5c): a grouped view
+    // `over` a grouped view refines the parent's partition, and the group keys
+    // accumulate — GROUP BY year, month, expressed compositionally.
+    if v.group_by.is_some() {
+        let tmpl = v
+            .route
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
+        let chain = cfg.group_specs(name);
+        check_group_chain(schemas, name, &chain, kind)?;
+        // §6f enum records: URLs wear the record's slug for ANY grouped field
+        // (tags, courses, …); keys and titles keep the id.
+        let leaf = chain
+            .last()
+            .map(|s| grackle_model::spec_field(s).to_string());
+        let route_value = |k: &str, v: &str| -> String {
+            let field = if k == "key" { leaf.as_deref() } else { Some(k) };
+            match field {
+                Some(f) => cfg.record_slug(f, v).to_string(),
+                None => v.to_string(),
+            }
         };
-        let visible = rows_for(&cfg.i18n.default);
-
-        // No route: one row set, and nowhere to hang it but the view itself.
-        if !v.is_materialized() {
-            let members: Vec<grackle_db::Key> = visible
-                .into_iter()
-                .take(v.limit.unwrap_or(usize::MAX))
+        for locale in &locales {
+            let row_ix = rows_for(locale);
+            let grouped: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
+                .iter()
+                .filter_map(|k| rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
                 .collect();
-            insert_routeless(db, name, v, members, Kind::Posts);
-            continue;
+            let mut routes = grouped_routes(
+                name,
+                &prefixed(cfg, locale, tmpl),
+                &chain,
+                &grouped,
+                &route_value,
+            )?;
+            for r in &mut routes {
+                r.locale = stamp(cfg, locale);
+            }
+            db.routes.extend(routes);
         }
+        return Ok(());
+    }
 
-        // §6f locale-parallel views, DEFAULT-ON (Matt): a materializing
-        // row-query view partitions by locale unless it opts out with
-        // `locales = "default"` — every locale's rows, the locale-prefixed
-        // route (the default locale sits ABOVE the selector: no prefix),
-        // titles/trails resolved at the route's locale. A locale with no
-        // rows materializes nothing: the partition is real, not mirrored.
-        // Star views and embedded views are exempt (route-set queries
-        // filter on `locale`; embeds will follow their embedding page).
-        let locales = locales_for(cfg, v);
-
-        // Grouped views, possibly a subdivision chain (§5c): a grouped view
-        // `over` a grouped view refines the parent's partition, and the group
-        // keys accumulate — GROUP BY year, month, expressed compositionally.
-        // The chain is read from config alone, so processing order between
-        // parent and child views doesn't matter.
-        if v.group_by.is_some() {
-            let tmpl = v
-                .route
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-            let chain = cfg.group_specs(name);
-            check_group_chain(schemas, name, &chain, Kind::Posts)?;
-            // §6f enum records: URLs wear the record's slug for ANY
-            // grouped field (tags, courses, …); keys and titles keep the
-            // id. `key` is the leaf level's value.
-            let leaf = chain
-                .last()
-                .map(|s| grackle_model::spec_field(s).to_string());
-            let route_value = |k: &str, v: &str| -> String {
-                let field = if k == "key" { leaf.as_deref() } else { Some(k) };
-                match field {
-                    Some(f) => cfg.record_slug(f, v).to_string(),
-                    None => v.to_string(),
-                }
-            };
-            for locale in &locales {
-                let row_ix = rows_for(locale);
-                let rows: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
+    // Paginated list. Was posts-only, on no stronger grounds than the tree
+    // flow never having been written to do it.
+    if let Some(per) = v.paginate.map(|p| p.max(1)) {
+        for locale in &locales {
+            let row_ix = rows_for(locale);
+            if row_ix.is_empty() && *locale != cfg.i18n.default {
+                continue;
+            }
+            for n in 1..=row_ix.len().div_ceil(per) {
+                let tmpl = if n == 1 {
+                    v.routes.first()
+                } else {
+                    v.routes.get(1).or_else(|| v.routes.first())
+                };
+                let Some(tmpl) = tmpl else { continue };
+                let url = template::render(&prefixed(cfg, locale, tmpl), |k| match k {
+                    "n" => Some(n.to_string()),
+                    _ => None,
+                })?;
+                let members: Vec<grackle_db::Key> = row_ix
                     .iter()
-                    .filter_map(|k| db.rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
+                    .skip(per * (n - 1))
+                    .take(per)
+                    .cloned()
                     .collect();
-                let mut routes = grouped_routes(
-                    name,
-                    &prefixed(cfg, locale, tmpl),
-                    &chain,
-                    &rows,
-                    &route_value,
-                )?;
-                for r in &mut routes {
-                    r.locale = stamp(cfg, locale);
-                }
-                db.routes.extend(routes);
+                db.routes.push(Route {
+                    view: Some(name.to_string()),
+                    key: Some(format!("page {n}")),
+                    rows: Some(members.len()),
+                    page: Some(n),
+                    members,
+                    locale: stamp(cfg, locale),
+                    ..Route::new(url, RouteKind::View)
+                });
             }
+        }
+        return Ok(());
+    }
+
+    // Single route over a (possibly limited) slice: the feed — which is how
+    // /fr/atom.xml falls out of the default (§6f).
+    let Some(route) = v.route.as_deref() else {
+        bail!("view {name} needs a route");
+    };
+    for locale in &locales {
+        let row_ix = rows_for(locale);
+        // No rows in this locale = no page (the partition is real).
+        if row_ix.is_empty() && *locale != cfg.i18n.default {
             continue;
         }
-
-        match v.group_by.as_deref() {
-            // Paginated list.
-            None if v.paginate.is_some() => {
-                let per = v.paginate.unwrap().max(1);
-                for locale in &locales {
-                    let row_ix = rows_for(locale);
-                    if row_ix.is_empty() && *locale != cfg.i18n.default {
-                        continue;
-                    }
-                    let pages = row_ix.len().div_ceil(per);
-                    for n in 1..=pages {
-                        let tmpl = if n == 1 {
-                            v.routes.first()
-                        } else {
-                            v.routes.get(1).or_else(|| v.routes.first())
-                        };
-                        let Some(tmpl) = tmpl else { continue };
-                        let url = template::render(&prefixed(cfg, locale, tmpl), |k| match k {
-                            "n" => Some(n.to_string()),
-                            _ => None,
-                        })?;
-                        let members: Vec<grackle_db::Key> = row_ix
-                            .iter()
-                            .skip(per * (n - 1))
-                            .take(per)
-                            .cloned()
-                            .collect();
-                        db.routes.push(Route {
-                            view: Some(name.clone()),
-                            key: Some(format!("page {n}")),
-                            rows: Some(members.len()),
-                            page: Some(n),
-                            members,
-                            locale: stamp(cfg, locale),
-                            ..Route::new(url, RouteKind::View)
-                        });
-                    }
-                }
-            }
-            // Single route over a (possibly limited) slice: the feed —
-            // which is how /fr/atom.xml falls out of the default (§6f).
-            None => {
-                let tmpl = v
-                    .route
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-                for locale in &locales {
-                    let row_ix = rows_for(locale);
-                    if row_ix.is_empty() && *locale != cfg.i18n.default {
-                        continue;
-                    }
-                    let members: Vec<grackle_db::Key> = row_ix
-                        .iter()
-                        .take(v.limit.unwrap_or(row_ix.len()))
-                        .cloned()
-                        .collect();
-                    db.routes.push(Route {
-                        view: Some(name.clone()),
-                        rows: Some(members.len()),
-                        members,
-                        locale: stamp(cfg, locale),
-                        ..Route::new(prefixed(cfg, locale, tmpl), RouteKind::View)
-                    });
-                }
-            }
-            Some(_) => unreachable!("grouped views are handled above"),
-        }
+        let members: Vec<grackle_db::Key> = row_ix
+            .iter()
+            .take(v.limit.unwrap_or(row_ix.len()))
+            .cloned()
+            .collect();
+        db.routes.push(Route {
+            view: Some(name.to_string()),
+            rows: Some(members.len()),
+            members,
+            locale: stamp(cfg, locale),
+            ..Route::new(prefixed(cfg, locale, route), RouteKind::View)
+        });
     }
     Ok(())
 }
@@ -656,125 +653,6 @@ fn build_object_view(
 
 /// Order two field values: same-type natural order, Null last. Mixed types
 /// cannot occur under a validated `order_by` (the key has one declared type).
-/// Materialize (or resolve, for the routeless/embeddable shape) a view over
-/// the tree table: `match` scopes by glob, filters type-check against the
-/// page schema, `order_by` is required (`field` or `-field` for descending —
-/// a base page field or one declared by any `.schema.toml`, §5b), and only
-/// *rendered* pages are rows — static passthrough is not content.
-fn build_tree_view(
-    cfg: &Config,
-    db: &mut SiteDb,
-    schemas: &Schemas,
-    name: &str,
-    v: &View,
-    q: &Query,
-) -> Result<()> {
-    if v.paginate.is_some() {
-        bail!("view {name}: paginate on tree views is not supported yet");
-    }
-    // `order_by` used to be REQUIRED here, on the grounds that objects have
-    // no natural order and lexical-by-luck is not a contract. A tree row is
-    // not an object: it has a path, paths order, and that IS the contract.
-    let view = grackle_db::View::all()
-        .filter(scoped_filter(name, q, &row_schema())?)
-        .order(declared_order(
-            schemas,
-            &format!("view {name}"),
-            q.order_by.as_deref(),
-        )?)
-        .limit(v.limit);
-    // §6f: one row collection per locale (default-on, like posts views);
-    // embedded views take the default locale's set below.
-    let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
-        let members: Vec<grackle_db::Key> = db
-            .page_ix
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .filter(|p| p.rendered)
-            // q45: claimed rows serve a landing; they are chrome now, not
-            // data — no query sees them (this is what retired the
-            // `stem != "index"` convention).
-            .filter(|p| !p.claimed)
-            .filter(|p| p.locale == locale)
-            .map(|p| p.key.clone())
-            .collect();
-        db.rows.view_within(&members, &view)
-    };
-    let locales = locales_for(cfg, v);
-    let members = rows_for(&cfg.i18n.default);
-
-    // Grouped tree views — recipes by course — through the same general
-    // machinery as every other grouping (one route per composite key,
-    // subdivision chains included).
-    if v.group_by.is_some() {
-        let tmpl = v
-            .route
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
-        let chain = cfg.group_specs(name);
-        check_group_chain(schemas, name, &chain, Kind::Tree)?;
-        for locale in &locales {
-            let row_ix = if *locale == cfg.i18n.default {
-                members.clone()
-            } else {
-                rows_for(locale)
-            };
-            let tmpl = prefixed(cfg, locale, tmpl);
-            let leaf = chain
-                .last()
-                .map(|s| grackle_model::spec_field(s).to_string());
-            let route_value = |k: &str, v: &str| -> String {
-                let field = if k == "key" { leaf.as_deref() } else { Some(k) };
-                match field {
-                    Some(f) => cfg.record_slug(f, v).to_string(),
-                    None => v.to_string(),
-                }
-            };
-            let mut routes = {
-                let rows: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
-                    .iter()
-                    .filter_map(|k| db.rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
-                    .collect();
-                grouped_routes(name, &tmpl, &chain, &rows, &route_value)?
-            };
-            if *locale != cfg.i18n.default {
-                for r in &mut routes {
-                    r.locale = Some(locale.to_string());
-                }
-            }
-            db.routes.extend(routes);
-        }
-        return Ok(());
-    }
-
-    if !v.is_materialized() {
-        insert_routeless(db, name, v, members, Kind::Tree);
-        return Ok(());
-    }
-    let Some(route) = v.route.as_deref() else {
-        bail!("view {name} needs a route");
-    };
-    for locale in &locales {
-        let row_ix = if *locale == cfg.i18n.default {
-            members.clone()
-        } else {
-            rows_for(locale)
-        };
-        // No rows in this locale = no page (the partition is real).
-        if row_ix.is_empty() && *locale != cfg.i18n.default {
-            continue;
-        }
-        db.routes.push(Route {
-            view: Some(name.to_string()),
-            rows: Some(row_ix.len()),
-            members: row_ix,
-            locale: stamp(cfg, locale),
-            ..Route::new(prefixed(cfg, locale, route), RouteKind::View)
-        });
-    }
-    Ok(())
-}
-
 /// Views over the whole route set (the sitemap). Runs after every other route
 /// exists, and its `rows` is the count that actually passes its filter.
 pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
@@ -931,6 +809,10 @@ mod posts_order_tests {
             // A row's key is its path, so fixtures need distinct ones or
             // they are all the same row as far as the table is concerned.
             rel: std::path::PathBuf::from(format!("{}.md", url.trim_matches('/'))),
+            // Every post is a rendered row; the loader hardcodes it. The
+            // fixture has to say so now that eligibility is a predicate
+            // rather than a consequence of which flow you landed in.
+            rendered: true,
             ..Row::default()
         }
     }
@@ -1162,7 +1044,10 @@ mod adjacency_tests {
 
     fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {
         Row {
-            rel: std::path::PathBuf::from(format!("{collection}/{}.md", url.trim_matches('/').replace('/', "-"))),
+            rel: std::path::PathBuf::from(format!(
+                "{collection}/{}.md",
+                url.trim_matches('/').replace('/', "-")
+            )),
             collection: collection.into(),
             url: url.into(),
             slug: url.trim_matches('/').replace('/', "-"),

@@ -152,9 +152,7 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Relate
             .filter(|(j, vj)| *j != i && vj.is_some())
             // §6f: similarity stays within a locale — a translation is the
             // SAME text, so it would otherwise top its original's list.
-            .filter(|(j, _)| {
-                row(*j).map(|r| &r.locale) == row(i).map(|r| &r.locale)
-            })
+            .filter(|(j, _)| row(*j).map(|r| &r.locale) == row(i).map(|r| &r.locale))
             .filter_map(|(j, vj)| {
                 let gap = match (year(i), year(j)) {
                     (Some(a), Some(b)) => (a - b).abs(),
@@ -312,7 +310,8 @@ mod tests {
         assert_eq!(
             raw.by_post[&key("anchor")][0].0,
             key("old"),
-            "raw cosine prefers the old post");
+            "raw cosine prefers the old post"
+        );
 
         let pen = RelatedCfg {
             limit: 2,

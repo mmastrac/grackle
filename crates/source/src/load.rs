@@ -779,7 +779,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         let mut fixed: Vec<(grackle_db::Key, String)> = Vec::new();
         // The GLOBAL index: `enumerate` over `pages()` counts within
         // the tree rows, and every index is a row-store index now.
-        for (k, p) in db.page_ix.iter().filter_map(|k| db.rows.get(k).map(|r| (k, r))) {
+        for (k, p) in db
+            .page_ix
+            .iter()
+            .filter_map(|k| db.rows.get(k).map(|r| (k, r)))
+        {
             if !p.claimed {
                 continue;
             }

@@ -797,12 +797,15 @@ impl SiteDb {
         self.by_slug = by_slug;
         self.by_tag = by_tag;
         self.by_year_month = by_year_month;
-        self.by_url = by_url
-            .map_err(|c| self.collision(&format!("route collision at {}:", c.key), c))?;
+        self.by_url =
+            by_url.map_err(|c| self.collision(&format!("route collision at {}:", c.key), c))?;
         self.by_key = by_key.map_err(|c| {
             let (date, slug) = &c.key;
             let date = date.map(|d| d.to_string()).unwrap_or("none".into());
-            self.collision(&format!("duplicate (date, slug) key ({date}, {slug:?}):"), c)
+            self.collision(
+                &format!("duplicate (date, slug) key ({date}, {slug:?}):"),
+                c,
+            )
         })?;
         Ok(())
     }

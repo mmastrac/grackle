@@ -225,7 +225,11 @@ mod tests {
     }
 
     fn table() -> Table<Fixture> {
-        Table::new(vec![Fixture::new("a", 1), Fixture::new("b", 2), Fixture::new("c", 3)])
+        Table::new(vec![
+            Fixture::new("a", 1),
+            Fixture::new("b", 2),
+            Fixture::new("c", 3),
+        ])
     }
 
     fn schema() -> Schema {
