@@ -365,6 +365,9 @@ fn read_posts(
         };
 
         rows.push(Row {
+            // Assigned by `insert_rows`, which is where rows become the
+            // database's rather than the loader's.
+            key: Default::default(),
             collection: collection.clone(),
             path: raw.path,
             // ROOT-relative since the merge, so `path`/`dir` mean one thing
@@ -537,6 +540,7 @@ fn build_tree_and_objects(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
             objects.rows.push(Row {
+                key: grackle_db::Key::new(f.rel.to_string_lossy()),
                 collection: obj_name.to_string(),
                 path: f.path,
                 rel: f.rel,
@@ -595,6 +599,7 @@ fn build_tree_and_objects(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
             pages.push(Row {
+                key: Default::default(),
                 collection: tree_name.to_string(),
                 slug: stem.clone(),
                 stem,

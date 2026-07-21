@@ -993,6 +993,23 @@ mod tests {
         let db = grackle_source::load(&cfg).expect("site db loads");
         assert!(db.post_ix.len() > 300, "real corpus expected");
 
+        // Keys must actually identify: one per row, resolving back to it.
+        // The real corpus is the only place this is worth asserting — a
+        // fixture cannot collide two paths that a 27-year site can.
+        assert_eq!(
+            db.by_row_key.len(),
+            db.rows.len(),
+            "every row should have a distinct key"
+        );
+        for r in db.rows.iter() {
+            assert_eq!(
+                db.row(&r.key).map(|f| &f.rel),
+                Some(&r.rel),
+                "key {} should resolve to its own row",
+                r.key
+            );
+        }
+
         // Every post as a full document (raw body stands in for rendered
         // content: completeness is a byte property, not a markdown one).
         for p in db.posts() {

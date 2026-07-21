@@ -8,6 +8,7 @@
 //! and Cargo keeps it so: this crate depends on nothing in the workspace.
 
 pub mod filter;
+pub mod key;
 pub mod table;
 pub mod template;
 pub mod view;
@@ -18,5 +19,6 @@ mod index;
 
 pub use filter::{Filter, Row, Schema, Type, Value};
 pub use index::Collision;
+pub use key::{Key, Keyed};
 pub use table::Table;
 pub use view::{Order, View};

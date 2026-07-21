@@ -6,7 +6,7 @@
 //! knows none of it. Rows arrive through `SiteDb::insert_rows`; the layer that
 //! produces them is `grackle-source`.
 
-use grackle_db::{filter, Table};
+use grackle_db::{filter, Key, Keyed, Table};
 
 use anyhow::Result;
 use chrono::NaiveDate;
@@ -42,6 +42,10 @@ pub fn spec_field(spec: &str) -> &str {
 
 #[derive(Debug, Default, Serialize)]
 pub struct Row {
+    /// What this row IS, as opposed to where it currently sits. Assigned by
+    /// `insert_rows` from `rel`, because a row's source file is the one thing
+    /// about it that survives a rebuild.
+    pub key: Key,
     /// The collection whose source claimed this file. Relations anchor to
     /// it: adjacency over the whole posts TABLE interleaved two dated
     /// collections, so a blog post's "later post" could be a note (proved
@@ -112,6 +116,12 @@ pub struct Row {
     /// excluded from every query structurally.
     #[serde(skip)]
     pub claimed: bool,
+}
+
+impl Keyed for Row {
+    fn key(&self) -> &Key {
+        &self.key
+    }
 }
 
 impl Row {
@@ -431,6 +441,11 @@ pub struct SiteDb {
     pub by_year_month: BTreeMap<(i32, u32), Vec<usize>>,
     #[serde(skip)]
     pub by_url: HashMap<String, usize>,
+    /// Every row by its key. The one index that is not a query shortcut: it
+    /// is how a key becomes a position, which every key-carrying set needs to
+    /// get back to a row.
+    #[serde(skip)]
+    pub by_row_key: HashMap<Key, usize>,
     /// §6f: logical identity -> every locale variant (default included).
     /// Safe to share across both origins now that `logical` is
     /// root-relative on each.
@@ -635,6 +650,11 @@ impl SiteDb {
         self.by_url.get(url).map(|&i| &self.rows[i])
     }
 
+    /// The row a key names, in this load.
+    pub fn row(&self, key: &Key) -> Option<&Row> {
+        self.by_row_key.get(key).map(|&i| &self.rows[i])
+    }
+
     /// The rows a posts collection produced, in load order.
     pub fn posts(&self) -> impl Iterator<Item = &Row> {
         self.post_ix.iter().map(|&i| &self.rows[i])
@@ -694,6 +714,11 @@ impl SiteDb {
         self.page_ix = (posts.len()..posts.len() + pages.len()).collect();
         self.rows = Table::new(posts);
         self.rows.extend(pages);
+        for i in 0..self.rows.len() {
+            if let Some(r) = self.rows.get_mut(i) {
+                r.key = Key::new(r.rel.to_string_lossy());
+            }
+        }
         self.index_rows(default_locale)
     }
 
@@ -706,6 +731,14 @@ impl SiteDb {
     /// means for a row to contribute nothing. `grackle_db::index` owns the
     /// rest — the collision rule and the grouping.
     fn index_rows(&mut self, default_locale: &str) -> Result<()> {
+        // Identity first: a key that two rows share is a corpus that cannot
+        // be indexed by key at all, and it should say so here rather than
+        // silently resolving one of them.
+        self.by_row_key = self
+            .rows
+            .unique_index(|_, p| Some(p.key.clone()))
+            .map_err(|c| self.collision(&format!("duplicate row key {}:", c.key), c))?;
+
         // A claimed row serves a landing and has no route (q45), so it holds
         // no URL to index.
         let by_url = self
