@@ -641,17 +641,19 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
         let expanded = tags::expand(body, &cx)?;
+        // Body links resolve at the ROUTE's locale (the slot-fill precedent:
+        // prose follows its reader), from the row's dir. No route exemption
+        // is needed on this path, unlike the bare page path above: the embed
+        // is still a SENTINEL here, so engine-derived URLs are not in the
+        // document yet and everything the resolver meets is authored.
+        let dir = row.rel.parent().map(Path::to_path_buf).unwrap_or_default();
+        let rel = row.rel.to_string_lossy().to_string();
+        let resolve =
+            |href: &str| crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, href);
         let frag = if src.extension().is_some_and(|e| e == "md") {
-            // Body links resolve at the ROUTE's locale (the slot-fill
-            // precedent: prose follows its reader), from the row's dir.
-            let dir = row.rel.parent().map(Path::to_path_buf).unwrap_or_default();
-            let rel = row.rel.to_string_lossy().to_string();
-            let d = crate::markdown::render_doc_with(&expanded, &|href| {
-                crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, href)
-            })?;
-            d.whole.clone()
+            crate::markdown::render_doc_with(&expanded, &resolve)?.whole.clone()
         } else {
-            expanded
+            crate::rewrite::resolve_links(&expanded, &resolve)?
         };
         let frag = frag.replace(SENTINEL, &embed_html);
 
@@ -1247,23 +1249,42 @@ fn render_page_bodies(
             );
             continue;
         }
+        // §6a row/view links. Both source shapes resolve through the same
+        // closure; they differ only in what walks the document — comrak's AST
+        // for markdown, lol_html for raw HTML (§6d stage B).
+        let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
+        let dir = row
+            .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
+            .unwrap_or_default();
+        let locale = row.map(|p| p.locale.as_str()).unwrap_or(&cfg.i18n.default);
+        let rel = row
+            .map(|p| p.rel.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let resolve =
+            |href: &str| crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, href);
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
-            // §6a row/view links, same as post bodies. Raw-HTML pages are
-            // exempt v1 — the lol_html rewrite stage (§6d) is their seam.
-            let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
-            let dir = row
-                .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
-                .unwrap_or_default();
-            let locale = row.map(|p| p.locale.as_str()).unwrap_or(&cfg.i18n.default);
-            let rel = row
-                .map(|p| p.rel.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let d = crate::markdown::render_doc_with(&expanded, &|href| {
-                crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, href)
-            })?;
+            let d = crate::markdown::render_doc_with(&expanded, &resolve)?;
             (d.whole.clone(), Some(d))
         } else {
-            (expanded, None)
+            // One deliberate asymmetry, scoped as tightly as it can be. A
+            // raw-HTML body has `{% view %}` expanded INTO it, so where an
+            // embed is present the rewriter meets engine-DERIVED URLs beside
+            // authored ones and cannot tell them apart — the AST path never
+            // had to, because comrak sees an embed as an opaque HtmlBlock and
+            // never walks inside one. On those pages a URL already naming a
+            // materialized route is left alone instead of being answered with
+            // strict's "link the source instead". A page with no embed is all
+            // authored, so it gets strict whole. Either way the other strict
+            // branch — a link matching nothing at all — fails the build, and
+            // catching those is what this seam existed to gain.
+            let embeds = body.contains("{% view");
+            let raw = |href: &str| {
+                if embeds && linkspace.is_route(href) {
+                    return Ok(None);
+                }
+                resolve(href)
+            };
+            (crate::rewrite::resolve_links(&expanded, &raw)?, None)
         };
         out.insert(
             r.url.clone(),

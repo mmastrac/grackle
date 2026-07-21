@@ -27,3 +27,4 @@ keepcalm = "0.6.0"
 notify = "8"
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "sync", "time"] }
+lol_html = "3.0.0"

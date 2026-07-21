@@ -46,9 +46,9 @@ pub struct RenderedFill {
 }
 
 impl Fill {
-    /// Render this fill for one consumer. `resolve` sees each markdown
-    /// link destination (§6a); `.html` fills are verbatim — their seam is
-    /// the §6d rewrite stage.
+    /// Render this fill for one consumer. `resolve` sees each link
+    /// destination (§6a) — in markdown via the comrak AST, in `.html` fills
+    /// via the §6d stage-B rewriter.
     pub fn render(
         &self,
         resolve: &dyn Fn(&str) -> anyhow::Result<Option<String>>,
@@ -59,7 +59,12 @@ impl Fill {
                     .with_context(|| format!("slot fill {}", self.file.display()))?
                     .whole
             }
-            _ => self.raw.trim().to_string(),
+            // §6d stage B: an `.html` fill never meets comrak, so its links
+            // were invisible to the resolver — this seam is why the doc
+            // comment above said "verbatim". They resolve now, per consuming
+            // page, exactly as a `.md` fill's do.
+            _ => crate::rewrite::resolve_links(self.raw.trim(), resolve)
+                .with_context(|| format!("slot fill {}", self.file.display()))?,
         };
         let (block_count, inline) = block_shape(&html);
         Ok(RenderedFill {

@@ -31,6 +31,12 @@ pub struct LinkSpace {
 }
 
 impl LinkSpace {
+    /// Does this URL name a materialized route? The raw-HTML seam (§6d stage
+    /// B) asks, because it meets engine-derived URLs it must not police.
+    pub fn is_route(&self, url: &str) -> bool {
+        self.routes.contains(url)
+    }
+
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
         // One loop over both tables. It was two only because a post's `rel`

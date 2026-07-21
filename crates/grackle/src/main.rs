@@ -12,6 +12,7 @@ mod markdown;
 mod outline;
 mod parts;
 mod render;
+mod rewrite;
 mod serve;
 mod slots;
 mod tags;
