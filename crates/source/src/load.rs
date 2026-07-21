@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::template;
-use grackle_model::{Kind, Object, ObjectsTable, Route, RouteKind, Row, SiteDb};
+use grackle_model::{Kind, ObjectsTable, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
 use crate::filename::FilenameFormat;
@@ -395,7 +395,7 @@ fn read_posts(
             body_bytes: raw.body.len(),
             // A post is always parsed; the tree distinction does not apply.
             rendered: true,
-            size: 0,
+            size: raw.size,
             claimed: false,
         });
     }
@@ -420,6 +420,7 @@ fn build_tree_and_objects(
     cfg: &Config,
     tree_name: &str,
     tree_c: Option<&Collection>,
+    obj_name: &str,
     obj_c: Option<&Collection>,
     markers: &Markers,
     schemas: &Schemas,
@@ -489,11 +490,6 @@ fn build_tree_and_objects(
     let mut objects = ObjectsTable::default();
 
     for f in files {
-        let ext = f
-            .rel
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
         let is_object = is_obj(&f.rel);
 
         // §6f: rendered pages carry the locale axis; objects (images) are
@@ -532,14 +528,26 @@ fn build_tree_and_objects(
                 .entry(name.clone())
                 .or_default()
                 .push(objects.rows.len());
-            objects.rows.push(Object {
+            // An object is a row that was never rendered. Everything else it
+            // could carry — front matter, a date, a locale axis — a binary
+            // file does not have, so the defaults are the honest values.
+            let stem = f
+                .rel
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            objects.rows.push(Row {
+                collection: obj_name.to_string(),
                 path: f.path,
                 rel: f.rel,
                 version: f.version,
                 url,
-                ext,
-                name,
                 size: f.size,
+                slug: stem.clone(),
+                stem,
+                locale,
+                rendered: false,
+                ..Default::default()
             });
         } else {
             // Only rendered rows have schema; 41 files, so parsing is cheap.
@@ -676,6 +684,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     db.sections.sort();
     let mut tree_c = None;
     let mut obj_c = None;
+    let mut obj_name = String::new();
 
     // Several collections may feed the posts table — `_posts` and
     // `_drafts` are two sources of one corpus — so rows are gathered
@@ -693,12 +702,16 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 tree_c = Some(c);
                 tree_name = name.clone();
             }
-            Kind::Objects => obj_c = Some(c),
+            Kind::Objects => {
+                obj_c = Some(c);
+                obj_name = name.clone();
+            }
         }
     }
     let t = std::time::Instant::now();
-    let (page_rows, objects) =
-        build_tree_and_objects(cfg, &tree_name, tree_c, obj_c, &markers, &schemas)?;
+    let (page_rows, objects) = build_tree_and_objects(
+        cfg, &tree_name, tree_c, &obj_name, obj_c, &markers, &schemas,
+    )?;
     db.objects = objects;
     db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
 

@@ -143,18 +143,6 @@ pub fn pretty_date(d: NaiveDate) -> String {
     d.format("%-d %B %Y").to_string()
 }
 
-#[derive(Debug, Serialize)]
-pub struct Object {
-    pub path: PathBuf,
-    pub rel: PathBuf,
-    #[serde(serialize_with = "hex")]
-    pub version: u64,
-    pub url: String,
-    pub ext: String,
-    pub name: String,
-    pub size: u64,
-}
-
 fn hex<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&format!("{v:016x}"))
 }
@@ -208,7 +196,7 @@ pub fn neighbors_in(seq: &[usize], idx: usize) -> (Option<usize>, Option<usize>)
 
 #[derive(Debug, Default, Serialize)]
 pub struct ObjectsTable {
-    pub rows: Table<Object>,
+    pub rows: Table<Row>,
     /// Deliberately non-unique (DESIGN.md §6a).
     #[serde(skip)]
     pub by_name: BTreeMap<String, Vec<usize>>,
@@ -536,6 +524,11 @@ pub fn row_schema() -> filter::Schema {
     s.insert("dir", Str);
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
+    // The file itself, which every row is one of. `object_schema` had these
+    // and the row schema did not, back when an object was a different type.
+    s.insert("name", Str);
+    s.insert("ext", Str);
+    s.insert("size", Int);
     s
 }
 
@@ -579,6 +572,14 @@ impl filter::Row for Row {
             ),
             "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
+            "name" => self
+                .rel
+                .file_name()
+                .map_or(V::Null, |s| V::Str(s.to_string_lossy().to_string())),
+            "ext" => self.rel.extension().map_or(V::Str(String::new()), |s| {
+                V::Str(s.to_string_lossy().to_lowercase())
+            }),
+            "size" => V::Int(self.size as i64),
             // Schema fields (§5b) resolve after the base names — the same
             // fallthrough a page has had.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
@@ -586,8 +587,13 @@ impl filter::Row for Row {
     }
 }
 
-/// Fields a filter may reference on an object row (§5 audit gap 1: objects
-/// had no schema, so `over = "objects"` couldn't type-check a filter).
+/// Fields a filter may reference on an OBJECT row.
+///
+/// An object is a `Row` like any other now, so this is not a different type's
+/// schema — it is a narrower query vocabulary for a table whose rows carry no
+/// front matter. Keeping it narrow is the point: `where = "draft"` on a
+/// gallery is a load error naming the view, rather than a filter that matches
+/// nothing because every object's `draft` is false.
 /// Dimensions are deliberately absent: they are render-time facts from the
 /// thumbnail pass (q26), not load-time columns — a field that would need
 /// every image decoded at load is not worth a filter yet.
@@ -602,30 +608,6 @@ pub fn object_schema() -> filter::Schema {
     s.insert("url", Str);
     s.insert("size", Int);
     s
-}
-
-impl filter::Row for Object {
-    fn field(&self, name: &str) -> filter::Value {
-        use filter::Value as V;
-        match name {
-            "path" => V::Str(self.rel.to_string_lossy().to_string()),
-            "dir" => V::Str(
-                self.rel
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
-            ),
-            "name" => V::Str(self.name.clone()),
-            "stem" => self
-                .rel
-                .file_stem()
-                .map_or(V::Null, |s| V::Str(s.to_string_lossy().to_string())),
-            "ext" => V::Str(self.ext.clone()),
-            "url" => V::Str(self.url.clone()),
-            "size" => V::Int(self.size as i64),
-            _ => V::Null,
-        }
-    }
 }
 
 // ------------------------------------------------------------- insertion
@@ -790,5 +772,59 @@ mod route_stem_tests {
         assert!(!f.eval(&index_page));
         assert!(f.eval(&content_page));
         assert!(f.eval(&view_route));
+    }
+}
+
+#[cfg(test)]
+mod row_column_tests {
+    use super::*;
+    use filter::Row as _;
+    use std::path::PathBuf;
+
+    fn row(rel: &str) -> Row {
+        Row {
+            rel: PathBuf::from(rel),
+            size: 42,
+            ..Default::default()
+        }
+    }
+
+    /// `name`, `ext` and `dir` all read the path the row already stores, so
+    /// they cost no fields and cannot disagree with it.
+    #[test]
+    fn the_file_columns_derive_from_the_path() {
+        let r = row("photos/holiday/beach.JPG");
+        assert_eq!(r.field("name"), filter::Value::Str("beach.JPG".into()));
+        assert_eq!(r.field("dir"), filter::Value::Str("photos/holiday".into()));
+        assert_eq!(r.field("size"), filter::Value::Int(42));
+    }
+
+    /// Lowercased, because the objects loader matches `extensions` case
+    /// -insensitively and a query should agree with what got claimed.
+    #[test]
+    fn ext_is_lowercased_and_empty_when_absent() {
+        assert_eq!(
+            row("a/b.JPG").field("ext"),
+            filter::Value::Str("jpg".into())
+        );
+        assert_eq!(
+            row("a/README").field("ext"),
+            filter::Value::Str(String::new())
+        );
+    }
+
+    /// Every column `object_schema` names must be answerable by a `Row`,
+    /// since an object row IS one — the narrower schema is a vocabulary, not
+    /// a different type.
+    #[test]
+    fn a_row_answers_every_object_column() {
+        let r = row("photos/beach.jpg");
+        for col in object_schema().keys() {
+            assert_ne!(
+                r.field(col),
+                filter::Value::Null,
+                "object column {col:?} is unanswerable on a Row"
+            );
+        }
     }
 }

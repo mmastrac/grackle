@@ -608,7 +608,10 @@ fn build_object_view(
     let mut members: Vec<usize> = db.objects.rows.select(&pred);
     members.sort_by(|&a, &b| {
         let (x, y) = (&db.objects.rows[a], &db.objects.rows[b]);
-        x.name.cmp(&y.name).then_with(|| x.rel.cmp(&y.rel))
+        x.rel
+            .file_name()
+            .cmp(&y.rel.file_name())
+            .then_with(|| x.rel.cmp(&y.rel))
     });
     db.routes.push(Route {
         view: Some(name.to_string()),
@@ -823,18 +826,19 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 #[cfg(test)]
 mod object_view_tests {
     use super::*;
-    use grackle_model::Object;
+    use grackle_model::Row;
     use std::path::PathBuf;
 
-    fn obj(rel: &str) -> Object {
-        Object {
+    /// An object row: a path, a URL, and nothing rendered. `name`, `ext` and
+    /// `stem` all derive from `rel`, so there is nothing else to set.
+    fn obj(rel: &str) -> Row {
+        Row {
             path: PathBuf::from(rel),
             rel: PathBuf::from(rel),
-            version: 0,
             url: format!("/{rel}"),
-            ext: rel.rsplit('.').next().unwrap_or("").into(),
-            name: rel.rsplit('/').next().unwrap_or(rel).into(),
             size: 1,
+            rendered: false,
+            ..Default::default()
         }
     }
 

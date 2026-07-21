@@ -78,6 +78,7 @@ pub struct RawRow {
     /// Cheap version: mtime ^ size. Phase 0 uses this as the pre-check the
     /// design calls for; content hashing lands with the cache.
     pub version: u64,
+    pub size: u64,
     pub front: FrontMatter,
     pub body: String,
 }
@@ -140,6 +141,7 @@ fn load_one(path: &Path, source: &Path) -> Result<RawRow> {
         path: path.to_path_buf(),
         rel,
         version: version_of(&meta),
+        size: meta.len(),
         front,
         body: body.to_string(),
     })
