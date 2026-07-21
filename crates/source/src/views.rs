@@ -782,17 +782,48 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             .route
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
+        db.routes.push(Route {
+            view: Some(name.clone()),
+            ..Route::new(tmpl.to_string(), RouteKind::View)
+        });
+    }
+    Ok(())
+}
+
+/// Resolve each star view's members, once the route list is final.
+///
+/// A star view ranges over ROUTES, so its members are positions into
+/// `db.routes` rather than into the row store — the one place in the engine
+/// where that is true, and true because `over = "*"` says so.
+///
+/// Deferred to here because those positions are only stable once the list
+/// stops growing and has been sorted. Resolving during `build_star_views`
+/// measured a partial list: views build in name order, so `sitemap` saw
+/// `search`'s route and would not have seen it the other way round. Both
+/// filters happen to exclude the other's route by extension, which is why
+/// nothing was visibly wrong.
+pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+    for (name, v) in &cfg.views {
+        if v.over != "*" {
+            continue;
+        }
         let pred = match &v.filter {
             Some(src) => filter::Filter::parse(src, &route_schema())
                 .with_context(|| format!("view {name}: filter {src:?}"))?,
             None => filter::Filter::always(),
         };
-        let rows = db.routes.matching(&pred).count();
-        db.routes.push(Route {
-            view: Some(name.clone()),
-            rows: Some(rows),
-            ..Route::new(tmpl.to_string(), RouteKind::View)
-        });
+        let members = db.routes.select(&pred);
+        let Some(at) = db
+            .routes
+            .iter()
+            .position(|r| r.kind == RouteKind::View && r.view.as_deref() == Some(name.as_str()))
+        else {
+            continue;
+        };
+        if let Some(r) = db.routes.get_mut(at) {
+            r.rows = Some(members.len());
+            r.route_members = members;
+        }
     }
     Ok(())
 }

@@ -788,20 +788,19 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     // against the indexing goal this whole project exists for, so it is
     // deliberately dropped. The URL *set* is identical; only 42 noise lastmods
     // are absent. (DESIGN §4a is the related draft/hidden concern.)
-    for (name, v) in &cfg.views {
+    for star in &db.routes {
+        let Some(view) = &star.view else { continue };
+        let Some(v) = cfg.views.get(view) else { continue };
         // The sitemap SHELL, likewise declared.
         if v.shell.as_deref() != Some("sitemap") {
             continue;
         }
-        let Some(route_tmpl) = &v.route else { continue };
-        let pred = match &v.filter {
-            Some(src) => crate::filter::Filter::parse(src, &crate::db::route_schema())
-                .with_context(|| format!("view {name}: filter {src:?}"))?,
-            None => crate::filter::Filter::always(),
-        };
-        let entries: Vec<(String, Option<String>)> = db
-            .routes
-            .matching(&pred)
+        // Resolved at load like every other view's, rather than re-derived
+        // from the filter's source text here.
+        let entries: Vec<(String, Option<String>)> = star
+            .route_members
+            .iter()
+            .map(|&i| &db.routes[i])
             .map(|r| {
                 let loc = format!("{}{}", site.url, r.url);
                 // `lastmod` follows the DATE, not the table. This asked
@@ -818,7 +817,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             })
             .collect();
         let xml = render::sitemap(&entries);
-        out_map.insert(route_tmpl.clone(), xml.into_bytes());
+        out_map.insert(star.url.clone(), xml.into_bytes());
         stats.serialized += 1;
     }
 
@@ -1469,21 +1468,20 @@ fn search_pass(
     stats: &mut Stats,
 ) -> Result<()> {
     let mut any = false;
-    for (name, v) in &cfg.views {
+    for star in &db.routes {
+        let Some(view) = &star.view else { continue };
+        let Some(v) = cfg.views.get(view) else { continue };
         if v.shell.as_deref() != Some("search") {
             continue;
         }
-        let Some(route) = &v.route else { continue };
-        let pred = match &v.filter {
-            Some(src) => crate::filter::Filter::parse(src, &crate::db::route_schema())
-                .with_context(|| format!("view {name}: filter {src:?}"))?,
-            None => crate::filter::Filter::always(),
-        };
+        let route = &star.url;
         let page_by_url: HashMap<&str, &crate::db::Row> =
             db.pages().map(|p| (p.url.as_str(), p)).collect();
-        let docs: Vec<grackle_search_core::SearchDoc> = db
-            .routes
-            .matching(&pred)
+        // Resolved at load, like the sitemap's.
+        let docs: Vec<grackle_search_core::SearchDoc> = star
+            .route_members
+            .iter()
+            .map(|&i| &db.routes[i])
             .filter_map(|r| match r.kind {
                 crate::db::RouteKind::Post => {
                     db.by_url.get(&r.url).map(|&i| &db.rows[i]).map(|p| {

@@ -825,6 +825,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));
+    // Star views index routes, so they resolve against the final, sorted list.
+    crate::views::resolve_star_views(cfg, &mut db)?;
     Ok(db)
 }
 

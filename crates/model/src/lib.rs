@@ -259,6 +259,16 @@ pub struct Route {
     pub draft: bool,
     #[serde(skip)]
     pub hidden: bool,
+    /// For a `*` view: the ROUTES it selected, as positions into
+    /// `SiteDb::routes`.
+    ///
+    /// Separate from `members` rather than sharing it, because the two index
+    /// different stores and a caller cannot tell which from the field alone.
+    /// A test that walked every route's `members` into the row store found
+    /// that out by panicking, which is the good outcome and not one to rely
+    /// on twice.
+    #[serde(skip)]
+    pub route_members: Vec<usize>,
     /// `self`: the post rows this route materializes, in order.
     ///
     /// The view's declared query decides these once, here. Before this existed
@@ -287,6 +297,7 @@ impl Route {
             draft: false,
             hidden: false,
             members: Vec::new(),
+            route_members: Vec::new(),
         }
     }
 
