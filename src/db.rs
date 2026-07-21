@@ -231,6 +231,11 @@ pub struct TreeTable {
     /// §6f: logical identity -> every locale variant, rendered rows only.
     #[serde(skip)]
     pub by_logical: HashMap<String, Vec<usize>>,
+    /// URL -> row. The posts table has always had one; the tree did not, so
+    /// three sites linear-scanned every page to answer "which row is this
+    /// route?" (q51's census).
+    #[serde(skip)]
+    pub by_url: HashMap<String, usize>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -1133,6 +1138,11 @@ fn build_tree_and_objects(
             bail!("view {view}: content {path:?} names no row in the tree");
         }
     }
+    for (i, p) in pages.rows.iter().enumerate() {
+        if !p.url.is_empty() {
+            pages.by_url.insert(p.url.clone(), i);
+        }
+    }
     Ok((pages, objects))
 }
 
@@ -1284,6 +1294,16 @@ impl filter::Row for Object {
 // ------------------------------------------------------------------ load
 
 impl SiteDb {
+    /// The row a route points at, whichever table holds it. Row identity is
+    /// one thing since q51; only the storage is still two.
+    pub fn row_by_url(&self, url: &str) -> Option<&Row> {
+        self.posts
+            .by_url
+            .get(url)
+            .map(|&i| &self.posts.rows[i])
+            .or_else(|| self.pages.by_url.get(url).map(|&i| &self.pages.rows[i]))
+    }
+
     pub fn load(cfg: &Config) -> Result<Self> {
         let mut db = SiteDb::default();
         let t_m = std::time::Instant::now();

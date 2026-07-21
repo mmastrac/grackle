@@ -226,7 +226,13 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
         if cfg.i18n.locales.iter().any(|l| parent == format!("/{l}/")) {
             continue;
         }
-        if let Some(p) = db.pages.rows.iter().find(|p| p.url == parent && p.rendered) {
+        if let Some(p) = db
+            .pages
+            .by_url
+            .get(parent.as_str())
+            .map(|&i| &db.pages.rows[i])
+            .filter(|p| p.rendered)
+        {
             if let Some(t) = &p.title {
                 out.push((parent, t.clone()));
             }

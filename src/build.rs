@@ -454,8 +454,15 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // through the recipes theme because every row it lists does.
         // Subtheme tokens (`recipes:spicy`) are one row's dress and
         // never lift to a listing. Mixed or theme-less members keep the
-        // default; posts and objects carry no theme, so only
-        // tree-backed listings can inherit.
+        // default.
+        //
+        // Tree-backed listings only, and the reason given for that used to
+        // be "posts carry no theme" — false since q51 step 1, which is why
+        // it is written down rather than repeated. A posts collection whose
+        // rows unanimously set `theme:` renders each post through that theme
+        // while its archive keeps the default. Extending inheritance to the
+        // posts listing pass is a product question (should an archive wear
+        // its rows' dress?), not a merge artifact, so it is left open.
         let theme_name = {
             let mut names = r.members.iter().map(|&i| {
                 db.pages.rows[i]
@@ -748,30 +755,33 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         if v.shell.as_deref() != Some("atom") {
             continue;
         }
-        // Same latent indexing bug as the script shells below: `members`
-        // indexes the view's own table and this reads `db.posts.rows`.
-        // Unlike those, the fix is not local — `render::feed` is typed on
-        // `&Post` — so this refuses instead of silently feeding whatever
-        // post shares the index. A dated tree row SHOULD be feedable; that
-        // waits on the merge.
-        if view_base_kind(cfg, view) == Some(Kind::Tree) {
-            bail!(
-                "view {view}: shell = \"atom\" over a tree collection is not \
-                 supported yet (the feed renderer is typed on posts)"
-            );
-        }
-        let entries: Vec<(&crate::db::Row, &str)> = r
-            .members
-            .iter()
-            .map(|&i| &db.posts.rows[i])
+        // `members` indexes the view's own table, so read from that table.
+        // This used to read `db.posts.rows` unconditionally and then, once
+        // the hazard was spotted, to REFUSE tree-backed feeds on the
+        // grounds that "the feed renderer is typed on posts". It is not:
+        // `render::feed` takes `&[(&Row, …)]`, and has since the row types
+        // merged. The only real obstacle was finding the HTML, which is
+        // the loader asymmetry (posts hold their body, pages are re-read)
+        // and answered by trying both maps. A dated tree collection can
+        // have a feed now, which is what the refusal was standing in for.
+        let rows: Vec<&crate::db::Row> = match view_base_kind(cfg, view) {
+            Some(Kind::Tree) => r.members.iter().map(|&i| &db.pages.rows[i]).collect(),
+            _ => r.members.iter().map(|&i| &db.posts.rows[i]).collect(),
+        };
+        let entries: Vec<(&crate::db::Row, &str)> = rows
+            .into_iter()
             .map(|p| {
-                (
-                    p,
-                    bodies
-                        .get(p.url.as_str())
-                        .map(|d| d.whole.as_str())
-                        .unwrap_or(""),
-                )
+                let html = bodies
+                    .get(p.url.as_str())
+                    .map(|d| d.whole.as_str())
+                    .or_else(|| {
+                        page_bodies
+                            .get(&p.url)
+                            .filter(|pb| !pb.skipped)
+                            .map(|pb| pb.frag.as_str())
+                    })
+                    .unwrap_or("");
+                (p, html)
             })
             .collect();
         let xml = render::feed(&site, &r.url, &updated, &entries);
@@ -805,15 +815,16 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             .filter(|r| pred.eval(*r))
             .map(|r| {
                 let loc = format!("{}{}", site.url, r.url);
-                let lastmod = match r.kind {
-                    crate::db::RouteKind::Post => db
-                        .posts
-                        .by_url
-                        .get(&r.url)
-                        .and_then(|&i| db.posts.rows[i].date)
-                        .map(render::xmlschema),
-                    _ => None,
-                };
+                // `lastmod` follows the DATE, not the table. This asked
+                // `kind == Post`, so a dated tree row — field-notes' book
+                // club, `date: 2026-06-01` — shipped a `<loc>` with no
+                // `<lastmod>` while a post with the same data got one
+                // (q51). Strictly additive: an undated post yielded `None`
+                // before and still does.
+                let lastmod = db
+                    .row_by_url(&r.url)
+                    .and_then(|p| p.date)
+                    .map(render::xmlschema);
                 (loc, lastmod)
             })
             .collect();
@@ -910,7 +921,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             }
             RouteKind::Page => {
                 let Some(src) = &r.source else { continue };
-                let row = db.pages.rows.iter().find(|p| p.url == r.url);
+                let row = db
+                    .pages
+                    .by_url
+                    .get(r.url.as_str())
+                    .map(|&i| &db.pages.rows[i]);
                 let layout = row.and_then(|p| p.layout.as_deref());
                 let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
 
@@ -1245,7 +1260,11 @@ fn render_page_bodies(
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
             // §6a row/view links, same as post bodies. Raw-HTML pages are
             // exempt v1 — the lol_html rewrite stage (§6d) is their seam.
-            let row = db.pages.rows.iter().find(|p| p.url == r.url);
+            let row = db
+                .pages
+                .by_url
+                .get(r.url.as_str())
+                .map(|&i| &db.pages.rows[i]);
             let dir = row
                 .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
                 .unwrap_or_default();
