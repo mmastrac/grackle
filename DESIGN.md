@@ -5196,6 +5196,39 @@ never reused.
     consumer that hardcoded its absence has been found — and the compiler
     cannot find them, because the old code still type-checks.
 
+    ### Step A done; step B is the one atomic change
+
+    `title` is `Option<String>` on both (2026-07-20), so the two structs now
+    share **twenty identically-typed fields** and differ only by six
+    post-only (`collection`, `slug`, `stem`, `name`, `body`, `body_bytes`)
+    and three page-only (`rendered`, `size`, `claimed`). Byte-identical.
+
+    **Step B — one `Row` type, both tables holding it — cannot be
+    checkpointed.** Every slice so far could be committed byte-identical
+    because it was additive; a half-merged struct does not compile, so there
+    is no intermediate state worth having. It wants to be done in one pass,
+    compiler-error-driven, and it forces two semantic reconciliations that
+    should be settled before the first line is typed:
+
+    - **`stem` is derived from two different places.** `Post::field` returns
+      the stored `stem` (locale-stripped at load); `Page::field` derives it
+      from `logical`. Same intent, different source. The merged row stores
+      it and the tree loader fills it from `logical` — low risk, but it must
+      be a decision rather than a merge accident.
+    - **`path` and `dir` read `rel`, and `rel` has two meanings.** A post's
+      is collection-relative (`2005/foo.md`), a page's root-relative
+      (`writing/saturn/index.md`), so on a merged type `path` would mean
+      different things depending on where the row came from. Retiring
+      `{% post_url %}` freed this to become root-relative everywhere; the
+      care needed is that `name` must then keep being computed from the
+      *collection-relative* form explicitly, or all 333 cached embeddings
+      key differently and regenerate.
+
+    Everything downstream is mechanical once those are fixed: one
+    `row_schema`, one `impl filter::Row`, and the 46 census sites collapse —
+    `document`/`document_tree`, `render_bodies`/`render_page_bodies`, the
+    two render passes, the two `LinkSpace` loops, the two backlink loops.
+
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shapes weighed below)*.
 
