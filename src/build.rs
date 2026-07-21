@@ -1337,7 +1337,12 @@ fn backlinks_map(
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.posts.rows {
         if let Some(d) = bodies.get(p.url.as_str()) {
-            sources.push((p.url.as_str(), p.title.clone(), p.date, d.whole.as_str()));
+            sources.push((
+                p.url.as_str(),
+                p.title.clone().unwrap_or_default(),
+                p.date,
+                d.whole.as_str(),
+            ));
         }
     }
     for p in db.pages.rows.iter().filter(|p| p.rendered) {
@@ -1405,7 +1410,7 @@ pub fn search_docs(
         .iter()
         .map(|p| grackle_search_core::SearchDoc {
             url: p.url.clone(),
-            title: p.title.clone(),
+            title: p.title.clone().unwrap_or_else(|| p.url.clone()),
             date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
             html: html_of(p),
             tags: p.tags.clone(),
@@ -1488,7 +1493,7 @@ fn search_pass(
                     .map(|&i| &db.posts.rows[i])
                     .map(|p| grackle_search_core::SearchDoc {
                         url: p.url.clone(),
-                        title: p.title.clone(),
+                        title: p.title.clone().unwrap_or_else(|| p.url.clone()),
                         date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
                         html: bodies
                             .get(p.url.as_str())

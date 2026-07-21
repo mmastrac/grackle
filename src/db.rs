@@ -43,7 +43,12 @@ pub struct Post {
     /// what should settle it, since root-relative `rel` would serve better
     /// (unique across collections) at the cost of one regeneration.
     pub name: String,
-    pub title: String,
+    /// `Option` because a PAGE may genuinely have none — a titleless page
+    /// is searchable by body and wears its URL as the only honest label.
+    /// A post's loader always fills it (front matter, else the slug read
+    /// as words), so this is `Some` for every post; the option exists to
+    /// let one row type serve both (q51).
+    pub title: Option<String>,
     pub description: Option<String>,
     pub layout: Option<String>,
     pub tags: Vec<String>,
@@ -759,11 +764,12 @@ fn read_posts(
         for (k, v) in rule_defaults {
             defaults.entry(k).or_insert(v);
         }
-        let title = raw
-            .front
-            .title
-            .clone()
-            .unwrap_or_else(|| slug.replace('-', " "));
+        let title = Some(
+            raw.front
+                .title
+                .clone()
+                .unwrap_or_else(|| slug.replace('-', " ")),
+        );
         // Governance follows the LOGICAL path (§6f), exactly as the tree
         // loader does it: a translation is governed by its original's
         // `.schema.toml`.
@@ -1242,7 +1248,7 @@ impl filter::Row for Post {
             "draft" => V::Bool(self.draft),
             "hidden" => V::Bool(self.hidden),
             "noindex" => V::Bool(self.noindex),
-            "title" => V::Str(self.title.clone()),
+            "title" => opt_str(&self.title),
             "slug" => V::Str(self.slug.clone()),
             "stem" => V::Str(self.stem.clone()),
             "url" => V::Str(self.url.clone()),

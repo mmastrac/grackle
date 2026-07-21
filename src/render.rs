@@ -77,7 +77,7 @@ pub fn head_for_post(p: &Post, site: &Site) -> Head {
         let _ = write!(
             j,
             r#"{{"@context":"https://schema.org","@type":"BlogPosting","headline":{},"mainEntityOfPage":{{"@type":"WebPage","@id":{}}},"url":{},"datePublished":"{ts}","dateModified":"{ts}","author":{{"@type":"Person","name":{},"url":{}}},"publisher":{{"@type":"Person","name":{}}}"#,
-            json_str(&p.title),
+            json_str(p.title.as_deref().unwrap_or_default()),
             json_str(&canonical),
             json_str(&canonical),
             json_str(site.author),
@@ -91,7 +91,7 @@ pub fn head_for_post(p: &Post, site: &Site) -> Head {
         j
     });
     Head {
-        title: p.title.clone(),
+        title: p.title.clone().unwrap_or_default(),
         description: p.description.clone(),
         canonical,
         noindex: p.noindex || site.noindex,
@@ -359,7 +359,7 @@ pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Post, &str
         let _ = write!(
             s,
             "\t\t<title type=\"html\"><![CDATA[{}]]></title>\n",
-            cdata_escape(&p.title)
+            cdata_escape(p.title.as_deref().unwrap_or_default())
         );
         let _ = write!(s, "\t\t<link href=\"{}{}\"/>\n", site.url, p.url);
         let _ = write!(s, "\t\t<updated>{updated}</updated>\n");

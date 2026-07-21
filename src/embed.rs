@@ -29,7 +29,7 @@ pub type Vector = Vec<f32>;
 pub fn text_of(p: &crate::db::Post) -> String {
     format!(
         "title: {}\ntags: {}\nbody: {}",
-        p.title,
+        p.title.as_deref().unwrap_or_default(),
         p.tags.join(", "),
         p.body.trim()
     )
@@ -236,7 +236,7 @@ mod tests {
 
     fn post(title: &str, year: i32, v: Option<Vec<f32>>) -> (Post, Option<Vector>) {
         let p = Post {
-            title: title.into(),
+            title: Some(title.into()),
             date: chrono::NaiveDate::from_ymd_opt(year, 1, 1),
             ..Post::default()
         };
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn embed_text_carries_title_and_tags() {
         let p = Post {
-            title: "T".into(),
+            title: Some("T".into()),
             tags: vec!["a".into(), "b".into()],
             body: "hello".into(),
             ..Post::default()
@@ -347,7 +347,7 @@ mod tests {
         // A post whose OLD text was embedded and indexed…
         let mut p = Post {
             name: "2020/a".into(),
-            title: "old title".into(),
+            title: Some("old title".into()),
             body: "body".into(),
             ..Post::default()
         };
@@ -357,7 +357,7 @@ mod tests {
         write_index(&dir, &HashMap::from([(p.name.clone(), old_hash)])).unwrap();
 
         // …then edited: load serves the stale vector and queues a re-embed.
-        p.title = "new title".into();
+        p.title = Some("new title".into());
         let db = mkdb(vec![p]);
         let loaded = load(&db, &dir).unwrap();
         assert_eq!(

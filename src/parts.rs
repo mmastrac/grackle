@@ -522,7 +522,7 @@ pub fn document(
     translations: &[(String, String)],
 ) -> PartMap {
     let mut m = PartMap::new("document");
-    m.set("title", Part::Text(p.title.clone()));
+    m.set("title", Part::Text(p.title.clone().unwrap_or_default()));
     m.set("url", Part::Text(p.url.clone()));
     m.set("crumbs", crumb_stream(trail));
     if let Some(t) = tag_stream(cfg, p) {
@@ -534,7 +534,11 @@ pub fn document(
     m.set("content", Part::Html(content.to_string()));
     let row_neighbor = |j: usize| -> Option<PartMap> {
         let n = db.posts.rows.get(j)?;
-        Some(neighbor(&n.title, &n.url, n.date))
+        Some(neighbor(
+            n.title.as_deref().unwrap_or_default(),
+            &n.url,
+            n.date,
+        ))
     };
     // Push order is render order.
     let mut relations = Vec::new();
@@ -623,7 +627,7 @@ pub fn document_tree(
 
 fn summary(cfg: &crate::config::Config, p: &Post, content: &str, truncated: bool) -> PartMap {
     let mut m = PartMap::new("summary");
-    m.set("title", Part::Text(p.title.clone()));
+    m.set("title", Part::Text(p.title.clone().unwrap_or_default()));
     m.set("url", Part::Text(p.url.clone()));
     if let Some(d) = p.date {
         m.set("date", Part::Text(crate::db::iso_date(d)));
@@ -994,7 +998,7 @@ mod tests {
         for p in &db.posts.rows {
             let trail = vec![
                 ("Home".to_string(), Some("/".to_string())),
-                (p.title.clone(), None),
+                (p.title.clone().unwrap_or_default(), None),
             ];
             let m = document(&cfg, &db, p, &p.body, trail, &[], &[], Vec::new(), &[]);
             let out = canonical(&m);

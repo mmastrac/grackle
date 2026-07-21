@@ -162,7 +162,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                     .iter()
                     .map(|&i| {
                         let p = &cx.db.posts.rows[i];
-                        (p.title.clone(), p.url.clone())
+                        (p.title.clone().unwrap_or_default(), p.url.clone())
                     })
                     .collect(),
                 Kind::Tree => v

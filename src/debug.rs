@@ -148,7 +148,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             table: "posts",
             url: p.url.clone(),
             path: rel_to_root(&p.path),
-            title: Some(p.title.clone()),
+            title: p.title.clone(),
             date: p.date.map(|d| d.to_string()),
             tags: p.tags.clone(),
             layout: p.layout.clone(),

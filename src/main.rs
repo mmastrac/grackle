@@ -370,7 +370,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                         continue;
                     }
                 }
-                println!("{}  {}", fmt_date(r), r.title);
+                println!("{}  {}", fmt_date(r), r.title.as_deref().unwrap_or("-"));
                 println!("    {}", r.url);
                 n += 1;
                 if n >= limit {
@@ -396,10 +396,18 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             let Some(&i) = db.posts.by_url.get(&url) else {
                 anyhow::bail!("no post at {url}");
             };
-            println!("similar to {} — {}", url, db.posts.rows[i].title);
+            println!(
+                "similar to {} — {}",
+                url,
+                db.posts.rows[i].title.as_deref().unwrap_or("-")
+            );
             for (j, score) in rel.by_post.get(&i).map(Vec::as_slice).unwrap_or(&[]) {
                 let p = &db.posts.rows[*j];
-                println!("  {score:.3}  {}  {}", p.url, p.title);
+                println!(
+                    "  {score:.3}  {}  {}",
+                    p.url,
+                    p.title.as_deref().unwrap_or("-")
+                );
             }
         }
         Query::Tags => {
@@ -426,7 +434,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("slug        {}", r.slug);
                 println!("stem        {}", r.stem);
                 println!("name        {}  (embedding cache key)", r.name);
-                println!("title       {}", r.title);
+                println!("title       {}", r.title.as_deref().unwrap_or("-"));
                 println!("layout      {}", r.layout.as_deref().unwrap_or("-"));
                 println!("draft       {}", r.draft);
                 println!("hidden      {}", r.hidden);
