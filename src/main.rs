@@ -479,7 +479,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
     Ok(())
 }
 
-fn fmt_date(p: &db::Post) -> String {
+fn fmt_date(p: &db::Row) -> String {
     p.date
         .map(db::iso_date)
         .unwrap_or_else(|| "----------".into())

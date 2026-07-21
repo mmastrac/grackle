@@ -321,7 +321,7 @@ mod tests {
             Config::from_toml("root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
                 .unwrap();
         let mut db = SiteDb::default();
-        db.pages.rows.push(crate::db::Page {
+        db.pages.rows.push(crate::db::Row {
             path: PathBuf::from("writing/saturn/index.md"),
             rel: PathBuf::from("writing/saturn/index.md"),
             version: 0,

@@ -199,10 +199,10 @@ pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Page;
+    use crate::db::Row;
 
-    fn page(rel: &str, url: &str, title: Option<&str>, order: Option<i64>) -> Page {
-        Page {
+    fn page(rel: &str, url: &str, title: Option<&str>, order: Option<i64>) -> Row {
+        Row {
             path: PathBuf::from(rel),
             rel: PathBuf::from(rel),
             version: 0,
@@ -230,7 +230,7 @@ mod tests {
         }
     }
 
-    fn db(pages: Vec<Page>) -> SiteDb {
+    fn db(pages: Vec<Row>) -> SiteDb {
         let mut db = SiteDb::default();
         db.pages.rows = pages;
         db

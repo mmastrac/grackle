@@ -102,20 +102,14 @@ pub struct Row {
     pub claimed: bool,
 }
 
-/// The two row types were `Post` and `Page` until q51's merge. They are one
-/// type now; the aliases survive so call sites can keep saying which table
-/// they mean while the duplicated code paths collapse behind them.
-pub type Post = Row;
-pub type Page = Row;
-
-impl Post {
+impl Row {
     pub fn year_month(&self) -> Option<(i32, u32)> {
         use chrono::Datelike;
         self.date.map(|d| (d.year(), d.month()))
     }
 }
 
-impl Page {
+impl Row {
     /// The hero image source (q23): the explicit `cover:` field beats
     /// `image:`; both must be image-typed schema fields (§5b). The
     /// first-image-block fallback remains open.
@@ -172,7 +166,7 @@ fn hex<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
 
 #[derive(Debug, Default, Serialize)]
 pub struct PostsTable {
-    pub rows: Vec<Post>,
+    pub rows: Vec<Row>,
     /// The primary index (DESIGN.md §3): `(date, slug)`, unique.
     /// NOT `slug` alone — measured: `not-dead-yet` is used by both a 2003 and
     /// a 2006 post, which is legal because their dates (and so URLs) differ.
@@ -244,7 +238,7 @@ impl PostsTable {
 
 #[derive(Debug, Default, Serialize)]
 pub struct TreeTable {
-    pub rows: Vec<Page>,
+    pub rows: Vec<Row>,
     /// §6f: logical identity -> every locale variant, rendered rows only.
     #[serde(skip)]
     pub by_logical: HashMap<String, Vec<usize>>,
@@ -627,7 +621,7 @@ fn read_posts(
     c: &Collection,
     markers: &Markers,
     schemas: &crate::schema::Schemas,
-) -> Result<(Vec<Post>, f64)> {
+) -> Result<(Vec<Row>, f64)> {
     // Bound here because the row loop shadows `name` with the post's own
     // path identity — silently, since both are strings.
     let collection = name.to_string();
@@ -653,7 +647,7 @@ fn read_posts(
     }
     let rules = compile_rules(c)?;
 
-    let mut rows: Vec<Post> = Vec::with_capacity(raws.len());
+    let mut rows: Vec<Row> = Vec::with_capacity(raws.len());
     for raw in raws {
         // §6f: the path selector strips the locale first, so filename
         // parsing, rules and routing all see the logical path — a
@@ -849,7 +843,7 @@ fn read_posts(
 }
 
 /// Index the whole posts table at once, over every collection's rows.
-fn index_posts(cfg: &Config, mut rows: Vec<Post>) -> Result<PostsTable> {
+fn index_posts(cfg: &Config, mut rows: Vec<Row>) -> Result<PostsTable> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
 
     // The reverse-chronological index used to be built here, and carried
@@ -1351,7 +1345,7 @@ impl SiteDb {
         // Several collections may feed the posts table — `_posts` and
         // `_drafts` are two sources of one corpus — so rows are gathered
         // first and indexed once, over all of them.
-        let mut post_rows: Vec<Post> = Vec::new();
+        let mut post_rows: Vec<Row> = Vec::new();
         let mut tree_name = String::new();
         for (name, c) in &cfg.collections {
             match c.kind {

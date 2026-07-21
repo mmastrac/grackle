@@ -19,7 +19,7 @@
 //! `tags` stream, a draft gets a drafts trail; the producer computes, the
 //! composer/theme selects (§5a's law).
 
-use crate::db::{Post, SiteDb};
+use crate::db::{Row, SiteDb};
 
 // ------------------------------------------------------------------- model
 
@@ -371,7 +371,7 @@ pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
     Part::Stream(trail.into_iter().map(|(l, u)| crumb(l, u)).collect())
 }
 
-fn tag_stream(cfg: &crate::config::Config, p: &Post) -> Option<Part> {
+fn tag_stream(cfg: &crate::config::Config, p: &Row) -> Option<Part> {
     if p.tags.is_empty() {
         return None;
     }
@@ -513,7 +513,7 @@ fn linked_from_group(
 pub fn document(
     cfg: &crate::config::Config,
     db: &SiteDb,
-    p: &Post,
+    p: &Row,
     content: &str,
     trail: Vec<(String, Option<String>)>,
     related: &[usize],
@@ -625,7 +625,7 @@ pub fn document_tree(
     m
 }
 
-fn summary(cfg: &crate::config::Config, p: &Post, content: &str, truncated: bool) -> PartMap {
+fn summary(cfg: &crate::config::Config, p: &Row, content: &str, truncated: bool) -> PartMap {
     let mut m = PartMap::new("summary");
     m.set("title", Part::Text(p.title.clone().unwrap_or_default()));
     m.set("url", Part::Text(p.url.clone()));
@@ -648,7 +648,7 @@ fn summary(cfg: &crate::config::Config, p: &Post, content: &str, truncated: bool
 /// mode A), already rendered; the slot collapses when absent.
 pub fn listing(
     cfg: &crate::config::Config,
-    rows: &[(&Post, String, bool)],
+    rows: &[(&Row, String, bool)],
     title: &str,
     trail: Vec<(String, Option<String>)>,
     intro: Option<String>,
@@ -680,7 +680,7 @@ pub fn listing(
 /// collapse.
 pub fn listing_embed(
     cfg: &crate::config::Config,
-    rows: &[(&Post, String, bool)],
+    rows: &[(&Row, String, bool)],
     pagination: Option<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
@@ -1010,7 +1010,7 @@ mod tests {
             if r.view.is_none() || r.members.is_empty() {
                 continue;
             }
-            let rows: Vec<(&Post, String, bool)> = r
+            let rows: Vec<(&Row, String, bool)> = r
                 .members
                 .iter()
                 .map(|&i| {

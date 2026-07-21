@@ -26,7 +26,7 @@ const DIM: usize = 384;
 pub type Vector = Vec<f32>;
 
 /// The text a post embeds as. Title and tags are signal, not metadata.
-pub fn text_of(p: &crate::db::Post) -> String {
+pub fn text_of(p: &crate::db::Row) -> String {
     format!(
         "title: {}\ntags: {}\nbody: {}",
         p.title.as_deref().unwrap_or_default(),
@@ -232,18 +232,18 @@ fn write_vec(path: &Path, v: &[f32]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Post;
+    use crate::db::Row;
 
-    fn post(title: &str, year: i32, v: Option<Vec<f32>>) -> (Post, Option<Vector>) {
-        let p = Post {
+    fn post(title: &str, year: i32, v: Option<Vec<f32>>) -> (Row, Option<Vector>) {
+        let p = Row {
             title: Some(title.into()),
             date: chrono::NaiveDate::from_ymd_opt(year, 1, 1),
-            ..Post::default()
+            ..Row::default()
         };
         (p, v)
     }
 
-    fn mkdb(posts: Vec<Post>) -> SiteDb {
+    fn mkdb(posts: Vec<Row>) -> SiteDb {
         let mut db = SiteDb::default();
         db.posts.rows = posts;
         db
@@ -251,11 +251,11 @@ mod tests {
 
     #[test]
     fn embed_text_carries_title_and_tags() {
-        let p = Post {
+        let p = Row {
             title: Some("T".into()),
             tags: vec!["a".into(), "b".into()],
             body: "hello".into(),
-            ..Post::default()
+            ..Row::default()
         };
         assert_eq!(text_of(&p), "title: T\ntags: a, b\nbody: hello");
     }
@@ -345,11 +345,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         // A post whose OLD text was embedded and indexed…
-        let mut p = Post {
+        let mut p = Row {
             name: "2020/a".into(),
             title: Some("old title".into()),
             body: "body".into(),
-            ..Post::default()
+            ..Row::default()
         };
         let old_hash = blake3::hash(text_of(&p).as_bytes()).to_hex().to_string();
         let v: Vec<f32> = (0..DIM).map(|i| i as f32).collect();

@@ -210,7 +210,7 @@ fn grouped_routes(
 /// The default ordering for dated rows: newest first, undated last, slug as
 /// the tiebreak. Was `PostsTable::order`, an index built once at load; it is
 /// a comparator now so that losing the table costs nothing (q51).
-pub(crate) fn chronological(rows: &[crate::db::Post], a: usize, b: usize) -> std::cmp::Ordering {
+pub(crate) fn chronological(rows: &[crate::db::Row], a: usize, b: usize) -> std::cmp::Ordering {
     let (x, y) = (&rows[a], &rows[b]);
     match (x.date, y.date) {
         (Some(p), Some(q)) => q.cmp(&p),
@@ -895,11 +895,11 @@ mod object_view_tests {
 #[cfg(test)]
 mod posts_order_tests {
     use super::*;
-    use crate::db::Post;
+    use crate::db::Row;
     use chrono::NaiveDate;
 
-    fn post(url: &str, date: &str, order: Option<i64>) -> Post {
-        Post {
+    fn post(url: &str, date: &str, order: Option<i64>) -> Row {
+        Row {
             collection: "notes".into(),
             url: url.into(),
             date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
@@ -909,7 +909,7 @@ mod posts_order_tests {
             // carry the default locale to be visible at all.
             locale: "en".into(),
             slug: url.trim_matches('/').into(),
-            ..Post::default()
+            ..Row::default()
         }
     }
 
@@ -977,14 +977,14 @@ mod posts_order_tests {
 #[cfg(test)]
 mod grouping_tests {
     use super::*;
-    use crate::db::Post;
+    use crate::db::Row;
     use chrono::NaiveDate;
 
-    fn post(date: Option<&str>, tags: &[&str]) -> Post {
-        Post {
+    fn post(date: Option<&str>, tags: &[&str]) -> Row {
+        Row {
             date: date.map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap()),
             tags: tags.iter().map(|t| t.to_string()).collect(),
-            ..Post::default()
+            ..Row::default()
         }
     }
 
@@ -1036,9 +1036,9 @@ mod grouping_tests {
     /// as grouping by tags — Str single-keys, Null is absent.
     #[test]
     fn any_typed_field_groups() {
-        use crate::db::Page;
+        use crate::db::Row;
         use std::path::PathBuf;
-        let mut p = Page {
+        let mut p = Row {
             path: PathBuf::new(),
             rel: PathBuf::from("recipes/carbonara.md"),
             version: 0,
@@ -1119,22 +1119,22 @@ mod grouping_tests {
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
-    use crate::db::Post;
+    use crate::db::Row;
     use chrono::NaiveDate;
 
-    fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Post {
-        Post {
+    fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {
+        Row {
             collection: collection.into(),
             url: url.into(),
             slug: url.trim_matches('/').replace('/', "-"),
             date: date.and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()),
             draft,
             locale: "en".into(),
-            ..Post::default()
+            ..Row::default()
         }
     }
 
-    fn db_with(rows: Vec<Post>) -> SiteDb {
+    fn db_with(rows: Vec<Row>) -> SiteDb {
         let mut db = SiteDb::default();
         db.posts.rows = rows;
         db

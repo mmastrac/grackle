@@ -16,7 +16,7 @@
 use anyhow::{Context, Result};
 
 use crate::config::{Config, Kind, View};
-use crate::db::{Post, Route, RouteKind, SiteDb};
+use crate::db::{Route, RouteKind, Row, SiteDb};
 
 /// The URL "Home" means for a locale (§6f): the locale's own homepage
 /// when a translated index exists (`index.fr.html` → `/fr/`), else the
@@ -151,7 +151,7 @@ pub fn listing_title_and_trail(
 /// `trail`, whose subdivision chain is genuinely non-derivable from the
 /// URL (it renders each level from the post's own group keys, not from
 /// path segments).
-pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Post) -> Vec<(String, Option<String>)> {
+pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<String>)> {
     let loc = p.locale.as_str();
     let mut t = trail_root(cfg, db, loc);
     for (url, label) in ancestors(cfg, db, &p.url) {
@@ -322,7 +322,7 @@ mod tests {
             Some("drafts")
         );
         let db = SiteDb::default();
-        let p = Post {
+        let p = Row {
             url: "/blog/2022/12/16/a-post/".to_string(),
             date: chrono::NaiveDate::from_ymd_opt(2022, 12, 16),
             locale: "en".to_string(),

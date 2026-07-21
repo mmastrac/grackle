@@ -9,7 +9,7 @@
 //! `light` tier's minimal wrapper (§5g "Row tiers" — a tier, not the null
 //! theme, which takes the full head), and the XML serializations.
 
-use crate::db::Post;
+use crate::db::Row;
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------- escaping
@@ -69,7 +69,7 @@ pub struct Site<'a> {
     pub noindex: bool,
 }
 
-pub fn head_for_post(p: &Post, site: &Site) -> Head {
+pub fn head_for_post(p: &Row, site: &Site) -> Head {
     let canonical = format!("{}{}", site.url, p.url);
     let published = p.date.map(xmlschema);
     let jsonld = published.as_ref().map(|ts| {
@@ -318,7 +318,7 @@ fn cdata_escape(s: &str) -> String {
 /// xmlschema form; entries are `(post, rendered_body)`, newest first.
 /// `self_path` is the feed route's own URL (§6f: locale-parallel feeds —
 /// /atom.xml and /fr/atom.xml — each claim their own self link).
-pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Post, &str)]) -> String {
+pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Row, &str)]) -> String {
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
     s.push_str("\t<feed xmlns=\"http://www.w3.org/2005/Atom\">\n");

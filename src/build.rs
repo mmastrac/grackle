@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::{Config, Kind, View};
-use crate::db::{Post, Route, RouteKind, SiteDb};
+use crate::db::{Route, RouteKind, Row, SiteDb};
 use crate::markdown::Doc;
 use crate::parts;
 use crate::render::{self, Site, Theme};
@@ -318,7 +318,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // the deriver's fact, gating the theme's ★. No summary field in the
         // chain = rows ship whole.
         let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-        let rows: Vec<(&crate::db::Post, String, bool)> = r
+        let rows: Vec<(&crate::db::Row, String, bool)> = r
             .members
             .iter()
             .map(|&i| &db.posts.rows[i])
@@ -535,7 +535,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let embed_parts = match view_base_kind(cfg, view) {
             Some(Kind::Posts) => {
                 let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-                let rows: Vec<(&crate::db::Post, String, bool)> = r
+                let rows: Vec<(&crate::db::Row, String, bool)> = r
                     .members
                     .iter()
                     .map(|&i| &db.posts.rows[i])
@@ -760,7 +760,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                  supported yet (the feed renderer is typed on posts)"
             );
         }
-        let entries: Vec<(&crate::db::Post, &str)> = r
+        let entries: Vec<(&crate::db::Row, &str)> = r
             .members
             .iter()
             .map(|&i| &db.posts.rows[i])
@@ -1403,7 +1403,7 @@ mod link_tests {
 /// view's serialization (see `search_pass`), which may span tables.
 pub fn search_docs(
     db: &SiteDb,
-    html_of: impl Fn(&Post) -> String,
+    html_of: impl Fn(&Row) -> String,
 ) -> Vec<grackle_search_core::SearchDoc> {
     db.posts
         .rows
@@ -1479,7 +1479,7 @@ fn search_pass(
                 .with_context(|| format!("view {name}: filter {src:?}"))?,
             None => crate::filter::Filter::always(),
         };
-        let page_by_url: HashMap<&str, &crate::db::Page> =
+        let page_by_url: HashMap<&str, &crate::db::Row> =
             db.pages.rows.iter().map(|p| (p.url.as_str(), p)).collect();
         let docs: Vec<grackle_search_core::SearchDoc> = db
             .routes
