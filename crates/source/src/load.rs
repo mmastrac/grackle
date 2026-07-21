@@ -732,16 +732,18 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // first never had to consult because every post is parsed.
     // `RouteKind::Post` survives because a ROUTE kind is real: it is
     // the vocabulary star-view filters use (`kind == "post"`).
-    let n_posts = db.post_ix.len();
+    // Membership, not arithmetic. `i < n_posts` was correct only while posts
+    // were laid down first and contiguously — the last of the positional
+    // assumptions keys were introduced to retire.
+    let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
     let new_routes: Vec<Route> = db
         .rows
         .iter()
-        .enumerate()
         // q45: a claimed row has no route of its own — the owning view
         // materializes the landing.
-        .filter(|(_, p)| !p.claimed)
-        .map(|(i, p)| {
-            let kind = if i < n_posts {
+        .filter(|p| !p.claimed)
+        .map(|p| {
+            let kind = if posts.contains(&p.key) {
                 RouteKind::Post
             } else if p.rendered {
                 RouteKind::Page

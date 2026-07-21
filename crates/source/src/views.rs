@@ -424,18 +424,12 @@ fn build_row_view(
     // Parsed and type-checked once per view, not per row: a bad filter is a
     // startup error naming the view.
     let view = grackle_db::View::all()
-        .filter(scoped_filter(name, q, &row_schema())?)
+        .filter(base_filter(cfg, kind, &row_schema())?.and(scoped_filter(name, q, &row_schema())?))
         .order(declared_order(
             schemas,
             &format!("view {name}"),
             q.order_by.as_deref(),
         )?);
-    // `from = "posts"` has always meant the posts TABLE rather than the one
-    // collection that names it — `_posts` and `_drafts` both feed it (q51).
-    let base_ix = match kind {
-        Kind::Posts => &db.post_ix,
-        _ => &db.page_ix,
-    };
     let rows = &db.rows;
 
     // One row set per locale (§6f), built the same way for every locale —
@@ -447,9 +441,8 @@ fn build_row_view(
     // are here because they say what the eligible set IS, rather than which
     // table it came from — which is what let the two flows become one.
     let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
-        let eligible: Vec<grackle_db::Key> = base_ix
+        let eligible: Vec<grackle_db::Key> = rows
             .iter()
-            .filter_map(|k| rows.get(k))
             .filter(|p| p.rendered && !p.claimed && p.locale == locale)
             .map(|p| p.key.clone())
             .collect();
@@ -593,6 +586,33 @@ fn build_row_view(
 /// They compile to `glob(path, ...)` rather than running as a separate pass,
 /// which is what makes a scope and a filter one thing — composable, checked
 /// by one type-checker, and applied wherever the filter is applied.
+/// Which rows a view's base ranges over, as a predicate.
+///
+/// `from = "posts"` has always meant the posts TABLE rather than the one
+/// collection that names it — `_posts` and `_drafts` both feed it (q51). That
+/// was an index list (`post_ix` vs `page_ix`) chosen by the base's KIND, so
+/// the table a view ranged over decided which code path resolved it, and a
+/// set could not span tables at all.
+///
+/// It is a filter over `collection` now. One flow, and `published` becomes
+/// something a tree set can compose over.
+fn base_filter(cfg: &Config, kind: Kind, schema: &filter::Schema) -> Result<filter::Filter> {
+    let src = cfg
+        .collections
+        .iter()
+        .filter(|(_, c)| c.kind == kind)
+        .map(|(n, _)| format!("collection == {n:?}"))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    if src.is_empty() {
+        // No collection of this kind: the view ranges over nothing, which is
+        // not the same as ranging over everything.
+        return filter::Filter::parse("false", schema);
+    }
+    filter::Filter::parse(&src, schema)
+        .with_context(|| format!("base filter for {kind:?} collections"))
+}
+
 fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
     let mut f = match q.predicate() {
         Some(src) => filter::Filter::parse(&src, schema)
