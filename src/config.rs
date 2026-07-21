@@ -780,7 +780,7 @@ impl Config {
             if let Some(f) = over.filter {
                 // Parsed here so a bad profile filter fails at load like any
                 // other, rather than at the pass that first evaluates it.
-                crate::filter::Filter::parse(&f, &crate::db::post_schema())
+                crate::filter::Filter::parse(&f, &crate::db::row_schema())
                     .or_else(|_| crate::filter::Filter::parse(&f, &crate::db::route_schema()))
                     .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
                 v.filter = Some(f);
@@ -1544,14 +1544,14 @@ mod tests {
     /// `!draft && !hidden` at all, because neither field was known.
     #[test]
     fn the_flag_family_is_queryable_on_pages() {
-        let s = crate::db::page_schema();
+        let s = crate::db::row_schema();
         for f in ["draft", "hidden", "noindex"] {
             assert!(s.contains_key(f), "page schema is missing {f:?}");
         }
         // And a tree set can actually name them.
         let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden\"\n");
         let q = c.query("pages").unwrap();
-        crate::filter::Filter::parse(&q.predicate().unwrap(), &crate::db::page_schema())
+        crate::filter::Filter::parse(&q.predicate().unwrap(), &crate::db::row_schema())
             .expect("!draft && !hidden should type-check against a page");
     }
 

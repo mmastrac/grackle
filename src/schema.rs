@@ -49,19 +49,19 @@ impl FieldType {
     }
 }
 
-/// Names the row types already own. `Post::field` and `Page::field` match
-/// the base names FIRST and fall through to declared fields, so a schema
-/// declaring one of these parsed, validated, and was then never read — the
-/// value went in and no query could reach it.
+/// Names the row type already owns. `Row::field` matches the base names
+/// FIRST and falls through to declared fields, so a schema declaring one of
+/// these parsed, validated, and was then never read — the value went in and
+/// no query could reach it.
 ///
-/// The check was latent until q51's merge made it live: `page_schema`
+/// The check was latent until q51's merge made it live: the page schema
 /// growing `date`/`year`/`month`/`day` for parity turned `month = { type =
 /// "string" }` (field-notes' stand-in for the date a page could not have)
 /// from a working field into a shadowed one, and only a diff of the built
-/// site would have said so. Both tables' names are reserved, not just the
-/// governed row's — one `.schema.toml` can govern posts and pages both.
+/// site would have said so. One schema now, so this is one lookup — it took
+/// the union of both tables' names even when they were two.
 fn is_base_field(name: &str) -> bool {
-    crate::db::post_schema().contains_key(name) || crate::db::page_schema().contains_key(name)
+    crate::db::row_schema().contains_key(name)
 }
 
 /// Every `.schema.toml` in the tree, keyed by its directory.

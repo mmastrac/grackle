@@ -1179,9 +1179,11 @@ fn read_page_schema(path: &Path) -> Result<crate::store::FrontMatter> {
 
 // ------------------------------------------------------------------ views
 
-/// Fields a filter may reference on a post, and their types. Everything else is
-/// a load-time error (filter.rs), so a typo can't silently match everything.
-pub fn post_schema() -> filter::Schema {
+/// Fields a filter may reference on a row, and their types. Everything else
+/// is a load-time error (filter.rs), so a typo can't silently match
+/// everything. Was two functions, `post_schema` and `page_schema`, differing
+/// by five names — the union is additive both ways (q51).
+pub fn row_schema() -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
     s.insert("draft", Bool);
@@ -1210,12 +1212,17 @@ pub fn post_schema() -> filter::Schema {
     // aimed squarely at this class of bug.
     s.insert("toc", Bool);
     s.insert("tags", List);
+    // Was page-only. `rendered` is true for every post, and `path`/`dir`
+    // read a `rel` that means one thing on either table since the merge.
+    s.insert("rendered", Bool);
+    s.insert("path", Str);
+    s.insert("dir", Str);
     // §6f: the row's locale, always set (the default when no selector fired).
     s.insert("locale", Str);
     s
 }
 
-impl filter::Row for Post {
+impl filter::Row for Row {
     fn field(&self, name: &str) -> filter::Value {
         use chrono::Datelike;
         use filter::Value as V;
@@ -1260,43 +1267,6 @@ impl filter::Row for Post {
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
     }
-}
-
-/// Fields a filter may reference on a page (tree) row. Base fields only:
-/// per-subtree schema fields (§5b) vary by directory, so they join through
-/// `order_by` and — later — a per-view environment, not this global schema.
-pub fn page_schema() -> filter::Schema {
-    use filter::Type::*;
-    let mut s = filter::Schema::new();
-    // The flag family, all three. They cascade from markers and rules onto
-    // every page and reach the row's route — but only `draft` was ever
-    // queryable, and only on posts, so a tree set could not say
-    // `!draft && !hidden` at all.
-    s.insert("draft", Bool);
-    s.insert("hidden", Bool);
-    s.insert("noindex", Bool);
-    s.insert("title", Str);
-    s.insert("url", Str);
-    s.insert("path", Str);
-    s.insert("dir", Str);
-    s.insert("stem", Str);
-    s.insert("layout", Str);
-    s.insert("description", Str);
-    s.insert("rendered", Bool);
-    s.insert("toc", Bool);
-    s.insert("order", Int);
-    // The chronological axis, with the same derived components a post has
-    // (§5c grouping reads `date.year` through `year`) — so "group by year"
-    // and "the last five, newest first" are one operation over any dated
-    // row, not a posts-table privilege.
-    s.insert("date", Str);
-    s.insert("year", Int);
-    s.insert("month", Int);
-    s.insert("day", Int);
-    s.insert("tags", List);
-    // §6f: the row's locale, always set (the default when no selector fired).
-    s.insert("locale", Str);
-    s
 }
 
 /// Fields a filter may reference on an object row (§5 audit gap 1: objects

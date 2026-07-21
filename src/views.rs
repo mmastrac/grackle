@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
 use crate::config::{Config, Kind, Query, View};
-use crate::db::{object_schema, post_schema, route_schema, Route, RouteKind, SiteDb, ViewRows};
+use crate::db::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
 use crate::filter;
 use crate::route;
 
@@ -101,21 +101,20 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
 }
 
 /// Load-time check for a view's group chain: every spec must name a field
-/// of the base schema (pages also see `.schema.toml` declarations, §5b) —
-/// the `order_by` discipline applied to grouping, so a typo cannot produce
-/// an empty partition silently.
+/// of the base schema plus any `.schema.toml` declaration (§5b) — the
+/// `order_by` discipline applied to grouping, so a typo cannot produce an
+/// empty partition silently.
+///
+/// Two of the three arms were identical the moment there was one row
+/// schema; objects remain their own thing, having no front matter to
+/// declare fields in.
 fn check_group_chain(db: &SiteDb, name: &str, chain: &[String], kind: Kind) -> Result<()> {
     for spec in chain {
         let field = spec_field(spec);
         let mut known: Vec<&str> = match kind {
-            Kind::Posts => {
-                let mut v: Vec<&str> = post_schema().keys().copied().collect();
-                v.extend(db.schemas.declared().keys().copied());
-                v
-            }
             Kind::Objects => object_schema().keys().copied().collect(),
-            Kind::Tree => {
-                let mut v: Vec<&str> = crate::db::page_schema().keys().copied().collect();
+            Kind::Posts | Kind::Tree => {
+                let mut v: Vec<&str> = row_schema().keys().copied().collect();
                 v.extend(db.schemas.declared().keys().copied());
                 v
             }
@@ -230,8 +229,8 @@ fn post_sort_key(db: &SiteDb, who: &str, spec: Option<&str>) -> Result<Option<(S
         Some(k) => (k, true),
         None => (spec, false),
     };
-    if !post_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
-        let mut known: Vec<&str> = post_schema().keys().copied().collect();
+    if !row_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+        let mut known: Vec<&str> = row_schema().keys().copied().collect();
         known.extend(db.schemas.declared().keys().copied());
         known.sort_unstable();
         known.dedup();
@@ -274,7 +273,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                     );
                 }
                 let pred = match q.predicate() {
-                    Some(src) => filter::Filter::parse(&src, &post_schema())
+                    Some(src) => filter::Filter::parse(&src, &row_schema())
                         .with_context(|| format!("{who}: filter {src:?}"))?,
                     None => filter::Filter::always(),
                 };
@@ -344,7 +343,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // Parsed and type-checked once per view, not per row: a bad filter is a
         // startup error naming the view.
         let pred = match q.predicate() {
-            Some(src) => filter::Filter::parse(&src, &post_schema())
+            Some(src) => filter::Filter::parse(&src, &row_schema())
                 .with_context(|| format!("view {name}: filter {src:?}"))?,
             None => filter::Filter::always(),
         };
@@ -658,8 +657,8 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
         Some(k) => (k, true),
         None => (order, false),
     };
-    if !crate::db::page_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
-        let mut known: Vec<&str> = crate::db::page_schema().keys().copied().collect();
+    if !row_schema().contains_key(key) && !db.schemas.declared().contains_key(key) {
+        let mut known: Vec<&str> = row_schema().keys().copied().collect();
         known.extend(db.schemas.declared().keys().copied());
         known.sort_unstable();
         known.dedup();
@@ -670,7 +669,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
     }
     let scope = scope_matchers(name, q)?;
     let pred = match q.predicate() {
-        Some(src) => filter::Filter::parse(&src, &crate::db::page_schema())
+        Some(src) => filter::Filter::parse(&src, &row_schema())
             .with_context(|| format!("view {name}: filter {src:?}"))?,
         None => filter::Filter::always(),
     };
