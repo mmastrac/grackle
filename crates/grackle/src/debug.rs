@@ -254,9 +254,10 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         };
         r.members
             .iter()
+            // Only objects are a different store; posts and tree members
+            // index the same rows.
             .filter_map(|&i| match kind {
-                Kind::Posts => db.rows.get(i).map(|p| p.url.clone()),
-                Kind::Tree => db.rows.get(i).map(|p| p.url.clone()),
+                Kind::Posts | Kind::Tree => db.rows.get(i).map(|p| p.url.clone()),
                 Kind::Objects => db.objects.rows.get(i).map(|o| o.url.clone()),
             })
             .collect()

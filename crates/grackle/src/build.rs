@@ -748,21 +748,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         if v.shell.as_deref() != Some("atom") {
             continue;
         }
-        // `members` indexes the view's own table, so read from that table.
-        // This used to read `db.rows` unconditionally and then, once
-        // the hazard was spotted, to REFUSE tree-backed feeds on the
-        // grounds that "the feed renderer is typed on posts". It is not:
-        // `render::feed` takes `&[(&Row, …)]`, and has since the row types
-        // merged. The only real obstacle was finding the HTML, which is
-        // the loader asymmetry (posts hold their body, pages are re-read)
-        // and answered by trying both maps. A dated tree collection can
-        // have a feed now, which is what the refusal was standing in for.
-        let rows: Vec<&crate::db::Row> = match view_base_kind(cfg, view) {
-            Some(Kind::Tree) => r.members.iter().map(|&i| &db.rows[i]).collect(),
-            _ => r.members.iter().map(|&i| &db.rows[i]).collect(),
-        };
-        let entries: Vec<(&crate::db::Row, &str)> = rows
-            .into_iter()
+        // `members` indexes one row store whatever the view's base table, so
+        // the kind does not enter into it. Finding the row's HTML does: posts
+        // hold their body, tree rows are re-read, and the two maps below
+        // answer that. A dated tree collection can have a feed.
+        let entries: Vec<(&crate::db::Row, &str)> = r
+            .members
+            .iter()
+            .map(|&i| &db.rows[i])
             .map(|p| {
                 let html = bodies
                     .get(p.url.as_str())

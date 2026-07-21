@@ -156,28 +156,20 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
     match v.layout.as_deref() {
         // Bare titled links — posts and pages embed alike.
         Some("link_list") => {
-            let pairs: Vec<(String, String)> = match v.table {
-                Kind::Posts => v
-                    .members
-                    .iter()
-                    .map(|&i| {
-                        let p = &cx.db.rows[i];
-                        (p.title.clone().unwrap_or_default(), p.url.clone())
-                    })
-                    .collect(),
-                Kind::Tree => v
-                    .members
-                    .iter()
-                    .map(|&i| {
-                        let p = &cx.db.rows[i];
-                        (p.title.clone().unwrap_or_default(), p.url.clone())
-                    })
-                    .collect(),
-                Kind::Objects => bail!(
+            if v.table == Kind::Objects {
+                bail!(
                     "{}: view {name} ranges over objects, which link_list cannot show",
                     cx.source
-                ),
-            };
+                );
+            }
+            let pairs: Vec<(String, String)> = v
+                .members
+                .iter()
+                .map(|&i| {
+                    let p = &cx.db.rows[i];
+                    (p.title.clone().unwrap_or_default(), p.url.clone())
+                })
+                .collect();
             Ok(theme.fragments.render(&crate::parts::link_list(&pairs)))
         }
         // One featured row as a card — the homepage's book of the month.
