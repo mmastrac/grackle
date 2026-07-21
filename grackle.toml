@@ -233,14 +233,10 @@ layout = "link_list"
 # route rather than a set; `title`, `crumb`, `shell`, `paginate` and
 # `group_by` are meaningless without one, which is why they only appear here.
 
-# `blog/index.html` iterates `paginator.posts`: jekyll-paginate renders that one
-# file once per page. It is this view's template, not an independently routable
-# page — so the view owns both routes and the tree collection skips the file.
 [routes.blog_index]
 paths = ["/blog/", "/blog/page/{n}/"]
 from = "published"
 paginate = 5
-template = "blog/index.html"
 layout = "listing"
 title = "Blog"
 
@@ -248,7 +244,6 @@ title = "Blog"
 path = "/atom.xml"
 from = "published"
 limit = 20
-template = "atom.xml"
 shell = "atom"
 
 # The searchable set is a query (§5g): the same star shape as the sitemap,
