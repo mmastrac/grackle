@@ -292,14 +292,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
         ix.sort_by(|&a, &b| chronological(&db.rows, a, b));
         if let Some((key, desc)) = &sort {
             use grackle_db::filter::Row as _;
-            ix.sort_by(|&a, &b| {
-                let ord = value_cmp(&db.rows[a].field(key), &db.rows[b].field(key));
-                if *desc {
-                    ord.reverse()
-                } else {
-                    ord
-                }
-            });
+            ix.sort_by(|&a, &b| db.rows[a].field(key).order(&db.rows[b].field(key), *desc));
         }
         out.insert(cname.clone(), ix);
     }
@@ -358,14 +351,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         let apply_sort = |ix: &mut Vec<usize>| {
             let Some((key, desc)) = &sort else { return };
             use grackle_db::filter::Row as _;
-            ix.sort_by(|&a, &b| {
-                let ord = value_cmp(&rows[a].field(key), &rows[b].field(key));
-                if *desc {
-                    ord.reverse()
-                } else {
-                    ord
-                }
-            });
+            ix.sort_by(|&a, &b| rows[a].field(key).order(&rows[b].field(key), *desc));
         };
         // The DEFAULT ordering, stated here rather than inherited from
         // `posts.order` (q51). The table's index carried three things at
@@ -624,20 +610,6 @@ fn build_object_view(
 
 /// Order two field values: same-type natural order, Null last. Mixed types
 /// cannot occur under a validated `order_by` (the key has one declared type).
-fn value_cmp(a: &filter::Value, b: &filter::Value) -> std::cmp::Ordering {
-    use filter::Value as V;
-    use std::cmp::Ordering::*;
-    match (a, b) {
-        (V::Str(x), V::Str(y)) => x.cmp(y),
-        (V::Int(x), V::Int(y)) => x.cmp(y),
-        (V::Bool(x), V::Bool(y)) => x.cmp(y),
-        (V::Null, V::Null) => Equal,
-        (V::Null, _) => Greater,
-        (_, V::Null) => Less,
-        _ => Equal,
-    }
-}
-
 /// Materialize (or resolve, for the routeless/embeddable shape) a view over
 /// the tree table: `match` scopes by glob, filters type-check against the
 /// page schema, `order_by` is required (`field` or `-field` for descending —
@@ -672,7 +644,18 @@ fn build_tree_view(
             known.join(", ")
         );
     }
-    let pred = scoped_filter(name, q, &row_schema())?;
+    let view = grackle_db::View::all()
+        .filter(scoped_filter(name, q, &row_schema())?)
+        // `path` breaks the tie, so two rows equal on the sort column do not
+        // order by whatever the directory walk happened to yield.
+        .order(vec![
+            grackle_db::Order {
+                column: key.to_string(),
+                desc,
+            },
+            grackle_db::Order::asc("path"),
+        ])
+        .limit(v.limit);
     // §6f: one row collection per locale (default-on, like posts views);
     // embedded views take the default locale's set below.
     let rows_for = |locale: &str| -> Vec<usize> {
@@ -688,16 +671,7 @@ fn build_tree_view(
             .filter(|(_, p)| p.locale == locale)
             .map(|(i, _)| i)
             .collect();
-        let mut members = db.rows.select_within(&members, &pred);
-        members.sort_by(|&a, &b| {
-            use grackle_db::filter::Row as _;
-            let (x, y) = (&db.rows[a], &db.rows[b]);
-            let ord = value_cmp(&x.field(key), &y.field(key));
-            let ord = if desc { ord.reverse() } else { ord };
-            ord.then_with(|| x.rel.cmp(&y.rel))
-        });
-        members.truncate(v.limit.unwrap_or(usize::MAX));
-        members
+        db.rows.view_within(&members, &view)
     };
     let locales: Vec<&str> = match v.locales.as_deref() {
         Some("default") => vec![cfg.i18n.default.as_str()],

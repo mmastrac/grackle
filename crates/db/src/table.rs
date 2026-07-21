@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use crate::filter::{Filter, Row};
 use crate::index::{self, Collision};
+use crate::view::View;
 
 /// Rows of one type, in load order.
 ///
@@ -84,6 +85,37 @@ impl<R: Row> Table<R> {
             .filter(|(_, r)| f.eval(*r))
             .map(|(i, _)| i)
             .collect()
+    }
+
+    /// Resolve a view over the whole table.
+    pub fn view(&self, v: &View) -> Vec<usize> {
+        self.view_within(&(0..self.0.len()).collect::<Vec<_>>(), v)
+    }
+
+    /// Resolve a view within `within` — a set the caller narrowed by
+    /// something the query language cannot say.
+    ///
+    /// Sorting is stable, so a view with no `order_by` keeps `within`'s order
+    /// rather than inventing one, and a partial sort leaves ties as they came.
+    pub fn view_within(&self, within: &[usize], v: &View) -> Vec<usize> {
+        let mut out = self.select_within(within, &v.filter);
+        if !v.order_by.is_empty() {
+            out.sort_by(|&a, &b| {
+                v.order_by
+                    .iter()
+                    .map(|o| {
+                        self.0[a]
+                            .field(&o.column)
+                            .order(&self.0[b].field(&o.column), o.desc)
+                    })
+                    .find(|ord| ord.is_ne())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        if let Some(n) = v.limit {
+            out.truncate(n);
+        }
+        out
     }
 
     /// Positions a filter admits within `within` — a set narrowed by

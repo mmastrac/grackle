@@ -10,6 +10,7 @@
 pub mod filter;
 pub mod table;
 pub mod template;
+pub mod view;
 
 // The index shapes are `Table`'s to offer; only the collision report, which
 // a caller has to render, is public.
@@ -18,3 +19,4 @@ mod index;
 pub use filter::{Filter, Row, Schema, Type, Value};
 pub use index::Collision;
 pub use table::Table;
+pub use view::{Order, View};

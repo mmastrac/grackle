@@ -57,6 +57,36 @@ pub enum Value {
 }
 
 impl Value {
+    /// A total order over values, for sorting.
+    ///
+    /// Distinct from what comparison in a FILTER does, deliberately. There,
+    /// `Null` compares equal to nothing — a row with no date matches neither
+    /// `date > x` nor `date < x`. Here it has to land somewhere, and it lands
+    /// last: an undated row sorts after every dated one.
+    ///
+    /// Last regardless of direction, which is why reversing is not simply
+    /// `Ordering::reverse` on the result. Descending by date means the newest
+    /// first and the undated still at the end, not the undated first.
+    pub fn order(&self, other: &Value, desc: bool) -> std::cmp::Ordering {
+        use std::cmp::Ordering::*;
+        let ord = match (self, other) {
+            (Value::Null, Value::Null) => return Equal,
+            (Value::Null, _) => return Greater,
+            (_, Value::Null) => return Less,
+            (Value::Str(x), Value::Str(y)) => x.cmp(y),
+            (Value::Int(x), Value::Int(y)) => x.cmp(y),
+            (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
+            (Value::List(x), Value::List(y)) => x.cmp(y),
+            // Mixed types cannot arise: a column has one type in the schema.
+            _ => Equal,
+        };
+        if desc {
+            ord.reverse()
+        } else {
+            ord
+        }
+    }
+
     /// Truthiness for a bare field reference: `description` means "has one".
     fn truthy(&self) -> bool {
         match self {
