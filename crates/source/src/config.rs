@@ -380,7 +380,7 @@ pub struct Site {
 
 /// A collection's table. Declared here, defined by the database — a `kind`
 /// in the TOML deserializes straight into the database's own vocabulary.
-pub use grackle_db::Kind;
+pub use grackle_model::Kind;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -776,8 +776,10 @@ impl Config {
             if let Some(f) = over.filter {
                 // Parsed here so a bad profile filter fails at load like any
                 // other, rather than at the pass that first evaluates it.
-                grackle_db::filter::Filter::parse(&f, &grackle_db::row_schema())
-                    .or_else(|_| grackle_db::filter::Filter::parse(&f, &grackle_db::route_schema()))
+                grackle_db::filter::Filter::parse(&f, &grackle_model::row_schema())
+                    .or_else(|_| {
+                        grackle_db::filter::Filter::parse(&f, &grackle_model::route_schema())
+                    })
                     .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
                 v.filter = Some(f);
             }
@@ -835,7 +837,7 @@ impl Config {
                 let Some(v) = cfg.views.get(name) else {
                     anyhow::bail!("collection tags view {name:?} is not a declared view");
                 };
-                if v.group_by.as_deref().map(grackle_db::spec_field) != Some("tags") {
+                if v.group_by.as_deref().map(grackle_model::spec_field) != Some("tags") {
                     anyhow::bail!("collection tags view {name:?} is not grouped by tags");
                 }
                 if v.route.is_none() {
@@ -846,7 +848,7 @@ impl Config {
                     .views
                     .iter()
                     .filter(|(_, v)| {
-                        v.group_by.as_deref().map(grackle_db::spec_field) == Some("tags")
+                        v.group_by.as_deref().map(grackle_model::spec_field) == Some("tags")
                     })
                     .map(|(n, _)| n.as_str())
                     .collect();
@@ -1252,7 +1254,7 @@ impl Config {
         }
         let mut found = None;
         for (name, v) in &self.views {
-            if v.group_by.as_deref().map(grackle_db::spec_field) == Some("tags") {
+            if v.group_by.as_deref().map(grackle_model::spec_field) == Some("tags") {
                 if found.is_some() {
                     return None; // ambiguous — validation already errored
                 }
@@ -1540,14 +1542,14 @@ mod tests {
     /// `!draft && !hidden` at all, because neither field was known.
     #[test]
     fn the_flag_family_is_queryable_on_pages() {
-        let s = grackle_db::row_schema();
+        let s = grackle_model::row_schema();
         for f in ["draft", "hidden", "noindex"] {
             assert!(s.contains_key(f), "page schema is missing {f:?}");
         }
         // And a tree set can actually name them.
         let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden\"\n");
         let q = c.query("pages").unwrap();
-        grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &grackle_db::row_schema())
+        grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &grackle_model::row_schema())
             .expect("!draft && !hidden should type-check against a page");
     }
 

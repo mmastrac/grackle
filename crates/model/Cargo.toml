@@ -1,0 +1,10 @@
+[package]
+name = "grackle-model"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+grackle-db = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }

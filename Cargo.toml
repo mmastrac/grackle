@@ -4,6 +4,7 @@ members = ["crates/*"]
 default-members = [
     "crates/grackle",
     "crates/db",
+    "crates/model",
     "crates/source",
     "crates/search-core",
 ]
@@ -11,6 +12,7 @@ default-members = [
 # Versions live here so five manifests cannot drift apart on one dependency.
 [workspace.dependencies]
 grackle-db = { path = "crates/db" }
+grackle-model = { path = "crates/model" }
 grackle-search-core = { path = "crates/search-core" }
 grackle-source = { path = "crates/source" }
 anyhow = "1"

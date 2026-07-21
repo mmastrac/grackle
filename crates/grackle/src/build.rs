@@ -804,8 +804,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         };
         let entries: Vec<(String, Option<String>)> = db
             .routes
-            .iter()
-            .filter(|r| pred.eval(*r))
+            .matching(&pred)
             .map(|r| {
                 let loc = format!("{}{}", site.url, r.url);
                 // `lastmod` follows the DATE, not the table. This asked
@@ -1487,8 +1486,7 @@ fn search_pass(
             db.pages().map(|p| (p.url.as_str(), p)).collect();
         let docs: Vec<grackle_search_core::SearchDoc> = db
             .routes
-            .iter()
-            .filter(|r| pred.eval(*r))
+            .matching(&pred)
             .filter_map(|r| match r.kind {
                 crate::db::RouteKind::Post => {
                     db.by_url.get(&r.url).map(|&i| &db.rows[i]).map(|p| {

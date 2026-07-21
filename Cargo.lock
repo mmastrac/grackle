@@ -1180,6 +1180,7 @@ dependencies = [
  "comrak",
  "fastembed",
  "grackle-db",
+ "grackle-model",
  "grackle-search-core",
  "grackle-source",
  "grass",
@@ -1207,6 +1208,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "grackle-model"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "grackle-db",
+ "serde",
+]
+
+[[package]]
 name = "grackle-search-core"
 version = "0.1.0"
 dependencies = [
@@ -1230,6 +1241,7 @@ dependencies = [
  "chrono",
  "globset",
  "grackle-db",
+ "grackle-model",
  "ignore",
  "rayon",
  "regex",

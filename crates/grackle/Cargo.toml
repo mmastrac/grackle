@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 grackle-db = { workspace = true }
+grackle-model = { workspace = true }
 grackle-search-core = { workspace = true }
 grackle-source = { workspace = true }
 anyhow = { workspace = true }

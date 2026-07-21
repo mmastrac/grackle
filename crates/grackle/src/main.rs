@@ -1,5 +1,5 @@
-use grackle_db as db;
 use grackle_db::{filter, route};
+use grackle_model as db;
 use grackle_source::{config, store, views};
 
 mod binder;
@@ -32,7 +32,6 @@ use std::path::PathBuf;
 fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
-
 
 #[derive(Parser)]
 #[command(name = "grackle", about = "A virtual database over the site")]

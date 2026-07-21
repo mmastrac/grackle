@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 
 use crate::config::{Config, Kind, Query, View};
 use crate::schema::Schemas;
-use grackle_db::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
 use grackle_db::filter;
 use grackle_db::route;
+use grackle_model::{object_schema, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
 
 /// One group key a row contributes under a single `group_by` spec: the typed
 /// sort component (years/months order numerically, tags lexically), the
@@ -66,7 +66,7 @@ const MONTH_NAMES: [&str; 12] = [
 /// after the field; `month` keeps its display derivative (`{month_name}`)
 /// until §5f formatters give it a proper home.
 fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
-    let field = grackle_db::spec_field(spec);
+    let field = grackle_model::spec_field(spec);
     let mk = |sort: SortKey, display: String| {
         let mut params = vec![("key".to_string(), display.clone())];
         if field != "key" {
@@ -103,7 +103,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
 /// declare fields in.
 fn check_group_chain(schemas: &Schemas, name: &str, chain: &[String], kind: Kind) -> Result<()> {
     for spec in chain {
-        let field = grackle_db::spec_field(spec);
+        let field = grackle_model::spec_field(spec);
         let mut known: Vec<&str> = match kind {
             Kind::Objects => object_schema().keys().copied().collect(),
             Kind::Posts | Kind::Tree => {
@@ -203,7 +203,7 @@ fn grouped_routes(
 /// The default ordering for dated rows: newest first, undated last, slug as
 /// the tiebreak. Was `PostsTable::order`, an index built once at load; it is
 /// a comparator now so that losing the table costs nothing (q51).
-pub fn chronological(rows: &[grackle_db::Row], a: usize, b: usize) -> std::cmp::Ordering {
+pub fn chronological(rows: &[grackle_model::Row], a: usize, b: usize) -> std::cmp::Ordering {
     let (x, y) = (&rows[a], &rows[b]);
     match (x.date, y.date) {
         (Some(p), Some(q)) => q.cmp(&p),
@@ -278,7 +278,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             }
             None => (filter::Filter::always(), None),
         };
-        let mut ix: Vec<usize> = db
+        let ix: Vec<usize> = db
             .rows
             .iter()
             .enumerate()
@@ -286,9 +286,9 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             // §6f: single-locale, as `PostsTable::order` was — a row's
             // neighbours are in its own language.
             .filter(|(_, p)| p.locale == cfg.i18n.default)
-            .filter(|(_, p)| pred.eval(*p))
             .map(|(i, _)| i)
             .collect();
+        let mut ix = db.rows.select_within(&ix, &pred);
         ix.sort_by(|&a, &b| chronological(&db.rows, a, b));
         if let Some((key, desc)) = &sort {
             use grackle_db::filter::Row as _;
@@ -383,14 +383,13 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             // Over the POSTS rows, not every row: "the posts table" is a
             // set of indices now, and a posts view still ranges over all
             // of it across every posts collection (q51).
-            let mut ix: Vec<usize> = db
+            let in_locale: Vec<usize> = db
                 .post_ix
                 .iter()
-                .map(|&i| (i, &rows[i]))
-                .filter(|(_, p)| p.locale == locale)
-                .filter(|(_, p)| pred.eval(*p))
-                .map(|(i, _)| i)
+                .copied()
+                .filter(|&i| rows[i].locale == locale)
                 .collect();
+            let mut ix = db.rows.select_within(&in_locale, &pred);
             ix.sort_by(|&a, &b| chronological(rows, a, b));
             apply_sort(&mut ix);
             ix
@@ -456,7 +455,9 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             // §6f enum records: URLs wear the record's slug for ANY
             // grouped field (tags, courses, …); keys and titles keep the
             // id. `key` is the leaf level's value.
-            let leaf = chain.last().map(|s| grackle_db::spec_field(s).to_string());
+            let leaf = chain
+                .last()
+                .map(|s| grackle_model::spec_field(s).to_string());
             let route_value = |k: &str, v: &str| -> String {
                 let field = if k == "key" { leaf.as_deref() } else { Some(k) };
                 match field {
@@ -601,15 +602,15 @@ fn build_object_view(
             .with_context(|| format!("view {name}: filter {src:?}"))?,
         None => filter::Filter::always(),
     };
-    let mut members: Vec<usize> = db
+    let in_scope: Vec<usize> = db
         .objects
         .rows
         .iter()
         .enumerate()
         .filter(|(_, o)| scope.iter().all(|m| m.is_match(&o.rel)))
-        .filter(|(_, o)| pred.eval(*o))
         .map(|(i, _)| i)
         .collect();
+    let mut members = db.objects.rows.select_within(&in_scope, &pred);
     members.sort_by(|&a, &b| {
         let (x, y) = (&db.objects.rows[a], &db.objects.rows[b]);
         x.name.cmp(&y.name).then_with(|| x.rel.cmp(&y.rel))
@@ -682,7 +683,7 @@ fn build_tree_view(
     // §6f: one row collection per locale (default-on, like posts views);
     // embedded views take the default locale's set below.
     let rows_for = |locale: &str| -> Vec<usize> {
-        let mut members: Vec<usize> = db
+        let members: Vec<usize> = db
             .page_ix
             .iter()
             .map(|&i| (i, &db.rows[i]))
@@ -693,9 +694,9 @@ fn build_tree_view(
             .filter(|(_, p)| !p.claimed)
             .filter(|(_, p)| p.locale == locale)
             .filter(|(_, p)| scope.iter().all(|m| m.is_match(&p.rel)))
-            .filter(|(_, p)| pred.eval(*p))
             .map(|(i, _)| i)
             .collect();
+        let mut members = db.rows.select_within(&members, &pred);
         members.sort_by(|&a, &b| {
             use grackle_db::filter::Row as _;
             let (x, y) = (&db.rows[a], &db.rows[b]);
@@ -735,7 +736,9 @@ fn build_tree_view(
             } else {
                 format!("/{locale}{tmpl}")
             };
-            let leaf = chain.last().map(|s| grackle_db::spec_field(s).to_string());
+            let leaf = chain
+                .last()
+                .map(|s| grackle_model::spec_field(s).to_string());
             let route_value = |k: &str, v: &str| -> String {
                 let field = if k == "key" { leaf.as_deref() } else { Some(k) };
                 match field {
@@ -818,7 +821,7 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 .with_context(|| format!("view {name}: filter {src:?}"))?,
             None => filter::Filter::always(),
         };
-        let rows = db.routes.iter().filter(|r| pred.eval(*r)).count();
+        let rows = db.routes.matching(&pred).count();
         db.routes.push(Route {
             view: Some(name.clone()),
             rows: Some(rows),
@@ -831,7 +834,7 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 #[cfg(test)]
 mod object_view_tests {
     use super::*;
-    use grackle_db::Object;
+    use grackle_model::Object;
     use std::path::PathBuf;
 
     fn obj(rel: &str) -> Object {
@@ -859,11 +862,11 @@ mod object_view_tests {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
              order_by = \"name\"\npath = \"/photos/\"\nlayout = \"gallery\"\n");
         let mut db = SiteDb::default();
-        db.objects.rows = vec![
+        db.objects.rows = grackle_db::Table::new(vec![
             obj("assets/x.png"),
             obj("photos/b.png"),
             obj("photos/a.png"),
-        ];
+        ]);
         build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         let r = db
             .routes
@@ -888,7 +891,10 @@ mod object_view_tests {
     fn object_filters_typecheck_against_the_object_schema() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nwhere = \"draft\"\n\
              order_by = \"name\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
-        let e = format!("{:#}", build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err());
+        let e = format!(
+            "{:#}",
+            build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()
+        );
         assert!(e.contains("unknown field `draft`"), "{e}");
     }
 }
@@ -900,8 +906,8 @@ mod object_view_tests {
 #[cfg(test)]
 mod posts_order_tests {
     use super::*;
-    use grackle_db::Row;
     use chrono::NaiveDate;
+    use grackle_model::Row;
 
     fn post(url: &str, date: &str, order: Option<i64>) -> Row {
         Row {
@@ -967,9 +973,13 @@ mod posts_order_tests {
 
     #[test]
     fn order_by_names_a_field_or_it_is_a_load_error() {
-        let e = build_views(&cfg("order_by = \"ordre\"\n"), &mut db(), &Schemas::new(row_schema()))
-            .unwrap_err()
-            .to_string();
+        let e = build_views(
+            &cfg("order_by = \"ordre\"\n"),
+            &mut db(),
+            &Schemas::new(row_schema()),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.contains("unknown field \"ordre\""), "{e}");
         assert!(e.contains("order"), "the diagnostic lists what exists: {e}");
     }
@@ -978,8 +988,8 @@ mod posts_order_tests {
 #[cfg(test)]
 mod grouping_tests {
     use super::*;
-    use grackle_db::Row;
     use chrono::NaiveDate;
+    use grackle_model::Row;
 
     fn post(date: Option<&str>, tags: &[&str]) -> Row {
         Row {
@@ -1037,7 +1047,7 @@ mod grouping_tests {
     /// as grouping by tags — Str single-keys, Null is absent.
     #[test]
     fn any_typed_field_groups() {
-        use grackle_db::Row;
+        use grackle_model::Row;
         use std::path::PathBuf;
         let mut p = Row {
             path: PathBuf::new(),
@@ -1101,9 +1111,9 @@ mod grouping_tests {
 
     #[test]
     fn date_specs_are_field_aliases() {
-        assert_eq!(grackle_db::spec_field("date.year"), "year");
-        assert_eq!(grackle_db::spec_field("date.month"), "month");
-        assert_eq!(grackle_db::spec_field("course"), "course");
+        assert_eq!(grackle_model::spec_field("date.year"), "year");
+        assert_eq!(grackle_model::spec_field("date.month"), "month");
+        assert_eq!(grackle_model::spec_field("course"), "course");
         // The month display derivative survives the generalization.
         let p = post(Some("2022-12-16"), &[]);
         let keys = group_keys(&p, "date.month");
@@ -1120,8 +1130,8 @@ mod grouping_tests {
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
-    use grackle_db::Row;
     use chrono::NaiveDate;
+    use grackle_model::Row;
 
     fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {
         Row {

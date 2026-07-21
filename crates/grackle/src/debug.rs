@@ -232,11 +232,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             },
             None => crate::filter::Filter::always(),
         };
-        db.routes
-            .iter()
-            .filter(|r| pred.eval(*r))
-            .map(|r| r.url.clone())
-            .collect()
+        db.routes.matching(&pred).map(|r| r.url.clone()).collect()
     };
 
     // Members are indices into the view's base table, so resolving them to

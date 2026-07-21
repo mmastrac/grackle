@@ -11,12 +11,12 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::route;
-use grackle_db::{Kind, Object, ObjectsTable, Route, RouteKind, Row, SiteDb};
+use grackle_model::{Kind, Object, ObjectsTable, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
-use crate::schema::{self, Schemas};
 use crate::filename::FilenameFormat;
 use crate::markers::Markers;
+use crate::schema::{self, Schemas};
 use crate::store::{self, RawRow};
 
 /// Front matter's `date:`, for either table. `YYYY-MM-DD`; a bare
@@ -646,7 +646,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // `.schema.toml` field declarations (§5b) — positional names like
     // `.slots/`, no config entries. One name-only pass with the same
     // .gitignore defence as the marker scan.
-    let mut schemas = Schemas::new(grackle_db::row_schema());
+    let mut schemas = Schemas::new(grackle_model::row_schema());
     let mut b = store::walker(&root, cfg.gitignore);
     b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
     for entry in b.build().filter_map(|e| e.ok()) {
@@ -772,7 +772,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             fixed.push((i, url.unwrap_or_default()));
         }
         for (i, url) in fixed {
-            db.rows[i].url = url;
+            if let Some(r) = db.rows.get_mut(i) {
+                r.url = url;
+            }
         }
     }
 

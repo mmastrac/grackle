@@ -81,7 +81,7 @@ pub struct Fields {
 
 impl Schemas {
     /// `reserved` is the row schema a declaration may not shadow — pass
-    /// `grackle_db::row_schema()`.
+    /// `grackle_model::row_schema()`.
     pub fn new(reserved: Schema) -> Schemas {
         Schemas {
             by_dir: BTreeMap::new(),
@@ -214,7 +214,7 @@ mod tests {
     use super::*;
 
     fn schemas() -> Schemas {
-        let mut s = Schemas::new(grackle_db::row_schema());
+        let mut s = Schemas::new(grackle_model::row_schema());
         s.add(
             Path::new("books"),
             "author = { type = \"string\" }\nshelf = { type = \"string\" }\ncover = { type = \"image\" }\n",
@@ -273,7 +273,7 @@ mod tests {
     /// for the date a page could not hold), and nothing said so.
     #[test]
     fn declaring_a_built_in_field_is_a_load_error() {
-        let mut s = Schemas::new(grackle_db::row_schema());
+        let mut s = Schemas::new(grackle_model::row_schema());
         let e = s
             .add(
                 Path::new("books"),
