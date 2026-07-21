@@ -25,12 +25,7 @@ use crate::db::{Route, RouteKind, Row, SiteDb};
 pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
     if locale != cfg.i18n.default {
         let prefixed = format!("/{locale}/");
-        if db
-            .pages
-            .rows
-            .iter()
-            .any(|p| p.rendered && p.url == prefixed)
-        {
+        if db.rows.iter().any(|p| p.rendered && p.url == prefixed) {
             return prefixed;
         }
     }
@@ -227,10 +222,9 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             continue;
         }
         if let Some(p) = db
-            .pages
             .by_url
             .get(parent.as_str())
-            .map(|&i| &db.pages.rows[i])
+            .map(|&i| &db.rows[i])
             .filter(|p| p.rendered)
         {
             if let Some(t) = &p.title {

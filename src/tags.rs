@@ -161,7 +161,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                     .members
                     .iter()
                     .map(|&i| {
-                        let p = &cx.db.posts.rows[i];
+                        let p = &cx.db.rows[i];
                         (p.title.clone().unwrap_or_default(), p.url.clone())
                     })
                     .collect(),
@@ -169,7 +169,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                     .members
                     .iter()
                     .map(|&i| {
-                        let p = &cx.db.pages.rows[i];
+                        let p = &cx.db.rows[i];
                         (p.title.clone().unwrap_or_default(), p.url.clone())
                     })
                     .collect(),
@@ -191,7 +191,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
             let Some(&i) = v.members.first() else {
                 return Ok(String::new());
             };
-            let p = &cx.db.pages.rows[i];
+            let p = &cx.db.rows[i];
             let src = p
                 .hero_source()
                 .and_then(|s| cx.thumbs.and_then(|t| t.get(s)))

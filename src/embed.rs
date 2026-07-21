@@ -63,10 +63,10 @@ pub struct Loaded {
 pub fn load(db: &SiteDb, cache_dir: &Path) -> Result<Loaded> {
     std::fs::create_dir_all(cache_dir)?;
     let index = read_index(cache_dir);
-    let mut vectors = Vec::with_capacity(db.posts.rows.len());
+    let mut vectors = Vec::with_capacity(db.post_ix.len());
     let mut pending = Vec::new();
 
-    for p in &db.posts.rows {
+    for p in db.posts() {
         let text = text_of(p);
         if text.trim().is_empty() {
             vectors.push(None);
@@ -135,7 +135,7 @@ pub struct Related {
 
 pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Related {
     use chrono::Datelike;
-    let year = |i: usize| db.posts.rows[i].date.map(|d| d.year());
+    let year = |i: usize| db.rows[i].date.map(|d| d.year());
     let mut by_post = HashMap::new();
     for (i, vi) in vectors.iter().enumerate() {
         let Some(vi) = vi else { continue };
@@ -147,7 +147,7 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Relate
             .filter(|(j, vj)| *j != i && vj.is_some())
             // §6f: similarity stays within a locale — a translation is the
             // SAME text, so it would otherwise top its original's list.
-            .filter(|(j, _)| db.posts.rows[*j].locale == db.posts.rows[i].locale)
+            .filter(|(j, _)| db.rows[*j].locale == db.rows[i].locale)
             .filter_map(|(j, vj)| {
                 let gap = match (year(i), year(j)) {
                     (Some(a), Some(b)) => (a - b).abs(),
@@ -252,9 +252,7 @@ mod tests {
     }
 
     fn mkdb(posts: Vec<Row>) -> SiteDb {
-        let mut db = SiteDb::default();
-        db.posts.rows = posts;
-        db
+        SiteDb::seed(posts, true)
     }
 
     #[test]

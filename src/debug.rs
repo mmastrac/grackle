@@ -141,7 +141,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             .to_string()
     };
     let posts: Vec<Row> = db
-        .posts
         .rows
         .iter()
         .map(|p| Row {
@@ -166,7 +165,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         .collect();
 
     let pages: Vec<Row> = db
-        .pages
         .rows
         .iter()
         .map(|p| Row {
@@ -261,8 +259,8 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         r.members
             .iter()
             .filter_map(|&i| match kind {
-                Kind::Posts => db.posts.rows.get(i).map(|p| p.url.clone()),
-                Kind::Tree => db.pages.rows.get(i).map(|p| p.url.clone()),
+                Kind::Posts => db.rows.get(i).map(|p| p.url.clone()),
+                Kind::Tree => db.rows.get(i).map(|p| p.url.clone()),
                 Kind::Objects => db.objects.rows.get(i).map(|o| o.url.clone()),
             })
             .collect()
@@ -322,8 +320,8 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             default_locale: &cfg.i18n.default,
         },
         stats: Stats {
-            posts: db.posts.rows.len(),
-            pages: db.pages.rows.len(),
+            posts: db.post_ix.len(),
+            pages: db.page_ix.len(),
             objects: db.objects.rows.len(),
             routes: db.routes.len(),
             load_ms: db.stats.read_ms + db.stats.index_ms + db.stats.views_ms,

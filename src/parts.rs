@@ -533,7 +533,7 @@ pub fn document(
     }
     m.set("content", Part::Html(content.to_string()));
     let row_neighbor = |j: usize| -> Option<PartMap> {
-        let n = db.posts.rows.get(j)?;
+        let n = db.rows.get(j)?;
         Some(neighbor(
             n.title.as_deref().unwrap_or_default(),
             &n.url,
@@ -546,7 +546,7 @@ pub fn document(
     let similar: Vec<PartMap> = related.iter().filter_map(|&j| row_neighbor(j)).collect();
     relations.extend(relation(cfg, &p.locale, Axis::Similar, similar));
     relations.extend(linked_from_group(cfg, &p.locale, backlinks));
-    if let Some(&i) = db.posts.by_url.get(&p.url) {
+    if let Some(&i) = db.by_url.get(&p.url) {
         // One traversal read in two directions, over the row's collection's
         // declared sequence (q51) rather than the whole table's index.
         let seq = db
@@ -554,7 +554,7 @@ pub fn document(
             .get(&p.collection)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let (newer, older) = crate::db::PostsTable::neighbors_in(seq, i);
+        let (newer, older) = crate::db::neighbors_in(seq, i);
         for (axis, ix) in [(Axis::Later, newer), (Axis::Earlier, older)] {
             let items = ix.and_then(&row_neighbor).into_iter().collect();
             relations.extend(relation(cfg, &p.locale, axis, items));
@@ -991,11 +991,11 @@ mod tests {
         let cfg = crate::config::Config::load(std::path::Path::new("grackle.toml"))
             .expect("grackle.toml loads");
         let db = crate::db::SiteDb::load(&cfg).expect("site db loads");
-        assert!(db.posts.rows.len() > 300, "real corpus expected");
+        assert!(db.post_ix.len() > 300, "real corpus expected");
 
         // Every post as a full document (raw body stands in for rendered
         // content: completeness is a byte property, not a markdown one).
-        for p in &db.posts.rows {
+        for p in db.posts() {
             let trail = vec![
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone().unwrap_or_default(), None),
@@ -1014,7 +1014,7 @@ mod tests {
                 .members
                 .iter()
                 .map(|&i| {
-                    let p = &db.posts.rows[i];
+                    let p = &db.rows[i];
                     (p, p.body.clone(), i % 2 == 0)
                 })
                 .collect();
@@ -1035,7 +1035,7 @@ mod tests {
 
         // Every tree page shape (ancestors + title; content is the page's
         // own problem — raw pages bypass parts by design).
-        for pg in &db.pages.rows {
+        for pg in db.pages() {
             let title = pg.title.clone().unwrap_or_default();
             let m = document_tree(
                 &cfg,

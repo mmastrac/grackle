@@ -282,7 +282,6 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             None => (filter::Filter::always(), None),
         };
         let mut ix: Vec<usize> = db
-            .posts
             .rows
             .iter()
             .enumerate()
@@ -293,11 +292,11 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             .filter(|(_, p)| pred.eval(*p))
             .map(|(i, _)| i)
             .collect();
-        ix.sort_by(|&a, &b| chronological(&db.posts.rows, a, b));
+        ix.sort_by(|&a, &b| chronological(&db.rows, a, b));
         if let Some((key, desc)) = &sort {
             use crate::filter::Row as _;
             ix.sort_by(|&a, &b| {
-                let ord = value_cmp(&db.posts.rows[a].field(key), &db.posts.rows[b].field(key));
+                let ord = value_cmp(&db.rows[a].field(key), &db.rows[b].field(key));
                 if *desc {
                     ord.reverse()
                 } else {
@@ -355,7 +354,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // what they say: a validated key sorts, an unknown one is a load
         // error naming the view, exactly as on the tree side.
         let sort = post_sort_key(db, &format!("view {name}"), q.order_by.as_deref())?;
-        let posts = &db.posts;
+        let rows = &db.rows;
         // Stable, so an undeclared or tied key leaves the chronological
         // ordering underneath untouched — declaring `order` on two posts of
         // fifty re-seats those two and nothing else.
@@ -363,7 +362,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             let Some((key, desc)) = &sort else { return };
             use crate::filter::Row as _;
             ix.sort_by(|&a, &b| {
-                let ord = value_cmp(&posts.rows[a].field(key), &posts.rows[b].field(key));
+                let ord = value_cmp(&rows[a].field(key), &rows[b].field(key));
                 if *desc {
                     ord.reverse()
                 } else {
@@ -384,15 +383,18 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         // read the table's index. Declared `order_by` applies on top,
         // stably, so it re-seats only what it names.
         let rows_for = |locale: &str| -> Vec<usize> {
-            let mut ix: Vec<usize> = posts
-                .rows
+            // Over the POSTS rows, not every row: "the posts table" is a
+            // set of indices now, and a posts view still ranges over all
+            // of it across every posts collection (q51).
+            let mut ix: Vec<usize> = db
+                .post_ix
                 .iter()
-                .enumerate()
+                .map(|&i| (i, &rows[i]))
                 .filter(|(_, p)| p.locale == locale)
                 .filter(|(_, p)| pred.eval(*p))
                 .map(|(i, _)| i)
                 .collect();
-            ix.sort_by(|&a, &b| chronological(&posts.rows, a, b));
+            ix.sort_by(|&a, &b| chronological(rows, a, b));
             apply_sort(&mut ix);
             ix
         };
@@ -469,7 +471,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
                 let row_ix = rows_for(locale);
                 let rows: Vec<(usize, &dyn filter::Row)> = row_ix
                     .iter()
-                    .map(|&i| (i, &posts.rows[i] as &dyn filter::Row))
+                    .map(|&i| (i, &db.rows[i] as &dyn filter::Row))
                     .collect();
                 let mut routes =
                     grouped_routes(name, &prefixed(locale, tmpl), &chain, &rows, &route_value)?;
@@ -677,10 +679,9 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
     // embedded views take the default locale's set below.
     let rows_for = |locale: &str| -> Vec<usize> {
         let mut members: Vec<usize> = db
-            .pages
-            .rows
+            .page_ix
             .iter()
-            .enumerate()
+            .map(|&i| (i, &db.rows[i]))
             .filter(|(_, p)| p.rendered)
             // q45: claimed rows serve a landing; they are chrome now, not
             // data — no query sees them (this is what retired the
@@ -693,7 +694,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             .collect();
         members.sort_by(|&a, &b| {
             use crate::filter::Row as _;
-            let (x, y) = (&db.pages.rows[a], &db.pages.rows[b]);
+            let (x, y) = (&db.rows[a], &db.rows[b]);
             let ord = value_cmp(&x.field(key), &y.field(key));
             let ord = if desc { ord.reverse() } else { ord };
             ord.then_with(|| x.rel.cmp(&y.rel))
@@ -741,7 +742,7 @@ fn build_tree_view(cfg: &Config, db: &mut SiteDb, name: &str, v: &View, q: &Quer
             let mut routes = {
                 let rows: Vec<(usize, &dyn filter::Row)> = row_ix
                     .iter()
-                    .map(|&i| (i, &db.pages.rows[i] as &dyn filter::Row))
+                    .map(|&i| (i, &db.rows[i] as &dyn filter::Row))
                     .collect();
                 grouped_routes(name, &tmpl, &chain, &rows, &route_value)?
             };
@@ -913,19 +914,18 @@ mod posts_order_tests {
         }
     }
 
+    /// No ordering index is seeded, because none exists: since q51 the
+    /// view derives its own ordering from the rows.
     fn db() -> SiteDb {
-        let mut db = SiteDb::default();
-        db.posts.rows = vec![
-            post("/a/", "2026-01-10", Some(1)), // oldest, pinned first
-            post("/b/", "2026-03-05", None),
-            post("/c/", "2026-06-21", None),
-            post("/d/", "2026-07-19", Some(9)), // newest, pinned last
-        ];
-        // Deliberately NOT setting `db.posts.order`: since q51's ordering
-        // slice the view derives its own ordering from the rows and never
-        // reads the table's index. Leaving it empty is the test that this
-        // is true.
-        db
+        SiteDb::seed(
+            vec![
+                post("/a/", "2026-01-10", Some(1)), // oldest, pinned first
+                post("/b/", "2026-03-05", None),
+                post("/c/", "2026-06-21", None),
+                post("/d/", "2026-07-19", Some(9)), // newest, pinned last
+            ],
+            true,
+        )
     }
 
     fn cfg(clauses: &str) -> Config {
@@ -942,10 +942,7 @@ mod posts_order_tests {
         let (c, mut db) = (cfg(clauses), db());
         build_views(&c, &mut db).unwrap();
         let r = db.routes.iter().find(|r| r.url == "/g/").expect("route");
-        r.members
-            .iter()
-            .map(|&i| db.posts.rows[i].url.clone())
-            .collect()
+        r.members.iter().map(|&i| db.rows[i].url.clone()).collect()
     }
 
     #[test]
@@ -1135,9 +1132,7 @@ mod adjacency_tests {
     }
 
     fn db_with(rows: Vec<Row>) -> SiteDb {
-        let mut db = SiteDb::default();
-        db.posts.rows = rows;
-        db
+        SiteDb::seed(rows, true)
     }
 
     fn cfg(extra: &str) -> Config {
@@ -1152,7 +1147,7 @@ mod adjacency_tests {
     fn seq(db: &SiteDb, collection: &str) -> Vec<String> {
         db.adjacency[collection]
             .iter()
-            .map(|&i| db.posts.rows[i].url.clone())
+            .map(|&i| db.rows[i].url.clone())
             .collect()
     }
 

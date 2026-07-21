@@ -277,47 +277,46 @@ fn routes_tree(db: &db::SiteDb, depth: usize, under: Option<&str>) {
 }
 
 fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> Result<()> {
-    let p = &db.posts;
     match q {
         Query::Stats => {
-            let dated = p.rows.iter().filter(|r| r.date.is_some()).count();
-            let shared: Vec<_> = p.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
-            println!("posts           {}", p.rows.len());
+            let dated = db.rows.iter().filter(|r| r.date.is_some()).count();
+            let shared: Vec<_> = db.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
+            println!("posts           {}", db.rows.len());
             println!("  dated         {}", dated);
             println!(
                 "  tagged        {}",
-                p.rows.iter().filter(|r| !r.tags.is_empty()).count()
+                db.rows.iter().filter(|r| !r.tags.is_empty()).count()
             );
             println!(
                 "  drafts        {}",
-                p.rows.iter().filter(|r| r.draft).count()
+                db.rows.iter().filter(|r| r.draft).count()
             );
             println!(
                 "  hidden        {}",
-                p.rows.iter().filter(|r| r.hidden).count()
+                db.rows.iter().filter(|r| r.hidden).count()
             );
-            println!("pages           {}", db.pages.rows.len());
+            println!("pages           {}", db.page_ix.len());
             println!(
                 "  rendered      {}",
-                db.pages.rows.iter().filter(|r| r.rendered).count()
+                db.pages().filter(|r| r.rendered).count()
             );
             println!(
                 "  static        {}",
-                db.pages.rows.iter().filter(|r| !r.rendered).count()
+                db.pages().filter(|r| !r.rendered).count()
             );
             println!("objects         {}", db.objects.rows.len());
             println!("  distinct names{:>4}", db.objects.by_name.len());
             let dupes = db.objects.by_name.values().filter(|v| v.len() > 1).count();
             println!("  ambiguous     {}", dupes);
             println!("indexes");
-            println!("  by_key        {}  (date, slug) unique", p.by_key.len());
+            println!("  by_key        {}  (date, slug) unique", db.by_key.len());
             println!(
                 "  by_slug       {}  ({} reused across dates)",
-                p.by_slug.len(),
+                db.by_slug.len(),
                 shared.len()
             );
-            println!("  by_tag        {}", p.by_tag.len());
-            println!("  by_year_month {}", p.by_year_month.len());
+            println!("  by_tag        {}", db.by_tag.len());
+            println!("  by_year_month {}", db.by_year_month.len());
             println!(
                 "markers         {}  files found ({:.1}ms scan)",
                 db.stats.markers, db.stats.markers_ms
@@ -354,12 +353,12 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             let mut n = 0;
             // Newest first, default locale — stated here now that the
             // table carries no ordering index of its own (q51).
-            let mut ix: Vec<usize> = (0..p.rows.len())
-                .filter(|&i| p.rows[i].locale == cfg.i18n.default)
+            let mut ix: Vec<usize> = (0..db.rows.len())
+                .filter(|&i| db.rows[i].locale == cfg.i18n.default)
                 .collect();
-            ix.sort_by(|&a, &b| views::chronological(&p.rows, a, b));
+            ix.sort_by(|&a, &b| views::chronological(&db.rows, a, b));
             for &i in &ix {
-                let r = &p.rows[i];
+                let r = &db.rows[i];
                 if let Some(t) = &tag {
                     if !r.tags.iter().any(|x| x == t) {
                         continue;
@@ -393,16 +392,16 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             let mut policy = cfg.related;
             policy.limit = limit;
             let rel = embed::rank(db, &vectors, &policy);
-            let Some(&i) = db.posts.by_url.get(&url) else {
+            let Some(&i) = db.by_url.get(&url) else {
                 anyhow::bail!("no post at {url}");
             };
             println!(
                 "similar to {} — {}",
                 url,
-                db.posts.rows[i].title.as_deref().unwrap_or("-")
+                db.rows[i].title.as_deref().unwrap_or("-")
             );
             for (j, score) in rel.by_post.get(&i).map(Vec::as_slice).unwrap_or(&[]) {
-                let p = &db.posts.rows[*j];
+                let p = &db.rows[*j];
                 println!(
                     "  {score:.3}  {}  {}",
                     p.url,
@@ -412,20 +411,20 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         }
         Query::Tags => {
             let mut tags: Vec<(&String, usize)> =
-                p.by_tag.iter().map(|(t, v)| (t, v.len())).collect();
+                db.by_tag.iter().map(|(t, v)| (t, v.len())).collect();
             tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
             for (t, n) in tags {
                 println!("{n:4}  {t}");
             }
         }
         Query::Archives => {
-            for ((y, m), v) in &p.by_year_month {
+            for ((y, m), v) in &db.by_year_month {
                 println!("{y}-{m:02}  {:3} posts  /blog/{y}/{m:02}/", v.len());
             }
         }
         Query::Explain { url } => {
-            if let Some(&i) = p.by_url.get(&url) {
-                let r = &p.rows[i];
+            if let Some(&i) = db.by_url.get(&url) {
+                let r = &db.rows[i];
                 println!("url         {}", r.url);
                 println!("kind        post");
                 println!("source      {}", r.path.display());
@@ -452,14 +451,14 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                     .get(&r.collection)
                     .map(Vec::as_slice)
                     .unwrap_or(&[]);
-                let (newer, older) = crate::db::PostsTable::neighbors_in(seq, i);
+                let (newer, older) = crate::db::neighbors_in(seq, i);
                 println!(
                     "newer       {}",
-                    newer.map(|j| p.rows[j].url.as_str()).unwrap_or("-")
+                    newer.map(|j| db.rows[j].url.as_str()).unwrap_or("-")
                 );
                 println!(
                     "older       {}",
-                    older.map(|j| p.rows[j].url.as_str()).unwrap_or("-")
+                    older.map(|j| db.rows[j].url.as_str()).unwrap_or("-")
                 );
                 return Ok(());
             }
@@ -509,7 +508,7 @@ fn run_diff(
 
     let mut rows = Vec::new();
     let mut skipped_liquid = 0usize;
-    for p in &db.posts.rows {
+    for p in db.posts() {
         if liquid_free && has_liquid(&p.body) {
             skipped_liquid += 1;
             continue;

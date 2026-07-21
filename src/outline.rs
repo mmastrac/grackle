@@ -94,7 +94,6 @@ pub fn section_tree(db: &SiteDb, root: &Path, default_locale: &str) -> Vec<Node>
     // a translation shares its original's logical rel and would otherwise
     // collide with it node-for-node.
     for p in db
-        .pages
         .rows
         .iter()
         .filter(|p| p.rendered && p.locale == default_locale)
@@ -231,9 +230,7 @@ mod tests {
     }
 
     fn db(pages: Vec<Row>) -> SiteDb {
-        let mut db = SiteDb::default();
-        db.pages.rows = pages;
-        db
+        SiteDb::seed(pages, false)
     }
 
     #[test]

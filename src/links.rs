@@ -36,7 +36,7 @@ impl LinkSpace {
         // One loop over both tables. It was two only because a post's `rel`
         // was collection-relative, so the post arm had to re-derive the
         // root-relative form from `path`; `rel` means one thing now (q51).
-        for p in db.posts.rows.iter().chain(db.pages.rows.iter()) {
+        for p in db.posts().chain(db.pages()) {
             // q45: a claimed locale variant whose partition never
             // materialized has no URL; offering it would rewrite links
             // to "".
@@ -320,8 +320,9 @@ mod tests {
         let cfg: Config =
             Config::from_toml("root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
                 .unwrap();
-        let mut db = SiteDb::default();
-        db.pages.rows.push(crate::db::Row {
+        let mut db = SiteDb::seed(Vec::new(), false);
+        db.page_ix.push(db.rows.len());
+        db.rows.push(crate::db::Row {
             path: PathBuf::from("writing/saturn/index.md"),
             rel: PathBuf::from("writing/saturn/index.md"),
             version: 0,

@@ -199,16 +199,17 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
     stats.embed_pending = loaded.pending;
 
     // ---- posts: document parts -> theme fragments -> shell
+    // Posts only. `bodies` holds the in-memory bodies the posts loader
+    // produced; a tree row is rendered by the `RouteKind::Page` arm below.
     let rendered: Vec<(String, String)> = db
-        .posts
-        .rows
+        .post_ix
         .par_iter()
+        .map(|&i| &db.rows[i])
         .map(|p| -> Result<(String, String)> {
             let head = render::head_for_post(p, &site);
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[p.url.as_str()].whole.as_str();
             let rel: Vec<usize> = db
-                .posts
                 .by_url
                 .get(&p.url)
                 .and_then(|i| related.by_post.get(i))
@@ -226,12 +227,11 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             let bl = backlinks.get(&p.url).map(Vec::as_slice).unwrap_or(&[]);
             // §6f: this row in other locales, labelled by language.
             let translations: Vec<(String, String)> = db
-                .posts
                 .by_logical
                 .get(&p.logical)
                 .map(|sibs| {
                     sibs.iter()
-                        .map(|&j| &db.posts.rows[j])
+                        .map(|&j| &db.rows[j])
                         .filter(|s| s.url != p.url)
                         .map(|s| (s.locale.clone(), s.url.clone()))
                         .collect()
@@ -321,7 +321,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let rows: Vec<(&crate::db::Row, String, bool)> = r
             .members
             .iter()
-            .map(|&i| &db.posts.rows[i])
+            .map(|&i| &db.rows[i])
             .map(|p| match bodies.get(p.url.as_str()) {
                 Some(d) => match summary_field {
                     Some(t) => {
@@ -433,7 +433,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let rows: Vec<parts::CardRow> = r
             .members
             .iter()
-            .map(|&i| &db.pages.rows[i])
+            .map(|&i| &db.rows[i])
             .map(|p| {
                 let t = p.hero_source().and_then(|s| thumbs.get(s));
                 parts::CardRow {
@@ -464,12 +464,10 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // posts listing pass is a product question (should an archive wear
         // its rows' dress?), not a merge artifact, so it is left open.
         let theme_name = {
-            let mut names = r.members.iter().map(|&i| {
-                db.pages.rows[i]
-                    .theme
-                    .as_deref()
-                    .map(|s| theme::split_spec(s).0)
-            });
+            let mut names = r
+                .members
+                .iter()
+                .map(|&i| db.rows[i].theme.as_deref().map(|s| theme::split_spec(s).0));
             match names.next().flatten() {
                 Some(first) if names.all(|n| n == Some(first)) => Some(first),
                 _ => None,
@@ -520,19 +518,14 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
 
         // The claimed row, in the route's locale — else the default's
         // prose (the same fallback slot fills use).
-        let sibs = db
-            .pages
-            .by_logical
-            .get(content)
-            .cloned()
-            .unwrap_or_default();
+        let sibs = db.by_logical.get(content).cloned().unwrap_or_default();
         let row = sibs
             .iter()
-            .map(|&i| &db.pages.rows[i])
+            .map(|&i| &db.rows[i])
             .find(|p| p.locale == loc)
             .or_else(|| {
                 sibs.iter()
-                    .map(|&i| &db.pages.rows[i])
+                    .map(|&i| &db.rows[i])
                     .find(|p| p.locale == cfg.i18n.default)
             });
         let Some(row) = row else { continue }; // existence-checked at load
@@ -545,7 +538,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let rows: Vec<(&crate::db::Row, String, bool)> = r
                     .members
                     .iter()
-                    .map(|&i| &db.posts.rows[i])
+                    .map(|&i| &db.rows[i])
                     .map(|p| match bodies.get(p.url.as_str()) {
                         Some(d) => match summary_field {
                             Some(t) => {
@@ -564,7 +557,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let rows: Vec<parts::CardRow> = r
                     .members
                     .iter()
-                    .map(|&i| &db.pages.rows[i])
+                    .map(|&i| &db.rows[i])
                     .map(|p| {
                         let t = p.hero_source().and_then(|s| thumbs.get(s));
                         parts::CardRow {
@@ -756,7 +749,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             continue;
         }
         // `members` indexes the view's own table, so read from that table.
-        // This used to read `db.posts.rows` unconditionally and then, once
+        // This used to read `db.rows` unconditionally and then, once
         // the hazard was spotted, to REFUSE tree-backed feeds on the
         // grounds that "the feed renderer is typed on posts". It is not:
         // `render::feed` takes `&[(&Row, …)]`, and has since the row types
@@ -765,8 +758,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         // and answered by trying both maps. A dated tree collection can
         // have a feed now, which is what the refusal was standing in for.
         let rows: Vec<&crate::db::Row> = match view_base_kind(cfg, view) {
-            Some(Kind::Tree) => r.members.iter().map(|&i| &db.pages.rows[i]).collect(),
-            _ => r.members.iter().map(|&i| &db.posts.rows[i]).collect(),
+            Some(Kind::Tree) => r.members.iter().map(|&i| &db.rows[i]).collect(),
+            _ => r.members.iter().map(|&i| &db.rows[i]).collect(),
         };
         let entries: Vec<(&crate::db::Row, &str)> = rows
             .into_iter()
@@ -853,7 +846,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let Some(def) = cfg.shells.get(shell) else {
             continue;
         };
-        // `members` indexes the view's OWN table. This read `db.posts.rows`
+        // `members` indexes the view's OWN table. This read `db.rows`
         // for every view regardless, so a tree-backed shell view served
         // whatever post happened to sit at that index — or panicked. Rows
         // carry the same shape either way now that `Page` has a date and
@@ -864,7 +857,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 .members
                 .iter()
                 .map(|&i| {
-                    let p = &db.pages.rows[i];
+                    let p = &db.rows[i];
                     serde_json::json!({
                         "url": p.url,
                         "title": p.title,
@@ -879,7 +872,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 .members
                 .iter()
                 .map(|&i| {
-                    let p = &db.posts.rows[i];
+                    let p = &db.rows[i];
                     serde_json::json!({
                         "url": p.url,
                         "title": p.title,
@@ -921,11 +914,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
             }
             RouteKind::Page => {
                 let Some(src) = &r.source else { continue };
-                let row = db
-                    .pages
-                    .by_url
-                    .get(r.url.as_str())
-                    .map(|&i| &db.pages.rows[i]);
+                let row = db.by_url.get(r.url.as_str()).map(|&i| &db.rows[i]);
                 let layout = row.and_then(|p| p.layout.as_deref());
                 let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
 
@@ -1030,9 +1019,9 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                         // §6f: this page in other locales.
                         let translations: Vec<(String, String)> = row
                             .and_then(|p| {
-                                db.pages.by_logical.get(&p.logical).map(|sibs| {
+                                db.by_logical.get(&p.logical).map(|sibs| {
                                     sibs.iter()
-                                        .map(|&j| &db.pages.rows[j])
+                                        .map(|&j| &db.rows[j])
                                         .filter(|s| s.url != p.url)
                                         .map(|s| (s.locale.clone(), s.url.clone()))
                                         .collect()
@@ -1115,12 +1104,12 @@ fn thumbs_pass(
     stats: &mut Stats,
 ) -> Result<HashMap<String, crate::thumbs::Thumb>> {
     let mut img_sources: Vec<String> = Vec::new();
-    for p in &db.posts.rows {
+    for p in db.posts() {
         img_sources.extend(tags::image_sources(&p.body));
     }
     // Image-typed schema fields (§5b) — covers and the like — thumbnail
     // too: they are what heroes and cards render (q23).
-    for p in &db.pages.rows {
+    for p in db.pages() {
         img_sources.extend(p.images.values().cloned());
     }
     for r in &db.routes {
@@ -1168,9 +1157,12 @@ fn render_bodies<'a>(
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<&'a str, Doc>> {
     let root = cfg.root();
-    db.posts
-        .rows
+    // Posts only: these rows hold their body in memory. Tree rows are
+    // re-read at render time (§2), which `render_page_bodies` does — the
+    // loader asymmetry that outlives the row-type merge.
+    db.post_ix
         .par_iter()
+        .map(|&i| &db.rows[i])
         .map(|p| -> Result<(&str, Doc)> {
             let cx = tags::Ctx {
                 thumbs: Some(thumb_urls),
@@ -1260,11 +1252,7 @@ fn render_page_bodies(
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
             // §6a row/view links, same as post bodies. Raw-HTML pages are
             // exempt v1 — the lol_html rewrite stage (§6d) is their seam.
-            let row = db
-                .pages
-                .by_url
-                .get(r.url.as_str())
-                .map(|&i| &db.pages.rows[i]);
+            let row = db.by_url.get(r.url.as_str()).map(|&i| &db.rows[i]);
             let dir = row
                 .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
                 .unwrap_or_default();
@@ -1340,10 +1328,8 @@ fn backlinks_map(
 ) -> HashMap<String, Vec<Backlink>> {
     // `rendered` is true for every post, so one predicate serves both.
     let is_target: HashSet<&str> = db
-        .posts
         .rows
         .iter()
-        .chain(db.pages.rows.iter())
         .filter(|p| p.rendered)
         .map(|p| p.url.as_str())
         .collect();
@@ -1357,7 +1343,7 @@ fn backlinks_map(
     // One loop. The rows are the same type now; only the body map differs,
     // and that is loader-shaped (posts hold their body, pages are re-read).
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
-    for p in db.posts.rows.iter().chain(db.pages.rows.iter()) {
+    for p in &db.rows {
         let html = bodies
             .get(p.url.as_str())
             .map(|d| d.whole.as_str())
@@ -1424,9 +1410,7 @@ pub fn search_docs(
     db: &SiteDb,
     html_of: impl Fn(&Row) -> String,
 ) -> Vec<grackle_search_core::SearchDoc> {
-    db.posts
-        .rows
-        .iter()
+    db.posts()
         .map(|p| grackle_search_core::SearchDoc {
             url: p.url.clone(),
             title: p.title.clone().unwrap_or_else(|| p.url.clone()),
@@ -1499,27 +1483,26 @@ fn search_pass(
             None => crate::filter::Filter::always(),
         };
         let page_by_url: HashMap<&str, &crate::db::Row> =
-            db.pages.rows.iter().map(|p| (p.url.as_str(), p)).collect();
+            db.pages().map(|p| (p.url.as_str(), p)).collect();
         let docs: Vec<grackle_search_core::SearchDoc> = db
             .routes
             .iter()
             .filter(|r| pred.eval(*r))
             .filter_map(|r| match r.kind {
-                crate::db::RouteKind::Post => db
-                    .posts
-                    .by_url
-                    .get(&r.url)
-                    .map(|&i| &db.posts.rows[i])
-                    .map(|p| grackle_search_core::SearchDoc {
-                        url: p.url.clone(),
-                        title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-                        date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
-                        html: bodies
-                            .get(p.url.as_str())
-                            .map(|d| d.whole.clone())
-                            .unwrap_or_default(),
-                        tags: p.tags.clone(),
-                    }),
+                crate::db::RouteKind::Post => {
+                    db.by_url.get(&r.url).map(|&i| &db.rows[i]).map(|p| {
+                        grackle_search_core::SearchDoc {
+                            url: p.url.clone(),
+                            title: p.title.clone().unwrap_or_else(|| p.url.clone()),
+                            date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
+                            html: bodies
+                                .get(p.url.as_str())
+                                .map(|d| d.whole.clone())
+                                .unwrap_or_default(),
+                            tags: p.tags.clone(),
+                        }
+                    })
+                }
                 crate::db::RouteKind::Page => {
                     let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
                     let p = page_by_url.get(r.url.as_str())?;
