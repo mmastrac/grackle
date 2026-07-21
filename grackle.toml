@@ -206,6 +206,9 @@ noindex = true
 [sets.published]
 from = "posts"
 where = "!draft && !hidden"
+# Newest first. The engine orders by path unless a set says otherwise —
+# a tree is a list of files, and dates are a thing posts have.
+order_by = "-date"
 
   # A computed field (§6d): a derived column on this query's rows, inherited
   # by every query composed over it (nearest declaration wins). `summary` is

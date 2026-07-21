@@ -255,29 +255,52 @@ pub fn chronological(rows: &[grackle_model::Row], a: usize, b: usize) -> std::cm
     .then_with(|| x.slug.cmp(&y.slug))
 }
 
-/// Parse and validate an `order_by` spec against the post schema plus every
-/// `.schema.toml` declaration. `None` spec means no re-sort.
-fn post_sort_key(
+/// What a sequence orders by when nothing says otherwise: newest first,
+/// undated last, path breaking ties. Adjacency's default, and NOT a view's —
+/// a view renders a list, a sequence encodes before-and-after.
+fn newest_first() -> Vec<grackle_db::Order> {
+    vec![
+        grackle_db::Order::desc("date"),
+        grackle_db::Order::asc("path"),
+    ]
+}
+
+/// The order a view asked for, plus the tiebreak every view gets.
+///
+/// `path` goes last, always: two rows equal on the sort column would
+/// otherwise order by whatever the directory walk yielded, which is not an
+/// ordering. `path` ALONE is the default, because a tree is a list of files
+/// and their paths are the one ordering every row has. A collection whose
+/// rows carry dates says so — `order_by = "-date"` — rather than the engine
+/// assuming every corpus is a blog.
+fn declared_order(
     schemas: &Schemas,
     who: &str,
     spec: Option<&str>,
-) -> Result<Option<(String, bool)>> {
-    let Some(spec) = spec else { return Ok(None) };
-    let (key, desc) = match spec.strip_prefix('-') {
-        Some(k) => (k, true),
-        None => (spec, false),
-    };
-    if !row_schema().contains_key(key) && !schemas.declared().contains_key(key) {
-        let mut known: Vec<&str> = row_schema().keys().copied().collect();
-        known.extend(schemas.declared().keys().copied());
-        known.sort_unstable();
-        known.dedup();
-        bail!(
-            "{who}: order_by names unknown field {key:?}\n  known fields: {}",
-            known.join(", ")
-        );
+) -> Result<Vec<grackle_db::Order>> {
+    let mut out = Vec::new();
+    if let Some(spec) = spec {
+        let (key, desc) = match spec.strip_prefix('-') {
+            Some(k) => (k, true),
+            None => (spec, false),
+        };
+        if !row_schema().contains_key(key) && !schemas.declared().contains_key(key) {
+            let mut known: Vec<&str> = row_schema().keys().copied().collect();
+            known.extend(schemas.declared().keys().copied());
+            known.sort_unstable();
+            known.dedup();
+            bail!(
+                "{who}: order_by names unknown field {key:?}\n  known fields: {}",
+                known.join(", ")
+            );
+        }
+        out.push(grackle_db::Order {
+            column: key.to_string(),
+            desc,
+        });
     }
-    Ok(Some((key.to_string(), desc)))
+    out.push(grackle_db::Order::asc("path"));
+    Ok(out)
 }
 
 /// The sequence `next`/`previous` step through, one per posts collection
@@ -315,9 +338,22 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
                         .with_context(|| format!("{who}: filter {src:?}"))?,
                     None => filter::Filter::always(),
                 };
-                (pred, post_sort_key(schemas, &who, q.order_by.as_deref())?)
+                // A declared set brings its filter; its ORDER is only
+                // adopted if it states one. Falling through to the view
+                // default (`path` ascending) would reverse the sequence,
+                // and `neighbors_in` reads position, not dates — "later
+                // post" would have meant the one before.
+                let order = match q.order_by.as_deref() {
+                    Some(spec) => declared_order(schemas, &who, Some(spec))?,
+                    None => newest_first(),
+                };
+                (pred, order)
             }
-            None => (filter::Filter::always(), None),
+            // Newest first, which is what `neighbors_in` reads as (newer,
+            // older). Unlike a view's, this default is not `path` ascending:
+            // a sequence's ORDER is its meaning here, and "previous post"
+            // means previous in time until a declared set says otherwise.
+            None => (filter::Filter::always(), newest_first()),
         };
         let ix: Vec<usize> = db
             .rows
@@ -329,13 +365,8 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             .filter(|(_, p)| p.locale == cfg.i18n.default)
             .map(|(i, _)| i)
             .collect();
-        let mut ix = db.rows.select_within(&ix, &pred);
-        ix.sort_by(|&a, &b| chronological(&db.rows, a, b));
-        if let Some((key, desc)) = &sort {
-            use grackle_db::filter::Row as _;
-            ix.sort_by(|&a, &b| db.rows[a].field(key).order(&db.rows[b].field(key), *desc));
-        }
-        out.insert(cname.clone(), ix);
+        let seq = grackle_db::View::all().filter(pred).order(sort);
+        out.insert(cname.clone(), db.rows.view_within(&ix, &seq));
     }
     db.adjacency = out;
     Ok(())
@@ -372,11 +403,6 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         }
         // Parsed and type-checked once per view, not per row: a bad filter is a
         // startup error naming the view.
-        let pred = match q.predicate() {
-            Some(src) => filter::Filter::parse(&src, &row_schema())
-                .with_context(|| format!("view {name}: filter {src:?}"))?,
-            None => filter::Filter::always(),
-        };
         // `order_by` on a posts view was parsed, inherited along `from` like
         // any other set clause — and then ignored. The table's
         // reverse-chronological index was the only ordering a posts view
@@ -384,16 +410,12 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         // no diagnostic, and a TYPO in one produced the same. Both are now
         // what they say: a validated key sorts, an unknown one is a load
         // error naming the view, exactly as on the tree side.
-        let sort = post_sort_key(schemas, &format!("view {name}"), q.order_by.as_deref())?;
+        let order = declared_order(schemas, &format!("view {name}"), q.order_by.as_deref())?;
+        let view = grackle_db::View::all()
+            .filter(scoped_filter(name, &q, &row_schema())?)
+            .order(order);
         let rows = &db.rows;
-        // Stable, so an undeclared or tied key leaves the chronological
-        // ordering underneath untouched — declaring `order` on two posts of
-        // fifty re-seats those two and nothing else.
-        let apply_sort = |ix: &mut Vec<usize>| {
-            let Some((key, desc)) = &sort else { return };
-            use grackle_db::filter::Row as _;
-            ix.sort_by(|&a, &b| rows[a].field(key).order(&rows[b].field(key), *desc));
-        };
+
         // The DEFAULT ordering, stated here rather than inherited from
         // `posts.order` (q51). The table's index carried three things at
         // once — reverse-chronological sort, undated-last, and a
@@ -416,10 +438,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
                 .copied()
                 .filter(|&i| rows[i].locale == locale)
                 .collect();
-            let mut ix = db.rows.select_within(&in_locale, &pred);
-            ix.sort_by(|&a, &b| chronological(rows, a, b));
-            apply_sort(&mut ix);
-            ix
+            db.rows.view_within(&in_locale, &view)
         };
         let visible = rows_for(&cfg.i18n.default);
 
@@ -474,8 +493,13 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
                     .iter()
                     .map(|&i| (i, &db.rows[i] as &dyn filter::Row))
                     .collect();
-                let mut routes =
-                    grouped_routes(name, &prefixed(cfg, locale, tmpl), &chain, &rows, &route_value)?;
+                let mut routes = grouped_routes(
+                    name,
+                    &prefixed(cfg, locale, tmpl),
+                    &chain,
+                    &rows,
+                    &route_value,
+                )?;
                 for r in &mut routes {
                     r.locale = stamp(cfg, locale);
                 }
@@ -643,35 +667,16 @@ fn build_tree_view(
     if v.paginate.is_some() {
         bail!("view {name}: paginate on tree views is not supported yet");
     }
-    let order = q
-        .order_by
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("view {name}: tree views need an order_by"))?;
-    let (key, desc) = match order.strip_prefix('-') {
-        Some(k) => (k, true),
-        None => (order, false),
-    };
-    if !row_schema().contains_key(key) && !schemas.declared().contains_key(key) {
-        let mut known: Vec<&str> = row_schema().keys().copied().collect();
-        known.extend(schemas.declared().keys().copied());
-        known.sort_unstable();
-        known.dedup();
-        bail!(
-            "view {name}: order_by names unknown field {key:?}\n  known fields: {}",
-            known.join(", ")
-        );
-    }
+    // `order_by` used to be REQUIRED here, on the grounds that objects have
+    // no natural order and lexical-by-luck is not a contract. A tree row is
+    // not an object: it has a path, paths order, and that IS the contract.
     let view = grackle_db::View::all()
         .filter(scoped_filter(name, q, &row_schema())?)
-        // `path` breaks the tie, so two rows equal on the sort column do not
-        // order by whatever the directory walk happened to yield.
-        .order(vec![
-            grackle_db::Order {
-                column: key.to_string(),
-                desc,
-            },
-            grackle_db::Order::asc("path"),
-        ])
+        .order(declared_order(
+            schemas,
+            &format!("view {name}"),
+            q.order_by.as_deref(),
+        )?)
         .limit(v.limit);
     // §6f: one row collection per locale (default-on, like posts views);
     // embedded views take the default locale's set below.
@@ -891,10 +896,8 @@ mod object_view_tests {
     }
 }
 
-/// A posts view's ordering. The table's index is chronological and was the
-/// only ordering a posts view could have — `order_by` inherited along `from`
-/// and was then dropped on the floor, so both a real sort and a typo'd one
-/// rendered as "newest first" with nothing said.
+/// A view's ordering. `path` ascending unless the view names a column, and
+/// `path` as the final tiebreak either way.
 #[cfg(test)]
 mod posts_order_tests {
     use super::*;
@@ -947,19 +950,31 @@ mod posts_order_tests {
         r.members.iter().map(|&i| db.rows[i].url.clone()).collect()
     }
 
+    /// A view with no `order_by` orders by PATH. The engine used to assume
+    /// every corpus was a blog and sort newest-first; a tree is a list of
+    /// files, and their paths are the one ordering every row has. A posts
+    /// collection asks for dates.
     #[test]
-    fn no_order_by_means_newest_first() {
-        assert_eq!(members(""), ["/d/", "/c/", "/b/", "/a/"]);
+    fn no_order_by_means_path_order() {
+        assert_eq!(members(""), ["/a/", "/b/", "/c/", "/d/"]);
     }
 
-    /// The declared positions seat first and last; the two rows that declare
-    /// nothing sort Null-last and keep the chronological order underneath,
-    /// because the sort is stable. Pinning two posts of four moves two.
     #[test]
-    fn a_declared_order_reseats_only_what_declares_one() {
+    fn a_posts_view_asks_for_dates() {
+        assert_eq!(
+            members("order_by = \"-date\"\n"),
+            ["/d/", "/c/", "/b/", "/a/"]
+        );
+    }
+
+    /// `path` is the last key, always, so rows tied on the declared column
+    /// order by their file rather than by whatever the walk yielded. Here
+    /// `/b/` and `/c/` declare no `order`, tie at Null, and fall to path.
+    #[test]
+    fn ties_on_the_declared_column_fall_through_to_path() {
         assert_eq!(
             members("order_by = \"order\"\n"),
-            ["/a/", "/d/", "/c/", "/b/"]
+            ["/a/", "/d/", "/b/", "/c/"]
         );
     }
 
