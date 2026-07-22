@@ -1,29 +1,14 @@
 //! URL-set parity against a reference build (§4).
 //!
-//! §4 has always called URL parity "a hard requirement (`grackle diff`)", but
-//! `diff` compares post *bodies* — it extracts `<article>` and never looks at
-//! the URL set at all. The requirement had no instrument. This is it.
+//! The two answers are not symmetric. A **missing** URL is a link that used to
+//! resolve and now 404s, so it exits non-zero; an **extra** URL is usually
+//! content published since the reference was built, so it is reported only.
 //!
-//! The asymmetry between the two answers is the whole point, and it is why
-//! this is not a set difference printed twice:
+//! The reference is any directory of built output — `_site-prod`, or a tree
+//! rsynced from the server.
 //!
-//! - A **missing** URL is a link that used to resolve and now 404s. On a
-//!   20-year corpus whose canonical/indexing work depends on the URL set not
-//!   shifting, that is the failure this check exists to prevent, and it exits
-//!   non-zero.
-//! - An **extra** URL is usually just content published since the reference
-//!   was built. It is reported, never fatal.
-//!
-//! The reference is a directory of built output — `_site-prod`, or a tree
-//! rsynced down from the live server. Both are the same shape, which is what
-//! lets this check outlive the Jekyll build that produced the first one.
-//!
-//! **Derived assets are exempt, per q12.** Thumbnails moved from Jekyll's
-//! `/_thumbs/{md5}-600-600` to content-addressed `/static/{hash}.{ext}`, and
-//! that was a deliberate decision: URL parity stays hard for *pages* and is
-//! waived for derived output. Without the waiver this check reports 262
-//! missing URLs on a correct build, which is the fastest way to teach someone
-//! to ignore it.
+//! Derived assets are exempt (q12): both sides go through `parity_set`, so a
+//! changed thumbnail scheme cannot register as a difference on one side.
 
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;

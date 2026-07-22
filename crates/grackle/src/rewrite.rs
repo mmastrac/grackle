@@ -1,22 +1,11 @@
-//! §6d stage B: the raw-HTML seam.
+//! §6d stage B: link resolution for rows whose source *is* HTML.
 //!
-//! Most of what §6d originally wanted from a rewrite stage now happens at the
-//! comrak node, before HTML exists — code-block shapes, link resolution and
-//! (since q26) image dimensions all mutate the AST, so they cost no re-parse
-//! and no selector matching. §9a records that shrinkage.
+//! A `.html` page body, a `.html` slot fill and a raw-HTML landing never meet
+//! comrak, so the AST resolver never sees their links. This is the seam
+//! `build.rs` and `slots.rs` point at.
 //!
-//! What is left is the thing an AST pass structurally cannot reach: rows whose
-//! source *is* HTML. A `.html` page body and a `.html` slot fill never meet
-//! comrak, so `markdown::render_doc_with`'s resolver never sees their links —
-//! `build.rs` and `slots.rs` both carried a comment naming this seam. That is
-//! what this module closes, and only that.
-//!
-//! This is deliberately **not** the `.rewrite.toml` rule table §6d sketches.
-//! No selector language, no wrap/template actions, no config surface: neither
-//! site wants an authored rule today, and §6d's own risk note calls a
-//! template-injecting selector table "unbounded rope" that would need the
-//! filter language's load-time validation to be safe. The mechanism arrives
-//! with its second consumer, per §5b's incremental path. Today there is one.
+//! Narrow on purpose: no selector language and no config surface, because the
+//! rule table §6d sketches has no consumer yet.
 
 use anyhow::Result;
 use lol_html::{element, rewrite_str, RewriteStrSettings};
