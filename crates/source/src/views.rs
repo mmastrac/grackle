@@ -406,12 +406,9 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
 
 /// Materialize a view over ROWS — posts or tree, one flow.
 ///
-/// These were two functions, and the base collection's KIND decided which one
-/// ran, so two views declaring the same thing could behave differently. Every
-/// difference that was real has been settled elsewhere: ordering is one rule
-/// (`path` unless the view says otherwise), `match` scopes are part of the
-/// filter, and `limit` lands in one place. What survives is which index list
-/// the view starts from — a set, not a shape.
+/// A view differs from another only in which index list it starts from: a
+/// set, not a shape. Ordering, `match` scopes and `limit` are one rule each,
+/// applied here for every base.
 fn build_row_view(
     cfg: &Config,
     db: &mut SiteDb,
@@ -436,14 +433,11 @@ fn build_row_view(
         });
     let rows = &db.rows;
 
-    // One row set per locale (§6f), built the same way for every locale —
-    // including the default, which used to be the special case that read the
-    // posts table's index.
+    // One row set per locale (§6f), the default included — it is not special.
     //
     // `rendered` and `!claimed` are no-ops on the posts side: every post is
     // parsed, and only a tree row can be a view's claimed content (q45). They
-    // are here because they say what the eligible set IS, rather than which
-    // table it came from — which is what let the two flows become one.
+    // state what the eligible set IS, rather than which table it came from.
     let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
             .iter()
@@ -651,12 +645,9 @@ fn build_object_view(
     let Some(route) = v.route.as_deref() else {
         bail!("view {name} needs a route");
     };
-    // `order_by` used to be REQUIRED here and had to be `"name"`, because
-    // "objects have no natural order and lexical-by-luck is not a contract".
-    // Both halves are stale: an object is a `Row`, so it has a path and paths
-    // order, and `name`/`ext`/`size` are ordinary columns now. Same rule as
-    // every other view — `path` unless the view says otherwise, `path` last
-    // either way — against the narrower object vocabulary.
+    // Same ordering rule as every other view — `path` unless the view names a
+    // column, `path` as the final tiebreak — against the narrower object
+    // vocabulary.
     let known: Vec<&str> = object_schema().keys().copied().collect();
     // The base is a FILTER now (q51's move, applied to objects the day the
     // objects table was folded into the one row store). Membership is

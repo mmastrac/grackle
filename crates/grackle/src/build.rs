@@ -282,10 +282,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // ---- listing views: one layout kind, the view supplies the query
     //
     // `r.members` is `self` — the rows this route materializes, decided once by
-    // the view's declared query (DESIGN.md §5c). This loop used to re-derive
-    // them with a `match` on the view *name*, hardcoding each filter and the
-    // page size, which is how `blog_index`'s `!draft` and the config's filter
-    // could silently disagree. The renderer no longer knows what a tag is.
+    // the view's declared query (§5c). The renderer does not know what a tag
+    // is, and so cannot disagree with the config about one.
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
         let Some(v) = cfg.views.get(view) else {
@@ -449,22 +447,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .collect();
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
         let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
-        // q45 theme provenance, settled by Matt's observation ("the
-        // courses didn't inherit the recipe theme"): theme is a ROW
-        // attribute (§5a), so a listing whose members unanimously wear
-        // one theme NAME wears it too — the course archive renders
-        // through the recipes theme because every row it lists does.
-        // Subtheme tokens (`recipes:spicy`) are one row's dress and
-        // never lift to a listing. Mixed or theme-less members keep the
-        // default.
-        //
-        // Tree-backed listings only, and the reason given for that used to
-        // be "posts carry no theme" — false since q51 step 1, which is why
-        // it is written down rather than repeated. A posts collection whose
-        // rows unanimously set `theme:` renders each post through that theme
-        // while its archive keeps the default. Extending inheritance to the
-        // posts listing pass is a product question (should an archive wear
-        // its rows' dress?), not a merge artifact, so it is left open.
+        // q45 theme provenance: theme is a ROW attribute (§5a), so a listing
+        // whose members unanimously wear one theme NAME wears it too. Subtheme
+        // tokens (`recipes:spicy`) are one row's dress and never lift; mixed or
+        // theme-less members keep the default. Tree-backed listings only —
+        // whether a posts archive should wear its rows' dress is open.
         let theme_name = {
             let mut names = r.members.iter().map(|k| {
                 db.rows
@@ -845,13 +832,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(def) = cfg.shells.get(shell) else {
             continue;
         };
-        // `members` indexes the view's OWN table. This read `db.rows`
-        // for every view regardless, so a tree-backed shell view served
-        // whatever post happened to sit at that index — or panicked. Rows
-        // carry the same shape either way now that `Page` has a date and
-        // tags (q51 step 3), so the payload does not change, only which
-        // table it is read from.
-        let rows: Vec<serde_json::Value> = match view_base_kind(cfg, view) {
+                let rows: Vec<serde_json::Value> = match view_base_kind(cfg, view) {
             Some(Kind::Tree) => r
                 .members
                 .iter()
