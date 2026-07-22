@@ -115,7 +115,7 @@ impl Theme {
                 continue;
             }
             let name = parts::schema("shell")
-                .and_then(|s| s.iter().find(|(n, _)| *n == slot).map(|(n, _)| *n))
+                .and_then(|s| s.iter().find(|(n, _)| *n == slot).map(|(n, _)| n.as_str()))
                 .with_context(|| format!("shell fragment slots unknown part `{slot}`"))?;
             identity.push((name, binder::is_phrasing_only(&tag)));
         }

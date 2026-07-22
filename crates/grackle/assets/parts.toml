@@ -1,0 +1,155 @@
+# Engine part schemas: the vocabulary every theme fragment is checked
+# against, and the canonical order the null theme renders in.
+#
+# This is a VOCABULARY and a type contract, not an ordering. Render order is
+# the order a producer calls `set()`, and `canonical()` walks the PartMap, so
+# reordering a kind here changes nothing that ships — measured, not assumed.
+#
+# Pairs rather than a table anyway: a TOML table gives no stable order at all,
+# and a schema that reshuffles between builds makes diffs unreadable and would
+# block ever making declaration order the canonical one.
+
+[[kind]]
+name = "shell"
+parts = [
+  ["nav", "html"],
+  ["site_title", "text"],
+  ["main", "html"],
+  ["copyright", "html"],
+]
+
+[[kind]]
+name = "document"
+parts = [
+  ["title", "text"],
+  ["url", "url"],
+  ["tree", "flag"],
+  ["crumbs", "stream:crumb"],
+  ["tags", "stream:tag"],
+  ["hero", "map:figure"],
+  ["section", "stream:outline_entry"],
+  ["outline", "stream:outline_entry"],
+  ["content", "html"],
+  ["relations", "stream:relation"],
+]
+
+[[kind]]
+name = "outline_entry"
+parts = [
+  ["label", "text"],
+  ["url", "url"],
+  ["current", "text"],
+  ["children", "stream:outline_entry"],
+]
+
+[[kind]]
+name = "listing"
+parts = [
+  ["title", "text"],
+  ["crumbs", "stream:crumb"],
+  ["intro", "html"],
+  ["featured", "map:summary"],
+  ["items", "stream:summary"],
+  ["pagination", "map:pagination"],
+]
+
+[[kind]]
+name = "summary"
+parts = [
+  ["title", "text"],
+  ["url", "url"],
+  ["date", "text"],
+  ["date_pretty", "text"],
+  ["src", "url"],
+  ["width", "text"],
+  ["height", "text"],
+  ["note", "text"],
+  ["truncated", "flag"],
+  ["tags", "stream:tag"],
+  ["content", "html"],
+]
+
+[[kind]]
+name = "gallery"
+parts = [
+  ["title", "text"],
+  ["crumbs", "stream:crumb"],
+  ["intro", "html"],
+  ["items", "stream:figure"],
+]
+
+[[kind]]
+name = "figure"
+parts = [
+  ["url", "url"],
+  ["src", "url"],
+  ["width", "text"],
+  ["height", "text"],
+  ["alt", "text"],
+]
+
+[[kind]]
+name = "link_list"
+parts = [
+  ["items", "stream:link"],
+]
+
+[[kind]]
+name = "link"
+parts = [
+  ["title", "text"],
+  ["url", "url"],
+]
+
+[[kind]]
+name = "crumb"
+parts = [
+  ["label", "text"],
+  ["url", "url"],
+]
+
+[[kind]]
+name = "tag"
+parts = [
+  ["name", "text"],
+  ["url", "url"],
+]
+
+[[kind]]
+name = "relation"
+parts = [
+  ["axis", "text"],
+  ["label", "text"],
+  ["items", "stream:neighbor"],
+]
+
+[[kind]]
+name = "neighbor"
+parts = [
+  ["url", "url"],
+  ["date", "text"],
+  ["date_pretty", "text"],
+  ["title", "text"],
+]
+
+[[kind]]
+name = "pagination"
+parts = [
+  ["prev", "url"],
+  ["next", "url"],
+  ["pages", "stream:page_link"],
+]
+
+[[kind]]
+name = "page_link"
+parts = [
+  ["n", "text"],
+  ["url", "url"],
+  ["current", "text"],
+]
+
+[[kind]]
+name = "raw"
+parts = [
+  ["content", "html"],
+]

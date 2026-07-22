@@ -151,131 +151,66 @@ pub enum PartType {
 /// The part schema of each layout kind: which names exist and what fills
 /// them. This is what the binder validates fragment holes against (§5e);
 /// `set()` also asserts against it so the vocabulary can't drift silently.
-pub fn schema(kind: &str) -> Option<&'static [(&'static str, PartType)]> {
-    use PartType::*;
-    Some(match kind {
-        // The outer skeleton. `head` is the computed head facts (§5a);
-        // `nav`/`copyright` are site identity, filled from `.slots/` so no
-        // theme owns the words; `main` is the rendered layout kind.
-        // BODY chrome only (§5g): the engine owns the root HTML shell
-        // (doctype/<html>/<head>/<body>) that every theme inherits — a
-        // theme's shell.html is the chrome inside <body>. `head` and the
-        // subtheme attribute live on the engine root, not here.
-        "shell" => &[
-            ("nav", Html),
-            ("site_title", Text),
-            ("main", Html),
-            ("copyright", Html),
-        ],
-        // One row, full content. `tree` is the fact that the row lives in the
-        // tree (ancestor crumbs) rather than the dated stream — §5e's
-        // `data-tree`: the theme's CSS picks the arrangement.
-        "document" => &[
-            ("title", Text),
-            ("url", Url),
-            ("tree", Flag),
-            ("crumbs", Stream("crumb")),
-            ("tags", Stream("tag")),
-            // The row's hero image (q23): an image-typed schema field,
-            // thumbnailed, dimension facts attached. The book page's cover.
-            ("hero", Map("figure")),
-            // §6e's path axis: the enclosing `.section` unit's page tree,
-            // with this row marked current. Absent outside sections.
-            ("section", Stream("outline_entry")),
-            // §6e's heading axis: this document's own outline (`toc:`).
-            ("outline", Stream("outline_entry")),
-            ("content", Html),
-            ("relations", Stream("relation")),
-        ],
-        // §6e: the ONE recursive kind — hierarchy on either axis (headings
-        // or paths) renders through it. An entry with no `url` is an
-        // index-less directory's unlinked label (q27); `current` carries
-        // the literal `aria-current` value, the pagination trick.
-        "outline_entry" => &[
-            ("label", Text),
-            ("url", Url),
-            ("current", Text),
-            ("children", Stream("outline_entry")),
-        ],
-        // N rows, previewed; the view supplied query, filter and title.
-        // `featured` is the first row shown large (the book-of-the-month
-        // shape); most listings never fill it.
-        "listing" => &[
-            ("title", Text),
-            ("crumbs", Stream("crumb")),
-            // q45 mode A: the landing's declared prose, rendered markdown.
-            ("intro", Html),
-            ("featured", Map("summary")),
-            ("items", Stream("summary")),
-            ("pagination", Map("pagination")),
-        ],
-        // ONE preview kind (q36): a summary and a card are the same thing —
-        // a view's projection of a row — differing only in what the row HAS
-        // (posts: dates/tags/content blocks; books: a hero and a note).
-        // Presence is schema-driven, §5a's document argument one level down.
-        // `truncated`: the content is a prefix of the document (§6d) — the
-        // fact the theme gates the ★ on, stamped as `data-truncated`.
-        "summary" => &[
-            ("title", Text),
-            ("url", Url),
-            ("date", Text),
-            ("date_pretty", Text),
-            ("src", Url),
-            ("width", Text),
-            ("height", Text),
-            ("note", Text),
-            ("truncated", Flag),
-            ("tags", Stream("tag")),
-            ("content", Html),
-        ],
-        // N object rows as pictures (§5 audit: the gallery archetype). Each
-        // figure carries q26's dimension facts so the browser can reserve
-        // space (masonry without layout shift); `url` links the original,
-        // `src` is the thumbnail (§6b).
-        "gallery" => &[
-            ("title", Text),
-            ("crumbs", Stream("crumb")),
-            ("intro", Html),
-            ("items", Stream("figure")),
-        ],
-        "figure" => &[
-            ("url", Url),
-            ("src", Url),
-            ("width", Text),
-            ("height", Text),
-            ("alt", Text),
-        ],
-        // N rows as bare titled links (`/`'s embedded latest-posts block).
-        "link_list" => &[("items", Stream("link"))],
-        "link" => &[("title", Text), ("url", Url)],
-        // A crumb with no `url` is the trail's inert tail.
-        "crumb" => &[("label", Text), ("url", Url)],
-        "tag" => &[("name", Text), ("url", Url)],
-        // A post relates to others along AXES — embedding similarity,
-        // earlier, later, and whatever comes next (same-tag, series). Each
-        // axis is one relation group; the post pivots along all of them.
-        // The axis rides as an attribute hole (`data-axis`) for CSS.
-        "relation" => &[
-            ("axis", Text),
-            ("label", Text),
-            ("items", Stream("neighbor")),
-        ],
-        "neighbor" => &[
-            ("url", Url),
-            ("date", Text),
-            ("date_pretty", Text),
-            ("title", Text),
-        ],
-        // `prev`/`next` are absent at the ends of the range; a page with no
-        // `url` is the current page, and `current` carries the literal
-        // `aria-current` value ("page") so the fragment's attribute hole
-        // emits it only there — a11y and the CSS gap trick from one part.
-        "pagination" => &[("prev", Url), ("next", Url), ("pages", Stream("page_link"))],
-        "page_link" => &[("n", Text), ("url", Url), ("current", Text)],
-        // The row's content *is* main (§5a).
-        "raw" => &[("content", Html)],
-        _ => return None,
+/// The engine's part schemas, parsed once from `assets/parts.toml`.
+///
+/// Data, not a match: the table is what a theme's fragments are checked
+/// against, and it is the thing `[parts.<kind>]` will extend. Order within a
+/// kind is semantic — parts render in declaration order — so the file is an
+/// array of pairs, which preserves it, rather than a table, which would not.
+static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
+    std::sync::OnceLock::new();
+
+#[derive(serde::Deserialize)]
+struct KindDecl {
+    name: String,
+    parts: Vec<(String, String)>,
+}
+
+fn parse_part_type(spec: &str, kind: &str, part: &str) -> PartType {
+    match spec {
+        "text" => PartType::Text,
+        "url" => PartType::Url,
+        "html" => PartType::Html,
+        "flag" => PartType::Flag,
+        _ => match spec.split_once(':') {
+            // Leaked deliberately: a child kind name outlives the parse and
+            // the set is closed and tiny. Nothing here is per-request.
+            Some(("stream", k)) => PartType::Stream(Box::leak(k.to_string().into_boxed_str())),
+            Some(("map", k)) => PartType::Map(Box::leak(k.to_string().into_boxed_str())),
+            _ => panic!("parts.toml: kind {kind:?} part {part:?} has unknown type {spec:?}"),
+        },
+    }
+}
+
+fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
+    SCHEMAS.get_or_init(|| {
+        #[derive(serde::Deserialize)]
+        struct File {
+            kind: Vec<KindDecl>,
+        }
+        let f: File = toml::from_str(include_str!("../assets/parts.toml"))
+            .expect("parts.toml is an engine asset and must parse");
+        f.kind
+            .into_iter()
+            .map(|k| {
+                let parts = k
+                    .parts
+                    .iter()
+                    .map(|(n, t)| (n.clone(), parse_part_type(t, &k.name, n)))
+                    .collect();
+                (k.name, parts)
+            })
+            .collect()
     })
+}
+
+/// The parts a kind declares, in canonical order. `None` for an unknown kind,
+/// which is what makes a fragment named after one a load error.
+pub fn schema(kind: &str) -> Option<&'static [(String, PartType)]> {
+    schemas()
+        .iter()
+        .find(|(k, _)| k == kind)
+        .map(|(_, parts)| parts.as_slice())
 }
 
 /// Look up one part's declared type.
@@ -1096,5 +1031,55 @@ mod tests {
             let out = canonical(&m);
             assert!(complete(&m, &out), "page {} dropped a part", pg.url);
         }
+    }
+}
+
+#[cfg(test)]
+mod schema_asset_tests {
+    use super::*;
+
+    /// Every `stream:`/`map:` names a kind that exists. A dangling child kind
+    /// would surface as a fragment failing to bind, far from the cause.
+    #[test]
+    fn every_child_kind_resolves() {
+        for (kind, parts) in schemas() {
+            for (part, ty) in parts {
+                let child = match ty {
+                    PartType::Stream(k) | PartType::Map(k) => *k,
+                    _ => continue,
+                };
+                assert!(
+                    schema(child).is_some(),
+                    "{kind}.{part} names kind {child:?}, which is not declared"
+                );
+            }
+        }
+    }
+
+    /// The vocabulary each kind declares. NOT the render order: that is the
+    /// producer's `set()` order, and reordering this asset was measured to
+    /// change no shipped byte. Pinned so the vocabulary cannot drift silently.
+    #[test]
+    fn each_kind_declares_its_vocabulary() {
+        let names = |k| {
+            schema(k)
+                .unwrap()
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names("shell"), ["nav", "site_title", "main", "copyright"]);
+        assert_eq!(
+            names("listing"),
+            ["title", "crumbs", "intro", "featured", "items", "pagination"]
+        );
+    }
+
+    /// A kind nothing declares is `None`, which is what makes a fragment
+    /// named after a typo a load error rather than an empty render.
+    #[test]
+    fn an_undeclared_kind_is_none() {
+        assert!(schema("summary").is_some());
+        assert!(schema("sumary").is_none());
     }
 }
