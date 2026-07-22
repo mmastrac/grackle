@@ -38,7 +38,6 @@ use std::path::Path;
 use crate::parts::{Part, PartMap, PartType};
 use crate::render::esc;
 
-// ------------------------------------------------------------------- model
 
 #[derive(Debug)]
 enum Node {
@@ -134,7 +133,6 @@ impl Fragments {
         Ok(f)
     }
 
-    // ------------------------------------------------------------ validate
 
     fn validate(&self, frag: &Fragment, file: &str) -> Result<()> {
         self.validate_nodes(&frag.nodes, &frag.kind, file)
@@ -254,7 +252,6 @@ impl Fragments {
         out
     }
 
-    // -------------------------------------------------------------- render
 
     /// Render the map through its kind's fragment — or, when the theme
     /// declines to arrange this kind, through the canonical null rendering
@@ -438,7 +435,6 @@ fn known_kinds() -> &'static str {
      link, crumb, tag, relation, neighbor, pagination, page_link, raw"
 }
 
-// ------------------------------------------------------------------ parser
 
 /// The HTML void elements — the one list; `slots.rs` block counting uses it
 /// too.
@@ -630,7 +626,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-// ------------------------------------------------------------------- tests
 
 #[cfg(test)]
 mod tests {

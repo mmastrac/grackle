@@ -40,7 +40,6 @@ pub fn spec_field(spec: &str) -> &str {
     }
 }
 
-// ------------------------------------------------------------------ rows
 
 #[derive(Debug, Default, Serialize)]
 pub struct Row {
@@ -170,7 +169,6 @@ fn hex<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&format!("{v:016x}"))
 }
 
-// ------------------------------------------------------------------ tables
 
 #[cfg(test)]
 mod adjacency_tests {
@@ -221,7 +219,6 @@ pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
     )
 }
 
-// ------------------------------------------------------------------ routes
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -534,7 +531,6 @@ pub struct LoadStats {
     pub views_ms: f64,
 }
 
-// ------------------------------------------------------------------ views
 
 /// Fields a filter may reference on a row, and their types. Everything else
 /// is a load-time error (filter.rs), so a typo can't silently match
@@ -667,7 +663,6 @@ pub fn object_schema() -> filter::Schema {
     s
 }
 
-// ------------------------------------------------------------- insertion
 
 impl SiteDb {
     /// The row a route points at, whichever table holds it. Row identity is

@@ -117,7 +117,6 @@ pub fn strip_tags(html: &str) -> String {
     out
 }
 
-// ------------------------------------------------------------------- index
 
 /// The shipped index. `docs` are `(url, title, date)`; `terms` maps a stem
 /// to postings `(doc index, quantised TF·IDF)`, strongest first.
@@ -213,7 +212,6 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
     )
 }
 
-// ------------------------------------------------------------------ search
 
 /// One ranked hit: `(url, title, date)`.
 pub type Hit = (String, String, String);

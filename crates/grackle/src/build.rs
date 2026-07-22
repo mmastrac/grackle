@@ -31,7 +31,6 @@ pub struct Stats {
     pub listings: usize,
     pub copied: usize,
     pub css: usize,
-    /// XML serializations written: the feed and the sitemap.
     pub serialized: usize,
     /// Distinct derived thumbnails published under `/static/`.
     pub thumbs: usize,
@@ -42,7 +41,6 @@ pub struct Stats {
     /// when to run the model: `build` before rendering, `serve` in the
     /// background with a re-render on completion.
     pub embed_pending: Vec<crate::embed::Pending>,
-    /// Size of the shipped /search.bin index.
     pub search_bytes: usize,
 }
 
@@ -95,8 +93,6 @@ mod alternates_tests {
         assert!(locale_alternates("https://s", "en", "/a/", &[]).is_empty());
     }
 
-    /// Every version lists every version, itself first. Omitting self is
-    /// the classic hreflang mistake.
     #[test]
     fn every_version_lists_itself_and_its_twins() {
         let twins = vec![("fr".to_string(), "/fr/a/".to_string())];
@@ -1070,7 +1066,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     Ok((out_map, stats))
 }
 
-// ------------------------------------------------------------------ passes
 
 /// Thumbnails (§6b): derive images once, publish under `/static/`, and hand
 /// back `{% image %}` source → published URL for the render passes to look

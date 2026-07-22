@@ -12,7 +12,6 @@
 use crate::db::Row;
 use std::fmt::Write as _;
 
-// ---------------------------------------------------------------- escaping
 
 pub fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
@@ -32,7 +31,6 @@ fn json_str(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
-// ------------------------------------------------------------- head facts
 
 /// Typed facts derived from a row's schema. A theme renders the subset it
 /// wants; nobody branches on "am I a post" (§5a).
@@ -122,7 +120,6 @@ pub fn head_simple(title: &str, url: &str, site: &Site, noindex: bool) -> Head {
     }
 }
 
-// ----------------------------------------------------------------- themes
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
@@ -274,7 +271,6 @@ pub fn head_html(head: &Head, css: &str) -> String {
     h
 }
 
-// --------------------------------------------------------- feed serialization
 
 /// A date as Atom/sitemap `date_to_xmlschema`: `2026-06-25T00:00:00+00:00`.
 pub fn xmlschema(d: chrono::NaiveDate) -> String {

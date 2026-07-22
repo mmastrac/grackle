@@ -129,7 +129,6 @@ pub fn render(src: &str) -> String {
     out
 }
 
-// ------------------------------------------------------------------ blocks
 
 /// A rendered document as its top-level block sequence (§6d). `whole` is the
 /// exact `render()` output — documents and the feed use it unchanged, so the
@@ -233,7 +232,6 @@ fn text_len(html: &str) -> usize {
     n
 }
 
-// ---------------------------------------------------------------- headings
 
 /// One heading of a rendered document — §6e's heading axis.
 #[derive(Debug, PartialEq)]

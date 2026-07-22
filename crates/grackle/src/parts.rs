@@ -21,7 +21,6 @@
 
 use crate::db::{Row, SiteDb};
 
-// ------------------------------------------------------------------- model
 
 #[derive(Debug)]
 pub enum Part {
@@ -287,7 +286,6 @@ pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
         .map(|(_, t)| *t)
 }
 
-// --------------------------------------------------------------- canonical
 
 /// The null theme (§5e step 4): a part map rendered with **no fragments at
 /// all** — canonical order, generic semantic markup, derived purely from the
@@ -351,7 +349,6 @@ fn canonical_into(m: &PartMap, out: &mut String) {
     out.push_str("</section>\n");
 }
 
-// --------------------------------------------------------------- producers
 
 fn crumb(label: String, url: Option<String>) -> PartMap {
     let mut c = PartMap::new("crumb");

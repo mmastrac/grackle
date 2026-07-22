@@ -67,10 +67,11 @@ fn strip_layout_chrome(body: &str) -> String {
 pub fn normalize(html: &str) -> String {
     let mut s = html.to_string();
 
-    // comrak injects `<a href="#slug" ... class="anchor"></a>` inside every
-    // heading when header ids are on; kramdown emits only the id. The real
-    // pipeline drops this in the AST pass, so removing it here keeps the
-    // measurement pointed at the question that matters: do the slugs agree?
+    // comrak injects `<a href="#slug" … class="anchor"></a>` inside every
+    // heading; kramdown emits only the id. The SHIPPED pipeline keeps these
+    // (markdown.rs) — they are stripped here only so the measurement stays
+    // pointed at the slug question, which means this comparison is blind to
+    // that divergence by construction.
     s = strip_comrak_anchors(&s);
 
     // Entity spellings that render identically.

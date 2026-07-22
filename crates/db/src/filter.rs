@@ -24,7 +24,6 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::BTreeMap;
 use std::fmt;
 
-// ------------------------------------------------------------------ types
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
@@ -106,7 +105,6 @@ pub trait Row {
     fn field(&self, name: &str) -> Value;
 }
 
-// ------------------------------------------------------------------ ast
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
@@ -171,7 +169,6 @@ enum Expr {
     In(Lit, Operand),
 }
 
-// -------------------------------------------------------------- functions
 
 /// A function the language can call. The signature drives type checking and
 /// `eval` drives evaluation, so adding one is a single entry here.
@@ -283,7 +280,6 @@ fn lookup_func(name: &str) -> Result<&'static Func> {
     ))
 }
 
-// ------------------------------------------------------------------ lexer
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -414,7 +410,6 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
     Ok(out)
 }
 
-// ------------------------------------------------------------------ parser
 
 struct Parser {
     toks: Vec<Tok>,
@@ -568,7 +563,6 @@ impl Parser {
     }
 }
 
-// ------------------------------------------------------------ validation
 
 fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
@@ -691,7 +685,6 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
     }
 }
 
-// ------------------------------------------------------------------ api
 
 #[derive(Debug, Clone)]
 pub struct Filter {
@@ -783,7 +776,6 @@ fn eval(e: &Expr, row: &impl Row) -> bool {
     }
 }
 
-// ------------------------------------------------------------------ tests
 
 #[cfg(test)]
 mod tests {
@@ -851,7 +843,6 @@ mod tests {
         Filter::parse(src, &schema()).expect_err(src).to_string()
     }
 
-    // ------------------------------------------------------------ functions
 
     #[test]
     fn under_selects_a_subtree() {

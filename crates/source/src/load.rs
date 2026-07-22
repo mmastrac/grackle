@@ -33,7 +33,6 @@ fn front_matter_date(raw: &str, path: &Path) -> Result<NaiveDate> {
         )
     })
 }
-// ------------------------------------------------------------------ rules
 
 struct CompiledRule<'a> {
     matcher: GlobMatcher,
@@ -249,7 +248,6 @@ fn tidy(url: String) -> String {
     }
     out
 }
-// ------------------------------------------------------------------ posts
 
 /// Read one posts collection's rows. Indexing is deliberately NOT here:
 /// several collections can contribute to the one posts table (`_posts` and
@@ -464,7 +462,6 @@ fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
     rows
 }
-// ------------------------------------------------------- tree + objects
 
 /// One walk of the site root, partitioned by membership precedence
 /// (DESIGN.md §3): objects win by extension, tree takes the rest.
