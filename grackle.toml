@@ -81,6 +81,15 @@ bucket = "assets"
   match = "resource/**"
   route = "/{path}"
 
+  # Frozen legacy subtrees. These are hand-written pages from 1996 onward
+  # citing their assets in markup the reference scan does not read and never
+  # will — `<body background=…>`, imagemaps, framesets — and none of it is
+  # going to change again. Publishing them wholesale is cheaper and more
+  # honest than teaching the scanner twenty years of dead HTML dialects.
+  [[collections.rules]]
+  match = "{code,demos,writing}/**"
+  route = "/{path}"
+
   # §4 on-demand: an image publishes at its literal path when something
   # references it. The template still says WHERE, so `{% image %}` and every
   # authored link resolve before anything materializes.
