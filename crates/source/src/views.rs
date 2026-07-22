@@ -658,15 +658,25 @@ fn build_object_view(
     // every other view — `path` unless the view says otherwise, `path` last
     // either way — against the narrower object vocabulary.
     let known: Vec<&str> = object_schema().keys().copied().collect();
+    // The base is a FILTER now (q51's move, applied to objects the day the
+    // objects table was folded into the one row store). Membership is
+    // `collection == <this objects collection>`, ANDed onto the view's own
+    // predicate — and note the two are parsed against DIFFERENT schemas on
+    // purpose: the user's filter still type-checks against the narrow object
+    // vocabulary, so `where = "draft"` on a gallery stays the load error §5b
+    // wants, while the membership clause needs a column only the full row
+    // schema names.
+    let membership = filter::Filter::parse(&format!("collection == {:?}", q.base), &row_schema())
+        .with_context(|| format!("view {name}: objects collection {:?}", q.base))?;
     let view = grackle_db::View::all()
-        .filter(scoped_filter(name, q, &object_schema())?)
+        .filter(scoped_filter(name, q, &object_schema())?.and(membership))
         .order(declared_order(
             &known,
             &format!("view {name}"),
             q.order_by.as_deref(),
         )?)
         .limit(v.limit);
-    let members: Vec<grackle_db::Key> = db.objects.rows.view(&view);
+    let members: Vec<grackle_db::Key> = db.rows.view(&view);
     db.routes.push(Route {
         view: Some(name.to_string()),
         rows: Some(members.len()),
@@ -747,6 +757,11 @@ mod object_view_tests {
     fn obj(rel: &str) -> Row {
         Row {
             key: grackle_db::Key::new(rel),
+            // Membership is a COLUMN since the objects table was folded into
+            // the one row store: an object view's base is
+            // `collection == "objects"`, so a fixture that omits this is a
+            // row the view cannot see.
+            collection: "objects".to_string(),
             path: PathBuf::from(rel),
             rel: PathBuf::from(rel),
             url: format!("/{rel}"),
@@ -754,6 +769,16 @@ mod object_view_tests {
             rendered: false,
             ..Default::default()
         }
+    }
+
+    /// Seed the row store with object rows AND record their membership.
+    /// The objects table used to make this implicit; with one store a
+    /// fixture has to MEAN membership (q51's "a test fixture is not
+    /// identity"), or the view's base filter matches nothing and the test
+    /// passes vacuously.
+    fn seed_objects(db: &mut SiteDb, rows: Vec<Row>) {
+        db.object_ix = rows.iter().map(|r| r.key.clone()).collect();
+        db.rows = grackle_db::Table::new(rows);
     }
 
     fn cfg(views: &str) -> Config {
@@ -769,11 +794,14 @@ mod object_view_tests {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
              order_by = \"name\"\npath = \"/photos/\"\nlayout = \"gallery\"\n");
         let mut db = SiteDb::default();
-        db.objects.rows = grackle_db::Table::new(vec![
-            obj("assets/x.png"),
-            obj("photos/b.png"),
-            obj("photos/a.png"),
-        ]);
+        seed_objects(
+            &mut db,
+            vec![
+                obj("assets/x.png"),
+                obj("photos/b.png"),
+                obj("photos/a.png"),
+            ],
+        );
         build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
         let r = db
             .routes
@@ -794,11 +822,47 @@ mod object_view_tests {
     /// `order_by` used to be REQUIRED on an object view, and had to be
     /// `"name"`. Both halves died when an object became a `Row`: it has a
     /// path, paths order, and that is the same default every other view got.
+    /// The merge's one real hazard: with objects and content in ONE store, a
+    /// gallery must still see only objects. Membership used to be enforced by
+    /// which table the view read; it is a filter now, and this is the test
+    /// that fails if that filter is ever dropped.
+    #[test]
+    fn a_gallery_does_not_pick_up_content_rows() {
+        let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
+             path = \"/photos/\"\nlayout = \"gallery\"\n");
+        let mut db = SiteDb::default();
+        // A content row sitting at a path the gallery's glob matches.
+        let page = Row {
+            key: grackle_db::Key::new("photos/about.md"),
+            collection: "pages".to_string(),
+            path: PathBuf::from("photos/about.md"),
+            rel: PathBuf::from("photos/about.md"),
+            url: "/photos/about/".to_string(),
+            rendered: true,
+            ..Default::default()
+        };
+        let o = obj("photos/a.png");
+        db.object_ix = vec![o.key.clone()];
+        db.page_ix = vec![page.key.clone()];
+        db.rows = grackle_db::Table::new(vec![o, page]);
+
+        build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
+        let r = db.routes.iter().find(|r| r.url == "/photos/").expect("route");
+        assert_eq!(
+            r.members
+                .iter()
+                .map(|k| k.as_str().to_string())
+                .collect::<Vec<_>>(),
+            ["photos/a.png"],
+            "a content row leaked into an object view"
+        );
+    }
+
     #[test]
     fn an_object_view_needs_no_order_by() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
         let mut db = SiteDb::default();
-        db.objects.rows = grackle_db::Table::new(vec![obj("photos/b.png"), obj("photos/a.png")]);
+        seed_objects(&mut db, vec![obj("photos/b.png"), obj("photos/a.png")]);
         build_views(&c, &mut db, &Schemas::new(row_schema())).expect("path is an ordering");
         let r = db.routes.iter().find(|r| r.url == "/p/").expect("route");
         assert_eq!(

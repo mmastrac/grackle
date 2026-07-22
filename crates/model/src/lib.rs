@@ -216,14 +216,6 @@ pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
     )
 }
 
-#[derive(Debug, Default, Serialize)]
-pub struct ObjectsTable {
-    pub rows: Table<Row>,
-    /// Deliberately non-unique (DESIGN.md §6a).
-    #[serde(skip)]
-    pub by_name: BTreeMap<String, Vec<usize>>,
-}
-
 // ------------------------------------------------------------------ routes
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -464,7 +456,23 @@ pub struct SiteDb {
     /// root-relative on each.
     #[serde(skip)]
     pub by_logical: BTreeMap<String, Vec<Key>>,
-    pub objects: ObjectsTable,
+    /// Indices of rows an objects collection produced. Objects were a
+    /// separate TABLE until 2026-07-21; they were already the same `Row`, and
+    /// every index in `index_rows` already gated on row PROPERTIES
+    /// (`post_ix` membership, `rendered`) rather than on which vector a row
+    /// arrived in — so folding them in needed no index to change.
+    #[serde(skip)]
+    pub object_ix: Vec<Key>,
+    /// Object basename -> rows. Deliberately non-unique (DESIGN.md §6a):
+    /// `screenshot5.png` genuinely collides, so resolution is a query that
+    /// can fail rather than a map lookup.
+    ///
+    /// NOTE: §6a's bubble+bucket bare-name resolution is **specced, not
+    /// built** — nothing reads this except `query stats`, and `[objects]
+    /// bucket` is parsed and never read. `{% image %}` joins its literal
+    /// argument to the root, so a bare name errors rather than resolving.
+    #[serde(skip)]
+    pub by_name: BTreeMap<String, Vec<Key>>,
     pub routes: Table<Route>,
     /// Row sets for views that resolve to exactly one — the ones with no route
     /// to hang `members` on: named queries (`published`) and embedded views
@@ -709,7 +717,12 @@ impl SiteDb {
         self.page_ix.iter().filter_map(|k| self.rows.get(k))
     }
 
-    /// Fill the row store from its two origins and build every index.
+    /// The rows an objects collection produced: binaries, never rendered.
+    pub fn objects(&self) -> impl Iterator<Item = &Row> {
+        self.object_ix.iter().filter_map(|k| self.rows.get(k))
+    }
+
+    /// Fill the row store from its three origins and build every index.
     ///
     /// The one way rows enter the database. `posts` and `pages` arrive
     /// already ordered — the loader decides load order, since it is the half
@@ -724,19 +737,35 @@ impl SiteDb {
         &mut self,
         mut posts: Vec<Row>,
         mut pages: Vec<Row>,
+        mut objects: Vec<Row>,
         default_locale: &str,
     ) -> Result<()> {
         // Keys are assigned here, where rows stop being the loader's and
         // become the database's. A row's key is its source file.
-        for r in posts.iter_mut().chain(pages.iter_mut()) {
+        for r in posts
+            .iter_mut()
+            .chain(pages.iter_mut())
+            .chain(objects.iter_mut())
+        {
             r.key = Key::new(r.rel.to_string_lossy());
         }
         // ONE row store (q51). The split survives only as two lists of keys,
         // which is what "the posts table" always meant: a set of rows.
         self.post_ix = posts.iter().map(|r| r.key.clone()).collect();
         self.page_ix = pages.iter().map(|r| r.key.clone()).collect();
+        self.object_ix = objects.iter().map(|r| r.key.clone()).collect();
+        self.by_name = objects.iter().fold(BTreeMap::new(), |mut m, r| {
+            let name = r
+                .rel
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            m.entry(name).or_insert_with(Vec::new).push(r.key.clone());
+            m
+        });
         self.rows = Table::new(posts);
         self.rows.extend(pages);
+        self.rows.extend(objects);
         self.index_rows(default_locale)
     }
 

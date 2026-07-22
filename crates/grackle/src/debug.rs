@@ -193,9 +193,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         .collect();
 
     let objects: Vec<Row> = db
-        .objects
-        .rows
-        .iter()
+        .objects()
         .map(|o| Row {
             table: "objects",
             url: o.url.clone(),
@@ -258,7 +256,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             // index the same rows.
             .filter_map(|k| match kind {
                 Kind::Posts | Kind::Tree => db.rows.get(k).map(|p| p.url.clone()),
-                Kind::Objects => db.objects.rows.get(k).map(|o| o.url.clone()),
+                Kind::Objects => db.rows.get(k).map(|o| o.url.clone()),
             })
             .collect()
     };
@@ -319,7 +317,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         stats: Stats {
             posts: db.post_ix.len(),
             pages: db.page_ix.len(),
-            objects: db.objects.rows.len(),
+            objects: db.object_ix.len(),
             routes: db.routes.len(),
             load_ms: db.stats.read_ms + db.stats.index_ms + db.stats.views_ms,
         },

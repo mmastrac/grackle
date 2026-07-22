@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::template;
-use grackle_model::{Kind, ObjectsTable, Route, RouteKind, Row, SiteDb};
+use grackle_model::{Kind, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
 use crate::filename::FilenameFormat;
@@ -427,9 +427,9 @@ fn build_tree_and_objects(
     obj_c: Option<&Collection>,
     markers: &Markers,
     schemas: &Schemas,
-) -> Result<(Vec<Row>, ObjectsTable)> {
+) -> Result<(Vec<Row>, Vec<Row>)> {
     let Some(tree_c) = tree_c else {
-        return Ok((Vec::new(), ObjectsTable::default()));
+        return Ok((Vec::new(), Vec::new()));
     };
     let root = cfg.root();
     let exclude = build_globset(&tree_c.exclude)?;
@@ -490,7 +490,7 @@ fn build_tree_and_objects(
     });
 
     let mut pages: Vec<Row> = Vec::new();
-    let mut objects = ObjectsTable::default();
+    let mut objects: Vec<Row> = Vec::new();
 
     for f in files {
         let is_object = is_obj(&f.rel);
@@ -521,16 +521,6 @@ fn build_tree_and_objects(
         };
 
         if is_object {
-            let name = f
-                .rel
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-            objects
-                .by_name
-                .entry(name.clone())
-                .or_default()
-                .push(objects.rows.len());
             // An object is a row that was never rendered. Everything else it
             // could carry — front matter, a date, a locale axis — a binary
             // file does not have, so the defaults are the honest values.
@@ -539,7 +529,7 @@ fn build_tree_and_objects(
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            objects.rows.push(Row {
+            objects.push(Row {
                 key: grackle_db::Key::new(f.rel.to_string_lossy()),
                 collection: obj_name.to_string(),
                 path: f.path,
@@ -717,11 +707,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let (page_rows, objects) = build_tree_and_objects(
         cfg, &tree_name, tree_c, &obj_name, obj_c, &markers, &schemas,
     )?;
-    db.objects = objects;
     db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
 
     let t_index = std::time::Instant::now();
-    db.insert_rows(sort_posts(post_rows), page_rows, &cfg.i18n.default)?;
+    db.insert_rows(sort_posts(post_rows), page_rows, objects, &cfg.i18n.default)?;
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
     // Unified route list.
@@ -736,6 +725,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // were laid down first and contiguously — the last of the positional
     // assumptions keys were introduced to retire.
     let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
+    let objects: std::collections::HashSet<&grackle_db::Key> = db.object_ix.iter().collect();
     let new_routes: Vec<Route> = db
         .rows
         .iter()
@@ -743,8 +733,14 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         // materializes the landing.
         .filter(|p| !p.claimed)
         .map(|p| {
+            // Route kind is a question about the row's PROPERTIES, not about
+            // which vector it arrived in — which is what let the objects
+            // table go: an object is the arm between "rendered" and "static",
+            // reached by membership like `Post` is.
             let kind = if posts.contains(&p.key) {
                 RouteKind::Post
+            } else if objects.contains(&p.key) {
+                RouteKind::Object
             } else if p.rendered {
                 RouteKind::Page
             } else {
@@ -760,12 +756,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         })
         .collect();
     db.routes.extend(new_routes);
-    for o in &db.objects.rows {
-        db.routes.push(Route {
-            source: Some(o.path.clone()),
-            ..Route::new(o.url.clone(), RouteKind::Object)
-        });
-    }
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_star_views(cfg, &mut db)?;

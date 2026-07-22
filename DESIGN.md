@@ -197,11 +197,35 @@ is a *unique index* over posts, not the primary key — drafts have no date in
 their filename, so a `(date, slug)` PK can't represent them. Identity =
 path keeps every row addressable; dated-ness is a property, not an identity.
 
-| Table kind | Identity      | Primary index          | Source         |
-|------------|---------------|------------------------|----------------|
-| `posts`    | source path   | `(date, slug)` unique  | `_posts/**`    |
-| `tree`     | source path   | path hierarchy         | site root      |
-| `objects`  | source path   | `by_name` (non-unique) | by extension   |
+| Origin | Identity | Primary index | Source |
+|---|---|---|---|
+| `posts` | source path | `(date, slug)` unique | `_posts/**` |
+| `tree` | source path | path hierarchy | site root |
+| `objects` | source path | `by_name` (non-unique) | by extension |
+
+**One store, three origins** *(2026-07-21)*. These were three tables; they are
+one `SiteDb.rows` and three lists of keys (`post_ix`, `page_ix`, `object_ix`).
+Objects went last and cost nothing, because q51 had already written every
+index to gate on a row's PROPERTIES rather than on which vector it arrived in:
+`by_key`/`by_slug`/`by_tag` ask `post_ix` membership, and `by_logical` asks
+`rendered` — whose comment already read *"a static file has no logical
+identity to pair a translation on"*. Not one index changed.
+
+What the objects table had been doing, and what took each over: **routing** →
+the same property-driven `RouteKind` arm every other row uses; **`by_name`** →
+an index on `SiteDb`; **the narrower vocabulary** → the collection's, not the
+table's; **a separate view flow** → `build_row_view`'s, once membership became
+a filter.
+
+**Membership is a filter now**, which is q51's move applied one table further:
+an object view's base is `collection == "<the objects collection>"`, ANDed onto
+the view's own predicate. The two halves are parsed against *different*
+schemas on purpose — the author's filter still type-checks against
+`object_schema`, so `where = "draft"` on a gallery stays the load error §5b
+wants, while the membership clause names a column only the full row schema
+has. The hazard the merge introduces is the mirror image: with one store, a
+content row could leak into a gallery. Pinned by a test that was verified to
+fail when the filter is removed.
 
 - **Posts**: ordered rows, reverse-chronological over the dated set.
   Secondary indexes: `by_slug` (for `post_url`), `by_tag`, `by_year_month`,
@@ -2282,11 +2306,23 @@ point. Exhausting the root → error naming the reference and the referencing
 row. Both are transaction-time constraints (§4) — a bad reference fails the
 build at the file that caused it rather than shipping a broken `<img>`.
 
-Name resolution is therefore **additive and immediately useful**: paths keep
-the existing corpus byte-identical, sibling lookup already matches how
-`code/legacy/*` is organised, and the root `assets/` dir is discovered as a
-bucket automatically — bare names work for posts today, with no restructuring
-and no bucket configuration at all.
+⚠️ **Specced, not built** *(measured 2026-07-21)*. Everything above describes
+a design, not the code. `thumbs::one` joins `{% image %}`'s literal argument to
+the site root, so a bare name resolves to `root/burrs.jpg`, misses, and fails
+the build with `{% image %} source not found` — it fails loudly, which is why
+nobody has been bitten, but it does not bubble and it does not consult a
+bucket. `[objects] bucket` is parsed by config and **read by nothing**; both
+sites declare it. `by_name` is built every load and read only by
+`query stats`. All 194 corpus invocations pass a path, so the unbuilt branch
+has never been reached.
+
+An earlier version of this section claimed "bare names work for posts today,
+with no restructuring and no bucket configuration at all". They do not. This is
+the same class of drift as §9b Round 3's *declared-and-ignored* `layout` names,
+and the third instance found in one week — after `grackle diff`'s URL-parity
+claim and the heading anchors "the real pipeline strips". The tour's own
+worked example (§0 step 4, `burrs.jpg` resolving to a sibling) is aspirational
+for the same reason.
 
 ### `{% image %}` vs `<img>`/`<iframe>` (and `<style>`)
 

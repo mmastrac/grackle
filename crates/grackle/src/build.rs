@@ -378,7 +378,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         let items: Vec<parts::Figure> = r
             .members
             .iter()
-            .filter_map(|k| db.objects.rows.get(k))
+            .filter_map(|k| db.rows.get(k))
             .map(|o| {
                 let key = o.rel.to_string_lossy().to_string();
                 let t = thumbs.get(&key);
@@ -577,7 +577,7 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
                 let items: Vec<parts::Figure> = r
                     .members
                     .iter()
-                    .filter_map(|k| db.objects.rows.get(k))
+                    .filter_map(|k| db.rows.get(k))
                     .map(|o| {
                         let key = o.rel.to_string_lossy().to_string();
                         let t = thumbs.get(&key);
@@ -1123,7 +1123,7 @@ fn thumbs_pass(
         if let Some(view) = &r.view {
             if view_base_kind(cfg, view) == Some(Kind::Objects) {
                 for k in &r.members {
-                    if let Some(o) = db.objects.rows.get(k) {
+                    if let Some(o) = db.rows.get(k) {
                         img_sources.push(o.rel.to_string_lossy().to_string());
                     }
                 }

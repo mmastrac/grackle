@@ -42,7 +42,9 @@ impl LinkSpace {
         // One loop over both tables. It was two only because a post's `rel`
         // was collection-relative, so the post arm had to re-derive the
         // root-relative form from `path`; `rel` means one thing now (q51).
-        for p in db.posts().chain(db.pages()) {
+        // Three origins, one loop: objects joined the row store when their
+        // table was deleted, and they resolve as sources exactly as before.
+        for p in db.posts().chain(db.pages()).chain(db.objects()) {
             // q45: a claimed locale variant whose partition never
             // materialized has no URL; offering it would rewrite links
             // to "".
@@ -50,9 +52,6 @@ impl LinkSpace {
                 continue;
             }
             source_to_url.insert(p.rel.to_string_lossy().to_string(), p.url.clone());
-        }
-        for o in &db.objects.rows {
-            source_to_url.insert(o.rel.to_string_lossy().to_string(), o.url.clone());
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();

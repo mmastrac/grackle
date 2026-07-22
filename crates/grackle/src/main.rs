@@ -354,9 +354,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 "  static        {}",
                 db.pages().filter(|r| !r.rendered).count()
             );
-            println!("objects         {}", db.objects.rows.len());
-            println!("  distinct names{:>4}", db.objects.by_name.len());
-            let dupes = db.objects.by_name.values().filter(|v| v.len() > 1).count();
+            println!("objects         {}", db.object_ix.len());
+            println!("  distinct names{:>4}", db.by_name.len());
+            let dupes = db.by_name.values().filter(|v| v.len() > 1).count();
             println!("  ambiguous     {}", dupes);
             println!("indexes");
             println!("  by_key        {}  (date, slug) unique", db.by_key.len());
