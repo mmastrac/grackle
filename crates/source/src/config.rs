@@ -446,6 +446,16 @@ pub struct Rule {
     /// Gate the rule on front-matter presence. This is what separates a Jekyll
     /// *page* (rendered, pretty URL) from a static file (copied verbatim).
     pub front_matter: Option<bool>,
+    /// Publish a matching row only when something REFERENCES it (§4).
+    ///
+    /// The rule's `route` template still computes the row's URL, so a link
+    /// can resolve before anything materializes — what is deferred is only
+    /// whether a `Route` is emitted. At most one on-demand rule may cover a
+    /// path (a load error otherwise); eager rules cascade normally and an
+    /// eager match wins, which is what lets a specific `.well-known/**` rule
+    /// sit above an on-demand `**/*` catch-all.
+    #[serde(default)]
+    pub on_demand: Option<bool>,
     #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
 }

@@ -72,9 +72,22 @@ kind = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
 bucket = "assets"
 
+  # Browser-convention assets: a favicon or a touch icon is fetched by URL
+  # with nothing on the site linking it, so it cannot be reference-driven.
+  # Eager rules sit ABOVE the on-demand catch-all and win by first-writer
+  # (§4) — which is the whole reason the overlap check is scoped to
+  # on-demand rules only.
+  [[collections.rules]]
+  match = "resource/**"
+  route = "/{path}"
+
+  # §4 on-demand: an image publishes at its literal path when something
+  # references it. The template still says WHERE, so `{% image %}` and every
+  # authored link resolve before anything materializes.
   [[collections.rules]]
   match = "**"
   route = "/{path}"
+  on_demand = true
 
 # ---------------------------------------------------------------- pages
 

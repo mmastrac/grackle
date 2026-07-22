@@ -44,6 +44,10 @@ impl LinkSpace {
         // root-relative form from `path`; `rel` means one thing now (q51).
         // Three origins, one loop: objects joined the row store when their
         // table was deleted, and they resolve as sources exactly as before.
+        // A row that publishes on demand (§4) is a legal link target even
+        // though nothing has materialized it yet: the question a link asks is
+        // whether the target is PUBLISHABLE, not whether someone else already
+        // cited it. Its URL comes from the same rule template either way.
         for p in db.posts().chain(db.pages()).chain(db.objects()) {
             // q45: a claimed locale variant whose partition never
             // materialized has no URL; offering it would rewrite links
@@ -55,6 +59,12 @@ impl LinkSpace {
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
+        // §4: `route || row.on_demand`. An on-demand row has no Route yet, so
+        // taking the route set alone would call every asset link dangling —
+        // and the link is precisely what will materialize it.
+        for p in db.rows.iter().filter(|p| p.on_demand && !p.url.is_empty()) {
+            routes.insert(p.url.clone());
+        }
         for r in &db.routes {
             routes.insert(r.url.clone());
             let form = match r.kind {

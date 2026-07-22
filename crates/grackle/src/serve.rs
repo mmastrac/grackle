@@ -206,7 +206,8 @@ fn render(
 ) -> Result<(Snapshot, Vec<crate::embed::Pending>)> {
     let cfg = Config::load_profile(config_path, profile)?;
     let db = grackle_source::load(&cfg).context("loading site database")?;
-    let (pages, mut stats) = build::render_site(&cfg, &db)?;
+    let mut db = db;
+    let (pages, mut stats) = build::render_site(&cfg, &mut db)?;
     let pending = std::mem::take(&mut stats.embed_pending);
     let debug = crate::debug::payload(&cfg, &db)?;
     Ok((

@@ -113,6 +113,11 @@ pub struct Row {
     /// verbatim. Always true for a row that came from a posts collection —
     /// a post with no front matter is still parsed.
     pub rendered: bool,
+    /// §4: this row's route rule was `on_demand`, so it publishes only when
+    /// something references it. The URL is computed either way — what is
+    /// deferred is whether a `Route` exists — which is what lets a link
+    /// resolve to a row nothing has materialized yet.
+    pub on_demand: bool,
     pub size: u64,
     /// q45: this row is a landing view's content — no standalone route,
     /// excluded from every query structurally.

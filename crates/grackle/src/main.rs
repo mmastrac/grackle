@@ -162,7 +162,7 @@ fn main() -> Result<()> {
         .clone()
         .or_else(|| matches!(cli.cmd, Cmd::Serve { .. }).then(|| "dev".to_string()));
     let cfg = config::Config::load_profile(&cli.config, profile.as_deref())?;
-    let db = grackle_source::load(&cfg).context("loading site database")?;
+    let mut db = grackle_source::load(&cfg).context("loading site database")?;
     let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     match cli.cmd {
@@ -183,7 +183,7 @@ fn main() -> Result<()> {
         }
         Cmd::Build { out } => {
             let t = std::time::Instant::now();
-            let s = build::build(&cfg, &db, &out)?;
+            let s = build::build(&cfg, &mut db, &out)?;
             let ms = t.elapsed().as_secs_f64() * 1000.0;
             println!("built {} in {:.0}ms", out.display(), ms);
             println!("  posts     {}", s.posts);
@@ -191,6 +191,9 @@ fn main() -> Result<()> {
             println!("  listings  {}", s.listings);
             println!("  copied    {}", s.copied);
             println!("  thumbs    {} (/static/)", s.thumbs);
+            if s.on_demand > 0 {
+                println!("  on-demand {} (published because referenced)", s.on_demand);
+            }
             println!("  xml       {} (feed + sitemap)", s.serialized);
             println!("  css       {} bytes", s.css);
             if !s.skipped.is_empty() {
@@ -213,7 +216,7 @@ fn main() -> Result<()> {
             // published prefix is thumbs.rs's, which is a constant today —
             // when it becomes config, this reads it from there.
             prefixes.push("/static/".to_string());
-            let (out_map, _) = build::render_site(&cfg, &db)?;
+            let (out_map, _) = build::render_site(&cfg, &mut db)?;
             let ours = urls::parity_set(out_map.keys().cloned(), &prefixes);
             let reference = urls::parity_set(
                 urls::urls_in_dir(&against)

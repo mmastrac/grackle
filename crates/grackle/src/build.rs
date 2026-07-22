@@ -35,6 +35,8 @@ pub struct Stats {
     pub serialized: usize,
     /// Distinct derived thumbnails published under `/static/`.
     pub thumbs: usize,
+    /// Rows published because something referenced them (§4 on-demand).
+    pub on_demand: usize,
     pub skipped: Vec<String>,
     /// Posts whose embeddings are missing or stale (§6b). The caller decides
     /// when to run the model: `build` before rendering, `serve` in the
@@ -109,7 +111,7 @@ mod alternates_tests {
 }
 
 /// Write a rendered site to a directory (AOT). Thin wrapper over `render_site`.
-pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
+pub fn build(cfg: &Config, db: &mut SiteDb, out: &Path) -> Result<Stats> {
     // AOT builds publish, so they wait for fresh embeddings: bring the cache
     // current first, then render once with nothing pending.
     let cache = cfg.root().join("_cache/embeddings");
@@ -132,7 +134,7 @@ pub fn build(cfg: &Config, db: &SiteDb, out: &Path) -> Result<Stats> {
 
 /// Render every routable URL into memory. Writes nothing to the output; the
 /// only disk it touches is the content-addressed `_cache/` (thumbnails, §6b).
-pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
+pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)> {
     let mut out_map: SiteOutput = BTreeMap::new();
 
     let site = Site {
@@ -1082,6 +1084,8 @@ pub fn render_site(cfg: &Config, db: &SiteDb) -> Result<(SiteOutput, Stats)> {
         )?;
     }
 
+    stats.on_demand = materialize_referenced(db, &mut out_map)?;
+
     Ok((out_map, stats))
 }
 
@@ -1301,6 +1305,158 @@ fn render_page_bodies(
 /// Root-relative internal link targets in a rendered fragment (q38):
 /// `href` values that are root-relative or under the site's own origin,
 /// fragment and query stripped.
+/// §4 on-demand: publish a row because something referenced it.
+///
+/// Runs after the write pass, because the references live in FINISHED output.
+/// A body alone is not enough — `{% image %}` expands to
+/// `<a href='/assets/…'>` so an original is cited by markup that does not
+/// exist at load time, and the shell's favicons and stylesheet link are cited
+/// by chrome that no body contains.
+///
+/// **A fixpoint, not a pass.** Materializing a static HTML file or a
+/// stylesheet can introduce references of its own. No iteration bound is
+/// needed: each round only ever adds rows from a finite set and a row
+/// materializes once, so the loop is monotone and terminates structurally.
+fn materialize_referenced(db: &mut SiteDb, out_map: &mut SiteOutput) -> Result<usize> {
+    // Every row that publishes only when cited, by the URL a citation names.
+    let mut pending: HashMap<String, grackle_db::Key> = db
+        .rows
+        .iter()
+        .filter(|p| p.on_demand && !p.url.is_empty())
+        .map(|p| (p.url.clone(), p.key.clone()))
+        .collect();
+    if pending.is_empty() {
+        return Ok(0);
+    }
+
+    // Seed from everything already written. Each document is scanned against
+    // its OWN url, because a citation is usually relative: `code/legacy/
+    // romtool/index.html` says `<img src="screen1.png">`, which §6a records
+    // as how that content has always been organised.
+    let mut frontier: Vec<String> = out_map
+        .iter()
+        .filter_map(|(u, b)| std::str::from_utf8(b).ok().map(|t| (u.as_str(), t)))
+        .flat_map(|(u, t)| asset_refs(t, u))
+        .collect();
+
+    let mut made = 0usize;
+    while !frontier.is_empty() {
+        let mut next: Vec<String> = Vec::new();
+        for url in std::mem::take(&mut frontier) {
+            let Some(key) = pending.remove(&url) else {
+                continue; // already materialized, or not ours to publish
+            };
+            let Some(row) = db.rows.get(&key) else { continue };
+            let (path, url) = (row.path.clone(), row.url.clone());
+            let bytes = std::fs::read(&path)
+                .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
+            // A materialized text file can cite more.
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                next.extend(asset_refs(text, &url));
+            }
+            db.routes.push(Route {
+                source: Some(path),
+                ..Route::new(url.clone(), RouteKind::Object)
+            });
+            out_map.insert(url, bytes);
+            made += 1;
+        }
+        frontier = next;
+    }
+    Ok(made)
+}
+
+/// URLs cited by `href`, `src` or CSS `url(...)` in one document, resolved
+/// against the URL that document was published at.
+///
+/// Relative citations are the common case, not the exception (§6a: a page
+/// bundle keeps its screenshots beside it), so a scanner that only accepted
+/// root-relative hrefs would miss most of the corpus — measured, 572 of 838.
+fn asset_refs(text: &str, base_url: &str) -> Vec<String> {
+    let dir = match base_url.rfind('/') {
+        Some(i) => &base_url[..=i],
+        None => "/",
+    };
+    let mut out = Vec::new();
+    let mut push = |u: &str| {
+        let u = u.split('#').next().unwrap_or(u);
+        let u = u.split('?').next().unwrap_or(u);
+        if u.is_empty() || u.starts_with("//") || u.contains("://") || u.starts_with("data:") {
+            return;
+        }
+        let abs = if u.starts_with('/') {
+            u.to_string()
+        } else {
+            format!("{dir}{u}")
+        };
+        // Collapse `.` and `..` so `../img/a.png` names the same URL the
+        // route map does.
+        let mut segs: Vec<&str> = Vec::new();
+        for seg in abs.split('/') {
+            match seg {
+                "" | "." => {}
+                ".." => {
+                    segs.pop();
+                }
+                s => segs.push(s),
+            }
+        }
+        out.push(format!("/{}", segs.join("/")));
+    };
+    for pat in ["href=\"", "href='", "src=\"", "src='"] {
+        let quote = pat.chars().last().unwrap();
+        let mut rest = text;
+        while let Some(i) = rest.find(pat) {
+            let after = &rest[i + pat.len()..];
+            let Some(end) = after.find(quote) else { break };
+            push(&after[..end]);
+            rest = &after[end..];
+        }
+    }
+    let mut rest = text;
+    while let Some(i) = rest.find("url(") {
+        let after = &rest[i + 4..];
+        let Some(end) = after.find(')') else { break };
+        push(after[..end].trim().trim_matches(['"', '\'']));
+        rest = &after[end..];
+    }
+    out
+}
+
+#[cfg(test)]
+mod on_demand_tests {
+    use super::asset_refs;
+
+    /// The bug this exists to stop, made twice in one session: a scanner that
+    /// only accepts root-relative hrefs misses most of a corpus organised as
+    /// page bundles (§6a). Measured when it happened: 572 of 838 assets went
+    /// unpublished, and the URL-parity check is what caught it.
+    #[test]
+    fn a_relative_citation_resolves_against_the_citing_url() {
+        let refs = asset_refs(
+            r#"<img src="screen1.png"><a href="../img/out.png">x</a>"#,
+            "/code/legacy/romtool/",
+        );
+        assert!(refs.contains(&"/code/legacy/romtool/screen1.png".to_string()), "{refs:?}");
+        assert!(refs.contains(&"/code/legacy/img/out.png".to_string()), "{refs:?}");
+    }
+
+    #[test]
+    fn root_relative_and_css_url_and_externals() {
+        let refs = asset_refs(
+            r#"<img src="/a/b.png">@font-face{src:url('/css/f.woff2')}
+               <a href="https://e.com/x.png">e</a><img src="//cdn/y.png">"#,
+            "/page/",
+        );
+        assert!(refs.contains(&"/a/b.png".to_string()), "{refs:?}");
+        assert!(refs.contains(&"/css/f.woff2".to_string()), "{refs:?}");
+        assert!(
+            !refs.iter().any(|r| r.contains("e.com") || r.contains("cdn")),
+            "external citations must not be treated as ours: {refs:?}"
+        );
+    }
+}
+
 fn internal_links(html: &str, site_url: &str) -> Vec<String> {
     let mut out = Vec::new();
     for pat in ["href=\"", "href='"] {

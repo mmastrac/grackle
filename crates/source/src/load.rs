@@ -39,6 +39,8 @@ struct CompiledRule<'a> {
     matcher: GlobMatcher,
     route: Option<&'a str>,
     front_matter: Option<bool>,
+    on_demand: bool,
+    pattern: &'a str,
     defaults: &'a BTreeMap<String, toml::Value>,
 }
 
@@ -52,10 +54,27 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
                     .compile_matcher(),
                 route: r.route.as_deref(),
                 front_matter: r.front_matter,
+                on_demand: r.on_demand.unwrap_or(false),
+                pattern: r.pattern.as_str(),
                 defaults: &r.defaults,
             })
         })
         .collect()
+}
+
+/// What the rule cascade decided for one row.
+struct Routing<'a> {
+    template: Option<&'a str>,
+    /// The winning route rule was on-demand: compute the URL, emit no route
+    /// until something references it.
+    on_demand: bool,
+    /// Every on-demand rule that COVERED this path, winner or not. Two is a
+    /// config error: an on-demand rule declares where a class of files
+    /// lives, and two declarations for one file is ambiguous rather than a
+    /// cascade. Checked per file against the real corpus, the way §4's dead
+    /// rule is.
+    on_demand_cover: Vec<&'a str>,
+    defaults: BTreeMap<&'a str, &'a toml::Value>,
 }
 
 /// First-writer-wins per key (DESIGN.md §4).
@@ -63,8 +82,10 @@ fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
     rel: &Path,
     has_front_matter: bool,
-) -> (Option<&'a str>, BTreeMap<&'a str, &'a toml::Value>) {
-    let mut route: Option<&str> = None;
+) -> Routing<'a> {
+    let mut template: Option<&str> = None;
+    let mut on_demand = false;
+    let mut on_demand_cover: Vec<&str> = Vec::new();
     let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
     for rule in rules {
         if let Some(want) = rule.front_matter {
@@ -75,16 +96,40 @@ fn apply_rules<'a>(
         if !rule.matcher.is_match(rel) {
             continue;
         }
-        if route.is_none() {
+        if rule.on_demand && rule.route.is_some() {
+            on_demand_cover.push(rule.pattern);
+        }
+        if template.is_none() {
             if let Some(r) = rule.route {
-                route = Some(r);
+                template = Some(r);
+                on_demand = rule.on_demand;
             }
         }
         for (k, v) in rule.defaults {
             defaults.entry(k.as_str()).or_insert(v);
         }
     }
-    (route, defaults)
+    Routing {
+        template,
+        on_demand,
+        on_demand_cover,
+        defaults,
+    }
+}
+
+/// At most one on-demand rule may cover a path (§4).
+fn check_on_demand_cover(rel: &Path, r: &Routing) -> Result<()> {
+    if r.on_demand_cover.len() > 1 {
+        anyhow::bail!(
+            "{}: covered by {} on-demand rules — an on-demand rule declares \
+             where a class of files lives, so two of them covering one file \
+             is ambiguous:\n  {}",
+            rel.display(),
+            r.on_demand_cover.len(),
+            r.on_demand_cover.join("\n  ")
+        );
+    }
+    Ok(())
 }
 
 fn as_bool(defaults: &BTreeMap<&str, &toml::Value>, key: &str) -> bool {
@@ -294,7 +339,9 @@ fn read_posts(
         // `true`, not `raw.has_front_matter`: every post is a rendered row
         // (`rendered` below says the same), so a `front_matter = false` rule
         // describes a static file and cannot describe a post.
-        let (route_tmpl, rule_defaults) = apply_rules(&rules, &logical_rel, true);
+        let routing = apply_rules(&rules, &logical_rel, true);
+        check_on_demand_cover(&logical_rel, &routing)?;
+        let (route_tmpl, rule_defaults) = (routing.template, routing.defaults);
         let root_rel = raw
             .path
             .strip_prefix(&root)
@@ -368,6 +415,8 @@ fn read_posts(
             // Assigned by `insert_rows`, which is where rows become the
             // database's rather than the loader's.
             key: Default::default(),
+            // A post publishes because it exists; nothing needs to cite it.
+            on_demand: false,
             collection: collection.clone(),
             path: raw.path,
             // ROOT-relative since the merge, so `path`/`dir` mean one thing
@@ -504,7 +553,10 @@ fn build_tree_and_objects(
         };
 
         let rules = if is_object { &obj_rules } else { &tree_rules };
-        let (tmpl, rule_defaults) = apply_rules(rules, &logical_rel, f.has_front_matter);
+        let routing = apply_rules(rules, &logical_rel, f.has_front_matter);
+        check_on_demand_cover(&logical_rel, &routing)?;
+        let on_demand = routing.on_demand;
+        let (tmpl, rule_defaults) = (routing.template, routing.defaults);
         let marker_defaults = markers.defaults_for(&f.rel);
         let defaults = merged_defaults(&marker_defaults, rule_defaults);
         let Some(tmpl) = tmpl else {
@@ -541,6 +593,7 @@ fn build_tree_and_objects(
                 stem,
                 locale,
                 rendered: false,
+                on_demand,
                 ..Default::default()
             });
         } else {
@@ -590,6 +643,7 @@ fn build_tree_and_objects(
                 .unwrap_or_default();
             pages.push(Row {
                 key: Default::default(),
+                on_demand,
                 collection: tree_name.to_string(),
                 slug: stem.clone(),
                 stem,
@@ -726,12 +780,16 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // assumptions keys were introduced to retire.
     let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
     let objects: std::collections::HashSet<&grackle_db::Key> = db.object_ix.iter().collect();
+    // §4 on-demand: the row knows its URL, but nothing publishes it until
+    // something references it. `materialize_referenced` (build.rs) emits
+    // these after the render pass, once the references exist.
     let new_routes: Vec<Route> = db
         .rows
         .iter()
         // q45: a claimed row has no route of its own — the owning view
-        // materializes the landing.
-        .filter(|p| !p.claimed)
+        // materializes the landing. §4: an on-demand row has none YET — a
+        // reference materializes it after the render pass.
+        .filter(|p| !p.claimed && !p.on_demand)
         .map(|p| {
             // Route kind is a question about the row's PROPERTIES, not about
             // which vector it arrived in — which is what let the objects
