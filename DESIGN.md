@@ -1667,7 +1667,19 @@ the first:
   shape to get its own `data-kind` for CSS. Pointing a list at a kind of
   any other shape is an error naming what that kind declares, because
   there is no non-arbitrary place to put the string.
-  Open: `image` still needs the thumb pass threaded in to become a url.
+  **An image field is a reference (2026-07).** Its value names a ROW — an
+  objects collection already claimed that file and the row's key IS that
+  path — so it is checked at load like a prose link (§6a): a dangling
+  `cover:` is an error naming the file, where it used to ship a broken
+  `<img>`. An absolute url is left alone; nothing here can vouch for it.
+  Pixel dimensions are header-read at load onto the object row beside
+  `size`, so a view can select on them (`where = "width >= 400"`) instead
+  of them living only in the thumb pass's side map. NOTE: the filter
+  language compares a column to a LITERAL, so `width > height` is not
+  expressible — column-to-column comparison is a separate question.
+  `Row.images` survives as the image-typed subset, because only the loader
+  knows which fields `.schema.toml` typed as images.
+  Open: `image` filling a `url` part in `fill_from_fields`.
 
   **Finished 2026-07:** `figure` and `gallery` folded the same way. A
   figure was a summary with only `url`/`src`/dimensions filled and the

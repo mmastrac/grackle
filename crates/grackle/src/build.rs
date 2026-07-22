@@ -722,13 +722,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // dimension facts attached.
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
                     let t = thumbs.get(s);
+                    let full = asset_url(&cfg.site.baseurl, s);
                     parts::preview(parts::Preview {
                         title: Some(title.clone()),
-                        url: Some(format!("{}/{s}", cfg.site.baseurl)),
-                        src: Some(
-                            t.map(|t| t.url.clone())
-                                .unwrap_or_else(|| format!("{}/{s}", cfg.site.baseurl)),
-                        ),
+                        url: Some(full.clone()),
+                        src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),
                         dims: t.and_then(|t| t.dims),
                         ..Default::default()
                     })
@@ -883,7 +881,9 @@ fn thumbs_pass(
     // Image-typed schema fields (§5b) — covers and the like — thumbnail
     // too: they are what heroes and cards render (q23).
     for p in db.pages() {
-        img_sources.extend(p.images.values().cloned());
+        // An absolute url names something outside the site (load.rs leaves it
+        // alone for the same reason): there is no file here to thumbnail.
+        img_sources.extend(p.images.values().filter(|s| !is_absolute_url(s)).cloned());
     }
     for r in &db.routes {
         if r.kind == RouteKind::Page {
@@ -1614,6 +1614,21 @@ pub(crate) fn object_preview<'a>(
         src: Some(t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone())),
         dims: t.and_then(|t| t.dims),
         ..Default::default()
+    }
+}
+
+/// An image field's value as a URL. An absolute one names something outside
+/// the site and is already a URL; anything else is a root-relative source
+/// path and wears the baseurl.
+pub(crate) fn is_absolute_url(s: &str) -> bool {
+    s.contains("://") || s.starts_with("//")
+}
+
+pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
+    if is_absolute_url(s) {
+        s.to_string()
+    } else {
+        format!("{baseurl}/{s}")
     }
 }
 

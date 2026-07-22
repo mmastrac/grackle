@@ -757,7 +757,7 @@ mod object_view_tests {
     #[test]
     fn object_view_scopes_sorts_and_routes() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
-             order_by = \"name\"\npath = \"/photos/\"\nlayout = \"gallery\"\n");
+             order_by = \"name\"\npath = \"/photos/\"\nlayout = \"listing\"\n");
         let mut db = SiteDb::default();
         seed_objects(
             &mut db,
@@ -789,7 +789,7 @@ mod object_view_tests {
     #[test]
     fn a_gallery_does_not_pick_up_content_rows() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
-             path = \"/photos/\"\nlayout = \"gallery\"\n");
+             path = \"/photos/\"\nlayout = \"listing\"\n");
         let mut db = SiteDb::default();
         // A content row sitting at a path the gallery's glob matches.
         let page = Row {
@@ -824,7 +824,7 @@ mod object_view_tests {
 
     #[test]
     fn an_object_view_needs_no_order_by() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
+        let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"listing\"\n");
         let mut db = SiteDb::default();
         seed_objects(&mut db, vec![obj("photos/b.png"), obj("photos/a.png")]);
         build_views(&c, &mut db, &Schemas::new(row_schema())).expect("path is an ordering");
@@ -841,19 +841,24 @@ mod object_view_tests {
     #[test]
     fn an_object_view_sorts_only_on_object_columns() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\norder_by = \"title\"\n\
-             path = \"/p/\"\nlayout = \"gallery\"\n");
+             path = \"/p/\"\nlayout = \"listing\"\n");
         let e = format!(
             "{:#}",
             build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()
         );
         assert!(e.contains("order_by names unknown field \"title\""), "{e}");
-        assert!(e.contains("ext, name, path"), "{e}");
+        // The object vocabulary is file facts only — including the pixel
+        // shape, which is one.
+        assert!(
+            e.contains("dir, ext, height, name, path, size, stem, url, width"),
+            "{e}"
+        );
     }
 
     #[test]
     fn object_filters_typecheck_against_the_object_schema() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nwhere = \"draft\"\n\
-             order_by = \"name\"\npath = \"/p/\"\nlayout = \"gallery\"\n");
+             order_by = \"name\"\npath = \"/p/\"\nlayout = \"listing\"\n");
         let e = format!(
             "{:#}",
             build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()

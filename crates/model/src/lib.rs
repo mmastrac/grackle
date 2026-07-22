@@ -76,7 +76,13 @@ pub struct Row {
     /// to every row whatever loader filled it.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, filter::Value>,
-    /// The image-typed subset: field name -> root-relative source path.
+    /// The image-typed subset of `fields`: field name -> the value, kept
+    /// apart because only the loader knows which fields `.schema.toml`
+    /// declared as images and the renderer still has to find them.
+    ///
+    /// Each value is checked at load to name a row of this site, or to be an
+    /// absolute url naming something outside it (`resolve_image_fields`) — so
+    /// a relative one here is a reference that resolves, not a hopeful string.
     #[serde(skip)]
     pub images: BTreeMap<String, String>,
     /// Declared position (§6e). A post's *table* order is chronological;
@@ -108,6 +114,13 @@ pub struct Row {
     /// resolve to a row nothing has materialized yet.
     pub on_demand: bool,
     pub size: u64,
+    /// An object's pixel shape, header-read at load beside `size` (§6b's
+    /// dimension facts, q26). A file property like any other, so a view can
+    /// ask for it: `where = "width > height"` selects the landscape ones.
+    /// `None` for a row that is not an image, or one whose header would not
+    /// parse.
+    pub width: Option<u32>,
+    pub height: Option<u32>,
     /// q45: this row is a landing view's content — no standalone route,
     /// excluded from every query structurally.
     #[serde(skip)]
@@ -539,6 +552,8 @@ pub fn row_schema() -> filter::Schema {
     s.insert("name", Str);
     s.insert("ext", Str);
     s.insert("size", Int);
+    s.insert("width", Int);
+    s.insert("height", Int);
     s
 }
 
@@ -590,6 +605,8 @@ impl filter::Row for Row {
                 V::Str(s.to_string_lossy().to_lowercase())
             }),
             "size" => V::Int(self.size as i64),
+            "width" => self.width.map_or(V::Null, |w| V::Int(w as i64)),
+            "height" => self.height.map_or(V::Null, |h| V::Int(h as i64)),
             // Schema fields (§5b) resolve after the base names — the same
             // fallthrough a page has had.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
@@ -617,6 +634,8 @@ pub fn object_schema() -> filter::Schema {
     s.insert("ext", Str);
     s.insert("url", Str);
     s.insert("size", Int);
+    s.insert("width", Int);
+    s.insert("height", Int);
     s
 }
 
@@ -884,7 +903,12 @@ mod row_column_tests {
     /// a different type.
     #[test]
     fn a_row_answers_every_object_column() {
-        let r = row("photos/beach.jpg");
+        let mut r = row("photos/beach.jpg");
+        // Measured, because dimensions are legitimately absent on a row that
+        // is not an image — the assertion below is about a column the type
+        // cannot answer AT ALL, not about one this fixture left empty.
+        r.width = Some(1200);
+        r.height = Some(800);
         for col in object_schema().keys() {
             assert_ne!(
                 r.field(col),
@@ -892,5 +916,15 @@ mod row_column_tests {
                 "object column {col:?} is unanswerable on a Row"
             );
         }
+    }
+
+    /// An unmeasured row answers Null, not zero: `where = "width >= 400"`
+    /// must skip the rows that have no pixels rather than treat them as
+    /// zero-width and compare them.
+    #[test]
+    fn an_unmeasured_row_has_null_dimensions() {
+        let r = row("notes/x.md");
+        assert_eq!(r.field("width"), filter::Value::Null);
+        assert_eq!(r.field("height"), filter::Value::Null);
     }
 }

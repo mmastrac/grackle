@@ -396,6 +396,8 @@ fn read_posts(
         };
 
         rows.push(Row {
+            width: None,
+            height: None,
             // Assigned by `insert_rows`, which is where rows become the
             // database's rather than the loader's.
             key: Default::default(),
@@ -619,6 +621,8 @@ fn build_tree_and_objects(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
             pages.push(Row {
+                width: None,
+                height: None,
                 key: Default::default(),
                 on_demand,
                 collection: tree_name.to_string(),
@@ -658,6 +662,17 @@ fn build_tree_and_objects(
             bail!("view {view}: content {path:?} names no row in the tree");
         }
     }
+    // Dimensions are a property of the FILE, so they belong on the row where
+    // a query can reach them rather than in a build-time side map. One header
+    // read each, in parallel — sequentially this is ~200ms on a corpus with
+    // 850 images, which is a third of the whole build.
+    objects.par_iter_mut().for_each(|o| {
+        if let Ok((w, h)) = image::image_dimensions(&o.path) {
+            o.width = Some(w);
+            o.height = Some(h);
+        }
+    });
+
     Ok((pages, objects))
 }
 
@@ -675,6 +690,49 @@ fn read_page_schema(path: &Path) -> Result<(store::FrontMatter, usize)> {
     Ok((fm, body.len()))
 }
 /// Read the site named by `cfg` and return the database it describes.
+/// An image field names a ROW, so check that it does (§5b × §6a).
+///
+/// `cover: books/covers/x.png` is a foreign key: an objects collection already
+/// claimed that file, and its row key IS that path. Nothing said so, so a typo
+/// shipped a broken `<img>` — the same silent 404 that strict link policy
+/// exists to prevent for prose links. Runs after `insert_rows`, because the
+/// row it names may load after the row that names it.
+///
+/// An ABSOLUTE url is left alone: it names something outside the site, which
+/// no row can vouch for.
+fn resolve_image_fields(db: &SiteDb, schemas: &Schemas) -> Result<()> {
+    for row in db.rows.iter() {
+        let dir = row.rel.parent().unwrap_or(Path::new("")).to_path_buf();
+        let Some(declared) = schemas.resolve(&dir) else {
+            continue;
+        };
+        for (name, ty) in &declared {
+            if *ty != crate::schema::FieldType::Image {
+                continue;
+            }
+            let Some(grackle_db::Value::Str(target)) = row.fields.get(*name) else {
+                continue;
+            };
+            if target.contains("://") || target.starts_with("//") {
+                continue; // outside the site; no row to check it against
+            }
+            if db
+                .rows
+                .get(&grackle_db::Key::new(target.as_str()))
+                .is_none()
+            {
+                anyhow::bail!(
+                    "{}: field `{name}` names {target:?}, which is not a file this site \
+                     loads. An image field is a reference to a row — check the path, and \
+                     that an objects collection claims that extension.",
+                    row.rel.display()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut db = SiteDb::default();
     let t_m = std::time::Instant::now();
@@ -741,6 +799,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
 
     let t_index = std::time::Instant::now();
     db.insert_rows(sort_posts(post_rows), page_rows, objects, &cfg.i18n.default)?;
+    resolve_image_fields(&db, &schemas)?;
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
     // Unified route list.

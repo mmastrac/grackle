@@ -1305,6 +1305,7 @@ dependencies = [
  "grackle-db",
  "grackle-model",
  "ignore",
+ "image",
  "rayon",
  "regex",
  "serde",
