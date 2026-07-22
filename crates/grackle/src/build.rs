@@ -159,7 +159,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // theme errors — malformed fragment, unknown slot, arity violation —
     // surface here, before anything renders. Theme is chosen per ROW (§5a);
     // everything not a tree page renders through the default.
-    let themes = theme::Themes::load_all(&root.join("themes"), &root).context("loading themes")?;
+    // §5e: the part vocabulary this build runs against — the engine's kinds
+    // plus whatever `[[parts]]` the site declares. Fragments are checked
+    // against it, so a theme can place a part the site invented.
+    let schemas = parts::Schemas::load(cfg)?;
+    let themes = theme::Themes::load_all(&root.join("themes"), &root, &schemas)
+        .context("loading themes")?;
     let thm = themes.get(None)?;
 
     // §6a row/view links: the resolution space, once per build.

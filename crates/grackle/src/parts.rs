@@ -166,19 +166,103 @@ struct KindDecl {
     parts: Vec<(String, String)>,
 }
 
-fn parse_part_type(spec: &str, kind: &str, part: &str) -> PartType {
-    match spec {
+fn parse_part_type(spec: &str, kind: &str, part: &str) -> anyhow::Result<PartType> {
+    Ok(match spec {
         "text" => PartType::Text,
         "url" => PartType::Url,
         "html" => PartType::Html,
         "flag" => PartType::Flag,
         _ => match spec.split_once(':') {
-            // Leaked deliberately: a child kind name outlives the parse and
+            // Leaked deliberately: a child kind name outlives the parse, and
             // the set is closed and tiny. Nothing here is per-request.
             Some(("stream", k)) => PartType::Stream(Box::leak(k.to_string().into_boxed_str())),
             Some(("map", k)) => PartType::Map(Box::leak(k.to_string().into_boxed_str())),
-            _ => panic!("parts.toml: kind {kind:?} part {part:?} has unknown type {spec:?}"),
+            _ => anyhow::bail!(
+                "part `{kind}.{part}`: unknown type {spec:?} — \
+                 expected text, url, html, flag, stream:<kind> or map:<kind>"
+            ),
         },
+    })
+}
+
+/// The part vocabulary a build runs against: the engine's kinds, plus
+/// whatever `[[parts]]` a site declares.
+///
+/// A site ADDS. It may declare a new kind, or add parts to an engine kind, but
+/// it cannot remove an engine part or change one's type — an engine producer
+/// fills those, and a theme that lost `main` would render nothing. Same shape
+/// as `[i18n.strings]` (§6f): a closed engine set, extensible, checked at load.
+#[derive(Debug)]
+pub struct Schemas {
+    kinds: Vec<(String, Vec<(String, PartType)>)>,
+}
+
+impl Schemas {
+    /// The engine's kinds with nothing added — for tests and for the null
+    /// theme, which has no site to extend it.
+    pub fn engine_only() -> Schemas {
+        Schemas {
+            kinds: schemas().to_vec(),
+        }
+    }
+
+    pub fn load(cfg: &crate::config::Config) -> anyhow::Result<Schemas> {
+        let mut kinds: Vec<(String, Vec<(String, PartType)>)> = schemas().to_vec();
+        for decl in &cfg.parts {
+            let mut typed = Vec::new();
+            for (name, spec) in &decl.parts {
+                typed.push((name.clone(), parse_part_type(spec, &decl.kind, name)?));
+            }
+            match kinds.iter_mut().find(|(k, _)| *k == decl.kind) {
+                Some((_, existing)) => {
+                    for (name, ty) in typed {
+                        match existing.iter().find(|(n, _)| *n == name) {
+                            Some((_, prev)) if *prev != ty => anyhow::bail!(
+                                "part `{}.{name}`: the engine declares it as {prev:?}; a site \
+                                 may add parts to an engine kind but not retype one",
+                                decl.kind
+                            ),
+                            Some(_) => {}
+                            None => existing.push((name, ty)),
+                        }
+                    }
+                }
+                None => kinds.push((decl.kind.clone(), typed)),
+            }
+        }
+        let s = Schemas { kinds };
+        s.check_child_kinds()?;
+        Ok(s)
+    }
+
+    /// Every `stream:`/`map:` must name a kind that exists, or the failure
+    /// surfaces later as a fragment that will not bind, far from its cause.
+    fn check_child_kinds(&self) -> anyhow::Result<()> {
+        for (kind, parts) in &self.kinds {
+            for (part, ty) in parts {
+                let child = match ty {
+                    PartType::Stream(k) | PartType::Map(k) => *k,
+                    _ => continue,
+                };
+                if self.get(child).is_none() {
+                    anyhow::bail!(
+                        "part `{kind}.{part}` names kind {child:?}, which nothing declares"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get(&self, kind: &str) -> Option<&[(String, PartType)]> {
+        self.kinds
+            .iter()
+            .find(|(k, _)| k == kind)
+            .map(|(_, p)| p.as_slice())
+    }
+
+    pub fn kind_names(&self) -> Vec<&str> {
+        self.kinds.iter().map(|(k, _)| k.as_str()).collect()
     }
 }
 
@@ -196,7 +280,12 @@ fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
                 let parts = k
                     .parts
                     .iter()
-                    .map(|(n, t)| (n.clone(), parse_part_type(t, &k.name, n)))
+                    .map(|(n, t)| {
+                        (
+                            n.clone(),
+                            parse_part_type(t, &k.name, n).expect("engine asset"),
+                        )
+                    })
                     .collect();
                 (k.name, parts)
             })
@@ -1137,5 +1226,70 @@ mod schema_asset_tests {
     fn an_undeclared_kind_is_none() {
         assert!(schema("summary").is_some());
         assert!(schema("sumary").is_none());
+    }
+}
+
+#[cfg(test)]
+mod config_schema_tests {
+    use super::*;
+    use grackle_source::config::Config;
+
+    fn cfg(parts: &str) -> Config {
+        Config::from_toml(&format!(
+            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname=\"blog\"\nkind=\"posts\"\nsource=\"_posts\"\n{parts}"
+        ))
+        .expect("test config parses")
+    }
+
+    /// A site may invent a kind. This is the whole point: a theme can then
+    /// place it, and the binder checks the name against what the SITE
+    /// declared rather than against a Rust match.
+    #[test]
+    fn a_site_may_declare_a_new_kind() {
+        let c = cfg("[[parts]]\nkind = \"recipe_card\"\nparts = [[\"servings\", \"text\"]]\n");
+        let s = Schemas::load(&c).unwrap();
+        assert!(Schemas::engine_only().get("recipe_card").is_none());
+        assert_eq!(
+            s.get("recipe_card").unwrap().first().unwrap().0,
+            "servings"
+        );
+    }
+
+    /// And may add to an engine kind — an engine producer fills the engine
+    /// parts, a theme places the added one.
+    #[test]
+    fn a_site_may_add_a_part_to_an_engine_kind() {
+        let c = cfg("[[parts]]\nkind = \"summary\"\nparts = [[\"cook_time\", \"text\"]]\n");
+        let s = Schemas::load(&c).unwrap();
+        let names: Vec<&str> = s.get("summary").unwrap().iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"title"), "engine parts survive: {names:?}");
+        assert!(names.contains(&"cook_time"), "{names:?}");
+    }
+
+    /// But may not RETYPE one: an engine producer fills `title` as text, and
+    /// a site that redeclared it as a stream would make that producer wrong.
+    #[test]
+    fn retyping_an_engine_part_is_a_load_error() {
+        let c = cfg("[[parts]]\nkind = \"summary\"\nparts = [[\"title\", \"stream:tag\"]]\n");
+        let e = Schemas::load(&c).unwrap_err().to_string();
+        assert!(e.contains("may add parts"), "{e}");
+        assert!(e.contains("summary.title"), "{e}");
+    }
+
+    /// A child kind that nothing declares fails at load, where the cause is,
+    /// rather than later as a fragment that will not bind.
+    #[test]
+    fn a_dangling_child_kind_is_a_load_error() {
+        let c = cfg("[[parts]]\nkind = \"box\"\nparts = [[\"items\", \"stream:nope\"]]\n");
+        let e = Schemas::load(&c).unwrap_err().to_string();
+        assert!(e.contains("nope"), "{e}");
+    }
+
+    #[test]
+    fn an_unknown_type_names_the_legal_ones() {
+        let c = cfg("[[parts]]\nkind = \"box\"\nparts = [[\"x\", \"integer\"]]\n");
+        let e = Schemas::load(&c).unwrap_err().to_string();
+        assert!(e.contains("stream:<kind>"), "{e}");
     }
 }

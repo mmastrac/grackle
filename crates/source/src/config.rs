@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Part kinds this site declares, or parts it adds to engine kinds (§5e).
+    /// The engine's own kinds are always present; a site adds to them.
+    #[serde(default)]
+    pub parts: Vec<PartsDecl>,
     #[serde(default = "default_root")]
     pub root: PathBuf,
     /// Honour .gitignore when walking (default true). It is the site's existing
@@ -285,6 +289,21 @@ impl I18nCfg {
             None => s.get(locale, &self.default),
         }
     }
+}
+
+/// A part-map kind a site declares, or parts it adds to an engine kind (§5e).
+///
+/// Raw on purpose: the typed vocabulary lives in the binary crate beside the
+/// binder that enforces it, and `source` sits below that. This carries the
+/// author's words up to be typed and checked there.
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PartsDecl {
+    pub kind: String,
+    /// `[name, type]` pairs, in declaration order. Types are `text`, `url`,
+    /// `html`, `flag`, `stream:<kind>` or `map:<kind>`.
+    #[serde(default)]
+    pub parts: Vec<(String, String)>,
 }
 
 /// Internal-link policy (§6a).

@@ -94,7 +94,7 @@ fn kind_of_name(name: &str) -> &str {
 impl Fragments {
     /// Load every `*.html` in a theme directory. The file stem names the
     /// fragment; its prefix names the kind it binds to.
-    pub fn load_dir(dir: &Path) -> Result<Fragments> {
+    pub fn load_dir(dir: &Path, schemas: &crate::parts::Schemas) -> Result<Fragments> {
         let mut sources = Vec::new();
         let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
         entries.sort_by_key(|e| e.file_name());
@@ -106,18 +106,21 @@ impl Fragments {
                 sources.push((stem, text, p.display().to_string()));
             }
         }
-        Self::load(sources)
+        Self::load(sources, schemas)
     }
 
     /// Load from `(name, source, display-name)` triples — the testable core.
     /// Parse everything first, then validate: cross-fragment checks (a stream
     /// slot needs its child fragment) need the whole set present.
-    pub fn load(sources: Vec<(String, String, String)>) -> Result<Fragments> {
+    pub fn load(
+        sources: Vec<(String, String, String)>,
+        schemas: &crate::parts::Schemas,
+    ) -> Result<Fragments> {
         let mut f = Fragments::default();
         let mut files = Vec::new();
         for (name, text, file) in &sources {
             let kind = kind_of_name(name).to_string();
-            if crate::parts::schema(&kind).is_none() {
+            if schemas.get(&kind).is_none() {
                 bail!(
                     "{file}: fragment names no layout kind `{kind}` — kinds are: {}",
                     known_kinds()
@@ -128,26 +131,32 @@ impl Fragments {
             files.push((name.clone(), file.clone()));
         }
         for (name, file) in &files {
-            f.validate(&f.map[name], file)?;
+            f.validate(schemas, &f.map[name], file)?;
         }
         Ok(f)
     }
 
 
-    fn validate(&self, frag: &Fragment, file: &str) -> Result<()> {
-        self.validate_nodes(&frag.nodes, &frag.kind, file)
+    fn validate(&self, schemas: &crate::parts::Schemas, frag: &Fragment, file: &str) -> Result<()> {
+        self.validate_nodes(schemas, &frag.nodes, &frag.kind, file)
     }
 
-    fn validate_nodes(&self, nodes: &[Node], kind: &str, file: &str) -> Result<()> {
+    fn validate_nodes(
+        &self,
+        schemas: &crate::parts::Schemas,
+        nodes: &[Node],
+        kind: &str,
+        file: &str,
+    ) -> Result<()> {
         for n in nodes {
             let Node::Element(el) = n else { continue };
             if let Some(slot) = &el.slot {
-                let Some(ty) = crate::parts::part_type(kind, slot) else {
+                let Some(ty) = schemas.get(kind).and_then(|s| s.iter().find(|(n, _)| n == slot).map(|(_, t)| *t)) else {
                     bail!(
                         "{file}:{}: unknown slot `{slot}` on <{}> — `{kind}` has: {}",
                         el.line,
                         el.tag,
-                        known_parts(kind)
+                        known_parts(schemas, kind)
                     );
                 };
                 match ty {
@@ -211,7 +220,7 @@ impl Fragments {
             }
             for a in &el.attrs {
                 if let Attr::Slot(attr, part) = a {
-                    match crate::parts::part_type(kind, part) {
+                    match schemas.get(kind).and_then(|s| s.iter().find(|(n, _)| n == part).map(|(_, t)| *t)) {
                         Some(PartType::Text | PartType::Url) => {}
                         Some(_) => bail!(
                             "{file}:{}: data-slot-{attr} must name a text part, \
@@ -222,12 +231,12 @@ impl Fragments {
                             "{file}:{}: unknown part `{part}` in data-slot-{attr} — \
                              `{kind}` has: {}",
                             el.line,
-                            known_parts(kind)
+                            known_parts(schemas, kind)
                         ),
                     }
                 }
             }
-            self.validate_nodes(&el.children, kind, file)?;
+            self.validate_nodes(schemas, &el.children, kind, file)?;
         }
         Ok(())
     }
@@ -424,8 +433,9 @@ pub fn is_phrasing_only(tag: &str) -> bool {
     )
 }
 
-fn known_parts(kind: &str) -> String {
-    crate::parts::schema(kind)
+fn known_parts(schemas: &crate::parts::Schemas, kind: &str) -> String {
+    schemas
+        .get(kind)
         .map(|s| s.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "))
         .unwrap_or_default()
 }
@@ -633,11 +643,14 @@ mod tests {
     use crate::parts::{Part, PartMap};
 
     fn frags(sources: &[(&str, &str)]) -> Result<Fragments> {
+        // Engine kinds only: these fixtures test the binder, not the merge.
+        let schemas = crate::parts::Schemas::engine_only();
         Fragments::load(
             sources
                 .iter()
                 .map(|(k, s)| (k.to_string(), s.to_string(), format!("{k}.html")))
                 .collect(),
+            &schemas,
         )
     }
 

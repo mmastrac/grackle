@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::binder::{self, Fragments};
-use crate::parts::{self, Part, PartMap};
+use crate::parts::{Part, PartMap};
 use crate::slots::SlotFills;
 
 pub struct Theme {
@@ -19,6 +19,8 @@ pub struct Theme {
     fills: SlotFills,
     root: PathBuf,
     /// Shell identity slots: (schema name, element is phrasing-only).
+    /// Leaked: a slot name is decided at load and lives as long as the
+    /// process, and `PartMap` keys are `&'static str`.
     identity: Vec<(&'static str, bool)>,
 }
 
@@ -47,13 +49,17 @@ pub struct Themes {
 }
 
 impl Themes {
-    pub fn load_all(themes_dir: &Path, site_root: &Path) -> Result<Themes> {
+    pub fn load_all(
+        themes_dir: &Path,
+        site_root: &Path,
+        schemas: &crate::parts::Schemas,
+    ) -> Result<Themes> {
         let mut map = std::collections::BTreeMap::new();
         if let Ok(rd) = std::fs::read_dir(themes_dir) {
             for e in rd.filter_map(|e| e.ok()) {
                 if e.path().is_dir() {
                     let name = e.file_name().to_string_lossy().to_string();
-                    map.insert(name, Theme::load(&e.path(), site_root)?);
+                    map.insert(name, Theme::load(&e.path(), site_root, schemas)?);
                 }
             }
         }
@@ -102,8 +108,12 @@ impl Theme {
         })
     }
 
-    pub fn load(theme_dir: &Path, site_root: &Path) -> Result<Theme> {
-        let fragments = Fragments::load_dir(theme_dir)
+    pub fn load(
+        theme_dir: &Path,
+        site_root: &Path,
+        schemas: &crate::parts::Schemas,
+    ) -> Result<Theme> {
+        let fragments = Fragments::load_dir(theme_dir, schemas)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;
         let fills = SlotFills::load(site_root)?;
         // Identity slots = shell slots the engine does not provide, matched
@@ -114,8 +124,13 @@ impl Theme {
             if engine.contains(&slot.as_str()) {
                 continue;
             }
-            let name = parts::schema("shell")
-                .and_then(|s| s.iter().find(|(n, _)| *n == slot).map(|(n, _)| n.as_str()))
+            let name = schemas
+                .get("shell")
+                .and_then(|s| {
+                    s.iter()
+                        .find(|(n, _)| *n == slot)
+                        .map(|(n, _)| &*Box::leak(n.clone().into_boxed_str()))
+                })
                 .with_context(|| format!("shell fragment slots unknown part `{slot}`"))?;
             identity.push((name, binder::is_phrasing_only(&tag)));
         }
