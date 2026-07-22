@@ -129,6 +129,15 @@ parts = [
   ["current", "text"],
 ]
 
+# The shape a `list` field fills: one string per item, nothing else. A site
+# that wants its own name (and its own data-kind for CSS) declares a kind of
+# the same shape — one text part — and names it in `stream:`.
+[[kind]]
+name = "item"
+parts = [
+  ["label", "text"],
+]
+
 [[kind]]
 name = "raw"
 parts = [

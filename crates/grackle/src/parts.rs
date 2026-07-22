@@ -79,6 +79,15 @@ impl PartMap {
         self.parts.push((name, part));
     }
 
+    /// A map of a kind the engine may not declare — a site's `[[parts]]`
+    /// kind, checked against the merged schema by its caller.
+    fn new_declared(kind: &'static str) -> Self {
+        PartMap {
+            kind,
+            parts: Vec::new(),
+        }
+    }
+
     /// Set a part the engine has no producer for — a site's `[[parts]]`
     /// declaration, filled from a row field. Unlike `set`, the name is not in
     /// the engine schema; `fill_from_fields` has already checked it against
@@ -776,6 +785,40 @@ pub fn fill_from_fields(m: &mut PartMap, row: &Row, schemas: &Schemas) -> anyhow
                 }
                 Part::Flag(true)
             }
+            // A list of strings fills a stream whose child kind is that
+            // shape: exactly one text part, one child map per string. The
+            // engine ships `item`/`label`; a site that wants its own
+            // `data-kind` for CSS declares a kind of the same shape.
+            (V::List(items), PartType::Stream(child)) => {
+                let shape = schemas.get(child).unwrap_or(&[]);
+                let label = match shape {
+                    [(label, PartType::Text)] => *label,
+                    _ => anyhow::bail!(
+                        "{}: field `{name}` is a list, so kind `{child}` must declare \
+                         exactly one text part to receive it — `{child}` declares {}",
+                        row.rel.display(),
+                        if shape.is_empty() {
+                            "nothing".to_string()
+                        } else {
+                            shape
+                                .iter()
+                                .map(|(n, t)| format!("{n}: {}", t.spelling()))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
+                    ),
+                };
+                Part::Stream(
+                    items
+                        .iter()
+                        .map(|s| {
+                            let mut cm = PartMap::new_declared(child);
+                            cm.set_declared(label, Part::Text(s.clone()));
+                            cm
+                        })
+                        .collect(),
+                )
+            }
             (V::Null, _) => continue,
             (v, ty) => anyhow::bail!(
                 "{}: field `{name}` is {}, which cannot fill a `{}` part of kind `{}`",
@@ -1188,6 +1231,7 @@ mod schema_asset_tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(names("shell"), ["nav", "site_title", "main", "copyright"]);
+        assert_eq!(names("item"), ["label"], "the shape a list field fills");
         assert_eq!(
             names("listing"),
             [
@@ -1258,6 +1302,62 @@ mod config_schema_tests {
         assert_eq!(m.text("score"), Some("9"), "an int renders as digits");
         assert_eq!(m.text("verdict"), Some("Still the best"));
         assert!(m.flag("pick"), "a bool becomes a fact, not text");
+    }
+
+    /// A `list` field fills a stream of one-text-part maps — the engine ships
+    /// `item`/`label` for it. A site may name its own kind of the same shape
+    /// instead, which is how a list gets its own `data-kind` for theme CSS.
+    #[test]
+    fn a_list_field_fills_a_stream_of_items() {
+        use grackle_db::Value as V;
+        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"kit\", \"stream:item\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let row = row_with(&[(
+            "kit",
+            V::List(vec!["heavy pan".into(), "fine sieve".into()]),
+        )]);
+        let mut m = PartMap::new("document");
+        fill_from_fields(&mut m, &row, &schemas).unwrap();
+
+        let items = m.stream("kit");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].kind, "item");
+        assert_eq!(items[0].text("label"), Some("heavy pan"));
+        assert_eq!(items[1].text("label"), Some("fine sieve"));
+
+        // A site's own kind of the same shape: its `data-kind` reaches theme
+        // CSS, and the part it declares receives the string whatever it is
+        // called — the name comes from the kind, not from `item`.
+        let c = cfg(
+            "[[parts]]\nkind = \"document\"\nparts = [[\"kit\", \"stream:kit_item\"]]\n\
+             [[parts]]\nkind = \"kit_item\"\nparts = [[\"name\", \"text\"]]\n",
+        );
+        let schemas = Schemas::load(&c).unwrap();
+        let mut m = PartMap::new("document");
+        fill_from_fields(&mut m, &row, &schemas).unwrap();
+        let items = m.stream("kit");
+        assert_eq!(items[0].kind, "kit_item");
+        assert_eq!(items[0].text("name"), Some("heavy pan"));
+    }
+
+    /// The child kind must BE that shape. A stream of `tag` (name + url) has
+    /// no single place to put a string, and guessing one would be the silent
+    /// wrong answer — so it names what the kind actually declares.
+    #[test]
+    fn a_list_needs_a_one_text_part_child_kind() {
+        use grackle_db::Value as V;
+        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"kit\", \"stream:tag\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let mut m = PartMap::new("document");
+        let e = fill_from_fields(
+            &mut m,
+            &row_with(&[("kit", V::List(vec!["x".into()]))]),
+            &schemas,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("exactly one text part"), "{e}");
+        assert!(e.contains("name: text, url: url"), "names the shape: {e}");
     }
 
     /// Presence, not emptiness: a row that does not carry the field sets no

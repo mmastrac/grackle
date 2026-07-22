@@ -1662,8 +1662,12 @@ the first:
   the file; `string` may not fill `html`, because front matter is not
   trusted markup. Before this the query half of §5b had no display half:
   a field could be grouped, sorted and filtered on, and not printed.
-  Open: `list` needs a child kind before it can be a stream, and `image`
-  still needs the thumb pass threaded in.
+  A `list` field fills a stream whose child kind is one text part — the
+  engine ships `item`/`label`, and a site may name its own kind of that
+  shape to get its own `data-kind` for CSS. Pointing a list at a kind of
+  any other shape is an error naming what that kind declares, because
+  there is no non-arbitrary place to put the string.
+  Open: `image` still needs the thumb pass threaded in to become a url.
 
   **Finished 2026-07:** `figure` and `gallery` folded the same way. A
   figure was a summary with only `url`/`src`/dimensions filled and the
