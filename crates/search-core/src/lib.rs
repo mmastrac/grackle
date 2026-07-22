@@ -78,10 +78,8 @@ pub fn tokenize(text: &str) -> Vec<String> {
 ///
 /// Dropping only the tags is not enough: `<style>` and `<script>` hold text
 /// by the parser's reckoning, so a stylesheet's identifiers would land in
-/// the index as terms. The main corpus was searchable for `rgba`, `fafafa`
-/// and `ffffff` — from §6c's three styled posts, and nowhere else. Prose
-/// mentions survive, which is the point: two posts discuss `margin` in
-/// their text and stay findable by it.
+/// the index as terms (§6c). Only the element content goes — prose that
+/// mentions `margin` stays findable by it.
 pub fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 2);
     let mut rest = html;
@@ -116,7 +114,6 @@ pub fn strip_tags(html: &str) -> String {
     out.push_str(rest);
     out
 }
-
 
 /// The shipped index. `docs` are `(url, title, date)`; `terms` maps a stem
 /// to postings `(doc index, quantised TF·IDF)`, strongest first.
@@ -211,7 +208,6 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
         stats,
     )
 }
-
 
 /// One ranked hit: `(url, title, date)`.
 pub type Hit = (String, String, String);

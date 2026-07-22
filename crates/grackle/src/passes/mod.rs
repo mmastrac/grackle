@@ -1,11 +1,6 @@
 //! Rendering passes over the route table.
 //!
 //! One walk of `db.routes`, dispatching each route to the pass that claims it.
-//! Before this the walk happened once per kind — nine loops, each re-opening
-//! with the same `view`/`cfg.views.get`/discriminator preamble — which is why
-//! shared row-shaping had nowhere to live and got written twice (§9b's
-//! recurring item).
-//!
 //! A pass is two questions: does this route belong to me, and what bytes does
 //! it produce. Everything a pass may read is in [`Ctx`], which is built once
 //! and borrowed immutably, so passes cannot see each other's work and their
@@ -110,9 +105,6 @@ pub fn all() -> Vec<Box<dyn Pass>> {
 }
 
 /// Walk the route table once, dispatching to whichever pass claims each route.
-///
-/// Returns the routes no pass claimed, so the caller can see at a glance what
-/// is still rendered by hand.
 pub fn run(
     ctx: &Ctx,
     passes: &[Box<dyn Pass>],

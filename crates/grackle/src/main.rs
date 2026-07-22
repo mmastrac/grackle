@@ -19,8 +19,8 @@ mod slots;
 mod tags;
 mod theme;
 mod thumbs;
-mod urls;
 mod trails;
+mod urls;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -156,8 +156,6 @@ enum Query {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let t0 = std::time::Instant::now();
-    // `serve` develops, so it defaults to `dev`; everything else — `build`
-    // above all — defaults to the projection that publishes.
     let profile = cli
         .profile
         .clone()
@@ -214,8 +212,7 @@ fn main() -> Result<()> {
         } => {
             let mut prefixes = exempt;
             // q12: our own derived output is exempt by construction. The
-            // published prefix is thumbs.rs's, which is a constant today —
-            // when it becomes config, this reads it from there.
+            // prefix is thumbs.rs's constant.
             prefixes.push("/static/".to_string());
             let (out_map, _) = build::render_site(&cfg, &mut db)?;
             let ours = urls::parity_set(out_map.keys().cloned(), &prefixes);
@@ -405,8 +402,8 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         }
         Query::Posts { tag, year, limit } => {
             let mut n = 0;
-            // Newest first, default locale — stated here now that the
-            // table carries no ordering index of its own (q51).
+            // Newest first, default locale — the table carries no ordering
+            // index of its own.
             let mut ix: Vec<usize> = (0..db.rows.len())
                 .filter(|&i| db.rows[i].locale == cfg.i18n.default)
                 .collect();

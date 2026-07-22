@@ -39,11 +39,6 @@ impl LinkSpace {
 
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
-        // One loop over both tables. It was two only because a post's `rel`
-        // was collection-relative, so the post arm had to re-derive the
-        // root-relative form from `path`; `rel` means one thing now (q51).
-        // Three origins, one loop: objects joined the row store when their
-        // table was deleted, and they resolve as sources exactly as before.
         // A row that publishes on demand (§4) is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
@@ -140,9 +135,8 @@ pub fn resolve(
         || href.contains("://")
         || href.starts_with("mailto:")
         || href.starts_with("data:")
-        // A bookmarklet is code, not a path. Only strict noticed: it read
-        // `javascript:(function(){…})` as a relative source path and called
-        // it dangling.
+        // A bookmarklet is code, not a path — strict mode would otherwise
+        // read `javascript:(function(){…})` as a dangling source path.
         || href.starts_with("javascript:")
     {
         return Ok(None);
@@ -327,9 +321,8 @@ mod tests {
     use super::*;
     use crate::db::{Route, RouteKind};
 
-    /// A link to a DIRECTORY is a link to its index — the oldest convention
-    /// on the web, and the resolver did not know it. Strict mode called 35
-    /// good links in the main corpus dangling because of this.
+    /// A link to a DIRECTORY resolves to its index; strict mode must not
+    /// call those dangling.
     #[test]
     fn a_directory_link_resolves_to_its_index() {
         let cfg: Config =
@@ -414,7 +407,7 @@ mod tests {
 
     /// §6f × §6a, pinned: a view link resolves to the LINKING ROW's locale
     /// when that locale's variant materialized, and falls back to the
-    /// default when it didn't. This is the invariant, not an accident.
+    /// default when it didn't.
     #[test]
     fn view_links_are_locale_aware() {
         let cfg: Config = Config::from_toml(

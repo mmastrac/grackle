@@ -1,16 +1,10 @@
 //! A stable identity for a row.
 //!
-//! Positions are what the engine indexes with today, and positions are only
-//! meaningful inside one load: sort the table and every one of them is wrong.
-//! That has already cost two bugs — the star views counted against a route
-//! list that was still growing, and `insert_rows` decides `RouteKind` with
-//! `i < n_posts`, which is correct only while posts happen to be laid down
-//! first.
-//!
-//! A key is what a row IS rather than where it sits. It is cheap to clone
-//! (one `Arc` bump), cheap to compare, and — the point — the same value after
-//! a rebuild, so a set resolved against one load still names the same rows in
-//! the next one.
+//! A key is what a row IS rather than where it sits. A position is only
+//! meaningful inside one load — sort the table and every one is wrong, which
+//! cost two bugs before this existed. A key is cheap to clone (one `Arc`
+//! bump), cheap to compare, and — the point — the same value after a rebuild,
+//! so a set resolved against one load still names the same rows in the next.
 
 use std::fmt;
 use std::sync::Arc;
@@ -22,6 +16,11 @@ use std::sync::Arc;
 /// loads. `Arc<str>` rather than `String` because keys are cloned into every
 /// index that mentions the row, and rather than `Arc<String>` because that
 /// would be two pointer hops to reach the bytes.
+///
+/// Compared and hashed BY VALUE, not by pointer. Interning would make both
+/// O(1), and is the obvious optimisation if these ever get hot — but a key
+/// from a previous load would then only match while the intern table outlived
+/// it, which is the one property this type exists to have.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Key(Arc<str>);
 
@@ -39,10 +38,6 @@ impl Key {
     }
 }
 
-/// Compared and hashed BY VALUE, not by pointer. Interning would make both
-/// O(1), and is the obvious optimisation if these ever get hot — but it would
-/// also mean a key from a previous load only matched if the intern table
-/// outlived it, which is the one property this type exists to have.
 impl fmt::Debug for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", &*self.0)

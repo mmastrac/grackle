@@ -25,10 +25,8 @@ const DIM: usize = 384;
 
 pub type Vector = Vec<f32>;
 
-/// The cache identity of a row: its source path, root-relative. Was
-/// `Row.name` — a collection-relative path minus extension that existed
-/// only to serve `{% post_url %}` and outlived it by one field. `rel` says
-/// the same thing and is unique across collections (q51).
+/// The cache identity of a row: its source path, root-relative. `rel` is
+/// unique across collections, which is what makes it usable as a key.
 pub fn cache_key(p: &crate::db::Row) -> String {
     p.rel.to_string_lossy().to_string()
 }
@@ -136,8 +134,7 @@ pub struct Related {
 pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Related {
     use chrono::Datelike;
     // `vectors` is parallel to `post_ix`, so a position here names a POST,
-    // not a row. This used to index `db.rows` with it directly, which was
-    // right only while posts were laid down first and contiguously.
+    // not a row — indexing `db.rows` with it is wrong.
     let keys = &db.post_ix;
     let row = |i: usize| keys.get(i).and_then(|k| db.rows.get(k));
     let year = |i: usize| row(i).and_then(|r| r.date).map(|d| d.year());

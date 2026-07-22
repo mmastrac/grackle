@@ -3,11 +3,8 @@
 //!
 //! A targeted expander, not a liquid implementation. Post bodies use exactly
 //! one tag — `{% image %}` (194 uses / 68 posts) — plus `{{ site.baseurl }}`
-//! and its `| prepend:` form (12). `{% post_url %}` was the second until the
-//! q51 merge retired it: it was a foreign key into `posts.by_name`, and that
-//! index was the only thing requiring a post's `rel` to be collection-relative
-//! while a page's is root-relative. Its 51 uses are now ordinary file-relative
-//! links, resolved by `links::resolve` like every other source link.
+//! and its `| prepend:` form (12). Everything else that once looked like a
+//! tag is an ordinary source link, resolved by `links::resolve`.
 //!
 //! `{% view %}` and `{% include %}` are grackle's own, added for `/` (§5c).
 //! Each is a whole recognised construct rather than a step toward a template
@@ -198,8 +195,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
                 title: Some(p.title.clone().unwrap_or_default()),
                 url: Some(p.url.clone()),
                 src: thumb.map(|t| t.url.clone()),
-                // q26: the embedded card carries its dimensions too. This
-                // read `None` while holding a thumb that had them.
+                // q26: the embedded card carries its dimensions too.
                 dims: thumb.and_then(|t| t.dims),
                 note: p.description.clone(),
                 ..Default::default()
@@ -269,7 +265,6 @@ fn prepend_baseurl(inner: &str, cx: &Ctx) -> Option<String> {
     Some(format!("{}{lit}", cx.baseurl))
 }
 
-/// Expand the known tags. Anything else is left alone rather than guessed at.
 /// Find `{% end<name> %}` in `s`: returns (body end, index after the end
 /// tag). Tokenized the same way as the main scan, so spacing inside the tag
 /// doesn't matter.

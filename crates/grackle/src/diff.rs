@@ -21,10 +21,8 @@ pub enum Verdict {
 
 /// Pull the rendered markdown body out of a Jekyll page.
 ///
-/// The body is the `<section>` inside `<article class="post">`. The reference
-/// layouts have since changed (`header.permalink` became `header.post-header`),
-/// so this targets the innermost `<section>` rather than the surrounding
-/// chrome.
+/// The body is the innermost `<section>` inside `<article class="post">` —
+/// not a class match, which the reference layouts have changed under us.
 ///
 /// The article region **must** be bounded before searching: a page has
 /// `<section class="content">` outside the article and `<section class="related">`
@@ -46,9 +44,8 @@ pub fn extract_body(html: &str) -> Option<String> {
 
 /// Remove markup the *layout* put inside the body section.
 ///
-/// The reference build's `article.html` appended a "Read full post" link inside
-/// `<section>`; the current one does not. Either way it is layout chrome, never
-/// markdown output, and counting it as a markdown difference would be wrong.
+/// The reference's `article.html` may append a "Read full post" link inside
+/// `<section>`. That is layout chrome, never markdown output.
 fn strip_layout_chrome(body: &str) -> String {
     let mut out = body.to_string();
     while let Some(i) = out.find("<a class=\"fullpost\"") {
@@ -256,9 +253,8 @@ mod tests {
     use super::*;
 
     /// The real page shape: a `<section class="content">` wraps the article and
-    /// a `<section class="related">` follows it. An earlier version passed only
-    /// because the test pre-sliced the input to `</article>` — the function must
-    /// bound the region itself.
+    /// a `<section class="related">` follows it — the function must bound the
+    /// article region itself, not lean on a pre-sliced input.
     #[test]
     fn extracts_only_the_article_body() {
         let h = r#"<section class="content"><article class="post"><header><h2>T</h2></header><section><p>hi</p></section><div class="date">d</div></article><section class="related">nope</section></section>"#;

@@ -157,8 +157,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
     // ---- themes: every directory under themes/, loaded once (§5e). All
     // theme errors — malformed fragment, unknown slot, arity violation —
-    // surface here, before anything renders. Theme is chosen per ROW (§5a);
-    // everything not a tree page renders through the default.
+    // surface here, before anything renders. Theme is chosen per ROW (§5a).
     // §5e: the part vocabulary this build runs against — the engine's kinds
     // plus whatever `[[parts]]` the site declares. Fragments are checked
     // against it, so a theme can place a part the site invented.
@@ -250,10 +249,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 &translations,
             ));
             let dir = p.path.parent().unwrap_or(&root);
-            // Theme is per ROW (§5a), and that now includes posts — the
-            // page pass has resolved it this way since themes existed,
-            // while posts rendered through the default unconditionally and
-            // their `theme:` was read and thrown away.
+            // Theme is per ROW (§5a), posts included.
             let (theme_name, subtheme) = match p.theme.as_deref() {
                 Some(spec) => {
                     let (n, s) = theme::split_spec(spec);
@@ -536,8 +532,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             continue;
         };
         // The atom SHELL: the same rows, a different outermost wrapper —
-        // declared, not inferred from a template filename (q33's string
-        // match, retired; q44 is the full generalization).
+        // declared, not inferred from a template filename (q44).
         if v.shell.as_deref() != Some("atom") {
             continue;
         }
@@ -575,8 +570,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // content date. jekyll-sitemap also stamps static files with their file
     // *mtime* — but that is checkout-time noise (every clone differs) and works
     // against the indexing goal this whole project exists for, so it is
-    // deliberately dropped. The URL *set* is identical; only 42 noise lastmods
-    // are absent. (DESIGN §4a is the related draft/hidden concern.)
+    // deliberately dropped — the URL *set* is unaffected. (DESIGN §4a is the
+    // related draft/hidden concern.)
     for star in &db.routes {
         let Some(view) = &star.view else { continue };
         let Some(v) = cfg.views.get(view) else {
@@ -594,12 +589,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .filter_map(|k| db.routes.get(k))
             .map(|r| {
                 let loc = format!("{}{}", site.url, r.url);
-                // `lastmod` follows the DATE, not the table. This asked
-                // `kind == Post`, so a dated tree row — field-notes' book
-                // club, `date: 2026-06-01` — shipped a `<loc>` with no
-                // `<lastmod>` while a post with the same data got one
-                // (q51). Strictly additive: an undated post yielded `None`
-                // before and still does.
+                // `lastmod` follows the DATE, not the table — a dated tree
+                // row gets one too (q51).
                 let lastmod = db
                     .row_by_url(&r.url)
                     .and_then(|p| p.date)
@@ -856,7 +847,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     }
 
     search_pass(cfg, db, &bodies, &page_bodies, &mut out_map, &mut stats)?;
-    // Every theme compiles its own stylesheet to its own URL.
     css_pass(&theme_dir, "/css/main.css", &mut out_map, &mut stats)?;
     for name in themes.names().filter(|n| *n != "default") {
         css_pass(
@@ -930,8 +920,8 @@ fn thumbs_pass(
 }
 
 /// ONE render per post (§6d). Expand + parse once; the same parse yields the
-/// whole document (posts, feed — byte-identical to the old double-render)
-/// and the block sequence each listing view projects its summaries from.
+/// whole document (posts, feed) and the block sequence each listing view
+/// projects its summaries from.
 /// The Doc is kept whole because truncation is VIEW policy (`summary = {
 /// max_blocks, max_chars }`), not a property of the body.
 fn render_bodies<'a>(
@@ -981,8 +971,7 @@ fn render_bodies<'a>(
 
 /// A rendered page body: the expanded fragment plus its Doc (markdown
 /// pages) for outline extraction. Computed BEFORE any page is themed so
-/// the link graph (q38) can scan every body first — this is also what
-/// untangled the tree pass, which now only themes.
+/// the link graph (q38) can scan every body first.
 pub(crate) struct PageBody {
     pub(crate) frag: String,
     pub(crate) doc: Option<Doc>,
@@ -1011,9 +1000,8 @@ fn render_page_bodies(
         let text =
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, body) = split_front_matter(&text);
-        // Expand what we know FIRST, then decide. Skipping on a bare
-        // "contains {%" was wrong: 17 of the 18 skipped pages used only
-        // constructs the expander already handles.
+        // Expand FIRST, then decide: most pages that look unsupported use
+        // only constructs the expander already handles.
         let cx = tags::Ctx {
             includes: Some(cfg.root().join("_includes")),
             site: Some(site),
@@ -1083,9 +1071,6 @@ fn render_page_bodies(
     Ok(out)
 }
 
-/// Root-relative internal link targets in a rendered fragment (q38):
-/// `href` values that are root-relative or under the site's own origin,
-/// fragment and query stripped.
 /// §4 on-demand: publish a row because something referenced it.
 ///
 /// Runs after the write pass, because the references live in FINISHED output.
@@ -1158,8 +1143,7 @@ fn materialize_referenced(
 ///
 /// One scanner for both consumers — the backlink graph and on-demand
 /// publishing — because they ask the same question. Relative citations are
-/// the common case (§6a: a page bundle keeps its screenshots beside it):
-/// 180 hrefs across 44 pages, and 572 of 838 assets.
+/// the common case (§6a: a page bundle keeps its screenshots beside it).
 fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<String> {
     let dir = match base_url.rfind('/') {
         Some(i) => &base_url[..=i],
@@ -1280,14 +1264,8 @@ mod cited_url_tests {
     }
 }
 
-/// The reverse link graph (q38): target url → `(source title, source
-/// url)`, deduped per source, sorted by title. Sources are every rendered
-/// body — posts and pages alike; targets are document rows only. Reads
-/// the same bytes that ship, so link and index cannot desync.
-/// `url -> [(title, url, date)]`. The citing row's date rides along: a
-/// backlink's source is usually a post and it has one, so an axis that
-/// dropped it was throwing away *when* the citation happened — the one
-/// fact that makes a backlink list readable in date order.
+/// One backlink: `(source title, source url, source date)`. The date rides
+/// along so a backlink list can be read in date order (q38).
 pub(crate) type Backlink = (String, String, Option<chrono::NaiveDate>);
 
 fn backlinks_map(
@@ -1304,10 +1282,8 @@ fn backlinks_map(
         .map(|p| p.url.as_str())
         .collect();
 
-    // The axis is legitimately mixed: an undated row is allowed, so the theme
-    // lets an item span rather than assuming every neighbour wears a date.
-    // Only the body map differs between origins,
-    // and that is loader-shaped (posts hold their body, pages are re-read).
+    // The axis is legitimately mixed: an undated row is allowed. Only the body
+    // map differs by origin — posts hold their body, pages are re-read.
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
         let html = bodies
@@ -1461,7 +1437,6 @@ fn search_pass(
                         // A titleless page is still searchable by body; its
                         // URL is the only honest label a hit can wear.
                         title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-                        // Both of these were hardcoded empty because `Page`
                         date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
                         // Markdown pages searched from the same bytes that
                         // ship; raw-HTML pages from their body fragment.

@@ -73,7 +73,6 @@ impl Dir {
             })
             .collect();
         out.extend(self.pages);
-        // Declared order first, then label — stable and intentional.
         out.sort_by(|a, b| {
             (a.order.unwrap_or(i64::MAX), a.label.to_lowercase())
                 .cmp(&(b.order.unwrap_or(i64::MAX), b.label.to_lowercase()))

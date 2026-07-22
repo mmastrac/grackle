@@ -58,9 +58,8 @@ impl<R: Keyed> Table<R> {
         }
     }
 
-    /// Reordering moves every row, so the position map is rebuilt. This is
-    /// what makes a held `Key` survive a sort — the bug that bit the star
-    /// views, which cached positions across `routes.sort_by`.
+    /// Rebuilds the position map, which is what makes a `Key` held across a
+    /// sort still resolve.
     pub fn sort_by(&mut self, cmp: impl FnMut(&R, &R) -> std::cmp::Ordering) {
         self.rows.sort_by(cmp);
         self.reindex();

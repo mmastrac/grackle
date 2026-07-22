@@ -50,8 +50,7 @@ pub fn trail_root(cfg: &Config, db: &SiteDb, locale: &str) -> Vec<(String, Optio
 /// A listing route's title and provenance trail (§5c): the view's declared
 /// `title`/`crumb` templates rendered over the route's group params — each
 /// grouped *ancestor* linked to its own archive, this route's crumb as the
-/// inert tail. This used to be a `match` on the layout kind re-deriving what
-/// the config already knew; layout kinds are code, naming is the view's.
+/// inert tail. Naming is the view's, not the layout kind's.
 pub fn listing_title_and_trail(
     cfg: &Config,
     db: &SiteDb,
@@ -153,9 +152,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
     }
     // The posts collection that declares a trail, whatever it is named
     // (§7a: the example's is `notes`). Keyed on the DECLARATION, not on
-    // being first: `_posts` and `_drafts` are two posts collections, and
-    // taking whichever the map yielded first made this depend on their
-    // names sorting the lucky way.
+    // being first: `_posts` and `_drafts` are both posts collections.
     let trail_view = cfg
         .collections
         .values()
@@ -186,9 +183,8 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
             }
         }
     }
-    // The inert tail: a bare day only reads after year › month crumbs;
-    // with no archive chain declared, it dangled as a naked "10" — the
-    // whole date is the honest crumb there.
+    // The inert tail: a bare day only reads after year › month crumbs, so
+    // with no archive chain declared the whole date is the honest crumb.
     if let Some(d) = p.date {
         let tail = if chained {
             d.format("%-d").to_string()
@@ -216,8 +212,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
         let parent = format!("{cur}/");
         // §6f/q45: the locale prefix makes the homepage look like a
         // directory ancestor of every /fr/… URL — but Home is the trail
-        // root's job, and it was duplicating (`Accueil › Carnet de
-        // terrain › …`).
+        // root's job, so skip it here or it doubles.
         if cfg.i18n.locales.iter().any(|l| parent == format!("/{l}/")) {
             continue;
         }
@@ -300,10 +295,8 @@ mod tests {
     }
 
     /// Two posts collections (`_posts` and `_drafts`, §4) and only one
-    /// declares the `trail`. Pinned because taking whichever the map
-    /// yielded FIRST made this depend on their names sorting the lucky
-    /// way — `drafts` sorts before `posts`, so deriving collection names
-    /// from directories silently dropped every post's archive chain.
+    /// declares the `trail`. Pins against taking whichever collection the
+    /// map yields first — `drafts` sorts before `posts`.
     #[test]
     fn the_trail_comes_from_the_collection_that_declares_it() {
         let cfg: Config = Config::from_toml(

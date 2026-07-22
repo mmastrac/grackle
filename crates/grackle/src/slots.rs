@@ -4,8 +4,8 @@
 //! and §4b markers.
 //!
 //! Extension picks the pipeline: `.md` renders through comrak into an `Html`
-//! part; `.html` is trusted markup verbatim (binder holes in fills are a
-//! later step). The **block-arity rule** applies at load: a fill destined
+//! part; `.html` is trusted markup with links resolved (§6d stage B). The
+//! **block-arity rule** applies at load: a fill destined
 //! for a phrasing-only element (`<p>`, `<h2>`, …) must render to exactly one
 //! block — hard error otherwise — and unwraps to its inline content; flow
 //! elements (`<div>`, `<footer>`, …) take any number of blocks verbatim.
@@ -60,9 +60,7 @@ impl Fill {
                     .whole
             }
             // §6d stage B: an `.html` fill never meets comrak, so its links
-            // were invisible to the resolver — this seam is why the doc
-            // comment above said "verbatim". They resolve now, per consuming
-            // page, exactly as a `.md` fill's do.
+            // resolve here instead — same contract as a `.md` fill's.
             _ => crate::rewrite::resolve_links(self.raw.trim(), resolve)
                 .with_context(|| format!("slot fill {}", self.file.display()))?,
         };
@@ -239,7 +237,6 @@ fn block_shape(html: &str) -> (usize, Option<String>) {
             if depth == 0 && !s[i..].chars().next().is_some_and(char::is_whitespace) {
                 // bare text at top level counts as a block once
                 count += 1;
-                // consume the text run
                 let end = s[i..].find('<').map(|e| i + e).unwrap_or(s.len());
                 i = end;
                 continue;

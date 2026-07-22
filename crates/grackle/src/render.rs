@@ -12,7 +12,6 @@
 use crate::db::Row;
 use std::fmt::Write as _;
 
-
 pub fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for c in s.chars() {
@@ -30,7 +29,6 @@ pub fn esc(s: &str) -> String {
 fn json_str(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
-
 
 /// Typed facts derived from a row's schema. A theme renders the subset it
 /// wants; nobody branches on "am I a post" (§5a).
@@ -51,9 +49,8 @@ pub struct Head {
     ///
     /// A relation points at other rows and renders in the body; an axis
     /// points at other forms of THIS row and renders here, as
-    /// `rel="alternate"`. Translations were classed as a relation, so they
-    /// only ever reached the body — a French page never announced its
-    /// English twin to a crawler.
+    /// `rel="alternate"` — which is why translations belong on this axis
+    /// and not among the relations.
     pub alternates: Vec<(String, String)>,
 }
 
@@ -119,7 +116,6 @@ pub fn head_simple(title: &str, url: &str, site: &Site, noindex: bool) -> Head {
         alternates: Vec::new(),
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
@@ -270,7 +266,6 @@ pub fn head_html(head: &Head, css: &str) -> String {
     h.push('\n');
     h
 }
-
 
 /// A date as Atom/sitemap `date_to_xmlschema`: `2026-06-25T00:00:00+00:00`.
 pub fn xmlschema(d: chrono::NaiveDate) -> String {

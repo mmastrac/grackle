@@ -40,7 +40,6 @@ pub fn spec_field(spec: &str) -> &str {
     }
 }
 
-
 #[derive(Debug, Default, Serialize)]
 pub struct Row {
     /// What this row IS, as opposed to where it currently sits. Assigned by
@@ -48,9 +47,8 @@ pub struct Row {
     /// about it that survives a rebuild.
     pub key: Key,
     /// The collection whose source claimed this file. Relations anchor to
-    /// it: adjacency over the whole posts TABLE interleaved two dated
-    /// collections, so a blog post's "later post" could be a note (proved
-    /// on a two-collection site before this existed).
+    /// it, not to the table: two dated collections in one table interleave,
+    /// making a blog post's "later post" a note.
     pub collection: String,
     pub path: PathBuf,
     pub rel: PathBuf,
@@ -70,28 +68,20 @@ pub struct Row {
     pub layout: Option<String>,
     pub tags: Vec<String>,
     /// Which theme renders this row, and how much wrapper it wears (§5a,
-    /// §5g). `Page` has carried both since they existed; `Post` did not,
-    /// so `FrontMatter` parsed `theme:`/`shell:` on a post and dropped
-    /// them without a word. Step one of q51's merge is that both row types
-    /// hold the same fields.
+    /// §5g).
     pub theme: Option<String>,
     pub shell: Option<String>,
     /// Typed extra fields, validated against the governing `.schema.toml`
-    /// (§5b) — the same mechanism pages have had. `.schema.toml` files were
-    /// already collected by a ROOT-WIDE walk, so the declarations were
-    /// visible to every table and only the tree loader consulted them;
-    /// `read_posts` never called `validate` and never read
-    /// `raw.front.extra`, so a post's extra keys parsed and evaporated.
+    /// (§5b). Declarations come from a root-wide walk, so they are visible
+    /// to every row whatever loader filled it.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, filter::Value>,
     /// The image-typed subset: field name -> root-relative source path.
     #[serde(skip)]
     pub images: BTreeMap<String, String>,
-    /// Declared position (§6e), the last field `Page` had and `Post` did
-    /// not. `FrontMatter` parsed `order:` either way and the posts loader
-    /// dropped it, so the asymmetry was invisible rather than intentional.
-    /// A post's *table* order is chronological; this is what a view sorts
-    /// on when it says so — see `order_by` in `build_views`.
+    /// Declared position (§6e). A post's *table* order is chronological;
+    /// this is what a view sorts on when it says so — see `order_by` in
+    /// `build_views`.
     pub order: Option<i64>,
     pub draft: bool,
     pub hidden: bool,
@@ -169,14 +159,12 @@ fn hex<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&format!("{v:016x}"))
 }
 
-
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
 
-    /// `neighbors_in` is now just a walk — the reach was decided when the
-    /// sequence was built (see `views::build_adjacency`, and the tests
-    /// there for what the sequence contains).
+    /// `neighbors_in` is just a walk — the reach was decided when the
+    /// sequence was built (see `views::build_adjacency`).
     #[test]
     fn walks_the_sequence_in_both_directions() {
         let k = |s: &str| Key::new(s);
@@ -198,17 +186,10 @@ mod adjacency_tests {
     }
 }
 
-/// Walk a prepared sequence. The sequence IS the reach (q51), so there
-/// is no collection filter here any more: `db.adjacency` is built per
-/// collection, and a declared `adjacency` set carries its own `from`.
-///
-/// The bug this replaced: `order` spanned every collection feeding the
-/// table, so walking it raw made a blog post's neighbour a note
-/// whenever two dated collections existed — measured on a
-/// two-collection site, the January blog post linked February's and
-/// April's *notes*. `_posts` and `_drafts` never showed it because
-/// drafts are undated and so absent from `order` entirely, which is
-/// exactly the accident a declared set replaces with a rule.
+/// Walk a prepared sequence. The sequence IS the reach (q51), so there is
+/// no collection filter here: `db.adjacency` is built per collection, and a
+/// declared `adjacency` set carries its own `from`. A sequence spanning
+/// collections makes a blog post's neighbour a note.
 pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
     let Some(pos) = seq.iter().position(|k| k == of) else {
         return (None, None);
@@ -218,7 +199,6 @@ pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
         seq.get(pos + 1).cloned(),
     )
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -280,23 +260,18 @@ pub struct Route {
     pub draft: bool,
     #[serde(skip)]
     pub hidden: bool,
-    /// For a `*` view: the ROUTES it selected, as positions into
-    /// `SiteDb::routes`.
+    /// For a `*` view: the ROUTES it selected.
     ///
-    /// Separate from `members` rather than sharing it, because the two index
-    /// different stores and a caller cannot tell which from the field alone.
-    /// A test that walked every route's `members` into the row store found
-    /// that out by panicking, which is the good outcome and not one to rely
-    /// on twice.
+    /// Separate from `members` rather than sharing it, because the two name
+    /// rows in different stores and a caller cannot tell which from the
+    /// field alone.
     #[serde(skip)]
     pub route_members: Vec<Key>,
     /// `self`: the post rows this route materializes, in order.
     ///
-    /// The view's declared query decides these once, here. Before this existed
-    /// `build.rs` re-derived them with a `match` on the view's *name* — the
-    /// config declared `filter`/`group_by`/`paginate` and the renderer ignored
-    /// all of it and reimplemented each view by hand. Empty for `over = "*"`
-    /// views, which range over routes rather than posts.
+    /// The view's declared query decides these once, here — renderers read
+    /// them rather than re-deriving. Empty for `over = "*"` views, which
+    /// range over routes rather than posts.
     #[serde(skip)]
     pub members: Vec<Key>,
 }
@@ -425,15 +400,11 @@ impl filter::Row for Route {
 
 #[derive(Debug, Default, Serialize)]
 pub struct SiteDb {
-    /// Every content row, posts and tree alike. One table since q51 — the
-    /// two that preceded it held the same type and differed only in which
-    /// loader filled them.
+    /// Every content row, posts and tree alike.
     pub rows: Table<Row>,
-    /// Indices of rows a posts collection produced. This is what "the posts
-    /// table" meant: a posts view ranges over ALL of them, across every
-    /// posts collection, and `published` narrows by FLAG rather than by
-    /// source. Deleting the table meant naming that set instead of
-    /// pointing at a `Vec`.
+    /// Keys of rows a posts collection produced. A posts view ranges over
+    /// ALL of them, across every posts collection; `published` narrows by
+    /// FLAG rather than by source.
     #[serde(skip)]
     pub post_ix: Vec<Key>,
     /// Indices of rows the tree loader produced.
@@ -458,11 +429,9 @@ pub struct SiteDb {
     /// root-relative on each.
     #[serde(skip)]
     pub by_logical: BTreeMap<String, Vec<Key>>,
-    /// Indices of rows an objects collection produced. Objects were a
-    /// separate TABLE until 2026-07-21; they were already the same `Row`, and
-    /// every index in `index_rows` already gated on row PROPERTIES
-    /// (`post_ix` membership, `rendered`) rather than on which vector a row
-    /// arrived in — so folding them in needed no index to change.
+    /// Keys of rows an objects collection produced. Every index in
+    /// `index_rows` gates on row PROPERTIES (`post_ix` membership,
+    /// `rendered`), never on which origin a row arrived from.
     #[serde(skip)]
     pub object_ix: Vec<Key>,
     /// Object basename -> rows. Deliberately non-unique (DESIGN.md §6a):
@@ -488,7 +457,7 @@ pub struct SiteDb {
     /// The sequence `next`/`previous` step through, per posts collection
     /// (q51). Built from the collection's declared `adjacency` set, or —
     /// unset — every row of the collection in the default locale, newest
-    /// first, which is what `PostsTable::order` used to supply implicitly.
+    /// first.
     #[serde(skip)]
     pub adjacency: BTreeMap<String, Vec<Key>>,
     pub stats: LoadStats,
@@ -531,11 +500,9 @@ pub struct LoadStats {
     pub views_ms: f64,
 }
 
-
 /// Fields a filter may reference on a row, and their types. Everything else
 /// is a load-time error (filter.rs), so a typo can't silently match
-/// everything. Was two functions, `post_schema` and `page_schema`, differing
-/// by five names — the union is additive both ways (q51).
+/// everything.
 pub fn row_schema() -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
@@ -557,16 +524,8 @@ pub fn row_schema() -> filter::Schema {
     s.insert("day", Int);
     s.insert("body_bytes", Int);
     s.insert("order", Int);
-    // A post has carried `toc` as long as pages have, cascading from
-    // markers and rules and driving the render — but `post_schema` never
-    // declared it and `Post::field` never answered, so no query could name
-    // it while a page's could. Found by diffing the two schemas rather than
-    // by reading the field census, which is how it survived four slices
-    // aimed squarely at this class of bug.
     s.insert("toc", Bool);
     s.insert("tags", List);
-    // Was page-only. `rendered` is true for every post, and `path`/`dir`
-    // read a `rel` that means one thing on either table since the merge.
     s.insert("rendered", Bool);
     s.insert("path", Str);
     s.insert("dir", Str);
@@ -576,8 +535,7 @@ pub fn row_schema() -> filter::Schema {
     // its rows without `from` naming a table — the thing standing between
     // one row store and one `published` set over all of it.
     s.insert("collection", Str);
-    // The file itself, which every row is one of. `object_schema` had these
-    // and the row schema did not, back when an object was a different type.
+    // The file itself, which every row is one of.
     s.insert("name", Str);
     s.insert("ext", Str);
     s.insert("size", Int);
@@ -613,8 +571,7 @@ impl filter::Row for Row {
             "order" => self.order.map_or(V::Null, V::Int),
             "toc" => V::Bool(self.toc),
             "rendered" => V::Bool(self.rendered),
-            // `rel` is root-relative for every row since the merge, so
-            // these mean one thing whichever table the row came from.
+            // `rel` is root-relative for every row, whatever its origin.
             "path" => V::Str(self.rel.to_string_lossy().to_string()),
             "dir" => V::Str(
                 self.rel
@@ -663,10 +620,8 @@ pub fn object_schema() -> filter::Schema {
     s
 }
 
-
 impl SiteDb {
-    /// The row a route points at, whichever table holds it. Row identity is
-    /// one thing since q51; only the storage is still two.
+    /// The row a route points at.
     pub fn row_by_url(&self, url: &str) -> Option<&Row> {
         self.by_url.get(url).and_then(|k| self.rows.get(k))
     }
@@ -749,8 +704,6 @@ impl SiteDb {
         {
             r.key = Key::new(r.rel.to_string_lossy());
         }
-        // ONE row store (q51). The split survives only as two lists of keys,
-        // which is what "the posts table" always meant: a set of rows.
         self.post_ix = posts.iter().map(|r| r.key.clone()).collect();
         self.page_ix = pages.iter().map(|r| r.key.clone()).collect();
         self.object_ix = objects.iter().map(|r| r.key.clone()).collect();
@@ -769,10 +722,8 @@ impl SiteDb {
         self.index_rows(default_locale)
     }
 
-    /// Every index, built once over the whole row store. Was two routines
-    /// against two vectors; the constraints they enforced were the same
-    /// constraints, and a URL collision between a post and a page was the
-    /// one neither could see (q51).
+    /// Every index, built once over the whole row store — which is what makes
+    /// a URL collision between a post and a page visible (q51).
     ///
     /// Each index is its key function: what a row contributes, and what it
     /// means for a row to contribute nothing. `grackle_db::index` owns the
@@ -796,9 +747,8 @@ impl SiteDb {
         // Posts-only and single-locale (§6f): a translation shares its
         // original's (date, slug) by design.
         //
-        // Membership, not arithmetic. This was `i < n_posts` — correct only
-        // while posts happened to be laid down first, and silently wrong the
-        // moment anything reordered the store.
+        // Membership, not arithmetic: nothing here may depend on posts being
+        // laid down first.
         let posts: std::collections::HashSet<&Key> = self.post_ix.iter().collect();
         let dated = |p: &Row| posts.contains(&p.key) && p.locale == default_locale;
 
@@ -839,8 +789,8 @@ impl SiteDb {
         Ok(())
     }
 
-    /// Name the two rows that claimed one key. The index layer reports
-    /// positions, having no idea a row has a path to blame.
+    /// Name the two rows that claimed one key. The index layer reports keys,
+    /// having no idea a row has a path to blame.
     fn collision<K>(&self, what: &str, c: grackle_db::Collision<K>) -> anyhow::Error {
         let path = |k: &Key| {
             self.rows

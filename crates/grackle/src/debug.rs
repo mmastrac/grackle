@@ -17,7 +17,7 @@
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::config::{Config, Kind};
+use crate::config::Config;
 use crate::db::SiteDb;
 
 #[derive(Serialize)]
@@ -217,8 +217,8 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
 
     // A star view (`over = "*"`) ranges over ROUTES, not a table, so it
     // carries no `members` — the render passes re-evaluate its filter. The
-    // set is real all the same (the search index has 327 documents), so
-    // evaluate it here rather than show an empty list and imply otherwise.
+    // set is real all the same, so evaluate it here rather than show an
+    // empty list and imply otherwise.
     let star_members = |name: &str| -> Vec<String> {
         let Some(v) = cfg.views.get(name) else {
             return Vec::new();
@@ -233,9 +233,8 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         db.routes.matching(&pred).map(|r| r.url.clone()).collect()
     };
 
-    // Members are indices into the view's base table, so resolving them to
-    // URLs needs the base kind — the one thing a client could not work out
-    // for itself.
+    // Members are keys into the one row store (q51), so the base kind does
+    // not enter into resolving them.
     let member_urls = |r: &crate::db::Route| -> Vec<String> {
         let Some(view) = r.view.as_deref() else {
             return Vec::new();
@@ -243,21 +242,9 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         if cfg.views.get(view).is_some_and(|v| v.over == "*") {
             return star_members(view);
         }
-        let Some(kind) = cfg
-            .query(view)
-            .ok()
-            .and_then(|q| cfg.collections.get(&q.base).map(|c| c.kind))
-        else {
-            return Vec::new();
-        };
         r.members
             .iter()
-            // Only objects are a different store; posts and tree members
-            // index the same rows.
-            .filter_map(|k| match kind {
-                Kind::Posts | Kind::Tree => db.rows.get(k).map(|p| p.url.clone()),
-                Kind::Objects => db.rows.get(k).map(|o| o.url.clone()),
-            })
+            .filter_map(|k| db.rows.get(k).map(|p| p.url.clone()))
             .collect()
     };
 

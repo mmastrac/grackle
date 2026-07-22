@@ -72,8 +72,6 @@ impl Pass for Listing {
         let loc = ctx.locale_of(r);
         let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc)?;
 
-        // A listing wears its members' theme when they unanimously name one
-        // (§5h); mixed or theme-less members keep the default.
         let theme_name = ctx.unanimous_theme(r);
         let row_thm = ctx.themes.get(theme_name)?;
         let main = row_thm.fragments.render_with(

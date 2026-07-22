@@ -95,9 +95,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
 /// `order_by` discipline applied to grouping, so a typo cannot produce an
 /// empty partition silently.
 ///
-/// Two of the three arms were identical the moment there was one row
-/// schema; objects remain their own thing, having no front matter to
-/// declare fields in.
+/// Objects are their own arm: no front matter, so no declared fields.
 fn check_group_chain(schemas: &Schemas, name: &str, chain: &[String], kind: Kind) -> Result<()> {
     for spec in chain {
         let field = grackle_model::spec_field(spec);
@@ -246,8 +244,8 @@ fn insert_routeless(
 }
 
 /// The default ordering for dated rows: newest first, undated last, slug as
-/// the tiebreak. Was `PostsTable::order`, an index built once at load; it is
-/// a comparator now so that losing the table costs nothing (q51).
+/// the tiebreak. A comparator, not an index, so losing the table costs
+/// nothing (q51).
 pub fn chronological(rows: &[grackle_model::Row], a: usize, b: usize) -> std::cmp::Ordering {
     let (x, y) = (&rows[a], &rows[b]);
     match (x.date, y.date) {
@@ -308,9 +306,8 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
 /// inherited from whatever index the table happened to carry.
 ///
 /// A declared `adjacency` set brings its filter AND its `order_by`, so
-/// `adjacency = "published"` drops drafts by construction. Unset reproduces
-/// the old accident exactly: every row of the collection, default locale,
-/// newest first — drafts fall off the ends only because they are undated.
+/// `adjacency = "published"` drops drafts by construction. Unset: every row
+/// of the collection, default locale, newest first.
 pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
@@ -363,8 +360,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             .rows
             .iter()
             .filter(|p| p.collection == *cname)
-            // §6f: single-locale, as `PostsTable::order` was — a row's
-            // neighbours are in its own language.
+            // §6f: single-locale — a row's neighbours are in its own language.
             .filter(|p| p.locale == cfg.i18n.default)
             .map(|p| p.key.clone())
             .collect();
@@ -379,17 +375,15 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
     for (name, v) in &cfg.views {
         // `over = "*"` views read the finished route set, so they run in a
         // second pass (see build_star_views). Views iterate in name order, so
-        // running them inline made `sitemap` miss `tag_index` — 1544 not 1559.
+        // inline would measure a partial list.
         if v.over == "*" {
             continue;
         }
         // Both named queries (`published`) and embedded views (`latest`) still
         // have to resolve, so a typo in `over` is a startup error either way.
         let q = cfg.query(name)?;
-        // Dispatch on the base collection's KIND, never its name. This
-        // replaced the phase-1 `q.base != "blog"` gate the day the example
-        // site (§7a) named its posts collection `notes` — the falsifier
-        // doing its job.
+        // Dispatch on the base collection's KIND, never its name: a posts
+        // collection may be called anything (§7a names one `notes`).
         let Some(base) = cfg.collections.get(&q.base) else {
             continue;
         };
@@ -433,8 +427,7 @@ fn build_row_view(
     // One row set per locale (§6f), the default included — it is not special.
     //
     // `rendered` and `!claimed` are no-ops on the posts side: every post is
-    // parsed, and only a tree row can be a view's claimed content (q45). They
-    // state what the eligible set IS, rather than which table it came from.
+    // parsed, and only a tree row can be a view's claimed content (q45).
     let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
             .iter()
@@ -444,7 +437,6 @@ fn build_row_view(
         rows.view_within(&eligible, &view)
     };
 
-    // No route: one row set, and nowhere to hang it but the view itself.
     if !v.is_materialized() {
         let members: Vec<grackle_db::Key> = rows_for(&cfg.i18n.default)
             .into_iter()
@@ -503,8 +495,7 @@ fn build_row_view(
         return Ok(());
     }
 
-    // Paginated list. Was posts-only, on no stronger grounds than the tree
-    // flow never having been written to do it.
+    // Paginated list.
     if let Some(per) = v.paginate.map(|p| p.max(1)) {
         for locale in &locales {
             let row_ix = rows_for(locale);
@@ -639,14 +630,12 @@ fn build_object_view(
     // column, `path` as the final tiebreak — against the narrower object
     // vocabulary.
     let known: Vec<&str> = object_schema().keys().copied().collect();
-    // The base is a FILTER now (q51's move, applied to objects the day the
-    // objects table was folded into the one row store). Membership is
-    // `collection == <this objects collection>`, ANDed onto the view's own
-    // predicate — and note the two are parsed against DIFFERENT schemas on
-    // purpose: the user's filter still type-checks against the narrow object
-    // vocabulary, so `where = "draft"` on a gallery stays the load error §5b
-    // wants, while the membership clause needs a column only the full row
-    // schema names.
+    // Membership is a filter (q51): `collection == <this objects
+    // collection>`, ANDed onto the view's predicate. The two parse against
+    // DIFFERENT schemas on purpose — the user's filter type-checks against
+    // the narrow object vocabulary so `where = "draft"` on a gallery stays
+    // the load error §5b wants, while membership needs a column only the
+    // full row schema names.
     let membership = filter::Filter::parse(&format!("collection == {:?}", q.base), &row_schema())
         .with_context(|| format!("view {name}: objects collection {:?}", q.base))?;
     let view = grackle_db::View::all()
@@ -688,11 +677,11 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 
 /// Resolve each star view's members, once the route list is final.
 ///
-/// A star view ranges over ROUTES, so its members are positions into
-/// `db.routes` rather than into the row store — the one place in the engine
-/// where that is true, and true because `over = "*"` says so.
+/// A star view ranges over ROUTES, so its members name `db.routes` rather
+/// than the row store — the one place in the engine where that is true, and
+/// true because `over = "*"` says so.
 ///
-/// Deferred to here because those positions are only stable once the list
+/// Deferred to here because the route list is only final once it
 /// stops growing and has been sorted. Resolving during `build_star_views`
 /// measured a partial list: views build in name order, so `sitemap` saw
 /// `search`'s route and would not have seen it the other way round. Both
@@ -736,8 +725,7 @@ mod object_view_tests {
     fn obj(rel: &str) -> Row {
         Row {
             key: grackle_db::Key::new(rel),
-            // Membership is a COLUMN since the objects table was folded into
-            // the one row store: an object view's base is
+            // Membership is a COLUMN: an object view's base is
             // `collection == "objects"`, so a fixture that omits this is a
             // row the view cannot see.
             collection: "objects".to_string(),
@@ -750,11 +738,9 @@ mod object_view_tests {
         }
     }
 
-    /// Seed the row store with object rows AND record their membership.
-    /// The objects table used to make this implicit; with one store a
-    /// fixture has to MEAN membership (q51's "a test fixture is not
-    /// identity"), or the view's base filter matches nothing and the test
-    /// passes vacuously.
+    /// Seed the row store with object rows AND record their membership —
+    /// without it the view's base filter matches nothing and the test passes
+    /// vacuously.
     fn seed_objects(db: &mut SiteDb, rows: Vec<Row>) {
         db.object_ix = rows.iter().map(|r| r.key.clone()).collect();
         db.rows = grackle_db::Table::new(rows);
@@ -798,13 +784,8 @@ mod object_view_tests {
         );
     }
 
-    /// `order_by` used to be REQUIRED on an object view, and had to be
-    /// `"name"`. Both halves died when an object became a `Row`: it has a
-    /// path, paths order, and that is the same default every other view got.
-    /// The merge's one real hazard: with objects and content in ONE store, a
-    /// gallery must still see only objects. Membership used to be enforced by
-    /// which table the view read; it is a filter now, and this is the test
-    /// that fails if that filter is ever dropped.
+    /// With objects and content in ONE store, a gallery must see only
+    /// objects. Membership is a filter; this test fails if it is dropped.
     #[test]
     fn a_gallery_does_not_pick_up_content_rows() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
@@ -826,7 +807,11 @@ mod object_view_tests {
         db.rows = grackle_db::Table::new(vec![o, page]);
 
         build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
-        let r = db.routes.iter().find(|r| r.url == "/photos/").expect("route");
+        let r = db
+            .routes
+            .iter()
+            .find(|r| r.url == "/photos/")
+            .expect("route");
         assert_eq!(
             r.members
                 .iter()
@@ -891,24 +876,20 @@ mod posts_order_tests {
             url: url.into(),
             date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
             order,
-            // The locale filter is explicit in the view now (it used to
-            // ride along inside `posts.order`), so a fixture row has to
-            // carry the default locale to be visible at all.
+            // The view filters on locale, so a fixture row must carry the
+            // default locale to be visible at all.
             locale: "en".into(),
             slug: url.trim_matches('/').into(),
             // A row's key is its path, so fixtures need distinct ones or
             // they are all the same row as far as the table is concerned.
             rel: std::path::PathBuf::from(format!("{}.md", url.trim_matches('/'))),
-            // Every post is a rendered row; the loader hardcodes it. The
-            // fixture has to say so now that eligibility is a predicate
-            // rather than a consequence of which flow you landed in.
+            // Every post is a rendered row; the loader hardcodes it, and
+            // eligibility is a predicate, so the fixture must say so.
             rendered: true,
             ..Row::default()
         }
     }
 
-    /// No ordering index is seeded, because none exists: since q51 the
-    /// view derives its own ordering from the rows.
     fn db() -> SiteDb {
         SiteDb::seed(
             vec![
@@ -942,9 +923,7 @@ mod posts_order_tests {
             .collect()
     }
 
-    /// A view with no `order_by` orders by PATH. The engine used to assume
-    /// every corpus was a blog and sort newest-first; a tree is a list of
-    /// files, and their paths are the one ordering every row has. A posts
+    /// A view with no `order_by` orders by PATH — not newest-first. A posts
     /// collection asks for dates.
     #[test]
     fn no_order_by_means_path_order() {
@@ -1136,10 +1115,8 @@ mod grouping_tests {
     }
 }
 
-/// What `next`/`previous` step through (q51). The two properties here were
-/// both real bugs once, and the merge changes which mechanism guarantees
-/// them: the collection anchor used to be a filter inside `neighbors`, and
-/// is now structural — one sequence per collection.
+/// What `next`/`previous` step through (q51). The collection anchor is
+/// structural — one sequence per collection, not a filter after the fact.
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
@@ -1183,11 +1160,9 @@ mod adjacency_tests {
             .collect()
     }
 
-    /// Two dated collections interleave in one table, so walking a shared
-    /// index made a blog post's neighbour a note — measured on a real
-    /// two-collection site, the January blog post linked February's and
-    /// April's *notes*. One sequence per collection makes that unable to
-    /// recur, rather than filtered out after the fact.
+    /// Two dated collections interleave in one table, so a shared index made
+    /// a blog post's neighbour a note. One sequence per collection makes that
+    /// unable to recur.
     #[test]
     fn each_collection_gets_its_own_sequence() {
         let c = cfg("[[collections]]\nname = \"notes\"\nkind = \"posts\"\n\
@@ -1203,9 +1178,9 @@ mod adjacency_tests {
         assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
     }
 
-    /// The honest version of the draft story. Undeclared, a DATED draft
-    /// really is someone's later post — it only fell out before because
-    /// drafts are usually undated. Declaring the set fixes it by rule.
+    /// Undeclared, a DATED draft rides the chain — drafts fall out otherwise
+    /// only because they are usually undated. Declaring the set fixes it by
+    /// rule.
     #[test]
     fn a_declared_set_drops_drafts_by_construction() {
         let rows = || {

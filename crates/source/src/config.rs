@@ -30,9 +30,9 @@ pub struct Config {
     declared_collections: Vec<Collection>,
     /// Sets and routes, merged. One namespace (§5c): `from` names a
     /// collection, a set or a route, so the three cannot collide — checked
-    /// in `validate`. Internally this stays one map because the split is a
+    /// in `validate`. One map internally because the split is a
     /// config-surface distinction, not an engine one: a set is a route
-    /// with no path, exactly as before.
+    /// with no path.
     #[serde(skip)]
     pub views: BTreeMap<String, View>,
     /// Queries that never land — no `path`. Composable, embeddable.
@@ -313,16 +313,11 @@ pub struct LinksCfg {
     pub policy: LinkPolicy,
 }
 
-/// Strict is the DEFAULT (Matt, 2026-07-20): a link that matches no source
-/// file or route is a load error naming the file, and a raw URL to routable
-/// content is an error telling you the source form to use instead. Loose
-/// leaves both untouched, which means a typo ships as a 404.
-///
-/// It was Loose while the corpus still had 28 raw-URL links to convert;
-/// with those gone, defaulting to lenient would be the same silent-drop
-/// this codebase keeps closing everywhere else (§4's constraint ethos).
-/// `policy = "loose"` remains for importing a corpus that has not been
-/// converted yet.
+/// Strict is the DEFAULT: a link that matches no source file or route is a
+/// load error naming the file, and a raw URL to routable content is an error
+/// telling you the source form to use instead. Loose leaves both untouched,
+/// which means a typo ships as a 404 — kept only for importing a corpus
+/// whose links have not been converted yet.
 #[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LinkPolicy {
@@ -430,11 +425,10 @@ pub struct Collection {
     pub include: Vec<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
-    /// `trail` stays where `crumb`/`index` did not: a subdivision chain
-    /// renders from a row's group keys, which no URL walk can recover.
-    ///
     /// The view whose subdivision chain forms this collection's row trails
     /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
+    /// Declared, not derived: the chain renders from a row's group keys,
+    /// which no URL walk can recover.
     pub trail: Option<String>,
     /// The view that owns this collection's tag routes (q32): tag pills
     /// render their URLs from ITS route template, so config can move the
@@ -446,15 +440,10 @@ pub struct Collection {
     /// reach is declared rather than inherited from whatever the table
     /// happened to be sorted by.
     ///
-    /// The point of naming one: a set carries its filter, so
-    /// `adjacency = "published"` (`!draft && !hidden`) drops drafts **by
-    /// construction**. Today they drop only by accident — a draft is
-    /// usually undated, so it falls to the end of the chronological index
-    /// and off the ends of the chain. Give a draft a date and it appears
-    /// as someone's "later post".
-    ///
-    /// Unset keeps exactly that accident: every row of the collection, in
-    /// the default locale, newest first.
+    /// A set carries its filter, so `adjacency = "published"` drops drafts
+    /// by construction. Unset means every row of the collection, default
+    /// locale, newest first — where a dated draft becomes someone's
+    /// "later post".
     pub adjacency: Option<String>,
 }
 
@@ -482,8 +471,7 @@ pub struct Rule {
 
 /// A view is a *query* plus, optionally, a *materialization*.
 ///
-/// The two were welded together until the home page needed the top 3 posts
-/// with no route of its own (DESIGN.md §5c). Splitting them gives three shapes:
+/// The split gives three shapes (DESIGN.md §5c):
 ///
 ///   * query only (no route, no layout) — a named set, e.g. `published`
 ///   * query + layout, no route         — embeddable, e.g. `latest`
@@ -831,10 +819,7 @@ impl Config {
     /// them on in-memory configs).
     pub(crate) fn validate(&self) -> Result<()> {
         let cfg = self;
-        // Zero collections means zero rows, zero routes, and a build that
-        // reports success over an empty directory. Always a mistake, and
-        // silence is the worst way to report it: the first config a
-        // newcomer writes is `[site]` and nothing else.
+        // Zero collections builds an empty site and reports success.
         if cfg.collections.is_empty() {
             anyhow::bail!(
                 "no collections declared — nothing would be built. A site \
@@ -848,10 +833,8 @@ impl Config {
         for (vname, v) in &cfg.views {
             // §5a: `layout` names the arrangement the engine builds — which
             // parts a view produces, not which fragment dresses them (that
-            // is `variant`). A closed vocabulary, because an unknown name
-            // used to be inert: it named no fragment, the theme fell back to
-            // canonical rendering, and the routed passes discarded the value
-            // anyway. Three of grack.com's own layouts were dead that way.
+            // is `variant`). Closed vocabulary: an unknown name would
+            // otherwise be inert, falling back to canonical rendering.
             if let Some(l) = v.layout.as_deref() {
                 if !LAYOUTS.contains(&l) {
                     anyhow::bail!(
@@ -1583,15 +1566,9 @@ mod tests {
         assert!(e.contains("resolve to the name"), "{e}");
     }
 
-    /// `match` conjoins along the chain: a child narrows within its
-    /// parent's subtree. Nearest-wins would let a child silently escape it.
-    /// The first config anyone writes is `[site]` and nothing else. It used
-    /// to build successfully over an empty directory.
-    /// A layout that names no arrangement used to be inert: it matched no
-    /// fragment, the theme fell back to canonical rendering, and the routed
-    /// passes discarded the name anyway. grack.com carried three of them —
-    /// `tag_index`, `yearly_archive`, `monthly_archive` — and swapping all
-    /// three for `listing` changed not one byte of the built site.
+    /// A layout outside the vocabulary would otherwise be inert — no
+    /// fragment matches, the theme silently falls back to canonical
+    /// rendering.
     #[test]
     fn a_layout_outside_the_vocabulary_is_a_load_error() {
         let src = "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
@@ -1604,10 +1581,8 @@ mod tests {
         assert!(e.contains("listing, link_list, card"), "{e}");
     }
 
-    /// Which listings ask search engines away used to be a view NAME in the
-    /// rendering pass — `view != "blog_index"` — so every listing but that one
-    /// was noindex by accident, and merging the gallery and card-list passes
-    /// into it would have silently flipped them. It is editorial, so it is
+    /// noindex was once hardcoded as `view != "blog_index"`, making every
+    /// other listing noindex by accident. It is editorial, so it is
     /// declared; an undeclared listing is indexed.
     #[test]
     fn noindex_is_a_view_declaration_defaulting_to_indexed() {
@@ -1624,21 +1599,18 @@ mod tests {
         assert!(c.views["tag_index"].noindex);
     }
 
-    /// §4a's leak, closed for pages. `FrontMatter` parses `draft` for every
-    /// row, but only posts kept it — so `draft: true` on a page was read,
-    /// dropped, and the page published into `sitemap.xml`. The flags now
-    /// reach the page schema too: before this, a tree set could not say
-    /// `!draft && !hidden` at all, because neither field was known.
+    /// §4a: the flag family reaches the page schema, not just posts —
+    /// `draft: true` on a page was once read, dropped, and published.
     #[test]
     fn the_flag_family_is_queryable_on_pages() {
-        // Type-checking the filter IS the assertion — `contains_key` on the
-        // schema only restates a struct definition.
+        // Type-checking the filter IS the assertion.
         let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden && !noindex\"\n");
         let q = c.query("pages").unwrap();
         grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &grackle_model::row_schema())
             .expect("!draft && !hidden should type-check against a page");
     }
 
+    /// A `[site]`-only config used to build successfully over an empty tree.
     #[test]
     fn a_config_with_no_collections_says_so() {
         let src = "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n";
@@ -1651,6 +1623,8 @@ mod tests {
         );
     }
 
+    /// `match` conjoins: a child narrows within its parent's subtree.
+    /// Nearest-wins would let a child silently escape it.
     #[test]
     fn match_conjoins_along_the_chain() {
         let c = cfg("[sets.recipes]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n\
@@ -1710,10 +1684,8 @@ mod tests {
         assert!(e.contains("both a set and a route"), "{e}");
     }
 
-    /// Retired spellings carry no bespoke message any more (two consumers,
-    /// both migrated) — but they must still not be SILENTLY IGNORED, which
-    /// is what `deny_unknown_fields` buys: a stale key is a parse error
-    /// listing what is valid.
+    /// Retired spellings must not be silently ignored: `deny_unknown_fields`
+    /// makes a stale key a parse error listing what is valid.
     #[test]
     fn an_unknown_config_key_is_a_parse_error() {
         for stale in [
@@ -1791,7 +1763,7 @@ mod tests {
             ("recipes/dal.md", "en")
         );
 
-        // i18n off: nothing fires, ever.
+        // i18n off (locales empty): the selector never fires.
         let off = I18nCfg::default();
         let (l, loc) = off.split(Path::new("recipes/dal.fr.md"));
         assert_eq!(

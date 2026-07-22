@@ -19,9 +19,8 @@ use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
 use crate::store::{self, RawRow};
 
-/// Front matter's `date:`, for either table. `YYYY-MM-DD`; a bare
-/// `YYYY-MM` means the first of that month, which is what the tree side
-/// was spelling as a string field before it could hold a real date.
+/// Front matter's `date:`. `YYYY-MM-DD`; a bare `YYYY-MM` means the first of
+/// that month.
 fn front_matter_date(raw: &str, path: &Path) -> Result<NaiveDate> {
     let s = raw.trim();
     let parsed = NaiveDate::parse_from_str(s, "%Y-%m-%d")
@@ -164,13 +163,8 @@ struct Cascaded {
     toc: bool,
 }
 
-/// Resolve those fields once, for any row.
-///
-/// Both loaders spelled this out separately and the two spellings had drifted
-/// apart: `toc` and `layout` cascaded for a post and not for a tree row, and
-/// the shell vocabulary was checked on a tree row and not on a post. Neither
-/// asymmetry was intended and neither was reachable from this site's config,
-/// which is how they survived.
+/// Resolve those fields once, for any row — one spelling, so posts and tree
+/// rows cannot drift apart on which fields cascade.
 fn cascade(
     front: &store::FrontMatter,
     defaults: &BTreeMap<&str, &toml::Value>,
@@ -300,14 +294,8 @@ fn read_posts(
 
         // `logical` keeps its extension, matching the tree side — where the
         // convention is config-visible (`content = "recipes/index.md"`).
-        // The two loaders used OPPOSITE conventions for this field, and the
-        // page `field()` only derived `stem` correctly because of it.
-        //
-        // ROOT-relative too, like `rel`: it was collection-relative, so a
-        // post at `2020/x.md` and a tree page at `2020/x.md` shared a
-        // logical identity. That was harmless while the two tables kept
-        // separate `by_logical` maps and is a collision the moment they do
-        // not.
+        // ROOT-relative too, like `rel`: collection-relative would collide a
+        // post at `2020/x.md` with a tree page at `2020/x.md`.
         let logical = source_rel.join(&logical_rel).to_string_lossy().to_string();
         let key = formats.iter().find_map(|f| f.parse(&stem));
         let from_name = match &key {
@@ -322,9 +310,7 @@ fn read_posts(
             None => None,
         };
         // Front matter beats the filename, the same precedence every other
-        // field has (§4b) — and the same `date:` a tree page now carries.
-        // Before this it landed in `extra`, where a governed post rejected
-        // it as undeclared and an ungoverned one dropped it.
+        // field has (§4b).
         let date = match &raw.front.date {
             Some(s) => Some(front_matter_date(s, &raw.path)?),
             None => from_name,
@@ -417,10 +403,10 @@ fn read_posts(
             on_demand: false,
             collection: collection.clone(),
             path: raw.path,
-            // ROOT-relative since the merge, so `path`/`dir` mean one thing
-            // on either table. Rule globs still match the collection-
-            // relative form (`apply_rules` takes `logical_rel`), which is
-            // what `match = "hidden/**"` inside `_posts` has always meant.
+            // ROOT-relative, so `path`/`dir` mean one thing on every row.
+            // Rule globs match the collection-relative form (`apply_rules`
+            // takes `logical_rel`): `match = "hidden/**"` is relative to
+            // `_posts`.
             rel: source_rel.join(&raw.rel),
             version: raw.version,
             date,
@@ -453,11 +439,9 @@ fn read_posts(
     Ok((rows, read_ms))
 }
 
-/// Index the whole posts table at once, over every collection's rows.
 /// Posts arrive from several collections (`_posts` and `_drafts` are two
 /// sources of one corpus), so they are gathered first and ordered once.
-/// Indexing itself belongs to `SiteDb::insert_rows` now — there is one row
-/// store to index (q51), and it is the database's to build.
+/// Indexing belongs to `SiteDb::insert_rows` (q51).
 fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
     rows
@@ -628,12 +612,8 @@ fn build_tree_and_objects(
                     claims[logical.as_str()]
                 );
             }
-            // `stem` is STORED, not derived. `Page::field` used to recompute
-            // it from `logical` via `file_stem()`, which was correct only
-            // because the tree kept the extension that the posts loader
-            // stripped — a page named `v1.2-release.md` would have come back
-            // `v1` the moment those conventions were unified. Computed once
-            // here from the real path, the question stops existing.
+            // `stem` is STORED, not derived: recomputing it from `logical`
+            // via `file_stem()` returns `v1` for `v1.2-release.md`.
             let stem = logical_rel
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
@@ -682,9 +662,8 @@ fn build_tree_and_objects(
 }
 
 /// Front matter of a tree page: presentation reads its fields directly.
-/// A parse failure is a LOAD ERROR naming the file — this used to swallow
-/// bad YAML into an empty schema, and an unquoted `title: A: B` shipped a
-/// silently titleless page. Loud beats lenient (§4's constraint ethos).
+/// A parse failure is a LOAD ERROR naming the file, never an empty schema —
+/// an unquoted `title: A: B` must not ship a silently titleless page (§4).
 fn read_page_schema(path: &Path) -> Result<(store::FrontMatter, usize)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -692,7 +671,7 @@ fn read_page_schema(path: &Path) -> Result<(store::FrontMatter, usize)> {
     let fm = serde_yaml_ng::from_str(yaml)
         .with_context(|| format!("front matter of {}", path.display()))?;
     // `body_bytes` from the same read, so the field means the same thing on
-    // every row. It was posts-only (0 on a page) before the merge.
+    // every row.
     Ok((fm, body.len()))
 }
 /// Read the site named by `cfg` and return the database it describes.
@@ -767,14 +746,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // Unified route list.
     let t = std::time::Instant::now();
     let route_locale = |l: &str| (l != cfg.i18n.default).then(|| l.to_string());
-    // One loop over one row store. It was two, and the second one
-    // decided `Page` vs `Static` from `p.rendered` — a property the
-    // first never had to consult because every post is parsed.
-    // `RouteKind::Post` survives because a ROUTE kind is real: it is
-    // the vocabulary star-view filters use (`kind == "post"`).
-    // Membership, not arithmetic. `i < n_posts` was correct only while posts
-    // were laid down first and contiguously — the last of the positional
-    // assumptions keys were introduced to retire.
+    // `RouteKind::Post` survives because a ROUTE kind is real: it is the
+    // vocabulary star-view filters use (`kind == "post"`). Membership, not
+    // arithmetic — position in the store carries no meaning.
     let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
     let objects: std::collections::HashSet<&grackle_db::Key> = db.object_ix.iter().collect();
     // §4 on-demand: the row knows its URL, but nothing publishes it until
@@ -789,9 +763,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         .filter(|p| !p.claimed && !p.on_demand)
         .map(|p| {
             // Route kind is a question about the row's PROPERTIES, not about
-            // which vector it arrived in — which is what let the objects
-            // table go: an object is the arm between "rendered" and "static",
-            // reached by membership like `Post` is.
+            // which vector it arrived in.
             let kind = if posts.contains(&p.key) {
                 RouteKind::Post
             } else if objects.contains(&p.key) {
@@ -824,8 +796,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     {
         let claims = cfg.content_claims();
         let mut fixed: Vec<(grackle_db::Key, String)> = Vec::new();
-        // The GLOBAL index: `enumerate` over `pages()` counts within
-        // the tree rows, and every index is a row-store index now.
         for (k, p) in db
             .page_ix
             .iter()
@@ -921,8 +891,7 @@ mod cascade_tests {
         assert!(!c.toc);
     }
 
-    /// The four that a silent row inherits. `toc` and `layout` are here
-    /// because they reached a post and not a tree row.
+    /// Every field a silent row inherits.
     #[test]
     fn a_silent_row_inherits_every_cascading_field() {
         let d = [
@@ -949,8 +918,8 @@ mod cascade_tests {
         assert!(!c.draft && !c.toc);
     }
 
-    /// The shell vocabulary was checked on tree rows only, so a post could
-    /// name a tier that does not exist and render the wrong one in silence.
+    /// A shell outside the vocabulary must fail loudly — unchecked, a typo
+    /// renders the wrong tier in silence.
     #[test]
     fn a_shell_outside_the_vocabulary_is_a_load_error() {
         let e = cascade(&front("shell: htlm\n"), &defaults(&[]), Path::new("p.md"))

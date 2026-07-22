@@ -19,15 +19,10 @@ pub fn options() -> Options<'static> {
     // them across 44 posts, each carrying an aria-label, which is a heading
     // affordance the Jekyll site never had and we want.
     //
-    // It is a real divergence from the reference, and worth knowing that the
-    // body oracle CANNOT see it: `diff::normalize` calls
-    // `strip_comrak_anchors` before comparing, so the 90% parity figure is
-    // computed with these removed. That normalizer was written to isolate the
-    // slug question — do the two algorithms agree — and in doing so it hides
-    // this one permanently. An earlier version of this comment claimed "the
-    // real pipeline strips it in the AST pass"; nothing ever did, and the
-    // harness being blind is exactly why no one noticed for a month. §8a's
-    // rule, again: agreement is not evidence unless it can disagree.
+    // A real divergence the body oracle CANNOT see: `diff::normalize` calls
+    // `strip_comrak_anchors` before comparing, so the parity figure is
+    // computed with these removed. §8a: agreement is not evidence unless it
+    // can disagree.
     o.extension.header_id_prefix = Some(String::new());
 
     // kramdown runs smartypants by default: quotes -> curly, -- -> en dash.
@@ -128,7 +123,6 @@ pub fn render(src: &str) -> String {
     format_html(root, &opts, &mut out).expect("writing to a String cannot fail");
     out
 }
-
 
 /// A rendered document as its top-level block sequence (§6d). `whole` is the
 /// exact `render()` output — documents and the feed use it unchanged, so the
@@ -232,7 +226,6 @@ fn text_len(html: &str) -> usize {
     n
 }
 
-
 /// One heading of a rendered document — §6e's heading axis.
 #[derive(Debug, PartialEq)]
 pub struct Heading {
@@ -312,7 +305,9 @@ mod link_tests {
             doc.whole
         );
         let err = render_doc_with("[a](nope.md)", &|_| anyhow::bail!("no such source"));
-        let Err(e) = err else { panic!("a resolver error must fail the render") };
+        let Err(e) = err else {
+            panic!("a resolver error must fail the render")
+        };
         // The resolver's own message must survive, not just some error.
         assert!(format!("{e:#}").contains("no such source"), "{e:#}");
     }
@@ -364,8 +359,6 @@ mod tests {
     }
 }
 
-// The §6d spike, promoted: the invariant it measured is now pinned over the
-// corpus on every test run.
 #[cfg(test)]
 mod block_tests {
     use super::*;

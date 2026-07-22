@@ -31,8 +31,7 @@ pub enum Part {
     Stream(Vec<PartMap>),
     /// A single nested component (pagination on a listing).
     Map(PartMap),
-    /// A fact. Facts become `data-` attributes under the theme contract; the
-    /// legacy composer branches on them where the old markup did.
+    /// A fact. Facts become `data-` attributes under the theme contract.
     Flag(bool),
 }
 
@@ -123,8 +122,7 @@ impl PartMap {
         matches!(self.get(name), Some(Part::Flag(true)))
     }
 
-    /// Parts in canonical order — what the null theme renders. Unused until
-    /// the binder (§5e step 2) walks maps; the order discipline starts now.
+    /// Parts in canonical order — what the null theme renders.
     #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, &Part)> {
         self.parts.iter().map(|(n, p)| (*n, p))
@@ -147,15 +145,14 @@ pub enum PartType {
     Flag,
 }
 
-/// The part schema of each layout kind: which names exist and what fills
-/// them. This is what the binder validates fragment holes against (§5e);
-/// `set()` also asserts against it so the vocabulary can't drift silently.
-/// The engine's part schemas, parsed once from `assets/parts.toml`.
+/// The engine's part schemas, parsed once from `assets/parts.toml`; a site's
+/// `[[parts]]` extends them in `Schemas::load`.
 ///
-/// Data, not a match: the table is what a theme's fragments are checked
-/// against, and it is the thing `[parts.<kind>]` will extend. Order within a
-/// kind is semantic — parts render in declaration order — so the file is an
-/// array of pairs, which preserves it, rather than a table, which would not.
+/// Data, not a match: this is what a theme's fragments are checked against,
+/// and what `set()` asserts against so the vocabulary cannot drift silently.
+/// Order within a kind is the declared vocabulary order — NOT render order,
+/// which is the producer's `set()` order — so the file is an array of pairs,
+/// which preserves it, rather than a table, which would not.
 static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
     std::sync::OnceLock::new();
 
@@ -627,8 +624,7 @@ pub fn document(
 /// because the *schema* differs (§5a). Ancestors instead of a date trail, the
 /// `tree` fact instead of temporal neighbors, and — inside a `.section` unit
 /// (§6e) — the section's page tree with this row marked current.
-/// Everything a tree document carries besides its identity — the positional
-/// list outgrew itself when §6e and q23 landed.
+/// Everything a tree document carries besides its identity.
 #[derive(Default)]
 pub struct TreeDoc<'a> {
     pub ancestors: &'a [(String, String)],
@@ -701,9 +697,8 @@ pub struct Preview<'a> {
 
 /// One row, projected into the `summary` kind.
 ///
-/// The single preview producer: `summary`, `card` and `figure` were three
-/// functions filling disjoint halves of one schema, which is why three passes
-/// existed to call them. A part is filled when the row answers it.
+/// A part is filled when the row answers it — one projection serves a post, a
+/// book and a photograph (q36).
 pub fn preview(p: Preview) -> PartMap {
     let mut m = PartMap::new("summary");
     let row = p.row;
@@ -804,12 +799,11 @@ fn set_items(m: &mut PartMap, mut items: Vec<Preview>, featured: bool) {
 }
 
 /// §5d's one genuine component, as data: prev/next (absent at the ends) and
-/// the page range (a page with no `url` is the current one). Page 1 lives at
-/// `/blog/`; page N>1 links `/blog/page/N` with no trailing slash, faithful to
-/// jekyll-paginate. `None` when there is a single page.
-/// q32 settled: producers take URLs. `urls[i]` is page i+1's link target,
-/// rendered by build from the owning view's route templates — this
-/// producer no longer knows what a blog is.
+/// the page range (a page with no `url` is the current one). `None` when there
+/// is a single page.
+///
+/// q32: `urls[i]` is page i+1's link target, rendered by build from the owning
+/// view's route templates — this producer knows nothing about blogs.
 pub fn pagination(current: usize, urls: &[String]) -> Option<PartMap> {
     let total = urls.len();
     if total <= 1 {
@@ -904,8 +898,8 @@ mod tests {
         c.set("title", Part::Text("x".into()));
     }
 
-    /// A gallery is a listing of picture-first previews: `src` links, the
-    /// measured dimensions ride along (q26), and nothing needs a `figure` kind.
+    /// A picture-first listing needs no kind of its own: `src` links, and the
+    /// measured dimensions ride along (q26).
     #[test]
     fn picture_previews_carry_dimension_facts() {
         let m = listing(
@@ -1090,8 +1084,7 @@ mod schema_asset_tests {
     }
 
     /// The vocabulary each kind declares. NOT the render order: that is the
-    /// producer's `set()` order, and reordering this asset was measured to
-    /// change no shipped byte. Pinned so the vocabulary cannot drift silently.
+    /// producer's `set()` order. Pinned so the vocabulary cannot drift silently.
     #[test]
     fn each_kind_declares_its_vocabulary() {
         let names = |k| {

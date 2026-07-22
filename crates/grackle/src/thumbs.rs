@@ -1,10 +1,7 @@
 //! Derived-image thumbnails: a content-addressed cache + published `/static/`
 //! URLs (DESIGN.md §6b). Replaces `thumbnail.rb`.
 //!
-//! That plugin keyed on MD5 of the source bytes, wrote an extensionless
-//! `_thumbs/{md5}-600-600`, and needed a `.htaccess` to give the blob a
-//! Content-Type and a cache header. §6b splits the two jobs the plugin
-//! conflated:
+//! §6b splits the two jobs `thumbnail.rb` conflated:
 //!
 //!   * a **build cache** — `_cache/thumbs/{hash}.{ext}`, gitignored, never
 //!     shipped, keyed by content so it is self-invalidating and safe to delete;
@@ -262,4 +259,3 @@ mod tests {
         assert_eq!((img.width(), img.height()), (100, 80));
     }
 }
-

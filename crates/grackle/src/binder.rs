@@ -38,7 +38,6 @@ use std::path::Path;
 use crate::parts::{Part, PartMap, PartType};
 use crate::render::esc;
 
-
 #[derive(Debug)]
 enum Node {
     /// Verbatim output: text, comments, doctype.
@@ -123,7 +122,7 @@ impl Fragments {
             if schemas.get(&kind).is_none() {
                 bail!(
                     "{file}: fragment names no layout kind `{kind}` — kinds are: {}",
-                    known_kinds()
+                    known_kinds(schemas)
                 );
             }
             let nodes = Parser::new(text, file).parse_all()?;
@@ -135,7 +134,6 @@ impl Fragments {
         }
         Ok(f)
     }
-
 
     fn validate(&self, schemas: &crate::parts::Schemas, frag: &Fragment, file: &str) -> Result<()> {
         self.validate_nodes(schemas, &frag.nodes, &frag.kind, file)
@@ -151,7 +149,10 @@ impl Fragments {
         for n in nodes {
             let Node::Element(el) = n else { continue };
             if let Some(slot) = &el.slot {
-                let Some(ty) = schemas.get(kind).and_then(|s| s.iter().find(|(n, _)| n == slot).map(|(_, t)| *t)) else {
+                let Some(ty) = schemas
+                    .get(kind)
+                    .and_then(|s| s.iter().find(|(n, _)| n == slot).map(|(_, t)| *t))
+                else {
                     bail!(
                         "{file}:{}: unknown slot `{slot}` on <{}> — `{kind}` has: {}",
                         el.line,
@@ -220,7 +221,10 @@ impl Fragments {
             }
             for a in &el.attrs {
                 if let Attr::Slot(attr, part) = a {
-                    match schemas.get(kind).and_then(|s| s.iter().find(|(n, _)| n == part).map(|(_, t)| *t)) {
+                    match schemas
+                        .get(kind)
+                        .and_then(|s| s.iter().find(|(n, _)| n == part).map(|(_, t)| *t))
+                    {
                         Some(PartType::Text | PartType::Url) => {}
                         Some(_) => bail!(
                             "{file}:{}: data-slot-{attr} must name a text part, \
@@ -260,7 +264,6 @@ impl Fragments {
         }
         out
     }
-
 
     /// Render the map through its kind's fragment — or, when the theme
     /// declines to arrange this kind, through the canonical null rendering
@@ -436,15 +439,18 @@ pub fn is_phrasing_only(tag: &str) -> bool {
 fn known_parts(schemas: &crate::parts::Schemas, kind: &str) -> String {
     schemas
         .get(kind)
-        .map(|s| s.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "))
+        .map(|s| {
+            s.iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
         .unwrap_or_default()
 }
 
-fn known_kinds() -> &'static str {
-    "document, listing, summary, gallery, figure, outline_entry, link_list, \
-     link, crumb, tag, relation, neighbor, pagination, page_link, raw"
+fn known_kinds(schemas: &crate::parts::Schemas) -> String {
+    schemas.kind_names().join(", ")
 }
-
 
 /// The HTML void elements — the one list; `slots.rs` block counting uses it
 /// too.
@@ -635,7 +641,6 @@ impl<'a> Parser<'a> {
         self.pos += end;
     }
 }
-
 
 #[cfg(test)]
 mod tests {
