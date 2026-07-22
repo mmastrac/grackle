@@ -3384,6 +3384,19 @@ with a numeric-aware comparator; the engine keeps its determinism.
 | Related posts | LSI is unreproducible *and* unwanted | **Superseded** (§6b): embeddings replace it outright. Deliberately not equivalent — this is an improvement, and `diff` can't judge relatedness anyway |
 | Feed body HTML | `feed_images`/`expand_urls` operate on rendered HTML | ✅ **done** (regex port, §render). `expand_urls` makes root-relative `href`/`src` absolute; `feed_images` injects `align`/`width` on float images — both byte-verified against the reference. `<content>` bodies still carry the markdown gap (§8a), feed-only, low stakes |
 
+### Heading anchors: kept, deliberately *(2026-07-21)*
+
+comrak injects an `<a class="anchor">` inside every heading; kramdown does
+not. **226 of them across 44 posts, and we keep them** — each carries an
+`aria-label`, which is a heading affordance the Jekyll site never had and we
+want. Recorded because it is a real, permanent divergence from the reference,
+and because of how it was found: `markdown.rs` claimed for a month that "the
+real pipeline strips it in the AST pass". Nothing ever did. Only
+`diff::normalize` strips them, so the body oracle had been measuring parity
+with the difference removed. §8a's rule caught this one late — *agreement is
+not evidence unless it can disagree* — and it is the third item in the case
+for retiring that oracle.
+
 ## 8a. The markdown gap, and what measuring it taught
 
 The kramdown→comrak gap was the one risk that could sink the port. It is a
@@ -3452,17 +3465,34 @@ coincidence: the first was luck, the second is earned.
    meant to catch*. The other half counted the layout's `<a class="fullpost">`
    as a markdown difference, which is a category error.
 
-### The 97-post blind spot *(open — q21)*
+### Retiring the body oracle *(Matt's call, 2026-07-21)*
 
-`diff` skips 97 of 327 posts as "body contains liquid", and many are **false
-positives**: `{{ github.event.issue.number }}` in the bluetooth posts is a
-GitHub Actions expression inside a code sample. So 30% of the corpus is
-unmeasured and the 90% is computed over an unrepresentative 230. The same blind
-spot hides the highlighting gap: only 6 posts use real-language fences and 4 of
-them are liquid-skipped, so "1 remaining rouge diff" is 1 of 2 compared, not 1
-of 6.
+The body diff is **no longer a cutover gate**. `grackle urls` gates the URL
+set; everything else is verified by eye. Three things drove it, and they
+compound:
 
-Related and still true: **`_site-prod` can no longer be regenerated** (§5c) —
+1. **The reference is a wasting asset.** 48 of 327 posts have been edited since
+   it was built, and the edits are deliberate migration work — `{% post_url %}`
+   rewritten file-relative, raw URLs converted for strict links, callouts
+   rewritten as widgets. §8a's method filters to posts "untouched since the
+   reference build", so the comparable set shrinks every time the corpus moves
+   toward grackle. Two posts now carry `{% callout %}`, which Jekyll cannot
+   render at all, so the reference cannot be fully regenerated even with the
+   `git stash` dance (q22).
+2. **The harness hides real differences.** `diff::normalize` calls
+   `strip_comrak_anchors`, so the 90% figure is computed with comrak's 226
+   injected heading anchors removed. They ship; the reference has none; the
+   measurement structurally cannot see them. That normalizer was right for the
+   question it was written to answer (do the slug algorithms agree?) and wrong
+   as a parity gate.
+3. **The remaining gap is a parser ceiling**, ~92%, and §9a already decided we
+   will not fork comrak's parser to chase it.
+
+What survives: `diff` stays as an *investigative* tool, and the 97-post blind
+spot below stays worth knowing when reading any number it prints. What ends is
+treating its matrix as the thing that says "safe to publish".
+
+### The 97-post blind spot *(open — q21)*Related and still true: **`_site-prod` can no longer be regenerated** (§5c) —
 `{% view %}` is not Liquid, so Jekyll fails the whole build and refreshing the
 reference needs `git stash push index.html` first (q22). Losing the ability to
 refresh the reference is exactly the capability that caught the 17-point lie.
@@ -3839,10 +3869,8 @@ Phases 0–4, 6 and 8 are **done**; 7 is at stage A; 5 is the open one.
 | 1 | route mapping, `export`, `routes` | ✅ ~1579 routes across posts/pages/objects/views; **every one of the 556 Jekyll sitemap URLs is routed**, 0 missing (the extras are assets jekyll-sitemap never lists) |
 | 2a | markdown-gap spike + `diff` | ✅ **the port is viable** — 90.0% against an honest reference, 92.2% if smartypants is matched; the residue is parser-side (§8a) |
 | 2b | render pipeline end to end | ✅ 327 posts + listings with pagination + 40/40 pages + 1025 assets + 260 thumbnails + feed + sitemap in **~0.4s warm** (Jekyll: ~38s). Zero skipped pages |
-| 3 | feed, sitemap, scss, thumbnails, passthrough | ✅ entry sets byte-identical to the reference; 25.3 MB of sources → 9.0 MB shipped. Remaining: `linklint` |
-| 4 | `serve`: resident db + live reload | 🟡 **v1** — raw hyper, resident render map, no output dir; a watcher rebuilds the world in ~0.3s and a polled script reloads the browser. Deferred: §2's incremental invalidation, SSE |
-| **5** | **exactness iteration** | **open** — `diff` matrix with no visually meaningful "differs" |
-| 6 | §5e presentation synthesis | ✅ complete — part maps, binder, real theme directory, canonical fallback, completeness falsifier on every `cargo test` |
+| 3 | feed, sitemap, scss, thumbnails, passthrough | ✅ entry sets byte-identical to the reference; 25.3 MB of sources → 9.0 MB shipped. `linklint` retired 2026-07-21 — strict links validate at build time and fail the build, in markdown and raw HTML alike, which is what a post-hoc crawl was for || 4 | `serve`: resident db + live reload | 🟡 **v1** — raw hyper, resident render map, no output dir; a watcher rebuilds the world in ~0.3s and a polled script reloads the browser. Deferred: §2's incremental invalidation, SSE |
+| **5** | **exactness iteration** | **exit criterion changed, 2026-07-21** (Matt): **URL parity by machine, the rest by eye.** `grackle urls` gates the URL set — the half that protects 20 years of inbound links — and the body diff stops being a gate. See "Retiring the body oracle" below || 6 | §5e presentation synthesis | ✅ complete — part maps, binder, real theme directory, canonical fallback, completeness falsifier on every `cargo test` |
 | 7 | §6d blocks | 🟡 **stage A** — one parse, summary as a computed field, `data-truncated`. Stage B: notes stream + sidenotes (q18) and the rewrite stage |
 | 8 | §6b embeddings + search | ✅ LSI and Swiftype both retired — the Jekyll build's last two external services |
 

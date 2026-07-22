@@ -14,10 +14,20 @@ pub fn options() -> Options<'static> {
     // kramdown's `auto_ids` is ON by default: `## Foo` -> <h2 id="foo">.
     // Without this every heading in the corpus diffs.
     //
-    // Caveat: comrak also injects an `<a class="anchor">` inside the heading,
-    // which kramdown does not. The real pipeline strips it in the AST pass;
-    // the spike strips it in `diff::normalize` so the measurement isolates the
-    // question that actually matters — do the two slug algorithms agree?
+    // comrak also injects an `<a class="anchor">` inside each heading, which
+    // kramdown does not. **We keep it, deliberately** (2026-07-21): 226 of
+    // them across 44 posts, each carrying an aria-label, which is a heading
+    // affordance the Jekyll site never had and we want.
+    //
+    // It is a real divergence from the reference, and worth knowing that the
+    // body oracle CANNOT see it: `diff::normalize` calls
+    // `strip_comrak_anchors` before comparing, so the 90% parity figure is
+    // computed with these removed. That normalizer was written to isolate the
+    // slug question — do the two algorithms agree — and in doing so it hides
+    // this one permanently. An earlier version of this comment claimed "the
+    // real pipeline strips it in the AST pass"; nothing ever did, and the
+    // harness being blind is exactly why no one noticed for a month. §8a's
+    // rule, again: agreement is not evidence unless it can disagree.
     o.extension.header_id_prefix = Some(String::new());
 
     // kramdown runs smartypants by default: quotes -> curly, -- -> en dash.
