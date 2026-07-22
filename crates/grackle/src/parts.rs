@@ -507,8 +507,52 @@ fn linked_from_group(
     relation(cfg, locale, Axis::LinkedFrom, items)
 }
 
-/// One dated row, full content: the `document` kind for a post. Temporal
-/// relations (crumb trail, neighbors) are present because the schema has a
+/// Everything the `document` kind can carry. The two producers below differ
+/// in what they can SUPPLY — a dated row has tags and temporal neighbours, a
+/// tree row has ancestors and a section — not in how it is laid out, which is
+/// §5a's claim made structural. Canonical order lives in `assemble` alone.
+#[derive(Default)]
+pub struct Document<'a> {
+    pub title: String,
+    pub url: String,
+    pub tree: bool,
+    pub crumbs: Vec<(String, Option<String>)>,
+    pub hero: Option<PartMap>,
+    pub tags: Option<Part>,
+    pub section: Vec<PartMap>,
+    pub outline: Vec<PartMap>,
+    pub content: &'a str,
+    pub relations: Vec<PartMap>,
+}
+
+fn assemble(d: Document) -> PartMap {
+    let mut m = PartMap::new("document");
+    m.set("title", Part::Text(d.title));
+    m.set("url", Part::Text(d.url));
+    if d.tree {
+        m.set("tree", Part::Flag(true));
+    }
+    m.set("crumbs", crumb_stream(d.crumbs));
+    if let Some(h) = d.hero {
+        m.set("hero", Part::Map(h));
+    }
+    if let Some(t) = d.tags {
+        m.set("tags", t);
+    }
+    if !d.section.is_empty() {
+        m.set("section", Part::Stream(d.section));
+    }
+    if !d.outline.is_empty() {
+        m.set("outline", Part::Stream(d.outline));
+    }
+    m.set("content", Part::Html(d.content.to_string()));
+    if !d.relations.is_empty() {
+        m.set("relations", Part::Stream(d.relations));
+    }
+    m
+}
+
+/// One dated row: temporal relations are present because the schema has a
 /// date, not because anything asked "am I a post".
 pub fn document(
     cfg: &crate::config::Config,
@@ -521,17 +565,6 @@ pub fn document(
     outline: Vec<PartMap>,
     translations: &[(String, String)],
 ) -> PartMap {
-    let mut m = PartMap::new("document");
-    m.set("title", Part::Text(p.title.clone().unwrap_or_default()));
-    m.set("url", Part::Text(p.url.clone()));
-    m.set("crumbs", crumb_stream(trail));
-    if let Some(t) = tag_stream(cfg, p) {
-        m.set("tags", t);
-    }
-    if !outline.is_empty() {
-        m.set("outline", Part::Stream(outline));
-    }
-    m.set("content", Part::Html(content.to_string()));
     let row_neighbor = |k: &crate::db::Key| -> Option<PartMap> {
         let n = db.rows.get(k)?;
         Some(neighbor(
@@ -560,13 +593,19 @@ pub fn document(
             relations.extend(relation(cfg, &p.locale, axis, items));
         }
     }
-    if !relations.is_empty() {
-        m.set("relations", Part::Stream(relations));
-    }
-    m
+    assemble(Document {
+        title: p.title.clone().unwrap_or_default(),
+        url: p.url.clone(),
+        crumbs: trail,
+        tags: tag_stream(cfg, p),
+        outline,
+        content,
+        relations,
+        ..Default::default()
+    })
 }
 
-/// One tree row, full content: the same `document` kind — the relations differ
+/// One tree row: the same `document` kind — the relations differ
 /// because the *schema* differs (§5a). Ancestors instead of a date trail, the
 /// `tree` fact instead of temporal neighbors, and — inside a `.section` unit
 /// (§6e) — the section's page tree with this row marked current.
@@ -593,10 +632,6 @@ pub fn document_tree(
     d: TreeDoc,
     content: &str,
 ) -> PartMap {
-    let mut m = PartMap::new("document");
-    m.set("title", Part::Text(title.to_string()));
-    m.set("url", Part::Text(url.to_string()));
-    m.set("tree", Part::Flag(true));
     let mut v = vec![(
         cfg.i18n.string("home", locale).to_string(),
         Some(home.to_string()),
@@ -605,24 +640,21 @@ pub fn document_tree(
         v.push((t.clone(), Some(u.clone())));
     }
     v.push((title.to_string(), None));
-    m.set("crumbs", crumb_stream(v));
-    if let Some(h) = d.hero {
-        m.set("hero", Part::Map(h));
-    }
-    if !d.section.is_empty() {
-        m.set("section", Part::Stream(d.section));
-    }
-    if !d.outline.is_empty() {
-        m.set("outline", Part::Stream(d.outline));
-    }
-    m.set("content", Part::Html(content.to_string()));
     let mut relations = Vec::new();
     relations.extend(translations_group(cfg, locale, d.translations));
     relations.extend(linked_from_group(cfg, locale, d.backlinks));
-    if !relations.is_empty() {
-        m.set("relations", Part::Stream(relations));
-    }
-    m
+    assemble(Document {
+        title: title.to_string(),
+        url: url.to_string(),
+        tree: true,
+        crumbs: v,
+        hero: d.hero,
+        section: d.section,
+        outline: d.outline,
+        content,
+        relations,
+        ..Default::default()
+    })
 }
 
 fn summary(cfg: &crate::config::Config, p: &Row, content: &str, truncated: bool) -> PartMap {
