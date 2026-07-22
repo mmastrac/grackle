@@ -1119,10 +1119,9 @@ mod grouping_tests {
         p.fields.clear();
         assert!(key_combos(&p, &["course".into()]).is_empty());
 
-        // And the point of q51 step 3: `date.year` over a PAGE. Grouping
-        // never cared what a post or a page was — until now only one of
-        // them could hold the date the spec reads. An undated page is
-        // absent from the year partition, exactly as an undated post is.
+        // `date.year` over a PAGE: grouping does not care which origin a row
+        // came from. An undated page is absent from the year partition,
+        // exactly as an undated post is.
         assert!(key_combos(&p, &["date.year".into()]).is_empty());
         p.date = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
         let combos = key_combos(&p, &["date.year".into(), "date.month".into()]);

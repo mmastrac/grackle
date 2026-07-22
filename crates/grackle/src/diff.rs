@@ -1,8 +1,7 @@
 //! Golden comparison against the Jekyll build (DESIGN.md §7).
 //!
-//! Phase 2a scope: post *bodies* only — comrak vs kramdown. This is the one
-//! risk that can sink the port (§8), and it is measurable without liquid,
-//! layouts or highlighting.
+//! Post *bodies* only: comrak against kramdown. Chrome is never compared, and
+//! the URL set is `urls.rs` — a clean run here says nothing about either.
 
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
@@ -183,8 +182,8 @@ pub struct Row {
     pub url: String,
     pub verdict: Verdict,
     pub cause: Option<&'static str>,
-    /// Differs only in which curly quote was chosen — i.e. the smartypants
-    /// heuristic, not the markup. Diagnostic for the phase 2a spike.
+    /// Differs only in which curly quote was chosen — the smartypants
+    /// heuristic, not the markup.
     pub quotes_only: bool,
     pub reference: String,
     pub mine: String,

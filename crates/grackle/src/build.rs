@@ -1494,13 +1494,9 @@ fn backlinks_map(
         .map(|p| p.url.as_str())
         .collect();
 
-    // The axis is legitimately mixed — an undated row is allowed, which is
-    // why the theme lets an item span rather than assuming every neighbour
-    // wears a date column. It used to be mixed for the wrong reason: this
-    // loop passed `None` for every page because `Page` had no date. It has
-    // one since q51 step 3, so a page-sourced citation now sorts by when it
-    // was written instead of always landing last.
-    // One loop. The rows are the same type now; only the body map differs,
+    // The axis is legitimately mixed: an undated row is allowed, so the theme
+    // lets an item span rather than assuming every neighbour wears a date.
+    // Only the body map differs between origins,
     // and that is loader-shaped (posts hold their body, pages are re-read).
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
@@ -1656,9 +1652,6 @@ fn search_pass(
                         // URL is the only honest label a hit can wear.
                         title: p.title.clone().unwrap_or_else(|| p.url.clone()),
                         // Both of these were hardcoded empty because `Page`
-                        // had neither field; it has had both since q51 step
-                        // 3, and a dated, tagged page is searchable on them
-                        // exactly as a post is.
                         date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
                         // Markdown pages searched from the same bytes that
                         // ship; raw-HTML pages from their body fragment.

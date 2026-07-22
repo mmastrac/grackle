@@ -1,7 +1,7 @@
 //! FsStore: the filesystem as storage engine.
 //!
-//! Phase 0 hydrates stage 1 (stat/version) and stage 2 (front matter). The body
-//! is split out but not parsed or rendered — see DESIGN.md §2.
+//! Hydrates stat/version and front matter only. The body is split out but
+//! never parsed or rendered here — see DESIGN.md §2 for the stages.
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
@@ -75,8 +75,8 @@ pub struct RawRow {
     pub path: PathBuf,
     /// Path relative to the collection source; what rule globs match against.
     pub rel: PathBuf,
-    /// Cheap version: mtime ^ size. Phase 0 uses this as the pre-check the
-    /// design calls for; content hashing lands with the cache.
+    /// Cheap version: mtime ^ size. A pre-check, not a content hash — two
+    /// edits inside one mtime tick with the same size look identical.
     pub version: u64,
     pub size: u64,
     pub front: FrontMatter,

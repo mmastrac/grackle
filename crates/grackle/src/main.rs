@@ -68,7 +68,7 @@ enum Cmd {
         /// Reference site directory (e.g. ../_site-prod).
         #[arg(long)]
         against: PathBuf,
-        /// Only compare posts whose body contains no liquid (phase 2a).
+        /// Only compare posts whose body contains no liquid.
         #[arg(long, default_value_t = true)]
         liquid_free: bool,
         /// Restrict to these source paths, one per line (e.g. the clean set).

@@ -351,10 +351,10 @@ impl Route {
 
 /// Fields a filter may reference on a route.
 ///
-/// Deliberately does NOT expose `noindex`: it would need the layout chain
-/// (phase 2) to compute, and a field we cannot populate correctly is worse than
-/// no field — referencing it is a load-time error instead of a silent lie.
-/// Empirically it is not needed anyway: jekyll-sitemap ignores noindex.
+/// Does NOT expose `noindex`: computing it needs the layout chain, and a field
+/// that cannot be populated correctly is worse than no field — referencing it
+/// is a load-time error rather than a silent lie. jekyll-sitemap ignores
+/// noindex anyway, so nothing wants it.
 pub fn route_schema() -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
