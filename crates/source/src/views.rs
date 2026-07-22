@@ -40,9 +40,6 @@ impl SortKey {
     }
 }
 
-/// The canonical spelling of a `group_by` spec. The date specs were always
-/// aliases for schema fields the filter language already had — grouping by
-/// tags, by year, by course is ONE operation: group by a typed field.
 const MONTH_NAMES: [&str; 12] = [
     "January",
     "February",
@@ -572,28 +569,12 @@ fn build_row_view(
     Ok(())
 }
 
-/// Materialize a view over the objects table (§5 audit gaps 1–3): `match`
-/// scopes by path glob (reusing rule globs, not growing the filter
-/// language), `filter` type-checks against the object schema, `order_by`
-/// is *required* — objects have no natural order, and lexical-by-luck is
-/// not a contract — and the route's `members` index into `objects.rows`.
-/// A view's declared filter, narrowed by its `match` chain.
-///
-/// The chain's globs are CONJOINED: a row must satisfy every one, so a child
-/// narrows within its parent's subtree and can never widen out of it (§5c).
-/// They compile to `glob(path, ...)` rather than running as a separate pass,
-/// which is what makes a scope and a filter one thing — composable, checked
-/// by one type-checker, and applied wherever the filter is applied.
 /// Which rows a view's base ranges over, as a predicate.
 ///
-/// `from = "posts"` has always meant the posts TABLE rather than the one
-/// collection that names it — `_posts` and `_drafts` both feed it (q51). That
-/// was an index list (`post_ix` vs `page_ix`) chosen by the base's KIND, so
-/// the table a view ranged over decided which code path resolved it, and a
-/// set could not span tables at all.
-///
-/// It is a filter over `collection` now. One flow, and `published` becomes
-/// something a tree set can compose over.
+/// `from = "posts"` means the posts TABLE, not the one collection that names
+/// it — `_posts` and `_drafts` both feed it — so it is a filter over
+/// `collection`, which is what lets `published` be something a tree set can
+/// compose over.
 fn base_filter(cfg: &Config, kind: Kind, schema: &filter::Schema) -> Result<filter::Filter> {
     let src = cfg
         .collections
@@ -611,6 +592,13 @@ fn base_filter(cfg: &Config, kind: Kind, schema: &filter::Schema) -> Result<filt
         .with_context(|| format!("base filter for {kind:?} collections"))
 }
 
+/// A view's declared filter, narrowed by its `match` chain.
+///
+/// The chain's globs are CONJOINED: a row must satisfy every one, so a child
+/// narrows within its parent's subtree and can never widen out of it (§5c).
+/// They compile to `glob(path, …)` rather than running as a separate pass,
+/// which is what makes a scope and a filter one thing — composable, checked by
+/// one type-checker, applied wherever the filter is.
 fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
     let mut f = match q.predicate() {
         Some(src) => filter::Filter::parse(&src, schema)
@@ -627,6 +615,8 @@ fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filte
     Ok(f)
 }
 
+/// Materialize a view over an objects collection: `match` scopes by path glob
+/// and the filter type-checks against the narrower object vocabulary.
 fn build_object_view(
     _cfg: &Config,
     db: &mut SiteDb,
@@ -677,8 +667,6 @@ fn build_object_view(
     Ok(())
 }
 
-/// Order two field values: same-type natural order, Null last. Mixed types
-/// cannot occur under a validated `order_by` (the key has one declared type).
 /// Views over the whole route set (the sitemap). Runs after every other route
 /// exists, and its `rows` is the count that actually passes its filter.
 pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {

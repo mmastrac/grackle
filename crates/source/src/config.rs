@@ -486,8 +486,9 @@ pub struct View {
     pub scope: Option<String>,
     /// Explicit ordering for rows that have no natural one (§5 audit:
     /// posts sort reverse-chronologically by construction; objects don't).
-    /// `"name"` is the only value so far. Declared, not defaulted — the
-    /// corpus's zero-padding making lexical order correct is luck.
+    /// A column name, `-` for descending. Declared rather than defaulted:
+    /// `path` is the only order every row is guaranteed to have, so anything
+    /// else has to be asked for.
     pub order_by: Option<String>,
     pub group_by: Option<String>,
     pub paginate: Option<usize>,
@@ -684,11 +685,6 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Fold `[sets]` and `[routes]` into the one `views` map, enforcing what
-    /// each section means: a set never lands, a route always does. The
-    /// namespace is shared with collections, so a name may live in exactly
-    /// one place — `from` resolves against all three, and before this the
-    /// lookup silently preferred a view over a same-named collection.
     /// The table a collection contributes to: its `name`, else its source
     /// directory with any leading underscore stripped. `_posts` is the
     /// `posts` table; `recipes/` is the `recipes` table; a source of `.`
@@ -735,6 +731,9 @@ impl Config {
         Ok(())
     }
 
+    /// Fold `[sets]` and `[routes]` into the one `views` map: a set never
+    /// lands, a route always does. The namespace is shared with collections,
+    /// so a name may live in exactly one of the three.
     fn merge_queries(&mut self) -> Result<()> {
         let sets = std::mem::take(&mut self.sets);
         let routes = std::mem::take(&mut self.routes);
@@ -1259,11 +1258,7 @@ impl Config {
         self.record_name("tags", id, locale)
     }
 
-    /// The view that owns tag routes (q32): the posts collection's declared
-    /// `tags` view, else the unique view grouped by tags. Validation
-    /// guarantees a declared name resolves; ambiguity without a declaration
-    /// is a load error, so None here means "this site has no tag archive".
-    /// q45: content-claimed rows — logical source path → the owning view.
+    /// Content-claimed rows: logical source path → the owning view.
     /// Uniqueness is a validate() invariant, so a map is honest.
     pub fn content_claims(&self) -> BTreeMap<&str, &str> {
         self.views
@@ -1272,6 +1267,9 @@ impl Config {
             .collect()
     }
 
+    /// The view that owns tag routes: the posts collection's declared `tags`
+    /// view, else the unique view grouped by tags. Ambiguity without a
+    /// declaration is a load error, so None means "no tag archive".
     pub fn tags_view(&self) -> Option<(&str, &View)> {
         if let Some(name) = self
             .collections
