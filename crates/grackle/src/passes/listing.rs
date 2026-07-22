@@ -1,9 +1,17 @@
-//! `layout = "listing"`: N rows, summarised.
+//! `layout = "listing"`: N rows, previewed.
+//!
+//! One pass for every arrangement of previews — the blog index, the photo
+//! gallery and the book club. What differs is what each member can answer,
+//! which is q36's settlement: a row with prose previews as prose, a row that
+//! IS a picture previews as one.
 
 use anyhow::Result;
 
 use super::{Ctx, Pass};
-use crate::build::{route_intro, fill_link_resolver, pagination_parts, SiteOutput, Stats};
+use crate::build::{
+    fill_link_resolver, object_preview, pagination_parts, route_intro, row_preview, SiteOutput,
+    Stats,
+};
 use crate::config::View;
 use crate::db::Route;
 use crate::parts;
@@ -28,33 +36,34 @@ impl Pass for Listing {
         let cfg = ctx.cfg;
         let db = ctx.db;
 
-        // The preview is the row's computed `summary` field (§6d): a derived
-        // column the view declares, or inherits along `over`. `truncated`
-        // rides along as the deriver's fact, gating the theme's ★. No summary
-        // field in the chain = rows ship whole.
+        // The prose preview is the row's computed `summary` field (§6d): a
+        // derived column the view declares, or inherits along `over`. No
+        // summary field in the chain = rows ship whole.
         let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-        let rows: Vec<(&crate::db::Row, String, bool)> = r
+        let items: Vec<parts::Preview> = r
             .members
             .iter()
             .filter_map(|k| db.rows.get(k))
-            .map(|p| match ctx.bodies.get(p.url.as_str()) {
-                Some(d) => match summary_field {
-                    Some(t) => {
-                        let (html, truncated) = d.truncate(t.max_blocks, t.max_chars);
-                        (p, html, truncated)
-                    }
-                    None => (p, d.whole.clone(), false),
-                },
-                // Tree row bodies are re-read rather than held (§2), so a
-                // listing over tree rows finds them in the other map.
-                None => (
-                    p,
-                    ctx.page_bodies
-                        .get(&p.url)
-                        .map(|pb| pb.frag.clone())
-                        .unwrap_or_default(),
-                    false,
-                ),
+            .map(|p| {
+                if ctx.objects.contains(&p.key) {
+                    return object_preview(p, ctx.thumbs);
+                }
+                let (html, truncated) = match ctx.bodies.get(p.url.as_str()) {
+                    Some(d) => match summary_field {
+                        Some(t) => d.truncate(t.max_blocks, t.max_chars),
+                        None => (d.whole.clone(), false),
+                    },
+                    // Tree row bodies are re-read rather than held (§2), so a
+                    // listing over tree rows finds them in the other map.
+                    None => (
+                        ctx.page_bodies
+                            .get(&p.url)
+                            .map(|pb| pb.frag.clone())
+                            .unwrap_or_default(),
+                        false,
+                    ),
+                };
+                row_preview(cfg, p, ctx.thumbs, Some(html), truncated)
             })
             .collect();
 
@@ -63,13 +72,17 @@ impl Pass for Listing {
         let loc = ctx.locale_of(r);
         let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc)?;
 
-        let main = ctx.thm.fragments.render_with(
-            &parts::listing(cfg, &rows, &title, trail, intro, pagination),
+        // A listing wears its members' theme when they unanimously name one
+        // (§5h); mixed or theme-less members keep the default.
+        let theme_name = ctx.unanimous_theme(r);
+        let row_thm = ctx.themes.get(theme_name)?;
+        let main = row_thm.fragments.render_with(
+            &parts::listing(items, v.featured, &title, trail, intro, pagination),
             v.variant.as_deref(),
         );
-        let head = render::head_simple(&title, &r.url, ctx.site, view != "blog_index");
-        let html = ctx.thm.page(
-            render::head_html(&head, &ctx.css_of(None)),
+        let head = render::head_simple(&title, &r.url, ctx.site, v.noindex);
+        let html = row_thm.page(
+            render::head_html(&head, &ctx.css_of(theme_name)),
             &cfg.site.title,
             main,
             ctx.root_path(),

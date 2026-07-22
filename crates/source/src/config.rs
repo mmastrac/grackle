@@ -401,10 +401,11 @@ pub struct Site {
 /// in the TOML deserializes straight into the database's own vocabulary.
 pub use grackle_model::Kind;
 
-/// The arrangements a view can ask for. `listing` and `card_list` are routed
-/// pages; `link_list` and `card` are what an embedded view renders as;
-/// `gallery` is the object one.
-pub const LAYOUTS: &[&str] = &["listing", "card_list", "gallery", "link_list", "card"];
+/// The arrangements a view can ask for. `listing` is the routed one — a
+/// gallery and a card list are listings whose previews hold pictures, told
+/// apart by `variant`, not by layout. `link_list` and `card` are what an
+/// embedded view renders as.
+pub const LAYOUTS: &[&str] = &["listing", "link_list", "card"];
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -530,6 +531,11 @@ pub struct View {
     /// book-of-the-month shape. Most listings leave it off.
     #[serde(default)]
     pub featured: bool,
+    /// Ask search engines away from this route. Declared, because the rule
+    /// is editorial: tag pages and date archives are the same query language
+    /// as the blog index and differ only in whether they are worth indexing.
+    #[serde(default)]
+    pub noindex: bool,
     /// §6f locale-parallel materialization, DEFAULT-ON: a materializing
     /// row-query view partitions per declared locale (each locale's rows,
     /// locale-prefixed routes, titles resolved per locale; a locale with
@@ -1595,7 +1601,27 @@ mod tests {
         let c = Config::from_toml(src).expect("it parses; validation is the gate");
         let e = format!("{:#}", c.validate().unwrap_err());
         assert!(e.contains("layout \"tag_index\" is not a layout"), "{e}");
-        assert!(e.contains("listing, card_list, gallery"), "{e}");
+        assert!(e.contains("listing, link_list, card"), "{e}");
+    }
+
+    /// Which listings ask search engines away used to be a view NAME in the
+    /// rendering pass — `view != "blog_index"` — so every listing but that one
+    /// was noindex by accident, and merging the gallery and card-list passes
+    /// into it would have silently flipped them. It is editorial, so it is
+    /// declared; an undeclared listing is indexed.
+    #[test]
+    fn noindex_is_a_view_declaration_defaulting_to_indexed() {
+        let head = "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+                    [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+                    filename_formats = [\"{slug}\"]\n";
+        let c = Config::from_toml(&format!(
+            "{head}[routes.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"listing\"\n\
+             [routes.tag_index]\npath = \"/t/\"\nfrom = \"posts\"\nlayout = \"listing\"\n\
+             noindex = true\n"
+        ))
+        .unwrap();
+        assert!(!c.views["blog_index"].noindex);
+        assert!(c.views["tag_index"].noindex);
     }
 
     /// §4a's leak, closed for pages. `FrontMatter` parses `draft` for every

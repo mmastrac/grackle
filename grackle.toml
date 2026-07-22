@@ -307,6 +307,7 @@ path = "/blog/tags/{key}/"
 from = "published"
 group_by = "tags"
 layout = "listing"
+noindex = true
 title = "Posts Tagged “{key}”"
 crumb = "{key}"
 
@@ -317,6 +318,7 @@ path = "/blog/{year}/"
 from = "published"
 group_by = "date.year"
 layout = "listing"
+noindex = true
 title = "{year}"
 
 # Subdivision (§5c): `from` a grouped ROUTE refines its partition, so this is
@@ -329,5 +331,6 @@ path = "/blog/{year}/{month:02}/"
 from = "yearly_archive"
 group_by = "date.month"
 layout = "listing"
+noindex = true
 title = "{year} {month_name}"
 crumb = "{month_name}"

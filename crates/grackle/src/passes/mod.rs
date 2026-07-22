@@ -22,8 +22,6 @@ use crate::markdown::Doc;
 use crate::render::Site;
 use crate::theme;
 
-pub mod card_list;
-pub mod gallery;
 pub mod listing;
 
 /// Everything a pass may read. Immutable by construction: a pass renders from
@@ -45,6 +43,9 @@ pub struct Ctx<'a> {
     pub backlinks: &'a HashMap<String, Vec<Backlink>>,
     pub root: PathBuf,
     pub profile: Option<&'a str>,
+    /// `db.object_ix` as a set: a listing asks per member whether the row IS
+    /// the picture, and the membership list is a Vec.
+    pub objects: std::collections::HashSet<&'a crate::db::Key>,
 }
 
 impl<'a> Ctx<'a> {
@@ -105,11 +106,7 @@ pub trait Pass {
 /// Every layout-dispatched pass, in no significant order — a route matches at
 /// most one, so the order is not a precedence.
 pub fn all() -> Vec<Box<dyn Pass>> {
-    vec![
-        Box::new(listing::Listing),
-        Box::new(gallery::Gallery),
-        Box::new(card_list::CardList),
-    ]
+    vec![Box::new(listing::Listing)]
 }
 
 /// Walk the route table once, dispatching to whichever pass claims each route.

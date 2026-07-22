@@ -21,7 +21,6 @@
 
 use crate::db::{Row, SiteDb};
 
-
 #[derive(Debug)]
 pub enum Part {
     /// A scalar, escaped at fill time.
@@ -310,7 +309,6 @@ pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
         .map(|(_, t)| *t)
 }
 
-
 /// The null theme (§5e step 4): a part map rendered with **no fragments at
 /// all** — canonical order, generic semantic markup, derived purely from the
 /// part types. This is what a theme's absence looks like, the fallback for
@@ -373,7 +371,6 @@ fn canonical_into(m: &PartMap, out: &mut String) {
     out.push_str("</section>\n");
 }
 
-
 fn crumb(label: String, url: Option<String>) -> PartMap {
     let mut c = PartMap::new("crumb");
     c.set("label", Part::Text(label));
@@ -392,7 +389,7 @@ pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
     Part::Stream(trail.into_iter().map(|(l, u)| crumb(l, u)).collect())
 }
 
-fn tag_stream(cfg: &crate::config::Config, p: &Row) -> Option<Part> {
+pub(crate) fn tag_stream(cfg: &crate::config::Config, p: &Row) -> Option<Part> {
     if p.tags.is_empty() {
         return None;
     }
@@ -707,7 +704,7 @@ pub struct Preview<'a> {
 /// The single preview producer: `summary`, `card` and `figure` were three
 /// functions filling disjoint halves of one schema, which is why three passes
 /// existed to call them. A part is filled when the row answers it.
-fn preview(p: Preview) -> PartMap {
+pub fn preview(p: Preview) -> PartMap {
     let mut m = PartMap::new("summary");
     let row = p.row;
     let title = p
@@ -733,7 +730,11 @@ fn preview(p: Preview) -> PartMap {
         m.set("width", Part::Text(w.to_string()));
         m.set("height", Part::Text(h.to_string()));
     }
-    if let Some(n) = p.note.clone().or_else(|| row.and_then(|r| r.description.clone())) {
+    if let Some(n) = p
+        .note
+        .clone()
+        .or_else(|| row.and_then(|r| r.description.clone()))
+    {
         m.set("note", Part::Text(n));
     }
     if p.truncated {
@@ -748,22 +749,17 @@ fn preview(p: Preview) -> PartMap {
     m
 }
 
-fn summary(cfg: &crate::config::Config, p: &Row, content: &str, truncated: bool) -> PartMap {
-    preview(Preview {
-        row: Some(p),
-        content: Some(content.to_string()),
-        truncated,
-        tags: tag_stream(cfg, p),
-        ..Default::default()
-    })
-}
-
-/// N rows, summarised. The trail is the route's provenance chain (§5c),
+/// N previews, arranged. The trail is the route's provenance chain (§5c),
 /// computed by the caller. `intro` is the landing's declared prose (q45
-/// mode A), already rendered; the slot collapses when absent.
+/// mode A), already rendered; the slot collapses when absent. `featured`
+/// lifts the first preview into its own slot — the book-of-the-month shape.
+///
+/// One producer, because there is one arrangement: the blog index, the
+/// photo gallery and the book club differ in what their PREVIEWS hold and
+/// which fragment the view names, never in this map.
 pub fn listing(
-    cfg: &crate::config::Config,
-    rows: &[(&Row, String, bool)],
+    items: Vec<Preview>,
+    featured: bool,
     title: &str,
     trail: Vec<(String, Option<String>)>,
     intro: Option<String>,
@@ -775,14 +771,7 @@ pub fn listing(
     if let Some(i) = intro {
         m.set("intro", Part::Html(i));
     }
-    m.set(
-        "items",
-        Part::Stream(
-            rows.iter()
-                .map(|(p, c, t)| summary(cfg, p, c, *t))
-                .collect(),
-        ),
-    );
+    set_items(&mut m, items, featured);
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
     }
@@ -791,26 +780,27 @@ pub fn listing(
 
 /// The landing's route-aware self-embed (q45 mode B): the same listing
 /// map with NO title or crumbs — the claimed row owns the arrangement,
-/// so only the rows (and their pagination) render; the empty slots
+/// so only the items (and their pagination) render; the empty slots
 /// collapse.
-pub fn listing_embed(
-    cfg: &crate::config::Config,
-    rows: &[(&Row, String, bool)],
-    pagination: Option<PartMap>,
-) -> PartMap {
+pub fn listing_embed(items: Vec<Preview>, featured: bool, pagination: Option<PartMap>) -> PartMap {
     let mut m = PartMap::new("listing");
-    m.set(
-        "items",
-        Part::Stream(
-            rows.iter()
-                .map(|(p, c, t)| summary(cfg, p, c, *t))
-                .collect(),
-        ),
-    );
+    set_items(&mut m, items, featured);
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
     }
     m
+}
+
+fn set_items(m: &mut PartMap, mut items: Vec<Preview>, featured: bool) {
+    if featured && !items.is_empty() {
+        m.set("featured", Part::Map(preview(items.remove(0))));
+    }
+    if !items.is_empty() {
+        m.set(
+            "items",
+            Part::Stream(items.into_iter().map(preview).collect()),
+        );
+    }
 }
 
 /// §5d's one genuine component, as data: prev/next (absent at the ends) and
@@ -847,116 +837,6 @@ pub fn pagination(current: usize, urls: &[String]) -> Option<PartMap> {
         .collect();
     m.set("pages", Part::Stream(pages));
     Some(m)
-}
-
-/// One gallery item: `(original url, thumb src, dimensions, alt)`.
-pub struct Figure {
-    pub url: String,
-    pub src: String,
-    pub dims: Option<(u32, u32)>,
-    pub alt: String,
-}
-
-/// One `figure` map — a picture with q26's dimension facts attached.
-pub fn figure(f: &Figure) -> PartMap {
-    let mut fm = PartMap::new("figure");
-    fm.set("url", Part::Text(f.url.clone()));
-    fm.set("src", Part::Text(f.src.clone()));
-    if let Some((w, h)) = f.dims {
-        fm.set("width", Part::Text(w.to_string()));
-        fm.set("height", Part::Text(h.to_string()));
-    }
-    fm.set("alt", Part::Text(f.alt.clone()));
-    fm
-}
-
-/// N object rows as pictures. Dimensions ride as attribute holes so the
-/// theme's `<img>` gets `width`/`height` and the page never shifts (q26).
-pub fn gallery(
-    items: &[Figure],
-    title: &str,
-    trail: Vec<(String, Option<String>)>,
-    intro: Option<String>,
-) -> PartMap {
-    let mut m = PartMap::new("gallery");
-    m.set("title", Part::Text(title.to_string()));
-    m.set("crumbs", crumb_stream(trail));
-    if let Some(i) = intro {
-        m.set("intro", Part::Html(i));
-    }
-    m.set("items", Part::Stream(items.iter().map(figure).collect()));
-    m
-}
-
-/// The gallery as a landing self-embed (q45 mode B): pictures only.
-pub fn gallery_embed(items: &[Figure]) -> PartMap {
-    let mut m = PartMap::new("gallery");
-    m.set("items", Part::Stream(items.iter().map(figure).collect()));
-    m
-}
-
-/// A card-shaped row preview (q23/q36): title + link, optionally a hero
-/// image (with dimensions) and a one-line note. Produces a `summary` map —
-/// there is one preview kind, and this is its picture-first face.
-pub struct CardRow {
-    pub title: String,
-    pub url: String,
-    pub src: Option<String>,
-    pub dims: Option<(u32, u32)>,
-    pub note: Option<String>,
-}
-
-pub fn card(c: &CardRow) -> PartMap {
-    preview(Preview {
-            title: Some(c.title.clone()),
-            url: Some(c.url.clone()),
-            src: c.src.clone(),
-            dims: c.dims,
-        note: c.note.clone(),
-        ..Default::default()
-    })
-}
-
-/// N rows as previews, optionally with the first featured — the
-/// book-of-the-month shape when `featured` (q36: card_list was just a
-/// listing wearing a costume); a plain card/preview listing otherwise.
-pub fn featured_listing(
-    rows: &[CardRow],
-    featured: bool,
-    title: &str,
-    trail: Vec<(String, Option<String>)>,
-    intro: Option<String>,
-) -> PartMap {
-    let mut m = PartMap::new("listing");
-    m.set("title", Part::Text(title.to_string()));
-    m.set("crumbs", crumb_stream(trail));
-    if let Some(i) = intro {
-        m.set("intro", Part::Html(i));
-    }
-    set_card_items(&mut m, rows, featured);
-    m
-}
-
-/// Cards as a landing self-embed (q45 mode B): the rows (and the
-/// featured slot, when declared) with no title or crumbs.
-pub fn cards_embed(rows: &[CardRow], featured: bool) -> PartMap {
-    let mut m = PartMap::new("listing");
-    set_card_items(&mut m, rows, featured);
-    m
-}
-
-fn set_card_items(m: &mut PartMap, rows: &[CardRow], featured: bool) {
-    let items: &[CardRow] = if featured {
-        if let Some(first) = rows.first() {
-            m.set("featured", Part::Map(card(first)));
-        }
-        rows.get(1..).unwrap_or(&[])
-    } else {
-        rows
-    };
-    if !items.is_empty() {
-        m.set("items", Part::Stream(items.iter().map(card).collect()));
-    }
 }
 
 /// N rows as bare titled links — the smallest listing kind. Items are
@@ -1024,17 +904,22 @@ mod tests {
         c.set("title", Part::Text("x".into()));
     }
 
+    /// A gallery is a listing of picture-first previews: `src` links, the
+    /// measured dimensions ride along (q26), and nothing needs a `figure` kind.
     #[test]
-    fn gallery_figures_carry_dimension_facts() {
-        let m = gallery(
-            &[Figure {
-                url: "/photos/a.png".into(),
-                src: "/static/x.jpg".into(),
+    fn picture_previews_carry_dimension_facts() {
+        let m = listing(
+            vec![Preview {
+                title: Some("a".into()),
+                url: Some("/photos/a.png".into()),
+                src: Some("/static/x.jpg".into()),
                 dims: Some((320, 200)),
-                alt: "a".into(),
+                ..Default::default()
             }],
+            false,
             "Photos",
             vec![("Home".into(), Some("/".into()))],
+            None,
             None,
         );
         let out = canonical(&m);
@@ -1132,19 +1017,22 @@ mod tests {
             if r.view.is_none() || r.members.is_empty() {
                 continue;
             }
-            let rows: Vec<(&Row, String, bool)> = r
+            let rows: Vec<Preview> = r
                 .members
                 .iter()
                 .filter_map(|k| db.rows.get(k))
                 .enumerate()
-                .map(|(i, p)| {
-                    let body = crate::store::read_body(&p.path).unwrap_or_default();
-                    (p, body, i % 2 == 0)
+                .map(|(i, p)| Preview {
+                    row: Some(p),
+                    content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
+                    truncated: i % 2 == 0,
+                    tags: tag_stream(&cfg, p),
+                    ..Default::default()
                 })
                 .collect();
             let m = listing(
-                &cfg,
-                &rows,
+                rows,
+                false,
                 r.key.as_deref().unwrap_or("listing"),
                 vec![("Home".to_string(), Some("/".to_string()))],
                 None,
@@ -1216,7 +1104,14 @@ mod schema_asset_tests {
         assert_eq!(names("shell"), ["nav", "site_title", "main", "copyright"]);
         assert_eq!(
             names("listing"),
-            ["title", "crumbs", "intro", "featured", "items", "pagination"]
+            [
+                "title",
+                "crumbs",
+                "intro",
+                "featured",
+                "items",
+                "pagination"
+            ]
         );
     }
 
@@ -1250,10 +1145,7 @@ mod config_schema_tests {
         let c = cfg("[[parts]]\nkind = \"recipe_card\"\nparts = [[\"servings\", \"text\"]]\n");
         let s = Schemas::load(&c).unwrap();
         assert!(Schemas::engine_only().get("recipe_card").is_none());
-        assert_eq!(
-            s.get("recipe_card").unwrap().first().unwrap().0,
-            "servings"
-        );
+        assert_eq!(s.get("recipe_card").unwrap().first().unwrap().0, "servings");
     }
 
     /// And may add to an engine kind — an engine producer fills the engine
@@ -1262,7 +1154,12 @@ mod config_schema_tests {
     fn a_site_may_add_a_part_to_an_engine_kind() {
         let c = cfg("[[parts]]\nkind = \"summary\"\nparts = [[\"cook_time\", \"text\"]]\n");
         let s = Schemas::load(&c).unwrap();
-        let names: Vec<&str> = s.get("summary").unwrap().iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = s
+            .get("summary")
+            .unwrap()
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
         assert!(names.contains(&"title"), "engine parts survive: {names:?}");
         assert!(names.contains(&"cook_time"), "{names:?}");
     }

@@ -191,19 +191,22 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
             let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
                 return Ok(String::new());
             };
-            let thumb = p.hero_source().and_then(|s| cx.thumbs.and_then(|t| t.get(s)));
-            let c = crate::parts::CardRow {
-                title: p.title.clone().unwrap_or_default(),
-                url: p.url.clone(),
+            let thumb = p
+                .hero_source()
+                .and_then(|s| cx.thumbs.and_then(|t| t.get(s)));
+            let c = crate::parts::Preview {
+                title: Some(p.title.clone().unwrap_or_default()),
+                url: Some(p.url.clone()),
                 src: thumb.map(|t| t.url.clone()),
                 // q26: the embedded card carries its dimensions too. This
                 // read `None` while holding a thumb that had them.
                 dims: thumb.and_then(|t| t.dims),
                 note: p.description.clone(),
+                ..Default::default()
             };
             Ok(theme
                 .fragments
-                .render_with(&crate::parts::card(&c), v.variant.as_deref()))
+                .render_with(&crate::parts::preview(c), v.variant.as_deref()))
         }
         Some(other) => bail!(
             "{}: view {name} has layout {other:?}, which is not embeddable",
@@ -398,7 +401,10 @@ mod tests {
     fn image_uses_thumbnail_url_when_present() {
         let db = SiteDb::default();
         let mut map = HashMap::new();
-        map.insert("a/b.png".to_string(), thumb("/static/deadbeef.jpg", Some((640, 480))));
+        map.insert(
+            "a/b.png".to_string(),
+            thumb("/static/deadbeef.jpg", Some((640, 480))),
+        );
         let c = Ctx {
             thumbs: Some(&map),
             ..Ctx::new(&db, "", "t")

@@ -26,7 +26,7 @@ parts = [
   ["tree", "flag"],
   ["crumbs", "stream:crumb"],
   ["tags", "stream:tag"],
-  ["hero", "map:figure"],
+  ["hero", "map:summary"],
   ["section", "stream:outline_entry"],
   ["outline", "stream:outline_entry"],
   ["content", "html"],
@@ -67,25 +67,6 @@ parts = [
   ["truncated", "flag"],
   ["tags", "stream:tag"],
   ["content", "html"],
-]
-
-[[kind]]
-name = "gallery"
-parts = [
-  ["title", "text"],
-  ["crumbs", "stream:crumb"],
-  ["intro", "html"],
-  ["items", "stream:figure"],
-]
-
-[[kind]]
-name = "figure"
-parts = [
-  ["url", "url"],
-  ["src", "url"],
-  ["width", "text"],
-  ["height", "text"],
-  ["alt", "text"],
 ]
 
 [[kind]]

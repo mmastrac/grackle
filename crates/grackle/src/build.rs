@@ -163,8 +163,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // plus whatever `[[parts]]` the site declares. Fragments are checked
     // against it, so a theme can place a part the site invented.
     let schemas = parts::Schemas::load(cfg)?;
-    let themes = theme::Themes::load_all(&root.join("themes"), &root, &schemas)
-        .context("loading themes")?;
+    let themes =
+        theme::Themes::load_all(&root.join("themes"), &root, &schemas).context("loading themes")?;
     let thm = themes.get(None)?;
 
     // §6a row/view links: the resolution space, once per build.
@@ -299,10 +299,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             backlinks: &backlinks,
             root: root.clone(),
             profile,
+            objects: db.object_ix.iter().collect(),
         };
         crate::passes::run(&ctx, &crate::passes::all(), &mut out_map, &mut stats)?;
     }
-
 
     // ---- landings (q45 mode B): routes whose view claims a content row.
     //
@@ -346,63 +346,41 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let embed_parts = match view_base_kind(cfg, view) {
             Some(Kind::Posts) => {
                 let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-                let rows: Vec<(&crate::db::Row, String, bool)> = r
-                    .members
-                    .iter()
-                    .filter_map(|k| db.rows.get(k))
-                    .map(|p| match bodies.get(p.url.as_str()) {
-                        Some(d) => match summary_field {
-                            Some(t) => {
-                                let (html, truncated) = d.truncate(t.max_blocks, t.max_chars);
-                                (p, html, truncated)
-                            }
-                            None => (p, d.whole.clone(), false),
-                        },
-                        None => (p, String::new(), false),
-                    })
-                    .collect();
-                let pagination = pagination_parts(db, view, v, r)?;
-                parts::listing_embed(cfg, &rows, pagination)
-            }
-            Some(Kind::Tree) => {
-                let rows: Vec<parts::CardRow> = r
+                let items: Vec<parts::Preview> = r
                     .members
                     .iter()
                     .filter_map(|k| db.rows.get(k))
                     .map(|p| {
-                        let t = p.hero_source().and_then(|s| thumbs.get(s));
-                        parts::CardRow {
-                            title: p.title.clone().unwrap_or_default(),
-                            url: p.url.clone(),
-                            src: t.map(|t| t.url.clone()),
-                            dims: t.and_then(|t| t.dims),
-                            note: p.description.clone(),
-                        }
+                        let (html, truncated) = match bodies.get(p.url.as_str()) {
+                            Some(d) => match summary_field {
+                                Some(t) => d.truncate(t.max_blocks, t.max_chars),
+                                None => (d.whole.clone(), false),
+                            },
+                            None => (String::new(), false),
+                        };
+                        row_preview(cfg, p, &thumbs, Some(html), truncated)
                     })
                     .collect();
-                parts::cards_embed(&rows, v.featured)
+                let pagination = pagination_parts(db, view, v, r)?;
+                parts::listing_embed(items, false, pagination)
             }
-            Some(Kind::Objects) => {
-                let items: Vec<parts::Figure> = r
+            Some(Kind::Tree) => {
+                let items: Vec<parts::Preview> = r
                     .members
                     .iter()
                     .filter_map(|k| db.rows.get(k))
-                    .map(|o| {
-                        let key = o.rel.to_string_lossy().to_string();
-                        let t = thumbs.get(&key);
-                        parts::Figure {
-                            url: o.url.clone(),
-                            src: t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone()),
-                            dims: t.and_then(|t| t.dims),
-                            alt: o
-                                .rel
-                                .file_stem()
-                                .map(|s| s.to_string_lossy().to_string())
-                                .unwrap_or_default(),
-                        }
-                    })
+                    .map(|p| row_preview(cfg, p, &thumbs, None, false))
                     .collect();
-                parts::gallery_embed(&items)
+                parts::listing_embed(items, v.featured, None)
+            }
+            Some(Kind::Objects) => {
+                let items: Vec<parts::Preview> = r
+                    .members
+                    .iter()
+                    .filter_map(|k| db.rows.get(k))
+                    .map(|o| object_preview(o, &thumbs))
+                    .collect();
+                parts::listing_embed(items, false, None)
             }
             None => continue,
         };
@@ -460,7 +438,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let resolve =
             |href: &str| crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, href);
         let frag = if src.extension().is_some_and(|e| e == "md") {
-            crate::markdown::render_doc_with(&expanded, &resolve)?.whole.clone()
+            crate::markdown::render_doc_with(&expanded, &resolve)?
+                .whole
+                .clone()
         } else {
             crate::rewrite::resolve_links(&expanded, &resolve)?
         };
@@ -652,7 +632,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(def) = cfg.shells.get(shell) else {
             continue;
         };
-                let rows: Vec<serde_json::Value> = match view_base_kind(cfg, view) {
+        let rows: Vec<serde_json::Value> = match view_base_kind(cfg, view) {
             Some(Kind::Tree) => r
                 .members
                 .iter()
@@ -754,13 +734,15 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // dimension facts attached.
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
                     let t = thumbs.get(s);
-                    parts::figure(&parts::Figure {
-                        url: format!("{}/{s}", cfg.site.baseurl),
-                        src: t
-                            .map(|t| t.url.clone())
-                            .unwrap_or_else(|| format!("{}/{s}", cfg.site.baseurl)),
+                    parts::preview(parts::Preview {
+                        title: Some(title.clone()),
+                        url: Some(format!("{}/{s}", cfg.site.baseurl)),
+                        src: Some(
+                            t.map(|t| t.url.clone())
+                                .unwrap_or_else(|| format!("{}/{s}", cfg.site.baseurl)),
+                        ),
                         dims: t.and_then(|t| t.dims),
-                        alt: title.clone(),
+                        ..Default::default()
                     })
                 });
 
@@ -889,7 +871,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
     Ok((out_map, stats))
 }
-
 
 /// Thumbnails (§6b): derive images once, publish under `/static/`, and hand
 /// back `{% image %}` source → published URL for the render passes to look
@@ -1150,7 +1131,9 @@ fn materialize_referenced(
             let Some(key) = pending.remove(&url) else {
                 continue; // already materialized, or not ours to publish
             };
-            let Some(row) = db.rows.get(&key) else { continue };
+            let Some(row) = db.rows.get(&key) else {
+                continue;
+            };
             let (path, url) = (row.path.clone(), row.url.clone());
             let bytes = std::fs::read(&path)
                 .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
@@ -1252,8 +1235,14 @@ mod cited_url_tests {
             "/code/legacy/romtool/",
             "https://grack.com",
         );
-        assert!(refs.contains(&"/code/legacy/romtool/screen1.png".to_string()), "{refs:?}");
-        assert!(refs.contains(&"/code/legacy/img/out.png".to_string()), "{refs:?}");
+        assert!(
+            refs.contains(&"/code/legacy/romtool/screen1.png".to_string()),
+            "{refs:?}"
+        );
+        assert!(
+            refs.contains(&"/code/legacy/img/out.png".to_string()),
+            "{refs:?}"
+        );
     }
 
     /// Our own absolute form is internal, anyone else's is not, and a
@@ -1283,7 +1272,9 @@ mod cited_url_tests {
         assert!(refs.contains(&"/a/b.png".to_string()), "{refs:?}");
         assert!(refs.contains(&"/css/f.woff2".to_string()), "{refs:?}");
         assert!(
-            !refs.iter().any(|r| r.contains("e.com") || r.contains("cdn")),
+            !refs
+                .iter()
+                .any(|r| r.contains("e.com") || r.contains("cdn")),
             "external citations must not be treated as ours: {refs:?}"
         );
     }
@@ -1628,6 +1619,53 @@ fn intro_html(
     render_config_prose(cfg, linkspace, locale, &format!("view {view}: intro"), i)
 }
 
+/// An object row as a preview: the row IS the picture, so it is its own
+/// thumbnail source and its stem is the only label it has. `row` stays unset
+/// — an object has no date, tags or prose to answer with.
+pub(crate) fn object_preview<'a>(
+    o: &crate::db::Row,
+    thumbs: &HashMap<String, crate::thumbs::Thumb>,
+) -> parts::Preview<'a> {
+    let t = thumbs.get(&o.rel.to_string_lossy().to_string());
+    parts::Preview {
+        title: Some(
+            o.rel
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        ),
+        url: Some(o.url.clone()),
+        src: Some(t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone())),
+        dims: t.and_then(|t| t.dims),
+        ..Default::default()
+    }
+}
+
+/// A row as a preview: everything the row can answer (§5e/q36).
+///
+/// Prose when it has a body, a picture when it has a hero, a note when it has
+/// a description — the fragment takes what it wants and the hole algebra
+/// deletes the rest. `content` is the body already truncated by the view's
+/// `summary` field (§6d), or `None` where the caller shows no prose.
+pub(crate) fn row_preview<'a>(
+    cfg: &Config,
+    p: &'a crate::db::Row,
+    thumbs: &HashMap<String, crate::thumbs::Thumb>,
+    content: Option<String>,
+    truncated: bool,
+) -> parts::Preview<'a> {
+    let t = p.hero_source().and_then(|s| thumbs.get(s));
+    parts::Preview {
+        row: Some(p),
+        content,
+        truncated,
+        src: t.map(|t| t.url.clone()),
+        dims: t.and_then(|t| t.dims),
+        tags: parts::tag_stream(cfg, p),
+        ..Default::default()
+    }
+}
+
 /// The intro for one ROUTE (§6f enum records × q45 mode A): a grouped
 /// route whose leaf value declares a record `intro` gets that value's
 /// own prose — the course archive introduces the course — else the
@@ -1715,4 +1753,3 @@ fn inline_imports(src: &str, load: &Path, seen: &mut Vec<String>) -> Result<Stri
     }
     Ok(out)
 }
-

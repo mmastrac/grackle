@@ -1653,6 +1653,14 @@ the first:
   presence-driven); `card`/`card_list` are deleted; `card_list` folded
   into `listing` as a `featured` slot any listing may fill. The
   main-site chrome cost was zero — the byte oracle stayed clean.
+  **Finished 2026-07:** `figure` and `gallery` folded the same way. A
+  figure was a summary with only `url`/`src`/dimensions filled and the
+  stem as its title, so a gallery is a listing whose previews happen to
+  be pictures — told apart by `variant`, not by kind. `LAYOUTS` is down
+  to `listing`, `link_list`, `card`, `passes/` to one file, and the six
+  listing producers to two (`listing`, `listing_embed`) over one
+  `Preview` currency. Cost, on the example site only: `data-kind`
+  reads `summary`/`listing` where it read `figure`/`gallery`.
 - **Fragment variants** (q24): a fragment file's stem is its *name*; the
   stem before `--` is its *kind* (`summary--card.html` binds `summary`).
   A view declares `variant = "cards"`; rendering tries
@@ -3796,12 +3804,12 @@ owner, and the example config *shrank* while gaining features (two
 filters, a hand-list and every raw course URL deleted). The disease
 inventory:
 
-5. **The landing pass re-shapes rows the bare passes already shape.**
-   posts→summaries (with truncation), tree→cards, objects→figures each
-   exist twice in `build.rs` — once in the bare listing/gallery/card
-   passes, once in §5h's embed construction. "The route's slice as
-   parts" wants to be one function with two callers; until it is, a
-   truncation change can silently disagree with the landing embed. Same
+5. ~~**The landing pass re-shapes rows the bare passes already shape.**~~
+   *Closed 2026-07.* posts→summaries, tree→cards and objects→figures
+   each existed twice in `build.rs` — once in the bare passes, once in
+   §5h's embed construction — so a truncation change could silently
+   disagree with the landing embed. Both callers now build
+   `parts::Preview` through `row_preview`/`object_preview`. Same
    pattern smaller: `route_value` (the slug seam) is verbatim twice in
    `views.rs`.
 6. **`build.rs` is the gravity well** (~1,800 lines): rendering passes
@@ -4461,7 +4469,7 @@ One line per retired question; the named section carries the design.
 | 31 | expressions extend `filter.rs` as a strict CEL subset, no borrowed engine; build at the q23 forcing point | §5f |
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
-| 36 | one preview kind: `summary` (presence-driven), `card`/`card_list` deleted, `featured` slot on listing | §5e |
+| 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |
 | 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced; row tiers are pipeline exits (`none` is the shell layer's escape hatch, not an object and not a theme) | §5g |
 | 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |

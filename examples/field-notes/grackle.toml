@@ -207,6 +207,7 @@ group_by = "tags"
 # annotation here. A view that should stay single-locale opts out with
 # locales = "default". A tag with no French rows has no French page.
 layout = "listing"
+noindex = true
 # A "@key" reference into [i18n.strings] — the title is declared once,
 # per locale, and any view could share it. Placeholders render after the
 # locale resolves.
@@ -253,7 +254,8 @@ path = "/photos/"
 from = "objects"
 match = "photos/**"
 order_by = "name"
-layout = "gallery"
+layout = "listing"
+variant = "gallery"
 title = "Photos"
 
 # The book-of-the-month club (§7a): a view over TREE rows with typed
@@ -264,7 +266,7 @@ title = "Photos"
 [routes.books_index]
 path = "/books/"
 from = "books"
-layout = "card_list"
+layout = "listing"
 variant = "cards"
 featured = true
 title = { en = "Book of the Month", fr = "Le livre du mois" }
@@ -300,7 +302,7 @@ title = { en = "Recipes", fr = "Recettes" }
 path = "/recipes/courses/{key}/"
 from = "recipes"
 group_by = "course"
-layout = "card_list"
+layout = "listing"
 variant = "cards"
 title = { en = "Recipes: {key}", fr = "Recettes : {key}" }
 crumb = "{key}"
