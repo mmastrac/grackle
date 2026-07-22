@@ -314,7 +314,9 @@ mod link_tests {
             doc.whole
         );
         let err = render_doc_with("[a](nope.md)", &|_| anyhow::bail!("no such source"));
-        assert!(err.is_err());
+        let Err(e) = err else { panic!("a resolver error must fail the render") };
+        // The resolver's own message must survive, not just some error.
+        assert!(format!("{e:#}").contains("no such source"), "{e:#}");
     }
 }
 

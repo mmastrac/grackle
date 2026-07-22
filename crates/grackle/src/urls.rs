@@ -170,7 +170,9 @@ mod tests {
     #[test]
     fn dotfiles_drop_from_both_sides() {
         let s = parity_set(["/.htaccess".to_string(), "/a/".to_string()], &[]);
-        assert_eq!(s.len(), 1);
+        // Naming the survivor: a count alone passes if the filter kept the
+        // dotfile and dropped the page.
+        assert_eq!(s, set(&["/a/"]));
     }
 
     #[test]

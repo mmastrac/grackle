@@ -1049,9 +1049,24 @@ mod grouping_tests {
 
     #[test]
     fn months_sort_numerically_not_lexically() {
-        assert!(SortKey::Int(3) < SortKey::Int(12));
-        assert_eq!(SortKey::Int(3).display(), "03");
-        assert_eq!(SortKey::Int(2022).display(), "2022");
+        // Through the real grouping path: comparing two `SortKey::Int`s
+        // directly is true by `derive(Ord)` and would hold with months
+        // grouped as strings, which is the bug — params carry an unpadded
+        // "3", so lexical order puts December before March.
+        let month = |d| key_combos(&post(Some(d), &[]), &["date.month".to_string()]);
+        let (march, december) = (month("2022-03-16"), month("2022-12-16"));
+        assert!(
+            march[0][0].sort < december[0][0].sort,
+            "March must sort before December"
+        );
+        // Display zero-pads narrow values and leaves a year alone.
+        assert_eq!(march[0][0].sort.display(), "03");
+        assert_eq!(
+            key_combos(&post(Some("2022-03-16"), &[]), &["date.year".to_string()])[0][0]
+                .sort
+                .display(),
+            "2022"
+        );
     }
 
     /// The generalization: grouping by a schema field is the same operation

@@ -976,7 +976,10 @@ mod cascade_tests {
     #[test]
     fn an_inherited_shell_is_checked() {
         let d = [("shell", text("lite"))];
-        assert!(cascade(&front("{}"), &defaults(&d), Path::new("x")).is_err());
+        let e = cascade(&front("{}"), &defaults(&d), Path::new("x")).unwrap_err();
+        // Naming the reason: a bare is_err() passes when the cascade rejects
+        // the row for something unrelated.
+        assert!(e.to_string().contains("is not a shell"), "{e}");
     }
 
     #[test]

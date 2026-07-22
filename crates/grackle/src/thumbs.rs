@@ -245,7 +245,14 @@ mod tests {
             img.width(),
             img.height()
         );
-        assert!(ext == "png" || ext == "jpg", "{ext}");
+        // Accepting either extension cannot catch the bug that matters: an
+        // extension that does not describe the bytes it labels.
+        let want = match ext.as_str() {
+            "jpg" => image::ImageFormat::Jpeg,
+            "png" => image::ImageFormat::Png,
+            other => panic!("unexpected variant extension {other}"),
+        };
+        assert_eq!(image::guess_format(&out).unwrap(), want, "ext {ext} lies");
     }
 
     #[test]
@@ -255,3 +262,4 @@ mod tests {
         assert_eq!((img.width(), img.height()), (100, 80));
     }
 }
+

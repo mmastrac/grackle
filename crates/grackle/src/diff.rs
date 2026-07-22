@@ -310,8 +310,11 @@ mod tests {
 
     #[test]
     fn finds_the_first_delta() {
-        let (a, b) = first_delta("hello world", "hello there");
-        assert!(a.contains("world"));
-        assert!(b.contains("there"));
+        // Inputs must exceed the window, or `start`/`end` clamp to the whole
+        // string and returning the input unchanged would pass.
+        let pad = "x".repeat(200);
+        let (a, b) = first_delta(&format!("{pad}world"), &format!("{pad}there"));
+        assert_eq!(a, format!("{}world", "x".repeat(60)));
+        assert_eq!(b, format!("{}there", "x".repeat(60)));
     }
 }

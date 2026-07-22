@@ -1588,12 +1588,9 @@ mod tests {
     /// `!draft && !hidden` at all, because neither field was known.
     #[test]
     fn the_flag_family_is_queryable_on_pages() {
-        let s = grackle_model::row_schema();
-        for f in ["draft", "hidden", "noindex"] {
-            assert!(s.contains_key(f), "page schema is missing {f:?}");
-        }
-        // And a tree set can actually name them.
-        let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden\"\n");
+        // Type-checking the filter IS the assertion — `contains_key` on the
+        // schema only restates a struct definition.
+        let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden && !noindex\"\n");
         let q = c.query("pages").unwrap();
         grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &grackle_model::row_schema())
             .expect("!draft && !hidden should type-check against a page");
