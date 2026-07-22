@@ -4224,17 +4224,30 @@ never reused.
       byte-identical *because* the consumer ignored the new field. **For an
       additive capability, byte-identical is necessary and proves nothing.**
 
-    **What is left: one table** — folding `PostsTable` and `TreeTable` into
-    `SiteDb.rows`. ~45 of the remaining branches are bookkeeping ("which `Vec`
-    do I index"), which makes it look like pure deletion. Two reasons it is
-    not: **indices shift** (the tree loader's `by_logical`/`by_url`/claim
-    checks are built against its own 0-based vector, so both loaders should
-    return bare `Vec<Row>` with indexes rebuilt once over the concatenation),
-    and **a membership predicate is genuinely needed** (a posts view ranges
-    over the whole posts *table* across every posts collection, with
-    `published` narrowing by FLAG rather than by source; a precomputed
-    `post_rows: Vec<usize>` is the cheaper shape). Everything else is
-    substitution.
+    **One table, done.** `PostsTable` and `TreeTable` folded into
+    `SiteDb.rows`, with `post_ix`/`page_ix` as the membership lists — "the
+    posts table" was always a set of rows, and naming it that way is what the
+    deletion amounted to. **Objects joined it 2026-07-21** and cost nothing,
+    because `index_rows` already gated every index on row PROPERTIES rather
+    than on which vector a row arrived in. Three origins, one store,
+    `object_ix` beside the other two.
+
+    **What is actually left is the route-token supply.** The two suppliers are
+    still disjoint and still in two places — `path_tokens` (path/dir/stem/
+    name/ext) for the tree, and an inline `match` closing with `_ => None` for
+    posts (year/month/day/slug). So `_posts/rust/hello.md` still cannot route
+    to `/rust/hello/`, and `writing/2019-thing.md` still cannot route by year.
+    Merging is one supplier offering path tokens always, plus whatever an
+    extractor produced.
+
+    The validation it needs still exists and is still reachable only from the
+    posts path — the `date.is_none()` check that refuses a `{year}` route on
+    an undated row. It says *"this route asked for a property the path did not
+    produce"*, which is the general rule; generalizing it is moving it, not
+    inventing it.
+
+    Also outstanding: the stated most-specific-source rule for `_posts` sitting
+    inside `.`, which Jekyll's underscore convention hides today.
 
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shape B recommended)*.
