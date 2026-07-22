@@ -11,6 +11,7 @@ mod links;
 mod markdown;
 mod outline;
 mod parts;
+mod passes;
 mod render;
 mod rewrite;
 mod serve;

@@ -275,210 +275,29 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         stats.posts += 1;
     }
 
-    // ---- listing views: one layout kind, the view supplies the query
+    // ---- one walk of the route table, dispatched by layout (§9b).
     //
-    // `r.members` is `self` — the rows this route materializes, decided once by
-    // the view's declared query (§5c). The renderer does not know what a tag
-    // is, and so cannot disagree with the config about one.
-    for r in &db.routes {
-        let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else {
-            continue;
-        };
-        // q45: a view that claims content renders in the landing pass —
-        // the row owns the arrangement there.
-        if v.content.is_some() {
-            continue;
-        }
-        // Listings are posts-backed; object-backed views render in the
-        // gallery pass below (their `members` index a different table).
-        if v.layout.as_deref() != Some("listing") {
-            continue;
-        }
-        // The preview is the row's computed `summary` field (§6d): a
-        // derived column the view declares (or inherits along `over` — the
-        // field set flows with rows through composition). The 93% that CSS
-        // used to hide never leaves the build; `truncated` rides along as
-        // the deriver's fact, gating the theme's ★. No summary field in the
-        // chain = rows ship whole.
-        let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-        let rows: Vec<(&crate::db::Row, String, bool)> = r
-            .members
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .map(|p| match bodies.get(p.url.as_str()) {
-                Some(d) => match summary_field {
-                    Some(t) => {
-                        let (html, truncated) = d.truncate(t.max_blocks, t.max_chars);
-                        (p, html, truncated)
-                    }
-                    None => (p, d.whole.clone(), false),
-                },
-                // A tree row's body is re-read rather than held (§2), so a
-                // listing over tree rows finds it in the other map. Reachable
-                // since the pass keys on `layout` rather than on the base
-                // table; before that a tree row could not get here, and an
-                // empty body was the honest answer to a question nobody asked.
-                None => (
-                    p,
-                    page_bodies
-                        .get(&p.url)
-                        .map(|pb| pb.frag.clone())
-                        .unwrap_or_default(),
-                    false,
-                ),
-            })
-            .collect();
-
-        let (title, trail) = crate::trails::listing_title_and_trail(cfg, db, view, v, r)?;
-        let pagination = pagination_parts(db, view, v, r)?;
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
-        let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
-
-        let main = thm.fragments.render_with(
-            &parts::listing(cfg, &rows, &title, trail, intro, pagination),
-            v.variant.as_deref(),
-        );
-        let head = render::head_simple(&title, &r.url, &site, view != "blog_index");
-        let html = thm.page(
-            render::head_html(&head, &css_of(None)),
-            &cfg.site.title,
-            main,
-            &root,
-            loc,
-            &fill_link_resolver(cfg, &linkspace, loc),
-            None,
+    // Each pass lives in `passes/` and states which layout it renders; a route
+    // matches at most one. Passes read `Ctx` and cannot see each other's
+    // output, so their order carries no meaning.
+    {
+        let ctx = crate::passes::Ctx {
+            cfg,
+            db,
+            site: &site,
+            themes: &themes,
+            thm,
+            thumbs: &thumbs,
+            bodies: &bodies,
+            page_bodies: &page_bodies,
+            linkspace: &linkspace,
+            backlinks: &backlinks,
+            root: root.clone(),
             profile,
-        )?;
-        out_map.insert(r.url.clone(), html.into_bytes());
-        stats.listings += 1;
+        };
+        crate::passes::run(&ctx, &crate::passes::all(), &mut out_map, &mut stats)?;
     }
 
-    // ---- galleries: object-backed views (§5 audit). The view supplied the
-    // query (`match` glob + filter + order_by); this pass only shapes rows
-    // into `figure` parts — thumbnail src from §6b, dimension facts from
-    // the thumb pass (q26) so the browser reserves space and masonry never
-    // shifts.
-    for r in &db.routes {
-        let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else {
-            continue;
-        };
-        if v.layout.as_deref() != Some("gallery") {
-            continue;
-        }
-        if v.content.is_some() {
-            continue; // q45: renders in the landing pass
-        }
-        let (title, trail) = crate::trails::listing_title_and_trail(cfg, db, view, v, r)?;
-        let items: Vec<parts::Figure> = r
-            .members
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .map(|o| {
-                let key = o.rel.to_string_lossy().to_string();
-                let t = thumbs.get(&key);
-                parts::Figure {
-                    url: o.url.clone(),
-                    src: t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone()),
-                    dims: t.and_then(|t| t.dims),
-                    alt: o
-                        .rel
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_default(),
-                }
-            })
-            .collect();
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
-        let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
-        let main = thm.fragments.render_with(
-            &parts::gallery(&items, &title, trail, intro),
-            v.variant.as_deref(),
-        );
-        let head = render::head_simple(&title, &r.url, &site, false);
-        let html = thm.page(
-            render::head_html(&head, &css_of(None)),
-            &cfg.site.title,
-            main,
-            &root,
-            loc,
-            &fill_link_resolver(cfg, &linkspace, loc),
-            None,
-            profile,
-        )?;
-        out_map.insert(r.url.clone(), html.into_bytes());
-        stats.listings += 1;
-    }
-
-    // ---- card lists: tree-backed views (§5b rows + q23 heroes). The first
-    // member is featured — the book of the month leads large, the back
-    // catalogue follows as cards.
-    for r in &db.routes {
-        let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else {
-            continue;
-        };
-        if v.layout.as_deref() != Some("card_list") {
-            continue;
-        }
-        if v.content.is_some() {
-            continue; // q45: renders in the landing pass
-        }
-        let (title, trail) = crate::trails::listing_title_and_trail(cfg, db, view, v, r)?;
-        let rows: Vec<parts::CardRow> = r
-            .members
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .map(|p| {
-                let t = p.hero_source().and_then(|s| thumbs.get(s));
-                parts::CardRow {
-                    title: p.title.clone().unwrap_or_default(),
-                    url: p.url.clone(),
-                    src: t.map(|t| t.url.clone()),
-                    dims: t.and_then(|t| t.dims),
-                    note: p.description.clone(),
-                }
-            })
-            .collect();
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
-        let intro = route_intro(cfg, v, view, r, &linkspace, loc)?;
-        // q45 theme provenance: theme is a ROW attribute (§5a), so a listing
-        // whose members unanimously wear one theme NAME wears it too. Subtheme
-        // tokens (`recipes:spicy`) are one row's dress and never lift; mixed or
-        // theme-less members keep the default. Tree-backed listings only —
-        // whether a posts archive should wear its rows' dress is open.
-        let theme_name = {
-            let mut names = r.members.iter().map(|k| {
-                db.rows
-                    .get(k)
-                    .and_then(|r| r.theme.as_deref())
-                    .map(|s| theme::split_spec(s).0)
-            });
-            match names.next().flatten() {
-                Some(first) if names.all(|n| n == Some(first)) => Some(first),
-                _ => None,
-            }
-        };
-        let row_thm = themes.get(theme_name)?;
-        let main = row_thm.fragments.render_with(
-            &parts::featured_listing(&rows, v.featured, &title, trail, intro),
-            v.variant.as_deref(),
-        );
-        let head = render::head_simple(&title, &r.url, &site, false);
-        let html = row_thm.page(
-            render::head_html(&head, &css_of(theme_name)),
-            &cfg.site.title,
-            main,
-            &root,
-            loc,
-            &fill_link_resolver(cfg, &linkspace, loc),
-            None,
-            profile,
-        )?;
-        out_map.insert(r.url.clone(), html.into_bytes());
-        stats.listings += 1;
-    }
 
     // ---- landings (q45 mode B): routes whose view claims a content row.
     //
@@ -1178,11 +997,11 @@ fn render_bodies<'a>(
 /// pages) for outline extraction. Computed BEFORE any page is themed so
 /// the link graph (q38) can scan every body first — this is also what
 /// untangled the tree pass, which now only themes.
-struct PageBody {
-    frag: String,
-    doc: Option<Doc>,
+pub(crate) struct PageBody {
+    pub(crate) frag: String,
+    pub(crate) doc: Option<Doc>,
     /// An unimplemented construct survived expansion; the page is skipped.
-    skipped: bool,
+    pub(crate) skipped: bool,
 }
 
 fn render_page_bodies(
@@ -1473,7 +1292,7 @@ mod cited_url_tests {
 /// backlink's source is usually a post and it has one, so an axis that
 /// dropped it was throwing away *when* the citation happened — the one
 /// fact that makes a backlink list readable in date order.
-type Backlink = (String, String, Option<chrono::NaiveDate>);
+pub(crate) type Backlink = (String, String, Option<chrono::NaiveDate>);
 
 fn backlinks_map(
     db: &SiteDb,
@@ -1727,7 +1546,7 @@ fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
 /// view links — one nav.md serves every locale. The impossible `url_dir`
 /// disables the browser-agreement bypass: fills are shared across pages,
 /// so the canonical URL is the only correct answer.
-fn fill_link_resolver<'a>(
+pub(crate) fn fill_link_resolver<'a>(
     cfg: &'a Config,
     space: &'a crate::links::LinkSpace,
     locale: &'a str,
@@ -1750,7 +1569,7 @@ fn fill_link_resolver<'a>(
 /// q32 settled: page URLs render from the owning view's own route
 /// templates (locale-prefixed like the routes were), not from a literal
 /// copy in the producer.
-fn pagination_parts(
+pub(crate) fn pagination_parts(
     db: &SiteDb,
     view: &str,
     v: &View,
@@ -1808,7 +1627,7 @@ fn intro_html(
 /// route whose leaf value declares a record `intro` gets that value's
 /// own prose — the course archive introduces the course — else the
 /// view's intro applies to every partition.
-fn route_intro(
+pub(crate) fn route_intro(
     cfg: &Config,
     v: &View,
     view: &str,
