@@ -589,22 +589,84 @@ pub fn document_tree(
     })
 }
 
-fn summary(cfg: &crate::config::Config, p: &Row, content: &str, truncated: bool) -> PartMap {
+/// A row as the view sees it, for the one preview projection below.
+///
+/// Everything optional is *presence*: a field the row cannot answer is not
+/// set, and rule 2 of the hole algebra deletes its element. That is what makes
+/// one projection serve a post, a book and a photograph — they differ by what
+/// they HAVE, which is q36's settlement.
+#[derive(Default)]
+pub struct Preview<'a> {
+    pub row: Option<&'a Row>,
+    /// Rendered body, whole or truncated. Absent for a row with no prose.
+    pub content: Option<String>,
+    pub truncated: bool,
+    /// Published thumbnail URL and its measured size (§6b, q26).
+    pub src: Option<String>,
+    pub dims: Option<(u32, u32)>,
+    /// The row's own words, when it is not a `Row` — an object's stem.
+    pub title: Option<String>,
+    pub url: Option<String>,
+    pub note: Option<String>,
+    /// Already a `Stream("tag")` — computed by the caller, because tag URLs
+    /// come from the owning view's route template rather than the row.
+    pub tags: Option<Part>,
+}
+
+/// One row, projected into the `summary` kind.
+///
+/// The single preview producer: `summary`, `card` and `figure` were three
+/// functions filling disjoint halves of one schema, which is why three passes
+/// existed to call them. A part is filled when the row answers it.
+fn preview(p: Preview) -> PartMap {
     let mut m = PartMap::new("summary");
-    m.set("title", Part::Text(p.title.clone().unwrap_or_default()));
-    m.set("url", Part::Text(p.url.clone()));
-    if let Some(d) = p.date {
+    let row = p.row;
+    let title = p
+        .title
+        .clone()
+        .or_else(|| row.and_then(|r| r.title.clone()))
+        .unwrap_or_default();
+    m.set("title", Part::Text(title));
+    let url = p
+        .url
+        .clone()
+        .or_else(|| row.map(|r| r.url.clone()))
+        .unwrap_or_default();
+    m.set("url", Part::Text(url));
+    if let Some(d) = row.and_then(|r| r.date) {
         m.set("date", Part::Text(crate::db::iso_date(d)));
         m.set("date_pretty", Part::Text(crate::db::pretty_date(d)));
     }
-    if truncated {
+    if let Some(s) = &p.src {
+        m.set("src", Part::Text(s.clone()));
+    }
+    if let Some((w, h)) = p.dims {
+        m.set("width", Part::Text(w.to_string()));
+        m.set("height", Part::Text(h.to_string()));
+    }
+    if let Some(n) = p.note.clone().or_else(|| row.and_then(|r| r.description.clone())) {
+        m.set("note", Part::Text(n));
+    }
+    if p.truncated {
         m.set("truncated", Part::Flag(true));
     }
-    if let Some(t) = tag_stream(cfg, p) {
+    if let Some(t) = p.tags {
         m.set("tags", t);
     }
-    m.set("content", Part::Html(content.to_string()));
+    if let Some(c) = &p.content {
+        m.set("content", Part::Html(c.clone()));
+    }
     m
+}
+
+fn summary(cfg: &crate::config::Config, p: &Row, content: &str, truncated: bool) -> PartMap {
+    preview(Preview {
+        row: Some(p),
+        content: Some(content.to_string()),
+        truncated,
+        tags: tag_stream(cfg, p),
+        ..Default::default()
+    })
 }
 
 /// N rows, summarised. The trail is the route's provenance chain (§5c),
@@ -756,20 +818,14 @@ pub struct CardRow {
 }
 
 pub fn card(c: &CardRow) -> PartMap {
-    let mut m = PartMap::new("summary");
-    m.set("title", Part::Text(c.title.clone()));
-    m.set("url", Part::Text(c.url.clone()));
-    if let Some(s) = &c.src {
-        m.set("src", Part::Text(s.clone()));
-    }
-    if let Some((w, h)) = c.dims {
-        m.set("width", Part::Text(w.to_string()));
-        m.set("height", Part::Text(h.to_string()));
-    }
-    if let Some(n) = &c.note {
-        m.set("note", Part::Text(n.clone()));
-    }
-    m
+    preview(Preview {
+            title: Some(c.title.clone()),
+            url: Some(c.url.clone()),
+            src: c.src.clone(),
+            dims: c.dims,
+        note: c.note.clone(),
+        ..Default::default()
+    })
 }
 
 /// N rows as previews, optionally with the first featured — the
