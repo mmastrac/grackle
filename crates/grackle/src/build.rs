@@ -237,17 +237,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .unwrap_or_default();
             let mut head = head;
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
-            let main = thm.fragments.render(&parts::document(
-                cfg,
-                db,
-                p,
-                whole,
-                trail,
-                &rel,
-                bl,
-                outline,
-                &translations,
-            ));
+            let mut doc =
+                parts::document(cfg, db, p, whole, trail, &rel, bl, outline, &translations);
+            parts::fill_from_fields(&mut doc, p, &schemas)?;
+            let main = thm.fragments.render(&doc);
             let dir = p.path.parent().unwrap_or(&root);
             // Theme is per ROW (§5a), posts included.
             let (theme_name, subtheme) = match p.theme.as_deref() {
@@ -483,22 +476,26 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
 
         let main = match row.layout.as_deref() {
-            Some("page") | Some("post") => row_thm.fragments.render(&parts::document_tree(
-                cfg,
-                loc,
-                &crate::trails::home_url(cfg, db, loc),
-                &title,
-                &r.url,
-                parts::TreeDoc {
-                    ancestors: &crate::trails::ancestors(cfg, db, &r.url),
-                    section,
-                    outline: Vec::new(),
-                    hero: None,
-                    backlinks: bl,
-                    translations: &translations,
-                },
-                &frag,
-            )),
+            Some("page") | Some("post") => {
+                let mut doc = parts::document_tree(
+                    cfg,
+                    loc,
+                    &crate::trails::home_url(cfg, db, loc),
+                    &title,
+                    &r.url,
+                    parts::TreeDoc {
+                        ancestors: &crate::trails::ancestors(cfg, db, &r.url),
+                        section,
+                        outline: Vec::new(),
+                        hero: None,
+                        backlinks: bl,
+                        translations: &translations,
+                    },
+                    &frag,
+                );
+                parts::fill_from_fields(&mut doc, row, &schemas)?;
+                row_thm.fragments.render(&doc)
+            }
             _ => frag.clone(),
         };
         let head = render::head_simple(&title, &r.url, &site, false);
@@ -806,7 +803,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                             locale_alternates(&cfg.site.url, row_locale, &r.url, &translations);
                         let main = match layout {
                             Some("page") | Some("post") => {
-                                row_thm.fragments.render(&parts::document_tree(
+                                let mut doc = parts::document_tree(
                                     cfg,
                                     row_locale,
                                     &crate::trails::home_url(cfg, db, row_locale),
@@ -821,7 +818,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                                         translations: &translations,
                                     },
                                     frag,
-                                ))
+                                );
+                                if let Some(row) = row {
+                                    parts::fill_from_fields(&mut doc, row, &schemas)?;
+                                }
+                                row_thm.fragments.render(&doc)
                             }
                             // `default`, `null`: the row builds its own `main`.
                             _ => frag.clone(),

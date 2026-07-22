@@ -126,11 +126,7 @@ impl Theme {
             }
             let name = schemas
                 .get("shell")
-                .and_then(|s| {
-                    s.iter()
-                        .find(|(n, _)| *n == slot)
-                        .map(|(n, _)| &*Box::leak(n.clone().into_boxed_str()))
-                })
+                .and_then(|s| s.iter().find(|(n, _)| **n == *slot).map(|(n, _)| *n))
                 .with_context(|| format!("shell fragment slots unknown part `{slot}`"))?;
             identity.push((name, binder::is_phrasing_only(&tag)));
         }

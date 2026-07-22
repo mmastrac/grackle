@@ -24,7 +24,6 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::BTreeMap;
 use std::fmt;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Bool,
@@ -56,6 +55,17 @@ pub enum Value {
 }
 
 impl Value {
+    /// As an error message names it.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Bool(_) => "a bool",
+            Value::Int(_) => "an int",
+            Value::Str(_) => "a string",
+            Value::List(_) => "a list",
+            Value::Null => "null",
+        }
+    }
+
     /// A total order over values, for sorting.
     ///
     /// Distinct from what comparison in a FILTER does, deliberately. There,
@@ -104,7 +114,6 @@ pub type Schema = BTreeMap<&'static str, Type>;
 pub trait Row {
     fn field(&self, name: &str) -> Value;
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
@@ -168,7 +177,6 @@ enum Expr {
     /// `"rust" in tags`
     In(Lit, Operand),
 }
-
 
 /// A function the language can call. The signature drives type checking and
 /// `eval` drives evaluation, so adding one is a single entry here.
@@ -279,7 +287,6 @@ fn lookup_func(name: &str) -> Result<&'static Func> {
         known.join(", ")
     ))
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -409,7 +416,6 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
     }
     Ok(out)
 }
-
 
 struct Parser {
     toks: Vec<Tok>,
@@ -563,7 +569,6 @@ impl Parser {
     }
 }
 
-
 fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let mut prev: Vec<usize> = (0..=b.len()).collect();
@@ -685,7 +690,6 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Filter {
     ast: Expr,
@@ -776,7 +780,6 @@ fn eval(e: &Expr, row: &impl Row) -> bool {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,7 +845,6 @@ mod tests {
     fn err(src: &str) -> String {
         Filter::parse(src, &schema()).expect_err(src).to_string()
     }
-
 
     #[test]
     fn under_selects_a_subtree() {

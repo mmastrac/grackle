@@ -1653,6 +1653,18 @@ the first:
   presence-driven); `card`/`card_list` are deleted; `card_list` folded
   into `listing` as a `featured` slot any listing may fill. The
   main-site chrome cost was zero — the byte oracle stayed clean.
+  **Fields reach display (2026-07):** a declared part the engine has no
+  producer for is filled from the row's `.schema.toml` field of the same
+  name — `score = { type = "int" }` + `[[parts]]` + `data-slot="score"`
+  renders the number, no code. `bool` lands as a FACT, so `recommended:
+  true` becomes `data-recommended` on the fragment root and the theme
+  reacts in CSS alone. A type that cannot fill its part is an error naming
+  the file; `string` may not fill `html`, because front matter is not
+  trusted markup. Before this the query half of §5b had no display half:
+  a field could be grouped, sorted and filtered on, and not printed.
+  Open: `list` needs a child kind before it can be a stream, and `image`
+  still needs the thumb pass threaded in.
+
   **Finished 2026-07:** `figure` and `gallery` folded the same way. A
   figure was a summary with only `url`/`src`/dimensions filled and the
   stem as its title, so a gallery is a listing whose previews happen to
@@ -4470,6 +4482,7 @@ One line per retired question; the named section carries the design.
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |
+| 5b→5e | a declared part with no engine producer is filled from the row field of that name; bool→fact; mismatch is an error | §5e |
 | 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced; row tiers are pipeline exits (`none` is the shell layer's escape hatch, not an object and not a theme) | §5g |
 | 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |

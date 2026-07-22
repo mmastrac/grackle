@@ -439,12 +439,7 @@ pub fn is_phrasing_only(tag: &str) -> bool {
 fn known_parts(schemas: &crate::parts::Schemas, kind: &str) -> String {
     schemas
         .get(kind)
-        .map(|s| {
-            s.iter()
-                .map(|(n, _)| n.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
+        .map(|s| s.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", "))
         .unwrap_or_default()
 }
 

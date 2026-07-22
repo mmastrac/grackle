@@ -79,6 +79,19 @@ impl PartMap {
         self.parts.push((name, part));
     }
 
+    /// Set a part the engine has no producer for — a site's `[[parts]]`
+    /// declaration, filled from a row field. Unlike `set`, the name is not in
+    /// the engine schema; `fill_from_fields` has already checked it against
+    /// the merged one.
+    fn set_declared(&mut self, name: &'static str, part: Part) {
+        debug_assert!(
+            self.parts.iter().all(|(n, _)| *n != name),
+            "part `{name}` set twice on `{}`",
+            self.kind
+        );
+        self.parts.push((name, part));
+    }
+
     // The map's read API: the binder fills holes through `get`, `canonical`
     // walks `iter`; the typed accessors below mostly serve tests.
     pub fn get(&self, name: &str) -> Option<&Part> {
@@ -145,6 +158,20 @@ pub enum PartType {
     Flag,
 }
 
+impl PartType {
+    /// As a site spells it in `[[parts]]`, for errors that quote it back.
+    pub fn spelling(&self) -> String {
+        match self {
+            PartType::Text => "text".into(),
+            PartType::Url => "url".into(),
+            PartType::Html => "html".into(),
+            PartType::Flag => "flag".into(),
+            PartType::Stream(k) => format!("stream:{k}"),
+            PartType::Map(k) => format!("map:{k}"),
+        }
+    }
+}
+
 /// The engine's part schemas, parsed once from `assets/parts.toml`; a site's
 /// `[[parts]]` extends them in `Schemas::load`.
 ///
@@ -190,24 +217,26 @@ fn parse_part_type(spec: &str, kind: &str, part: &str) -> anyhow::Result<PartTyp
 /// as `[i18n.strings]` (§6f): a closed engine set, extensible, checked at load.
 #[derive(Debug)]
 pub struct Schemas {
-    kinds: Vec<(String, Vec<(String, PartType)>)>,
+    kinds: Vec<(String, Vec<(&'static str, PartType)>)>,
 }
 
 impl Schemas {
     /// The engine's kinds with nothing added — for tests and for the null
     /// theme, which has no site to extend it.
     pub fn engine_only() -> Schemas {
-        Schemas {
-            kinds: schemas().to_vec(),
-        }
+        Schemas { kinds: engine() }
     }
 
     pub fn load(cfg: &crate::config::Config) -> anyhow::Result<Schemas> {
-        let mut kinds: Vec<(String, Vec<(String, PartType)>)> = schemas().to_vec();
+        let mut kinds = engine();
         for decl in &cfg.parts {
             let mut typed = Vec::new();
             for (name, spec) in &decl.parts {
-                typed.push((name.clone(), parse_part_type(spec, &decl.kind, name)?));
+                // Leaked like the engine's own names: a part name is decided at
+                // load and lives as long as the process, and `PartMap` keys are
+                // `&'static str` so a declared part is set like any other.
+                let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
+                typed.push((leaked, parse_part_type(spec, &decl.kind, name)?));
             }
             match kinds.iter_mut().find(|(k, _)| *k == decl.kind) {
                 Some((_, existing)) => {
@@ -250,7 +279,7 @@ impl Schemas {
         Ok(())
     }
 
-    pub fn get(&self, kind: &str) -> Option<&[(String, PartType)]> {
+    pub fn get(&self, kind: &str) -> Option<&[(&'static str, PartType)]> {
         self.kinds
             .iter()
             .find(|(k, _)| k == kind)
@@ -260,6 +289,20 @@ impl Schemas {
     pub fn kind_names(&self) -> Vec<&str> {
         self.kinds.iter().map(|(k, _)| k.as_str()).collect()
     }
+}
+
+/// The engine's kinds as `Schemas` holds them: names borrowed from the
+/// process-lifetime asset, so they are already `'static`.
+fn engine() -> Vec<(String, Vec<(&'static str, PartType)>)> {
+    schemas()
+        .iter()
+        .map(|(k, parts)| {
+            (
+                k.clone(),
+                parts.iter().map(|(n, t)| (n.as_str(), *t)).collect(),
+            )
+        })
+        .collect()
 }
 
 fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
@@ -697,6 +740,56 @@ pub struct Preview<'a> {
 
 /// One row, projected into the `summary` kind.
 ///
+/// Fill a kind's declared-but-unproduced parts from the row's typed fields
+/// (§5b × §5e).
+///
+/// The engine produces the parts it knows: title, date, content. A part it
+/// does NOT know can only have come from a site's `[[parts]]`, and the row's
+/// own `.schema.toml` field of that name is the one thing that could fill it —
+/// so a site declares `score = { type = "int" }`, places `data-slot="score"`,
+/// and the number appears. Nothing else in the engine changes.
+///
+/// Types must line up. A mismatch is an error rather than an empty element,
+/// because the empty element is exactly the silent failure this closes: a
+/// declared part with no filler renders as nothing at all.
+pub fn fill_from_fields(m: &mut PartMap, row: &Row, schemas: &Schemas) -> anyhow::Result<()> {
+    use grackle_db::Value as V;
+    let Some(decl) = schemas.get(m.kind) else {
+        return Ok(());
+    };
+    for (name, ty) in decl {
+        if m.get(name).is_some() {
+            continue; // an engine producer already answered
+        }
+        let Some(v) = row.fields.get(*name) else {
+            continue;
+        };
+        let part = match (v, ty) {
+            (V::Str(s), PartType::Text | PartType::Url) => Part::Text(s.clone()),
+            (V::Int(n), PartType::Text) => Part::Text(n.to_string()),
+            // A fact, not text: `data-<name>` on the fragment root, which is
+            // where theme CSS can reach it. False sets nothing, so the theme
+            // selects on presence exactly as it does for `truncated`.
+            (V::Bool(b), PartType::Flag) => {
+                if !*b {
+                    continue;
+                }
+                Part::Flag(true)
+            }
+            (V::Null, _) => continue,
+            (v, ty) => anyhow::bail!(
+                "{}: field `{name}` is {}, which cannot fill a `{}` part of kind `{}`",
+                row.rel.display(),
+                v.type_name(),
+                ty.spelling(),
+                m.kind
+            ),
+        };
+        m.set_declared(name, part);
+    }
+    Ok(())
+}
+
 /// A part is filled when the row answers it — one projection serves a post, a
 /// book and a photograph (q36).
 pub fn preview(p: Preview) -> PartMap {
@@ -1130,6 +1223,119 @@ mod config_schema_tests {
         .expect("test config parses")
     }
 
+    fn row_with(fields: &[(&str, grackle_db::Value)]) -> Row {
+        Row {
+            rel: std::path::PathBuf::from("reviews/model-m.md"),
+            fields: fields
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// A declared part with no engine producer is filled from the row's
+    /// `.schema.toml` field of the same name (§5b × §5e) — the mapping from
+    /// schema to display. Without it a site could declare `score`, place it,
+    /// and get a silently empty element, because the vocabulary was
+    /// extensible and the producer set was not.
+    #[test]
+    fn a_declared_part_is_filled_from_the_rows_field() {
+        use grackle_db::Value as V;
+        let c = cfg("[[parts]]\nkind = \"document\"\n\
+             parts = [[\"score\", \"text\"], [\"verdict\", \"text\"], [\"pick\", \"flag\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let row = row_with(&[
+            ("score", V::Int(9)),
+            ("verdict", V::Str("Still the best".into())),
+            ("pick", V::Bool(true)),
+        ]);
+
+        let mut m = PartMap::new("document");
+        m.set("title", Part::Text("Model M".into()));
+        fill_from_fields(&mut m, &row, &schemas).unwrap();
+
+        assert_eq!(m.text("score"), Some("9"), "an int renders as digits");
+        assert_eq!(m.text("verdict"), Some("Still the best"));
+        assert!(m.flag("pick"), "a bool becomes a fact, not text");
+    }
+
+    /// Presence, not emptiness: a row that does not carry the field sets no
+    /// part, so the hole algebra deletes the element rather than rendering a
+    /// blank one. `false` is absence too — a fact is selected on presence.
+    #[test]
+    fn a_row_without_the_field_fills_nothing() {
+        use grackle_db::Value as V;
+        let c = cfg(
+            "[[parts]]\nkind = \"document\"\nparts = [[\"score\", \"text\"], [\"pick\", \"flag\"]]\n",
+        );
+        let schemas = Schemas::load(&c).unwrap();
+
+        let mut m = PartMap::new("document");
+        fill_from_fields(&mut m, &row_with(&[]), &schemas).unwrap();
+        assert_eq!(m.text("score"), None);
+
+        let mut m = PartMap::new("document");
+        fill_from_fields(&mut m, &row_with(&[("pick", V::Bool(false))]), &schemas).unwrap();
+        assert!(!m.flag("pick"), "false is absence, not a false fact");
+    }
+
+    /// An engine part is never overwritten by a field of the same name: the
+    /// producer computed it, and a row that happens to declare `title` must
+    /// not shadow the one the engine derived.
+    #[test]
+    fn an_engine_part_wins_over_a_field_of_the_same_name() {
+        use grackle_db::Value as V;
+        let schemas = Schemas::load(&cfg("")).unwrap();
+        let mut m = PartMap::new("document");
+        m.set("title", Part::Text("computed".into()));
+        fill_from_fields(
+            &mut m,
+            &row_with(&[("title", V::Str("front matter".into()))]),
+            &schemas,
+        )
+        .unwrap();
+        assert_eq!(m.text("title"), Some("computed"));
+        // `get` returns the first match, so a shadowing field would be
+        // invisible here and render twice in canonical order. Count instead.
+        assert_eq!(
+            m.iter().filter(|(n, _)| *n == "title").count(),
+            1,
+            "the field must not be appended alongside the engine's part"
+        );
+    }
+
+    /// A type that cannot fill the declared part is an ERROR naming the file,
+    /// not an empty element — the silent-drop this whole binding closes. In
+    /// particular a string may not fill an `html` part: front matter is not
+    /// trusted markup.
+    #[test]
+    fn a_field_that_cannot_fill_its_part_is_an_error() {
+        use grackle_db::Value as V;
+        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"score\", \"url\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let mut m = PartMap::new("document");
+        let e = fill_from_fields(&mut m, &row_with(&[("score", V::Int(9))]), &schemas)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("model-m.md"), "names the file: {e}");
+        assert!(e.contains("an int"), "names what it got: {e}");
+        assert!(e.contains("`url`"), "names the declared type: {e}");
+
+        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"verdict\", \"html\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let mut m = PartMap::new("document");
+        assert!(
+            fill_from_fields(
+                &mut m,
+                &row_with(&[("verdict", V::Str("<b>x</b>".into()))]),
+                &schemas
+            )
+            .is_err(),
+            "front matter must not become trusted markup"
+        );
+    }
+
     /// A site may invent a kind. This is the whole point: a theme can then
     /// place it, and the binder checks the name against what the SITE
     /// declared rather than against a Rust match.
@@ -1147,12 +1353,7 @@ mod config_schema_tests {
     fn a_site_may_add_a_part_to_an_engine_kind() {
         let c = cfg("[[parts]]\nkind = \"summary\"\nparts = [[\"cook_time\", \"text\"]]\n");
         let s = Schemas::load(&c).unwrap();
-        let names: Vec<&str> = s
-            .get("summary")
-            .unwrap()
-            .iter()
-            .map(|(n, _)| n.as_str())
-            .collect();
+        let names: Vec<&str> = s.get("summary").unwrap().iter().map(|(n, _)| *n).collect();
         assert!(names.contains(&"title"), "engine parts survive: {names:?}");
         assert!(names.contains(&"cook_time"), "{names:?}");
     }
