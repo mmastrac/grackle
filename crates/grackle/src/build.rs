@@ -1084,7 +1084,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         )?;
     }
 
-    stats.on_demand = materialize_referenced(db, &mut out_map)?;
+    stats.on_demand = materialize_referenced(db, &mut out_map, &cfg.site.url)?;
 
     Ok((out_map, stats))
 }
@@ -1317,7 +1317,11 @@ fn render_page_bodies(
 /// stylesheet can introduce references of its own. No iteration bound is
 /// needed: each round only ever adds rows from a finite set and a row
 /// materializes once, so the loop is monotone and terminates structurally.
-fn materialize_referenced(db: &mut SiteDb, out_map: &mut SiteOutput) -> Result<usize> {
+fn materialize_referenced(
+    db: &mut SiteDb,
+    out_map: &mut SiteOutput,
+    site_url: &str,
+) -> Result<usize> {
     // Every row that publishes only when cited, by the URL a citation names.
     let mut pending: HashMap<String, grackle_db::Key> = db
         .rows
@@ -1336,7 +1340,7 @@ fn materialize_referenced(db: &mut SiteDb, out_map: &mut SiteOutput) -> Result<u
     let mut frontier: Vec<String> = out_map
         .iter()
         .filter_map(|(u, b)| std::str::from_utf8(b).ok().map(|t| (u.as_str(), t)))
-        .flat_map(|(u, t)| asset_refs(t, u))
+        .flat_map(|(u, t)| cited_urls(t, u, site_url))
         .collect();
 
     let mut made = 0usize;
@@ -1352,7 +1356,7 @@ fn materialize_referenced(db: &mut SiteDb, out_map: &mut SiteOutput) -> Result<u
                 .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
             // A materialized text file can cite more.
             if let Ok(text) = std::str::from_utf8(&bytes) {
-                next.extend(asset_refs(text, &url));
+                next.extend(cited_urls(text, &url, site_url));
             }
             db.routes.push(Route {
                 source: Some(path),
@@ -1366,13 +1370,14 @@ fn materialize_referenced(db: &mut SiteDb, out_map: &mut SiteOutput) -> Result<u
     Ok(made)
 }
 
-/// URLs cited by `href`, `src` or CSS `url(...)` in one document, resolved
-/// against the URL that document was published at.
+/// Internal URLs a document cites, via `href`, `src` or CSS `url(...)`,
+/// resolved against the URL the document was published at.
 ///
-/// Relative citations are the common case, not the exception (§6a: a page
-/// bundle keeps its screenshots beside it), so a scanner that only accepted
-/// root-relative hrefs would miss most of the corpus — measured, 572 of 838.
-fn asset_refs(text: &str, base_url: &str) -> Vec<String> {
+/// One scanner for both consumers — the backlink graph and on-demand
+/// publishing — because they ask the same question. Relative citations are
+/// the common case (§6a: a page bundle keeps its screenshots beside it):
+/// 180 hrefs across 44 pages, and 572 of 838 assets.
+fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<String> {
     let dir = match base_url.rfind('/') {
         Some(i) => &base_url[..=i],
         None => "/",
@@ -1381,6 +1386,8 @@ fn asset_refs(text: &str, base_url: &str) -> Vec<String> {
     let mut push = |u: &str| {
         let u = u.split('#').next().unwrap_or(u);
         let u = u.split('?').next().unwrap_or(u);
+        // Our own absolute form is internal; anyone else's is not.
+        let u = u.strip_prefix(site_url).unwrap_or(u);
         if u.is_empty() || u.starts_with("//") || u.contains("://") || u.starts_with("data:") {
             return;
         }
@@ -1390,7 +1397,9 @@ fn asset_refs(text: &str, base_url: &str) -> Vec<String> {
             format!("{dir}{u}")
         };
         // Collapse `.` and `..` so `../img/a.png` names the same URL the
-        // route map does.
+        // route map does. The trailing slash survives: a route URL carries
+        // one and the backlink graph matches on the whole string.
+        let trailing = abs.ends_with('/');
         let mut segs: Vec<&str> = Vec::new();
         for seg in abs.split('/') {
             match seg {
@@ -1401,7 +1410,12 @@ fn asset_refs(text: &str, base_url: &str) -> Vec<String> {
                 s => segs.push(s),
             }
         }
-        out.push(format!("/{}", segs.join("/")));
+        let joined = segs.join("/");
+        out.push(match (joined.is_empty(), trailing) {
+            (true, _) => "/".to_string(),
+            (false, true) => format!("/{joined}/"),
+            (false, false) => format!("/{joined}"),
+        });
     };
     for pat in ["href=\"", "href='", "src=\"", "src='"] {
         let quote = pat.chars().last().unwrap();
@@ -1424,8 +1438,8 @@ fn asset_refs(text: &str, base_url: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod on_demand_tests {
-    use super::asset_refs;
+mod cited_url_tests {
+    use super::cited_urls;
 
     /// The bug this exists to stop, made twice in one session: a scanner that
     /// only accepts root-relative hrefs misses most of a corpus organised as
@@ -1433,20 +1447,38 @@ mod on_demand_tests {
     /// unpublished, and the URL-parity check is what caught it.
     #[test]
     fn a_relative_citation_resolves_against_the_citing_url() {
-        let refs = asset_refs(
+        let refs = cited_urls(
             r#"<img src="screen1.png"><a href="../img/out.png">x</a>"#,
             "/code/legacy/romtool/",
+            "https://grack.com",
         );
         assert!(refs.contains(&"/code/legacy/romtool/screen1.png".to_string()), "{refs:?}");
         assert!(refs.contains(&"/code/legacy/img/out.png".to_string()), "{refs:?}");
     }
 
+    /// Our own absolute form is internal, anyone else's is not, and a
+    /// fragment or query is not part of the target.
+    #[test]
+    fn site_absolute_is_internal_and_foreign_absolute_is_not() {
+        let mut got = cited_urls(
+            r##"<a href="/blog/x/">x</a> <a href='/a.png'>i</a>
+                <a href="https://grack.com/blog/y/#frag">abs</a>
+                <a href="https://elsewhere.com/z">ext</a>
+                <a href="//cdn.example/w">rel</a> <a href="#top">frag</a>"##,
+            "/page/",
+            "https://grack.com",
+        );
+        got.sort();
+        assert_eq!(got, vec!["/a.png", "/blog/x/", "/blog/y/"]);
+    }
+
     #[test]
     fn root_relative_and_css_url_and_externals() {
-        let refs = asset_refs(
+        let refs = cited_urls(
             r#"<img src="/a/b.png">@font-face{src:url('/css/f.woff2')}
                <a href="https://e.com/x.png">e</a><img src="//cdn/y.png">"#,
             "/page/",
+            "https://grack.com",
         );
         assert!(refs.contains(&"/a/b.png".to_string()), "{refs:?}");
         assert!(refs.contains(&"/css/f.woff2".to_string()), "{refs:?}");
@@ -1455,34 +1487,6 @@ mod on_demand_tests {
             "external citations must not be treated as ours: {refs:?}"
         );
     }
-}
-
-fn internal_links(html: &str, site_url: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for pat in ["href=\"", "href='"] {
-        let quote = pat.chars().last().unwrap();
-        let mut rest = html;
-        while let Some(i) = rest.find(pat) {
-            let after = &rest[i + pat.len()..];
-            let Some(end) = after.find(quote) else { break };
-            let href = &after[..end];
-            let target = if let Some(t) = href.strip_prefix(site_url) {
-                Some(t)
-            } else if href.starts_with('/') && !href.starts_with("//") {
-                Some(href)
-            } else {
-                None
-            };
-            if let Some(t) = target {
-                let t = t.split(['#', '?']).next().unwrap_or("");
-                if !t.is_empty() {
-                    out.push(t.to_string());
-                }
-            }
-            rest = &after[end..];
-        }
-    }
-    out
 }
 
 /// The reverse link graph (q38): target url → `(source title, source
@@ -1541,7 +1545,7 @@ fn backlinks_map(
     let mut map: HashMap<String, Vec<Backlink>> = HashMap::new();
     for (src_url, title, date, html) in sources {
         let mut seen: HashSet<String> = HashSet::new();
-        for t in internal_links(html, site_url) {
+        for t in cited_urls(html, src_url, site_url) {
             if t != src_url && is_target.contains(t.as_str()) && seen.insert(t.clone()) {
                 map.entry(t)
                     .or_default()
@@ -1559,22 +1563,6 @@ fn backlinks_map(
         });
     }
     map
-}
-
-#[cfg(test)]
-mod link_tests {
-    use super::internal_links;
-
-    #[test]
-    fn extracts_internal_links_only() {
-        let html = r##"<a href="/blog/x/">x</a> <a href='/a.png'>i</a>
-            <a href="https://grack.com/blog/y/#frag">abs</a>
-            <a href="https://elsewhere.com/z">ext</a>
-            <a href="//cdn.example/w">proto-rel</a> <a href="#top">frag</a>"##;
-        let mut links = internal_links(html, "https://grack.com");
-        links.sort();
-        assert_eq!(links, vec!["/a.png", "/blog/x/", "/blog/y/"]);
-    }
 }
 
 /// The searchable projection of the posts table — the CLI smoke query
@@ -1934,3 +1922,4 @@ fn inline_imports(src: &str, load: &Path, seen: &mut Vec<String>) -> Result<Stri
     }
     Ok(out)
 }
+
