@@ -355,9 +355,10 @@ rules.
   `{year}/{month}/{day}` matching a row with no date → error naming the file
   and the rule. This is the guardrail that makes undated drafts safe.
 - **Dead rule** (matches zero rows) → warning; it's almost always a typo.
-- **URL-set parity** with the Jekyll sitemap is a hard requirement
-  (`grackle diff`) — this month's canonical/indexing work depends on the URL
-  set not shifting. See §4a for the one intentional exception.
+- **URL-set parity** with the reference build is a hard requirement
+  (`grackle urls`, which is the instrument this line claimed `grackle diff`
+  was for years — diff compares post *bodies* and never looked at the URL set
+  at all) —  set not shifting. See §4a for the one intentional exception.
 
 The route map doubles as the **reverse index for serving**: URL → row is a
 lookup in the same structure, so `serve` needs no output directory at all.
@@ -3147,9 +3148,20 @@ save the feed's build-timestamp.)
   tag=rust limit 5`, counts, `explain <url>` → row, deps, cache state).
   Doubles as the migration validator: compare counts/URL sets/tag sets
   against Jekyll output.
+- **`grackle urls --against _site-prod`** — URL-set parity (§4). A **missing**
+  URL is a link that used to resolve and now 404s, and exits non-zero; an
+  **extra** is usually just content published since the reference was built,
+  and is reported only. Derived assets are exempt per q12 — the thumbnail
+  scheme moved from `/_thumbs/{md5}-600-600` to `/static/{hash}.{ext}` on
+  purpose, and without the waiver a correct build reports 262 missing URLs,
+  which is the fastest way to teach someone to ignore the check. The reference
+  is any directory of built output, so it works equally against a tree rsynced
+  down from the live server — which is what lets it outlive the Jekyll build
+  that produced the first one.
 - **`grackle diff --against _site-prod`** — golden comparison: normalized
-  HTML diff (whitespace/attribute-order-insensitive) per URL with a summary
-  matrix (identical / equivalent / differs / missing). The iteration driver.
+  HTML diff (whitespace/attribute-order-insensitive) per post body, with a
+  summary matrix (identical / equivalent / differs / missing). Bodies only —
+  chrome was never in that measurement (§5a), and the URL set is `urls`, above.
 
 ## 7a. The example site: the falsifier for site-independence *(started 2026-07)*
 

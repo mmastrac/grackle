@@ -18,6 +18,7 @@ mod slots;
 mod tags;
 mod theme;
 mod thumbs;
+mod urls;
 mod trails;
 
 use anyhow::{Context, Result};
@@ -86,6 +87,20 @@ enum Cmd {
     Serve {
         #[arg(long, default_value_t = 8080)]
         port: u16,
+    },
+    /// Check the URL set against a reference build (§4 parity).
+    Urls {
+        /// Reference site directory: `_site-prod`, or a tree rsynced from prod.
+        #[arg(long)]
+        against: PathBuf,
+        /// How many URLs to list per category.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// URL prefixes exempt from parity (q12: derived assets). The
+        /// configured static dir is always exempt; pass a reference build's
+        /// legacy scheme too, e.g. --exempt /_thumbs/
+        #[arg(long)]
+        exempt: Vec<String>,
     },
     /// Show the generated routes as a tree.
     Routes {
@@ -187,6 +202,35 @@ fn main() -> Result<()> {
                     println!("              {u}");
                 }
             }
+        }
+        Cmd::Urls {
+            against,
+            limit,
+            exempt,
+        } => {
+            let mut prefixes = exempt;
+            // q12: our own derived output is exempt by construction. The
+            // published prefix is thumbs.rs's, which is a constant today —
+            // when it becomes config, this reads it from there.
+            prefixes.push("/static/".to_string());
+            let (out_map, _) = build::render_site(&cfg, &db)?;
+            let ours = urls::parity_set(out_map.keys().cloned(), &prefixes);
+            let reference = urls::parity_set(
+                urls::urls_in_dir(&against)
+                    .with_context(|| format!("reading reference {}", against.display()))?,
+                &prefixes,
+            );
+            println!("url parity vs {}", against.display());
+            println!("  exempt    {}", prefixes.join(" "));
+            let p = urls::Parity::compare(&ours, &reference);
+            p.report(limit);
+            if !p.ok() {
+                anyhow::bail!(
+                    "{} URL(s) present in the reference are not produced by this build",
+                    p.missing.len()
+                );
+            }
+            println!("OK — every reference URL is produced.");
         }
         Cmd::Serve { port } => serve::serve(&cli.config, port, profile.as_deref())?,
         Cmd::Routes { depth, under } => routes_tree(&db, depth, under.as_deref()),
