@@ -1679,7 +1679,7 @@ the first:
   expressible — column-to-column comparison is a separate question.
   `Row.images` survives as the image-typed subset, because only the loader
   knows which fields `.schema.toml` typed as images.
-  Open: `image` filling a `url` part in `fill_from_fields`.
+  An image field fills a `url` part too: its value names a row (checked at load), and a resolver the caller supplies turns that source path into the published URL — the thumbnail's when the pass made one, else the original under baseurl, an absolute url untouched. `fill_from_fields` still sees neither baseurl nor the thumb map; presentation stays with the caller. `row.images` is what marks a string field as a reference rather than the author's own link.
 
   **Finished 2026-07:** `figure` and `gallery` folded the same way. A
   figure was a summary with only `url`/`src`/dimensions filled and the

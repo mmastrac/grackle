@@ -155,6 +155,16 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
     let thumbs = thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
 
+    // An image field's published URL (§5e image parts): the thumbnail's when
+    // the pass generated one, else the original under baseurl. This is the
+    // presentation `fill_from_fields` delegates so it need not know either.
+    let resolve_asset = |src: &str| -> String {
+        thumbs
+            .get(src)
+            .map(|t| t.url.clone())
+            .unwrap_or_else(|| asset_url(&cfg.site.baseurl, src))
+    };
+
     // ---- themes: every directory under themes/, loaded once (§5e). All
     // theme errors — malformed fragment, unknown slot, arity violation —
     // surface here, before anything renders. Theme is chosen per ROW (§5a).
@@ -239,7 +249,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
             let mut doc =
                 parts::document(cfg, db, p, whole, trail, &rel, bl, outline, &translations);
-            parts::fill_from_fields(&mut doc, p, &schemas)?;
+            parts::fill_from_fields(&mut doc, p, &schemas, &resolve_asset)?;
             let main = thm.fragments.render(&doc);
             let dir = p.path.parent().unwrap_or(&root);
             // Theme is per ROW (§5a), posts included.
@@ -493,7 +503,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     },
                     &frag,
                 );
-                parts::fill_from_fields(&mut doc, row, &schemas)?;
+                parts::fill_from_fields(&mut doc, row, &schemas, &resolve_asset)?;
                 row_thm.fragments.render(&doc)
             }
             _ => frag.clone(),
@@ -818,7 +828,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                                     frag,
                                 );
                                 if let Some(row) = row {
-                                    parts::fill_from_fields(&mut doc, row, &schemas)?;
+                                    parts::fill_from_fields(
+                                        &mut doc,
+                                        row,
+                                        &schemas,
+                                        &resolve_asset,
+                                    )?;
                                 }
                                 row_thm.fragments.render(&doc)
                             }

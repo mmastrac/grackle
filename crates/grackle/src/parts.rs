@@ -761,7 +761,12 @@ pub struct Preview<'a> {
 /// Types must line up. A mismatch is an error rather than an empty element,
 /// because the empty element is exactly the silent failure this closes: a
 /// declared part with no filler renders as nothing at all.
-pub fn fill_from_fields(m: &mut PartMap, row: &Row, schemas: &Schemas) -> anyhow::Result<()> {
+pub fn fill_from_fields(
+    m: &mut PartMap,
+    row: &Row,
+    schemas: &Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
+) -> anyhow::Result<()> {
     use grackle_db::Value as V;
     let Some(decl) = schemas.get(m.kind) else {
         return Ok(());
@@ -774,7 +779,20 @@ pub fn fill_from_fields(m: &mut PartMap, row: &Row, schemas: &Schemas) -> anyhow
             continue;
         };
         let part = match (v, ty) {
-            (V::Str(s), PartType::Text | PartType::Url) => Part::Text(s.clone()),
+            (V::Str(s), PartType::Text) => Part::Text(s.clone()),
+            // An image-typed field is a reference to an asset (checked at
+            // load): `resolve_asset` yields the thumbnail's URL when one
+            // exists, else the original under baseurl. A plain string filling
+            // a url part is the author's own link, left as written.
+            // Presentation stays with the caller — this still sees neither
+            // baseurl nor the thumb map.
+            (V::Str(s), PartType::Url) => {
+                if row.images.contains_key(*name) {
+                    Part::Text(resolve_asset(s))
+                } else {
+                    Part::Text(s.clone())
+                }
+            }
             (V::Int(n), PartType::Text) => Part::Text(n.to_string()),
             // A fact, not text: `data-<name>` on the fragment root, which is
             // where theme CSS can reach it. False sets nothing, so the theme
@@ -1267,6 +1285,12 @@ mod config_schema_tests {
         .expect("test config parses")
     }
 
+    /// A resolver for tests with no image field: it is never consulted,
+    /// so it just echoes. Image-specific tests pass their own.
+    fn verbatim(s: &str) -> String {
+        s.to_string()
+    }
+
     fn row_with(fields: &[(&str, grackle_db::Value)]) -> Row {
         Row {
             rel: std::path::PathBuf::from("reviews/model-m.md"),
@@ -1297,7 +1321,7 @@ mod config_schema_tests {
 
         let mut m = PartMap::new("document");
         m.set("title", Part::Text("Model M".into()));
-        fill_from_fields(&mut m, &row, &schemas).unwrap();
+        fill_from_fields(&mut m, &row, &schemas, &verbatim).unwrap();
 
         assert_eq!(m.text("score"), Some("9"), "an int renders as digits");
         assert_eq!(m.text("verdict"), Some("Still the best"));
@@ -1317,7 +1341,7 @@ mod config_schema_tests {
             V::List(vec!["heavy pan".into(), "fine sieve".into()]),
         )]);
         let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row, &schemas).unwrap();
+        fill_from_fields(&mut m, &row, &schemas, &verbatim).unwrap();
 
         let items = m.stream("kit");
         assert_eq!(items.len(), 2);
@@ -1334,7 +1358,7 @@ mod config_schema_tests {
         );
         let schemas = Schemas::load(&c).unwrap();
         let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row, &schemas).unwrap();
+        fill_from_fields(&mut m, &row, &schemas, &verbatim).unwrap();
         let items = m.stream("kit");
         assert_eq!(items[0].kind, "kit_item");
         assert_eq!(items[0].text("name"), Some("heavy pan"));
@@ -1353,11 +1377,47 @@ mod config_schema_tests {
             &mut m,
             &row_with(&[("kit", V::List(vec!["x".into()]))]),
             &schemas,
+            &verbatim,
         )
         .unwrap_err()
         .to_string();
         assert!(e.contains("exactly one text part"), "{e}");
         assert!(e.contains("name: text, url: url"), "names the shape: {e}");
+    }
+
+    /// An image field filling a `url` part is a REFERENCE: the value names an
+    /// asset (row.images marks it), and the resolver turns that source path
+    /// into the published URL — the thumbnail's on a real build. This is the
+    /// one arm that consults the caller's presentation.
+    #[test]
+    fn an_image_field_resolves_to_its_published_url() {
+        use grackle_db::Value as V;
+        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"shot\", \"url\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let mut row = row_with(&[("shot", V::Str("reviews/model-m.jpg".into()))]);
+        row.images
+            .insert("shot".into(), "reviews/model-m.jpg".into());
+
+        let resolve = |src: &str| format!("/static/deadbeef-{src}");
+        let mut m = PartMap::new("document");
+        fill_from_fields(&mut m, &row, &schemas, &resolve).unwrap();
+        assert_eq!(m.text("shot"), Some("/static/deadbeef-reviews/model-m.jpg"));
+    }
+
+    /// A plain string filling a `url` part is the author's OWN link, not an
+    /// asset — it is left verbatim and the resolver is never consulted. The
+    /// panicking resolver proves the image arm is entered only for a field
+    /// `row.images` marks.
+    #[test]
+    fn a_plain_string_url_field_is_left_as_written() {
+        use grackle_db::Value as V;
+        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"homepage\", \"url\"]]\n");
+        let schemas = Schemas::load(&c).unwrap();
+        let row = row_with(&[("homepage", V::Str("https://example.com".into()))]);
+        let resolve = |_: &str| panic!("resolver must not run for a non-image string");
+        let mut m = PartMap::new("document");
+        fill_from_fields(&mut m, &row, &schemas, &resolve).unwrap();
+        assert_eq!(m.text("homepage"), Some("https://example.com"));
     }
 
     /// Presence, not emptiness: a row that does not carry the field sets no
@@ -1372,11 +1432,17 @@ mod config_schema_tests {
         let schemas = Schemas::load(&c).unwrap();
 
         let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row_with(&[]), &schemas).unwrap();
+        fill_from_fields(&mut m, &row_with(&[]), &schemas, &verbatim).unwrap();
         assert_eq!(m.text("score"), None);
 
         let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row_with(&[("pick", V::Bool(false))]), &schemas).unwrap();
+        fill_from_fields(
+            &mut m,
+            &row_with(&[("pick", V::Bool(false))]),
+            &schemas,
+            &verbatim,
+        )
+        .unwrap();
         assert!(!m.flag("pick"), "false is absence, not a false fact");
     }
 
@@ -1393,6 +1459,7 @@ mod config_schema_tests {
             &mut m,
             &row_with(&[("title", V::Str("front matter".into()))]),
             &schemas,
+            &verbatim,
         )
         .unwrap();
         assert_eq!(m.text("title"), Some("computed"));
@@ -1415,9 +1482,14 @@ mod config_schema_tests {
         let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"score\", \"url\"]]\n");
         let schemas = Schemas::load(&c).unwrap();
         let mut m = PartMap::new("document");
-        let e = fill_from_fields(&mut m, &row_with(&[("score", V::Int(9))]), &schemas)
-            .unwrap_err()
-            .to_string();
+        let e = fill_from_fields(
+            &mut m,
+            &row_with(&[("score", V::Int(9))]),
+            &schemas,
+            &verbatim,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.contains("model-m.md"), "names the file: {e}");
         assert!(e.contains("an int"), "names what it got: {e}");
         assert!(e.contains("`url`"), "names the declared type: {e}");
@@ -1429,7 +1501,8 @@ mod config_schema_tests {
             fill_from_fields(
                 &mut m,
                 &row_with(&[("verdict", V::Str("<b>x</b>".into()))]),
-                &schemas
+                &schemas,
+                &verbatim
             )
             .is_err(),
             "front matter must not become trusted markup"
