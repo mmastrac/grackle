@@ -3800,20 +3800,18 @@ routes carry `route_members` now, resolved once, *after* the route sort — whic
 is where the real bug was: `sitemap` counted against a route list that did not
 yet contain its own route).
 
-Two pockets remain, each the renderer re-deriving something config owns:
+One pocket closed 2026-08: `view != "blog_index"` deciding `noindex` is now a
+view declaration (q33a). One remains:
 
-1. **`build.rs` holds policy keyed on a view name** (→ q33). One spot: `view !=
-   "blog_index"` decides which listings get `noindex`. It wants to be a view
-   attribute — a schema fact like every other.
-2. **Three definitions of "not content"** (→ q34). §4c legislated the three
-   layers for the tree walk, but `slots.rs` carries a private `SKIP` list
-   duplicating half of `grackle.toml`'s `exclude`, and `serve.rs::is_content`
-   carries a third. Add an exclude to config today and the watcher still
-   rebuilds on it and the slots walk still descends it.
+- **Three definitions of "not content"** (→ q34). §4c legislated the three
+  layers for the tree walk, but `slots.rs` carries a private `SKIP` list
+  duplicating half of `grackle.toml`'s `exclude`, and `serve.rs::is_content`
+  carries a third. Add an exclude to config today and the watcher still
+  rebuilds on it and the slots walk still descends it.
 
-Neither is urgent — both are invisible until a config value changes out from
-under its shadow copy. But that is also the §5c lesson: the drift is only ever
-invisible *until* it isn't.
+Not urgent — invisible until a config value changes out from under its shadow
+copy. But that is the §5c lesson: the drift is only ever invisible *until* it
+isn't.
 
 ### Accepted asymmetries, named so they don't read as leaks
 
@@ -4003,10 +4001,11 @@ never reused.
     block, so a theme can span it. Needs a decided authoring syntax — IALs
     are kramdown, not CommonMark, so this interacts with the §8 dialect
     gap.
-26. **Dimension facts — the remainder.** Parts-side images (figures,
-    heroes, cards) carry `width`/`height` from the thumb pass (§5e). Post
-    *bodies* still don't: `{% image %}` output gains dimensions when the
-    §6d rewrite stage exists (its seam), killing layout shift site-wide.
+26. **Dimension facts — the remainder.** Object rows carry `width`/`height`
+    as header-read COLUMNS at load (queryable, §5b), and parts-side images
+    resolve through them. What's left is post *bodies*: `{% image %}` output
+    gains dimensions when the §6d rewrite stage reaches it, killing layout
+    shift site-wide.
 28. **Mindstorms restructure vs URL parity (§5 audit).** The gallery
     restructure retires `/demos/mindstorms/alpharex_1.html` and its 16
     siblings — in the sitemap, carrying **no `noindex`** (indexable today
@@ -4025,46 +4024,26 @@ never reused.
     here: crumb templates for paginated views (the `Page N` trail entry is
     an engine rule for now). The config check errors with a pointer to
     this question.
-33. **View-name policy in `build.rs` (§9b)** — the serialization half
-    settled as shells (§5g); what remains is exactly what the 2026-07-18
-    audit re-flagged: (a) listing `noindex` is decided by
-    `view != "blog_index"` — a site policy living in engine code as a
-    string match; views should declare `noindex = true` (the tag/archive
-    views would, matching Jekyll). (b) The `"blog_index"` layout-presence
-    fallback dies when the view declares a layout. (c) `layout` on the
-    main site's listing views is a presence flag wearing dead names
-    (`"tag_index"`, `"monthly_archive"` select nothing since §5e) —
-    rename to `listing` for truth, byte-identical. (d) `template` no
-    longer templates — it *claims* a legacy file from the tree, which is
-    §5h's claiming vocabulary wearing an old name. (e) The sitemap
-    filter's second evaluation (star routes carry no members).
+33. **View-name policy in `build.rs` (§9b)** — the serialization half settled
+    as shells (§5g); **(a) and (c) settled 2026-07**: listing `noindex` is now a
+    view declaration (`noindex = true`), not a `view != "blog_index"` string
+    match, and the dead layout names (`tag_index`/`monthly_archive`, selecting
+    nothing since §5e) were renamed to `listing`. What remains: (b) the
+    `"blog_index"` layout-presence fallback dies when the view declares a layout;
+    (d) `template` no longer templates — it *claims* a legacy file (§5h's
+    vocabulary wearing an old name); (e) the sitemap filter's second evaluation
+    (star routes carry no members).
 
-    (f) **Row `layout:` is the same disease on the row side — a Jekyll
-    word that survived as a flag** *(measured 2026-07-19)*.
-    `Some("page") | Some("post")` is a single match arm, so those two words
-    are one value; the `_layouts/*.html` they name have been unread since
-    §5e; the field sits in the post and page filter schemas and nothing
-    filters on it. Census of the four tiers a row can land in — main site's
-    227 page rows / example's 21:
-
-    | tier | selected by | main | example |
-    |---|---|---|---|
-    | verbatim bytes | front-matter absence | 187 | 1 |
-    | `light` tier | `layout: light` | 2 | 0 |
-    | chrome, no furniture | `default`/absent | 1 | 2 |
-    | chrome + furniture | `page`/`post` | 37 | 18 |
-
-    So **55 files declare the common case in order that 3 may declare an
-    exception**, and omitting the field silently drops a row's furniture
-    (probe row: 0 crumb/relation/neighbour elements against a sibling's 3, no
-    error). The `default` tier's three occupants are all homepages, which §5h
-    landings absorb.
-
-    What dissolves is the *spelling*, not the distinction: the tiers are shell
-    levels, so they belong under the row `shell:` vocabulary
-    (`none`/`light`/`html`, §5g) rather than under a layout name. `light` is a
-    real tier with two occupants, **not** the null theme — §5g's "Row tiers"
-    carries the measurement that separates them.
+    (f) **Row `layout:` is the same disease on the row side** *(measured
+    2026-07-19)*. `Some("page") | Some("post")` is one match arm — two words,
+    one value; the `_layouts/*.html` they named have been unread since §5e; the
+    field sits in the filter schemas and nothing filters on it. It selects one
+    of four row tiers (verbatim bytes / `light` / chrome-no-furniture / chrome+
+    furniture), and 55 files declare the common case so 3 may declare an
+    exception — omitting it silently drops a row's furniture, no error. What
+    dissolves is the SPELLING not the distinction: the tiers are shell levels,
+    so they belong under row `shell:` (`none`/`light`/`html`, §5g), not a layout
+    name. `light` is a real tier with two occupants, not the null theme.
 
 34. **Three "not content" lists (§9b).** §4c's three layers govern the
     tree walk only; `slots.rs` (`SKIP`) and `serve.rs` (`is_content`)
@@ -4141,10 +4120,10 @@ never reused.
     reading it costs nothing and never drifts — 14 of 57 raw HTML files
     carry a real `<title>` ("Colossal Cave Adventure", "Online
     Psychologist") that the database currently ignores, leaving 39
-    user-facing passthrough rows titleless; and all 838 object rows could
-    carry bounds and format from their own headers, which is a cleaner
-    source than today's thumb pass and is what q26 wants for
-    `{% image %}` in bodies. Measured and rejected as speculative for
+    user-facing passthrough rows titleless; object-row DIMENSIONS now come
+    from their own headers at load (built 2026-08, §5b columns), a cleaner
+    source than the thumb pass; format/bounds could follow the same way.
+    Measured and rejected as speculative for
     *this* corpus: EXIF (0 of 200 jpegs — stripped long ago) and PDF
     metadata (3 files). **Then declare**: a per-file sidecar,
     `.p01.png.toml` — leading dot so §4c's dotfile layer already excludes
@@ -4204,91 +4183,32 @@ never reused.
     place this part"?** Settle that and a `light`-style theme is a theme
     file rather than an engine feature.
 
-51. **One row type: a path carries properties, a route decides where it
-    lands** *(Matt's shape; all but the last step built)*.
+51. **One row type: route-token supply** *(the table merge is built; this is the remainder)*.
 
-    Matt: *"Why don't we merge kind=post and kind=tree. The filename format
-    becomes an automatic way to assign a property from a filename. Then the
-    ROUTE determines where a file lives. In a tree it uses the file's full
-    path. In a blog, the date overrules the file's full path."*
+    Matt's shape: a file's PATH carries properties, a route template SPENDS one,
+    what's left is identity. `posts` and `tree` were never two kinds of thing —
+    two habits about which property a route spends. **Built 2026-07:** one `Row`
+    type, one `SiteDb.rows` store with `post_ix`/`page_ix`/`object_ix`
+    membership lists, the flag family and `date`/`tags`/`theme`/`fields` on every
+    row, so `group_by = "date.year"` over the tree materializes (§3, §5c, §6f).
 
-    **The spine.** A file's path carries *properties*. A route template spends
-    them. What is left over is the row's identity. `posts` and `tree` are not
-    two kinds of thing — they are two habits about which property a route
-    spends. The mechanism already exists three times (`filename_formats`, and
-    both i18n selectors — §6f names the pattern), and the prefix selector
-    settles its shape: it reads a *directory component*, so this is a path
-    mechanism, not a filename one.
+    **What's left**: the two route-token suppliers are still disjoint —
+    `path_tokens` (path/dir/stem/name/ext) for the tree, an inline `match` for
+    posts (year/month/day/slug). So `_posts/rust/hello.md` can't route to
+    `/rust/hello/` and `writing/2019-thing.md` can't route by year. The fix is
+    one supplier offering path tokens always, plus whatever an extractor
+    produced; the validation it needs (*"the route asked for a property the path
+    did not produce"*) exists and is reachable only from the posts path —
+    generalizing it is moving it, not inventing it. Also outstanding: the
+    most-specific-source rule for `_posts` sitting inside `.`.
 
-    **What still blocks the merge**: two disjoint route-token suppliers,
-    neither offering the other's.
-
-    | | tokens a route may spend |
-    |---|---|
-    | posts (`db.rs`, inline) | `year`, `month`, `day`, `slug` |
-    | tree (`path_tokens`) | `path`, `dir`, `stem`, `name`, `ext` |
-
-    So `_posts/rust/hello.md` **cannot** route to `/rust/hello/` — a post
-    cannot see its own folder — and `writing/2019-thing.md` cannot route by
-    year, because nothing parses a tree file's name. Merging is: one supplier
-    offering path tokens always, plus whatever an extractor produced. The
-    validation it needs is already written and only reachable from the posts
-    path (*"this route asked for a property the path did not produce"*);
-    generalizing it is moving it, not inventing it.
-
-    **Built, 2026-07-19 → 07-21**, every slice byte-identical on all three
-    sites: collection naming from the source directory; the flag family onto
-    `Page` (closing a leak where `draft: true` on a page published the row and
-    listed it in `sitemap.xml`); `theme`/`shell`/`fields`/`images`/`order`
-    onto `Post`; `date`/`tags` onto `Page`, so `group_by = "date.year"` over
-    the tree materializes and chronology became a question about the row's
-    properties rather than which struct held it; then one `Row` type and the
-    consumer collapse. No row holds a body — `store::read_body` is the single
-    answer, at no measurable cost (the build is render-bound, not I/O-bound).
-
-    Three rules those slices bought, each learned from a silent failure:
-
-    - **A `.schema.toml` may not declare a base field name.** Base fields
-      answer first, so such a declaration parsed, validated, and was
-      unreachable. Now a load error naming the file.
-    - **Ordering belongs to the SET, not the table.** `posts.order` carried
-      three things at once — the sort, undated-last, and a **default-locale
-      filter** — and any view that read it inherited all three without saying
-      so. They now live in three stated places, and adjacency reads a
-      collection's declared `adjacency` set, so "previous in `published`"
-      skips drafts by construction rather than by the accident that drafts are
-      undated.
-    - **Adding a field to a row type is not done when the field exists.** It
-      is done when every consumer that hardcoded its absence has been found —
-      and the compiler cannot find them, because the old code still
-      type-checks. Step 3 shipped two fresh bugs exactly this way, both
-      byte-identical *because* the consumer ignored the new field. **For an
-      additive capability, byte-identical is necessary and proves nothing.**
-
-    **One table, done.** `PostsTable` and `TreeTable` folded into
-    `SiteDb.rows`, with `post_ix`/`page_ix` as the membership lists — "the
-    posts table" was always a set of rows, and naming it that way is what the
-    deletion amounted to. **Objects joined it 2026-07-21** and cost nothing,
-    because `index_rows` already gated every index on row PROPERTIES rather
-    than on which vector a row arrived in. Three origins, one store,
-    `object_ix` beside the other two.
-
-    **What is actually left is the route-token supply.** The two suppliers are
-    still disjoint and still in two places — `path_tokens` (path/dir/stem/
-    name/ext) for the tree, and an inline `match` closing with `_ => None` for
-    posts (year/month/day/slug). So `_posts/rust/hello.md` still cannot route
-    to `/rust/hello/`, and `writing/2019-thing.md` still cannot route by year.
-    Merging is one supplier offering path tokens always, plus whatever an
-    extractor produced.
-
-    The validation it needs still exists and is still reachable only from the
-    posts path — the `date.is_none()` check that refuses a `{year}` route on
-    an undated row. It says *"this route asked for a property the path did not
-    produce"*, which is the general rule; generalizing it is moving it, not
-    inventing it.
-
-    Also outstanding: the stated most-specific-source rule for `_posts` sitting
-    inside `.`, which Jekyll's underscore convention hides today.
+    Three rules the merge bought, each from a silent failure, kept because they
+    generalize: a `.schema.toml` may not redeclare a base field (unreachable,
+    now a load error); **ordering belongs to the SET, not the table** (`posts.order`
+    smuggled a sort + undated-last + a default-locale filter into every reader);
+    and **for an additive capability, byte-identical is necessary and proves
+    nothing** — a consumer that ignores a new field is byte-identical while
+    still broken.
 
 52. **Relations declared per collection, with exclusions** *(Matt's
     direction, 2026-07-20; shape B recommended)*.
@@ -4311,16 +4231,7 @@ never reused.
     reach** — and the reach is a **SET, not a collection**: `prev(published)`
     rather than `prev(posts)`, so adjacency drops drafts by construction.
 
-    ### Four shapes, weighed
-
-    **A. Set algebra in a string** (Matt's spelling,
-    `select = "similar(published) - prev(published) - …"`). Compact and
-    general, but it is a **second expression language** beside §5f's CEL
-    subset, and it **repeats definitions**: `- prev(published)` restates what
-    the `earlier` relation already says, so changing one silently desyncs the
-    other — the §5c disease in a new place.
-
-    **B. Structured fields, exclusions by NAME** *(recommended)*.
+    **Shape (B, recommended): structured fields, exclusions by NAME.**
 
     ```toml
     [collections.relations.earlier]
@@ -4336,46 +4247,23 @@ never reused.
     label   = "@related"
     ```
 
-    No new grammar; every part is a key, load-checked like every other key.
-    **`exclude` names other declared relations**, so it cannot drift from
-    their definitions — say "not whatever Earlier shows" and it stays true
-    when Earlier changes. `of` names the ranking operator, so *it* supplies
-    the order and `limit` applies after exclusion. What it gives up is
-    arbitrary algebra; the motivating case is one ranked source minus some
-    exclusions, so grow it when something real wants a union.
+    No new grammar; every part is a load-checked key. `of` names the ranking
+    operator (it supplies the order; `limit` applies after exclusion); `over`
+    is the reach as a SET, so `prev(published)` drops drafts by construction.
+    **`exclude` names other declared relations**, so it can't drift from their
+    definitions the way a set-algebra string (rejected shape A) would — that
+    restatement is the §5c disease in a new place. Relations-as-sets (C) is
+    rejected too: a set is row-independent, a relation row-relative.
 
-    **C. Relations as sets.** Rejected: a set is row-independent by
-    construction and a relation is row-relative. Making sets know "the current
-    row" would break what makes them composable.
-
-    **D. Keep relations engine-defined, declare only reach and exclusions.**
-    The fallback if B proves too big — but a new relation still needs engine
-    code, and `related_excludes` is an ad-hoc key rather than a mechanism.
-
-    ### Decisions inside B
-
-    - **Operators are the closed set; compositions are open.** The engine owns
-      `prev`, `next`, `similar`, `links_to`, `linked_from` and the tree
-      family; a typo in `of` is a load error naming them. The *names*
-      (`related`, `later`) become site vocabulary.
-    - **Which reopens the `Axis` enum**, closed earlier the same day precisely
-      because the axis string is a theme contract. Axis strings become
-      site-defined and labels move out of `ENGINE_STRINGS` into each
-      relation's `label`. Themes already cope — the `relation` fragment
-      renders axes it has never heard of — but the reversal should be
-      deliberate rather than discovered in a diff.
-    - **A collection that declares no relations gets the conventional five**,
-      so `examples/minimal` does not regress by ~12 lines on a config tracked
-      at 27. **Overriding is per NAME, not wholesale**: field-notes wants to
-      change exactly one thing (`related` gaining `exclude` and `limit`), and
-      wholesale replacement made it restate all five plus both on the tree
-      collection — twenty-eight lines to customise one. Removing a default
-      then needs a spelling (`enabled = false`), a far smaller wart.
-    - **Labels are `@references`**, reusing `[i18n.strings]`, not five inline
-      per-locale maps per collection.
-    - **`linked_from` stays global** (`over = "*"`) and must now say so: a
-      page linking to a post is a real backlink, and anchoring it would break
-      it.
+    Decisions inside B: operators are the CLOSED set (`prev`/`next`/`similar`/
+    `links_to`/`linked_from` + the tree family; a typo in `of` is a load error),
+    the NAMES are open site vocabulary. This **reopens the `Axis` enum** (axis
+    strings become site-defined, labels move to each relation's `label`) — a
+    deliberate reversal of the same-day closure, not a diff surprise. A
+    collection declaring no relations gets the conventional five; **overriding
+    is per NAME, not wholesale** (else field-notes restates all five to change
+    one). Labels are `@references` into `[i18n.strings]`; `linked_from` stays
+    global (`over = "*"`).
 
     ### The tree family belongs here too *(Matt, 2026-07-20)*
 
@@ -4503,7 +4391,8 @@ One line per retired question; the named section carries the design.
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |
-| 5b→5e | a declared part with no engine producer is filled from the row field of that name; bool→fact; mismatch is an error | §5e |
+| 5b→5e | config `[[parts]]` holds the part vocabulary/types/canonical order; a declared part with no engine producer is filled from the row field of that name (string/int→text, bool→fact, list→`stream:item`, image→url); an engine part wins name collisions; a type mismatch is a load error | §5e |
+| image ref | an image field NAMES a row, checked at load (dangling = error; absolute url passes through); pixel `width`/`height` are header-read row columns, queryable against a literal | §5b, §6a |
 | 41 | i18n: locale axis, `by_logical` pairing, translations axis, locale-parallel default-on, enum records | §6f |
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced; row tiers are pipeline exits (`none` is the shell layer's escape hatch, not an object and not a theme) | §5g |
 | 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |
