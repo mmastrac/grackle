@@ -10,9 +10,10 @@
 //! - **Names are checked against a per-kind schema** (`schema()`), the same
 //!   load-time discipline as the filter language (§5). `set()` on an unknown
 //!   name is a bug, not a rendering choice.
-//! - **Insertion order is canonical semantic order** — reading order, what a
-//!   screen reader or the null theme sees. The map is an ordered list, not a
-//!   hash, because the order *is* part of the contract.
+//! - **Schema order is canonical semantic order** — reading order, what a
+//!   screen reader or the null theme sees. `set` stores parts at their
+//!   `parts.toml` position, not in call order, so the order is the declared
+//!   one and a producer cannot drift it.
 //!
 //! Producers never see `Site` — URLs in parts are root-relative, and prefixing
 //! `baseurl` is presentation. Presence is schema-driven: a row with tags gets a
@@ -77,6 +78,15 @@ impl PartMap {
             self.kind
         );
         self.parts.push((name, part));
+        // Stored order follows the SCHEMA, not the call order: `parts.toml` is
+        // the canonical reading order the null theme renders (§5e), and a
+        // producer must not be able to change it by reordering its `set`s. The
+        // sort is stable and the list is tiny; parts a site declared past the
+        // engine schema (`set_declared`) sort to the end in the order added.
+        if let Some(sch) = schema(self.kind) {
+            self.parts
+                .sort_by_key(|(n, _)| sch.iter().position(|(sn, _)| sn == n).unwrap_or(usize::MAX));
+        }
     }
 
     /// A map of a kind the engine may not declare — a site's `[[parts]]`
@@ -185,10 +195,9 @@ impl PartType {
 /// `[[parts]]` extends them in `Schemas::load`.
 ///
 /// Data, not a match: this is what a theme's fragments are checked against,
-/// and what `set()` asserts against so the vocabulary cannot drift silently.
-/// Order within a kind is the declared vocabulary order — NOT render order,
-/// which is the producer's `set()` order — so the file is an array of pairs,
-/// which preserves it, rather than a table, which would not.
+/// what `set()` asserts against so the vocabulary cannot drift silently, and
+/// the canonical order `set()` stores parts in — so the file is an array of
+/// pairs, which preserves order, rather than a table, which would not.
 static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
     std::sync::OnceLock::new();
 
@@ -1108,7 +1117,29 @@ mod tests {
         );
         let t = out.find("data-slot=\"title\"").unwrap();
         let c = out.find("data-slot=\"content\"").unwrap();
-        assert!(t < c, "canonical order is insertion order");
+        assert!(t < c, "title precedes content, as the schema declares");
+    }
+
+    /// Canonical order is the SCHEMA's, not the call order: a producer that
+    /// sets parts in a different sequence still renders in `parts.toml` order,
+    /// so reordering `set`s cannot silently change the null theme.
+    #[test]
+    fn canonical_follows_schema_order_not_call_order() {
+        // `document` declares title before content; set them the other way.
+        let mut m = PartMap::new("document");
+        m.set("content", Part::Html("<p>body</p>".into()));
+        m.set("title", Part::Text("T".into()));
+        let names: Vec<&str> = m.iter().map(|(n, _)| n).collect();
+        assert_eq!(
+            names,
+            ["title", "content"],
+            "stored order is the schema's, whatever the call order"
+        );
+        let out = canonical(&m);
+        assert!(
+            out.find("data-slot=\"title\"").unwrap() < out.find("data-slot=\"content\"").unwrap(),
+            "and canonical renders that order: {out}"
+        );
     }
 
     /// The completeness property the null theme exists to falsify: every
@@ -1237,8 +1268,9 @@ mod schema_asset_tests {
         }
     }
 
-    /// The vocabulary each kind declares. NOT the render order: that is the
-    /// producer's `set()` order. Pinned so the vocabulary cannot drift silently.
+    /// The vocabulary each kind declares, in canonical order — the order
+    /// `set()` stores parts in and `canonical()` renders. Pinned so neither
+    /// the vocabulary nor the reading order drifts silently.
     #[test]
     fn each_kind_declares_its_vocabulary() {
         let names = |k| {

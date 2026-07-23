@@ -1538,7 +1538,12 @@ language (§5). `{{ post.titel }}`-class bugs die the same death twice.
 ### CSS does the geometry
 
 Layout kinds emit parts in **canonical semantic order** — reading order, the
-order a screen reader or the null theme sees. Themes never reorder markup;
+order a screen reader or the null theme sees. That order is `parts.toml`'s,
+not the producer's: `PartMap::set` stores each part at its schema position, so
+reordering a kind in the file reorders the null-theme (and partial-theme
+fallback) rendering, and a producer cannot drift it by reordering its `set`s.
+A fully-themed site never reaches `canonical()`, so this is the order a theme
+inherits only when it declines to arrange a kind. Themes never reorder markup;
 they place it with `grid-template-areas` keyed on slot names:
 
 ```css

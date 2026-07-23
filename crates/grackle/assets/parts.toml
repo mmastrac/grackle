@@ -1,13 +1,15 @@
-# Engine part schemas: the vocabulary every theme fragment is checked
-# against, and the canonical order the null theme renders in.
+# Engine part schemas: the vocabulary every theme fragment is checked against,
+# a type contract, AND the canonical reading order the null theme renders in.
 #
-# This is a VOCABULARY and a type contract, not an ordering. Render order is
-# the order a producer calls `set()`, and `canonical()` walks the PartMap, so
-# reordering a kind here changes nothing that ships — measured, not assumed.
+# Order is load-bearing. `PartMap::set` stores parts at their position HERE,
+# not in call order, and `canonical()` walks that — so reordering a kind here
+# reorders the null-theme (and partial-theme fallback) rendering, and a
+# producer cannot drift it by reordering its `set`s. A fully-themed site never
+# reaches `canonical()`, so its bytes are the fragment's order, not this one;
+# this is the order a theme inherits when it declines to arrange a kind.
 #
-# Pairs rather than a table anyway: a TOML table gives no stable order at all,
-# and a schema that reshuffles between builds makes diffs unreadable and would
-# block ever making declaration order the canonical one.
+# Pairs, not a table: a TOML table has no stable order, so it could not carry a
+# canonical one and would make diffs unreadable between builds.
 
 [[kind]]
 name = "shell"
