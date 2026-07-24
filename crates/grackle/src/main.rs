@@ -7,6 +7,7 @@ mod build;
 mod debug;
 mod diff;
 mod embed;
+mod highlight;
 mod links;
 mod markdown;
 mod outline;

@@ -75,10 +75,9 @@ fn escape_code(s: &str) -> String {
 ///     two wrapper divs, but comrak then hardcodes `</code></pre>`
 ///     (html.rs:566) with no hook to close them.
 ///
-/// Highlighting itself is still absent: Rouge emits Pygments token spans
-/// (`<span class="c1">`) for the ~12% of blocks with a real language. Those
-/// keep their wrapper but not their spans, so they stay on §8's known-inexact
-/// list until we have a Rouge-compatible highlighter.
+/// A block with a real language gets token spans from `crate::highlight` — the
+/// four classes the theme colours (`k`/`s`/`c1`/`n`), not Rouge's full Pygments
+/// set. Inline code and `text` blocks stay plain, as they are on the reference.
 pub fn rouge_code_blocks<'a>(root: &'a AstNode<'a>) {
     for node in root.descendants() {
         let repl = {
@@ -93,7 +92,7 @@ pub fn rouge_code_blocks<'a>(root: &'a AstNode<'a>) {
                         block_type: 6,
                         literal: format!(
                             "<div class=\"language-{lang} highlighter-rouge\"><div class=\"highlight\"><pre class=\"highlight\"><code>{}</code></pre></div></div>",
-                            escape_code(&ncb.literal)
+                            crate::highlight::render(lang, &ncb.literal)
                         ),
                     }))
                 }
