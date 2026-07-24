@@ -50,10 +50,6 @@ pub struct Config {
     /// widget is one config entry, no code.
     #[serde(default)]
     pub widgets: BTreeMap<String, String>,
-    /// Related-posts ranking policy (§6b). Cosine similarity supplies the
-    /// candidates; this shapes them per site.
-    #[serde(default)]
-    pub related: RelatedCfg,
     /// Script shells (§5g, and yes, the pun): registered shell types backed
     /// by an external command — the experimental bench for serializations
     /// the engine doesn't speak yet (PDF, PostScript, whatever). The command
@@ -344,7 +340,7 @@ pub struct RecordCfg {
 /// Validated at load: per-locale maps name only declared locales and
 /// include the default locale (resolution is total); references must
 /// resolve; `"@@…"` escapes a literal leading `@`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum LocalizedStr {
     One(String),
@@ -435,16 +431,51 @@ pub struct Collection {
     /// archive and the chrome follows. Optional — a unique tags-grouped
     /// view is found on its own; no tags view at all = unlinked pills.
     pub tags: Option<String>,
-    /// The SET that `next`/`previous` step through (q51). "Previous post"
-    /// means previous *in a sequence*, and a sequence is a set — so the
-    /// reach is declared rather than inherited from whatever the table
-    /// happened to be sorted by.
-    ///
-    /// A set carries its filter, so `adjacency = "published"` drops drafts
-    /// by construction. Unset means every row of the collection, default
-    /// locale, newest first — where a dated draft becomes someone's
-    /// "later post".
-    pub adjacency: Option<String>,
+    /// This collection's neighbour queries (§6g, q52). Each `[collections.
+    /// relations.NAME]` is a small row-relative query — `over` (candidate
+    /// pool), `where` (a predicate over the two-row `self`/`candidate`
+    /// environment), `rank` (a score, bigger wins), `limit` — that produces
+    /// one labelled group in a document's body. A collection declaring none
+    /// inherits the four engine defaults (`earlier`, `later`, `related`,
+    /// `linked_from`); declaring one overrides that NAME alone.
+    #[serde(default)]
+    pub relations: BTreeMap<String, RelationCfg>,
+}
+
+/// One declared relation (§6g). A neighbour list expressed as a query over
+/// the two-row environment, so "related" and "previous post" stop being five
+/// hardcoded axes and become config a site can move, retune or invent.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationCfg {
+    /// The candidate pool: a set name, a collection, or a derived relation
+    /// name (`linked_from`, `ancestors`, …). Absent = the collection's
+    /// published set — "the shape every site's published set has" (§6g open
+    /// sub-question), resolved at load.
+    #[serde(rename = "over")]
+    pub over: Option<String>,
+    /// A boolean over `self`/`candidate` (qualified fields) and relation
+    /// names (`!(candidate in earlier)`). Absent = every candidate.
+    #[serde(rename = "where")]
+    pub filter: Option<String>,
+    /// A path glob scoping which `self` rows carry this relation — and, when
+    /// the pool spans a subtree with its own `.schema.toml`, the schema
+    /// `self.*`/`candidate.*` type-check against (§6g: `same_course` needs
+    /// `self.course`, a recipes-only field).
+    #[serde(rename = "match")]
+    pub scope: Option<String>,
+    /// The score, bigger wins (§6g slice 2). Absent = the built-in embedding
+    /// order, so a relation that only filters need not restate ranking.
+    pub rank: Option<String>,
+    /// Drop candidates scoring below this after `rank` — grack.com's
+    /// `min_score`, applied to the *adjusted* score, which is why it is its
+    /// own key rather than a clause inside `where`.
+    pub min_rank: Option<f64>,
+    /// The window size. Defaults to a handful; `earlier`/`later` set 1.
+    pub limit: Option<usize>,
+    /// The group's heading, an `@ref` into `[i18n.strings]` (defaulting to
+    /// `@NAME`). A per-locale map carries the language axis, like `title`.
+    pub label: Option<LocalizedStr>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -575,31 +606,6 @@ pub struct Field {
     /// granularity, at least one block; `max_chars` counts visible text).
     /// Carries a `truncated` fact for the theme's ★.
     pub truncate: Option<Truncate>,
-}
-
-/// `[related]`: how embedding similarity becomes a related-posts list.
-/// `year_penalty` subtracts per year of date distance (a soft prior toward
-/// contemporaries); `max_years` is a hard cap; `min_score` drops weak
-/// matches after adjustment — a 2004 post is probably not relevant on this
-/// blog, but might be on another, so all of it is per-site policy.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct RelatedCfg {
-    pub limit: usize,
-    pub min_score: Option<f32>,
-    pub year_penalty: Option<f32>,
-    pub max_years: Option<i32>,
-}
-
-impl Default for RelatedCfg {
-    fn default() -> Self {
-        RelatedCfg {
-            limit: 4,
-            min_score: None,
-            year_penalty: None,
-            max_years: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -993,6 +999,16 @@ impl Config {
                     }
                     if let Some(i) = &v.intro {
                         refs.push((format!("view {name}: intro"), i));
+                    }
+                }
+                // Relation labels (§6g) are `@refs` too, so a custom label
+                // (`same_course`) can name a `[i18n.strings]` entry — and a
+                // dangling one is caught here, like every other reference.
+                for (cname, c) in &cfg.collections {
+                    for (rname, r) in &c.relations {
+                        if let Some(l) = &r.label {
+                            refs.push((format!("collection {cname}: relation {rname} label"), l));
+                        }
                     }
                 }
                 for (what, s) in refs {

@@ -7,4 +7,5 @@ edition = "2021"
 grackle-db = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
+globset = { workspace = true }
 serde = { workspace = true }

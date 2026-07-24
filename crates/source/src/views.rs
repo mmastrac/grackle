@@ -85,6 +85,10 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
             .collect(),
         filter::Value::Str(s) => vec![mk(SortKey::Str(s.clone()), s)],
         filter::Value::Int(i) => vec![mk(SortKey::Int(i), i.to_string())],
+        // No row column is a double (it is a computed-expression type only),
+        // so grouping by one never happens; grouped by its string form if it
+        // somehow did, rather than silently dropped.
+        filter::Value::Double(d) => vec![mk(SortKey::Str(d.to_string()), d.to_string())],
         filter::Value::Bool(b) => vec![mk(SortKey::Str(b.to_string()), b.to_string())],
         filter::Value::Null => Vec::new(),
     }
@@ -300,62 +304,20 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
     Ok(out)
 }
 
-/// The sequence `next`/`previous` step through, one per posts collection
-/// (q51's ordering decision). "Previous post" means previous *in a
-/// sequence*, and a sequence is a set — so the reach is declared, not
-/// inherited from whatever index the table happened to carry.
+/// The chronological sequence the `grackle explain` diagnostic reports as a
+/// row's newer/older neighbours, one per posts collection, default locale,
+/// newest first.
 ///
-/// A declared `adjacency` set brings its filter AND its `order_by`, so
-/// `adjacency = "published"` drops drafts by construction. Unset: every row
-/// of the collection, default locale, newest first.
-pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
+/// This is no longer what a rendered page's "earlier/later post" steps — those
+/// are declared relations now (§6g), computed per row by the engine over
+/// `published`. The old collection-level `adjacency` set retired with them;
+/// this stays only as the CLI's raw table walk.
+pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
         if c.kind != Kind::Posts {
             continue;
         }
-        let who = format!("collection {cname}: adjacency");
-        let (pred, sort) = match c.adjacency.as_deref() {
-            Some(set) => {
-                let q = cfg
-                    .query(set)
-                    .with_context(|| format!("{who} names set {set:?}"))?;
-                // A set is rooted at one collection; adjacency inside a
-                // collection cannot be defined by a set over a different
-                // one. Caught here rather than producing an empty chain.
-                if q.base != *cname {
-                    bail!(
-                        "{who}: set {set:?} is over {:?}, not this collection",
-                        q.base
-                    );
-                }
-                let pred = match q.predicate() {
-                    Some(src) => filter::Filter::parse(&src, &row_schema())
-                        .with_context(|| format!("{who}: filter {src:?}"))?,
-                    None => filter::Filter::always(),
-                };
-                // A declared set brings its filter; its ORDER is only
-                // adopted if it states one. Falling through to the view
-                // default (`path` ascending) would reverse the sequence,
-                // and `neighbors_in` reads position, not dates — "later
-                // post" would have meant the one before.
-                let order = match q.order_by.as_deref() {
-                    Some(spec) => {
-                        let declared = schemas.declared();
-                        let mut known: Vec<&str> = row_schema().keys().copied().collect();
-                        known.extend(declared.keys().copied());
-                        declared_order(&known, &who, Some(spec))?
-                    }
-                    None => newest_first(),
-                };
-                (pred, order)
-            }
-            // Newest first, which is what `neighbors_in` reads as (newer,
-            // older). Unlike a view's, this default is not `path` ascending:
-            // a sequence's ORDER is its meaning here, and "previous post"
-            // means previous in time until a declared set says otherwise.
-            None => (filter::Filter::always(), newest_first()),
-        };
         let ix: Vec<grackle_db::Key> = db
             .rows
             .iter()
@@ -364,7 +326,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             .filter(|p| p.locale == cfg.i18n.default)
             .map(|p| p.key.clone())
             .collect();
-        let seq = grackle_db::View::all().filter(pred).order(sort);
+        let seq = grackle_db::View::all().order(newest_first());
         out.insert(cname.clone(), db.rows.view_within(&ix, &seq));
     }
     db.adjacency = out;
@@ -1183,54 +1145,23 @@ mod adjacency_tests {
         assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
     }
 
-    /// Undeclared, a DATED draft rides the chain — drafts fall out otherwise
-    /// only because they are usually undated. Declaring the set fixes it by
-    /// rule.
+    /// The diagnostic walk is a raw chronological table order — every dated
+    /// row of the collection, newest first, drafts included. Selecting which
+    /// rows are neighbours on a rendered page is the relation engine's job now
+    /// (§6g), not this sequence's; `grackle explain` only reports the table.
     #[test]
-    fn a_declared_set_drops_drafts_by_construction() {
-        let rows = || {
-            vec![
-                post("posts", "/blog/jan/", Some("2026-01-01"), false),
-                post("posts", "/blog/feb/", Some("2026-02-01"), true), // dated DRAFT
-                post("posts", "/blog/mar/", Some("2026-03-01"), false),
-            ]
-        };
-
-        // Undeclared: the accident, stated plainly.
-        let mut db = db_with(rows());
+    fn the_diagnostic_walk_is_chronological_and_unfiltered() {
+        let mut db = db_with(vec![
+            post("posts", "/blog/jan/", Some("2026-01-01"), false),
+            post("posts", "/blog/feb/", Some("2026-02-01"), true), // dated DRAFT
+            post("posts", "/blog/mar/", Some("2026-03-01"), false),
+        ]);
         build_adjacency(&cfg(""), &mut db, &Schemas::new(row_schema())).unwrap();
         assert_eq!(
             seq(&db, "posts"),
             ["/blog/mar/", "/blog/feb/", "/blog/jan/"],
-            "a dated draft rides the chain when nothing says otherwise"
+            "the raw table walk includes a dated draft — the relation engine, \
+             not this sequence, is what excludes it from a page"
         );
-
-        // Declared: `published` carries `!draft`, so the draft is simply
-        // not in the sequence and January's later post is March.
-        let mut db = db_with(rows());
-        let c = cfg(
-            "adjacency = \"published\"\n[sets.published]\nfrom = \"posts\"\nwhere = \"!draft\"\n",
-        );
-        build_adjacency(&c, &mut db, &Schemas::new(row_schema())).unwrap();
-        assert_eq!(seq(&db, "posts"), ["/blog/mar/", "/blog/jan/"]);
-    }
-
-    /// A set over a DIFFERENT collection would silently produce an empty
-    /// chain; it is a load error naming both instead.
-    #[test]
-    fn adjacency_set_must_be_over_this_collection() {
-        let c = Config::from_toml(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"posts\"\nkind = \"posts\"\nsource = \"_posts\"\n\
-             filename_formats = [\"{year}-{month}-{day}-{slug}\"]\nadjacency = \"elsewhere\"\n\
-             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_notes\"\n\
-             filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\
-             [sets.elsewhere]\nfrom = \"notes\"\n",
-        )
-        .unwrap();
-        let e = build_adjacency(&c, &mut db_with(vec![]), &Schemas::new(row_schema()))
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("not this collection"), "{e}");
     }
 }

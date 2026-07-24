@@ -1813,6 +1813,8 @@ never a grackle-only dialect.
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
 | `fields.NAME =` | a typed value over the row (content, text, …) | q31's target; replaces the deriver-struct |
 | future derivers (`hero`, `lede`) | same | q23 / q25 |
+| relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
+| relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
 
 Route/`title`/`crumb` templates stay the `{token}` placeholder language:
 string interpolation over group params, not computation. Folding them in
@@ -1878,7 +1880,10 @@ evaluating any expression not written by the site's author.
   that is a layout-kind decision, not an expression; the §5d rule extends
   unchanged.
 - A function wants to read *other rows* → that is view composition, not a
-  function; expressions stay row-local.
+  function; expressions stay row-local. One sanctioned, bounded exception:
+  relation expressions (§6g) bind exactly two rows — `self` and
+  `candidate` — plus finished relation lists as names. Anything reaching
+  for arbitrary rows still trips.
 - The subset grows until the hand-rolled parser strains → that is the
   signal to swap in a CEL crate, not to keep growing; the contract exists
   precisely so the swap is cheap.
@@ -2531,7 +2536,8 @@ below, each an improvement the build surfaced:
    declares its prior (here: penalty 0.01/yr, min 0.4). Observed effect:
    the blogging-meta post still pulls its genuinely-related 2009/2010
    platform posts (raw 0.58–0.64 beats the penalty); weaker cross-era
-   matches drop.
+   matches drop. *(Retires into §6g: the three knobs become a declared
+   relation's `limit`, `min_rank`, and a `year_gap` rank term.)*
 3. **Stale-while-revalidate** — the resident database's move (§7). An
    `index.json` maps post name → current vector hash; a post whose text
    changed serves its **old vector until reprocessed**. `build` (AOT,
@@ -2563,7 +2569,9 @@ label lives on the group, which retired the label-on-first-item hack the
 flat model needed; an axis with nothing to say contributes no group
 (rule 2); and a future axis — same-tag, series — is one more group pushed
 by the producer: no schema change, no theme change, the `relation`
-fragment renders axes it has never heard of.
+fragment renders axes it has never heard of. *(Since the q53 split these
+groups are RELATIONS, declared per collection — §6g, where `data-axis` is
+also renamed `data-relation`.)*
 
 What this replaced: Jekyll's `lsi: true`, a dominant chunk of the 90-second
 build, recomputed from scratch every time because Jekyll had no
@@ -3196,6 +3204,273 @@ builtins → byte-identical, verified.
 - The markers walk uses **physical** paths — irrelevant for the suffix
   selector, a known caveat for the prefix selector, which is built and tested
   but not yet exercised by a corpus.
+
+## 6g. Relations: every neighbour list is a declared query *(q52, resolved 2026-07-23; built 2026-07-23 — the §5f forcing point)*
+
+Matt (2026-07-20): *"Each collection should define its own relations in the
+config tree — prev/next/similar/etc, as well as the source for it. We should
+also be able to add compound operations. For example, a related post for
+published is `relation(published) - prev(published) - next(published) -
+links_to(*)`."* Where this comes from: relations are hardcoded — five groups
+in `parts.rs`, unconditional, ranging over whatever table the code reached
+for; that was already wrong once (adjacency crossing two dated collections,
+measured and fixed in q51). Translations left the list first — q53 ruled it
+an axis (another form of THIS row), and a relation is exactly the other
+thing, *which other rows* — so four remain: `earlier`, `later`, `related`,
+`linked_from`.
+
+**The reframe that settles the shape: each list is a small query.**
+"Related" = published posts ranked by similarity to this one, top few.
+"Later/Earlier" = the date-order neighbours. "Linked from" = rows whose
+links land here. And §5c already built most of this machine — a set is
+sort-once, slice-everywhere; a relation is the same pipeline with a sort
+that is **row-relative** (a different order per post; Later/Earlier is
+literally pagination with a window of one). The per-row re-rank is the only
+genuinely new engine capability.
+
+```toml
+[collections.relations.related]
+over     = "published"    # candidate pool: a set, or a derived relation
+where    = "!(candidate in earlier) && !(candidate in later)"
+rank     = "embedding_similarity(self, candidate)"   # double, bigger wins
+limit    = 4
+# also: match (glob, scopes self), min_rank (threshold), label ("@ref")
+```
+
+Pipeline per row: `over → where → rank (+ min_rank) → limit`. Drops happen
+before the window, so an exclusion never shortens the list — the top 4 are
+drawn from what's left.
+
+### The shape war, closed
+
+q52 weighed three shapes; the resolution takes B's spine with expression
+syntax, and the drift objection answered. **(A) set-algebra strings** were
+rejected for *restating* other relations' definitions — the §5c disease.
+The expression form does not restate: `!(candidate in earlier)` refers to
+Earlier **by name**, exactly like B's `exclude` list — "whatever Earlier
+shows, not that" — so changing Earlier cannot desync it. **(B)'s `exclude`
+key dies** as a second spelling of `where`, and B's closed `of` vocabulary
+dies for two of the four families — order and metric are plain expressions
+(`prev` = `where = "candidate.date < self.date"`, `rank = "candidate.date"`,
+`limit = 1`). **(C) relations-as-sets stays rejected**: a set is
+row-independent, a relation row-relative; they share machinery, never a
+namespace.
+
+### The grammar is §5f's CEL — so `not in` is spelled `!(… in …)`
+
+The draft wrote `candidate not in earlier`; CEL has `in` but no `not in`,
+and §5f's contract — *grammatically valid CEL, never a dialect* — is what
+keeps the swap-in-a-real-crate escape hatch real. The contract outranks
+prettiness, and `!draft` already set the `!` house style.
+
+What relations force into existence (this is §5f's forcing point):
+arithmetic on doubles, unary minus, registered functions with row-typed
+arguments, and a **two-row environment**. §5f's tripwire ("a function wants
+other rows → that's a view") gains its one sanctioned, bounded exception,
+recorded there.
+
+### The environment: two rows and the finished lists
+
+- **`self`** (the row being rendered) and **`candidate`** (the row under
+  consideration). Field access is always qualified — a bare `tags` is
+  ambiguous between the two, so it is a load error.
+- **Every relation name is a value**: a list of rows, where `x in name`
+  means membership in that relation's **finished, limited list** — "already
+  shown as X" — never "generally similar". For a threshold, call the
+  function (`embedding_similarity(self, candidate) > 0.5`); names and
+  functions are complementary, not interchangeable. If "the full ranked
+  candidates" is ever needed it arrives as an explicit spelling later, not
+  built on speculation.
+- **Functions are registered in Rust** (§5f), never defined in config. The
+  first four, each demanded by a real config below:
+  `embedding_similarity(row, row)`, `year_gap(row, row)` (grack.com, day
+  one), `search_similarity(row, row)` and `levenshtein(string, string)`
+  (field-notes). `overlap(list, list)` waits for a config that wants it.
+- **Score direction: bigger always wins.** Distance functions wear a minus
+  sign — `rank = "-levenshtein(…)"` — already house style (`order_by =
+  "-date"`). No per-relation asc/desc knob.
+
+### Graph and path are names, not expressions
+
+Two of q52's four families cannot be computed from two rows' fields — they
+need the link graph or the tree. They become **derived relations**: names
+the engine always provides, usable two ways — referenced in `where`
+(`!(candidate in ancestors)`) or as the candidate pool (`over =
+"linked_from"`, then shaped by `where`/`limit` like any other; this is also
+how linked_from keeps its global reach — the pool is the graph, not a set).
+
+| family | operators | becomes |
+|---|---|---|
+| **order** | prev, next | an expression over a set |
+| **metric** | similar | an expression over a set (`rank`) |
+| **graph** | links_to, linked_from | derived names (`backlinks_map` computes the forward direction; the inverse is free) |
+| **path** | parent, children, ancestors, siblings, descendants | derived names — the tree family q52 claimed |
+
+Derived names exist whether or not anything renders them; only **declared**
+relations emit a group. q52's load-bearing separation survives — an
+operator supplies ROWS, the consumer decides presentation — and the
+**sequencing caution survives with it**: trails and section trees are
+built, byte-verified consumers of the path family's idea; they stay on
+their own code until something needs them unified. The vocabulary is the
+deliverable, not the rewrite.
+
+### Defaults ship the fixes
+
+A collection declaring no relations gets these four; overriding is per
+NAME, not wholesale (else field-notes restates four to change one):
+
+```toml
+[collections.relations.earlier]     # replaces the `adjacency` key (q51)
+over  = "published"
+where = "candidate.date < self.date"
+rank  = "candidate.date"
+limit = 1
+# `later` is the mirror image
+
+[collections.relations.related]
+over  = "published"
+where = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+rank  = "embedding_similarity(self, candidate)"
+limit = 4
+
+[collections.relations.linked_from]
+over  = "linked_from"
+where = "!(candidate in ancestors)"
+```
+
+Three defects, found by eyeballing real pages, are why the defaults are not
+today's behaviour:
+
+1. **Related re-shows the neighbours.** Similarity ranks the whole corpus
+   and doesn't know the other lists exist; on a real post, two of Related's
+   three entries were already on the page as Earlier and Later. Fixed by
+   the `where` above.
+2. **"Linked from: Home."** The homepage's recent-posts arrangement counts
+   as a citation. Not fixable in this syntax at all — see below.
+3. **"Linked from: its own breadcrumb parent."** Fixed by `!(candidate in
+   ancestors)` — and the scoping is data, not an `if`: a blog post's trail
+   is date archives, so it *has* no page ancestors and the clause does
+   nothing there. It only bites where it should.
+
+So the defaults deliberately change output on the real site. §6b's warning
+runs in reverse here: relations blocks will move in the diff, the movement
+is the point, and the verification is an eye check, not a byte diff.
+
+Retired by the defaults: the collection-level `adjacency` key (its whole
+point was "name the SET"; the relation now does) and the `[related]` block
+(§6b — `limit`, `min_score`, `year_penalty` were three knobs of a hardcoded
+formula the expression absorbs). One open sub-question: the default `over`
+for a collection with no `published` set — probably "the collection,
+filtered `!draft && !hidden`", the shape every site's published set has.
+
+### Evaluation, pinned
+
+- **Order**: relations may reference each other, so they evaluate in
+  dependency order; a reference cycle is a **config-load error**, never a
+  render surprise.
+- **Self is never a candidate** — a mechanism rule, not a `where` clause
+  every site writes. The embeddings already pin this with the
+  identical-twin test; it is promoted to the mechanism.
+- **`min_rank` thresholds the rank value.** It exists because grack.com's
+  `min_score` applies to the *adjusted* score; without the key, the only
+  spelling restates the whole rank expression inside `where` — drift.
+- **Determinism**: ties break by `(rank, date desc, url)` — the discipline
+  `backlinks_map` already applies, and pagination proves it matters: an
+  unstable order would reshuffle the top 4 every rebuild the way it would
+  reshuffle `/blog/page/2/`.
+
+### Output: same parts, one rename
+
+Each declared relation with a nonempty list emits one `relation` group —
+`{axis: NAME, label, items}` — in declaration order; an empty one
+contributes no group (rule 2). Themes already render axes they have never
+heard of; that §6b sentence was written for this moment. Labels are `@refs`
+into `[i18n.strings]`, defaulting to `@NAME`. The q53 rename rides along:
+site-defined names stamp **`data-relation`** (today's `data-axis`, misnamed
+since the axis/relation split) — a theme-contract change made on purpose,
+not by diff surprise.
+
+### The three sites
+
+- **minimal**: **zero lines change.** Declares nothing, inherits the four
+  defaults, gets every fix. This is the site whose config line count is the
+  yardstick (§7a); the design passing through untouched is the test that
+  the defaults are right.
+- **grack.com**: `adjacency = "published"` and `[related]` dissolve into:
+
+  ```toml
+  [collections.relations.related]
+  over     = "published"
+  where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+  rank     = "embedding_similarity(self, candidate) - 0.01 * year_gap(self, candidate)"
+  min_rank = 0.4
+  limit    = 4
+  ```
+
+  The migration that proves the language earns its keep: `year_penalty`
+  was a formula with one exposed coefficient ("other sites may want no
+  penalty" — now they just don't write the term), and
+  threshold-on-adjusted-score is exactly why `min_rank` applies after
+  `rank`.
+- **field-notes** (the falsifier, §7a): the same mechanical `[related]`
+  migration; the label strings flip meaning from engine-key overrides to
+  `@ref` targets (the unused-key load error polices the change); plus the
+  relation the engine never hardcoded, on the TREE collection:
+
+  ```toml
+  [collections.relations.same_course]
+  over  = "recipes"
+  match = "recipes/**"
+  where = "candidate.course == self.course"
+  rank  = "-levenshtein(self.title, candidate.title)"
+  limit = 3
+  label = "@same_course"
+  ```
+
+  `match` is why relations carry a glob: §5f mandates load-time checking,
+  but `self.course` only type-checks against the recipes subtree's
+  `.schema.toml`, not the tree collection's base schema. The glob scopes
+  which rows carry the relation *and* names the schema to check against —
+  the same vocabulary rules and sets use — and it answers "why doesn't the
+  manual show Same course" with structure rather than silence.
+
+### Problem 2 belongs to the link layer, and the scanner serves two masters
+
+"Linked from: Home" is a fact about the **link**, not the page: the
+homepage cites you through its recent-posts *arrangement*; a real citation
+cites you through someone's writing. That distinction lives on the link,
+which the two-row model cannot see — the one defect this syntax
+deliberately does not absorb. The fix is in link-graph construction:
+`backlinks_map` scans the rendered fragment, which for the homepage
+**includes the spliced `{% view %}` output**, so every arrangement link
+counts as a citation. Mark the splice boundary and skip it — but only for
+the backlink consumer: `cited_urls` is one scanner with two clients, and
+the on-demand publisher (§4) must keep seeing arrangement links, or an
+image referenced only by a listing quietly unpublishes. Per-consumer
+filtering, not a scanner change.
+
+### Honest edges, named now
+
+- **Locales are untested.** Does a French note's `over = "published"`
+  (default-locale by construction, §6f) fill its Related with English
+  rows? Probably candidates should pivot through `by_logical` to the
+  reader's locale where a translation exists; undecided, and field-notes
+  is the only site that can surface it.
+- **Cross-kind fields.** A pool spanning kinds may compare only fields
+  every candidate carries; the rest is a load error where checkable,
+  absent-fails-the-test where not.
+- **Two slices, both built 2026-07-23.** Slice 1: `where` + name membership,
+  the config surface, defects 1 and 3 fixed, `adjacency`/`[related]` retired.
+  Slice 2: `rank` expressions — the §5f build (arithmetic, unary minus, the
+  two-row function registry `embedding_similarity`/`year_gap`/`levenshtein`,
+  the `Double` type), with grack.com's year-penalty migration as its
+  acceptance test (verified: the recency floor drops the weak 2003 match a
+  bare embedding order let through). Problem 2 landed too: `{% view %}`
+  splices carry marker comments the citation scan skips, so an arrangement
+  link is no longer a backlink — while on-demand publishing still reads the
+  unstripped scan and keeps publishing an arrangement's images. `earlier`/
+  `later` express the date ordinal from the `y/m/d` columns (a rank must be a
+  number; the ISO `date` string only compares in `where`).
 
 ## 7. Clients of the database
 
@@ -4210,97 +4485,6 @@ never reused.
     nothing** — a consumer that ignores a new field is byte-identical while
     still broken.
 
-52. **Relations declared per collection, with exclusions** *(Matt's
-    direction, 2026-07-20; shape B recommended)*.
-
-    Matt: *"Each collection should define its own relations in the config
-    tree — prev/next/similar/etc, as well as the source for it. We should also
-    be able to add compound operations. For example, a related post for
-    published is `relation(published) - prev(published) - next(published) -
-    links_to(*)`."*
-
-    The motivating case is exact: a **Related** list should not re-show the
-    post you already link to in the body, nor the two the Later/Earlier links
-    already point at. Today it can and does — `similar` ranks over the whole
-    posts table and knows nothing about the other axes.
-
-    **Where this comes from.** Relations are hardcoded: five of them, in
-    `parts.rs`, unconditional, ranging over whatever table the code reached
-    for. That was already wrong (adjacency crossing two dated collections was
-    measured and fixed in q51). Matt's rule is that **every relation states its
-    reach** — and the reach is a **SET, not a collection**: `prev(published)`
-    rather than `prev(posts)`, so adjacency drops drafts by construction.
-
-    **Shape (B, recommended): structured fields, exclusions by NAME.**
-
-    ```toml
-    [collections.relations.earlier]
-    of    = "prev"
-    over  = "published"
-    label = "@earlier"
-
-    [collections.relations.related]
-    of      = "similar"
-    over    = "published"
-    exclude = ["earlier", "later", "links_to"]
-    limit   = 4
-    label   = "@related"
-    ```
-
-    No new grammar; every part is a load-checked key. `of` names the ranking
-    operator (it supplies the order; `limit` applies after exclusion); `over`
-    is the reach as a SET, so `prev(published)` drops drafts by construction.
-    **`exclude` names other declared relations**, so it can't drift from their
-    definitions the way a set-algebra string (rejected shape A) would — that
-    restatement is the §5c disease in a new place. Relations-as-sets (C) is
-    rejected too: a set is row-independent, a relation row-relative.
-
-    Decisions inside B: operators are the CLOSED set (`prev`/`next`/`similar`/
-    `links_to`/`linked_from` + the tree family; a typo in `of` is a load error),
-    the NAMES are open site vocabulary. This **reopens the `Axis` enum** (axis
-    strings become site-defined, labels move to each relation's `label`) — a
-    deliberate reversal of the same-day closure, not a diff surprise. A
-    collection declaring no relations gets the conventional five; **overriding
-    is per NAME, not wholesale** (else field-notes restates all five to change
-    one). Labels are `@references` into `[i18n.strings]`; `linked_from` stays
-    global (`over = "*"`).
-
-    ### The tree family belongs here too *(Matt, 2026-07-20)*
-
-    `parent`, `children`, `ancestors`, `siblings` and `descendants` are
-    relations. They exist today as two special-purpose consumers rather than a
-    vocabulary: `trails::ancestors` climbs URLs for breadcrumbs,
-    `outline::section_tree` walks paths for section navigation. §3 already
-    claims `children(page)` as a derived relation; no such function exists.
-    With them the operator set is four families:
-
-    | family | operators | keyed on |
-    |---|---|---|
-    | **path** | `parent`, `children`, `ancestors`, `siblings`, `descendants` | the row's position in the tree |
-    | **order** | `prev`, `next` | a sequence |
-    | **metric** | `similar` | embedding distance |
-    | **graph** | `links_to`, `linked_from` | the link graph |
-
-    **The load-bearing separation: an operator supplies ROWS; what consumes
-    them decides presentation.** A breadcrumb trail is ordered ancestry
-    rendered as a path; a relations footer is a labelled group of neighbours;
-    a section tree is a recursive nav. All three could select through one
-    vocabulary and still render through their own fragments — which is a
-    second argument for B, where `of` names an operator and presentation lives
-    in separate keys, over A, where a select-string implies a rendering.
-
-    **Sequencing caution.** Trails and section trees work and are
-    byte-verified. Rewriting them onto this mechanism is a large refactor with
-    real regression risk and no user-visible gain. Add the operators to the
-    vocabulary so new relations can use them; leave the two working consumers
-    alone until something needs them unified. **The vocabulary is the
-    deliverable, not the rewrite.**
-
-    Feasibility: `links_to` is free (`backlinks_map` computes the forward
-    direction and inverts it). Migration is byte-identical either way — both
-    sites declare their relations to keep current output, or take the
-    defaults.
-
 53. **Axes: alternative forms of a row** *(Matt, 2026-07-20)*.
 
     Matt: *"I'm starting to reconsider whether translation is a relation —
@@ -4397,4 +4581,5 @@ One line per retired question; the named section carries the design.
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced; row tiers are pipeline exits (`none` is the shell layer's escape hatch, not an object and not a theme) | §5g |
 | 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |
 | 45 | landings: a view owns the URL, a row may own the words; claiming, the chain, theme provenance | §5h |
+| 52 | relations are declared queries — `over`/`where`/`rank`/`limit` in §5f CEL; names mean finished lists; graph+path families are derived names; defaults ship the eye-check fixes; `adjacency` and `[related]` retire | §6g |
 | 46 | `collection.crumb`/`index` dissolved — the URL climb is the sole source of a landing crumb, `trail` keeps the subdivision chain | §5h |

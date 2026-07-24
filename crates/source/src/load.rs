@@ -845,6 +845,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_star_views(cfg, &mut db)?;
+    // §6g: relations compile after views, so a relation's `over` set is
+    // already resolved. Type errors and cycles surface here, at load.
+    crate::relations::build_relations(cfg, &mut db, &schemas)?;
     db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     // q45: a claimed row's URL becomes its landing's — the owning

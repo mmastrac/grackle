@@ -28,9 +28,21 @@ use std::fmt;
 pub enum Type {
     Bool,
     Int,
+    /// A real number, produced by arithmetic and the score functions (§6g
+    /// `rank`). Absent from the row schemas — no column is a double — it
+    /// exists only as the type of a computed expression.
+    Double,
     /// Includes dates, which are ISO-8601 and so order correctly as strings.
     Str,
     List,
+}
+
+impl Type {
+    /// Int and Double are the arithmetic types; `+ - *` and comparisons mix
+    /// them, promoting Int to Double.
+    fn is_numeric(self) -> bool {
+        matches!(self, Type::Int | Type::Double)
+    }
 }
 
 impl fmt::Display for Type {
@@ -38,6 +50,7 @@ impl fmt::Display for Type {
         f.write_str(match self {
             Type::Bool => "bool",
             Type::Int => "int",
+            Type::Double => "double",
             Type::Str => "string",
             Type::List => "list",
         })
@@ -49,6 +62,7 @@ impl fmt::Display for Type {
 pub enum Value {
     Bool(bool),
     Int(i64),
+    Double(f64),
     Str(String),
     List(Vec<String>),
     Null,
@@ -60,9 +74,20 @@ impl Value {
         match self {
             Value::Bool(_) => "a bool",
             Value::Int(_) => "an int",
+            Value::Double(_) => "a double",
             Value::Str(_) => "a string",
             Value::List(_) => "a list",
             Value::Null => "null",
+        }
+    }
+
+    /// This value as an `f64`, for arithmetic and ranking. Int widens; a
+    /// non-number (including `Null`, so a missing field) is not a score.
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Int(i) => Some(*i as f64),
+            Value::Double(d) => Some(*d),
+            _ => None,
         }
     }
 
@@ -84,6 +109,7 @@ impl Value {
             (_, Value::Null) => return Less,
             (Value::Str(x), Value::Str(y)) => x.cmp(y),
             (Value::Int(x), Value::Int(y)) => x.cmp(y),
+            (Value::Double(x), Value::Double(y)) => x.total_cmp(y),
             (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
             (Value::List(x), Value::List(y)) => x.cmp(y),
             // Mixed types cannot arise: a column has one type in the schema.
@@ -101,6 +127,7 @@ impl Value {
         match self {
             Value::Bool(b) => *b,
             Value::Int(i) => *i != 0,
+            Value::Double(d) => *d != 0.0,
             Value::Str(s) => !s.is_empty(),
             Value::List(v) => !v.is_empty(),
             Value::Null => false,
@@ -134,6 +161,7 @@ impl Op {
 #[derive(Debug, Clone, PartialEq)]
 enum Lit {
     Int(i64),
+    Double(f64),
     Str(String),
     Bool(bool),
 }
@@ -142,6 +170,7 @@ impl Lit {
     fn ty(&self) -> Type {
         match self {
             Lit::Int(_) => Type::Int,
+            Lit::Double(_) => Type::Double,
             Lit::Str(_) => Type::Str,
             Lit::Bool(_) => Type::Bool,
         }
@@ -149,8 +178,37 @@ impl Lit {
     fn value(&self) -> Value {
         match self {
             Lit::Int(i) => Value::Int(*i),
+            Lit::Double(d) => Value::Double(*d),
             Lit::Str(s) => Value::Str(s.clone()),
             Lit::Bool(b) => Value::Bool(*b),
+        }
+    }
+}
+
+/// The arithmetic operators, for `rank` expressions (§6g slice 2). Division
+/// is deliberately absent: no ranking formula the design records needs it,
+/// and leaving it out keeps "can this divide by zero" from ever being a
+/// question a config can raise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArithOp {
+    Add,
+    Sub,
+    Mul,
+}
+
+impl ArithOp {
+    fn apply(self, a: f64, b: f64) -> f64 {
+        match self {
+            ArithOp::Add => a + b,
+            ArithOp::Sub => a - b,
+            ArithOp::Mul => a * b,
+        }
+    }
+    fn as_str(self) -> &'static str {
+        match self {
+            ArithOp::Add => "+",
+            ArithOp::Sub => "-",
+            ArithOp::Mul => "*",
         }
     }
 }
@@ -164,6 +222,10 @@ enum Operand {
     Field(String),
     Lit(Lit),
     Call(&'static Func, Vec<Operand>, Prepared),
+    /// Unary minus, so distance functions rank with a sign (`-levenshtein`).
+    Neg(Box<Operand>),
+    /// Arithmetic, for `rank` (§6g): `similarity(self, candidate) - 0.01 * gap`.
+    Arith(Box<Operand>, ArithOp, Box<Operand>),
 }
 
 #[derive(Debug, Clone)]
@@ -173,9 +235,10 @@ enum Expr {
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
-    Cmp(Operand, Op, Lit),
-    /// `"rust" in tags`
-    In(Lit, Operand),
+    Cmp(Operand, Op, Operand),
+    /// `"rust" in tags`, and — with a field on the left — `candidate in earlier`
+    /// (§6g name membership: is this row in that relation's finished list).
+    In(Operand, Operand),
 }
 
 /// A function the language can call. The signature drives type checking and
@@ -193,7 +256,78 @@ pub struct Func {
     /// is not a trade worth making, and a pattern that varies per row is not
     /// a thing anyone wants.
     prepare: fn(&[Operand]) -> Result<Prepared>,
-    eval: fn(&Prepared, &[Value]) -> Value,
+    /// Evaluate against argument values, with access to the `Ctx` for the
+    /// score functions that need data no argument carries (embedding vectors,
+    /// a search index). A pure function ignores the ctx.
+    eval: fn(&Prepared, &[Value], &dyn Ctx) -> Value,
+}
+
+/// The out-of-band data the score functions read (§6g slice 2). `self` and
+/// `candidate` reach a function as their URLs (a `Str` argument); the ctx
+/// turns a URL into a vector, a date, whatever the function needs. Kept a
+/// trait so the language crate stays free of the embedding machinery — the
+/// engine supplies the real implementation at build time, and view filters,
+/// which call no score function, pass `NoCtx`.
+pub trait Ctx {
+    /// Cosine similarity of two rows' body embeddings, by URL. `None` when
+    /// either row has no vector — the pair simply does not rank.
+    fn similarity(&self, _a: &str, _b: &str) -> Option<f64> {
+        None
+    }
+    /// Whole-years between two rows' dates, by URL; `None` when either is
+    /// undated.
+    fn year_gap(&self, _a: &str, _b: &str) -> Option<f64> {
+        None
+    }
+    /// Similarity of two rows in the search index (a second embedding space);
+    /// `None` when either is unindexed.
+    fn search_similarity(&self, _a: &str, _b: &str) -> Option<f64> {
+        None
+    }
+}
+
+/// The context for an expression that calls no score function — every view
+/// filter, and every relation still on the built-in embedding order.
+pub struct NoCtx;
+impl Ctx for NoCtx {}
+
+/// The two URL arguments a row-pair score function receives, or `None` if
+/// either is not a string (which the type checker forbids, so this only
+/// guards against a bug). A `None` result — here or from the ctx — makes the
+/// pair unrankable rather than a crash, the same "missing input drops the
+/// candidate" the filters already have.
+fn url_pair(args: &[Value]) -> Option<(&str, &str)> {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Str(a)), Some(Value::Str(b))) => Some((a, b)),
+        _ => None,
+    }
+}
+
+fn eval_embedding_similarity(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
+    url_pair(args)
+        .and_then(|(a, b)| ctx.similarity(a, b))
+        .map_or(Value::Null, Value::Double)
+}
+
+fn eval_year_gap(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
+    url_pair(args)
+        .and_then(|(a, b)| ctx.year_gap(a, b))
+        .map_or(Value::Null, Value::Double)
+}
+
+fn eval_search_similarity(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
+    url_pair(args)
+        .and_then(|(a, b)| ctx.search_similarity(a, b))
+        .map_or(Value::Null, Value::Double)
+}
+
+/// Edit distance between two strings — pure, no ctx. Wears a minus sign in a
+/// `rank` (`-levenshtein(...)`) because bigger always wins (§6g).
+fn eval_levenshtein(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Str(a)), Some(Value::Str(b))) => Value::Int(levenshtein(a, b) as i64),
+        _ => Value::Null,
+    }
 }
 
 /// The closed set of things a function may precompute. Small on purpose: it
@@ -244,7 +378,7 @@ const FUNCS: &[Func] = &[
         params: &[Type::Str, Type::Str],
         returns: Type::Bool,
         prepare: no_prep,
-        eval: |_, args| match (&args[0], &args[1]) {
+        eval: |_, args, _| match (&args[0], &args[1]) {
             (Value::Str(p), Value::Str(base)) => Value::Bool(path_under(p, base)),
             // A null path is under nothing, which is what a row with no path
             // should mean rather than an error at query time.
@@ -263,10 +397,43 @@ const FUNCS: &[Func] = &[
                     .compile_matcher(),
             ))
         },
-        eval: |prep, args| match (prep, &args[0]) {
+        eval: |prep, args, _| match (prep, &args[0]) {
             (Prepared::Glob(m), Value::Str(p)) => Value::Bool(m.is_match(p)),
             _ => Value::Bool(false),
         },
+    },
+    // The §6g score functions. `self` and `candidate` reach them as their
+    // URLs (Str), which the ctx resolves to a vector or a date. Registered
+    // in the one shared table (§5f): a view filter *could* name them, but its
+    // single-row schema has no `self`/`candidate`, so the argument would not
+    // resolve — the language is one, the environment gates the reach.
+    Func {
+        name: "embedding_similarity",
+        params: &[Type::Str, Type::Str],
+        returns: Type::Double,
+        prepare: no_prep,
+        eval: eval_embedding_similarity,
+    },
+    Func {
+        name: "search_similarity",
+        params: &[Type::Str, Type::Str],
+        returns: Type::Double,
+        prepare: no_prep,
+        eval: eval_search_similarity,
+    },
+    Func {
+        name: "year_gap",
+        params: &[Type::Str, Type::Str],
+        returns: Type::Double,
+        prepare: no_prep,
+        eval: eval_year_gap,
+    },
+    Func {
+        name: "levenshtein",
+        params: &[Type::Str, Type::Str],
+        returns: Type::Int,
+        prepare: no_prep,
+        eval: eval_levenshtein,
     },
 ];
 
@@ -292,8 +459,11 @@ fn lookup_func(name: &str) -> Result<&'static Func> {
 enum Tok {
     Ident(String),
     Int(i64),
+    Float(f64),
     Str(String),
     Star,
+    Plus,
+    Minus,
     Bang,
     And,
     Or,
@@ -326,6 +496,17 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
             }
             '*' => {
                 out.push(Tok::Star);
+                i += 1;
+            }
+            '+' => {
+                out.push(Tok::Plus);
+                i += 1;
+            }
+            // Always an operator token; a negative literal is unary minus over
+            // a number, folded by the parser. Context-free is the point — the
+            // lexer never has to guess whether `-` continues an operand.
+            '-' => {
+                out.push(Tok::Minus);
                 i += 1;
             }
             '!' => {
@@ -385,18 +566,27 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
                 out.push(Tok::Str(b[start..i].iter().collect()));
                 i += 1;
             }
-            c if c.is_ascii_digit()
-                || (c == '-' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit())) =>
-            {
+            c if c.is_ascii_digit() => {
                 let start = i;
-                if c == '-' {
-                    i += 1;
-                }
                 while i < b.len() && b[i].is_ascii_digit() {
                     i += 1;
                 }
-                let s: String = b[start..i].iter().collect();
-                out.push(Tok::Int(s.parse()?));
+                // A `.` is a fraction only when a digit follows: `0.01` is a
+                // float, but `2.foo` is not (and does not arise). Without the
+                // digit check a trailing dot would swallow a field access.
+                let is_float = b.get(i) == Some(&'.')
+                    && b.get(i + 1).is_some_and(|d| d.is_ascii_digit());
+                if is_float {
+                    i += 1; // the '.'
+                    while i < b.len() && b[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                    let s: String = b[start..i].iter().collect();
+                    out.push(Tok::Float(s.parse()?));
+                } else {
+                    let s: String = b[start..i].iter().collect();
+                    out.push(Tok::Int(s.parse()?));
+                }
             }
             c if c.is_alphabetic() || c == '_' => {
                 let start = i;
@@ -466,49 +656,112 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
+        // A boolean group: `(draft || hidden)`. Distinct from a parenthesized
+        // *arithmetic* operand `(a + b)`, which parse_atom handles — the two
+        // never collide because this branch only fires at the boolean level.
+        if self.eat(&Tok::LParen) {
+            let e = self.parse_or()?;
+            if !self.eat(&Tok::RParen) {
+                bail!("expected `)`");
+            }
+            return Ok(e);
+        }
+        match self.peek() {
+            Some(Tok::Star) => {
+                self.pos += 1;
+                return Ok(Expr::True);
+            }
+            Some(Tok::Ident(n)) if n == "true" => {
+                self.pos += 1;
+                return Ok(Expr::True);
+            }
+            Some(Tok::Ident(n)) if n == "false" => {
+                self.pos += 1;
+                return Ok(Expr::Not(Box::new(Expr::True)));
+            }
+            None => bail!("unexpected end of expression"),
+            _ => {}
+        }
+        // Everything else is an operand, then optionally a comparison or a
+        // membership test. A bare operand standing alone is a truthiness test
+        // (`!draft`, `description`) — but only a field or call can be one; a
+        // lone literal is the `"rust"` -without-`in` mistake.
+        let left = self.parse_arith()?;
+        match self.peek().cloned() {
+            Some(Tok::Cmp(op)) => {
+                self.pos += 1;
+                let right = self.parse_arith()?;
+                Ok(Expr::Cmp(left, op, right))
+            }
+            Some(Tok::In) => {
+                self.pos += 1;
+                let right = self.parse_atom()?;
+                Ok(Expr::In(left, right))
+            }
+            _ => match left {
+                Operand::Field(_) | Operand::Call(..) => Ok(Expr::Truthy(left)),
+                Operand::Lit(_) => bail!(
+                    "a literal is only valid on the left of `in` (as in `\"rust\" in tags`)"
+                ),
+                _ => bail!("an arithmetic expression is not a condition on its own"),
+            },
+        }
+    }
+
+    /// Arithmetic, lowest precedence first: `+`/`-`, then `*`, then unary
+    /// minus, then an atom. Present for `rank` (§6g); a boolean filter reaches
+    /// it too, so `year >= 2020` runs `2020` through here as a bare atom.
+    fn parse_arith(&mut self) -> Result<Operand> {
+        let mut lhs = self.parse_mul()?;
+        loop {
+            let op = match self.peek() {
+                Some(Tok::Plus) => ArithOp::Add,
+                Some(Tok::Minus) => ArithOp::Sub,
+                _ => break,
+            };
+            self.pos += 1;
+            let rhs = self.parse_mul()?;
+            lhs = Operand::Arith(Box::new(lhs), op, Box::new(rhs));
+        }
+        Ok(lhs)
+    }
+
+    fn parse_mul(&mut self) -> Result<Operand> {
+        let mut lhs = self.parse_neg()?;
+        while self.eat(&Tok::Star) {
+            let rhs = self.parse_neg()?;
+            lhs = Operand::Arith(Box::new(lhs), ArithOp::Mul, Box::new(rhs));
+        }
+        Ok(lhs)
+    }
+
+    fn parse_neg(&mut self) -> Result<Operand> {
+        if self.eat(&Tok::Minus) {
+            return Ok(Operand::Neg(Box::new(self.parse_neg()?)));
+        }
+        self.parse_atom()
+    }
+
+    /// The leaf of an operand: a parenthesized arithmetic group, a call, a
+    /// field, or a literal.
+    fn parse_atom(&mut self) -> Result<Operand> {
         match self.next() {
             Some(Tok::LParen) => {
-                let e = self.parse_or()?;
+                let e = self.parse_arith()?;
                 if !self.eat(&Tok::RParen) {
                     bail!("expected `)`");
                 }
                 Ok(e)
             }
-            Some(Tok::Star) => Ok(Expr::True),
-            Some(Tok::Ident(name)) => {
-                if name == "true" {
-                    return Ok(Expr::True);
-                }
-                if name == "false" {
-                    return Ok(Expr::Not(Box::new(Expr::True)));
-                }
-                let operand = self.parse_call_or_field(name)?;
-                match self.peek().cloned() {
-                    Some(Tok::Cmp(op)) => {
-                        self.pos += 1;
-                        let lit = self.parse_lit()?;
-                        Ok(Expr::Cmp(operand, op, lit))
-                    }
-                    _ => Ok(Expr::Truthy(operand)),
-                }
+            Some(Tok::Ident(name)) if name == "true" || name == "false" => {
+                Ok(Operand::Lit(Lit::Bool(name == "true")))
             }
-            // `"rust" in tags`
-            Some(t @ (Tok::Str(_) | Tok::Int(_))) => {
-                let lit = match t {
-                    Tok::Str(s) => Lit::Str(s),
-                    Tok::Int(i) => Lit::Int(i),
-                    _ => unreachable!(),
-                };
-                if !self.eat(&Tok::In) {
-                    bail!("a literal is only valid on the left of `in` (as in `\"rust\" in tags`)");
-                }
-                match self.next() {
-                    Some(Tok::Ident(name)) => Ok(Expr::In(lit, self.parse_call_or_field(name)?)),
-                    _ => bail!("expected a field name after `in`"),
-                }
-            }
-            Some(t) => bail!("unexpected token {t:?}"),
-            None => bail!("unexpected end of expression"),
+            Some(Tok::Ident(name)) => self.parse_call_or_field(name),
+            Some(Tok::Str(s)) => Ok(Operand::Lit(Lit::Str(s))),
+            Some(Tok::Int(i)) => Ok(Operand::Lit(Lit::Int(i))),
+            Some(Tok::Float(f)) => Ok(Operand::Lit(Lit::Double(f))),
+            Some(t) => bail!("expected a field, literal or call, found {t:?}"),
+            None => bail!("expected an operand"),
         }
     }
 
@@ -521,7 +774,7 @@ impl Parser {
         let mut args = Vec::new();
         if !self.eat(&Tok::RParen) {
             loop {
-                args.push(self.parse_operand()?);
+                args.push(self.parse_arith()?);
                 if self.eat(&Tok::RParen) {
                     break;
                 }
@@ -542,30 +795,6 @@ impl Parser {
         }
         let prep = (func.prepare)(&args)?;
         Ok(Operand::Call(func, args, prep))
-    }
-
-    fn parse_operand(&mut self) -> Result<Operand> {
-        match self.next() {
-            Some(Tok::Ident(name)) if name != "true" && name != "false" => {
-                self.parse_call_or_field(name)
-            }
-            Some(Tok::Ident(name)) => Ok(Operand::Lit(Lit::Bool(name == "true"))),
-            Some(Tok::Str(s)) => Ok(Operand::Lit(Lit::Str(s))),
-            Some(Tok::Int(i)) => Ok(Operand::Lit(Lit::Int(i))),
-            Some(t) => bail!("expected a field, literal or call, found {t:?}"),
-            None => bail!("expected an argument"),
-        }
-    }
-
-    fn parse_lit(&mut self) -> Result<Lit> {
-        match self.next() {
-            Some(Tok::Str(s)) => Ok(Lit::Str(s)),
-            Some(Tok::Int(i)) => Ok(Lit::Int(i)),
-            Some(Tok::Ident(i)) if i == "true" => Ok(Lit::Bool(true)),
-            Some(Tok::Ident(i)) if i == "false" => Ok(Lit::Bool(false)),
-            Some(t) => bail!("expected a literal, found {t:?}"),
-            None => bail!("expected a literal"),
-        }
     }
 }
 
@@ -609,7 +838,10 @@ impl fmt::Display for Operand {
             Operand::Field(name) => f.write_str(name),
             Operand::Lit(Lit::Str(s)) => write!(f, "{s:?}"),
             Operand::Lit(Lit::Int(i)) => write!(f, "{i}"),
+            Operand::Lit(Lit::Double(d)) => write!(f, "{d}"),
             Operand::Lit(Lit::Bool(b)) => write!(f, "{b}"),
+            Operand::Neg(o) => write!(f, "-{o}"),
+            Operand::Arith(a, op, b) => write!(f, "{a} {} {b}", op.as_str()),
             Operand::Call(func, args, _) => {
                 write!(f, "{}(", func.name)?;
                 for (i, a) in args.iter().enumerate() {
@@ -645,7 +877,55 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             }
             Ok(func.returns)
         }
+        // Arithmetic is numbers only, and Int mixed with Double is Double —
+        // the one promotion, so `candidate.date` (dropped) never quietly
+        // stringifies into a score. A non-number is the error a rank typo
+        // makes: `rank = "title"`.
+        Operand::Neg(o) => {
+            let t = operand_type(o, schema)?;
+            if !t.is_numeric() {
+                bail!("`-{o}` negates {t}, but only a number can be negated");
+            }
+            Ok(t)
+        }
+        Operand::Arith(a, op, b) => {
+            let (at, bt) = (operand_type(a, schema)?, operand_type(b, schema)?);
+            for (side, t) in [(a, at), (b, bt)] {
+                if !t.is_numeric() {
+                    bail!("`{side}` is {t}, but `{}` needs numbers", op.as_str());
+                }
+            }
+            Ok(if at == Type::Double || bt == Type::Double {
+                Type::Double
+            } else {
+                Type::Int
+            })
+        }
     }
+}
+
+/// The two sides of a comparison must be the same kind — both numbers (Int
+/// and Double mix), or the identical scalar type. A list on either side is
+/// the `in`-not-`==` mistake; ordering a bool is meaningless.
+fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
+    let (lt, rt) = (operand_type(l, schema)?, operand_type(r, schema)?);
+    if lt == Type::List || rt == Type::List {
+        let (list, other) = if lt == Type::List { (l, r) } else { (r, l) };
+        bail!("`{list}` is a list; use `{other} in {list}` instead of a comparison");
+    }
+    let ok = lt == rt || (lt.is_numeric() && rt.is_numeric());
+    if !ok {
+        // Keep the original single-literal wording when the right side is a
+        // literal, which is what the corpus and the tests write.
+        if let Operand::Lit(_) = r {
+            bail!("`{l}` is {lt}, but it is compared to a {rt} literal");
+        }
+        bail!("`{l}` is {lt}, but `{r}` is {rt} — a comparison needs matching types");
+    }
+    if op.is_ordering() && lt == Type::Bool {
+        bail!("`{l}` is bool; ordering comparisons are not meaningful");
+    }
+    Ok(())
 }
 
 fn check(e: &Expr, schema: &Schema) -> Result<()> {
@@ -657,33 +937,18 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
             check(a, schema)?;
             check(b, schema)
         }
-        Expr::Cmp(f, op, lit) => {
-            let ft = operand_type(f, schema)?;
-            if ft == Type::List {
-                bail!(
-                    "`{f}` is a list; use `{} in {f}` instead of a comparison",
-                    match lit {
-                        Lit::Str(s) => format!("{s:?}"),
-                        other => format!("{other:?}"),
-                    }
-                );
+        Expr::Cmp(l, op, r) => check_cmp(l, *op, r, schema),
+        Expr::In(l, r) => {
+            let rt = operand_type(r, schema)?;
+            if rt != Type::List {
+                bail!("`in` needs a list on the right, but `{r}` is {rt}");
             }
-            let lt = lit.ty();
-            if ft != lt {
-                bail!("`{f}` is {ft}, but it is compared to a {lt} literal");
-            }
-            if op.is_ordering() && ft == Type::Bool {
-                bail!("`{f}` is bool; ordering comparisons are not meaningful");
-            }
-            Ok(())
-        }
-        Expr::In(lit, f) => {
-            let ft = operand_type(f, schema)?;
-            if ft != Type::List {
-                bail!("`in` needs a list on the right, but `{f}` is {ft}");
-            }
-            if lit.ty() != Type::Str {
-                bail!("`in` needs a string on the left");
+            // A string in a list (`"rust" in tags`) or a row in a relation's
+            // finished list (`candidate in earlier`) — both spelled the same,
+            // because a row reaches the environment as its URL (a Str).
+            let lt = operand_type(l, schema)?;
+            if lt != Type::Str {
+                bail!("`in` needs a string on the left, but `{l}` is {lt}");
             }
             Ok(())
         }
@@ -724,20 +989,118 @@ impl Filter {
         Filter { ast: Expr::True }
     }
 
+    /// Every field name the filter reads. Relations use this to find which
+    /// other relations a `where` depends on (`!(candidate in earlier)` names
+    /// `earlier`), so they can evaluate in dependency order.
+    pub fn referenced_fields(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        collect_fields_expr(&self.ast, &mut out);
+        out
+    }
+
+    /// Evaluate against a row, calling no score function (`NoCtx`). Every
+    /// view filter takes this path.
     pub fn eval(&self, row: &impl Row) -> bool {
-        eval(&self.ast, row)
+        eval(&self.ast, row, &NoCtx)
+    }
+
+    /// Evaluate with a `Ctx`, so a `where` that calls a score function
+    /// (rare, but nothing forbids it) resolves. Relations use this.
+    pub fn eval_ctx(&self, row: &impl Row, ctx: &dyn Ctx) -> bool {
+        eval(&self.ast, row, ctx)
+    }
+}
+
+/// A `rank` expression (§6g): a number per (self, candidate) pair, bigger
+/// wins. Parsed and type-checked exactly like a filter, but the whole
+/// expression must be numeric rather than boolean.
+#[derive(Debug, Clone)]
+pub struct Rank {
+    op: Operand,
+}
+
+impl Rank {
+    pub fn parse(src: &str, schema: &Schema) -> Result<Self> {
+        let toks = lex(src)?;
+        if toks.is_empty() {
+            bail!("a rank expression cannot be empty");
+        }
+        let mut p = Parser { toks, pos: 0 };
+        let op = p.parse_arith()?;
+        if p.pos != p.toks.len() {
+            bail!("trailing tokens after a complete expression");
+        }
+        let t = operand_type(&op, schema)?;
+        if !t.is_numeric() {
+            bail!("a rank must be a number, but `{op}` is {t}");
+        }
+        Ok(Rank { op })
+    }
+
+    /// The score, or `None` when an input was missing (an undated row in
+    /// `year_gap`, a row with no vector) — an unrankable pair, dropped before
+    /// the window rather than sorted to an arbitrary end.
+    pub fn eval(&self, row: &impl Row, ctx: &dyn Ctx) -> Option<f64> {
+        operand_value(&self.op, row, ctx).as_f64()
+    }
+
+    /// Every field name the rank reads — same purpose as `Filter`'s.
+    pub fn referenced_fields(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        collect_fields_operand(&self.op, &mut out);
+        out
+    }
+}
+
+fn collect_fields_expr(e: &Expr, out: &mut Vec<String>) {
+    match e {
+        Expr::True => {}
+        Expr::Truthy(o) => collect_fields_operand(o, out),
+        Expr::Not(x) => collect_fields_expr(x, out),
+        Expr::And(a, b) | Expr::Or(a, b) => {
+            collect_fields_expr(a, out);
+            collect_fields_expr(b, out);
+        }
+        Expr::Cmp(a, _, b) | Expr::In(a, b) => {
+            collect_fields_operand(a, out);
+            collect_fields_operand(b, out);
+        }
+    }
+}
+
+fn collect_fields_operand(o: &Operand, out: &mut Vec<String>) {
+    match o {
+        Operand::Field(name) => out.push(name.clone()),
+        Operand::Lit(_) => {}
+        Operand::Neg(x) => collect_fields_operand(x, out),
+        Operand::Arith(a, _, b) => {
+            collect_fields_operand(a, out);
+            collect_fields_operand(b, out);
+        }
+        Operand::Call(_, args, _) => {
+            for a in args {
+                collect_fields_operand(a, out);
+            }
+        }
     }
 }
 
 fn cmp_values(a: &Value, op: Op, b: &Value) -> bool {
     use std::cmp::Ordering;
+    // Numbers compare across Int/Double; everything else compares within its
+    // own type.
     let ord = match (a, b) {
-        (Value::Int(x), Value::Int(y)) => x.partial_cmp(y),
+        (Value::Null, _) | (_, Value::Null) => {
+            // A null compares equal to nothing and orders below everything.
+            return matches!(op, Op::Ne);
+        }
         (Value::Str(x), Value::Str(y)) => x.partial_cmp(y),
         (Value::Bool(x), Value::Bool(y)) => x.partial_cmp(y),
-        // A null field compares equal to nothing and orders below everything.
-        (Value::Null, _) => return matches!(op, Op::Ne),
-        _ => None,
+        (Value::List(x), Value::List(y)) => x.partial_cmp(y),
+        _ => match (a.as_f64(), b.as_f64()) {
+            (Some(x), Some(y)) => x.partial_cmp(&y),
+            _ => None,
+        },
     };
     match ord {
         Some(o) => match op {
@@ -754,27 +1117,49 @@ fn cmp_values(a: &Value, op: Op, b: &Value) -> bool {
 
 /// An operand's value for one row. Arity and types were settled at parse
 /// time, so a call here is a lookup and an apply.
-fn operand_value(o: &Operand, row: &impl Row) -> Value {
+fn operand_value(o: &Operand, row: &impl Row, ctx: &dyn Ctx) -> Value {
     match o {
         Operand::Field(name) => row.field(name),
         Operand::Lit(lit) => lit.value(),
         Operand::Call(func, args, prep) => {
-            let vals: Vec<Value> = args.iter().map(|a| operand_value(a, row)).collect();
-            (func.eval)(prep, &vals)
+            let vals: Vec<Value> = args.iter().map(|a| operand_value(a, row, ctx)).collect();
+            (func.eval)(prep, &vals, ctx)
+        }
+        // A missing input propagates as Null: `-year_gap(...)` on an undated
+        // pair is unrankable, not zero.
+        Operand::Neg(o) => match operand_value(o, row, ctx).as_f64() {
+            Some(x) => Value::Double(-x),
+            None => Value::Null,
+        },
+        Operand::Arith(a, op, b) => {
+            match (
+                operand_value(a, row, ctx).as_f64(),
+                operand_value(b, row, ctx).as_f64(),
+            ) {
+                (Some(x), Some(y)) => Value::Double(op.apply(x, y)),
+                _ => Value::Null,
+            }
         }
     }
 }
 
-fn eval(e: &Expr, row: &impl Row) -> bool {
+fn eval(e: &Expr, row: &impl Row, ctx: &dyn Ctx) -> bool {
     match e {
         Expr::True => true,
-        Expr::Truthy(o) => operand_value(o, row).truthy(),
-        Expr::Not(x) => !eval(x, row),
-        Expr::And(a, b) => eval(a, row) && eval(b, row),
-        Expr::Or(a, b) => eval(a, row) || eval(b, row),
-        Expr::Cmp(f, op, lit) => cmp_values(&operand_value(f, row), *op, &lit.value()),
-        Expr::In(lit, f) => match (operand_value(f, row), lit) {
-            (Value::List(items), Lit::Str(s)) => items.iter().any(|i| i == s),
+        Expr::Truthy(o) => operand_value(o, row, ctx).truthy(),
+        Expr::Not(x) => !eval(x, row, ctx),
+        Expr::And(a, b) => eval(a, row, ctx) && eval(b, row, ctx),
+        Expr::Or(a, b) => eval(a, row, ctx) || eval(b, row, ctx),
+        Expr::Cmp(l, op, r) => cmp_values(
+            &operand_value(l, row, ctx),
+            *op,
+            &operand_value(r, row, ctx),
+        ),
+        Expr::In(l, r) => match (
+            operand_value(l, row, ctx),
+            operand_value(r, row, ctx),
+        ) {
+            (Value::Str(s), Value::List(items)) => items.contains(&s),
             _ => false,
         },
     }
@@ -1072,5 +1457,191 @@ mod tests {
         let r = TestRow::default();
         assert!(Filter::parse("", &schema()).unwrap().eval(&r));
         assert!(Filter::always().eval(&r));
+    }
+
+    // ---- §6g: arithmetic, rank, name membership, the two-row environment ----
+
+    /// A two-row environment (§6g): `self.*`/`candidate.*` are ordinary
+    /// schema keys (the lexer already treats `.` as part of an identifier),
+    /// plus `candidate` as the row's URL and each relation name as a list.
+    struct PairRow {
+        self_year: i64,
+        cand_year: i64,
+        cand_url: String,
+        earlier: Vec<String>,
+    }
+
+    impl Row for PairRow {
+        fn field(&self, name: &str) -> Value {
+            match name {
+                "self.year" => Value::Int(self.self_year),
+                "candidate.year" => Value::Int(self.cand_year),
+                "self" | "self.url" => Value::Str("/self/".into()),
+                "candidate" => Value::Str(self.cand_url.clone()),
+                "earlier" => Value::List(self.earlier.clone()),
+                _ => Value::Null,
+            }
+        }
+    }
+
+    fn pair_schema() -> Schema {
+        let mut s = Schema::new();
+        s.insert("self.year", Type::Int);
+        s.insert("candidate.year", Type::Int);
+        s.insert("self", Type::Str);
+        s.insert("self.url", Type::Str);
+        s.insert("candidate", Type::Str);
+        s.insert("earlier", Type::List);
+        s
+    }
+
+    /// A ctx that knows one similarity and one year-gap, keyed loosely — just
+    /// enough to prove the plumbing carries data into a score function.
+    struct FakeCtx;
+    impl Ctx for FakeCtx {
+        fn similarity(&self, a: &str, b: &str) -> Option<f64> {
+            (a != b).then_some(0.8)
+        }
+        fn year_gap(&self, _: &str, _: &str) -> Option<f64> {
+            Some(3.0)
+        }
+    }
+
+    #[test]
+    fn floats_lex_and_arithmetic_types() {
+        // `0.01` is a float; `year` stays int; the sum is a double.
+        let s = pair_schema();
+        assert!(Rank::parse("self.year + 0.01", &s).is_ok());
+        assert!(Rank::parse("candidate.year", &s).is_ok());
+        let e = Rank::parse("candidate", &s).unwrap_err().to_string();
+        assert!(e.contains("must be a number"), "{e}");
+    }
+
+    #[test]
+    fn rank_evaluates_with_a_ctx() {
+        let r = PairRow {
+            self_year: 2020,
+            cand_year: 2017,
+            cand_url: "/b/".into(),
+            earlier: vec![],
+        };
+        // grack.com's shape: similarity minus a small year penalty.
+        let rk = Rank::parse(
+            "embedding_similarity(candidate, candidate) - 0.01 * year_gap(self.dummy, candidate)",
+            &{
+                let mut s = pair_schema();
+                s.insert("self.dummy", Type::Str);
+                s
+            },
+        );
+        // `candidate == candidate` similarity is None in FakeCtx, so the pair
+        // is unrankable — the whole expression is None, not a partial score.
+        assert_eq!(rk.unwrap().eval(&r, &FakeCtx), None);
+
+        // A distinct pair ranks: 0.8 - 0.01*3 = 0.77.
+        let mut s = pair_schema();
+        s.insert("self.url", Type::Str);
+        let rk = Rank::parse(
+            "embedding_similarity(self.url, candidate) - 0.01 * year_gap(self.url, candidate)",
+            &s,
+        )
+        .unwrap();
+        let score = rk.eval(&r, &FakeCtx).unwrap();
+        assert!((score - 0.77).abs() < 1e-9, "got {score}");
+    }
+
+    #[test]
+    fn a_distance_function_wears_a_minus_sign() {
+        let mut s = Schema::new();
+        s.insert("a", Type::Str);
+        s.insert("b", Type::Str);
+        let rk = Rank::parse("-levenshtein(a, b)", &s).unwrap();
+        struct R;
+        impl Row for R {
+            fn field(&self, n: &str) -> Value {
+                Value::Str(if n == "a" { "kitten" } else { "sitting" }.into())
+            }
+        }
+        // edit distance kitten→sitting is 3, negated so nearer ranks higher.
+        assert_eq!(rk.eval(&R, &NoCtx), Some(-3.0));
+    }
+
+    #[test]
+    fn name_membership_is_str_in_list() {
+        // `candidate in earlier` — the row's URL against a relation's list.
+        let f = Filter::parse("!(candidate in earlier)", &pair_schema()).unwrap();
+        let shown = PairRow {
+            self_year: 0,
+            cand_year: 0,
+            cand_url: "/a/".into(),
+            earlier: vec!["/a/".into(), "/b/".into()],
+        };
+        assert!(!f.eval(&shown), "candidate already in earlier is excluded");
+        let fresh = PairRow {
+            cand_url: "/c/".into(),
+            ..shown
+        };
+        assert!(f.eval(&fresh));
+    }
+
+    #[test]
+    fn comparison_between_two_fields() {
+        // `candidate.year < self.year` — the earlier/later shape, no literal.
+        let f = Filter::parse("candidate.year < self.year", &pair_schema()).unwrap();
+        assert!(f.eval(&PairRow {
+            self_year: 2020,
+            cand_year: 2017,
+            cand_url: "/x/".into(),
+            earlier: vec![],
+        }));
+        assert!(!f.eval(&PairRow {
+            self_year: 2020,
+            cand_year: 2020,
+            cand_url: "/x/".into(),
+            earlier: vec![],
+        }));
+    }
+
+    #[test]
+    fn int_and_double_compare_and_mix() {
+        let mut s = Schema::new();
+        s.insert("n", Type::Int);
+        struct R(i64);
+        impl Row for R {
+            fn field(&self, _: &str) -> Value {
+                Value::Int(self.0)
+            }
+        }
+        assert!(Filter::parse("n > 0.5", &s).unwrap().eval(&R(1)));
+        assert!(!Filter::parse("n > 0.5", &s).unwrap().eval(&R(0)));
+    }
+
+    #[test]
+    fn rank_rejects_a_non_numeric() {
+        let mut s = Schema::new();
+        s.insert("title", Type::Str);
+        let e = Rank::parse("title", &s).unwrap_err().to_string();
+        assert!(e.contains("must be a number"), "{e}");
+        let e = Rank::parse("title + 1", &s).unwrap_err().to_string();
+        assert!(e.contains("needs numbers"), "{e}");
+    }
+
+    #[test]
+    fn arithmetic_precedence_mul_over_add() {
+        let mut s = Schema::new();
+        s.insert("x", Type::Int);
+        struct R;
+        impl Row for R {
+            fn field(&self, _: &str) -> Value {
+                Value::Int(2)
+            }
+        }
+        // 2 + 2*2 = 6, not 8 — `*` binds tighter.
+        assert_eq!(Rank::parse("x + x * x", &s).unwrap().eval(&R, &NoCtx), Some(6.0));
+        // parens override.
+        assert_eq!(
+            Rank::parse("(x + x) * x", &s).unwrap().eval(&R, &NoCtx),
+            Some(8.0)
+        );
     }
 }

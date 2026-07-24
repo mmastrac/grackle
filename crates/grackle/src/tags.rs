@@ -135,11 +135,19 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
 
 /// `{% view latest %}` -> a routeless view, rendered by its declared layout.
 ///
-/// The seam between the database and the page (DESIGN.md §5c). The view owns
-/// the query and names a layout kind; this only looks the rows up and
-/// dispatches. Nothing here knows what "latest" means — change the filter in
-/// `grackle.toml` and this code does not move.
+/// The seam between the database and the page (DESIGN.md §5c). Fences the
+/// spliced output in marker comments so the link graph can tell an
+/// arrangement's links from a human's citations (§6g Problem 2: the homepage's
+/// recent-posts block is not a citation of every post it lists).
 fn view(name: &str, cx: &Ctx) -> Result<String> {
+    let html = view_inner(name, cx)?;
+    Ok(format!("<!--grackle:view-->{html}<!--/grackle:view-->"))
+}
+
+/// The splice itself. The view owns the query and names a layout kind; this
+/// only looks the rows up and dispatches. Nothing here knows what "latest"
+/// means — change the filter in `grackle.toml` and this code does not move.
+fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
     use crate::config::Kind;
     let name = name.trim();
     // q45: inside a landing's claimed content, the owning view embeds as

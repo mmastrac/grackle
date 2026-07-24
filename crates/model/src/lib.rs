@@ -473,7 +473,98 @@ pub struct SiteDb {
     /// first.
     #[serde(skip)]
     pub adjacency: BTreeMap<String, Vec<Key>>,
+    /// Declared neighbour queries per collection (§6g), in dependency order —
+    /// each `earlier`/`later`/`related`/`linked_from`/custom relation compiled
+    /// from config and type-checked against the two-row schema at load. The
+    /// engine evaluates them per row at build. Replaces the hardcoded axes and
+    /// the `adjacency` sequence.
+    #[serde(skip)]
+    pub relations: BTreeMap<String, Vec<Relation>>,
     pub stats: LoadStats,
+}
+
+/// The engine-provided relation names (§6g "graph and path are names"): a
+/// pool or a membership set the config may reference without declaring. They
+/// exist for every row whether or not anything renders them, so they are part
+/// of the two-row environment's vocabulary.
+pub const DERIVED_RELATIONS: &[&str] = &[
+    "links_to",
+    "linked_from",
+    "ancestors",
+    "parent",
+    "children",
+    "siblings",
+    "descendants",
+];
+
+/// A compiled relation (§6g): a neighbour query over the two-row environment.
+/// The expression ASTs are parsed and type-checked at load; the engine walks
+/// candidates through `over → where → rank (+min_rank) → limit` per row.
+#[derive(Debug, Clone)]
+pub struct Relation {
+    pub name: String,
+    /// The candidate pool. A set/collection is row-independent; a derived
+    /// name (`linked_from`) is row-relative — the difference the engine
+    /// resolves per row.
+    pub pool: Pool,
+    /// Which `self` rows carry this relation (the `match` glob), already
+    /// compiled. `None` = every row of the collection.
+    pub scope: Option<globset::GlobMatcher>,
+    pub filter: filter::Filter,
+    pub rank: Option<filter::Rank>,
+    pub min_rank: Option<f64>,
+    pub limit: usize,
+    pub label: RelLabel,
+}
+
+/// Where a relation draws candidates from.
+#[derive(Debug, Clone)]
+pub enum Pool {
+    /// A named set or route (`published`) — its resolved `members`.
+    Set(String),
+    /// A collection's rows.
+    Collection(String),
+    /// A derived name (`linked_from`, `ancestors`, …) — computed per row.
+    Derived(String),
+}
+
+/// A relation group's heading. Resolved at render into the row's locale: a
+/// `Key` reads `[i18n.strings]` (defaulting to the relation's own name), the
+/// other two are used verbatim. Kept free of the config's `LocalizedStr` so
+/// the model owns no config types.
+#[derive(Debug, Clone)]
+pub enum RelLabel {
+    /// An `@ref` into the string table (or the default, the relation name).
+    Key(String),
+    /// A single literal, for a monolingual site.
+    Text(String),
+    /// A per-locale literal map.
+    PerLocale(BTreeMap<String, String>),
+}
+
+/// The two-row environment's schema (§6g): every base field under both
+/// `self.` and `candidate.` prefixes, the bare `self`/`candidate` as the rows'
+/// URLs, and every relation name (derived + declared) as a list. This is the
+/// CEL environment a relation `where`/`rank` type-checks against.
+pub fn two_row_schema(base: &filter::Schema, relation_names: &[String]) -> filter::Schema {
+    let mut s = filter::Schema::new();
+    for (name, ty) in base {
+        // Leak is fine: the schema keys are `&'static str`, and a load runs
+        // once per process. There is no per-row allocation here.
+        s.insert(Box::leak(format!("self.{name}").into_boxed_str()), *ty);
+        s.insert(Box::leak(format!("candidate.{name}").into_boxed_str()), *ty);
+    }
+    // The rows themselves, as URLs — the left of `candidate in earlier` and
+    // the arguments to the score functions.
+    s.insert("self", filter::Type::Str);
+    s.insert("candidate", filter::Type::Str);
+    for n in DERIVED_RELATIONS {
+        s.insert(n, filter::Type::List);
+    }
+    for n in relation_names {
+        s.insert(Box::leak(n.clone().into_boxed_str()), filter::Type::List);
+    }
+    s
 }
 
 /// A routeless view's resolved rows.

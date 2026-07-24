@@ -21,11 +21,6 @@ email = "matthew@mastracci.com"
 [[collections]]
 kind = "posts"
 source = "_posts"
-# What `next`/`previous` step through (q51). Naming the SET rather than
-# leaning on the table's ordering means drafts drop by construction, not by
-# the accident that a draft has no date — give one a date today and it
-# becomes somebody's "later post".
-adjacency = "published"
 # A post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
 # December > 16, every archive level clickable. The Blog level itself is
 # not declared here: the post's URL nests under /blog/, and the trail
@@ -44,6 +39,22 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
   match = "**"
   defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+  # Related posts (§6g). Embedding cosine, minus a small recency penalty —
+  # a 2004 post is probably not relevant on this 27-year blog (min_rank drops
+  # what stays weak after the adjustment). Where drops the neighbours already
+  # on the page (Earlier/Later) and anything this post already links, so
+  # Related never just restates the rest of the footer. `earlier`/`later`/
+  # `linked_from` come from the engine defaults, unstated. What this dissolved:
+  # the old `adjacency = "published"` key and the whole `[related]` block —
+  # `limit`/`min_score`/`year_penalty` were three knobs of a formula the rank
+  # expression now spells out.
+  [collections.relations.related]
+  over     = "published"
+  where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+  rank     = "embedding_similarity(self, candidate) - 0.01 * year_gap(self, candidate)"
+  min_rank = 0.4
+  limit    = 4
 
 # Drafts are a SECOND SOURCE for the one posts table, not a second table:
 # same row shape, same schema, same views — flagged `draft`, which every
@@ -163,17 +174,6 @@ callout = """
 </div>
 </callout>
 """
-
-# ---------------------------------------------------------------- related
-
-# Related posts (§6b): embedding cosine supplies candidates; this shapes
-# them. Recency matters on a 27-year blog — a 2004 post is probably not
-# relevant here (other sites may want no penalty at all). Scores are
-# adjusted (cosine − year_penalty·gap) before min_score applies.
-[related]
-limit = 4
-min_score = 0.4
-year_penalty = 0.01
 
 # --------------------------------------------------------------- profiles
 

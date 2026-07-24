@@ -184,7 +184,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // ---- the link graph (q38): scan every rendered body once — posts and
     // pages alike — and invert. Backlinks are one more relations axis; the
     // scan reads the same bytes that ship, so link and index cannot desync.
-    let backlinks = backlinks_map(db, &bodies, &page_bodies, &cfg.site.url);
+    let (backlinks, links_to) = backlinks_map(db, &bodies, &page_bodies, &cfg.site.url);
 
     // ---- related posts (§6b): cache-only load — fresh vectors where the
     // cache has them, STALE ones where a post's text changed (it keeps its
@@ -203,8 +203,22 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             }
         }
     };
-    let related = crate::embed::rank(db, &loaded.vectors, &cfg.related);
     stats.embed_pending = loaded.pending;
+
+    // §6g: the relation engine — declared neighbour queries evaluated per row,
+    // with the embedding vectors and the link graph in hand. Replaces the
+    // hardcoded similar/adjacency/linked-from axes; `[related]`'s knobs are
+    // now grack.com's `related` rank expression. Evaluated for every rendered
+    // row up front into an owned map, so the engine's borrow of `db` ends
+    // before the render passes need `&mut db` again.
+    let rel_groups: HashMap<String, Vec<crate::relate::Group>> = {
+        let relate = crate::relate::Engine::new(cfg, db, &loaded.vectors, &links_to, &backlinks);
+        db.rows
+            .iter()
+            .filter(|r| r.rendered)
+            .map(|r| (r.url.clone(), relate.groups_for(r)))
+            .collect()
+    };
 
     // ---- posts: document parts -> theme fragments -> shell
     // Posts only. `bodies` holds the in-memory bodies the posts loader
@@ -217,12 +231,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             let head = render::head_for_post(p, &site);
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[p.url.as_str()].whole.as_str();
-            let rel: Vec<crate::db::Key> = db
-                .by_url
-                .get(&p.url)
-                .and_then(|k| related.by_post.get(k))
-                .map(|v| v.iter().map(|(k, _)| k.clone()).collect())
-                .unwrap_or_default();
             // §6e heading axis: `toc:` rows carry their outline, extracted
             // from the same rendered bytes. h2–h3 is the v1 depth window
             // (production policy, not CSS — never ship what a theme hides).
@@ -232,7 +240,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             } else {
                 Vec::new()
             };
-            let bl = backlinks.get(&p.url).map(Vec::as_slice).unwrap_or(&[]);
             // §6f: this row in other locales, labelled by language.
             let translations: Vec<(String, String)> = db
                 .by_logical
@@ -247,8 +254,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .unwrap_or_default();
             let mut head = head;
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
-            let mut doc =
-                parts::document(cfg, db, p, whole, trail, &rel, bl, outline, &translations);
+            let groups = parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
+            let mut doc = parts::document(cfg, p, whole, trail, groups, outline, &translations);
             parts::fill_from_fields(&mut doc, p, &schemas, &resolve_asset)?;
             let main = thm.fragments.render(&doc);
             let dir = p.path.parent().unwrap_or(&root);
@@ -483,7 +490,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 crate::outline::to_parts(tree, &r.url)
             })
             .unwrap_or_default();
-        let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
+        let groups = parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
 
         let main = match row.layout.as_deref() {
             Some("page") | Some("post") => {
@@ -498,7 +505,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         section,
                         outline: Vec::new(),
                         hero: None,
-                        backlinks: bl,
+                        relation_groups: groups,
                         translations: &translations,
                     },
                     &frag,
@@ -793,7 +800,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         &parts::canonical(&parts::raw(frag)),
                     ),
                     Theme::Default => {
-                        let bl = backlinks.get(&r.url).map(Vec::as_slice).unwrap_or(&[]);
+                        let groups =
+                            parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
                         // §6f: this page in other locales.
                         let translations: Vec<(String, String)> = row
                             .and_then(|p| {
@@ -822,7 +830,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                                         section,
                                         outline,
                                         hero,
-                                        backlinks: bl,
+                                        relation_groups: groups,
                                         translations: &translations,
                                     },
                                     frag,
@@ -1160,6 +1168,51 @@ fn materialize_referenced(
 /// One scanner for both consumers — the backlink graph and on-demand
 /// publishing — because they ask the same question. Relative citations are
 /// the common case (§6a: a page bundle keeps its screenshots beside it).
+/// Citations only — the forward links a human wrote, excluding a listing's
+/// spliced `{% view %}` arrangement (§6g Problem 2). The two relation
+/// consumers (backlinks and `links_to`) read this; on-demand publishing reads
+/// `cited_urls` directly, because an image referenced only by an arrangement
+/// still has to be published.
+fn cited_urls_cited(text: &str, base_url: &str, site_url: &str) -> Vec<String> {
+    cited_urls(&strip_spliced_views(text), base_url, site_url)
+}
+
+/// Blank out the innards of every spliced `{% view %}` region so a listing's
+/// arrangement links do not read as citations (§6g Problem 2: "Linked from:
+/// Home"). The splice is fenced by HTML comment markers the view splicer
+/// emits; everything between a matched pair is replaced by spaces (offsets
+/// preserved, so nothing else shifts).
+fn strip_spliced_views(text: &str) -> String {
+    const OPEN: &str = "<!--grackle:view-->";
+    const CLOSE: &str = "<!--/grackle:view-->";
+    if !text.contains(OPEN) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(o) = rest.find(OPEN) {
+        out.push_str(&rest[..o]);
+        let after = &rest[o..];
+        match after.find(CLOSE) {
+            Some(c) => {
+                // Keep the markers (harmless), drop what they wrap.
+                out.push_str(OPEN);
+                for _ in 0..(c - OPEN.len()) {
+                    out.push(' ');
+                }
+                out.push_str(CLOSE);
+                rest = &after[c + CLOSE.len()..];
+            }
+            None => {
+                out.push_str(after);
+                return out;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<String> {
     let dir = match base_url.rfind('/') {
         Some(i) => &base_url[..=i],
@@ -1222,7 +1275,27 @@ fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod cited_url_tests {
-    use super::cited_urls;
+    use super::{cited_urls, cited_urls_cited};
+
+    /// §6g Problem 2: an arrangement's links are not citations. The two
+    /// clients of one scanner diverge — the backlink/relations view skips a
+    /// spliced `{% view %}` region, on-demand publishing keeps it, so an image
+    /// only an arrangement references still gets published.
+    #[test]
+    fn a_spliced_view_is_not_a_citation_but_still_publishes() {
+        let html = r#"<a href="/blog/real/">real</a>
+            <!--grackle:view--><a href="/blog/listed/">listed</a><img src="/hero.png"><!--/grackle:view-->"#;
+        let cited = cited_urls_cited(html, "/", "https://grack.com");
+        assert!(cited.contains(&"/blog/real/".to_string()), "{cited:?}");
+        assert!(
+            !cited.contains(&"/blog/listed/".to_string()),
+            "an arrangement link must not count as a citation: {cited:?}"
+        );
+        // Publishing still sees everything inside the splice.
+        let all = cited_urls(html, "/", "https://grack.com");
+        assert!(all.contains(&"/blog/listed/".to_string()), "{all:?}");
+        assert!(all.contains(&"/hero.png".to_string()), "{all:?}");
+    }
 
     /// The bug this exists to stop, made twice in one session: a scanner that
     /// only accepts root-relative hrefs misses most of a corpus organised as
@@ -1284,12 +1357,19 @@ mod cited_url_tests {
 /// along so a backlink list can be read in date order (q38).
 pub(crate) type Backlink = (String, String, Option<chrono::NaiveDate>);
 
+/// The link graph, both directions, from one scan. `linked_from` inverts the
+/// citations (who points here); `links_to` keeps them forward (where this
+/// points) — the derived relation names §6g's `related` default reads to
+/// avoid re-showing a page you already linked. Both are the *citation* view of
+/// the graph: a listing's spliced arrangement links are not citations (§6g
+/// Problem 2), so both skip the splice — unlike on-demand publishing, which
+/// scans with `cited_urls` directly and must still see them.
 fn backlinks_map(
     db: &SiteDb,
     bodies: &HashMap<&str, Doc>,
     page_bodies: &HashMap<String, PageBody>,
     site_url: &str,
-) -> HashMap<String, Vec<Backlink>> {
+) -> (HashMap<String, Vec<Backlink>>, HashMap<String, Vec<String>>) {
     // `rendered` is true for every post, so one predicate serves both.
     let is_target: HashSet<&str> = db
         .rows
@@ -1322,13 +1402,15 @@ fn backlinks_map(
     }
 
     let mut map: HashMap<String, Vec<Backlink>> = HashMap::new();
+    let mut links_to: HashMap<String, Vec<String>> = HashMap::new();
     for (src_url, title, date, html) in sources {
         let mut seen: HashSet<String> = HashSet::new();
-        for t in cited_urls(html, src_url, site_url) {
+        for t in cited_urls_cited(html, src_url, site_url) {
             if t != src_url && is_target.contains(t.as_str()) && seen.insert(t.clone()) {
-                map.entry(t)
+                map.entry(t.clone())
                     .or_default()
                     .push((title.clone(), src_url.to_string(), date));
+                links_to.entry(src_url.to_string()).or_default().push(t);
             }
         }
     }
@@ -1341,7 +1423,7 @@ fn backlinks_map(
                 .then_with(|| a.1.cmp(&b.1))
         });
     }
-    map
+    (map, links_to)
 }
 
 /// The searchable projection of the posts table — the CLI smoke query
