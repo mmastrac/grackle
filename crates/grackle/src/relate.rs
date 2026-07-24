@@ -25,6 +25,54 @@ use crate::embed::Vector;
 /// pool.
 type Backlinks = HashMap<String, Vec<(String, String, Option<chrono::NaiveDate>)>>;
 
+/// Segment count of a pretty URL — `/a/b/` is depth 3, the parent of the
+/// depth-4 `/a/b/c/`.
+fn depth(url: &str) -> usize {
+    url.matches('/').count()
+}
+
+/// The parent pretty-dir URL: `/a/b/` -> `/a/`, `/a/` -> `/`, `/` -> None.
+fn url_parent(url: &str) -> Option<String> {
+    let trimmed = url.strip_suffix('/')?;
+    let cut = trimmed.rfind('/')?;
+    Some(url[..=cut].to_string())
+}
+
+/// The derived names a collection's relations reference — through a `where`,
+/// a `rank`, or an `over`. Only these get computed per row.
+fn needed_derived(rels: &[Relation]) -> std::collections::HashSet<&'static str> {
+    let mut needed = std::collections::HashSet::new();
+    for rel in rels {
+        let mut fields = rel.filter.referenced_fields();
+        if let Some(rk) = &rel.rank {
+            fields.extend(rk.referenced_fields());
+        }
+        if let Pool::Derived(n) = &rel.pool {
+            fields.push(n.clone());
+        }
+        for f in fields {
+            if let Some(d) = grackle_model::DERIVED_RELATIONS.iter().copied().find(|d| *d == f) {
+                needed.insert(d);
+            }
+        }
+    }
+    needed
+}
+
+/// The canonical render order (§6g): the four defaults in reading order, then
+/// any site-defined relation by name. Distinct from evaluation order, which is
+/// dependency-driven.
+fn render_rank(name: &str) -> (u8, &str) {
+    let primary = match name {
+        "earlier" => 0,
+        "later" => 1,
+        "related" => 2,
+        "linked_from" => 3,
+        _ => 4,
+    };
+    (primary, name)
+}
+
 /// One relation's finished output: a heading and its neighbours, ready for the
 /// `relation` part. Items are `(title, url, date)`, the shape `neighbor` wants.
 #[derive(Clone)]
@@ -77,10 +125,14 @@ impl<'a> Engine<'a> {
             return Vec::new();
         };
         let ctx = RelCtx { engine: self };
-        // The relation NAMES this row resolves — derived names always, then
+        // Only the derived names this collection's relations actually read —
+        // `linked_from` is a hashmap hit, but the tree family is an O(rows)
+        // walk, so computing an unreferenced one per row is pure waste.
+        let needed = needed_derived(rels);
+        // The relation NAMES this row resolves — derived names first, then
         // each declared list as it is decided (dependency order guarantees a
         // reference is already present).
-        let mut names: HashMap<String, Vec<String>> = self.derived_names(row);
+        let mut names: HashMap<String, Vec<String>> = self.derived_names(row, &needed);
         let mut groups = Vec::new();
         for rel in rels {
             if let Some(scope) = &rel.scope {
@@ -107,87 +159,111 @@ impl<'a> Engine<'a> {
                 items,
             });
         }
+        // Evaluation ran in dependency order (`related` reads `earlier`), but
+        // that is not reading order — render in a canonical one instead, the
+        // way `parts.toml` fixes a kind's part order. Defaults read
+        // chronological-neighbours-first; site relations follow, by name.
+        groups.sort_by(|a, b| render_rank(&a.name).cmp(&render_rank(&b.name)));
         groups
     }
 
-    /// The engine-provided names for a row (§6g graph + path families).
-    fn derived_names(&self, row: &Row) -> HashMap<String, Vec<String>> {
+    /// The engine-provided names a row's relations read (§6g graph + path
+    /// families), computed lazily — only the `needed` ones.
+    fn derived_names(
+        &self,
+        row: &Row,
+        needed: &std::collections::HashSet<&'static str>,
+    ) -> HashMap<String, Vec<String>> {
         let mut m = HashMap::new();
-        // The link graph, already the citation view (splice excluded).
-        m.insert(
-            "linked_from".to_string(),
-            self.backlinks
-                .get(&row.url)
-                .map(|v| v.iter().map(|(_, u, _)| u.clone()).collect())
-                .unwrap_or_default(),
-        );
-        m.insert(
-            "links_to".to_string(),
-            self.links_to.get(&row.url).cloned().unwrap_or_default(),
-        );
-        // The tree family. `ancestors` is the breadcrumb walk; the rest fall
-        // out of URL nesting among rendered rows.
-        let anc: Vec<String> = crate::trails::ancestors(self.cfg, self.db, &row.url)
-            .into_iter()
-            .map(|(u, _)| u)
-            .collect();
-        m.insert("ancestors".to_string(), anc.clone());
-        m.insert(
-            "parent".to_string(),
-            anc.last().cloned().into_iter().collect(),
-        );
-        let (children, siblings, descendants) = self.tree_family(row);
-        m.insert("children".to_string(), children);
-        m.insert("siblings".to_string(), siblings);
-        m.insert("descendants".to_string(), descendants);
+        // The link graph, already the citation view (splice excluded) — cheap
+        // hashmap hits.
+        if needed.contains("linked_from") {
+            m.insert(
+                "linked_from".to_string(),
+                self.backlinks
+                    .get(&row.url)
+                    .map(|v| v.iter().map(|(_, u, _)| u.clone()).collect())
+                    .unwrap_or_default(),
+            );
+        }
+        if needed.contains("links_to") {
+            m.insert(
+                "links_to".to_string(),
+                self.links_to.get(&row.url).cloned().unwrap_or_default(),
+            );
+        }
+        // The tree family. `ancestors`/`parent` share the breadcrumb walk;
+        // `children`/`siblings`/`descendants` share an O(rows) URL-nesting
+        // scan — each behind its own guard.
+        if needed.contains("ancestors") || needed.contains("parent") {
+            let anc: Vec<String> = crate::trails::ancestors(self.cfg, self.db, &row.url)
+                .into_iter()
+                .map(|(u, _)| u)
+                .collect();
+            if needed.contains("parent") {
+                m.insert("parent".to_string(), anc.last().cloned().into_iter().collect());
+            }
+            m.insert("ancestors".to_string(), anc);
+        }
+        if needed.contains("children") || needed.contains("siblings") || needed.contains("descendants")
+        {
+            let (children, siblings, descendants) = self.tree_family(row);
+            m.insert("children".to_string(), children);
+            m.insert("siblings".to_string(), siblings);
+            m.insert("descendants".to_string(), descendants);
+        }
         m
     }
 
     /// `children`/`siblings`/`descendants` from URL nesting: a pretty-dir URL
     /// `/a/b/` is the parent of `/a/b/c/`. Derived from the finished route set
     /// rather than a stored tree — nothing on grack.com declares a relation
-    /// over these yet, but §6g names them, so they exist.
+    /// over these yet, but §6g names them, so they exist. Pure URL math, so a
+    /// sibling is another child of `url_parent`, not (the old bug) the parent
+    /// itself.
     fn tree_family(&self, row: &Row) -> (Vec<String>, Vec<String>, Vec<String>) {
         let self_url = row.url.as_str();
-        let depth = |u: &str| u.matches('/').count();
+        let parent = url_parent(self_url);
         let mut children = Vec::new();
+        let mut siblings = Vec::new();
         let mut descendants = Vec::new();
         for r in self.db.rows.iter() {
             if !r.rendered || r.url == row.url || r.locale != row.locale {
                 continue;
             }
-            if r.url.starts_with(self_url) && self_url.ends_with('/') {
+            if self_url.ends_with('/') && r.url.starts_with(self_url) {
                 descendants.push(r.url.clone());
                 if depth(&r.url) == depth(self_url) + 1 {
                     children.push(r.url.clone());
                 }
             }
+            if let Some(p) = &parent {
+                if r.url.starts_with(p.as_str()) && depth(&r.url) == depth(p) + 1 {
+                    siblings.push(r.url.clone());
+                }
+            }
         }
-        // Siblings share this row's parent URL.
-        let parent = crate::trails::ancestors(self.cfg, self.db, self_url)
-            .pop()
-            .map(|(u, _)| u);
-        let siblings = match &parent {
-            Some(p) if p.ends_with('/') => self
-                .db
-                .rows
-                .iter()
-                .filter(|r| {
-                    r.rendered
-                        && r.url != row.url
-                        && r.locale == row.locale
-                        && r.url.starts_with(p.as_str())
-                        && depth(&r.url) == depth(p)
-                })
-                .map(|r| r.url.clone())
-                .collect(),
-            _ => Vec::new(),
-        };
         (children, siblings, descendants)
     }
 
-    /// Walk one relation's candidates: pool → self-excluded, same-locale →
-    /// `where` → `rank` (+ `min_rank`) → sort → `limit`. Returns
+    /// The candidate as `self` should see it (§6f): a pool is default-locale,
+    /// so a French page's neighbours are the French *variants* of what the
+    /// pool holds — pivoted through `by_logical`, dropped where no variant
+    /// exists. Without this a translated page's every relation is a desert.
+    fn localize<'r>(&'r self, cand: &'r Row, locale: &str) -> Option<&'r Row> {
+        if cand.locale == locale {
+            return Some(cand);
+        }
+        self.db
+            .by_logical
+            .get(&cand.logical)?
+            .iter()
+            .filter_map(|k| self.db.rows.get(k))
+            .find(|r| r.locale == locale)
+    }
+
+    /// Walk one relation's candidates: pool → localized to self → self-excluded
+    /// → `where` → `rank` (+ `min_rank`) → sort → `limit`. Returns
     /// `(url, score)` best-first.
     fn evaluate(
         &self,
@@ -198,14 +274,16 @@ impl<'a> Engine<'a> {
     ) -> Vec<(String, Option<f64>)> {
         let pool = self.pool_rows(rel, names);
         let mut scored: Vec<(String, Option<f64>, Option<chrono::NaiveDate>)> = Vec::new();
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for cand in pool {
+            // Pivot into self's locale; two pool members can pivot to one
+            // variant, so dedup.
+            let Some(cand) = self.localize(cand, &row.locale) else {
+                continue;
+            };
             // Self is never a candidate — a mechanism rule, not a per-site
             // `where` clause (§6g).
-            if cand.url == row.url {
-                continue;
-            }
-            // §6f: a row's neighbours are in its own language.
-            if cand.locale != row.locale {
+            if cand.url == row.url || !seen.insert(cand.url.as_str()) {
                 continue;
             }
             let pair = Pair {
@@ -313,9 +391,7 @@ impl filter::Row for Pair<'_> {
     }
 }
 
-/// The score-function context: embedding cosine and year gap by URL. Search
-/// similarity is unwired (no config needs it yet), so it stays the trait's
-/// `None` default.
+/// The score-function context: embedding cosine and year gap by URL.
 struct RelCtx<'a> {
     engine: &'a Engine<'a>,
 }
@@ -333,5 +409,88 @@ impl Ctx for RelCtx<'_> {
         let rb = self.engine.db.row_by_url(b)?;
         let (da, db) = (ra.date?, rb.date?);
         Some((da.year() - db.year()).abs() as f64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use grackle_model::{Row, SiteDb};
+
+    fn tree_row(url: &str) -> Row {
+        Row {
+            rel: std::path::PathBuf::from(format!("{}.md", url.trim_matches('/').replace('/', "-"))),
+            url: url.to_string(),
+            rendered: true,
+            locale: "en".into(),
+            collection: "pages".into(),
+            ..Row::default()
+        }
+    }
+
+    fn cfg() -> Config {
+        Config::from_toml(
+            "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind=\"tree\"\nsource=\".\"\n",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn url_parent_and_depth_agree() {
+        assert_eq!(url_parent("/a/b/"), Some("/a/".to_string()));
+        assert_eq!(url_parent("/a/"), Some("/".to_string()));
+        assert_eq!(url_parent("/"), None);
+        assert_eq!(depth("/a/b/"), 3);
+        assert_eq!(depth("/a/"), 2);
+    }
+
+    #[test]
+    fn tree_family_is_children_siblings_descendants_not_the_parent() {
+        let db = SiteDb::seed(
+            vec![
+                tree_row("/guide/"),
+                tree_row("/guide/a/"),
+                tree_row("/guide/b/"),
+                tree_row("/guide/a/x/"),
+            ],
+            false,
+        );
+        let (cfg, links, backlinks) = (cfg(), HashMap::new(), HashMap::new());
+        let eng = Engine::new(&cfg, &db, &[], &links, &backlinks);
+        let me = db.row_by_url("/guide/a/").unwrap();
+        let (children, siblings, descendants) = eng.tree_family(me);
+        assert_eq!(children, ["/guide/a/x/"]);
+        // The old off-by-one returned the parent /guide/ here.
+        assert_eq!(siblings, ["/guide/b/"]);
+        assert_eq!(descendants, ["/guide/a/x/"]);
+    }
+
+    #[test]
+    fn localize_pivots_a_candidate_into_selfs_locale() {
+        let mut en = tree_row("/post/");
+        en.logical = "post".into();
+        let mut fr = tree_row("/fr/post/");
+        fr.locale = "fr".into();
+        fr.logical = "post".into();
+        let mut lone = tree_row("/lone/");
+        lone.logical = "lone".into();
+        let mut db = SiteDb::seed(vec![en, fr, lone], false);
+        let paired: Vec<_> = db
+            .rows
+            .iter()
+            .filter(|r| r.logical == "post")
+            .map(|r| r.key.clone())
+            .collect();
+        db.by_logical.insert("post".into(), paired);
+        let (cfg, links, backlinks) = (cfg(), HashMap::new(), HashMap::new());
+        let eng = Engine::new(&cfg, &db, &[], &links, &backlinks);
+
+        let en_post = db.row_by_url("/post/").unwrap();
+        assert_eq!(eng.localize(en_post, "fr").unwrap().url, "/fr/post/");
+        assert_eq!(eng.localize(en_post, "en").unwrap().url, "/post/");
+        // A row with no variant in the target locale drops out.
+        let lone = db.row_by_url("/lone/").unwrap();
+        assert!(eng.localize(lone, "fr").is_none());
     }
 }
