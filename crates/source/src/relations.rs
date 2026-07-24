@@ -72,9 +72,9 @@ fn base_schema(kind: Kind, schemas: &Schemas) -> filter::Schema {
     let mut s = row_schema();
     for (name, ty) in schemas.declared() {
         // A declaration never shadows a built-in (schema.rs enforces that at
-        // load), so `or_insert` and plain insert agree; insert keeps it
-        // simple.
-        s.insert(Box::leak(name.to_string().into_boxed_str()), ty.filter_type());
+        // load), so plain insert is fine. Interned, not leaked, so `serve`
+        // reloads do not accumulate keys.
+        s.insert(grackle_model::intern(name.to_string()), ty.filter_type());
     }
     s
 }
@@ -87,8 +87,20 @@ fn compile_one(
     rc: &RelationCfg,
     schema: &filter::Schema,
 ) -> Result<Relation> {
-    let filter = Filter::parse(rc.filter.as_deref().unwrap_or("*"), schema)
-        .with_context(|| format!("where {:?}", rc.filter.as_deref().unwrap_or("*")))?;
+    let pool = resolve_pool(cfg, db, cname, rc.over.as_deref())?;
+    // A defaulted `over` that fell back to the bare collection (no `published`
+    // set) must still drop drafts and hidden rows — otherwise a dated draft
+    // becomes somebody's Later post (q51's exact hole). An EXPLICIT `over` is
+    // taken as written; only the engine defaults' fallback carries this rule.
+    let fallback = rc.over.is_none() && matches!(&pool, Pool::Collection(_));
+    let where_src = match (rc.filter.as_deref(), fallback) {
+        (Some(f), true) => format!("({f}) && !candidate.draft && !candidate.hidden"),
+        (None, true) => "!candidate.draft && !candidate.hidden".to_string(),
+        (Some(f), false) => f.to_string(),
+        (None, false) => "*".to_string(),
+    };
+    let filter =
+        Filter::parse(&where_src, schema).with_context(|| format!("where {where_src:?}"))?;
     let rank = match rc.rank.as_deref() {
         Some(src) => Some(Rank::parse(src, schema).with_context(|| format!("rank {src:?}"))?),
         None => None,
@@ -101,7 +113,6 @@ fn compile_one(
         ),
         None => None,
     };
-    let pool = resolve_pool(cfg, db, cname, rc.over.as_deref())?;
     Ok(Relation {
         name: name.to_string(),
         pool,
@@ -121,9 +132,9 @@ fn compile_one(
 ///
 /// An explicit `over` must resolve or it is a load error. An ABSENT one is the
 /// engine defaults' pool: the `published` set — the shape every site's
-/// published corpus has — falling back to the collection itself when a site
-/// declares no such set (§6g's open sub-question, resolved toward "don't make
-/// a `published` set mandatory just to get neighbours").
+/// published corpus has — falling back to the collection itself, then filtered
+/// `!draft && !hidden` by the caller, when a site declares no such set (§6g:
+/// a `published` set is not mandatory just to get neighbours).
 fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, over: Option<&str>) -> Result<Pool> {
     let Some(name) = over else {
         return Ok(if db.views.contains_key("published") {
@@ -202,6 +213,12 @@ fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
         // `earlier` takes the max below self and `later` negates to take the
         // min above. An undated candidate yields Null and drops out. Verbose,
         // but it is an engine default no site ever types.
+        //
+        // Known latent: `<` is strict and the ordinal is day-granular, so two
+        // posts on ONE day are neither's neighbour (and tie in rank). Measured
+        // zero same-day pairs in the corpus; the day the first appears, add a
+        // slug tiebreak to the ordinal. The old position-based walk handled it
+        // by luck of sort order, not by rule.
         const DATE_ORD: &str = "candidate.year * 10000 + candidate.month * 100 + candidate.day";
         m.insert(
             "earlier".to_string(),
@@ -301,8 +318,8 @@ mod tests {
     use grackle_model::{row_schema, SiteDb};
 
     /// Compile relations for a single posts collection with `extra` config
-    /// appended (relation blocks, sets). No `published` set, so the defaults
-    /// fall back to the collection pool.
+    /// appended (relation blocks, sets). Runs `build_views` first so a declared
+    /// `[sets.published]` resolves as a pool.
     fn compile(extra: &str) -> Result<Vec<Relation>> {
         let toml = format!(
             "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
@@ -311,8 +328,14 @@ mod tests {
         );
         let cfg = Config::from_toml(&toml)?;
         let mut db = SiteDb::seed(vec![], true);
-        build_relations(&cfg, &mut db, &Schemas::new(row_schema()))?;
+        let schemas = Schemas::new(row_schema());
+        crate::views::build_views(&cfg, &mut db, &schemas)?;
+        build_relations(&cfg, &mut db, &schemas)?;
         Ok(db.relations.remove("posts").unwrap_or_default())
+    }
+
+    fn relation<'a>(rels: &'a [Relation], name: &str) -> &'a Relation {
+        rels.iter().find(|r| r.name == name).unwrap()
     }
 
     fn names(rels: &[Relation]) -> Vec<&str> {
@@ -367,7 +390,26 @@ mod tests {
             compile("[collections.relations.related]\nover=\"posts\"\nlimit=2\n").unwrap();
         let ns = names(&rels);
         assert!(ns.contains(&"earlier") && ns.contains(&"linked_from"), "{ns:?}");
-        let related = rels.iter().find(|r| r.name == "related").unwrap();
-        assert_eq!(related.limit, 2);
+        assert_eq!(relation(&rels, "related").limit, 2);
+    }
+
+    /// The guarantee the deleted `adjacency` test carried: with no `published`
+    /// set the defaults fall back to the collection, so they must exclude
+    /// drafts by rule (else a dated draft becomes somebody's Later post).
+    #[test]
+    fn the_fallback_pool_drops_drafts_by_rule() {
+        let refs = relation(&compile("").unwrap(), "earlier").filter.referenced_fields();
+        assert!(refs.iter().any(|f| f == "candidate.draft"), "{refs:?}");
+        assert!(refs.iter().any(|f| f == "candidate.hidden"), "{refs:?}");
+    }
+
+    /// With a `published` set the pool is that set — already filtered — so the
+    /// fallback rule does not fire and `earlier` reads only the date.
+    #[test]
+    fn a_published_set_needs_no_fallback_filter() {
+        let rels =
+            compile("[sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n").unwrap();
+        let refs = relation(&rels, "earlier").filter.referenced_fields();
+        assert!(!refs.iter().any(|f| f == "candidate.draft"), "{refs:?}");
     }
 }

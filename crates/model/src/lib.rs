@@ -549,10 +549,8 @@ pub enum RelLabel {
 pub fn two_row_schema(base: &filter::Schema, relation_names: &[String]) -> filter::Schema {
     let mut s = filter::Schema::new();
     for (name, ty) in base {
-        // Leak is fine: the schema keys are `&'static str`, and a load runs
-        // once per process. There is no per-row allocation here.
-        s.insert(Box::leak(format!("self.{name}").into_boxed_str()), *ty);
-        s.insert(Box::leak(format!("candidate.{name}").into_boxed_str()), *ty);
+        s.insert(intern(format!("self.{name}")), *ty);
+        s.insert(intern(format!("candidate.{name}")), *ty);
     }
     // The rows themselves, as URLs — the left of `candidate in earlier` and
     // the arguments to the score functions.
@@ -562,9 +560,27 @@ pub fn two_row_schema(base: &filter::Schema, relation_names: &[String]) -> filte
         s.insert(n, filter::Type::List);
     }
     for n in relation_names {
-        s.insert(Box::leak(n.clone().into_boxed_str()), filter::Type::List);
+        s.insert(intern(n.clone()), filter::Type::List);
     }
     s
+}
+
+/// A `filter::Schema` keys on `&'static str`, but a relation schema needs
+/// computed keys (`self.date`). Leaking each would grow unbounded across
+/// `serve` reloads; interning bounds it to the finite set of distinct field
+/// names, however many times the config reloads.
+pub fn intern(s: String) -> &'static str {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static POOL: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let pool = POOL.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut set = pool.lock().unwrap();
+    if let Some(existing) = set.get(s.as_str()) {
+        return existing;
+    }
+    let leaked: &'static str = Box::leak(s.into_boxed_str());
+    set.insert(leaked);
+    leaked
 }
 
 /// A routeless view's resolved rows.

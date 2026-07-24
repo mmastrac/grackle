@@ -279,11 +279,6 @@ pub trait Ctx {
     fn year_gap(&self, _a: &str, _b: &str) -> Option<f64> {
         None
     }
-    /// Similarity of two rows in the search index (a second embedding space);
-    /// `None` when either is unindexed.
-    fn search_similarity(&self, _a: &str, _b: &str) -> Option<f64> {
-        None
-    }
 }
 
 /// The context for an expression that calls no score function — every view
@@ -312,12 +307,6 @@ fn eval_embedding_similarity(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Val
 fn eval_year_gap(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
     url_pair(args)
         .and_then(|(a, b)| ctx.year_gap(a, b))
-        .map_or(Value::Null, Value::Double)
-}
-
-fn eval_search_similarity(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
-    url_pair(args)
-        .and_then(|(a, b)| ctx.search_similarity(a, b))
         .map_or(Value::Null, Value::Double)
 }
 
@@ -413,13 +402,6 @@ const FUNCS: &[Func] = &[
         returns: Type::Double,
         prepare: no_prep,
         eval: eval_embedding_similarity,
-    },
-    Func {
-        name: "search_similarity",
-        params: &[Type::Str, Type::Str],
-        returns: Type::Double,
-        prepare: no_prep,
-        eval: eval_search_similarity,
     },
     Func {
         name: "year_gap",
@@ -663,6 +645,17 @@ impl Parser {
             let e = self.parse_or()?;
             if !self.eat(&Tok::RParen) {
                 bail!("expected `)`");
+            }
+            // A leading `(` is a boolean group; a parenthesised *arithmetic*
+            // operand on the left of a comparison (`(a + b) > c`) is valid CEL
+            // this evaluator does not parse yet — name the shape rather than
+            // let it fall through to a misleading "trailing tokens".
+            if matches!(self.peek(), Some(Tok::Cmp(_)) | Some(Tok::In)) {
+                bail!(
+                    "a parenthesised expression on the left of a comparison is \
+                     valid CEL but not supported yet — lift it into a field or \
+                     a rank term"
+                );
             }
             return Ok(e);
         }
@@ -1624,6 +1617,37 @@ mod tests {
         assert!(e.contains("must be a number"), "{e}");
         let e = Rank::parse("title + 1", &s).unwrap_err().to_string();
         assert!(e.contains("needs numbers"), "{e}");
+    }
+
+    /// The corner the review flagged: a parenthesised operand on the left of a
+    /// comparison. Both spellings now give an informative error, not the old
+    /// misleading "trailing tokens".
+    #[test]
+    fn parenthesised_left_of_a_comparison_errors_clearly() {
+        let mut s = Schema::new();
+        s.insert("a", Type::Int);
+        s.insert("b", Type::Int);
+        s.insert("d", Type::Bool);
+        // Arithmetic group: fails as "not a condition" while parsing the group.
+        let e = Filter::parse("(a + b) > 3", &s).unwrap_err().to_string();
+        assert!(e.contains("not a condition"), "{e}");
+        assert!(!e.contains("trailing tokens"), "{e}");
+        // Boolean group then a comparison: the dedicated not-supported error.
+        let e = Filter::parse("(d) > 3", &s).unwrap_err().to_string();
+        assert!(e.contains("not supported yet"), "{e}");
+    }
+
+    #[test]
+    fn search_similarity_is_no_longer_registered() {
+        // Unwired until it has an implementation — a config naming it is a
+        // load error, not a silently empty group.
+        let mut s = Schema::new();
+        s.insert("self.url", Type::Str);
+        s.insert("candidate", Type::Str);
+        let e = Rank::parse("search_similarity(self.url, candidate)", &s)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("unknown function `search_similarity`"), "{e}");
     }
 
     #[test]

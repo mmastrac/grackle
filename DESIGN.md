@@ -3281,11 +3281,16 @@ recorded there.
   functions are complementary, not interchangeable. If "the full ranked
   candidates" is ever needed it arrives as an explicit spelling later, not
   built on speculation.
-- **Functions are registered in Rust** (§5f), never defined in config. The
-  first four, each demanded by a real config below:
-  `embedding_similarity(row, row)`, `year_gap(row, row)` (grack.com, day
-  one), `search_similarity(row, row)` and `levenshtein(string, string)`
-  (field-notes). `overlap(list, list)` waits for a config that wants it.
+- **Functions are registered in Rust** (§5f), never defined in config. Three
+  are built, each demanded by a real config below:
+  `embedding_similarity(row, row)`, `year_gap(row, row)` (grack.com, day one)
+  and `levenshtein(string, string)` (field-notes' `same_course`). Args reach
+  them as URLs, resolved to vectors/dates through the engine's ctx.
+  `search_similarity(row, row)` and `overlap(list, list)` are NOT registered:
+  a function no config uses would type-check and then silently produce an
+  empty group, so it stays a load error (`unknown function`) until something
+  wires it — registered-but-unwired is the one shape §5f's typing cannot
+  catch.
 - **Score direction: bigger always wins.** Distance functions wear a minus
   sign — `rank = "-levenshtein(…)"` — already house style (`order_by =
   "-date"`). No per-relation asc/desc knob.
@@ -3359,9 +3364,11 @@ is the point, and the verification is an eye check, not a byte diff.
 Retired by the defaults: the collection-level `adjacency` key (its whole
 point was "name the SET"; the relation now does) and the `[related]` block
 (§6b — `limit`, `min_score`, `year_penalty` were three knobs of a hardcoded
-formula the expression absorbs). One open sub-question: the default `over`
-for a collection with no `published` set — probably "the collection,
-filtered `!draft && !hidden`", the shape every site's published set has.
+formula the expression absorbs). The default `over` for a collection with
+no `published` set resolved (built) to the collection itself, then filtered
+`!draft && !hidden` — the shape every site's published set has, applied by
+rule so a dated draft cannot become somebody's Later post. An explicit
+`over` is taken verbatim; only the defaults' fallback carries the filter.
 
 ### Evaluation, pinned
 
@@ -3382,13 +3389,18 @@ filtered `!draft && !hidden`", the shape every site's published set has.
 ### Output: same parts, one rename
 
 Each declared relation with a nonempty list emits one `relation` group —
-`{axis: NAME, label, items}` — in declaration order; an empty one
-contributes no group (rule 2). Themes already render axes they have never
-heard of; that §6b sentence was written for this moment. Labels are `@refs`
-into `[i18n.strings]`, defaulting to `@NAME`. The q53 rename rides along:
-site-defined names stamp **`data-relation`** (today's `data-axis`, misnamed
-since the axis/relation split) — a theme-contract change made on purpose,
-not by diff surprise.
+`{relation: NAME, label, items}` — an empty one contributes no group
+(rule 2). **Render order is canonical, not evaluation order** (built): the
+engine evaluates in dependency order (`related` reads `earlier`), but a
+dependency order is not a reading order, so groups render in a fixed one —
+the four defaults `earlier, later, related, linked_from`, then site-defined
+names by name — the way `parts.toml` fixes a kind's part order. This blesses
+a new footer sequence (the old hardcode ran related/linked-from before the
+temporal pair); disclosed, eye-checked. Themes already render relations they
+have never heard of; that §6b sentence was written for this moment. Labels
+are `@refs` into `[i18n.strings]`, defaulting to `@NAME`. The q53 rename
+rides along: names stamp **`data-relation`** (was `data-axis`, misnamed
+since the axis/relation split) — a theme-contract change made on purpose.
 
 ### The three sites
 
@@ -3451,11 +3463,13 @@ filtering, not a scanner change.
 
 ### Honest edges, named now
 
-- **Locales are untested.** Does a French note's `over = "published"`
-  (default-locale by construction, §6f) fill its Related with English
-  rows? Probably candidates should pivot through `by_logical` to the
-  reader's locale where a translation exists; undecided, and field-notes
-  is the only site that can surface it.
+- **Locales: decided, built.** A pool is default-locale by construction
+  (§6f), so a French page's candidates **pivot through `by_logical` to the
+  row's locale**, dropping members with no variant there. Without it every
+  translated page's relations were deserts (the regression the first cut
+  shipped); with it fr-carbonara relates to fr-dal, not the English rows.
+  The old `embed::rank` ranked within a locale and old `linked_from` was
+  locale-blind; the pivot is the one §6f rule, applied uniformly.
 - **Cross-kind fields.** A pool spanning kinds may compare only fields
   every candidate carries; the rest is a load error where checkable,
   absent-fails-the-test where not.

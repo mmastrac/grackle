@@ -881,7 +881,29 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
     stats.on_demand = materialize_referenced(db, &mut out_map, &cfg.site.url)?;
 
+    // The §6g splice markers have done their two jobs — fencing the citation
+    // scan (backlinks) while on-demand publishing above read past them — so
+    // strip them before the bytes ship. Last pass, after every scanner.
+    strip_view_markers(&mut out_map);
     Ok((out_map, stats))
+}
+
+/// Remove the `{% view %}` fence comments from the finished output (§6g). Only
+/// touches the few pages that carry them; binary entries fail the UTF-8 gate
+/// and are skipped.
+fn strip_view_markers(out: &mut SiteOutput) {
+    for bytes in out.values_mut() {
+        let Ok(s) = std::str::from_utf8(bytes) else {
+            continue;
+        };
+        if !s.contains("<!--grackle:view-->") {
+            continue;
+        }
+        *bytes = s
+            .replace("<!--grackle:view-->", "")
+            .replace("<!--/grackle:view-->", "")
+            .into_bytes();
+    }
 }
 
 /// Thumbnails (§6b): derive images once, publish under `/static/`, and hand
