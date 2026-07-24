@@ -13,7 +13,7 @@ use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use grackle_db::filter::{Schema, Value};
+use grackle_db::filter::{self, Schema, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldType {
@@ -45,6 +45,18 @@ impl FieldType {
             FieldType::Bool => "bool",
             FieldType::List => "list",
             FieldType::Image => "image",
+        }
+    }
+
+    /// How the filter language sees this field. An image is a path, so it
+    /// reads as a string — a relation could `match` on one, though nothing
+    /// does yet.
+    pub fn filter_type(self) -> filter::Type {
+        match self {
+            FieldType::Str | FieldType::Image => filter::Type::Str,
+            FieldType::Int => filter::Type::Int,
+            FieldType::Bool => filter::Type::Bool,
+            FieldType::List => filter::Type::List,
         }
     }
 }

@@ -101,7 +101,9 @@ parts = [
 [[kind]]
 name = "relation"
 parts = [
-  ["axis", "text"],
+  # The relation's NAME — the theme contract themes key CSS on, stamped
+  # `data-relation` (§6g, renamed from `data-axis` at the axis/relation split).
+  ["relation", "text"],
   ["label", "text"],
   ["items", "stream:neighbor"],
 ]

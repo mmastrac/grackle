@@ -9,21 +9,43 @@
 //! database's move (§7). Similarity is brute-force cosine over ~327 vectors;
 //! a vector index at this scale would be the classic mistake.
 //!
-//! Ranking policy lives in config (`[related]`): candidate limit, a minimum
-//! adjusted score, and year-distance handling — a hard cap and/or a per-year
-//! penalty, because a 2004 post is *probably* not relevant on this blog, but
-//! might be on another.
+//! Ranking policy for the `grackle query similar` diagnostic lives in
+//! [`RankPolicy`]. Site rendering no longer ranks here — §6g's relation engine
+//! does, via the `embedding_similarity` score function — so `[related]`
+//! retired from config; this is the raw-order inspector only.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::config::RelatedCfg;
 use crate::db::SiteDb;
 
 const DIM: usize = 384;
 
 pub type Vector = Vec<f32>;
+
+/// How `grackle query similar` ranks: a candidate limit and the same optional
+/// recency shaping the old `[related]` block carried. Not config any more —
+/// the one caller (the CLI) builds it — but kept as a struct so the diagnostic
+/// can still show a year-penalised order if asked.
+#[derive(Debug, Clone, Copy)]
+pub struct RankPolicy {
+    pub limit: usize,
+    pub min_score: Option<f32>,
+    pub year_penalty: Option<f32>,
+    pub max_years: Option<i32>,
+}
+
+impl Default for RankPolicy {
+    fn default() -> Self {
+        RankPolicy {
+            limit: 4,
+            min_score: None,
+            year_penalty: None,
+            max_years: None,
+        }
+    }
+}
 
 /// The cache identity of a row: its source path, root-relative. `rel` is
 /// unique across collections, which is what makes it usable as a key.
@@ -131,7 +153,7 @@ pub struct Related {
     pub by_post: HashMap<crate::db::Key, Vec<(crate::db::Key, f32)>>,
 }
 
-pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RelatedCfg) -> Related {
+pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RankPolicy) -> Related {
     use chrono::Datelike;
     // `vectors` is parallel to `post_ix`, so a position here names a POST,
     // not a row — indexing `db.rows` with it is wrong.
@@ -299,7 +321,7 @@ mod tests {
         let raw = rank(
             &db,
             &vecs,
-            &RelatedCfg {
+            &RankPolicy {
                 limit: 2,
                 ..Default::default()
             },
@@ -310,7 +332,7 @@ mod tests {
             "raw cosine prefers the old post"
         );
 
-        let pen = RelatedCfg {
+        let pen = RankPolicy {
             limit: 2,
             year_penalty: Some(0.01),
             ..Default::default()
@@ -322,7 +344,7 @@ mod tests {
             "penalty prefers the recent post"
         );
 
-        let strict = RelatedCfg {
+        let strict = RankPolicy {
             limit: 2,
             year_penalty: Some(0.01),
             min_score: Some(0.9),
@@ -344,7 +366,7 @@ mod tests {
         let (p0, v0) = post("a", 2020, Some(v.clone()));
         let (p1, v1) = post("b", 2020, Some(v));
         let db = mkdb(vec![p0, p1]);
-        let r = rank(&db, &vec![v0, v1], &RelatedCfg::default());
+        let r = rank(&db, &vec![v0, v1], &RankPolicy::default());
         for (i, list) in &r.by_post {
             assert!(list.iter().all(|(j, _)| j != i), "post {i} matched itself");
         }
@@ -360,7 +382,7 @@ mod tests {
         let (p0, v0) = post("a", 2020, Some(vec![1.0, 0.0]));
         let (p1, v1) = post("b", 2004, Some(vec![1.0, 0.0]));
         let db = mkdb(vec![p0, p1]);
-        let cfg = RelatedCfg {
+        let cfg = RankPolicy {
             limit: 4,
             max_years: Some(10),
             ..Default::default()

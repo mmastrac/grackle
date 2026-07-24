@@ -285,7 +285,7 @@ a[data-kind="tag"] {
 	position: relative;
 }
 
-.doc .relation[data-axis="translations"] {
+.doc .relation[data-relation="translations"] {
 	position: absolute;
 	top: 0;
 	right: 0;
@@ -317,7 +317,7 @@ a[data-kind="tag"] {
 
 // When translations was the only axis, the footer rule would underline
 // nothing — drop it. (:has is fine: §5e's modern-CSS baseline.)
-.doc .relations:not(:has(.relation:not([data-axis="translations"]))) {
+.doc .relations:not(:has(.relation:not([data-relation="translations"]))) {
 	margin-top: 0;
 	padding-top: 0;
 	border-top: none;

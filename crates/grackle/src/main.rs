@@ -13,6 +13,7 @@ mod markdown;
 mod outline;
 mod parts;
 mod passes;
+mod relate;
 mod render;
 mod rewrite;
 mod serve;
@@ -442,8 +443,13 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         }
         Query::Similar { url, limit } => {
             let vectors = embed::fresh(db, &cfg.root().join("_cache/embeddings"))?;
-            let mut policy = cfg.related;
-            policy.limit = limit;
+            // The raw embedding order (no recency shaping) — the diagnostic
+            // that shows what `embedding_similarity` sees before a relation's
+            // `where`/`rank` narrows it.
+            let policy = embed::RankPolicy {
+                limit,
+                ..Default::default()
+            };
             let rel = embed::rank(db, &vectors, &policy);
             let Some(key) = db.by_url.get(&url).cloned() else {
                 anyhow::bail!("no post at {url}");

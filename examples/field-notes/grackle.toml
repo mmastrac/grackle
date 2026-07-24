@@ -23,15 +23,22 @@ name = "notes"
 kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
-# `next`/`previous` step through a SET (q51), so the reach is declared:
-# `published` carries `!draft && !hidden`, and adjacency inherits that
-# rather than relying on drafts being undated.
-adjacency = "published"
 
   [[collections.rules]]
   match = "**"
   defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+  # Related notes (§6g). No recency penalty here (a small corpus), just the
+  # embedding order with a floor — the mechanical migration of the old
+  # `[related]` block. `earlier`/`later`/`linked_from` are engine defaults;
+  # the retired `adjacency = "published"` key is now the `earlier`/`later`
+  # default's `over`.
+  [collections.relations.related]
+  where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+  rank     = "embedding_similarity(self, candidate)"
+  min_rank = 0.3
+  limit    = 3
 
 # ---------------------------------------------------------------- objects
 
@@ -75,6 +82,22 @@ exclude = ["themes/**", "shells/**"]
   match = "**/*"
   route = "/{path}"
 
+  # A relation the engine never hardcoded (§6g): recipes in the same course.
+  # `match` scopes it to the recipes subtree AND names the schema `self.course`
+  # type-checks against — `course` is a recipes-only `.schema.toml` field, so
+  # a whole-tree schema would reject it. Nearest by title, a stand-in for "most
+  # similar" without embeddings on pages; the distance wears a minus sign
+  # because bigger always wins. `linked_from` is the engine default; the tree
+  # gets no earlier/later/related (those are date-and-embedding ideas a page
+  # has no answer for).
+  [collections.relations.same_course]
+  over  = "recipes"
+  match = "recipes/**"
+  where = "candidate.course == self.course"
+  rank  = "-levenshtein(self.title, candidate.title)"
+  limit = 3
+  label = "@same_course"
+
 # ---------------------------------------------------------------- links
 
 # §6a row/view links: this site links rows by SOURCE PATH and views by
@@ -110,6 +133,9 @@ later = { en = "Later post", fr = "Note suivante" }
 earlier = { en = "Earlier post", fr = "Note précédente" }
 linked_from = { en = "Linked from", fr = "Lié depuis" }
 translations = { en = "Translations", fr = "Traductions" }
+# A site-defined relation's label (§6g): not engine vocabulary, so it lives
+# here and the `same_course` relation references it with `label = "@same_course"`.
+same_course = { en = "Same course", fr = "Même plat" }
 # A shared string: referenced by tag_index below as title = "@tagged".
 tagged = { en = "Notes tagged “{key}”", fr = "Notes étiquetées « {key} »" }
 
@@ -130,12 +156,6 @@ intro = { en = "These dinner recipes are sure to please!", fr = "Des dîners qui
 [records.course.baking]
 name = { en = "Baking", fr = "Fournée" }
 intro = { en = "Flour, patience, and a hot oven.", fr = "De la farine, de la patience et un four bien chaud." }
-
-# ---------------------------------------------------------------- related
-
-[related]
-limit = 3
-min_score = 0.3
 
 # ------------------------------------------------------------------ sets
 #
