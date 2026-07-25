@@ -1,0 +1,92 @@
+// The reset — and ONLY the reset.
+//
+// What is here is what a theme would have to re-derive: the box model, the
+// page's own colours and metrics, the focus ring, media that does not
+// overflow, and the two engine-vocabulary conventions (a placeholder link is
+// inert; a selection wears the palette).
+//
+// What is NOT here is the decorative skins — the blockquote rule, the code
+// panel, table borders, the callout. Those live in `_skin.scss`, which a
+// theme imports if it wants them (`_type.scss`, the heading ladder, is
+// unconditional; see `base::css`). The reason is the base's whole rule: a
+// theme must never have to UNDO the floor. grack.com has a full type sheet of
+// its own, and an always-on skin would fight it — a blockquote it never asked
+// for gaining a border.
+
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	font-size: var(--root-size);
+	background: var(--bg);
+	color: var(--fg);
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	font-family: var(--font-body);
+	font-size: var(--size);
+	font-weight: var(--weight-body);
+	line-height: var(--leading);
+	letter-spacing: var(--tracking);
+}
+
+::selection {
+	background: var(--selection);
+}
+
+:focus-visible {
+	outline: calc(var(--border) * 2) solid var(--accent);
+	outline-offset: var(--space-xs);
+}
+
+// Links and media. Not typography — a placeholder link is engine
+// vocabulary (§5e rule 4: `<a>` with no href is how the engine says
+// "current page" or "nowhere to go"), and an image that overflows its
+// column is a bug in any theme.
+a {
+	color: var(--accent);
+	text-decoration-thickness: var(--underline);
+	text-underline-offset: var(--underline-offset);
+	transition: color var(--transition);
+}
+a:hover {
+	color: var(--accent-hover);
+}
+// A placeholder link — `<a>` with no href — is the platform's own way to
+// say "this is the current item, or has nowhere to go" (§5e rule 4). It is
+// why crumbs, page numbers and index-less tree nodes need no conditional.
+a:not([href]) {
+	color: var(--fg-muted);
+	text-decoration: none;
+	cursor: default;
+}
+img,
+svg,
+video {
+	max-width: 100%;
+	height: auto;
+}
+// A long line of code is the same class of bug as an oversized image: it
+// breaks the PAGE, not just its own block, by making the whole document
+// scroll sideways — and on a phone that is the difference between "plain"
+// and "broken". So the scroll lives in the reset with the image rule it
+// matches, and only the code SKIN (panel, border, padding) is opt-in
+// typography. `vanilla` imports no typography at all and still cannot be
+// broken by a wide code block.
+pre {
+	overflow-x: auto;
+}
+figure {
+	margin-inline: 0;
+}
+figcaption {
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+	margin-top: var(--space-sm);
+}

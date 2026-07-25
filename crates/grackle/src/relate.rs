@@ -51,7 +51,11 @@ fn needed_derived(rels: &[Relation]) -> std::collections::HashSet<&'static str> 
             fields.push(n.clone());
         }
         for f in fields {
-            if let Some(d) = grackle_model::DERIVED_RELATIONS.iter().copied().find(|d| *d == f) {
+            if let Some(d) = grackle_model::DERIVED_RELATIONS
+                .iter()
+                .copied()
+                .find(|d| *d == f)
+            {
                 needed.insert(d);
             }
         }
@@ -141,16 +145,19 @@ impl<'a> Engine<'a> {
                 }
             }
             let members = self.evaluate(row, rel, &names, &ctx);
-            names.insert(rel.name.clone(), members.iter().map(|(u, _)| u.clone()).collect());
+            names.insert(
+                rel.name.clone(),
+                members.iter().map(|(u, _)| u.clone()).collect(),
+            );
             if members.is_empty() {
                 continue;
             }
             let items = members
                 .into_iter()
                 .filter_map(|(url, _)| {
-                    self.db.row_by_url(&url).map(|r| {
-                        (r.title.clone().unwrap_or_default(), r.url.clone(), r.date)
-                    })
+                    self.db
+                        .row_by_url(&url)
+                        .map(|r| (r.title.clone().unwrap_or_default(), r.url.clone(), r.date))
                 })
                 .collect();
             groups.push(Group {
@@ -201,11 +208,16 @@ impl<'a> Engine<'a> {
                 .map(|(u, _)| u)
                 .collect();
             if needed.contains("parent") {
-                m.insert("parent".to_string(), anc.last().cloned().into_iter().collect());
+                m.insert(
+                    "parent".to_string(),
+                    anc.last().cloned().into_iter().collect(),
+                );
             }
             m.insert("ancestors".to_string(), anc);
         }
-        if needed.contains("children") || needed.contains("siblings") || needed.contains("descendants")
+        if needed.contains("children")
+            || needed.contains("siblings")
+            || needed.contains("descendants")
         {
             let (children, siblings, descendants) = self.tree_family(row);
             m.insert("children".to_string(), children);
@@ -332,7 +344,12 @@ impl<'a> Engine<'a> {
                 .db
                 .views
                 .get(name)
-                .map(|v| v.members.iter().filter_map(|k| self.db.rows.get(k)).collect())
+                .map(|v| {
+                    v.members
+                        .iter()
+                        .filter_map(|k| self.db.rows.get(k))
+                        .collect()
+                })
                 .unwrap_or_default(),
             Pool::Collection(name) => self
                 .db
@@ -398,7 +415,10 @@ struct RelCtx<'a> {
 
 impl Ctx for RelCtx<'_> {
     fn similarity(&self, a: &str, b: &str) -> Option<f64> {
-        let (va, vb) = (self.engine.vec_by_url.get(a)?, self.engine.vec_by_url.get(b)?);
+        let (va, vb) = (
+            self.engine.vec_by_url.get(a)?,
+            self.engine.vec_by_url.get(b)?,
+        );
         // Vectors are stored normalized, so a dot product is the cosine.
         Some(va.iter().zip(vb.iter()).map(|(x, y)| (x * y) as f64).sum())
     }
@@ -419,7 +439,10 @@ mod tests {
 
     fn tree_row(url: &str) -> Row {
         Row {
-            rel: std::path::PathBuf::from(format!("{}.md", url.trim_matches('/').replace('/', "-"))),
+            rel: std::path::PathBuf::from(format!(
+                "{}.md",
+                url.trim_matches('/').replace('/', "-")
+            )),
             url: url.to_string(),
             rendered: true,
             locale: "en".into(),

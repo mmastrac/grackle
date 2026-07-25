@@ -4,6 +4,17 @@ root = ".."
 # Marker files declare defaults for their directory and everything below it
 # (DESIGN.md §4b). The config says what a marker means; the tree says where.
 # Precedence: front matter > nearest marker > rule.
+# The two head tags that were compiled into the engine as grack.com's own
+# (§4e): a site's branding, in the site's config, where it always belonged.
+#
+# The two favicon `<link>`s that sat beside them are GONE for now rather than
+# moved: they carry `sizes` and `type`, and `[html.head.link]` is a rel->href
+# map. Browsers fall back to /favicon.ico. They come back when a link entry
+# can be a table rather than a bare expression.
+[html.head.meta]
+apple-mobile-web-app-title = 'site.title'
+application-name = 'site.title'
+
 [markers]
 ".noindex" = { noindex = true }
 ".hidden" = { hidden = true }

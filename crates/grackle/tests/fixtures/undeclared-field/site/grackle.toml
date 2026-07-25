@@ -1,0 +1,7 @@
+# Every row is governed (§4e): declare a field before you use it. This
+# fixture exists to hold that line — the tolerance it replaced is how a dead
+# `hide_sidebar:` survived grack.com's whole port unnoticed.
+[site]
+url = "https://example.com"
+title = "Ungoverned"
+author = "Tester"

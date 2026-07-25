@@ -68,10 +68,6 @@ struct Row {
     #[serde(skip_serializing_if = "Option::is_none")]
     theme: Option<String>,
     locale: String,
-    /// Diagnosis flags: why a row might not appear where expected.
-    draft: bool,
-    hidden: bool,
-    noindex: bool,
     /// A tree row with no front matter is copied, not rendered.
     rendered: bool,
     /// q45: a claimed row has no route of its own — its landing owns the URL.
@@ -154,12 +150,16 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             shell: None,
             theme: None,
             locale: p.locale.clone(),
-            draft: p.draft,
-            hidden: p.hidden,
-            noindex: p.noindex,
             rendered: true,
             claimed: false,
-            fields: Vec::new(),
+            // The diagnosis flags used to be three named bools here; they are
+            // declared fields now (§4e), so they arrive with everything else
+            // a site declared and the inspector names none of them.
+            fields: p
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), value_text(v)))
+                .collect(),
             size: None,
         })
         .collect();
@@ -178,9 +178,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             shell: p.shell.clone(),
             theme: p.theme.clone(),
             locale: p.locale.clone(),
-            draft: false,
-            hidden: p.hidden,
-            noindex: p.noindex,
             rendered: p.rendered,
             claimed: p.claimed,
             fields: p
@@ -205,9 +202,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             shell: None,
             theme: None,
             locale: String::new(),
-            draft: false,
-            hidden: false,
-            noindex: false,
             rendered: false,
             claimed: false,
             fields: Vec::new(),
@@ -224,10 +218,12 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             return Vec::new();
         };
         let pred = match &v.filter {
-            Some(src) => match crate::filter::Filter::parse(src, &crate::db::route_schema()) {
-                Ok(p) => p,
-                Err(_) => return Vec::new(),
-            },
+            Some(src) => {
+                match crate::filter::Filter::parse(src, &crate::db::route_schema(&db.declared)) {
+                    Ok(p) => p,
+                    Err(_) => return Vec::new(),
+                }
+            }
             None => crate::filter::Filter::always(),
         };
         db.routes.matching(&pred).map(|r| r.url.clone()).collect()
@@ -346,7 +342,7 @@ pub fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
 /// A typed field as one display string. The inspector shows values, not
 /// types — an int and a string that both read `4` are the same to the eye,
 /// and the schema is one click away when the difference matters.
-fn value_text(v: &crate::filter::Value) -> String {
+pub fn value_text(v: &crate::filter::Value) -> String {
     use crate::filter::Value as V;
     match v {
         V::Str(s) => s.clone(),

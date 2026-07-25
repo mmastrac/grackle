@@ -24,9 +24,6 @@ pub struct FrontMatter {
     /// which table holds it (q51). Parsed at load, so a malformed one is a
     /// load error naming the file rather than a row that quietly sorts last.
     pub date: Option<String>,
-    pub hidden: Option<bool>,
-    pub draft: Option<bool>,
-    pub noindex: Option<bool>,
     /// Declared position within a section tree (§6e). Unset sorts last.
     pub order: Option<i64>,
     /// Render this document's heading outline (§6e) — §5a's canonical
@@ -41,9 +38,9 @@ pub struct FrontMatter {
     /// without being nested inside a second document. Cascades like
     /// `theme`.
     pub shell: Option<String>,
-    /// Everything else: captured for per-subtree schema validation (§5b).
-    /// Ungoverned rows tolerate unknown keys exactly as before; a row under
-    /// a `.schema.toml` gets them checked.
+    /// Everything else: captured for schema validation (§5b). `draft`,
+    /// `hidden` and `noindex` arrive here now — they are declared fields the
+    /// base config ships (§4e), not names this struct knows.
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }

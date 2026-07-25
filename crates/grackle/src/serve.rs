@@ -54,6 +54,14 @@ type Shared = SharedMut<Snapshot>;
 const VERSION_PATH: &str = "/__grackle/version";
 
 pub fn serve(config_path: &Path, port: u16, profile: Option<&str>) -> Result<()> {
+    // The base theme is compiled into the binary, which is right for
+    // publishing and wrong for iterating ON the base: an edit to
+    // `assets/base/` would need a rebuild before the preview moved. When the
+    // source tree this binary came from is still on disk, read from it
+    // instead, so the floor gets the same edit-reload loop the gallery has.
+    if crate::base::use_source_tree_if_present() {
+        println!("grackle: base theme is live from the source tree (dev build)");
+    }
     let t = Instant::now();
     let (snap, pending) = render(config_path, 1, profile)?;
     println!(
@@ -276,6 +284,28 @@ fn spawn_watcher(
         .watch(&root, RecursiveMode::Recursive)
         .with_context(|| format!("watching {}", root.display()))?;
 
+    // A recursive watch does not descend a SYMLINKED directory — the kernel
+    // watches inodes under the root, and a symlink's target is not one of
+    // them. `themes/` is the one place a site plausibly points elsewhere (a
+    // gallery kept outside the site, which is exactly what
+    // `grackle/theme-preview` does), and a theme edit that needs a server
+    // restart is a bad enough day to be worth these six lines. Best effort:
+    // if the link is dangling or unreadable, the rest of the site still
+    // watches.
+    let themes = root.join("themes");
+    if let Ok(real) = std::fs::canonicalize(&themes) {
+        if real != themes {
+            let _ = watcher.watch(&real, RecursiveMode::Recursive);
+        }
+    }
+
+    // And the engine's own base, when a dev build is reading it from source
+    // (`base::use_source_tree_if_present`). It is outside the site entirely,
+    // so nothing else would ever notice it change.
+    if let Some(base) = crate::base::dev_source() {
+        let _ = watcher.watch(base, RecursiveMode::Recursive);
+    }
+
     tokio::spawn(async move {
         let mut version = 1u64;
         while rx.recv().await.is_some() {
@@ -328,10 +358,18 @@ fn is_content(p: &Path) -> bool {
     if IGNORE.iter().any(|d| s.contains(d)) {
         return false;
     }
-    // grackle's own tree is not site content — except grackle.toml, the config
-    // a running server reloads on. Without this, editing grackle's source or
-    // DESIGN.md while serving would pointlessly rebuild the whole site.
-    if s.contains("/grackle/") && !s.ends_with("grackle.toml") {
+    // grackle's own tree is not site content — except grackle.toml (the config
+    // a running server reloads on), anything under a `themes/` directory, and
+    // the engine's own `assets/base/` when a dev build serves it from source.
+    // All three are presentation, never engine source: without the first
+    // exclusion, editing grackle's Rust or DESIGN.md would pointlessly rebuild
+    // the whole site; without the exceptions, neither a gallery living inside
+    // the grackle tree nor the floor itself could hot-reload.
+    if s.contains("/grackle/")
+        && !s.ends_with("grackle.toml")
+        && !s.contains("/themes/")
+        && !s.contains("/assets/base/")
+    {
         return false;
     }
     !(s.ends_with('~') || s.ends_with(".swp") || s.ends_with(".tmp") || s.contains("/.#"))

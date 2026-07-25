@@ -1,0 +1,642 @@
+// miroir — a fixed sidebar rail and a card feed, after ojeda-e.com and
+// Zola's `daisy`. See _tokens.scss for what each reference contributed.
+//
+// The structural bet here is different from the rest of the gallery: the
+// shell is a two-pane layout with a FIXED rail, so `main` scrolls against
+// a chrome that never moves. That is one `position: fixed` and one
+// `margin-inline-start` — the fragments are the same flat list of parts
+// every other theme gets.
+
+@import "tokens";
+@import "skin";
+
+// ------------------------------------------------------------------ rail
+
+.site-header {
+	position: fixed;
+	inset-block: 0;
+	inset-inline-start: 0;
+	width: var(--rail);
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	background: var(--rail-bg);
+	color: var(--rail-fg);
+	border-inline-end: var(--border) solid var(--rail-line);
+	overflow-y: auto;
+
+	// The brand block is daisy's navbar, stood on its end: a saturated
+	// slab of --accent at the head of ojeda's rail.
+	.site-title {
+		display: block;
+		padding: var(--header-pad) var(--space-md);
+		background: var(--rail-brand-bg);
+		color: var(--rail-brand-fg);
+		font-size: var(--size-lg);
+		font-weight: var(--weight-strong);
+		text-decoration: none;
+		text-align: center;
+		letter-spacing: var(--tracking-caps);
+	}
+
+	// Right-aligned, one item per row, a hairline between — ojeda's rail
+	// exactly. The accent bar on hover is the only motion in the theme.
+	.site-nav {
+		flex: 1;
+
+		ul {
+			list-style: none;
+			margin: 0;
+			padding: 0;
+			display: flex;
+			flex-direction: column;
+			gap: var(--nav-gap);
+		}
+
+		li {
+			border-bottom: var(--border) solid var(--rail-line);
+		}
+
+		a {
+			display: block;
+			padding: var(--space-sm) var(--space-md);
+			text-align: right;
+			color: var(--rail-muted);
+			text-decoration: none;
+			border-inline-end: calc(var(--border) * 3) solid transparent;
+			transition: color var(--transition),
+				border-color var(--transition),
+				background-color var(--transition);
+
+			&:hover {
+				color: var(--rail-fg);
+				background: color-mix(in srgb, var(--accent) 18%, transparent);
+				border-inline-end-color: var(--accent);
+			}
+		}
+	}
+
+	// A flex column stretches its children, and a stretched icon button is
+	// a very wide box around a very small circle.
+	.search-button {
+		align-self: center;
+		margin: var(--space-md);
+		padding: var(--space-sm);
+		border: var(--border) solid var(--rail-line);
+		border-radius: var(--radius);
+		background: none;
+		color: var(--rail-muted);
+		cursor: pointer;
+		line-height: 0;
+
+		&:hover {
+			color: var(--rail-fg);
+			border-color: var(--rail-muted);
+		}
+	}
+}
+
+// ---------------------------------------------------------- content pane
+
+.site-main {
+	margin-inline-start: var(--rail);
+	padding: var(--space-xl) var(--pad-x);
+}
+
+.site-main > * {
+	max-width: var(--measure);
+	margin-inline: auto;
+}
+
+.site-footer {
+	margin-inline-start: var(--rail);
+	padding: var(--space-lg) var(--pad-x) var(--space-xl);
+	border-top: var(--rule);
+	background: var(--bg-sunken);
+	color: var(--fg-muted);
+	font-size: var(--size-sm);
+	text-align: center;
+}
+
+// -------------------------------------------------------------- document
+// Centred title over a hairline rule, ojeda's signature move, and a light
+// heading weight to go with it.
+
+.doc {
+	position: relative;
+}
+
+.doc-title,
+[data-kind="listing"] > [data-slot="title"] {
+	font-size: var(--size-3xl);
+	font-weight: var(--weight-head);
+	text-align: center;
+	margin: 0 auto var(--space-lg);
+	padding-bottom: var(--space-md);
+	border-bottom: var(--title-rule);
+}
+
+.doc-meta {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: var(--space-sm) var(--space-md);
+	margin: calc(-1 * var(--space-md)) 0 var(--space-lg);
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+}
+
+// Rule 2 deletes an empty PART, not this wrapper — so the theme states
+// the condition itself. (See the gallery README.)
+.doc-meta:not(:has(*)) {
+	display: none;
+}
+
+.doc-body > :first-child {
+	margin-top: 0;
+}
+
+.doc-hero {
+	float: right;
+	width: var(--hero-width);
+	margin: 0 0 var(--space-md) var(--space-md);
+
+	img {
+		display: block;
+		width: 100%;
+		border-radius: var(--radius);
+		box-shadow: var(--shadow);
+	}
+}
+
+// ---------------------------------------------------------------- crumbs
+
+.crumbs {
+	text-align: center;
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+	margin-bottom: var(--space-md);
+
+	a {
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			color: var(--accent);
+		}
+	}
+}
+
+[data-kind="crumb"] + [data-kind="crumb"]::before {
+	content: "/";
+	color: var(--fg-faint);
+	padding-inline: var(--space-xs);
+}
+
+// ------------------------------------------------------------------ tags
+
+a[data-kind="tag"] {
+	display: inline-block;
+	font-size: var(--size-xs);
+	color: var(--fg-muted);
+	background: var(--bg-sunken);
+	border: var(--rule);
+	border-radius: var(--radius-lg);
+	padding: var(--pill-pad);
+	text-decoration: none;
+
+	& + a[data-kind="tag"] {
+		margin-left: var(--space-xs);
+	}
+
+	&:hover {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+}
+
+// -------------------------------------------------------- the card feed
+// daisy's list: each summary is a raised card, its meta rows prefixed
+// with icons, its call to action an accent button in the corner.
+
+.summary {
+	background: var(--bg-raised);
+	border: var(--rule);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow);
+	padding: var(--card-pad);
+	margin-bottom: var(--space-lg);
+
+	.summary-title {
+		font-size: var(--size-xl);
+		font-weight: var(--weight-strong);
+		line-height: var(--leading-tight);
+		margin: 0 0 var(--space-sm);
+
+		a {
+			color: var(--fg);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--accent);
+			}
+		}
+	}
+
+	.summary-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-sm) var(--space-md);
+		align-items: baseline;
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+		margin: 0 0 var(--space-md);
+	}
+
+	// The icons are tokens, so a site can swap the whole set without
+	// touching a selector — and they are decoration, announced to no one.
+	.summary-date::before {
+		content: var(--icon-date);
+		margin-right: var(--space-xs);
+	}
+
+	.summary-tags:not(:empty)::before {
+		content: var(--icon-tag);
+		margin-right: var(--space-xs);
+	}
+
+	.summary-body {
+		color: var(--fg-muted);
+
+		> :first-child {
+			margin-top: 0;
+		}
+
+		> :last-child {
+			margin-bottom: 0;
+		}
+	}
+
+	// daisy's "Read" button. The fragment ships an empty anchor named by
+	// `aria-label`, so the visible word is a token and the accessible name
+	// is the row's own title.
+	.cta {
+		display: block;
+		width: fit-content;
+		margin-left: auto;
+		margin-top: var(--space-md);
+		padding: var(--cta-pad);
+		border-radius: var(--radius);
+		background: var(--cta-bg);
+		color: var(--cta-fg);
+		font-size: var(--size-sm);
+		font-weight: var(--weight-strong);
+		text-decoration: none;
+		transition: background-color var(--transition);
+
+		&::after {
+			content: var(--cta-label);
+		}
+
+		&:hover {
+			background: var(--cta-bg-hover);
+			color: var(--cta-fg);
+		}
+	}
+}
+
+// A truncated summary is exactly the case the CTA exists for; when the
+// preview is whole, the button is a nicety rather than a necessity, and
+// the fade below would be a lie.
+.summary[data-truncated] .summary-body {
+	position: relative;
+
+	&::after {
+		content: "";
+		position: absolute;
+		inset-inline: 0;
+		bottom: 0;
+		height: var(--space-lg);
+		background: linear-gradient(to bottom, transparent, var(--bg-raised));
+	}
+}
+
+// ------------------------------------------------------------ pagination
+// daisy's numbered pills.
+
+[data-kind="pagination"] {
+	display: flex;
+	justify-content: center;
+	align-items: baseline;
+	gap: var(--space-sm);
+	margin-top: var(--space-lg);
+	font-size: var(--size-sm);
+
+	[data-kind="pagination"] ol {
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-xs);
+		margin: 0;
+		padding: 0;
+	}
+
+	[data-kind="pagination"] > a,
+	[data-kind="page_link"] a {
+		display: inline-block;
+		padding: var(--space-xs) var(--space-sm);
+		border: var(--rule);
+		border-radius: var(--radius);
+		background: var(--bg-raised);
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			border-color: var(--accent);
+			color: var(--accent);
+		}
+	}
+
+	[data-kind="page_link"] a[aria-current] {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--on-accent);
+	}
+}
+
+// ------------------------------------------------------------------ cards
+// The jacket face, same cq-unit construction as atlas — see that theme
+// for why the title is specified in the card's own inline size.
+
+.card {
+	display: block;
+	position: relative;
+	container-type: inline-size;
+	text-decoration: none;
+
+	img {
+		display: block;
+		width: 100%;
+		border-radius: var(--radius);
+		box-shadow: var(--shadow);
+	}
+
+	.card-title {
+		display: block;
+		margin-top: var(--space-sm);
+		font-weight: var(--weight-strong);
+		color: var(--fg);
+	}
+
+	.card-note {
+		display: block;
+		margin-top: var(--space-xs);
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+	}
+
+	&:has(img[src]) .card-title {
+		position: absolute;
+		top: calc(var(--card-title-at) * var(--card-ratio) * 1cqw);
+		transform: translateY(-50%);
+		inset-inline: 0;
+		margin-top: 0;
+		padding: var(--space-xs) var(--space-sm);
+		font-size: calc(var(--card-title-size) * var(--card-ratio) * 1cqw);
+		line-height: var(--leading-tight);
+		text-align: center;
+		color: var(--card-title-fg);
+		background: linear-gradient(
+			transparent,
+			var(--card-scrim) 20%,
+			var(--card-scrim) 80%,
+			transparent
+		);
+		text-shadow: var(--card-scrim-shadow);
+	}
+}
+
+.card-list {
+	.featured .card {
+		max-width: var(--card-featured);
+		margin-inline: auto;
+	}
+
+	.card-grid {
+		margin-top: var(--space-lg);
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
+		gap: var(--space-md);
+	}
+}
+
+.gallery .masonry {
+	columns: var(--gallery-min);
+	gap: var(--gallery-gap);
+
+	[data-kind="summary"] {
+		display: block;
+		break-inside: avoid;
+		margin: 0 0 var(--gallery-gap);
+
+		img {
+			display: block;
+			width: 100%;
+			border-radius: var(--radius);
+		}
+	}
+}
+
+// -------------------------------------------------------------- relations
+
+.relations {
+	margin-top: var(--space-xl);
+	padding-top: var(--space-lg);
+	border-top: var(--rule);
+}
+
+[data-kind="relation"] + [data-kind="relation"] {
+	margin-top: var(--space-lg);
+}
+
+[data-kind="relation"] > [data-slot="label"] {
+	font-size: var(--size-xs);
+	font-weight: var(--weight-strong);
+	text-transform: uppercase;
+	letter-spacing: var(--tracking-caps);
+	color: var(--fg-faint);
+	text-align: center;
+	margin: 0 0 var(--space-sm);
+}
+
+[data-kind="neighbor"] {
+	display: grid;
+	grid-template-columns: var(--date-col) minmax(0, 1fr);
+	gap: 0 var(--space-md);
+	align-items: baseline;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius);
+	text-decoration: none;
+	color: var(--fg);
+
+	&:hover {
+		background: var(--bg-sunken);
+	}
+}
+
+[data-kind="neighbor"] time {
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+	white-space: nowrap;
+}
+
+[data-kind="relation"][data-relation="translations"] {
+	position: absolute;
+	top: 0;
+	right: 0;
+	margin: 0;
+
+	[data-kind="relation"] > [data-slot="label"] {
+		display: none;
+	}
+
+	[data-kind="neighbor"] {
+		display: inline-block;
+		padding: var(--pill-pad);
+		border: var(--rule);
+		border-radius: var(--radius-lg);
+		font-size: var(--size-xs);
+		color: var(--fg-muted);
+	}
+}
+
+.relations:not(:has([data-kind="relation"]:not([data-relation="translations"]))) {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: 0;
+}
+
+// -------------------------------------------------- section tree, outline
+
+.doc-section,
+.doc-outline {
+	background: var(--bg-raised);
+	border: var(--rule);
+	border-radius: var(--radius);
+	padding: var(--space-md);
+	margin-bottom: var(--space-lg);
+	font-size: var(--size-sm);
+
+	[data-slot="children"] {
+		padding-left: var(--space-md);
+	}
+
+	a {
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			color: var(--accent);
+		}
+	}
+
+	a[aria-current="page"] {
+		color: var(--accent);
+		font-weight: var(--weight-strong);
+	}
+}
+
+.doc-outline::before {
+	content: "On this page";
+	display: block;
+	font-size: var(--size-xs);
+	font-weight: var(--weight-strong);
+	text-transform: uppercase;
+	letter-spacing: var(--tracking-caps);
+	color: var(--fg-faint);
+	margin-bottom: var(--space-xs);
+}
+
+// ------------------------------------------------------------------ links
+
+[data-kind="link_list"] [data-kind="link"] {
+	margin: var(--space-xs) 0;
+}
+
+// ---------------------------------------------------------- unpin the rail
+
+@media (max-width: $unpin-rail) {
+	.site-header {
+		position: static;
+		width: auto;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		border-inline-end: 0;
+		border-bottom: var(--border) solid var(--rail-line);
+
+		.site-title {
+			flex: 1;
+			text-align: left;
+			padding: var(--space-md) var(--pad-x);
+		}
+
+		.site-nav {
+			flex-basis: 100%;
+
+			ul {
+				flex-direction: row;
+				flex-wrap: wrap;
+				justify-content: center;
+			}
+
+			li {
+				border-bottom: 0;
+			}
+
+			a {
+				text-align: center;
+				border-inline-end: 0;
+				border-bottom: calc(var(--border) * 3) solid transparent;
+
+				&:hover {
+					border-bottom-color: var(--accent);
+				}
+			}
+		}
+
+		.search-button {
+			margin: 0 var(--pad-x);
+		}
+	}
+
+	.site-main,
+	.site-footer {
+		margin-inline-start: 0;
+	}
+
+	.site-main {
+		padding-block: var(--space-lg);
+	}
+}
+
+@media print {
+	:root {
+		--bg: var(--print-bg);
+		--fg: var(--print-fg);
+	}
+
+	.site-header,
+	.doc-outline,
+	.doc-section,
+	.relations,
+	[data-kind="pagination"],
+	.cta {
+		display: none;
+	}
+
+	.site-main,
+	.site-footer {
+		margin-inline-start: 0;
+	}
+}

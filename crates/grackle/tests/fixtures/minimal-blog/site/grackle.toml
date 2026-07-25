@@ -1,0 +1,8 @@
+# An empty config is a whole site (DESIGN.md §4d), and this fixture is that
+# claim in its most direct form: nothing here but the site's identity. The
+# base supplies the three collections and their rules, the markers, the
+# `published` set, `/`, `/blog/`, the feed, the sitemap and the head.
+[site]
+url = "https://example.com"
+title = "A Fixture"
+author = "Tester"

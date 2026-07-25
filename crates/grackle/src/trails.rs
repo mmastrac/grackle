@@ -255,76 +255,9 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
 }
 
 #[cfg(test)]
+// The climb and the declared trail moved to a fixture test (§7d): both
+// faked what a real paginated route stamps. See
+// `crates/grackle/tests/fixtures/crumb-trails`.
 mod tests {
     use super::*;
-
-    fn view_route(url: &str, view: &str) -> Route {
-        let mut r = Route::new(url.to_string(), RouteKind::View);
-        r.view = Some(view.to_string());
-        r
-    }
-
-    /// q46, pinned: a paginated landing is a crumb (its synthetic
-    /// `"page 1"` key must not read as a group key), a grouped archive is
-    /// not, and the crumb is the view's own name.
-    #[test]
-    fn ancestors_finds_a_paginated_landing() {
-        let cfg: Config = Config::from_toml(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
-             [sets.published]\nfrom = \"blog\"\n\
-             [routes.blog_index]\nfrom = \"published\"\npaginate = 5\n\
-             paths = [\"/blog/\", \"/blog/page/{n}/\"]\ntitle = \"Blog\"\n\
-             [routes.yearly_archive]\nfrom = \"published\"\ngroup_by = \"date.year\"\n\
-             path = \"/blog/{year}/\"\ntitle = \"{year}\"\n",
-        )
-        .unwrap();
-        let mut db = SiteDb::default();
-        let mut root = view_route("/blog/", "blog_index");
-        root.key = Some("page 1".to_string()); // what pagination stamps
-        root.page = Some(1);
-        db.routes.push(root);
-        // Grouped, so not a landing: the climb steps past it and leaves it
-        // to `trail`.
-        let mut year = view_route("/blog/2022/", "yearly_archive");
-        year.params = vec![("year".to_string(), "2022".to_string())];
-        db.routes.push(year);
-
-        let anc = ancestors(&cfg, &db, "/blog/2022/12/16/a-post.html");
-        assert_eq!(anc, vec![("/blog/".to_string(), "Blog".to_string())]);
-    }
-
-    /// Two posts collections (`_posts` and `_drafts`, §4) and only one
-    /// declares the `trail`. Pins against taking whichever collection the
-    /// map yields first — `drafts` sorts before `posts`.
-    #[test]
-    fn the_trail_comes_from_the_collection_that_declares_it() {
-        let cfg: Config = Config::from_toml(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nkind = \"posts\"\nsource = \"_drafts\"\n\
-             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
-             trail = \"yearly_archive\"\n\
-             [sets.published]\nfrom = \"posts\"\n\
-             [routes.yearly_archive]\nfrom = \"published\"\ngroup_by = \"date.year\"\n\
-             path = \"/blog/{year}/\"\ntitle = \"{year}\"\n",
-        )
-        .unwrap();
-        // `drafts` sorts first and declares no trail; `posts` declares it.
-        assert_eq!(
-            cfg.collections.keys().next().map(String::as_str),
-            Some("drafts")
-        );
-        let db = SiteDb::default();
-        let p = Row {
-            url: "/blog/2022/12/16/a-post/".to_string(),
-            date: chrono::NaiveDate::from_ymd_opt(2022, 12, 16),
-            locale: "en".to_string(),
-            ..Default::default()
-        };
-        let t = post_trail(&cfg, &db, &p);
-        assert!(
-            t.iter().any(|(label, _)| label == "2022"),
-            "year crumb missing from {t:?}"
-        );
-    }
 }

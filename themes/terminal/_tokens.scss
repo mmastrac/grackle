@@ -1,0 +1,121 @@
+// terminal — the knob panel. Same names as every other gallery theme
+// (../README.md). This theme is the falsifier for the gallery's claim:
+// if a monospace, dark-first, hard-edged look needs nothing but a
+// different token block and a handful of geometry rules, the tokens are
+// carrying their weight.
+
+:root {
+	color-scheme: dark light;
+
+	// ------------------------------------------------------------ palette
+	--bg: #0e1116;
+	--bg-sunken: #080a0e;
+	--bg-raised: #161b22;
+	--fg: #d5dae1;
+	--fg-muted: #7d8794;
+	--fg-faint: #4c5563;
+	--accent: #4ec9a5;
+	--accent-hover: #7fe3c4;
+	--on-accent: #0e1116;
+	--line: #232a35;
+	--line-strong: #38414f;
+	--selection: #1f3b34;
+
+	// --------------------------------------------------------------- type
+	// One family, everywhere. `--font-body` being mono is the whole visual
+	// premise, so the other three point at it rather than repeating it.
+	--font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+		monospace;
+	--font-body: var(--font-mono);
+	--font-head: var(--font-mono);
+	--font-ui: var(--font-mono);
+
+	--root-size: 100%;
+	--size: 0.9375rem;
+	--scale: 1.125; // small ratio: monospace headings get loud fast
+	--leading: 1.6;
+	--leading-tight: 1.3;
+	--tracking: 0;
+	--tracking-caps: 0.12em;
+	--weight-body: 400;
+	--weight-head: 700;
+
+	--size-sm: calc(var(--size) / var(--scale));
+	--size-xs: calc(var(--size-sm) / var(--scale));
+	--size-lg: calc(var(--size) * var(--scale));
+	--size-xl: calc(var(--size-lg) * var(--scale));
+	--size-2xl: calc(var(--size-xl) * var(--scale));
+	--size-3xl: calc(var(--size-2xl) * var(--scale));
+
+	// -------------------------------------------------------------- space
+	--space: 1rem;
+	--space-xs: calc(var(--space) * 0.25);
+	--space-sm: calc(var(--space) * 0.5);
+	--space-md: var(--space);
+	--space-lg: calc(var(--space) * 2);
+	--space-xl: calc(var(--space) * 4);
+
+	// ----------------------------------------------------------- geometry
+	--measure: 46rem;
+	--margin-col: 0rem;
+	--gutter: 1.5rem;
+	--pad-x: 1rem;
+	--radius: 0; // no rounding anywhere: this is the theme's signature
+	--radius-lg: 0;
+	--border: 1px;
+	--rule: var(--border) solid var(--line);
+	--rule-strong: var(--border) solid var(--line-strong);
+	--shadow: none;
+	--shadow-lg: 0 0 0 var(--border) var(--line-strong);
+
+	// ------------------------------------------------------- links, motion
+	--underline: var(--border);
+	--underline-offset: 0.2em;
+	--transition: 0s; // no easing either
+
+	// --------------------------------------------------------- components
+	--date-col: 7.5rem;
+	--nav-gap: 1.25rem;
+	--pill-pad: 0 0.4em;
+	--header-pad: 1rem;
+	--hero-width: min(45%, 16rem);
+
+	// Terminal-only knobs. The prompt string is a token so the theme's one
+	// piece of decoration is editable without hunting for a `content:`.
+	--prompt: "$ ";
+	--marker: "› ";
+
+	--overlay-top: 12vh;
+	--overlay-max-h: 55vh;
+
+	--print-bg: #ffffff;
+	--print-fg: #000000;
+}
+
+// Light is the exception here, not the default — the tokens flip, the
+// rules do not know. `theme: "terminal:light"` forces it per row.
+@mixin palette-light {
+	color-scheme: light;
+	--bg: #fbfbf9;
+	--bg-sunken: #f0f0ec;
+	--bg-raised: #ffffff;
+	--fg: #1b1f24;
+	--fg-muted: #616a76;
+	--fg-faint: #99a1ad;
+	--accent: #0f7a5f;
+	--accent-hover: #14a37f;
+	--on-accent: #ffffff;
+	--line: #dfdfd8;
+	--line-strong: #bcbcb2;
+	--selection: #cdeee2;
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-subtheme~="dark"]) {
+		@include palette-light;
+	}
+}
+
+:root[data-subtheme~="light"] {
+	@include palette-light;
+}

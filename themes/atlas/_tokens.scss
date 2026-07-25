@@ -1,0 +1,143 @@
+// atlas — the knob panel. Same vocabulary as the rest of the gallery
+// (../README.md), plus the sidebar and card tokens this theme needs.
+//
+// atlas is the wide one: a persistent section tree on the left, a content
+// column in the middle, and listings that render as card grids and
+// galleries rather than as a stack of summaries.
+
+:root {
+	color-scheme: light dark;
+
+	// ------------------------------------------------------------ palette
+	--bg: #ffffff;
+	--bg-sunken: #f5f6f8;
+	--bg-raised: #ffffff;
+	--fg: #1f2328;
+	--fg-muted: #636c76;
+	--fg-faint: #9aa2ad;
+	--accent: #2f5bd7;
+	--accent-hover: #4b76ec;
+	--on-accent: #ffffff;
+	--line: #e4e7eb;
+	--line-strong: #c9cfd6;
+	--selection: #dbe4fb;
+
+	// --------------------------------------------------------------- type
+	--font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	--font-body: var(--font-ui);
+	--font-head: var(--font-ui);
+	--font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+	--root-size: 100%;
+	--size: 1rem;
+	--scale: 1.25; // a documentation site wants a visible heading ladder
+	--leading: 1.6;
+	--leading-tight: 1.2;
+	--tracking: 0;
+	--tracking-caps: 0.07em;
+	--weight-body: 400;
+	--weight-head: 650;
+
+	--size-sm: calc(var(--size) / var(--scale));
+	--size-xs: calc(var(--size-sm) / var(--scale));
+	--size-lg: calc(var(--size) * var(--scale));
+	--size-xl: calc(var(--size-lg) * var(--scale));
+	--size-2xl: calc(var(--size-xl) * var(--scale));
+	--size-3xl: calc(var(--size-2xl) * var(--scale));
+
+	// -------------------------------------------------------------- space
+	--space: 1rem;
+	--space-xs: calc(var(--space) * 0.25);
+	--space-sm: calc(var(--space) * 0.5);
+	--space-md: var(--space);
+	--space-lg: calc(var(--space) * 2);
+	--space-xl: calc(var(--space) * 4);
+
+	// ----------------------------------------------------------- geometry
+	--measure: 44rem;
+	--sidebar: 15rem; // the section tree
+	--aside: 13rem; // the page outline, when there is room for it
+	--margin-col: 0rem;
+	--gutter: 2.5rem;
+	--pad-x: 1.5rem;
+	--page: 82rem;
+	--radius: 8px;
+	--radius-lg: 14px;
+	--border: 1px;
+	--rule: var(--border) solid var(--line);
+	--rule-strong: var(--border) solid var(--line-strong);
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.05);
+	--shadow-lg: 0 16px 48px rgb(0 0 0 / 0.18);
+
+	// ------------------------------------------------------- links, motion
+	--underline: 1px;
+	--underline-offset: 0.15em;
+	--transition: 140ms ease;
+
+	// --------------------------------------------------------- components
+	--date-col: 8rem;
+	--nav-gap: 1.25rem;
+	--pill-pad: 0.15em 0.7em;
+	--header-pad: 1rem;
+	--hero-width: min(45%, 18rem);
+	--sticky-top: 1.5rem;
+	--rail-max-h: 80vh;
+
+	// Cards. `--card-ratio` is the cover's height ÷ width. The title overlay
+	// is specified against the cover's HEIGHT, which the card expresses in
+	// its own inline size (1cqw) — so one declaration holds at every
+	// placement, with no breakpoint, and a differently shaped cover changes
+	// `--card-ratio` and nothing else. `--card-title-at` and
+	// `--card-title-size` are therefore unitless percentages OF THAT HEIGHT;
+	// the rules multiply them by the ratio and 1cqw to land there.
+	--card-ratio: 1.5;
+	--card-min: 10rem; // grid track floor
+	--card-featured: 19rem;
+	--card-title-at: 75; // the title is centred on this line of the cover
+	--card-title-size: 10; // and set at this size
+	--card-scrim: rgb(0 0 0 / 0.45);
+	--card-scrim-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+	--card-title-fg: #ffffff;
+	--gallery-min: 12rem;
+	--gallery-gap: 0.75rem;
+
+	--overlay-top: 12vh;
+	--overlay-max-h: 55vh;
+
+	--print-bg: #ffffff;
+	--print-fg: #000000;
+}
+
+@mixin palette-dark {
+	color-scheme: dark;
+	--bg: #0f1216;
+	--bg-sunken: #161a20;
+	--bg-raised: #191e25;
+	--fg: #e3e7ec;
+	--fg-muted: #9aa4b1;
+	--fg-faint: #6b7684;
+	--accent: #7ea2ff;
+	--accent-hover: #a3bcff;
+	--on-accent: #0f1216;
+	--line: #262c35;
+	--line-strong: #3a424e;
+	--selection: #23325c;
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 4px 12px rgb(0 0 0 / 0.4);
+	--shadow-lg: 0 16px 48px rgb(0 0 0 / 0.65);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-subtheme~="light"]) {
+		@include palette-dark;
+	}
+}
+
+:root[data-subtheme~="dark"] {
+	@include palette-dark;
+}
+
+// Media queries resolve before custom properties do, so the two layout
+// breakpoints are Sass variables. They are the only numbers in this theme
+// that live outside :root.
+$drop-aside: 76rem; // outline folds into the content column
+$drop-sidebar: 56rem; // section tree folds above the content

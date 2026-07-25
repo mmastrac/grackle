@@ -78,7 +78,8 @@ impl Pass for Listing {
             &parts::listing(items, v.featured, &title, trail, intro, pagination),
             v.variant.as_deref(),
         );
-        let head = render::head_simple(&title, &r.url, ctx.site, v.noindex);
+        let mut head = render::head_simple(&title, &r.url, ctx.site);
+        head.meta = render::eval_metas(ctx.metas, r, ctx.site, &title, &r.url);
         let html = row_thm.page(
             render::head_html(&head, &ctx.css_of(theme_name)),
             &cfg.site.title,

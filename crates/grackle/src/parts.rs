@@ -385,6 +385,23 @@ pub fn canonical(m: &PartMap) -> String {
     out
 }
 
+/// The completeness property the null theme exists to falsify: every part's
+/// bytes must survive into the canonical rendering. A part that can vanish at
+/// this layer is a part no fragment can put back. `theme.rs` runs the same
+/// walk against the base theme, with an exemption list, since an arrangement
+/// — unlike `canonical()` — is allowed to decline a part.
+#[cfg(test)]
+fn complete(m: &PartMap, out: &str) -> bool {
+    m.iter().all(|(n, p)| match p {
+        Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
+        Part::Html(v) => out.contains(v.as_str()),
+        Part::Stream(items) => items.iter().all(|c| complete(c, out)),
+        Part::Map(sub) => complete(sub, out),
+        Part::Flag(true) => out.contains(&format!("data-{n}")),
+        Part::Flag(false) => true,
+    })
+}
+
 fn canonical_into(m: &PartMap, out: &mut String) {
     use std::fmt::Write as _;
     let _ = write!(out, "<section data-kind=\"{}\"", m.kind);
@@ -532,7 +549,11 @@ pub fn translations_group(
         .iter()
         .map(|(loc, url)| neighbor(cfg.i18n.name_of(loc), url, None))
         .collect();
-    relation_group("translations", cfg.i18n.string("translations", locale), items)
+    relation_group(
+        "translations",
+        cfg.i18n.string("translations", locale),
+        items,
+    )
 }
 
 /// Everything the `document` kind can carry. The two producers below differ
@@ -1073,19 +1094,6 @@ mod tests {
         );
     }
 
-    /// The completeness property the null theme exists to falsify: every
-    /// part's bytes must survive into the canonical rendering.
-    fn complete(m: &PartMap, out: &str) -> bool {
-        m.iter().all(|(n, p)| match p {
-            Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
-            Part::Html(v) => out.contains(v.as_str()),
-            Part::Stream(items) => items.iter().all(|c| complete(c, out)),
-            Part::Map(sub) => complete(sub, out),
-            Part::Flag(true) => out.contains(&format!("data-{n}")),
-            Part::Flag(false) => true,
-        })
-    }
-
     /// §5e step 4's "run automatically on every row": load the real site and
     /// render every post, page and listing through the null theme, asserting
     /// nothing the parts layer carries is dropped. If a part can vanish, no
@@ -1242,7 +1250,7 @@ mod config_schema_tests {
 
     fn cfg(parts: &str) -> Config {
         Config::from_toml(&format!(
-            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [[collections]]\nname=\"blog\"\nkind=\"posts\"\nsource=\"_posts\"\n{parts}"
         ))
         .expect("test config parses")

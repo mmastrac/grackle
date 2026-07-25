@@ -60,6 +60,13 @@ impl<R: Keyed> Table<R> {
 
     /// Rebuilds the position map, which is what makes a `Key` held across a
     /// sort still resolve.
+    /// Drop rows that fail the predicate, reindexing so held `Key`s still
+    /// resolve — the same contract `sort_by` keeps.
+    pub fn retain(&mut self, f: impl FnMut(&R) -> bool) {
+        self.rows.retain(f);
+        self.reindex();
+    }
+
     pub fn sort_by(&mut self, cmp: impl FnMut(&R, &R) -> std::cmp::Ordering) {
         self.rows.sort_by(cmp);
         self.reindex();

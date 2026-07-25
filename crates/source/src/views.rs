@@ -156,6 +156,7 @@ pub fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>>
 /// Group keys, params and titles keep the id; only the URL is slugged.
 fn grouped_routes(
     name: &str,
+    v: &View,
     tmpl: &str,
     chain: &[String],
     rows: &[(grackle_db::Key, &dyn filter::Row)],
@@ -189,6 +190,7 @@ fn grouped_routes(
             .collect::<Vec<_>>()
             .join("-");
         out.push(Route {
+            fields: view_fields(v),
             view: Some(name.to_string()),
             key: Some(key),
             rows: Some(members.len()),
@@ -333,6 +335,21 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas)
     Ok(())
 }
 
+/// A view's own declarations, as route fields (§4e).
+///
+/// `[routes.x] noindex = true` is the config saying something about the route,
+/// and `[html.head.meta]` reads it by the same name a row would — so the two
+/// surfaces answer one expression. The engine still spells `noindex` here,
+/// which is the last of it: the honest end state is `fields = { noindex =
+/// true }` on the route, once a view can declare arbitrary fields.
+fn view_fields(v: &View) -> BTreeMap<String, filter::Value> {
+    let mut f = BTreeMap::new();
+    if v.noindex {
+        f.insert("noindex".to_string(), filter::Value::Bool(true));
+    }
+    f
+}
+
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
         // `over = "*"` views read the finished route set, so they run in a
@@ -354,6 +371,18 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             kind => build_row_view(cfg, db, schemas, name, v, &q, kind)?,
         }
     }
+    // §4d: an inherited route with nothing to show does not materialize. The
+    // base config may not mint a URL the author did not ask for, and a site
+    // with no `_posts/` never asked for an empty `/blog/` or a feed with no
+    // entries. A route the SITE declared still materializes empty — declaring
+    // it IS asking, and an empty listing you wrote is a fact about your
+    // content, not a stray page.
+    db.routes.retain(|r| {
+        let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) else {
+            return true; // a row's own route, not a view's
+        };
+        !v.inherited || v.over == "*" || r.rows.is_none_or(|n| n > 0)
+    });
     Ok(())
 }
 
@@ -373,15 +402,20 @@ fn build_row_view(
 ) -> Result<()> {
     // Parsed and type-checked once per view, not per row: a bad filter is a
     // startup error naming the view.
+    //
+    // The environment is `row_filter_schema` — built-ins plus every declared
+    // field — so `where` sees exactly what `order_by`, `group_by` and a
+    // relation's `rank` already saw. It was the one consumer parsing against
+    // the bare row schema.
+    let schema = schemas.row_filter_schema();
     let view = grackle_db::View::all()
-        .filter(base_filter(cfg, kind, &row_schema())?.and(scoped_filter(name, q, &row_schema())?))
+        .filter(base_filter(cfg, kind, &schema)?.and(scoped_filter(name, q, &schema)?))
         .order({
-            // The row schema plus whatever `.schema.toml` declares (§5b).
-            // Objects have no front matter, so theirs is `object_schema`
-            // alone — which is why the vocabulary is the caller's to state.
-            let declared = schemas.declared();
-            let mut known: Vec<&str> = row_schema().keys().copied().collect();
-            known.extend(declared.keys().copied());
+            // Sorting reads the same vocabulary the filter does — it used to
+            // rebuild it here, which is how the two drifted apart in the first
+            // place. (Objects have no front matter, so theirs is
+            // `object_schema` alone; that path is `build_object_view`.)
+            let known: Vec<&str> = schema.keys().copied().collect();
             declared_order(&known, &format!("view {name}"), q.order_by.as_deref())?
         });
     let rows = &db.rows;
@@ -444,6 +478,7 @@ fn build_row_view(
                 .collect();
             let mut routes = grouped_routes(
                 name,
+                v,
                 &prefixed(cfg, locale, tmpl),
                 &chain,
                 &grouped,
@@ -482,6 +517,7 @@ fn build_row_view(
                     .cloned()
                     .collect();
                 db.routes.push(Route {
+                    fields: view_fields(v),
                     view: Some(name.to_string()),
                     key: Some(format!("page {n}")),
                     rows: Some(members.len()),
@@ -512,6 +548,7 @@ fn build_row_view(
             .cloned()
             .collect();
         db.routes.push(Route {
+            fields: view_fields(v),
             view: Some(name.to_string()),
             rows: Some(members.len()),
             members,
@@ -610,6 +647,7 @@ fn build_object_view(
         .limit(v.limit);
     let members: Vec<grackle_db::Key> = db.rows.view(&view);
     db.routes.push(Route {
+        fields: view_fields(v),
         view: Some(name.to_string()),
         rows: Some(members.len()),
         members,
@@ -649,13 +687,13 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 /// `search`'s route and would not have seen it the other way round. Both
 /// filters happen to exclude the other's route by extension, which is why
 /// nothing was visibly wrong.
-pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
         if v.over != "*" {
             continue;
         }
         let pred = match &v.filter {
-            Some(src) => filter::Filter::parse(src, &route_schema())
+            Some(src) => filter::Filter::parse(src, &route_schema(&schemas.declared_schema()))
                 .with_context(|| format!("view {name}: filter {src:?}"))?,
             None => filter::Filter::always(),
         };
@@ -677,6 +715,10 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 }
 
 #[cfg(test)]
+// Membership, scoping and ordering moved to fixture tests (§7d): they
+// hand-built `Row`s and wired `object_ix` themselves, so they could not have
+// caught a bug in the loader they were imitating. See
+// `crates/grackle/tests/fixtures/{object-gallery,post-ordering}`.
 mod object_view_tests {
     use super::*;
     use grackle_model::Row;
@@ -684,119 +726,21 @@ mod object_view_tests {
 
     /// An object row: a path, a URL, and nothing rendered. `name`, `ext` and
     /// `stem` all derive from `rel`, so there is nothing else to set.
-    fn obj(rel: &str) -> Row {
-        Row {
-            key: grackle_db::Key::new(rel),
-            // Membership is a COLUMN: an object view's base is
-            // `collection == "objects"`, so a fixture that omits this is a
-            // row the view cannot see.
-            collection: "objects".to_string(),
-            path: PathBuf::from(rel),
-            rel: PathBuf::from(rel),
-            url: format!("/{rel}"),
-            size: 1,
-            rendered: false,
-            ..Default::default()
-        }
-    }
 
     /// Seed the row store with object rows AND record their membership —
     /// without it the view's base filter matches nothing and the test passes
     /// vacuously.
-    fn seed_objects(db: &mut SiteDb, rows: Vec<Row>) {
-        db.object_ix = rows.iter().map(|r| r.key.clone()).collect();
-        db.rows = grackle_db::Table::new(rows);
-    }
 
     fn cfg(views: &str) -> Config {
         let src = format!(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"objects\"\nkind = \"objects\"\n{views}"
         );
         Config::from_toml(&src).expect("test config parses")
     }
 
-    #[test]
-    fn object_view_scopes_sorts_and_routes() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
-             order_by = \"name\"\npath = \"/photos/\"\nlayout = \"listing\"\n");
-        let mut db = SiteDb::default();
-        seed_objects(
-            &mut db,
-            vec![
-                obj("assets/x.png"),
-                obj("photos/b.png"),
-                obj("photos/a.png"),
-            ],
-        );
-        build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
-        let r = db
-            .routes
-            .iter()
-            .find(|r| r.url == "/photos/")
-            .expect("route");
-        assert_eq!(r.rows, Some(2));
-        // Sorted by name (a before b); the out-of-scope asset is absent.
-        assert_eq!(
-            r.members
-                .iter()
-                .map(|k| k.as_str().to_string())
-                .collect::<Vec<_>>(),
-            ["photos/a.png", "photos/b.png"]
-        );
-    }
-
     /// With objects and content in ONE store, a gallery must see only
     /// objects. Membership is a filter; this test fails if it is dropped.
-    #[test]
-    fn a_gallery_does_not_pick_up_content_rows() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\nmatch = \"photos/**\"\n\
-             path = \"/photos/\"\nlayout = \"listing\"\n");
-        let mut db = SiteDb::default();
-        // A content row sitting at a path the gallery's glob matches.
-        let page = Row {
-            key: grackle_db::Key::new("photos/about.md"),
-            collection: "pages".to_string(),
-            path: PathBuf::from("photos/about.md"),
-            rel: PathBuf::from("photos/about.md"),
-            url: "/photos/about/".to_string(),
-            rendered: true,
-            ..Default::default()
-        };
-        let o = obj("photos/a.png");
-        db.object_ix = vec![o.key.clone()];
-        db.page_ix = vec![page.key.clone()];
-        db.rows = grackle_db::Table::new(vec![o, page]);
-
-        build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
-        let r = db
-            .routes
-            .iter()
-            .find(|r| r.url == "/photos/")
-            .expect("route");
-        assert_eq!(
-            r.members
-                .iter()
-                .map(|k| k.as_str().to_string())
-                .collect::<Vec<_>>(),
-            ["photos/a.png"],
-            "a content row leaked into an object view"
-        );
-    }
-
-    #[test]
-    fn an_object_view_needs_no_order_by() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\npath = \"/p/\"\nlayout = \"listing\"\n");
-        let mut db = SiteDb::default();
-        seed_objects(&mut db, vec![obj("photos/b.png"), obj("photos/a.png")]);
-        build_views(&c, &mut db, &Schemas::new(row_schema())).expect("path is an ordering");
-        let r = db.routes.iter().find(|r| r.url == "/p/").expect("route");
-        assert_eq!(
-            r.members.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
-            ["photos/a.png", "photos/b.png"],
-            "path order, like every other view"
-        );
-    }
 
     /// The vocabulary is still the narrow one: an object cannot sort on a
     /// column only a content row has.
@@ -871,7 +815,7 @@ mod posts_order_tests {
 
     fn cfg(clauses: &str) -> Config {
         let src = format!(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n\
              filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
              [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"listing\"\n{clauses}"
@@ -879,42 +823,40 @@ mod posts_order_tests {
         Config::from_toml(&src).expect("test config parses")
     }
 
-    fn members(clauses: &str) -> Vec<String> {
-        let (c, mut db) = (cfg(clauses), db());
-        build_views(&c, &mut db, &Schemas::new(row_schema())).unwrap();
-        let r = db.routes.iter().find(|r| r.url == "/g/").expect("route");
-        r.members
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .map(|r| r.url.clone())
-            .collect()
-    }
-
     /// A view with no `order_by` orders by PATH — not newest-first. A posts
     /// collection asks for dates.
-    #[test]
-    fn no_order_by_means_path_order() {
-        assert_eq!(members(""), ["/a/", "/b/", "/c/", "/d/"]);
-    }
 
+    /// `where` reads declared `.schema.toml` fields, like `order_by`,
+    /// `group_by` and a relation's `rank` already did. It was the one consumer
+    /// parsing against the bare row schema, so a site could declare a bool,
+    /// group by it, sort by it — and then get `unknown field` from its own
+    /// filter. Mutation-checked by restoring `row_schema()` at the parse site.
     #[test]
-    fn a_posts_view_asks_for_dates() {
-        assert_eq!(
-            members("order_by = \"-date\"\n"),
-            ["/d/", "/c/", "/b/", "/a/"]
-        );
+    fn a_where_may_name_a_declared_field() {
+        use std::path::Path;
+        let mut schemas = Schemas::new(row_schema());
+        schemas
+            .add(
+                Path::new(""),
+                "archived = { type = \"bool\" }\n",
+                Path::new(".schema.toml"),
+            )
+            .unwrap();
+
+        let clauses = "[sets.s]\nfrom = \"notes\"\nwhere = \"!archived\"\n";
+        build_views(&cfg(clauses), &mut db(), &schemas)
+            .expect("a declared field is nameable in `where`");
+
+        // And it is still a load error when nothing declares it — the widening
+        // is the declared set, not "anything goes".
+        let e = build_views(&cfg(clauses), &mut db(), &Schemas::new(row_schema())).unwrap_err();
+        // `{:#}` for the whole chain — the top frame is only "view s: filter …".
+        assert!(format!("{e:#}").contains("unknown field"), "{e:#}");
     }
 
     /// `path` is the last key, always, so rows tied on the declared column
     /// order by their file rather than by whatever the walk yielded. Here
     /// `/b/` and `/c/` declare no `order`, tie at Null, and fall to path.
-    #[test]
-    fn ties_on_the_declared_column_fall_through_to_path() {
-        assert_eq!(
-            members("order_by = \"order\"\n"),
-            ["/a/", "/d/", "/b/", "/c/"]
-        );
-    }
 
     #[test]
     fn order_by_names_a_field_or_it_is_a_load_error() {
@@ -1025,9 +967,6 @@ mod grouping_tests {
             toc: false,
             theme: None,
             shell: None,
-            draft: false,
-            hidden: false,
-            noindex: false,
             fields: Default::default(),
             images: Default::default(),
             locale: "en".into(),
@@ -1100,7 +1039,9 @@ mod adjacency_tests {
             url: url.into(),
             slug: url.trim_matches('/').replace('/', "-"),
             date: date.and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()),
-            draft,
+            // A flag is a declared field now (§4e), so a fixture sets one the
+            // way a row carries one.
+            fields: BTreeMap::from([("draft".to_string(), grackle_db::Value::Bool(draft))]),
             locale: "en".into(),
             ..Row::default()
         }
@@ -1112,7 +1053,7 @@ mod adjacency_tests {
 
     fn cfg(extra: &str) -> Config {
         Config::from_toml(&format!(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"posts\"\nkind = \"posts\"\nsource = \"_posts\"\n\
              filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
         ))

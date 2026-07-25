@@ -10,6 +10,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+use crate::base;
 use crate::binder::{self, Fragments};
 use crate::parts::{Part, PartMap};
 use crate::slots::SlotFills;
@@ -57,15 +58,18 @@ impl Themes {
         let mut map = std::collections::BTreeMap::new();
         if let Ok(rd) = std::fs::read_dir(themes_dir) {
             for e in rd.filter_map(|e| e.ok()) {
-                if e.path().is_dir() {
-                    let name = e.file_name().to_string_lossy().to_string();
+                let name = e.file_name().to_string_lossy().to_string();
+                // Underscore-prefixed directories are not themes, the same
+                // convention `_posts` and `_includes` already use — room for
+                // a site to keep working files beside its themes.
+                if e.path().is_dir() && !name.starts_with('_') {
                     map.insert(name, Theme::load(&e.path(), site_root, schemas)?);
                 }
             }
         }
         Ok(Themes {
             map,
-            null: Theme::null(site_root)?,
+            null: Theme::null(site_root, schemas)?,
         })
     }
 
@@ -97,15 +101,11 @@ impl Themes {
 }
 
 impl Theme {
-    /// The null theme as a value: no fragments, identity fills still
-    /// resolved from the tree.
-    pub fn null(site_root: &Path) -> Result<Theme> {
-        Ok(Theme {
-            fragments: Fragments::default(),
-            fills: SlotFills::load(site_root)?,
-            root: site_root.to_path_buf(),
-            identity: Vec::new(),
-        })
+    /// The null theme as a value — which is the BASE theme, not an empty one.
+    /// A site with no `themes/` directory renders through the fragments the
+    /// engine carries, so "no theme" means plain, never broken.
+    pub fn null(site_root: &Path, schemas: &crate::parts::Schemas) -> Result<Theme> {
+        Theme::from_sources(Vec::new(), site_root, schemas, "the base theme")
     }
 
     pub fn load(
@@ -113,8 +113,34 @@ impl Theme {
         site_root: &Path,
         schemas: &crate::parts::Schemas,
     ) -> Result<Theme> {
-        let fragments = Fragments::load_dir(theme_dir, schemas)
+        let own = binder::dir_sources(theme_dir)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;
+        let what = theme_dir.display().to_string();
+        Theme::from_sources(own, site_root, schemas, &what)
+    }
+
+    /// Build a theme from its OWN fragment sources, layered over the base's
+    /// (§5e). A source of the same name replaces the base's outright; every
+    /// kind the theme declines keeps the base arrangement, which is what
+    /// makes a theme "only its differences" rather than a whole vocabulary.
+    ///
+    /// The merge happens before `Fragments::load` deliberately: that function
+    /// parses the whole set and only then validates, so a theme's
+    /// `document.html` may name a stream child that lives in the base.
+    fn from_sources(
+        own: Vec<(String, String, String)>,
+        site_root: &Path,
+        schemas: &crate::parts::Schemas,
+        what: &str,
+    ) -> Result<Theme> {
+        let mut sources: Vec<(String, String, String)> = base::fragments()
+            .iter()
+            .filter(|(n, _)| !own.iter().any(|(o, _, _)| o == n))
+            .map(|(n, src)| (n.to_string(), src.to_string(), format!("<base>/{n}.html")))
+            .collect();
+        sources.extend(own);
+        let fragments =
+            Fragments::load(sources, schemas).with_context(|| format!("loading theme {what}"))?;
         let fills = SlotFills::load(site_root)?;
         // Identity slots = shell slots the engine does not provide, matched
         // back to the schema so the names stay 'static and checked.
@@ -197,5 +223,346 @@ mod tests {
             ("recipes", Some("spicy festive".into()))
         );
         assert_eq!(split_spec("recipes:"), ("recipes", None));
+    }
+
+    // ------------------------------------------------------------ gallery
+    //
+    // Three properties over `themes/`, the real gallery. They are the reason
+    // the gallery is in the repository rather than in a gist: a theme that
+    // drops a part, invents a token or hardcodes a colour should fail a
+    // build, not be noticed six months later by eye.
+
+    use super::{Theme, Themes};
+    use crate::parts::{Part, PartMap, PartType, Schemas};
+    use std::path::{Path, PathBuf};
+
+    fn gallery() -> PathBuf {
+        crate::workspace_root().join("themes")
+    }
+
+    fn theme_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                out.extend(theme_files(&p, ext));
+            } else if p.extension().is_some_and(|x| x == ext) {
+                out.push(p);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// A part map with every part of a kind filled with a traceable value.
+    /// Generated from the schema rather than hand-written, so a new part in
+    /// `parts.toml` is covered the day it lands. `depth` bounds the
+    /// self-recursive kinds (`outline_entry.children` is a stream of itself).
+    fn populate(schemas: &Schemas, kind: &str, depth: usize) -> PartMap {
+        // `PartMap` keys are &'static str, and so are the schema's names.
+        let name: &'static str = schemas
+            .kind_names()
+            .into_iter()
+            .find(|k| *k == kind)
+            .map(|k| Box::leak(k.to_string().into_boxed_str()) as &'static str)
+            .expect("kind exists");
+        let mut m = PartMap::new(name);
+        let Some(parts) = schemas.get(kind) else {
+            return m;
+        };
+        for (part, ty) in parts {
+            match ty {
+                PartType::Text => m.set(part, Part::Text(format!("text-{kind}-{part}"))),
+                PartType::Url => m.set(part, Part::Text(format!("/url-{kind}-{part}/"))),
+                PartType::Html => m.set(part, Part::Html(format!("<p>html-{kind}-{part}</p>"))),
+                PartType::Flag => m.set(part, Part::Flag(true)),
+                PartType::Stream(child) => {
+                    if depth > 0 {
+                        m.set(
+                            part,
+                            Part::Stream(vec![populate(schemas, child, depth - 1)]),
+                        );
+                    }
+                }
+                PartType::Map(child) => {
+                    if depth > 0 {
+                        m.set(part, Part::Map(populate(schemas, child, depth - 1)));
+                    }
+                }
+            }
+        }
+        m
+    }
+
+    /// The first `kind.part` whose bytes did not survive, ignoring the
+    /// exempt pairs at whatever depth they occur. Mirrors `parts::complete`,
+    /// which is the same walk without the exemptions.
+    fn first_dropped(m: &PartMap, out: &str, exempt: &[(&str, &str, &str)]) -> Option<String> {
+        for (name, part) in m.iter() {
+            if exempt.iter().any(|(k, p, _)| *k == m.kind && *p == name) {
+                continue;
+            }
+            let here = format!("{}.{name}", m.kind);
+            let kept = match part {
+                Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
+                Part::Html(v) => out.contains(v.as_str()),
+                Part::Flag(true) => out.contains(&format!("data-{name}")),
+                Part::Flag(false) => true,
+                Part::Stream(items) => {
+                    if let Some(d) = items.iter().find_map(|c| first_dropped(c, out, exempt)) {
+                        return Some(d);
+                    }
+                    true
+                }
+                Part::Map(sub) => {
+                    if let Some(d) = first_dropped(sub, out, exempt) {
+                        return Some(d);
+                    }
+                    true
+                }
+            };
+            if !kept {
+                return Some(here);
+            }
+        }
+        None
+    }
+
+    /// The base is the null theme now, so it inherits the null theme's
+    /// obligation: nothing the parts layer carries may silently vanish
+    /// (§5e step 4, and `parts.rs`'s version of this against `canonical()`).
+    ///
+    /// It does not inherit it *absolutely* — an arrangement is allowed to
+    /// decline a part, which is what rule 2 and partiality mean. So the
+    /// exemptions are listed here, each with a reason, and the test's real
+    /// job is to make adding a sixth one a deliberate act.
+    #[test]
+    fn the_base_theme_drops_only_what_it_means_to() {
+        // (kind, part, why the base declines it)
+        const EXEMPT: &[(&str, &str, &str)] = &[
+            (
+                "document",
+                "url",
+                "the page's own address — a self-link is chrome, not content, \
+                 and a theme that wants a permalink places it itself",
+            ),
+            (
+                "summary",
+                "src",
+                "a picture needs `summary--figure` or a theme's card: rule 2 \
+                 deletes an element with an EMPTY CONTENT SLOT, and an <img> \
+                 carries only attribute holes — so a plain summary that tried \
+                 to show a cover would emit a broken <img> on every text row",
+            ),
+            ("summary", "width", "rides with `src`"),
+            ("summary", "height", "rides with `src`"),
+            (
+                "listing",
+                "featured",
+                "the base has one listing shape; lifting the first item out of \
+                 the stream is what `listing--cards` is for",
+            ),
+        ];
+
+        let schemas = Schemas::engine_only();
+        let thm = Theme::null(&crate::workspace_root(), &schemas).expect("base loads");
+        for kind in schemas.kind_names() {
+            // `shell` is filled by `Theme::page`, not by a kind renderer.
+            if kind == "shell" {
+                continue;
+            }
+            let full = populate(&schemas, kind, 2);
+            let out = thm.fragments.render(&full);
+            // Exemptions hold at every depth: `document.hero` is a summary,
+            // so a summary's exempt parts are exempt inside it too.
+            if let Some(missing) = first_dropped(&full, &out, EXEMPT) {
+                panic!(
+                    "the base drops `{missing}` and does not say why — either \
+                     place it, or add it to EXEMPT with a reason:\n{out}"
+                );
+            }
+        }
+    }
+
+    /// Every theme renders every kind, stamps it, and keeps its name.
+    ///
+    /// Deliberately weaker than completeness, because completeness is false
+    /// for themes and should be: `terminal`'s summary drops tags on purpose,
+    /// `summary--card` is a jacket and drops the prose, `listing--gallery`
+    /// has no featured slot. An arrangement selects.
+    ///
+    /// What no arrangement may do is lose the thing the row is CALLED. A
+    /// fragment that renders to nothing, or renders a summary with no title
+    /// in it anywhere — content slot, or an `alt` attribute, which is how
+    /// `summary--figure` legitimately carries one — is broken in every theme
+    /// anyone would write, so it is worth failing the build over.
+    #[test]
+    fn every_gallery_theme_keeps_a_rows_name() {
+        let schemas = Schemas::engine_only();
+        let root = crate::workspace_root();
+        let themes = Themes::load_all(&gallery(), &root, &schemas).expect("gallery loads");
+        let names: Vec<String> = themes.names().map(str::to_string).collect();
+        assert!(names.len() >= 6, "expected the gallery, found {names:?}");
+
+        for name in &names {
+            let thm = themes.get(Some(name)).unwrap();
+            for kind in schemas.kind_names() {
+                if kind == "shell" {
+                    continue;
+                }
+                let m = populate(&schemas, kind, 2);
+                let out = thm.fragments.render(&m);
+                assert!(
+                    out.contains(&format!("data-kind=\"{kind}\"")),
+                    "theme {name} rendered kind `{kind}` as `{out}`"
+                );
+                // Whatever this kind calls its name: title, label, or the
+                // `n` a page number wears.
+                for part in ["title", "label", "name", "n"] {
+                    if m.get(part).is_some() {
+                        let expect = format!("text-{kind}-{part}");
+                        assert!(
+                            out.contains(&expect),
+                            "theme {name} rendered `{kind}` without its {part}:\n{out}"
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Edge 2 of §3's back-tested list, as a lint rather than a hope: a
+    /// theme that writes its own `shell.html` takes over the identity slots
+    /// too, and dropping one puts a site file — its copyright, its nav —
+    /// silently dark. Five gallery themes ship their own shell, so this is
+    /// a live hazard rather than a hypothetical one. Until `theme check`
+    /// exists, the gallery is the corpus and this is the check.
+    #[test]
+    fn no_theme_shell_drops_an_identity_slot() {
+        let base: std::collections::HashSet<String> = slots_of(
+            crate::base::fragments()
+                .iter()
+                .find(|(n, _)| *n == "shell")
+                .map(|(_, s)| *s)
+                .expect("the base ships a shell"),
+        );
+        assert!(base.contains("copyright"), "sanity: the base places it");
+
+        for dir in std::fs::read_dir(gallery()).unwrap().flatten() {
+            let shell = dir.path().join("shell.html");
+            if !shell.exists() {
+                continue; // inherits the base's, nothing to drop
+            }
+            let own = slots_of(&std::fs::read_to_string(&shell).unwrap());
+            let missing: Vec<&String> = base.difference(&own).collect();
+            assert!(
+                missing.is_empty(),
+                "{}: its shell drops {missing:?} — every slot the base's shell \
+                 places is a place the TREE fills, so dropping one loses the \
+                 site's own words with no error anywhere",
+                shell.display()
+            );
+        }
+    }
+
+    /// The `data-slot="…"` names a fragment places, content slots only.
+    fn slots_of(src: &str) -> std::collections::HashSet<String> {
+        let mut out = std::collections::HashSet::new();
+        for (i, _) in src.match_indices("data-slot=\"") {
+            let rest = &src[i + 11..];
+            if let Some(end) = rest.find('"') {
+                out.insert(rest[..end].to_string());
+            }
+        }
+        out
+    }
+
+    /// The token contract (themes/README.md): a theme may add names, but it
+    /// may not USE one that neither it nor the base defines. An undefined
+    /// custom property is not an error in CSS — it silently resolves to
+    /// nothing — so this is the only place a typo can be caught.
+    #[test]
+    fn no_theme_uses_a_token_nothing_defines() {
+        let base = crate::base::partial("tokens").expect("base tokens");
+        let defined = |src: &str| -> std::collections::HashSet<String> {
+            src.lines()
+                .filter_map(|l| l.trim().strip_prefix("--"))
+                .filter_map(|l| l.split_once(':'))
+                .map(|(n, _)| format!("--{n}"))
+                .collect()
+        };
+        let base_tokens = defined(base);
+
+        for dir in std::fs::read_dir(gallery()).unwrap().flatten() {
+            if !dir.path().is_dir() {
+                continue;
+            }
+            let files = theme_files(&dir.path(), "scss");
+            let src: String = files
+                .iter()
+                .filter_map(|p| std::fs::read_to_string(p).ok())
+                .collect();
+            let mut known = base_tokens.clone();
+            known.extend(defined(&src));
+            for (i, _) in src.match_indices("var(--") {
+                let rest = &src[i + 4..];
+                let end = rest.find([')', ',', ' ']).unwrap_or(rest.len());
+                let token = &rest[..end];
+                assert!(
+                    known.contains(token),
+                    "{}: uses `{token}`, which neither the theme nor the base defines",
+                    dir.path().display()
+                );
+            }
+        }
+    }
+
+    /// The gallery's headline claim, as an assertion: `_tokens.scss` holds
+    /// every literal a theme owns, and nothing below it names a colour or a
+    /// length. Breaking this is how a theme stops being retunable by editing
+    /// one file — which is the whole reason to build a gallery this way.
+    #[test]
+    fn no_literals_outside_a_themes_token_file() {
+        let colour = regex_lite_colour;
+        for dir in std::fs::read_dir(gallery()).unwrap().flatten() {
+            if !dir.path().is_dir() {
+                continue;
+            }
+            for file in theme_files(&dir.path(), "scss") {
+                if file.file_name().is_some_and(|f| f == "_tokens.scss") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&file).unwrap();
+                for (n, line) in src.lines().enumerate() {
+                    let code = line.split("//").next().unwrap_or("");
+                    assert!(
+                        !colour(code),
+                        "{}:{}: names a colour below the token file — `{}`",
+                        file.display(),
+                        n + 1,
+                        line.trim()
+                    );
+                }
+            }
+        }
+    }
+
+    /// `#abc`, `#aabbcc`, `rgb(` or `hsl(` in a declaration. Deliberately not
+    /// a regex crate: this is the only pattern matching in the test suite and
+    /// it is cheaper to spell out than to take a dependency for.
+    fn regex_lite_colour(code: &str) -> bool {
+        if code.contains("rgb(") || code.contains("hsl(") {
+            return true;
+        }
+        let b = code.as_bytes();
+        b.iter().enumerate().any(|(i, c)| {
+            *c == b'#'
+                && b[i + 1..]
+                    .iter()
+                    .take_while(|x| x.is_ascii_hexdigit())
+                    .count()
+                    >= 3
+        })
     }
 }

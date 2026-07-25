@@ -25,10 +25,10 @@ pub struct Ctx<'a> {
     pub cfg: &'a Config,
     pub db: &'a SiteDb,
     pub site: &'a Site<'a>,
-    /// Every theme, for the per-row theme lookup (§5a).
+    /// Every theme. A pass resolves the row's own (§5a) — there is
+    /// deliberately no default-theme handle here, because reaching for one
+    /// is how a route ends up rendered by two themes at once.
     pub themes: &'a theme::Themes,
-    /// The default theme, for routes that are nobody's row.
-    pub thm: &'a theme::Theme,
     pub thumbs: &'a HashMap<String, crate::thumbs::Thumb>,
     /// Post bodies, held from the loader; tree bodies are re-read into
     /// `page_bodies`. A listing over tree rows finds them there.
@@ -38,6 +38,8 @@ pub struct Ctx<'a> {
     pub backlinks: &'a HashMap<String, Vec<Backlink>>,
     pub root: PathBuf,
     pub profile: Option<&'a str>,
+    /// `[html.head.meta]`, compiled once (§4e).
+    pub metas: &'a crate::render::Metas,
     /// `db.object_ix` as a set: a listing asks per member whether the row IS
     /// the picture, and the membership list is a Vec.
     pub objects: std::collections::HashSet<&'a crate::db::Key>,

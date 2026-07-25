@@ -1,0 +1,551 @@
+// atlas — the wide one. A sticky section tree, a content column, a sticky
+// page outline, and listings that arrive as card grids or galleries
+// instead of a stack of summaries.
+//
+// The interesting part is that "documentation site" and "photo gallery"
+// are the SAME theme here. A listing picks its face with `layout:
+// "listing--cards"` or `listing--gallery`; the theme supplies a fragment
+// per face and the CSS below. Nothing in the engine knows the difference
+// between a book cover and a screenshot.
+
+@import "tokens";
+@import "skin";
+
+// ------------------------------------------------------------------ page
+
+.site-header {
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	gap: var(--space-md);
+	padding: var(--header-pad) var(--pad-x);
+	background: color-mix(in srgb, var(--bg) 88%, transparent);
+	backdrop-filter: blur(8px);
+	border-bottom: var(--rule);
+
+	.site-title {
+		font-size: var(--size-lg);
+		font-weight: var(--weight-head);
+		color: var(--fg);
+		text-decoration: none;
+		margin-right: auto;
+	}
+
+	.site-nav ul {
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--nav-gap);
+		margin: 0;
+		padding: 0;
+		font-size: var(--size-sm);
+	}
+
+	.site-nav a {
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			color: var(--fg);
+		}
+	}
+
+	.search-button {
+		border: var(--rule);
+		border-radius: var(--radius);
+		background: var(--bg-sunken);
+		color: var(--fg-muted);
+		cursor: pointer;
+		line-height: 0;
+		padding: var(--space-sm);
+		transition: color var(--transition), border-color var(--transition);
+
+		&:hover {
+			color: var(--fg);
+			border-color: var(--line-strong);
+		}
+	}
+}
+
+.site-main {
+	max-width: var(--page);
+	margin-inline: auto;
+	padding: var(--space-lg) var(--pad-x) var(--space-xl);
+}
+
+.site-footer {
+	max-width: var(--page);
+	margin-inline: auto;
+	padding: var(--space-md) var(--pad-x) var(--space-lg);
+	border-top: var(--rule);
+	color: var(--fg-muted);
+	font-size: var(--size-sm);
+}
+
+// -------------------------------------------------------------- document
+// Three columns: tree | content | outline. Both rails are optional parts,
+// and rule 2 deletes an empty part's element — so the conditional layout
+// needs no conditional. The rail TRACKS are `auto`, and the rails
+// themselves carry the width; a page whose section tree is empty has no
+// element in track 1, so track 1 is zero wide and the content stays
+// centred. No `:has()`, no variant fragment, no engine flag.
+
+.doc {
+	display: grid;
+	grid-template-columns: auto minmax(0, var(--measure)) auto;
+	gap: 0 var(--gutter);
+	justify-content: center;
+	align-items: start;
+	// The translations axis is positioned against this box.
+	position: relative;
+
+	> * {
+		grid-column: 2;
+	}
+
+	// `1 / -1` names the last EXPLICIT row line, and these rows are all
+	// implicit — so the rails span instead. Row gap is 0, so the surplus
+	// implicit rows cost nothing, and the tall grid area is what gives
+	// `position: sticky` something to travel through.
+	.doc-section {
+		grid-column: 1;
+		grid-row: 1 / span 100;
+		width: var(--sidebar);
+	}
+
+	.doc-outline {
+		grid-column: 3;
+		grid-row: 1 / span 100;
+		width: var(--aside);
+	}
+}
+
+.doc-title {
+	font-size: var(--size-3xl);
+	margin: 0 0 var(--space-sm);
+}
+
+.doc-body > :first-child {
+	margin-top: 0;
+}
+
+.doc-hero {
+	float: right;
+	width: var(--hero-width);
+	margin: 0 0 var(--space-md) var(--space-md);
+
+	img {
+		display: block;
+		width: 100%;
+		border-radius: var(--radius);
+		box-shadow: var(--shadow);
+	}
+}
+
+// -------------------------------------------------- section tree, outline
+// The same recursive `outline_entry` fragment fills both (§6e). Only the
+// framing is different, and both are token geometry.
+
+.doc-section,
+.doc-outline {
+	position: sticky;
+	top: calc(var(--sticky-top) + var(--space-xl));
+	max-height: var(--rail-max-h);
+	overflow-y: auto;
+	font-size: var(--size-sm);
+
+	[data-slot="children"] {
+		padding-left: var(--space-md);
+		border-left: var(--rule);
+		margin-left: var(--space-xs);
+	}
+
+	a {
+		display: block;
+		padding: var(--space-xs) var(--space-sm);
+		border-radius: var(--radius);
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			background: var(--bg-sunken);
+			color: var(--fg);
+		}
+	}
+
+	a[aria-current="page"] {
+		background: var(--bg-sunken);
+		color: var(--accent);
+		font-weight: var(--weight-head);
+	}
+}
+
+.doc-outline::before {
+	content: "On this page";
+	display: block;
+	padding: 0 var(--space-sm) var(--space-xs);
+	font-size: var(--size-xs);
+	font-weight: var(--weight-head);
+	text-transform: uppercase;
+	letter-spacing: var(--tracking-caps);
+	color: var(--fg-faint);
+}
+
+// ---------------------------------------------------------------- crumbs
+
+.crumbs {
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+	margin-bottom: var(--space-sm);
+
+	a {
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			color: var(--accent);
+		}
+	}
+}
+
+[data-kind="crumb"] + [data-kind="crumb"]::before {
+	content: "/";
+	color: var(--fg-faint);
+	padding-inline: var(--space-xs);
+}
+
+// ------------------------------------------------------------------ tags
+
+a[data-kind="tag"] {
+	display: inline-block;
+	font-size: var(--size-xs);
+	color: var(--fg-muted);
+	background: var(--bg-sunken);
+	border: var(--rule);
+	border-radius: var(--radius-lg);
+	padding: var(--pill-pad);
+	text-decoration: none;
+
+	& + a[data-kind="tag"] {
+		margin-left: var(--space-xs);
+	}
+
+	&:hover {
+		color: var(--fg);
+		border-color: var(--line-strong);
+	}
+}
+
+// --------------------------------------------------------------- listings
+
+[data-kind="listing"],
+.card-list,
+.gallery {
+	max-width: var(--page);
+	margin-inline: auto;
+}
+
+[data-kind="listing"] > [data-slot="title"] {
+	font-size: var(--size-2xl);
+	margin: 0 0 var(--space-lg);
+}
+
+[data-kind="listing"] {
+	max-width: var(--measure);
+
+	.summary {
+		padding-bottom: var(--space-lg);
+		margin-bottom: var(--space-lg);
+		border-bottom: var(--rule);
+
+		&:last-child {
+			border-bottom: 0;
+		}
+	}
+
+	.summary-title {
+		font-size: var(--size-lg);
+		margin: 0;
+
+		a {
+			color: var(--fg);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--accent);
+			}
+		}
+	}
+
+	.summary-meta {
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+		margin: var(--space-xs) 0 var(--space-sm);
+	}
+}
+
+// ------------------------------------------------------------------ cards
+// The card IS the jacket box: the cq units below resolve against it, so
+// nothing may size the cover independently of the card.
+
+.card {
+	display: block;
+	position: relative;
+	container-type: inline-size;
+	text-decoration: none;
+
+	img {
+		display: block;
+		width: 100%;
+		border-radius: var(--radius);
+		box-shadow: var(--shadow);
+	}
+
+	.card-title {
+		display: block;
+		margin-top: var(--space-sm);
+		font-weight: var(--weight-head);
+		color: var(--fg);
+	}
+
+	.card-note {
+		display: block;
+		margin-top: var(--space-xs);
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+	}
+
+	// A blank cover carries no type of its own, so the card sets the title
+	// ON it — but only where there IS a cover: `src` is an optional field,
+	// and a coverless row's card has no jacket to set type in. `:has()`
+	// makes that the platform's decision rather than a template branch.
+	&:has(img[src]) .card-title {
+		position: absolute;
+		// Centred ON the line, not started at it: only a quarter of the
+		// cover remains below 75%, and a line of type costs ~11% of it, so
+		// anchoring the top there drops a third line off the jacket.
+		// Percent-of-height becomes cqw via the ratio — the card is the
+		// container, so this one declaration holds at every placement.
+		top: calc(var(--card-title-at) * var(--card-ratio) * 1cqw);
+		transform: translateY(-50%);
+		inset-inline: 0;
+		margin-top: 0;
+		padding: var(--space-xs) var(--space-sm);
+		font-size: calc(var(--card-title-size) * var(--card-ratio) * 1cqw);
+		line-height: var(--leading-tight);
+		text-align: center;
+		color: var(--card-title-fg);
+		// Covers are arbitrary artwork, so legibility cannot rest on any
+		// one of them: a band that fades out at both edges carries the type
+		// over whatever is underneath, and the shadow covers light covers.
+		background: linear-gradient(
+			transparent,
+			var(--card-scrim) 20%,
+			var(--card-scrim) 80%,
+			transparent
+		);
+		text-shadow: var(--card-scrim-shadow);
+	}
+}
+
+.card-list {
+	.featured .card {
+		max-width: var(--card-featured);
+	}
+
+	.card-grid {
+		margin-top: var(--space-lg);
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
+		gap: var(--space-md);
+	}
+}
+
+// --------------------------------------------------------------- gallery
+// CSS-columns masonry: the §5e interim, until native masonry is Baseline.
+// The engine's dimension facts fill width/height on every img, so the
+// browser reserves the space and nothing shifts as images arrive.
+
+.gallery .masonry {
+	columns: var(--gallery-min);
+	gap: var(--gallery-gap);
+
+	[data-kind="summary"] {
+		display: block;
+		break-inside: avoid;
+		margin: 0 0 var(--gallery-gap);
+
+		img {
+			display: block;
+			width: 100%;
+			border-radius: var(--radius);
+		}
+	}
+}
+
+// ------------------------------------------------------------ pagination
+
+[data-kind="pagination"] {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-md);
+	margin-top: var(--space-lg);
+	padding-top: var(--space-md);
+	border-top: var(--rule);
+	font-size: var(--size-sm);
+
+	[data-kind="pagination"] ol {
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-sm);
+		margin: 0 auto;
+		padding: 0;
+	}
+
+	[data-kind="page_link"] a {
+		display: inline-block;
+		min-width: var(--space-lg);
+		text-align: center;
+		padding: var(--space-xs) var(--space-sm);
+		border-radius: var(--radius);
+		text-decoration: none;
+
+		&[aria-current] {
+			background: var(--accent);
+			color: var(--on-accent);
+		}
+	}
+}
+
+// -------------------------------------------------------------- relations
+
+.relations {
+	margin-top: var(--space-xl);
+	padding-top: var(--space-md);
+	border-top: var(--rule);
+}
+
+[data-kind="relation"] + [data-kind="relation"] {
+	margin-top: var(--space-lg);
+}
+
+[data-kind="relation"] > [data-slot="label"] {
+	font-size: var(--size-xs);
+	font-weight: var(--weight-head);
+	text-transform: uppercase;
+	letter-spacing: var(--tracking-caps);
+	color: var(--fg-faint);
+	margin: 0 0 var(--space-sm);
+}
+
+[data-kind="neighbor"] {
+	display: grid;
+	grid-template-columns: var(--date-col) minmax(0, 1fr);
+	gap: 0 var(--space-md);
+	align-items: baseline;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius);
+	text-decoration: none;
+	color: var(--fg);
+
+	&:hover {
+		background: var(--bg-sunken);
+	}
+}
+
+[data-kind="neighbor"] time {
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+	white-space: nowrap;
+}
+
+// The translations axis, relocated (§6f) into the document header rail.
+[data-kind="relation"][data-relation="translations"] {
+	position: absolute;
+	top: 0;
+	right: 0;
+	margin: 0;
+
+	[data-kind="relation"] > [data-slot="label"] {
+		display: none;
+	}
+
+	[data-kind="neighbor"] {
+		display: inline-block;
+		padding: var(--pill-pad);
+		border: var(--rule);
+		border-radius: var(--radius-lg);
+		font-size: var(--size-xs);
+		color: var(--fg-muted);
+	}
+}
+
+.relations:not(:has([data-kind="relation"]:not([data-relation="translations"]))) {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: 0;
+}
+
+// ------------------------------------------------------------------ links
+
+[data-kind="link_list"] [data-kind="link"] {
+	margin: var(--space-xs) 0;
+}
+
+// ------------------------------------------------------------- narrowing
+
+// The outline goes first — it is the least load-bearing of the three
+// columns — and folds into the content column above the body.
+@media (max-width: $drop-aside) {
+	.doc {
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+
+	.doc .doc-outline {
+		grid-column: 2;
+		grid-row: auto;
+		width: auto;
+		max-width: var(--measure);
+		position: static;
+		max-height: none;
+		margin-bottom: var(--space-lg);
+		padding-block: var(--space-sm);
+		border-block: var(--rule);
+	}
+}
+
+// Then the tree, and the document is one column like every other theme.
+@media (max-width: $drop-sidebar) {
+	.doc {
+		display: block;
+		max-width: var(--measure);
+		margin-inline: auto;
+	}
+
+	.doc .doc-section {
+		width: auto;
+		position: static;
+		max-height: none;
+		margin-bottom: var(--space-lg);
+		padding-bottom: var(--space-sm);
+		border-bottom: var(--rule);
+	}
+}
+
+@media print {
+	:root {
+		--bg: var(--print-bg);
+		--fg: var(--print-fg);
+	}
+
+	.site-header,
+	.doc-outline,
+	.doc-section,
+	.relations,
+	[data-kind="pagination"] {
+		display: none;
+	}
+}

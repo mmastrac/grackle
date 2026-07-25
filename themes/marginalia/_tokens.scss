@@ -1,0 +1,132 @@
+// marginalia — the knob panel. Same vocabulary as every other gallery
+// theme (../README.md); the values, and three extra geometry tokens for
+// the margin column, are all that make this theme what it is.
+
+:root {
+	color-scheme: light dark;
+
+	// ------------------------------------------------------------ palette
+	--bg: #fffefb;
+	--bg-sunken: #f6f4ee;
+	--bg-raised: #ffffff;
+	--fg: #111111;
+	--fg-muted: #6f6f6f;
+	--fg-faint: #a5a5a5;
+	--accent: #1a4f9c;
+	--accent-hover: #2f6fce;
+	--on-accent: #ffffff;
+	--line: #e2ded4;
+	--line-strong: #c8c2b4;
+	--selection: #dfe8f6;
+
+	// --------------------------------------------------------------- type
+	--font-body: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+		serif;
+	--font-head: var(--font-body);
+	--font-ui: var(--font-body);
+	--font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+	--root-size: 100%;
+	--size: 1.05rem;
+	--scale: 1.15; // a quiet ratio: this theme wants headings, not billboards
+	--leading: 1.7;
+	--leading-tight: 1.25;
+	--tracking: 0;
+	--tracking-caps: 0.1em;
+	--weight-body: 400;
+	--weight-head: 600;
+
+	--size-sm: calc(var(--size) / var(--scale));
+	--size-xs: calc(var(--size-sm) / var(--scale));
+	--size-lg: calc(var(--size) * var(--scale));
+	--size-xl: calc(var(--size-lg) * var(--scale));
+	--size-2xl: calc(var(--size-xl) * var(--scale));
+	--size-3xl: calc(var(--size-2xl) * var(--scale));
+
+	// -------------------------------------------------------------- space
+	--space: 1rem;
+	--space-xs: calc(var(--space) * 0.25);
+	--space-sm: calc(var(--space) * 0.5);
+	--space-md: var(--space);
+	--space-lg: calc(var(--space) * 2);
+	--space-xl: calc(var(--space) * 4);
+
+	// ----------------------------------------------------------- geometry
+	// The three tokens the whole theme turns on. `--margin-col` is the side
+	// column; `--measure` is the text; `--gutter` separates them. The page
+	// is exactly their sum, so widening the margin widens the page and
+	// nothing else needs to know.
+	--measure: 34rem;
+	--margin-col: 11rem;
+	--gutter: 2rem;
+	--page: calc(var(--margin-col) + var(--gutter) + var(--measure));
+
+	--pad-x: 1.25rem;
+	--radius: 3px;
+	--radius-lg: 3px;
+	--border: 1px;
+	--rule: var(--border) solid var(--line);
+	--rule-strong: var(--border) solid var(--line-strong);
+	--shadow: none;
+	--shadow-lg: 0 10px 30px rgb(0 0 0 / 0.15);
+
+	// ------------------------------------------------------- links, motion
+	--underline: 1px;
+	--underline-offset: 0.12em;
+	--transition: 120ms ease;
+
+	// --------------------------------------------------------- components
+	--date-col: 7rem;
+	--nav-gap: 0.75rem;
+	--pill-pad: 0 0;
+	--header-pad: 2.5rem;
+	--hero-width: 100%;
+	--sidenote-size: var(--size-sm);
+
+	--overlay-top: 12vh;
+	--overlay-max-h: 55vh;
+
+	--print-bg: #ffffff;
+	--print-fg: #000000;
+}
+
+// The one value that cannot be a custom property: a media query's
+// condition is evaluated before custom properties resolve, so the collapse
+// breakpoint is a Sass variable. It is the only number in this theme that
+// lives outside :root, and it is here so it is still edited in one place.
+$collapse: 45rem;
+
+@mixin palette-dark {
+	color-scheme: dark;
+	--bg: #14140f;
+	--bg-sunken: #0e0e0a;
+	--bg-raised: #1c1c16;
+	--fg: #eae7dd;
+	--fg-muted: #9c988c;
+	--fg-faint: #6a675d;
+	--accent: #8ab4f8;
+	--accent-hover: #adc9fb;
+	--on-accent: #14140f;
+	--line: #302e26;
+	--line-strong: #474437;
+	--selection: #24304a;
+	--shadow-lg: 0 10px 30px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-subtheme~="light"]) {
+		@include palette-dark;
+	}
+}
+
+:root[data-subtheme~="dark"] {
+	@include palette-dark;
+}
+
+// A second axis of subselection, independent of the first: `theme:
+// "marginalia:dark:wide"` sets both. Nothing in the engine knows what
+// either token means.
+:root[data-subtheme~="wide"] {
+	--measure: 42rem;
+	--margin-col: 14rem;
+}

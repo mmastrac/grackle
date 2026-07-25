@@ -1,0 +1,46 @@
+# A gallery over the objects table, and the two things that must NOT be in it.
+#
+# This replaces `views.rs::object_view_tests`, which hand-wired `db.object_ix`
+# and `db.page_ix` — the internal membership lists a fixture never has to know
+# about — with a comment admitting the hazard: "a fixture that omits this is a
+# row the view cannot see". Here the files are real, so membership is whatever
+# the loader decides, which is the thing actually under test.
+#
+# Two exclusions are visible in the blessed output by their absence:
+#
+#   assets/x.png    an object OUTSIDE the `match` glob
+#   photos/note.md  a CONTENT row inside it — with one row store, a gallery
+#                   that forgot its membership filter would pick this up
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Gallery"
+author = "Tester"
+
+[[collections]]
+name = "objects"
+kind = "objects"
+extensions = ["png"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+# `order_by` is declared: lexical-by-luck is not a contract.
+[routes.gallery]
+path = "/photos/"
+from = "objects"
+match = "photos/**"
+order_by = "name"
+layout = "listing"
+title = "Photos"

@@ -630,6 +630,475 @@ also retires the prune-glob workaround the marker scan previously needed
 `parents(false)`: a contributor's personal global gitignore, or one above the
 site root, must never change what the site publishes.
 
+## 4d. The base config: `extends`, and the empty file *(built 2026-07-25)*
+
+`examples/minimal` was 27 lines, and ~20 of them were lines every grackle site
+would ever write: the same three collections, the same five rules, the same
+`[sets.published]`. Its own header comment said the count "should fall as
+defaults land." No defaults had landed — `declared_collections` defaulted to
+empty, so a site with `[site]` alone loaded nothing at all.
+
+The base theme's argument (`themes/DESIGN.md`) applies verbatim one layer
+down: **a site can forget to copy a file and cannot forget the binary.** So
+`crates/source/assets/base.toml` is compiled in with `include_str!`, exactly as
+`parts.toml` and the base theme are, and every config inherits it unless it
+says `extends = "none"`. Same word as `theme.toml`'s, because it is the same
+operation — a union merge where the child wins — and one word means one thing
+to learn.
+
+**`examples/minimal/grackle.toml` is now empty. 27 lines to 0.**
+
+### Three shapes, three rules, none of them new
+
+The merge is the strongest evidence the cut is real: config decomposes into
+exactly the three resolution rules this engine already has, and needed no
+fourth.
+
+| shape | rule | already the law for |
+|---|---|---|
+| `[[collections]]` | merge by **source**; the site's rules **prepend** | §4 first-writer-wins — the site's rule is nearer, so it writes the route and the base's `**` fills the rest |
+| registries of definitions — `[sets.*]`, `[routes.*]`, `[markers]`, `[widgets]`, `[shells]`, `[profiles]`, `[records.*.*]`, `[i18n.strings.*]` | **shadow by name**, whole entry | a theme fragment shadowing the base's file of the same name (§5e) |
+| settings bags — `[site]`, `[i18n]`, scalars | **per key, child wins** | front matter over rule defaults (§4) |
+
+The registry rule is the one worth stating aloud: **your `[routes.feed]`
+replaces the base's entire**, so you never have to know what the base put in a
+table to predict what overriding it does. Merging into one would mean a site's
+feed silently inheriting a `limit` it never wrote.
+
+Collections key on **source, not name**, and that was found by walking
+field-notes through the merge: it names its posts collection `notes` over
+`_posts`, and a name-keyed merge would have left the base's `posts` collection
+in place beside it — two collections reading one directory, every post twice.
+Source is the physical thing; `name` is a label.
+
+### What may live in the base
+
+Two rules, and the second is the one that took work.
+
+1. **It must be what a site would otherwise re-derive.** If a site would have
+   to *undo* it, it is the site's. (The base theme's re-derive/undo test, same
+   words, and it is now the third time that line has done real work.)
+2. **It may not mint a URL the author did not ask for**, unless the absence of
+   that URL would be a bug on any site. `/atom.xml` and `/sitemap.xml` qualify.
+   Tag pages do not — plenty of sites never tag. `/search.*` does not — it is a
+   real payload.
+
+Rule 2 needed a mechanism, not just discipline: **an inherited route with no
+members does not materialize.** A site with no `_posts/` never asked for an
+empty `/blog/` or a feed with no entries. A route the *site* declared still
+materializes empty — declaring it is asking, and an empty listing you wrote is
+a fact about your content rather than a stray page. Which view is whose is
+recorded before the merge blurs them (`View::inherited`).
+
+### `/` is offered, not taken: `default_content`
+
+`/` is the one URL every site has its own opinion about, and the base ships it
+anyway — because the alternative was an empty config with no homepage. What
+makes that safe is a new key, Matt's shape: **`default_content` claims a row if
+that row exists.** The base's `[routes.home]` carries
+`default_content = "index.{md,html}"`, and three outcomes fall out, each
+leaving exactly one thing at the URL:
+
+| the tree says | `/` is |
+|---|---|
+| no `index.*` | the route: the ten newest posts |
+| `index.md` **placing `{% view home %}`** | the row, owning the arrangement — an ordinary q45 mode B claim from there on |
+| `index.md` **without the embed** | the row, by its own tree route; the offered route **stands down** |
+
+The third row is what makes this safe to inherit, and it was found by
+breaking: the first build of grack.com under the base config failed with
+*"view home: content index.html never places `{% view home %}`"*. grack.com's
+homepage is hand-built and says nothing about `[routes.home]` — a route it
+never wrote must not change how it renders. **An explicit `content` is a
+promise the engine holds you to; a defaulted one is an offer the row may
+decline.** Once the offer can be declined, the must-place check (§5h) stays
+exactly as strict as it was, because a defaulted claim only exists where the
+row already took it up.
+
+This is not the engine guessing the arrangement (§5h's rule). Both outcomes are
+*declared*, in `base.toml`; which one applies is a fact about the tree — the
+same shape as every marker in §4b.
+
+### The site icon is a URL, not a key *(built 2026-07-25)*
+
+The second thing every site has an opinion about, and the one the base was
+getting wrong in both directions at once. `render.rs` wrote grack.com's
+`/resource/favicon/favicon-160x160.png` into the Atom `<icon>` and `<logo>` of
+**every** feed — `examples/minimal`, a site with an empty config, shipped a
+link to a file it does not have. Meanwhile the HTML head, once it became
+`[html.head.*]`, emitted no favicon at all, so grack.com had quietly lost the
+block its Jekyll reference still carries. One hardcoded path, two opposite
+failures, and a golden fixture with the wrong bytes baked into it — which is
+why neither was visible.
+
+The fix takes no new key, because **the favicon is already addressed by a
+mechanism this document has**: it is a URL. `site.icon` is the first of
+`/favicon.{svg,png,ico,webp,gif}` that any row occupies, under `baseurl`, and
+the base declares what to do with it —
+
+```toml
+[html.head.link]
+icon = 'site.icon'
+"shortcut icon" = 'site.icon'      # the legacy alias, and deletable
+```
+
+Four things fall out, none of them new machinery:
+
+- **Dropping `favicon.svg` at the root is the whole interface.** No key, no
+  registration.
+- **An icon that lives elsewhere is pinned by a named object route** (§4) —
+  `match = "brand/icon-v3.png"`, `route = "/favicon.png"`. Resolution keys on
+  the *published URL*, so the feature that already existed for logos covers
+  this one for free. Had it keyed on a filename it would have needed its own
+  bucket rule, and §6a's non-unique `by_name` would have had to answer a
+  question with no non-arbitrary answer.
+- **Nothing publishes it explicitly.** The `<link>` is a citation, and
+  `materialize_referenced` publishes what the chrome cites — the case that
+  function's own doc comment already named ("the shell's favicons … are cited
+  by chrome that no body contains") and had no producer for.
+- **No icon means no tag**, in the head and in the feed alike: `site.icon` is
+  empty, and empty deletes its element (§5e rule 2). This is what makes it
+  safe to inherit, and it is the same sentence as `default_content` above —
+  the base states both outcomes and the tree picks one.
+
+The legacy `rel="shortcut icon"` is a **line in `base.toml`, not engine code**,
+which is the point of the head being config: a site that has stopped caring
+about browsers that old deletes it, and the duplicate `href` — the whole reason
+that spelling exists — costs nothing on a site with no icon.
+
+Held by a fixture (`tests/fixtures/site-icon`) carrying both an `.svg` and an
+`.ico`, so the preference order and the `.ico`-is-a-tree-row path are both
+visible. Mutation-checked three ways: dropping the two `base.toml` lines,
+reversing `ICON_URLS`, and removing the feed's empty-guard — the last of which
+fails `minimal-blog`, the fixture that had the leak frozen into it.
+
+### Absent `layout:` means a document
+
+A prerequisite, and a defect in its own right. `Some("page") | Some("post")`
+selected the document part map and everything else fell to the raw body, so a
+row that omitted `layout:` lost its furniture **with no error** — which is
+precisely why every config had to carry `defaults = { layout = "post" }`. The
+key names `_layouts/*.html` files nothing has read since §5e (q33(f)).
+Absent now means `document`; `layout: default` remains the escape hatch, and it
+is the one value that always said what it meant. The base config therefore ships
+no `layout` default, and the 122 `layout: page` rows on grack.com are now
+saying nothing.
+
+### `extends = "none"`, and what it does not turn off
+
+Three floors exist now, on three substrates: the part vocabulary
+(`parts.toml`), the base theme, the base config. **`none` drops only the
+third.** Different substrates, different opt-outs — one switch for all three
+would be a worse story than three honest ones.
+
+Two live users, which is what keeps the escape hatch real:
+
+- **`examples/raw`** is the base config *printed*: the same content tree as
+  `minimal`, everything spelled out. A test holds the two to the same URL set,
+  so the printed copy cannot drift from the compiled one without going red.
+  This is also the answer to "what am I inheriting" until `grackle config
+  --effective` exists.
+- **`theme-preview/`**, whose shape the base did not anticipate: six posts
+  collections, one per theme, and no site-level blog. Every `kind = "posts"`
+  collection feeds the one posts table (§4), so the base's `published` swept
+  all six into one `/blog/`. One line instead of shadowing five routes.
+
+That second case also explained something this document had read as
+redundancy: theme-preview's sets restate `collection == "…"` beside
+`from = "<that collection>"` because **`from` a posts collection does not scope
+to it** — it ranges over the whole posts table. Not a merge problem; a
+composition wart the merge made visible.
+
+### What it cost
+
+grack.com and field-notes both build to a **byte-identical URL set** under the
+base config, which is the measurement that mattered: the merge is inert on
+sites that already declared everything. Eight merge tests plus three
+falsifiers, each mutation-checked when written — including reversing the rule
+concatenation, keying collections by name, and merging registries one level too
+deep, all three of which produce a green suite without the test that catches
+them.
+
+### Honest edges, named now
+
+- **The base config is a compatibility surface.** A base route added in 1.1
+  mints URLs on every stock site. Policy, stated now: **base-config changes
+  that mint URLs are breaking changes.** The base theme has the same exposure
+  and no policy yet.
+- **`grackle config --effective`** — printing the merged config with
+  provenance per key — is what makes this inheritance rather than magic, and it
+  is not built. `examples/raw` is the stopgap. It is `explain`'s "which rule
+  wrote which key" one level up, and it should ship before 1.0.
+- **A titleless view still renders its own config key as a heading**
+  (`trails.rs`: `None => r.key.clone().unwrap_or_else(|| view.to_string())`).
+  The base's routes dodge it with `@home`/`@blog` refs into `ENGINE_STRINGS`,
+  so an inherited route localizes; the general fallback is untouched and
+  remains wrong.
+- ~~**The base theme's root shell hardcodes grack.com's favicon paths.**~~
+  **Closed 2026-07-25** — and the note was wrong about where. The shell is
+  clean; the leak was the **Atom feed**, whose `<icon>` and `<logo>` named
+  `/resource/favicon/favicon-160x160.png` for every site that has ever built
+  one. The head was worse in the other direction: since the head became
+  config, **no site emitted a favicon at all**, so grack.com had silently lost
+  the block its reference build still carries. See "The site icon is a URL"
+  above.
+
+## 4e. The flag family is not engine vocabulary *(Matt, 2026-07-25)*
+
+> Matt: *"any time we see `draft` or `hidden` explicitly in engine code, that's
+> a big smell."*
+
+He is right, and the first answer this document gave — *the engine reads them
+by name, therefore they are engine vocabulary* — is circular. It is engine
+vocabulary **because** somebody wrote it in Rust. The audit, so the size is on
+the record:
+
+| where | what | verdict |
+|---|---|---|
+| `relations.rs` | the engine composing `"!candidate.draft && !candidate.hidden"` onto a defaulted pool | **deleted** |
+| `load.rs` | `Cascaded`, a struct of **seven named fields**, the only keys a marker could set | **four now**, and the four left are genuinely engine vocabulary (theme, shell, layout, toc) |
+| `model/lib.rs` | `Row.draft/hidden/noindex`, `Route.draft/hidden`, both schemas | **deleted** — declared fields, carried in `Row.fields` and `Route.fields` |
+| `debug.rs`, `main.rs` | the inspector and `explain` printing three named bools | **deleted** — both print declared fields now |
+| `render.rs`, `build.rs`, `passes/listing.rs` | `noindex` → `<meta name="robots">` | **`[html.head.meta]`** — the one invention, below |
+
+**All of it landed 2026-07-25.** `draft`, `hidden` and
+`noindex` are ordinary declared bools that `base.toml` ships in `[schema]`; the
+engine's own row schema no longer mentions them, `route_schema()` takes the
+site's declared fields as an argument, and `Route` carries a field map instead
+of two named bools. The proof it is real: **`extends = "none"` genuinely leaves
+a site without them**, and `where = "!draft"` on such a site is a load error
+naming the knowns — which is exactly what `examples/raw` and `theme-preview`
+now declare `[schema]` to avoid.
+
+What remains is two spellings, both narrow and both named above: a view's
+`noindex = true` copied onto its routes, and `Site.noindex` as the drafts
+profile's record of itself. Neither is schema; both dissolve when a view can
+declare arbitrary route fields.
+
+### Every row is governed *(Matt, 2026-07-25)*
+
+> *"I think we should consider all sites governed — you should declare schema
+> fields before use."*
+
+`Schemas::resolve` used to return `Option`, and `None` meant "no `.schema.toml`
+governs this path, so tolerate any front matter." That tolerance is gone:
+resolve returns a map, possibly empty, and an undeclared front-matter key is a
+load error naming the knowns wherever it appears.
+
+It cost exactly one line across every site in this repo: `hide_sidebar: true`
+in grack.com's `index.html`, a Jekyll-era key that nothing had read since the
+port and that the tolerance had been hiding. That is the whole argument for the
+rule — the failure it produces is a dead key named out loud, and the failure it
+replaces is a live key silently ignored.
+
+Two consequences worth stating:
+
+- **A site that declares nothing is governed by an empty schema**, so its error
+  names zero knowns. That reads oddly for a second and is correct: the site
+  said nothing, so nothing is allowed.
+- **`extends = "none"` is now load-bearing for vocabulary, not just routes.**
+  Declining the base declines its `[schema]`, which is why both no-inherit
+  sites in this repo grew three lines. That is the cost of the escape hatch
+  being honest.
+
+### The two axes config was missing *(built 2026-07-25)*
+
+`.schema.toml` is **positional**, and §4 explicitly supports one collection
+with several sources — so "every post has a `series`" had to be copied into
+`_posts/.schema.toml` *and* `_drafts/.schema.toml`, two declarations that can
+drift. That is the disease `[sets.published]` exists to cure, one layer down.
+Two config axes join the positional one, resolved by the same law:
+
+```toml
+[schema]                              # every row of the site
+archived = { type = "bool" }
+
+[collections.notes.schema]            # every row of one collection
+series = { type = "string" }
+```
+
+**Nearest wins: positional beats collection beats site-wide**, because a
+`.schema.toml` sitting beside the rows is the most specific statement anyone
+made about them. `[schema]` is where the base config will declare the flag
+family, which is the point of having it — those are properties of a *row*, not
+of a directory, and no positional file could say so without sitting at the root
+of every site.
+
+### Why the flag move was one step, not two *(measured 2026-07-25)*
+
+Splitting "flags become declared fields" from "routes project declared fields"
+looked reasonable and was not. `route_schema()` declares `draft`/`hidden`
+because `from = "*"` filters over routes, and the base config's own sitemap
+uses them — so moving only the row half would leave `route_schema()`
+advertising two fields that, on an `extends = "none"` site, no row has. **A
+filter environment that type-checks a name nothing can answer is a worse
+failure than the hardcoding it replaced**: it fails at runtime, as `false`,
+silently.
+
+So it went as one: `Row` lost the three, `Route` lost its two and gained
+`fields`, `route_schema()` takes the declared set, and `SiteDb` carries the
+site's vocabulary (`db.declared`) because a consumer that wants to parse a
+filter needs the site's names rather than the engine's.
+
+**Two defects fell out of the audit, and one is worse than the smell.**
+`.schema.toml` fields were nameable in `order_by`, `group_by` and a relation's
+`rank`, but **not in a view's `where`** — a site could declare a bool, set it,
+group by it, sort by it, and then get `unknown field` from its own filter.
+Fixed: `Schemas::row_filter_schema` is the one definition and `where` is its
+third consumer rather than the one exception.
+
+Still open, and the sharper one: **a marker or rule default cannot set a
+declared field at all.** `cascade()` reads seven hardcoded names, and declared
+fields come only from front matter, so `[markers] ".archived" = { archived =
+true }` does **nothing, silently** — no error, the key is simply ignored. Every
+mechanism in §4b works for exactly three flags because those three are in a
+Rust struct. This is the smell's real cost, and it is what makes
+`[collections.schema]` a prerequisite rather than a nicety.
+
+### The head is config: `[html.head.meta]` *(Matt's shape; built 2026-07-25)*
+
+The one site that needs an invention rather than a deletion. `noindex` is not a
+query concern — nothing filters on it — it is an *output* concern: whether a
+`<meta>` is emitted. So the binding moves into config as an expression:
+
+```toml
+[html.head.meta]
+robots = 'noindex ? "noindex" : ""'      # empty ⇒ the meta is not emitted
+description = 'description'
+```
+
+Three notes on the shape:
+
+- **A conditional belongs here.** §5d's no-control-flow rule governs
+  *templates* — a fragment wanting an `if` means a missing fact. This is the
+  expression surface (§5f), which is exactly where a conditional is legitimate,
+  and "which string does this meta take" has no fact-shaped spelling.
+- **Spell it as CEL's own ternary.** §5f's contract is that every expression is
+  *grammatically valid CEL*, and CEL has `a ? b : c` natively — so
+  `noindex ? "noindex" : ""` costs nothing, while `if_else(…)` would be a
+  registered grackle function and a small divergence. Functions are registered
+  in Rust and allowed (§5f), so `if_else` is not *wrong*; the ternary is just
+  already there.
+- **Empty means absent**, which is §5e's rule 2 one layer up: an empty part
+  deletes its element, an empty meta value emits no tag. One rule, two places.
+
+**As built**, four notes:
+
+- **`Head.noindex` is gone**, replaced by `Head.meta: Vec<(String, String)>` —
+  already-evaluated pairs, so emitting them is a loop with no decision in it.
+  `light_head` and `head_html` share one `meta_tags`.
+- **Two compiled sets, and an expression must fit both.** A document's head is
+  evaluated against its ROW, a listing's against its ROUTE, and the two have
+  different vocabularies — so `compile_metas` parses each expression twice and
+  a failure on either side is a load error naming which. Stated rather than
+  discovered, because the alternative is a meta that silently appears on posts
+  and not on listings.
+- **A view's `noindex = true` becomes a route field.** `[routes.tag_index]
+  noindex = true` writes `route.fields["noindex"]`, so one expression answers
+  for both surfaces. The engine still spells `noindex` at that one spot; the
+  honest end state is `fields = { noindex = true }` on a route, once a view can
+  declare arbitrary fields.
+- **The drafts profile keeps working**, as a config patch: `[profiles.drafts]
+  noindex = true` now overrides the `robots` declaration instead of setting a
+  bool the head pass read by name. Same behaviour, said in the site's
+  vocabulary. `Site.noindex` survives as the profile's own record of it.
+
+Verified by mutation: deleting `[html.head.meta]` from `base.toml` drops every
+`<meta name="robots">` on grack.com from its usual set to zero, and the site is
+otherwise byte-identical — which is the proof the tag was coming from config
+and not from the engine.
+
+### The producers, and which of them fold *(2026-07-25)*
+
+The head's contents sort into five classes by where their value comes from,
+and the class is what decides whether config can own it.
+
+| class | tags | folds? |
+|---|---|---|
+| **row columns** | `description`, `og:description`, `og:title` | ✅ `'description'`, `'title'` |
+| **config constants** | `author`, `article:author`, `viewport` | ✅ once `site.*` is in the environment |
+| **derived from a column** | `canonical`, `og:url`, `og:type`, `article:published_time` | ✅ once `+` concatenates and a conditional exists |
+| **variable-length lists** | `rel="alternate" hreflang` × n (q53) | ❌ a name→string map cannot repeat |
+| **composites** | the JSON-LD `<script>` | ❌ a whole document, not a value |
+
+Three additions made the first three classes reachable, each small and each
+general rather than head-specific:
+
+- **`site.*` in the environment.** A head says as much about the site as about
+  the row. Rather than teach the evaluator about config, `HeadRow` answers
+  three extra names and the schema gains them.
+- **String `+`.** CEL concatenates with it; nothing in grackle had needed it
+  until `site.url + url`. It also retires the one function this was going to
+  need: `date` is ISO-8601 already, so `date + "T00:00:00+00:00"` is the
+  Atom-shaped timestamp and no formatter had to be registered.
+- **Three tables, because there are three ELEMENTS** — `[html.head.meta]` is
+  `<meta name>`, `[html.head.property]` is `<meta property>` (Open Graph and
+  `article:*` use the other attribute), `[html.head.link]` is `<link rel>`.
+  One table with the engine deciding which name takes which attribute would
+  have been the same smell in a smaller room.
+
+**One compiled set, not one per surface.** The environment is the *head's*
+vocabulary — `title` and `url` are what the head is being built for, `site.*`
+is config, the rest is the row — so a listing simply reads Null for
+`description` and emits no tag. That is the `if let Some(d)` that used to live
+in Rust, and it is why `og:title` works on a listing where a route-schema-only
+environment would have silently dropped it.
+
+**What the engine still emits**: `<title>` (an element, not a meta), `charset`,
+the stylesheet link (per-row theme resolution, not a row fact), the hreflang
+list, and JSON-LD.
+
+**The favicon block is gone** *(Matt, 2026-07-25)*. `FAVICONS` was four lines
+of grack.com compiled into the engine — two `<link rel>` and two
+`<meta name>` — and every site emitted them, which `examples/minimal` made
+impossible to ignore: an empty config file produced a page advertising another
+site's icons and calling itself `grack.com`. The two metas moved into
+grack.com's own `[html.head.meta]`, where they always belonged and where they
+now sit beside the base's four (a live demonstration of the registry rule: the
+site's entries JOIN the base's rather than replacing the table).
+
+The two `<link>`s were **deleted, not moved**: they carry `sizes` and `type`,
+and `[html.head.link]` is a rel→href map. The honest consequence, stated
+because it is user-visible: **grack.com currently has no favicon** — there is
+no `/favicon.ico` at the root to fall back to. They come back when a link entry
+may be a table (`{ href = '…', sizes = "180x180" }`) rather than a bare
+expression, which is the one piece of head machinery still owed.
+
+**The `light` tier keeps `[html.head.meta]` and drops the rest.** The line is
+the element, not a list of blessed names: a `<meta name>` is a fact about the
+document, while Open Graph and a canonical link are apparatus for describing it
+to other systems. The alternative was the engine deciding that `robots` is the
+one tag `light` keeps — §4e's smell wearing a tier for a hat. Cost: the tier's
+head grew by two tags (`author`, `viewport`), so §5g's measured "~85 B" is
+stale.
+
+#### What the fold found
+
+Head *order* changed (tables sort by name), so the byte oracle no longer
+applies to heads; the check became a per-page comparison of the head's tag
+SET, over all 559 grack.com pages, 41 field-notes pages and 97 theme-preview
+pages. **Body bytes are unchanged everywhere.** Three head differences
+survived, and all three are the same defect surfacing:
+
+> `head_simple` — the head for every non-post row — hardcoded
+> `description: None` and `og_type: "website"`.
+
+So grack.com's homepage had a `description:` in its front matter that was
+never emitted, field-notes' dated book pages announced themselves as
+`website`, and theme-preview's 24 dated notes did too. Moving the head to
+expressions fixed all of them at once, because an expression reads the row
+rather than whichever constructor the code path happened to call. q51 gave
+pages dates and typed fields; the head had never been told.
+
+### And the inspector stopped naming them too
+
+`debug.rs` carried three named bools in its row shape and `query explain`
+printed two. Both now render whatever the site declared: the inspector folds
+them into the `fields` list it already had for pages, and `query stats` prints
+one count per declared `bool` that any row carries. A site's own flags were
+invisible in both before — `archived` would have been a field nothing reported
+on, which is the same defect one layer out.
+
 ## 5. Views (the generators, declaratively)
 
 Everything Jekyll plugins generated becomes a declared, incrementally
@@ -891,6 +1360,7 @@ distinction rather than a spelling.)
 
 **Theme is chosen per row** (unusual, but it is what this site does): `theme:`
 in front matter or a rule default (§5b), rather than a site-wide setting.
+
 
 **Layout kind follows from what a row *is***: a post or page → `document`; a
 view with `group_by`/`paginate` → `listing`; a feed/sitemap view → `feed`; a
@@ -1771,10 +2241,62 @@ URL tree, so per-subtree fills only get interesting for posts once page
 bundles exist. Identity slots at the root — the actual motivating case — are
 unaffected.
 
+### The base theme is in the binary *(built 2026-07-24)*
+
+The null theme was complete and unusable. `canonical()` guarantees no part's
+bytes vanish, but it has no way to know which sibling a `url` part is the
+address *of*, so it renders one as `<a href="/x/">/x/</a>` — a link whose text
+is the URL. Every kind that pairs a label with a link (`crumb`, `tag`,
+`neighbor`, `link`, `page_link`, `outline_entry`) therefore needs a fragment
+saying "this text, that href", and there is exactly one sensible way to write
+each. A five-theme gallery made the consequence visible: eleven of about
+seventeen fragments were byte-identical across all five, and `_base.scss` was
+identical across all six.
+
+So the base moved into the engine — `crates/grackle/assets/base/`, embedded with
+`include_str!` exactly as `parts.toml` is, and inherited by every theme.
+`Fragments::load` already took `(name, source, display)` triples and
+parsed-then-validated the whole set, so inheritance is a merge before that call:
+base triples first, a theme's entry replacing one by name. Merge-then-validate is
+what lets a theme's `document.html` name a stream child that lives in the base.
+
+**What this changes.** `Theme::null()` is the base rather than an empty
+`Fragments`, so a site with no `themes/` directory renders semantic HTML with a
+stylesheet — `examples/minimal` is the proof. `canonical()` becomes a deeper
+fallback that fires only for kinds the base declines. The gallery went from 109
+files to 32; three themes are now four files each.
+
+Three lines had to be drawn, and each was drawn by something breaking:
+
+- **The base is structure, never decoration.** A rule belongs there if a theme
+  would have to re-derive it (the measure, a nav that is a row not a bulleted
+  list, the reset, the search overlay). It does not if a theme would have to
+  *undo* it. The base briefly carried `vanilla`'s comma-separated tags and its
+  truncation ellipsis; both promptly turned up inside `ledger`'s pills and on top
+  of its fade. Decoration lives in `themes/vanilla/`, which is now one file.
+- **Ship a shell, own the frame.** The base's page geometry keys on
+  `[data-frame]`, an attribute its own `shell.html` stamps, so a theme that
+  writes a shell inherits none of it. Without that, the base's centred
+  `--measure` column clamped `atlas`'s full-bleed sticky bar and `miroir`'s fixed
+  rail.
+- **An arrangement may decline a part; `canonical()` may not.** Completeness is
+  the *parts layer's* obligation. `terminal` drops tags from its summary on
+  purpose, a card is a jacket with no prose, a gallery has no featured slot. The
+  base's own exemptions are listed in `theme.rs` with reasons — the notable one
+  being `summary.src`, because rule 2 deletes an element with an empty *content*
+  slot and an `<img>` carries only attribute holes, so a plain summary that tried
+  to show a cover would emit a broken image on every text row.
+
+Four tests hold it: the base drops only what it declares, every theme keeps a
+row's name, no theme uses a token nothing defines, and no `theme.scss` names a
+colour. All four were mutation-checked when written.
+
 ### Tripwires
 
 - A layout kind wants to emit a wrapper div → that div belongs in a theme
   fragment.
+- A rule in the base makes a theme write an override → it was decoration, not
+  structure; move it to `themes/vanilla/`.
 - A theme fragment wants a conditional → there is a missing fact; empty-
   collapses covers presence, facts-as-attributes cover variants.
 - The binder grows an expression syntax → stop; it is becoming a template
@@ -3740,6 +4262,74 @@ label owns selection. And **route order is lexical** (`sort_by(url)`, for
 determinism), which is right for the sitemap and wrong for reading:
 `/blog/page/10/` sorts before `/blog/page/2/`. The client owns display order
 with a numeric-aware comparator; the engine keeps its determinism.
+
+## 7d. Fixture tests: a directory in, a directory out *(built 2026-07-25)*
+
+An audit of all 313 tests asked which of them were testing *a site* while
+pretending to test a function. Roughly seventeen were, and the tell was
+uniform: **they hand-built what the loader produces.** `views.rs` wired
+`object_ix` itself; `posts_order_tests` fabricated `Row`s with the `locale`
+field a comment warned was load-bearing; `trails.rs` faked a route's
+pagination stamp (`root.key = Some("page 1")`); `outline.rs` wrote seven
+`Row{…}` literals filling fifteen irrelevant fields each. None of them can
+catch a loader bug, because none of them run the loader.
+
+`crates/grackle/tests/fixtures/<name>/` is `site/` (a real `grackle.toml` plus
+content) and either `out/` (the expected rendered tree, in git) or
+`expected-error` (a substring the load must fail with). One `#[test]` walks
+them all and collects every problem before panicking, so one broken fixture
+cannot hide the rest. `UPDATE_EXPECT=1` re-blesses.
+
+**The line, so this does not eat the suite**: if the subject is a *site*, it
+belongs in a fixture; if the subject is a *function*, it does not. All
+thirteen `binder.rs` tests isolate one hole-algebra rule against a one-line
+fragment and are clearer that way. `parts.rs` asserts on typed `PartMap`
+values, which HTML diffing would make *less* precise. Everything in
+`crates/db`, `crates/model` and `crates/search-core` tests a pure expression
+language and pure data structures. The audit found no candidates there at all,
+which is the boundary holding.
+
+Three things the build settled:
+
+- **`crates/grackle` grew a `lib.rs`.** It was a binary crate, so `render_site`
+  was unreachable from `tests/` — which is *why* those seventeen tests
+  reconstructed the pipeline by hand. Shelling out to the built binary was the
+  alternative and turns an `anyhow` chain into stderr text to scrape.
+- **Exactly one value needs normalizing**: the feed's own `<updated>`, which is
+  wall-clock. Per-entry `<updated>` and the sitemap's `<lastmod>` are derived
+  from a row's `date` and are stable, so blanking them would hide a real
+  regression — the harness rewrites the first `<updated>` only.
+- **A fixture's `site/` must stay the bytes its author wrote.** Rendering
+  creates `_cache/` beside the content; the harness removes it, because a
+  suite that dirties `git status` on every run trains people to ignore it.
+
+**Nine tests converted, six fixtures.** `views.rs`'s object views and post
+ordering, `trails.rs`'s crumb climb and declared trail, `outline.rs`'s section
+tree — every one of them replaced by a directory whose contents are what a
+user would write. Two of the conversions merged several tests into one
+fixture, which is the shape telling the truth: three `order_by` variants are
+three routes over one corpus, not three sites.
+
+One thing the fixtures found immediately. `crumb-trails` renders a post from a
+collection that declares NO `trail` and it still gets a year crumb, because
+every `kind = "posts"` collection feeds one table (§4) and the archive claims
+it. The unit test it replaced could not have seen that: it asserted on
+`post_trail` for one hand-built row. The fixture pins the behaviour without
+endorsing it.
+
+**Not everything the audit proposed was right.** It suggested moving the
+`css_pass`/`embed` scratch directories to `CARGO_TARGET_TMPDIR`; Cargo defines
+that only for integration tests, so a unit test cannot have it. The existing
+`who`-suffixed system temp dir is the correct answer for tests that run in
+parallel threads, and it stays — with a comment saying why, so the next person
+does not re-propose it.
+
+Two more fixtures ship with the harness itself, each mutation-checked: `minimal-blog` (an empty-ish
+config, a page, two posts, one of them `noindex:`) and `undeclared-field` (the
+§4e governance rule, holding the line that let a dead `hide_sidebar:` survive
+grack.com's whole port). Breaking `og:type` in the base config names the file,
+the line, and both values; changing an error message names the expected
+substring and what was actually raised.
 
 ## 8. Known-inexact from day one (accepted, iterate later)
 

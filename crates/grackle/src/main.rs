@@ -1,42 +1,12 @@
-use grackle_db::{filter, template};
-use grackle_model as db;
-use grackle_source::{config, store, views};
+//! The CLI. Everything it drives lives in the library beside it (`lib.rs`),
+//! so the fixture harness can call the same entry points this does.
 
-mod binder;
-mod build;
-mod debug;
-mod diff;
-mod embed;
-mod highlight;
-mod links;
-mod markdown;
-mod outline;
-mod parts;
-mod passes;
-mod relate;
-mod render;
-mod rewrite;
-mod serve;
-mod slots;
-mod tags;
-mod theme;
-mod thumbs;
-mod trails;
-mod urls;
+use grackle::{build, config, db, debug, diff, embed, filter, serve, store, urls, views};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-
-/// The workspace root, which is where `grackle.toml` sits — the site itself
-/// is its `root = ".."`, one level further up. For tests that read the real
-/// corpus: anchored to the manifest rather than the CWD, which Cargo sets to
-/// this package's directory.
-#[cfg(test)]
-fn workspace_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 #[derive(Parser)]
 #[command(name = "grackle", about = "A virtual database over the site")]
@@ -340,14 +310,18 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 "  tagged        {}",
                 db.rows.iter().filter(|r| !r.tags.is_empty()).count()
             );
-            println!(
-                "  drafts        {}",
-                db.rows.iter().filter(|r| r.draft).count()
-            );
-            println!(
-                "  hidden        {}",
-                db.rows.iter().filter(|r| r.hidden).count()
-            );
+            // One line per declared bool the site actually uses — `drafts`
+            // and `hidden` used to be two hardcoded counts, which meant a
+            // site's own flags were invisible here (§4e).
+            for (name, ty) in &db.declared {
+                if *ty != filter::Type::Bool {
+                    continue;
+                }
+                let n = db.rows.iter().filter(|r| r.flag(name)).count();
+                if n > 0 {
+                    println!("  {name:<13} {n}");
+                }
+            }
             println!("pages           {}", db.page_ix.len());
             println!(
                 "  rendered      {}",
@@ -433,8 +407,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         Query::Search { query, limit } => {
             // The CLI runs no render pass, so the raw markdown stands in for
             // the rendered body — a smoke query over the same projection.
-            let docs =
-                build::search_docs(db, |p| crate::store::read_body(&p.path).unwrap_or_default());
+            let docs = build::search_docs(db, |p| store::read_body(&p.path).unwrap_or_default());
             let (index, _) = grackle_search_core::build_index(&docs);
             let q = query.join(" ");
             for (url, title, date) in index.search(&q, limit) {
@@ -493,8 +466,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("source      {}  (embedding cache key)", r.rel.display());
                 println!("title       {}", r.title.as_deref().unwrap_or("-"));
                 println!("layout      {}", r.layout.as_deref().unwrap_or("-"));
-                println!("draft       {}", r.draft);
-                println!("hidden      {}", r.hidden);
+                for (name, value) in &r.fields {
+                    println!("{name:<11} {}", debug::value_text(value));
+                }
                 println!(
                     "tags        {}",
                     if r.tags.is_empty() {
@@ -509,8 +483,8 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                     .get(&r.collection)
                     .map(Vec::as_slice)
                     .unwrap_or(&[]);
-                let (newer, older) = crate::db::neighbors_in(seq, &r.key);
-                let url_of = |k: Option<crate::db::Key>| {
+                let (newer, older) = db::neighbors_in(seq, &r.key);
+                let url_of = |k: Option<db::Key>| {
                     k.and_then(|k| db.row(&k).map(|n| n.url.clone()))
                         .unwrap_or_else(|| "-".into())
                 };

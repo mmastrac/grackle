@@ -1,0 +1,56 @@
+// vanilla — the user-agent stylesheet, 2026 edition.
+//
+// This theme is one file and no fragments, which is the shortest statement
+// of what the engine base now does: everything vanilla used to carry —
+// thirteen fragments, the reset, the token vocabulary, the search overlay —
+// is compiled into the binary and sits under every theme. What is left here
+// is only the residue the base deliberately refuses: **decoration**, the
+// rules a theme would have to undo rather than re-derive.
+//
+// The design principle the base inherited from this theme: delegate every
+// aesthetic decision to the platform, keep only the decisions the platform
+// refuses to make. No hues, no typefaces — the base binds every colour to a
+// CSS system colour and every font to a `ui-*` face, so dark mode is
+// `color-scheme` and forced-colors mode works for free.
+//
+// Each rule below passes the review test "what would the UA do if it knew
+// about this element?", and each was moved out of the base for the same
+// concrete reason: a `content:` string under every theme in the site is a
+// thing every theme must remember to unset.
+
+// The token vocabulary, the reset and the search overlay all come from the
+// base — there is nothing to import.
+
+// ----------------------------------------------------------------- crumbs
+// The separator is `/`, the URL's own glyph, not a designed one. The crumb
+// root is a span, so the glyph sits outside the link; the inert tail is
+// already GrayText via `a:not([href])` in the base reset.
+
+[data-kind="crumb"] + [data-kind="crumb"]::before {
+	content: "/";
+	color: var(--fg-faint);
+	padding-inline: var(--space-xs);
+}
+
+// ------------------------------------------------------------------- tags
+// A comma-separated list of ordinary links. Pills are personality of a
+// louder kind. The tag root IS the link, so the comma rides its ::before,
+// recoloured to read as punctuation rather than as link text.
+
+a[data-kind="tag"] + a[data-kind="tag"]::before {
+	content: ", ";
+	color: var(--fg-muted);
+}
+
+// ---------------------------------------------------------------- listing
+// A cut-off text ends in an ellipsis. The gradient fade is a designed
+// object; `…` is punctuation. Keyed on the fact the engine stamps, so it
+// lands on fragment and canonical markup alike.
+
+[data-truncated] [data-slot="content"] > :last-child::after {
+	content: " …";
+	color: var(--fg-muted);
+}
+
+// No print block: system colours already resolve on paper, and the UA does
+// not hide a page's chrome — neither do we.

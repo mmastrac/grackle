@@ -1,0 +1,125 @@
+// ledger — the knob panel. Every literal in this theme lives in this file:
+// no colour, size, radius or duration appears anywhere below it. Tweaking
+// the theme means editing here and nothing else.
+//
+// The names are the gallery's shared vocabulary (../README.md), so this
+// block is interchangeable with any other theme's — paste terminal's
+// palette in here and ledger goes dark without touching a rule.
+
+:root {
+	color-scheme: light dark;
+
+	// ------------------------------------------------------------ palette
+	--bg: #fffdf8;
+	--bg-sunken: #f7f2e7;
+	--bg-raised: #ffffff;
+	--fg: #2c2a26;
+	--fg-muted: #7a746a;
+	--fg-faint: #aaa294;
+	--accent: #9a5b2b;
+	--accent-hover: #c07a3f;
+	--on-accent: #fffdf8;
+	--line: #e6e0d4;
+	--line-strong: #cfc6b4;
+	--selection: #f0e2cd;
+
+	// --------------------------------------------------------------- type
+	--font-body: Georgia, "Iowan Old Style", "Times New Roman", serif;
+	--font-head: var(--font-body);
+	--font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+	// `--root-size` is the html font-size: leave it at 100% and the reader's
+	// own browser setting wins. Everything else is rem, so it all scales.
+	--root-size: 100%;
+	--size: 1rem;
+	--scale: 1.2; // the modular ratio: every heading below moves with it
+	--leading: 1.65;
+	--leading-tight: 1.2;
+	--tracking: 0;
+	--tracking-caps: 0.08em;
+	--weight-body: 400;
+	--weight-head: 700;
+
+	// Derived. Change --size or --scale, not these.
+	--size-sm: calc(var(--size) / var(--scale));
+	--size-xs: calc(var(--size-sm) / var(--scale));
+	--size-lg: calc(var(--size) * var(--scale));
+	--size-xl: calc(var(--size-lg) * var(--scale));
+	--size-2xl: calc(var(--size-xl) * var(--scale));
+	--size-3xl: calc(var(--size-2xl) * var(--scale));
+
+	// -------------------------------------------------------------- space
+	--space: 1rem;
+	--space-xs: calc(var(--space) * 0.25);
+	--space-sm: calc(var(--space) * 0.5);
+	--space-md: var(--space);
+	--space-lg: calc(var(--space) * 2);
+	--space-xl: calc(var(--space) * 4);
+
+	// ----------------------------------------------------------- geometry
+	--measure: 42rem; // the reading column, and the only width that matters
+	--margin-col: 0rem; // ledger has no margin column (marginalia does)
+	--gutter: 2rem;
+	--pad-x: 1.25rem;
+	--radius: 6px;
+	--radius-lg: 10px;
+	--border: 1px;
+	--rule: var(--border) solid var(--line);
+	--rule-strong: var(--border) solid var(--line-strong);
+	--shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+	--shadow-lg: 0 12px 40px rgb(0 0 0 / 0.18);
+
+	// ------------------------------------------------------- links, motion
+	--underline: 1px;
+	--underline-offset: 0.15em;
+	--transition: 120ms ease;
+
+	// --------------------------------------------------------- components
+	// A few places want their own knob rather than a shared one. Keeping
+	// them here means the rules below still hold no literals.
+	--date-col: 8.5rem; // the date gutter in neighbour and search rows
+	--nav-gap: 1rem;
+	--pill-pad: 0.1em 0.6em;
+	--header-pad: 1.5rem;
+	--hero-width: min(40%, 15rem);
+
+	--overlay-top: 12vh;
+	--overlay-max-h: 55vh;
+
+	// Print swaps the palette, so its two colours are tokens too.
+	--print-bg: #ffffff;
+	--print-fg: #000000;
+}
+
+// Dark is a palette swap and nothing else — every rule in this theme reads
+// the same names. `prefers-color-scheme` decides by default; a row forces
+// it with `theme: "ledger:dark"` or `theme: "ledger:light"`, which the
+// engine stamps as `data-subtheme` on <html> (§5a subselection).
+@mixin palette-dark {
+	color-scheme: dark;
+	--bg: #16150f;
+	--bg-sunken: #100f0a;
+	--bg-raised: #1e1c15;
+	--fg: #e7e1d4;
+	--fg-muted: #9a9386;
+	--fg-faint: #6b6559;
+	--accent: #d99a5e;
+	--accent-hover: #edb47c;
+	--on-accent: #16150f;
+	--line: #322e24;
+	--line-strong: #4a4436;
+	--selection: #3d3423;
+	--shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+	--shadow-lg: 0 12px 40px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-subtheme~="light"]) {
+		@include palette-dark;
+	}
+}
+
+:root[data-subtheme~="dark"] {
+	@include palette-dark;
+}

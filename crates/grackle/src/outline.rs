@@ -195,6 +195,9 @@ pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
 }
 
 #[cfg(test)]
+// Section-tree nesting moved to a fixture test (§7d): seven `Row`
+// literals became seven files, which is what the feature is about. See
+// `crates/grackle/tests/fixtures/section-tree`.
 mod tests {
     use super::*;
     use crate::db::Row;
@@ -216,9 +219,6 @@ mod tests {
             toc: false,
             theme: None,
             shell: None,
-            draft: false,
-            hidden: false,
-            noindex: false,
             fields: Default::default(),
             images: Default::default(),
             locale: "en".into(),
@@ -230,57 +230,6 @@ mod tests {
 
     fn db(pages: Vec<Row>) -> SiteDb {
         SiteDb::seed(pages, false)
-    }
-
-    #[test]
-    fn nests_orders_and_labels_indexless_dirs() {
-        let db = db(vec![
-            page("manual/index.md", "/manual/", Some("Manual"), None),
-            page(
-                "manual/install.md",
-                "/manual/install/",
-                Some("Install"),
-                Some(1),
-            ),
-            page(
-                "manual/themes.md",
-                "/manual/themes/",
-                Some("Themes"),
-                Some(3),
-            ),
-            page(
-                "manual/configuration.md",
-                "/manual/configuration/",
-                Some("Configuration"),
-                Some(2),
-            ),
-            // advanced/ has no index: unlinked label, after ordered siblings.
-            page(
-                "manual/advanced/markers.md",
-                "/manual/advanced/markers/",
-                Some("Markers"),
-                Some(2),
-            ),
-            page(
-                "manual/advanced/expressions.md",
-                "/manual/advanced/expressions/",
-                Some("Expressions"),
-                Some(1),
-            ),
-            // outside the section: absent.
-            page("recipes/index.md", "/recipes/", Some("Recipes"), None),
-        ]);
-        let t = section_tree(&db, Path::new("manual"), "en");
-        let labels: Vec<&str> = t.iter().map(|n| n.label.as_str()).collect();
-        // Root index first, then declared order, then the unordered dir.
-        assert_eq!(
-            labels,
-            vec!["Manual", "Install", "Configuration", "Themes", "advanced"]
-        );
-        let adv = &t[4];
-        assert_eq!(adv.url, None, "index-less directory is unlinked");
-        let kids: Vec<&str> = adv.children.iter().map(|n| n.label.as_str()).collect();
-        assert_eq!(kids, vec!["Expressions", "Markers"]);
     }
 
     #[test]

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-kind="shell">
+<head>
+	<title>By declared order</title>
+	<meta charset="utf-8">
+	<link href='/css/main.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<header data-frame>
+	<a href="/" data-slot="site_title">Ordering</a>
+	
+</header>
+<main data-frame data-slot="main"><section data-kind="listing">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">By declared order</a></span>
+</nav>
+	<h1 data-slot="title">By declared order</h1>
+	
+	<div data-slot="items"><article data-kind="summary">
+	<h2><a href="/notes/a/" data-slot="title">A</a></h2>
+	<p><time datetime="2026-01-10" data-slot="date_pretty">10 January 2026</time> </p>
+	
+	<div data-slot="content"><p>Oldest, pinned first by <code class="language-text highlighter-rouge">order</code>.</p>
+</div>
+</article>
+<article data-kind="summary">
+	<h2><a href="/notes/d/" data-slot="title">D</a></h2>
+	<p><time datetime="2026-07-19" data-slot="date_pretty">19 July 2026</time> </p>
+	
+	<div data-slot="content"><p>Newest, pinned last by <code class="language-text highlighter-rouge">order</code>.</p>
+</div>
+</article>
+<article data-kind="summary">
+	<h2><a href="/notes/b/" data-slot="title">B</a></h2>
+	<p><time datetime="2026-03-05" data-slot="date_pretty">5 March 2026</time> </p>
+	
+	<div data-slot="content"><p>No declared order — ties with C at Null and falls through to path.</p>
+</div>
+</article>
+<article data-kind="summary">
+	<h2><a href="/notes/c/" data-slot="title">C</a></h2>
+	<p><time datetime="2026-06-21" data-slot="date_pretty">21 June 2026</time> </p>
+	
+	<div data-slot="content"><p>No declared order either.</p>
+</div>
+</article>
+</div>
+	
+</section>
+</main>
+<footer data-frame>
+	
+</footer>
+</body>
+</html>

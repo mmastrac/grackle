@@ -1,0 +1,67 @@
+# Crumbs: what the URL climb finds, and what a declared `trail` adds.
+#
+# This replaces two `trails.rs` tests that built `Route` values by hand,
+# including `root.key = Some("page 1")` with the comment "what pagination
+# stamps" — faking the very thing under test. Here the pagination is real.
+#
+# Two posts collections, and only one declares a trail, so both halves of the
+# chain are visible in one blessed tree:
+#
+#   /blog/…   Home > Blog > 2022 > 16
+#   /notes/…  Home > 2022 > 2
+#
+# Reading that: **Blog** is the URL CLIMB — `/blog/…` nests under the
+# paginated landing, and the note at `/notes/…` does not, so only one of them
+# gets it. **2022** is the grouped archive, which the climb steps past (it is
+# a group route, not a landing) and the trail supplies. The last crumb is the
+# day, inert because no daily archive exists to link — the same shape
+# grack.com renders (`Home > Blog > 2026 > June > 25`).
+#
+# The note keeps a year crumb despite its collection declaring no `trail`,
+# because every `kind = "posts"` collection feeds one table (§4) and the
+# archive therefore claims it too. That is engine behaviour this fixture
+# PINS rather than endorses.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Crumbs"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_drafts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/notes/{slug}/"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+trail = "yearly_archive"
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+[sets.published]
+from = "posts"
+order_by = "-date"
+
+# Paginated, so the climb has a landing with a page stamp to find.
+[routes.blog_index]
+paths = ["/blog/", "/blog/page/{n}/"]
+from = "published"
+paginate = 5
+layout = "listing"
+title = "Blog"
+
+[routes.yearly_archive]
+path = "/blog/{year}/"
+from = "published"
+group_by = "date.year"
+layout = "listing"
+title = "{year}"

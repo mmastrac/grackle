@@ -1,0 +1,50 @@
+# Ordering, as three listings over one corpus.
+#
+# This replaces `views.rs::posts_order_tests`, which built four `Row` values
+# by hand — including the `locale`, `rel` and `rendered` fields that comments
+# had to flag as load-bearing, because a fixture omitting one produced a row
+# the view could not see. That test could not have caught a bug in the loader
+# it was imitating. This one runs it.
+#
+# `extends = "none"` keeps the blessed output to the three pages under test.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Ordering"
+author = "Tester"
+
+[[collections]]
+name = "notes"
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/notes/{slug}/"
+
+# No `order_by`: path order, NOT newest-first. A posts collection asks for
+# dates rather than assuming them.
+[routes.by_path]
+path = "/by-path/"
+from = "notes"
+layout = "listing"
+title = "By path"
+
+[routes.by_date_desc]
+path = "/by-date-desc/"
+from = "notes"
+order_by = "-date"
+layout = "listing"
+title = "By date, newest first"
+
+# `path` is the last key, always — so `b` and `c`, which declare no `order`
+# and tie at Null, fall through to their filenames rather than to whatever
+# the tree walk happened to yield.
+[routes.by_order]
+path = "/by-order/"
+from = "notes"
+order_by = "order"
+layout = "listing"
+title = "By declared order"

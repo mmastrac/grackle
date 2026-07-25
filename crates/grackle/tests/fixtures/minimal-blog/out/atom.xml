@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+	<feed xmlns="http://www.w3.org/2005/Atom">
+	<title><![CDATA[A Fixture]]></title>
+	<link href="https://example.com/atom.xml" rel="self"/>
+	<link href="https://example.com/"/>
+	<updated>2026-07-25T22:18:16+00:00</updated>
+	<id>https://example.com/</id>
+	<author>
+		<name><![CDATA[Tester]]></name>
+	</author>
+	<generator uri="http://jekyllrb.com/">Jekyll</generator>
+	<entry>
+		<title type="html"><![CDATA[Second]]></title>
+		<link href="https://example.com/blog/2026/02/01/second/"/>
+		<updated>2026-02-01T00:00:00+00:00</updated>
+		<id>https://example.com/blog/2026/02/01/second</id>
+		<content type="html"><![CDATA[<p>A post that asks search engines away, so the declared <code class="language-text highlighter-rouge">robots</code> meta has
+something to say on exactly one page — and <code class="language-text highlighter-rouge">noindex</code> being ordinary declared
+schema (§4e) is what lets front matter set it at all.</p>
+]]></content>
+	</entry>
+	<entry>
+		<title type="html"><![CDATA[Hello]]></title>
+		<link href="https://example.com/blog/2026/01/01/hello/"/>
+		<updated>2026-01-01T00:00:00+00:00</updated>
+		<id>https://example.com/blog/2026/01/01/hello</id>
+		<content type="html"><![CDATA[<p>The first post. Dated, so the head calls it an article.</p>
+]]></content>
+	</entry>
+</feed>

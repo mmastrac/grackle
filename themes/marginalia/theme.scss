@@ -1,0 +1,505 @@
+// marginalia — a two-column reading theme in the Tufte manner: the text
+// keeps a narrow measure and everything that is *about* the text (crumbs,
+// date, tags, the page outline, sidenotes) moves into a margin column
+// beside it.
+//
+// This is the archetype test (§5e) run against the hardest layout in the
+// book: no engine change, no new part, no fragment gymnastics. The margin
+// column is `grid-template-columns` and the parts are placed by
+// `grid-area`, which is why the fragments below stay in reading order —
+// a screen reader and the null theme still see crumbs, then title, then
+// body, whatever the grid does with the pixels.
+//
+// It is also deliberately PARTIAL (§5e step 4): there is no pagination,
+// link or page_link fragment here. Those kinds fall through to the
+// canonical rendering and are styled by their `data-kind`, below.
+
+@import "tokens";
+@import "skin";
+
+// ------------------------------------------------------------------ page
+
+.site-header,
+.site-main,
+.site-footer {
+	max-width: var(--page);
+	margin-inline: auto;
+	padding-inline: var(--pad-x);
+}
+
+.site-header {
+	display: grid;
+	grid-template-columns: var(--margin-col) minmax(0, 1fr);
+	gap: var(--space-sm) var(--gutter);
+	align-items: baseline;
+	padding-block: var(--header-pad) var(--space-md);
+	margin-bottom: var(--space-xl);
+
+	// Every header child is placed explicitly. Leave one to auto-placement
+	// and it lands in a row of its own, which is the same trap the
+	// document layout note below is about.
+	.site-title {
+		grid-column: 2;
+		grid-row: 1;
+		font-size: var(--size-xl);
+		font-weight: var(--weight-head);
+		color: var(--fg);
+		text-decoration: none;
+	}
+
+	// The nav lives in the margin, under the rule — the same column the
+	// document's own marginalia will occupy.
+	.site-nav {
+		grid-column: 1;
+		grid-row: 1;
+		text-align: right;
+
+		// The base makes a nav a wrapping ROW, which is the right default and
+		// the wrong one here: in the margin column a nav is a stack, one
+		// item per line, right-aligned with everything else in that column.
+		ul {
+			display: block;
+			list-style: none;
+			margin: 0;
+			padding: 0;
+			font-size: var(--size-sm);
+			color: var(--fg-muted);
+		}
+
+		a {
+			color: var(--fg-muted);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--accent);
+			}
+		}
+	}
+
+	.search-button {
+		grid-column: 2;
+		grid-row: 1;
+		justify-self: end;
+		border: 0;
+		background: none;
+		color: var(--fg-faint);
+		cursor: pointer;
+		line-height: 0;
+		padding: var(--space-xs);
+
+		&:hover {
+			color: var(--fg);
+		}
+	}
+}
+
+.site-footer {
+	margin-top: var(--space-xl);
+	padding-block: var(--space-md) var(--space-lg);
+	border-top: var(--rule);
+	color: var(--fg-muted);
+	font-size: var(--size-sm);
+	text-align: right;
+}
+
+// -------------------------------------------------------------- document
+// The margin column is made of FLOATS pulled out of the text's padding,
+// not of grid tracks.
+//
+// Grid was the obvious first answer and it is the wrong one: the fragment
+// is a flat list of parts, so every child auto-places into its own ROW.
+// Put four parts in the margin column and the text column grows four
+// empty rows opposite them — the prose starts below the marginalia
+// instead of beside it. A float has no such notion; it stacks in the
+// margin and the prose flows past it, which is exactly the relationship
+// the layout is trying to express. (It is also, not coincidentally, how
+// `sidenote` below works, and how Tufte's own CSS does it.)
+//
+// The reading order is untouched either way: the fragment still emits
+// crumbs, then title, then body.
+
+@mixin in-margin {
+	float: left;
+	clear: left;
+	width: var(--margin-col);
+	margin-left: calc(-1 * (var(--margin-col) + var(--gutter)));
+	margin-bottom: var(--space-md);
+	text-align: right;
+}
+
+.doc,
+[data-kind="listing"] {
+	// The text's own left edge is inset by the margin column; everything
+	// in the margin is pulled back out of it by exactly that much.
+	padding-left: calc(var(--margin-col) + var(--gutter));
+}
+
+.doc .crumbs,
+.doc .doc-tags,
+.doc .doc-outline,
+.doc .doc-section {
+	@include in-margin;
+	margin-top: 0;
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+
+	a {
+		color: var(--fg-muted);
+		text-decoration: none;
+
+		&:hover {
+			color: var(--accent);
+		}
+	}
+}
+
+// The title reclaims the margin: it is the one thing allowed out of the
+// measure, because it is the page's own name and not part of the argument.
+.doc-title {
+	margin: 0 0 var(--space-lg) calc(-1 * (var(--margin-col) + var(--gutter)));
+	font-size: var(--size-2xl);
+}
+
+.doc-hero {
+	@include in-margin;
+	width: var(--margin-col);
+
+	img {
+		display: block;
+		width: 100%;
+		border-radius: var(--radius);
+	}
+}
+
+.doc-body > :first-child {
+	margin-top: 0;
+}
+
+// Full-bleed figures earn the margin column by asking for it — one class
+// in the body, which is the only body-level hook this theme needs.
+.doc-body .wide,
+.doc-body figure.wide {
+	margin-left: calc(-1 * (var(--margin-col) + var(--gutter)));
+	width: auto;
+	max-width: none;
+}
+
+// ---------------------------------------------------------------- crumbs
+
+[data-kind="crumb"] {
+	display: block;
+
+	& + [data-kind="crumb"]::before {
+		content: "";
+	}
+}
+
+// ------------------------------------------------------------------ tags
+
+a[data-kind="tag"] {
+	display: inline-block;
+	font-size: var(--size-xs);
+	color: var(--fg-muted);
+	padding: var(--pill-pad);
+	text-decoration: none;
+
+	&::before {
+		content: "#";
+		color: var(--fg-faint);
+	}
+
+	& + a[data-kind="tag"] {
+		margin-left: var(--space-sm);
+	}
+}
+
+// -------------------------------------------------------------- sidenotes
+// Not an engine feature: `<sidenote>` is a custom widget the site declares
+// in grackle.toml (§5d), so the note sits inline in the markdown source
+// and this rule moves it out. Four lines, which is what §5e claimed
+// margin notes should cost a theme.
+
+sidenote {
+	display: block;
+	float: right;
+	clear: right;
+	width: var(--margin-col);
+	margin-right: calc(-1 * (var(--margin-col) + var(--gutter)));
+	margin-bottom: var(--space-md);
+	font-size: var(--sidenote-size);
+	line-height: var(--leading-tight);
+	color: var(--fg-muted);
+	text-align: left;
+}
+
+// --------------------------------------------------------------- listings
+
+[data-kind="listing"] {
+	.crumbs {
+		@include in-margin;
+		margin-top: 0;
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+
+		a {
+			color: var(--fg-muted);
+			text-decoration: none;
+		}
+	}
+
+	> [data-slot="title"] {
+		margin: 0 0 var(--space-lg)
+			calc(-1 * (var(--margin-col) + var(--gutter)));
+		font-size: var(--size-xl);
+	}
+}
+
+// A summary is the document layout in miniature: date and tags in the
+// margin, title and preview in the text column.
+.summary {
+	// The summaries sit INSIDE the listing's text inset, so their own
+	// marginalia is pulled out of the same one — never a second nested
+	// column. This is why `in-margin` is a mixin and not a wrapper class.
+	padding-bottom: var(--space-lg);
+	margin-bottom: var(--space-lg);
+	border-bottom: var(--rule);
+
+	// A float that reaches past the bottom of its own card would sit
+	// beside the NEXT summary. Contain it.
+	&::after {
+		content: "";
+		display: table;
+		clear: both;
+	}
+
+	&:last-child {
+		border-bottom: 0;
+	}
+
+	.summary-meta {
+		@include in-margin;
+		margin-top: 0;
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+	}
+
+	.summary-title {
+		font-size: var(--size-lg);
+		margin: 0 0 var(--space-sm);
+
+		a {
+			color: var(--fg);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--accent);
+			}
+		}
+	}
+
+	.summary-body > :first-child {
+		margin-top: 0;
+	}
+}
+
+// -------------------------------------------------------------- relations
+
+.relations {
+	margin-top: var(--space-xl);
+	padding-top: var(--space-md);
+	border-top: var(--rule);
+}
+
+[data-kind="relation"] {
+	margin-bottom: var(--space-lg);
+
+	&::after {
+		content: "";
+		display: table;
+		clear: both;
+	}
+
+	// The axis label is itself marginalia. That the theme can say so with
+	// one mixin, and no fragment or engine change, is the point.
+	[data-kind="relation"] > [data-slot="label"] {
+		@include in-margin;
+		margin-top: 0;
+		margin-bottom: 0;
+		font-size: var(--size-xs);
+		font-weight: var(--weight-body);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
+		color: var(--fg-faint);
+	}
+}
+
+[data-kind="neighbor"] {
+	display: grid;
+	grid-template-columns: var(--date-col) minmax(0, 1fr);
+	gap: 0 var(--space-md);
+	align-items: baseline;
+	padding-block: var(--space-xs);
+	text-decoration: none;
+	color: var(--fg);
+
+	&:hover [data-kind="neighbor"] span {
+		color: var(--accent);
+	}
+}
+
+[data-kind="neighbor"] time {
+	font-size: var(--size-sm);
+	font-style: italic;
+	color: var(--fg-muted);
+	white-space: nowrap;
+}
+
+// The translations axis, relocated (§6f) — here it belongs at the top of
+// the margin column, which is where this theme puts everything about the
+// page rather than in it.
+[data-kind="relation"][data-relation="translations"] {
+	display: block;
+	margin: 0;
+
+	[data-kind="relation"] > [data-slot="label"] {
+		display: none;
+	}
+
+	[data-kind="neighbor"] {
+		display: inline;
+		font-size: var(--size-sm);
+		color: var(--fg-muted);
+
+		& + [data-kind="neighbor"]::before {
+			content: " · ";
+		}
+	}
+}
+
+.relations:not(:has([data-kind="relation"]:not([data-relation="translations"]))) {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: 0;
+}
+
+// ------------------------------------------------------- the page outline
+
+.doc-outline {
+	[data-slot="children"] {
+		padding-left: 0;
+		padding-right: var(--space-sm);
+	}
+
+	a[aria-current="page"] {
+		color: var(--fg);
+		font-weight: var(--weight-head);
+	}
+}
+
+// ---------------------------------------------- kinds this theme declines
+// No pagination/link/page_link fragment exists here, so the engine renders
+// them canonically (§5e): `data-kind` on the root, `data-slot` on each
+// part. Styling that markup directly is the whole cost of being partial.
+
+[data-kind="pagination"] {
+	display: flex;
+	gap: var(--space-md);
+	flex-wrap: wrap;
+	align-items: baseline;
+	margin-top: var(--space-lg);
+	padding-top: var(--space-md);
+	border-top: var(--rule);
+	font-size: var(--size-sm);
+}
+
+[data-kind="page_link"] {
+	& + [data-kind="page_link"] {
+		margin-left: var(--space-sm);
+	}
+
+	a[aria-current] {
+		color: var(--fg);
+		font-weight: var(--weight-head);
+	}
+}
+
+[data-kind="link"] {
+	display: block;
+	margin-block: var(--space-xs);
+}
+
+// ------------------------------------------------------------- collapse
+// One breakpoint: below the width the two columns need, the margin folds
+// into the flow above the text it annotates. `$collapse` is a Sass
+// variable rather than a token because a media query resolves before
+// custom properties do — see the note at the foot of _tokens.scss.
+
+@media (max-width: $collapse) {
+	.site-header {
+		display: block;
+	}
+
+	// Unfloat everything: no negative pull, no inset to pull out of.
+	.doc,
+	[data-kind="listing"] {
+		padding-left: 0;
+	}
+
+	.doc .crumbs,
+	.doc .doc-tags,
+	.doc .doc-outline,
+	.doc .doc-section,
+	.doc .doc-hero,
+	[data-kind="listing"] .crumbs,
+	.summary .summary-meta,
+	[data-kind="relation"] [data-kind="relation"] > [data-slot="label"] {
+		float: none;
+		width: auto;
+		margin-left: 0;
+		text-align: left;
+	}
+
+	.doc-title,
+	[data-kind="listing"] > [data-slot="title"] {
+		margin-left: 0;
+	}
+
+	.doc-body .wide,
+	.doc-body figure.wide {
+		margin-left: 0;
+	}
+
+	.site-footer,
+	.site-header .site-nav {
+		text-align: left;
+	}
+
+	.summary .summary-meta {
+		margin-bottom: var(--space-xs);
+	}
+
+	sidenote {
+		float: none;
+		width: auto;
+		margin-right: 0;
+		padding-left: var(--space-md);
+		border-left: var(--rule-strong);
+	}
+
+	.doc-hero {
+		width: 100%;
+	}
+}
+
+@media print {
+	:root {
+		--bg: var(--print-bg);
+		--fg: var(--print-fg);
+	}
+
+	.site-header .search-button,
+	.site-nav,
+	.relations {
+		display: none;
+	}
+}

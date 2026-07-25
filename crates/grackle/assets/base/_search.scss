@@ -1,0 +1,85 @@
+// The search overlay (§6b). The engine owns the markup and the bytes —
+// clicking the shell's button loads /search.js, which builds .search-overlay
+// and toggles .is-open — so the engine owes it a default painting too, or a
+// site that turns search on gets an unstyled dialog for its trouble. This is
+// the one place the base styles CLASS names rather than engine vocabulary,
+// because search.js is what writes them; they are as much the contract as
+// `data-slot` is. Token-only, so it wears whatever palette is above it.
+
+.search-overlay {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 10;
+	background: color-mix(in srgb, var(--bg) 65%, transparent);
+	backdrop-filter: blur(2px);
+
+	&.is-open {
+		display: block;
+	}
+}
+
+.search-panel {
+	max-width: var(--measure);
+	margin: var(--overlay-top) auto 0;
+	padding: var(--space-md);
+	background: var(--bg-raised);
+	border: var(--rule);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-lg);
+}
+
+.search-input {
+	width: 100%;
+	padding: var(--space-sm) var(--space-md);
+	font: inherit;
+	font-size: var(--size-lg);
+	color: var(--fg);
+	background: var(--bg);
+	border: var(--rule);
+	border-radius: var(--radius);
+	outline: none;
+
+	&:focus {
+		border-color: var(--accent);
+	}
+}
+
+.search-results {
+	max-height: var(--overlay-max-h);
+	overflow-y: auto;
+	margin-top: var(--space-sm);
+}
+
+// Same date | title geometry as a neighbour row, from the same token.
+.search-hit {
+	display: grid;
+	grid-template-columns: var(--date-col) minmax(0, 1fr);
+	gap: 0 var(--space-md);
+	align-items: baseline;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius);
+	text-decoration: none;
+	color: var(--fg);
+
+	&:hover {
+		background: var(--bg-sunken);
+		color: var(--fg);
+	}
+}
+
+.search-hit-date {
+	font-size: var(--size-sm);
+	color: var(--fg-muted);
+	white-space: nowrap;
+}
+
+.search-hit-title {
+	min-width: 0;
+	overflow-wrap: break-word;
+}
+
+.search-none {
+	margin: var(--space-sm) var(--space-sm) 0;
+	color: var(--fg-muted);
+}

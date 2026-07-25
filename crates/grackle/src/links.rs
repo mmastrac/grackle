@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn a_directory_link_resolves_to_its_index() {
         let cfg: Config =
-            Config::from_toml("root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
+            Config::from_toml("root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
                 .unwrap();
         let mut db = SiteDb::seed(Vec::new(), false);
         db.page_ix
@@ -348,9 +348,6 @@ mod tests {
             toc: false,
             theme: None,
             shell: None,
-            draft: false,
-            hidden: false,
-            noindex: false,
             fields: Default::default(),
             images: Default::default(),
             locale: "en".into(),
@@ -411,7 +408,7 @@ mod tests {
     #[test]
     fn view_links_are_locale_aware() {
         let cfg: Config = Config::from_toml(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
              [i18n]\nlocales = [\"fr\"]\n\
              [sets.published]\nfrom = \"blog\"\n\

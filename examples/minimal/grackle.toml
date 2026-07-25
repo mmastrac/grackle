@@ -1,66 +1,17 @@
-# The smallest config that produces a working blog.
+# Deliberately empty.
 #
-# This site exists to be MEASURED, not to show features off — field-notes
-# is the kitchen sink. Every line here is a line a newcomer has to write
-# before anything appears, so the count is the number to watch: it should
-# fall as defaults land, and any rise wants a reason.
+# This site exists to be MEASURED, not to show features off — field-notes is
+# the kitchen sink, and `../raw` is this same site with nothing inherited.
+# Every line here is a line a newcomer has to write before anything appears,
+# so the count is the number to watch.
 #
-# Count on 2026-07-20: 27 non-blank, non-comment lines.
-
-root = "."
-
-[site]
-url = "https://minimal.example.com"
-title = "A Minimal Site"
-author = "Anonymous"
-
-# Posts: dated rows from a directory, addressed by their filename.
-[[collections]]
-kind = "posts"
-source = "_posts"
-filename_formats = ["{year}-{month}-{day}-{slug}"]
-
-  [[collections.rules]]
-  match = "**"
-  defaults = { layout = "post" }
-  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
-
-# Everything else in the directory: pages where there is front matter,
-# copied verbatim where there is not.
-[[collections]]
-kind = "tree"
-source = "."
-
-  [[collections.rules]]
-  match = "**/index.{html,md}"
-  route = "/{dir}/"
-
-  [[collections.rules]]
-  match = "**/*.{html,md}"
-  front_matter = true
-  route = "/{dir}/{stem}/"
-
-  [[collections.rules]]
-  match = "**/*"
-  route = "/{path}"
-
-# The published set, named once so the listing and the feed cannot drift
-# apart about what they show.
-[sets.published]
-from = "posts"
-where = "!draft && !hidden"
-# Newest first. The engine orders by path unless a set says otherwise —
-# a tree is a list of files, and dates are a thing posts have.
-order_by = "-date"
-
-[routes.home]
-path = "/"
-from = "published"
-layout = "listing"
-title = "A Minimal Site"
-
-[routes.feed]
-path = "/atom.xml"
-from = "published"
-limit = 20
-shell = "atom"
+#   2026-07-20: 27 non-blank, non-comment lines.
+#   2026-07-25: 0.
+#
+# `extends` defaults to "default", so the base config compiled into the binary
+# (DESIGN.md §4d) supplies the three collections and their rules, the three
+# markers, the `published` set, `/`, `/blog/`, the feed and the sitemap. A site
+# with no `themes/` directory renders through the base theme the same way.
+#
+# The first thing a real site writes is `[site]` — the placeholder title and
+# URL are the one part of the base nobody should keep.

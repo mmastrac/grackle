@@ -1,0 +1,198 @@
+// miroir — the knob panel. Same vocabulary as the rest of the gallery
+// (../README.md), plus the rail and card tokens this theme needs.
+//
+// Two references, fused. From ojeda-e.com: a fixed dark sidebar rail —
+// brand block, right-aligned nav, social row pinned to the bottom — with
+// the content in a lighter pane beside it, page titles centred over a
+// hairline rule. From Zola's `daisy`: a saturated accent bar for the
+// brand, and a feed of raised cards whose meta rows wear icons and whose
+// call to action is an accent button.
+//
+// Daisy advertises 37 colour schemes. Here that is one palette plus three
+// subtheme tokens — `miroir:rose`, `miroir:forest`, `miroir:slate` — which
+// is the same feature expressed as the thing this gallery is arguing for.
+
+:root {
+	color-scheme: light dark;
+
+	// ------------------------------------------------------------ palette
+	--bg: #eef0f2; // the content pane, per ojeda: never quite white
+	--bg-sunken: #e4e7ea;
+	--bg-raised: #ffffff; // the cards
+	--fg: #2b2f36;
+	--fg-muted: #666d77;
+	--fg-faint: #99a0aa;
+	--accent: #5b52e0; // daisy's indigo brand bar
+	--accent-hover: #7a72ee;
+	--on-accent: #ffffff;
+	--line: #d8dce1;
+	--line-strong: #b7bdc6;
+	--selection: #dcd9fb;
+
+	// The rail is its own little dark world regardless of the page's mode,
+	// which is what makes the two-tone split read the way ojeda's does.
+	--rail-bg: #23262b;
+	--rail-fg: #d8dbe0;
+	--rail-muted: #8d939c;
+	--rail-line: #33373e;
+	--rail-brand-bg: var(--accent);
+	--rail-brand-fg: var(--on-accent);
+
+	// --------------------------------------------------------------- type
+	--font-ui: "Segoe UI", system-ui, -apple-system, "Helvetica Neue",
+		sans-serif;
+	--font-body: var(--font-ui);
+	--font-head: var(--font-ui);
+	--font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+	--root-size: 100%;
+	--size: 1rem;
+	--scale: 1.22;
+	--leading: 1.7;
+	--leading-tight: 1.15;
+	--tracking: 0;
+	--tracking-caps: 0.08em;
+	// ojeda sets its headings LIGHT, which is most of why that site reads
+	// the way it does — so the head weight is a token, not a constant.
+	--weight-body: 400;
+	--weight-head: 300;
+	--weight-strong: 700; // cards and the brand still want bold
+
+	--size-sm: calc(var(--size) / var(--scale));
+	--size-xs: calc(var(--size-sm) / var(--scale));
+	--size-lg: calc(var(--size) * var(--scale));
+	--size-xl: calc(var(--size-lg) * var(--scale));
+	--size-2xl: calc(var(--size-xl) * var(--scale));
+	--size-3xl: calc(var(--size-2xl) * var(--scale));
+
+	// -------------------------------------------------------------- space
+	--space: 1rem;
+	--space-xs: calc(var(--space) * 0.25);
+	--space-sm: calc(var(--space) * 0.5);
+	--space-md: var(--space);
+	--space-lg: calc(var(--space) * 2);
+	--space-xl: calc(var(--space) * 4);
+
+	// ----------------------------------------------------------- geometry
+	--measure: 44rem;
+	--rail: 17rem; // the sidebar
+	--margin-col: 0rem;
+	--gutter: 2rem;
+	--pad-x: 1.5rem;
+	--radius: 10px;
+	--radius-lg: 16px;
+	--border: 1px;
+	--rule: var(--border) solid var(--line);
+	--rule-strong: var(--border) solid var(--line-strong);
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 20px rgb(0 0 0 / 0.06);
+	--shadow-lg: 0 18px 50px rgb(0 0 0 / 0.22);
+
+	// ------------------------------------------------------- links, motion
+	--underline: 1px;
+	--underline-offset: 0.2em;
+	--transition: 160ms ease;
+
+	// --------------------------------------------------------- components
+	--date-col: 8rem;
+	--nav-gap: 0.25rem;
+	--pill-pad: 0.15em 0.7em;
+	--header-pad: 1.5rem;
+	--hero-width: min(45%, 17rem);
+	--overlay-top: 12vh;
+	--overlay-max-h: 55vh;
+
+	// The card feed, after daisy. `--cta-label` is a token because it is
+	// the theme's only word, and a site should be able to change it
+	// without opening a stylesheet looking for a `content:`.
+	--card-pad: 1.5rem;
+	--cta-label: "Read";
+	--cta-pad: 0.45em 1.2em;
+	--cta-bg: #e0468f;
+	--cta-fg: #ffffff;
+	--cta-bg-hover: #ef67a6;
+
+	// Meta rows wear icons, also after daisy. Emoji rather than an SVG
+	// sprite so the fragments stay free of decoration.
+	--icon-date: "\1F5D3";
+	--icon-tag: "\1F3F7";
+
+	// The title rule under a centred heading, ojeda's signature.
+	--title-rule: calc(var(--border) * 2) solid var(--line-strong);
+
+	// Cards, as in atlas — see that theme's notes on the cq-unit maths.
+	--card-ratio: 1.5;
+	--card-min: 10rem;
+	--card-featured: 19rem;
+	--card-title-at: 75;
+	--card-title-size: 10;
+	--card-scrim: rgb(0 0 0 / 0.45);
+	--card-scrim-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+	--card-title-fg: #ffffff;
+	--gallery-min: 12rem;
+	--gallery-gap: 0.75rem;
+
+	--print-bg: #ffffff;
+	--print-fg: #000000;
+}
+
+// Dark mode moves the CONTENT pane; the rail barely changes, because it
+// was already dark. That asymmetry is the whole reason `--rail-*` is its
+// own family instead of reusing `--bg-raised`.
+@mixin palette-dark {
+	color-scheme: dark;
+	--bg: #14161a;
+	--bg-sunken: #101216;
+	--bg-raised: #1b1e24;
+	--fg: #e2e5ea;
+	--fg-muted: #99a1ac;
+	--fg-faint: #6a727d;
+	--line: #272b32;
+	--line-strong: #3b414a;
+	--selection: #2c2a55;
+	--rail-bg: #101216;
+	--rail-line: #22262c;
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 6px 20px rgb(0 0 0 / 0.4);
+	--shadow-lg: 0 18px 50px rgb(0 0 0 / 0.7);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-subtheme~="light"]) {
+		@include palette-dark;
+	}
+}
+
+:root[data-subtheme~="dark"] {
+	@include palette-dark;
+}
+
+// The colour schemes. Each one is the accent family and the CTA, and
+// nothing else — `theme: "miroir:forest"`, or `miroir:dark:rose` to set
+// both axes at once.
+:root[data-subtheme~="rose"] {
+	--accent: #c2255c;
+	--accent-hover: #dd4a7c;
+	--selection: #f7d9e4;
+	--cta-bg: #7048c8;
+	--cta-bg-hover: #8a67dc;
+}
+
+:root[data-subtheme~="forest"] {
+	--accent: #1f7a5a;
+	--accent-hover: #2fa079;
+	--selection: #cfe9df;
+	--cta-bg: #b8760f;
+	--cta-bg-hover: #d59227;
+}
+
+:root[data-subtheme~="slate"] {
+	--accent: #445064;
+	--accent-hover: #5e6c84;
+	--selection: #d9dee6;
+	--cta-bg: #445064;
+	--cta-bg-hover: #5e6c84;
+}
+
+// Media queries resolve before custom properties do, so the one
+// breakpoint is a Sass variable: below it the rail unpins and becomes a
+// bar above the content, which is what both references do.
+$unpin-rail: 60rem;

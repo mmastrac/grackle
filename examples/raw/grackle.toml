@@ -1,0 +1,151 @@
+# The same site as `../minimal`, with nothing inherited.
+#
+# `extends = "none"` turns off the base config (DESIGN.md §4d), so everything
+# the engine would have supplied is written out below. The content tree is
+# byte-identical to minimal's, and a test holds the two builds to the same URL
+# set — which is what keeps this file honest. It is the base config *printed*,
+# and it cannot drift from the compiled one without a test going red.
+#
+# Read it for two reasons:
+#
+#   1. To see what you get. Every default is a decision, and they are all here.
+#   2. To take one over. Inheriting is per key, so a real site does NOT copy
+#      this file — it writes the four lines it disagrees with and leaves the
+#      rest in the binary. Copying is what `extends = "none"` is for: total
+#      control, at the price of owning all of it forever.
+#
+# What `none` does NOT switch off: the part vocabulary (`parts.toml`) and the
+# base theme. Those are different substrates with their own opt-outs — a config
+# is not a stylesheet, and one switch for all three would be a worse story than
+# three honest ones.
+
+extends = "none"
+
+[site]
+url = "http://localhost:8080"
+title = "A grackle site"
+author = ""
+
+# The flag family is declared schema (§4e), not engine vocabulary — which is
+# why it has to appear here at all. Without these three lines `where =
+# "!draft"` below is a load error naming the knowns, and that is the point:
+# `extends = "none"` means the site owns its whole vocabulary.
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+noindex = { type = "bool" }
+
+# The head, declared rather than compiled in (§4e). Every tag below is one
+# the engine used to emit from Rust.
+#
+# Each value is a §5f text expression over the row — or, for a listing, over
+# its route — plus `site.url` / `site.title` / `site.author`. An EMPTY result
+# emits no tag, which is §5e's "an empty part deletes its element" one layer
+# up, and is how every conditional here is spelled.
+#
+# Three tables because there are three elements, not three mechanisms:
+#   [html.head.meta]      <meta name="K" content="V">
+#   [html.head.property]  <meta property="K" content="V">   (Open Graph)
+#   [html.head.link]      <link rel="K" href="V">
+#
+# `noindex ? …` is CEL's own conditional, which is why it is spelled with `?`
+# rather than an `if_else()` the engine would have to register. §5d's
+# no-control-flow rule governs TEMPLATES; this is the expression surface, and
+# "which string does this meta take" has no fact-shaped spelling.
+
+[html.head.meta]
+description = 'description'
+author = 'site.author'
+viewport = '"width=device-width, initial-scale=1"'
+robots = 'noindex ? "noindex,follow" : ""'
+
+[html.head.property]
+"og:title" = 'title'
+"og:description" = 'description'
+"og:url" = 'site.url + url'
+# A row with a date is an article. The fact drives the value; nothing branches.
+"og:type" = 'date ? "article" : "website"'
+# `date` is ISO-8601 already, so the Atom-shaped timestamp is a concatenation
+# rather than a function. Empty on an undated row, which emits no tag.
+"article:published_time" = 'date ? date + "T00:00:00+00:00" : ""'
+"article:author" = 'date ? site.author : ""'
+
+[html.head.link]
+canonical = 'site.url + url'
+# `site.icon` is the first of /favicon.{svg,png,ico,webp,gif} the tree fills,
+# under baseurl. No file ⇒ empty ⇒ neither tag is emitted.
+icon = 'site.icon'
+"shortcut icon" = 'site.icon'
+
+
+[markers]
+".draft" = { draft = true }
+".hidden" = { hidden = true }
+".noindex" = { noindex = true }
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+[[collections]]
+name = "objects"
+kind = "objects"
+extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/index.{html,md}"
+  route = "/{dir}/"
+
+  [[collections.rules]]
+  match = "**/*.{html,md}"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[sets.published]
+from = "posts"
+where = "!draft && !hidden"
+order_by = "-date"
+
+[routes.home]
+path = "/"
+from = "published"
+limit = 10
+layout = "listing"
+default_content = "index.{md,html}"
+title = "@home"
+
+[routes.blog_index]
+paths = ["/blog/", "/blog/page/{n}/"]
+from = "published"
+paginate = 10
+layout = "listing"
+title = "@blog"
+
+[routes.feed]
+path = "/atom.xml"
+from = "published"
+limit = 20
+shell = "atom"
+
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
+shell = "sitemap"
+where = '!draft && !hidden && (dir || ext == "html")'

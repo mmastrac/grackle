@@ -89,9 +89,6 @@ pub struct Row {
     /// this is what a view sorts on when it says so — see `order_by` in
     /// `build_views`.
     pub order: Option<i64>,
-    pub draft: bool,
-    pub hidden: bool,
-    pub noindex: bool,
     /// Render the heading outline (§6e); front matter or cascaded default.
     pub toc: bool,
     /// The locale axis (§6f): assigned by the path selector at load.
@@ -143,6 +140,16 @@ impl Row {
     pub fn year_month(&self) -> Option<(i32, u32)> {
         use chrono::Datelike;
         self.date.map(|d| (d.year(), d.month()))
+    }
+
+    /// A declared `bool` field, false when the site never declared it (§4e).
+    ///
+    /// Engine code should reach for this **rarely and namelessly**: a flag is
+    /// site vocabulary, and the remaining callers that spell one out — the
+    /// `noindex` head fact, the inspector, `explain` — are exactly what
+    /// `[html.head.meta]` and a generic field dump are meant to delete.
+    pub fn flag(&self, name: &str) -> bool {
+        matches!(self.fields.get(name), Some(filter::Value::Bool(true)))
     }
 }
 
@@ -264,15 +271,16 @@ pub struct Route {
     /// None means the default locale, and filters see Null.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
-    /// The source row's flags, carried onto the route so a `*` view (the
-    /// sitemap) can exclude them. Only post rows can be flagged, so this is
-    /// false for every other route. Without it the sitemap's filter language
-    /// has no way to say "not a draft" and a future draft would leak into the
-    /// most public URL there is (DESIGN.md §4a).
+    /// The source row's DECLARED fields, carried onto the route so a `*` view
+    /// (the sitemap) can select on them. Without this the sitemap's filter
+    /// language has no way to say "not a draft" and a future draft would leak
+    /// into the most public URL there is (DESIGN.md §4a).
+    ///
+    /// A map rather than the two named bools it replaces, because the flag
+    /// family is ordinary declared schema now (§4e): whatever a site declares
+    /// is what a star view may filter on, and the engine names none of it.
     #[serde(skip)]
-    pub draft: bool,
-    #[serde(skip)]
-    pub hidden: bool,
+    pub fields: BTreeMap<String, filter::Value>,
     /// For a `*` view: the ROUTES it selected.
     ///
     /// Separate from `members` rather than sharing it, because the two name
@@ -304,8 +312,7 @@ impl Route {
             page: None,
             params: Vec::new(),
             locale: None,
-            draft: false,
-            hidden: false,
+            fields: BTreeMap::new(),
             members: Vec::new(),
             route_members: Vec::new(),
         }
@@ -340,7 +347,7 @@ impl Route {
 /// that cannot be populated correctly is worse than no field — referencing it
 /// is a load-time error rather than a silent lie. jekyll-sitemap ignores
 /// noindex anyway, so nothing wants it.
-pub fn route_schema() -> filter::Schema {
+pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
     s.insert("kind", Str);
@@ -348,8 +355,12 @@ pub fn route_schema() -> filter::Schema {
     s.insert("url", Str);
     s.insert("ext", Str);
     s.insert("dir", Bool);
-    s.insert("draft", Bool);
-    s.insert("hidden", Bool);
+    // Whatever the site declared reaches the route, `draft`/`hidden` included
+    // — they are declared fields like any other now (§4e), so this vocabulary
+    // is the site's rather than the engine's.
+    for (k, t) in declared {
+        s.insert(k, *t);
+    }
     s.insert("key", Str);
     s.insert("page", Int);
     s.insert("rows", Int);
@@ -377,8 +388,6 @@ impl filter::Row for Route {
             "url" => V::Str(self.url.clone()),
             "ext" => V::Str(self.ext().to_string()),
             "dir" => V::Bool(self.is_dir()),
-            "draft" => V::Bool(self.draft),
-            "hidden" => V::Bool(self.hidden),
             "key" => match &self.key {
                 Some(k) => V::Str(k.clone()),
                 None => V::Null,
@@ -406,7 +415,9 @@ impl filter::Row for Route {
                 Some(l) => V::Str(l.clone()),
                 None => V::Null,
             },
-            _ => V::Null,
+            // Declared fields carried from the source row (§4e) — the same
+            // fallthrough `Row` has, so `draft` reads the same at both layers.
+            other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
     }
 }
@@ -415,6 +426,12 @@ impl filter::Row for Route {
 pub struct SiteDb {
     /// Every content row, posts and tree alike.
     pub rows: Table<Row>,
+    /// The fields this site declared (§4e), as a filter schema. Part of the
+    /// database because it is what the database's rows actually answer to —
+    /// `draft` is in here, not in `row_schema()`, and a consumer that wants to
+    /// parse a filter needs the site's vocabulary rather than the engine's.
+    #[serde(skip)]
+    pub declared: filter::Schema,
     /// Keys of rows a posts collection produced. A posts view ranges over
     /// ALL of them, across every posts collection; `published` narrows by
     /// FLAG rather than by source.
@@ -626,11 +643,6 @@ pub struct LoadStats {
 pub fn row_schema() -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
-    s.insert("draft", Bool);
-    s.insert("hidden", Bool);
-    // Complete for posts: markers + front matter are the only sources (no post
-    // layout sets noindex). Still absent from route_schema — see DESIGN.md §4b.
-    s.insert("noindex", Bool);
     s.insert("title", Str);
     s.insert("slug", Str);
     s.insert("stem", Str);
@@ -673,9 +685,6 @@ impl filter::Row for Row {
             None => V::Null,
         };
         match name {
-            "draft" => V::Bool(self.draft),
-            "hidden" => V::Bool(self.hidden),
-            "noindex" => V::Bool(self.noindex),
             "title" => opt_str(&self.title),
             "slug" => V::Str(self.slug.clone()),
             "stem" => V::Str(self.stem.clone()),
@@ -938,7 +947,7 @@ mod route_stem_tests {
     /// filter's comparison rule, and that is load-bearing here.
     #[test]
     fn stem_filters_index_pages_only() {
-        let f = Filter::parse("stem != \"index\"", &route_schema()).unwrap();
+        let f = Filter::parse("stem != \"index\"", &route_schema(&filter::Schema::new())).unwrap();
         let index_page = Route {
             source: Some(PathBuf::from("recipes/index.md")),
             ..Route::new("/recipes/".into(), RouteKind::Page)

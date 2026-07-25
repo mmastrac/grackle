@@ -39,9 +39,9 @@ fn lang(name: &str) -> Option<Lang> {
             strings: &['"'],
             keywords: &[
                 "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
-                "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop",
-                "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static",
-                "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while",
+                "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match",
+                "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
+                "super", "trait", "true", "type", "unsafe", "use", "where", "while",
             ],
         },
         "c" => Lang {
@@ -61,12 +61,55 @@ fn lang(name: &str) -> Option<Lang> {
             block: Some(("/*", "*/")),
             strings: &['"', '\''],
             keywords: &[
-                "abstract", "boolean", "break", "byte", "case", "catch", "char", "class", "const",
-                "continue", "default", "do", "double", "else", "enum", "extends", "final",
-                "finally", "float", "for", "if", "implements", "import", "instanceof", "int",
-                "interface", "long", "native", "new", "package", "private", "protected", "public",
-                "return", "short", "static", "super", "switch", "synchronized", "this", "throw",
-                "throws", "try", "void", "volatile", "while", "true", "false", "null",
+                "abstract",
+                "boolean",
+                "break",
+                "byte",
+                "case",
+                "catch",
+                "char",
+                "class",
+                "const",
+                "continue",
+                "default",
+                "do",
+                "double",
+                "else",
+                "enum",
+                "extends",
+                "final",
+                "finally",
+                "float",
+                "for",
+                "if",
+                "implements",
+                "import",
+                "instanceof",
+                "int",
+                "interface",
+                "long",
+                "native",
+                "new",
+                "package",
+                "private",
+                "protected",
+                "public",
+                "return",
+                "short",
+                "static",
+                "super",
+                "switch",
+                "synchronized",
+                "this",
+                "throw",
+                "throws",
+                "try",
+                "void",
+                "volatile",
+                "while",
+                "true",
+                "false",
+                "null",
             ],
         },
         "nasm" | "asm" => Lang {
@@ -159,7 +202,11 @@ pub fn render(name: &str, code: &str) -> String {
                 j += 1;
             }
             let word = &code[i..j];
-            span(&mut out, if l.keywords.contains(&word) { "k" } else { "n" }, word);
+            span(
+                &mut out,
+                if l.keywords.contains(&word) { "k" } else { "n" },
+                word,
+            );
             i = j;
             continue;
         }
@@ -254,6 +301,9 @@ mod tests {
     #[test]
     fn a_block_comment_spans_lines() {
         let out = render("c", "/* one\ntwo */ x");
-        assert!(out.contains("<span class=\"c1\">/* one\ntwo */</span>"), "{out}");
+        assert!(
+            out.contains("<span class=\"c1\">/* one\ntwo */</span>"),
+            "{out}"
+        );
     }
 }

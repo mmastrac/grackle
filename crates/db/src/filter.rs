@@ -454,6 +454,8 @@ enum Tok {
     LParen,
     RParen,
     Comma,
+    Question,
+    Colon,
 }
 
 fn lex(src: &str) -> Result<Vec<Tok>> {
@@ -474,6 +476,14 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
             }
             ',' => {
                 out.push(Tok::Comma);
+                i += 1;
+            }
+            '?' => {
+                out.push(Tok::Question);
+                i += 1;
+            }
+            ':' => {
+                out.push(Tok::Colon);
                 i += 1;
             }
             '*' => {
@@ -556,8 +566,8 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
                 // A `.` is a fraction only when a digit follows: `0.01` is a
                 // float, but `2.foo` is not (and does not arise). Without the
                 // digit check a trailing dot would swallow a field access.
-                let is_float = b.get(i) == Some(&'.')
-                    && b.get(i + 1).is_some_and(|d| d.is_ascii_digit());
+                let is_float =
+                    b.get(i) == Some(&'.') && b.get(i + 1).is_some_and(|d| d.is_ascii_digit());
                 if is_float {
                     i += 1; // the '.'
                     while i < b.len() && b[i].is_ascii_digit() {
@@ -693,9 +703,9 @@ impl Parser {
             }
             _ => match left {
                 Operand::Field(_) | Operand::Call(..) => Ok(Expr::Truthy(left)),
-                Operand::Lit(_) => bail!(
-                    "a literal is only valid on the left of `in` (as in `\"rust\" in tags`)"
-                ),
+                Operand::Lit(_) => {
+                    bail!("a literal is only valid on the left of `in` (as in `\"rust\" in tags`)")
+                }
                 _ => bail!("an arithmetic expression is not a condition on its own"),
             },
         }
@@ -883,6 +893,12 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
         }
         Operand::Arith(a, op, b) => {
             let (at, bt) = (operand_type(a, schema)?, operand_type(b, schema)?);
+            // `+` also concatenates strings, as CEL's does. The head needs it
+            // (§4e: `site.url + url` is a canonical URL) and nothing else in
+            // the language wanted it, which is why it arrived late.
+            if at == Type::Str && bt == Type::Str && *op == ArithOp::Add {
+                return Ok(Type::Str);
+            }
             for (side, t) in [(a, at), (b, bt)] {
                 if !t.is_numeric() {
                     bail!("`{side}` is {t}, but `{}` needs numbers", op.as_str());
@@ -1045,6 +1061,126 @@ impl Rank {
     }
 }
 
+/// A `text` expression: a string per row, for the places where the answer is a
+/// STRING rather than a yes/no or a score — `[html.head.meta]` (§4e) is the
+/// first, and the reason this exists.
+///
+/// Two shapes, and the first is why a conditional lives here at all:
+///
+/// ```text
+/// noindex ? "noindex,follow" : ""     # CEL's own conditional
+/// description                         # a bare operand
+/// ```
+///
+/// §5d's no-control-flow rule governs TEMPLATES — a fragment wanting an `if`
+/// means a missing fact. This is the expression surface, which is exactly
+/// where a conditional is legitimate, and "which string does this meta take"
+/// has no fact-shaped spelling. Spelled as CEL's `a ? b : c` rather than an
+/// `if_else()` function so §5f's "grammatically valid CEL" contract costs
+/// nothing to keep.
+///
+/// An empty result means **absent** — the same rule as §5e's "an empty part
+/// deletes its element", one layer up: an empty meta value emits no tag.
+#[derive(Debug, Clone)]
+pub struct Text {
+    cond: Option<Expr>,
+    then: Operand,
+    /// `None` for the bare-operand form, where `then` is the whole answer.
+    otherwise: Option<Operand>,
+}
+
+impl Text {
+    pub fn parse(src: &str, schema: &Schema) -> Result<Self> {
+        let toks = lex(src)?;
+        if toks.is_empty() {
+            bail!("a text expression cannot be empty");
+        }
+        // Try the conditional first: its condition is a full boolean
+        // expression, so it has to be parsed as one before we know which
+        // shape this is.
+        let mut p = Parser {
+            toks: toks.clone(),
+            pos: 0,
+        };
+        if let Ok(cond) = p.parse_or() {
+            if matches!(p.toks.get(p.pos), Some(Tok::Question)) {
+                p.pos += 1;
+                let then = p.parse_arith()?;
+                if !matches!(p.toks.get(p.pos), Some(Tok::Colon)) {
+                    bail!("a conditional needs `:` — `cond ? \"a\" : \"b\"`");
+                }
+                p.pos += 1;
+                let otherwise = p.parse_arith()?;
+                if p.pos != p.toks.len() {
+                    bail!("trailing tokens after a complete expression");
+                }
+                check(&cond, schema)?;
+                for op in [&then, &otherwise] {
+                    let t = operand_type(op, schema)?;
+                    if t != Type::Str {
+                        bail!("a conditional's branches must be strings, but `{op}` is {t}");
+                    }
+                }
+                return Ok(Text {
+                    cond: Some(cond),
+                    then,
+                    otherwise: Some(otherwise),
+                });
+            }
+        }
+        // Not a conditional: the whole thing is one string-valued operand.
+        let mut p = Parser { toks, pos: 0 };
+        let then = p.parse_arith()?;
+        if p.pos != p.toks.len() {
+            bail!("trailing tokens after a complete expression");
+        }
+        let t = operand_type(&then, schema)?;
+        if t != Type::Str {
+            bail!("a text expression must be a string, but `{then}` is {t}");
+        }
+        Ok(Text {
+            cond: None,
+            then,
+            otherwise: None,
+        })
+    }
+
+    /// The string, or `""` when the value is Null — an absent field says
+    /// nothing rather than printing "null".
+    pub fn eval(&self, row: &impl Row) -> String {
+        let op = match (&self.cond, &self.otherwise) {
+            (Some(c), Some(other)) => {
+                if eval(c, row, &NoCtx) {
+                    &self.then
+                } else {
+                    other
+                }
+            }
+            _ => &self.then,
+        };
+        match operand_value(op, row, &NoCtx) {
+            Value::Str(s) => s,
+            Value::Int(i) => i.to_string(),
+            Value::Double(d) => d.to_string(),
+            Value::Bool(b) => b.to_string(),
+            // Null and List both say nothing rather than printing a shape.
+            _ => String::new(),
+        }
+    }
+
+    pub fn referenced_fields(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(c) = &self.cond {
+            collect_fields_expr(c, &mut out);
+        }
+        collect_fields_operand(&self.then, &mut out);
+        if let Some(o) = &self.otherwise {
+            collect_fields_operand(o, &mut out);
+        }
+        out
+    }
+}
+
 fn collect_fields_expr(e: &Expr, out: &mut Vec<String>) {
     match e {
         Expr::True => {}
@@ -1125,10 +1261,15 @@ fn operand_value(o: &Operand, row: &impl Row, ctx: &dyn Ctx) -> Value {
             None => Value::Null,
         },
         Operand::Arith(a, op, b) => {
-            match (
-                operand_value(a, row, ctx).as_f64(),
-                operand_value(b, row, ctx).as_f64(),
-            ) {
+            let (l, r) = (operand_value(a, row, ctx), operand_value(b, row, ctx));
+            // String `+` concatenates (checked at parse time). A Null side
+            // reads as empty rather than poisoning the whole expression:
+            // `date + "T00:00:00+00:00"` on an undated row is guarded by a
+            // conditional, and a bare concat should still say something.
+            if let (Value::Str(x), Value::Str(y)) = (&l, &r) {
+                return Value::Str(format!("{x}{y}"));
+            }
+            match (l.as_f64(), r.as_f64()) {
                 (Some(x), Some(y)) => Value::Double(op.apply(x, y)),
                 _ => Value::Null,
             }
@@ -1148,10 +1289,7 @@ fn eval(e: &Expr, row: &impl Row, ctx: &dyn Ctx) -> bool {
             *op,
             &operand_value(r, row, ctx),
         ),
-        Expr::In(l, r) => match (
-            operand_value(l, row, ctx),
-            operand_value(r, row, ctx),
-        ) {
+        Expr::In(l, r) => match (operand_value(l, row, ctx), operand_value(r, row, ctx)) {
             (Value::Str(s), Value::List(items)) => items.contains(&s),
             _ => false,
         },
@@ -1445,6 +1583,67 @@ mod tests {
         assert!(e("draft draft").contains("trailing tokens"));
     }
 
+    // ---- §4e: text expressions, for the places the answer is a string ----
+
+    /// CEL's own conditional, which is the whole reason `Text` exists: the
+    /// engine stopped knowing that a robots meta says "noindex".
+    #[test]
+    fn a_conditional_picks_a_branch() {
+        let t = Text::parse(r#"draft ? "noindex,follow" : """#, &schema()).unwrap();
+        assert_eq!(t.eval(&TestRow::default()), "");
+        let drafted = TestRow {
+            draft: true,
+            ..Default::default()
+        };
+        assert_eq!(t.eval(&drafted), "noindex,follow");
+    }
+
+    /// The bare form: a field is a whole expression.
+    #[test]
+    fn a_bare_operand_is_a_text_expression() {
+        let t = Text::parse("title", &schema()).unwrap();
+        assert_eq!(t.eval(&TestRow::default()), "Hello");
+        // An absent value says nothing rather than printing "null" — which is
+        // what makes "empty means the tag is not emitted" total.
+        let t = Text::parse("description", &schema()).unwrap();
+        assert_eq!(t.eval(&TestRow::default()), "");
+    }
+
+    /// Type-checked at load like everything else (§5f).
+    #[test]
+    fn a_text_expression_is_checked_at_load() {
+        let e = |s: &str| Text::parse(s, &schema()).unwrap_err().to_string();
+        assert!(e("year").contains("must be a string"), "{}", e("year"));
+        assert!(e("draft ? 1 : 2").contains("branches must be strings"));
+        assert!(e("draft ? \"a\"").contains("needs `:`"));
+        assert!(e("nope").contains("unknown field"));
+        assert!(e("").contains("cannot be empty"));
+    }
+
+    /// String `+` concatenates, as CEL's does. The head needed it (§4e:
+    /// `site.url + url`) and nothing else in the language had.
+    #[test]
+    fn plus_concatenates_strings() {
+        let t = Text::parse(r#"title + "!" + path"#, &schema()).unwrap();
+        assert_eq!(
+            t.eval(&TestRow::default()),
+            "Hello!recipes/pasta/carbonara.md"
+        );
+        // Still numbers-only for the other operators, and still typed.
+        let e = Text::parse(r#"title - "x""#, &schema())
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("needs numbers"), "{e}");
+    }
+
+    #[test]
+    fn a_conditional_reads_both_sides() {
+        let t = Text::parse(r#"draft ? title : path"#, &schema()).unwrap();
+        let mut f = t.referenced_fields();
+        f.sort();
+        assert_eq!(f, ["draft", "path", "title"]);
+    }
+
     #[test]
     fn empty_filter_matches_everything() {
         let r = TestRow::default();
@@ -1661,7 +1860,10 @@ mod tests {
             }
         }
         // 2 + 2*2 = 6, not 8 — `*` binds tighter.
-        assert_eq!(Rank::parse("x + x * x", &s).unwrap().eval(&R, &NoCtx), Some(6.0));
+        assert_eq!(
+            Rank::parse("x + x * x", &s).unwrap().eval(&R, &NoCtx),
+            Some(6.0)
+        );
         // parens override.
         assert_eq!(
             Rank::parse("(x + x) * x", &s).unwrap().eval(&R, &NoCtx),

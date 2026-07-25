@@ -1,0 +1,37 @@
+# A section tree: nesting, declared order, and an index-less directory.
+#
+# This replaces `outline.rs::nests_orders_and_labels_indexless_dirs`, which
+# wrote seven `Row{…}` literals each filling ~15 fields irrelevant to what it
+# asserted. A directory of files IS what "index-less directory nesting"
+# means, so the fixture is shorter than the test it replaces AND runs the
+# loader the test was imitating.
+#
+# What the blessed nav under /manual/ must show:
+#
+#   Manual            the section's own index, first
+#   Install           order: 1
+#   Configuration     order: 2   — declared order, not filename order
+#   Themes            order: 3
+#   advanced          an index-less dir: an UNLINKED label, after its
+#                     ordered siblings, with its own children ordered inside
+#
+# `/recipes/` is outside the section and must not appear at all.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Sections"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/index.md"
+  route = "/{dir}/"
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"

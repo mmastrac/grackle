@@ -1,0 +1,201 @@
+# The base config — compiled into the binary (DESIGN.md §4d).
+#
+# Every `grackle.toml` inherits this unless it says `extends = "none"`.
+# A site can forget to copy a file; it cannot forget the binary. This is the
+# base THEME's argument (themes/DESIGN.md) applied one layer down, and it uses
+# no new mechanism: a site's collection rules PREPEND to the ones below, and
+# §4's "first writer wins, per key" does the rest.
+#
+# Two rules govern what may live here.
+#
+#   1. It must be what a site would otherwise have to re-derive. If a site
+#      would have to UNDO it, it belongs in the site's own file. (The base
+#      theme's re-derive/undo test, same words.)
+#   2. It may not mint a URL the author did not ask for, unless the absence of
+#      that URL would be a bug on any site. `/atom.xml` and `/sitemap.xml`
+#      qualify. Tag pages do not — plenty of sites never tag. `/search.*` does
+#      not — it is a real payload.
+#
+# `examples/raw` is this file spelled out under `extends = "none"`, and a test
+# holds the two to the same URL set — so the printed version cannot drift from
+# the compiled one.
+
+[site]
+# Placeholders. A real site overrides all three; they exist so that an EMPTY
+# grackle.toml is a valid one, which is what `examples/minimal` measures.
+url = "http://localhost:8080"
+title = "A grackle site"
+author = ""
+
+# The flag family (§4e). These are ordinary declared bool fields — the engine
+# names none of them, and `extends = "none"` genuinely leaves a site without
+# them, at which point `where = "!draft"` is a load error naming the knowns
+# rather than a filter that quietly matches everything.
+#
+# They live in `[schema]` rather than on a collection because they are
+# properties of a ROW, not of a directory or a source: a page can be hidden
+# exactly as a post can.
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+noindex = { type = "bool" }
+
+# What the engine puts in the head, declared rather than compiled in (§4e).
+#
+# Each value is a §5f text expression over the row — or, for a listing, over
+# its route — plus `site.url` / `site.title` / `site.author`. An EMPTY result
+# emits no tag, which is §5e's "an empty part deletes its element" one layer
+# up, and is how every conditional here is spelled.
+#
+# Three tables because there are three elements, not three mechanisms:
+#   [html.head.meta]      <meta name="K" content="V">
+#   [html.head.property]  <meta property="K" content="V">   (Open Graph)
+#   [html.head.link]      <link rel="K" href="V">
+#
+# `noindex ? …` is CEL's own conditional, which is why it is spelled with `?`
+# rather than an `if_else()` the engine would have to register. §5d's
+# no-control-flow rule governs TEMPLATES; this is the expression surface, and
+# "which string does this meta take" has no fact-shaped spelling.
+
+[html.head.meta]
+description = 'description'
+author = 'site.author'
+viewport = '"width=device-width, initial-scale=1"'
+robots = 'noindex ? "noindex,follow" : ""'
+
+[html.head.property]
+"og:title" = 'title'
+"og:description" = 'description'
+"og:url" = 'site.url + url'
+# A row with a date is an article. The fact drives the value; nothing branches.
+"og:type" = 'date ? "article" : "website"'
+# `date` is ISO-8601 already, so the Atom-shaped timestamp is a concatenation
+# rather than a function. Empty on an undated row, which emits no tag.
+"article:published_time" = 'date ? date + "T00:00:00+00:00" : ""'
+"article:author" = 'date ? site.author : ""'
+
+[html.head.link]
+canonical = 'site.url + url'
+# Drop a `favicon.{svg,png,ico,webp,gif}` at the site root and it is linked.
+# `site.icon` is the first of those URLs the tree fills, so an icon that lives
+# elsewhere is pinned by an ordinary named object route (§4) rather than by a
+# key here. No file ⇒ empty ⇒ no tag, which is why this is safe to inherit.
+icon = 'site.icon'
+# The legacy spelling, and the reason it is a LINE rather than engine code:
+# `rel="shortcut icon"` is what browsers old enough to want it will read, the
+# duplicate href is the whole point, and a site that has stopped caring
+# deletes this line. Declaring it costs nothing on a site with no icon.
+"shortcut icon" = 'site.icon'
+
+# §4b: the config says what a marker means, the tree says where. These three
+# names were conventions every site restated; nothing was built in before.
+[markers]
+".draft" = { draft = true }
+".hidden" = { hidden = true }
+".noindex" = { noindex = true }
+
+# ---------------------------------------------------------------- posts
+#
+# A missing `_posts/` is not an error — the collection contributes no rows and
+# the views over it come out empty, so a site with no blog pays nothing for
+# this entry.
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+
+# ---------------------------------------------------------------- objects
+#
+# Images only. Every other extension stays a tree row and ships verbatim at its
+# own path, which is the same bytes at the same URL — the difference an objects
+# collection makes is `by_name` resolution (§6a) and header-read dimensions, and
+# neither means anything for a `.zip`.
+#
+# No `bucket`: the directory a site keeps its assets in is a site's choice, and
+# bare-name resolution bubbles without one.
+
+[[collections]]
+name = "objects"
+kind = "objects"
+extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"
+
+# ---------------------------------------------------------------- pages
+#
+# Front matter decides whether a file is a row at all: with it, a page at a
+# pretty URL; without it, bytes at the literal path, invisible to every query.
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/index.{html,md}"
+  route = "/{dir}/"
+
+  [[collections.rules]]
+  match = "**/*.{html,md}"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# ------------------------------------------------------------------ sets
+
+# The published set, named once so that every consumer below cannot drift apart
+# about what "a post list" means. This is the entry a site overrides most often
+# and the reason `[sets]` exists at all.
+[sets.published]
+from = "posts"
+where = "!draft && !hidden"
+order_by = "-date"
+
+# ---------------------------------------------------------------- routes
+
+# `/` is the one URL every site has an opinion about, so the base does not
+# decide it — it offers both answers and lets the tree pick. With an
+# `index.md`, that row claims the route and owns the page (§5h mode B, and it
+# can place `{% view home %}` to pull the posts back in). Without one, `/` is
+# the ten newest posts. Neither outcome had to be declared by the site, and
+# neither is a guess: both are written here.
+[routes.home]
+path = "/"
+from = "published"
+limit = 10
+layout = "listing"
+default_content = "index.{md,html}"
+title = "@home"
+
+# The archive, always paginated and always complete — so a claimed `/` that
+# shows prose instead of posts never makes the corpus unreachable.
+[routes.blog_index]
+paths = ["/blog/", "/blog/page/{n}/"]
+from = "published"
+paginate = 10
+layout = "listing"
+title = "@blog"
+
+[routes.feed]
+path = "/atom.xml"
+from = "published"
+limit = 20
+shell = "atom"
+
+# `from = "*"` ranges over ROUTES, and a routed row is routed whatever its
+# flags say — hence the restated predicate. Any star route a site adds needs
+# the same one (DESIGN.md §5c).
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
+shell = "sitemap"
+where = '!draft && !hidden && (dir || ext == "html")'

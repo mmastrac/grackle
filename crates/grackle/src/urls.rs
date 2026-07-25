@@ -39,7 +39,10 @@ pub fn exempt(url: &str, prefixes: &[String]) -> bool {
 /// Filter a URL set to the addressable, parity-bearing ones. Both sides go
 /// through this, so an exemption or a dotfile can never count as a difference
 /// on one side only.
-pub fn parity_set<I: IntoIterator<Item = String>>(urls: I, exempt_prefixes: &[String]) -> BTreeSet<String> {
+pub fn parity_set<I: IntoIterator<Item = String>>(
+    urls: I,
+    exempt_prefixes: &[String],
+) -> BTreeSet<String> {
     urls.into_iter()
         .filter(|u| {
             !exempt(u, exempt_prefixes) && !u.rsplit('/').next().is_some_and(|f| f.starts_with('.'))
@@ -50,7 +53,10 @@ pub fn parity_set<I: IntoIterator<Item = String>>(urls: I, exempt_prefixes: &[St
 /// Every URL a directory of built output would serve.
 pub fn urls_in_dir(root: &Path) -> Result<BTreeSet<String>> {
     let mut out = BTreeSet::new();
-    for e in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for e in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !e.file_type().is_file() {
             continue;
         }
@@ -89,14 +95,20 @@ impl Parity {
 
     pub fn report(&self, limit: usize) {
         println!("  shared    {}", self.shared);
-        println!("  missing   {} (in the reference, not in ours)", self.missing.len());
+        println!(
+            "  missing   {} (in the reference, not in ours)",
+            self.missing.len()
+        );
         for u in self.missing.iter().take(limit) {
             println!("              {u}");
         }
         if self.missing.len() > limit {
             println!("              … and {} more", self.missing.len() - limit);
         }
-        println!("  extra     {} (ours, not in the reference)", self.extra.len());
+        println!(
+            "  extra     {} (ours, not in the reference)",
+            self.extra.len()
+        );
         for u in self.extra.iter().take(limit) {
             println!("              {u}");
         }
@@ -116,7 +128,10 @@ mod tests {
 
     #[test]
     fn an_index_is_its_directory() {
-        assert_eq!(url_of(Path::new("blog/2022/index.html")).unwrap(), "/blog/2022/");
+        assert_eq!(
+            url_of(Path::new("blog/2022/index.html")).unwrap(),
+            "/blog/2022/"
+        );
         assert_eq!(url_of(Path::new("index.html")).unwrap(), "/");
         assert_eq!(url_of(Path::new("atom.xml")).unwrap(), "/atom.xml");
         assert_eq!(
@@ -138,16 +153,13 @@ mod tests {
     #[test]
     fn derived_assets_are_exempt_on_both_sides() {
         let ex = vec!["/static/".to_string(), "/_thumbs/".to_string()];
-        let ours = parity_set(
-            ["/a/".to_string(), "/static/abc.jpg".to_string()],
-            &ex,
-        );
-        let reference = parity_set(
-            ["/a/".to_string(), "/_thumbs/def-600-600".to_string()],
-            &ex,
-        );
+        let ours = parity_set(["/a/".to_string(), "/static/abc.jpg".to_string()], &ex);
+        let reference = parity_set(["/a/".to_string(), "/_thumbs/def-600-600".to_string()], &ex);
         let p = Parity::compare(&ours, &reference);
-        assert!(p.missing.is_empty() && p.extra.is_empty(), "thumbs leaked into parity");
+        assert!(
+            p.missing.is_empty() && p.extra.is_empty(),
+            "thumbs leaked into parity"
+        );
         assert_eq!(p.shared, 1);
     }
 

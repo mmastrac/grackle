@@ -1,0 +1,112 @@
+// vanilla — the user-agent stylesheet, 2026 edition. The design principle:
+// delegate every aesthetic decision to the platform, keep only the decisions
+// the platform refuses to make. This theme authors NO hues and NO typefaces:
+// every colour is a CSS system colour (the reader's OS palette), every font
+// is a `ui-*` platform face. Dark mode is `color-scheme` — no palette block,
+// the OS flips it. Forced-colors mode (Windows High Contrast) works by the
+// same delegation, for free.
+//
+// The token names are the gallery contract (themes/README.md). Binding all
+// of them here is the point: this file is the proof the contract has a
+// ZERO POINT — a complete value set with no authored aesthetics in it.
+
+:root {
+	// Dark mode, delegated entirely. This one declaration is the palette.
+	color-scheme: light dark;
+
+	// ------------------------------------------------------------- palette
+	// System colours only. The two mixes are the one authored colour
+	// RELATIONSHIP in the theme (a hairline and a sunken panel have no
+	// system keyword) — still no authored hue: both are CanvasText-into-
+	// Canvas, so they follow the OS in both schemes.
+	--bg: Canvas;
+	--bg-sunken: color-mix(in oklab, CanvasText 5%, Canvas);
+	--bg-raised: Canvas;
+	--fg: CanvasText;
+	--fg-muted: GrayText;
+	--fg-faint: color-mix(in oklab, GrayText 50%, Canvas);
+	--accent: LinkText;
+	--accent-hover: LinkText;
+	--on-accent: Canvas;
+	--line: color-mix(in oklab, CanvasText 20%, Canvas);
+	--line-strong: color-mix(in oklab, CanvasText 40%, Canvas);
+	--selection: Highlight;
+	// Print: system colours already resolve sanely on paper.
+	--print-bg: Canvas;
+	--print-fg: CanvasText;
+
+	// ---------------------------------------------------------------- type
+	// The platform's own faces. Headings inherit the body face and
+	// distinguish themselves the way the UA does: size and weight.
+	--font-body: system-ui;
+	--font-head: inherit;
+	--font-ui: system-ui;
+	--font-mono: ui-monospace, monospace;
+	--root-size: 100%; // the reader's browser setting, untouched
+	--size: 1rem;
+	--scale: 1; // unused: the ladder below copies the UA's own numbers
+
+	// The UA stylesheet's heading sizes, not a derived ratio — the scale
+	// with no opinion is the browser's (2em / 1.5em / 1.17em…), rounded
+	// only where the UA never wrote a number down.
+	--size-3xl: 2em;
+	--size-2xl: 2em;
+	--size-xl: 1.5em;
+	--size-lg: 1.17em;
+	--size-sm: 0.875em;
+	--size-xs: 0.8em;
+
+	// UA line-height is `normal` (~1.2), but WCAG 1.4.12 expects body text
+	// to survive 1.5 — an accessibility floor, not an aesthetic. This is
+	// one of the theme's few real opinions (see theme.scss for the list).
+	--leading: 1.5;
+	--leading-tight: 1.2;
+	--tracking: normal;
+	--tracking-caps: normal;
+	--weight-body: normal;
+	--weight-head: bold; // the UA's own emphasis
+
+	// --------------------------------------------------------------- space
+	--space: 1rem;
+	--space-xs: calc(var(--space) * 0.25);
+	--space-sm: calc(var(--space) * 0.5);
+	--space-md: var(--space);
+	--space-lg: calc(var(--space) * 2);
+	--space-xl: calc(var(--space) * 3);
+
+	// ------------------------------------------------------------ geometry
+	// The measure is the load-bearing opinion: the one thing UA stylesheets
+	// still get wrong is full-bleed text. `ch` keeps it a typographic
+	// convention rather than a brand width.
+	--measure: 70ch;
+	--margin-col: 0;
+	--gutter: var(--space-md);
+	--pad-x: var(--space-md);
+	--radius: 0;
+	--radius-lg: 0;
+	--border: 1px;
+	--rule: var(--border) solid var(--line);
+	--rule-strong: var(--border) solid var(--line-strong);
+	--shadow: none;
+	--shadow-lg: none;
+
+	// ---------------------------------------------------- links and motion
+	// `auto` = whatever the UA draws. No motion: nothing to reduce for
+	// prefers-reduced-motion, which is the compliant amount.
+	--underline: auto;
+	--underline-offset: auto;
+	--transition: 0s;
+
+	// ---------------------------------------------------------- components
+	--date-col: 10ch;
+	--nav-gap: 1em;
+	--pill-pad: 0;
+	--header-pad: var(--space-lg);
+	--hero-width: 40%;
+	// The search overlay is a dialog the platform has no default for, so
+	// these two are the only geometry in this file with no UA precedent to
+	// delegate to. They are here because the vocabulary is a contract: a
+	// theme that overrides none of it still gets a working overlay.
+	--overlay-top: 12vh;
+	--overlay-max-h: 55vh;
+}

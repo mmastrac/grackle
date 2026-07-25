@@ -1,0 +1,76 @@
+// Content SKINS: the blockquote rule, the code panel, table borders, the
+// callout. `@import "skin";` to take them.
+//
+// Opt-in, and the boundary is measured rather than guessed. On grack.com's
+// blog listing these move a paragraph 19px and the page 61px — a blockquote
+// gains a left border and a code block gains a panel — because they are
+// *decoration*, and a theme with its own opinions about decoration will fight
+// them. The ladder in `_type.scss` does none of that and is therefore always
+// on. Same structure/decoration line the base draws against `vanilla`, one
+// level deeper.
+//
+// A site with no theme at all gets these automatically: nobody else will.
+
+blockquote {
+	margin-inline: 0;
+	padding-left: var(--space-md);
+	border-left: calc(var(--border) * 3) solid var(--line-strong);
+	color: var(--fg-muted);
+}
+
+code,
+kbd,
+samp {
+	font-family: var(--font-mono);
+	font-size: var(--size-sm);
+}
+
+// The code SKIN. The scroll that stops a long line breaking the page is in
+// the reset, not here — see `_base.scss`.
+pre {
+	background: var(--bg-sunken);
+	border: var(--rule);
+	border-radius: var(--radius);
+	padding: var(--space-md);
+
+	code {
+		font-size: inherit;
+	}
+}
+
+hr {
+	border: 0;
+	border-top: var(--rule);
+	margin: var(--space-lg) 0;
+}
+
+table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+th,
+td {
+	text-align: left;
+	padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+	border-bottom: var(--rule);
+}
+
+th {
+	font-weight: var(--weight-head);
+}
+
+small {
+	font-size: var(--size-sm);
+}
+
+// The custom widget wrapper `grackle.toml` declares (§5d). A theme that
+// does not style it still renders the body — an unknown element is a span.
+callout {
+	display: block;
+	background: var(--bg-sunken);
+	border-left: calc(var(--border) * 3) solid var(--accent);
+	border-radius: var(--radius);
+	padding: var(--space-sm) var(--space-md);
+	margin: var(--space-md) 0;
+}

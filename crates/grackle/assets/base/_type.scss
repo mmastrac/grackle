@@ -1,0 +1,57 @@
+// The type LADDER: heading sizes, weight, and block rhythm. Always applied,
+// beneath every theme.
+//
+// Safe to impose because it is entirely token-derived — `--size`, `--scale`,
+// `--space`, `--leading`, `--font-head`, `--weight-head` — so a theme retunes
+// the whole hierarchy by changing two numbers and never restates a rule. That
+// is what makes "fully overridable" true here in a stronger sense than the
+// cascade alone provides: the override surface is the token block a theme
+// edits anyway.
+//
+// It is also measured. Applied under grack.com — the hard case, a theme with
+// its own complete type sheet that predates all of this — the ladder is
+// *inert*: its Meyer reset zeroes what the ladder sets, so the theme wins
+// every conflict and the ladder only fills gaps. The skins (`_skin.scss`) are
+// the half that was NOT inert, which is why they are the half that is opt-in.
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family: var(--font-head);
+	font-weight: var(--weight-head);
+	line-height: var(--leading-tight);
+	margin: var(--space-lg) 0 var(--space-sm);
+	text-wrap: balance;
+}
+
+h1 {
+	font-size: var(--size-2xl);
+}
+
+h2 {
+	font-size: var(--size-xl);
+}
+
+h3 {
+	font-size: var(--size-lg);
+}
+
+h4,
+h5,
+h6 {
+	font-size: var(--size);
+}
+
+p,
+ul,
+ol,
+dl,
+blockquote,
+figure,
+pre,
+table {
+	margin: var(--space-md) 0;
+}

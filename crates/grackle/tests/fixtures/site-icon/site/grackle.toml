@@ -1,0 +1,8 @@
+# The site icon (DESIGN.md §4d). Nothing here declares one — the tree does, by
+# putting a file at a URL the base's `[html.head.link]` already names. Two
+# icons on purpose: the preference order must be visible, and `.ico` must be
+# reachable even though it is a tree row rather than an object.
+[site]
+url = "https://example.com"
+title = "A Fixture"
+author = "Tester"

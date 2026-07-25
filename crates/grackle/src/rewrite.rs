@@ -30,9 +30,8 @@ pub fn resolve_links(
     // rewriter, so the real one is parked here and re-raised after.
     let failure: std::cell::RefCell<Option<anyhow::Error>> = std::cell::RefCell::new(None);
 
-    let settings = RewriteStrSettings::new().append_element_content_handler(element!(
-        "a[href]",
-        |el| {
+    let settings =
+        RewriteStrSettings::new().append_element_content_handler(element!("a[href]", |el| {
             let Some(href) = el.get_attribute("href") else {
                 return Ok(());
             };
@@ -46,8 +45,7 @@ pub fn resolve_links(
                 }
             }
             Ok(())
-        }
-    ));
+        }));
 
     let out = rewrite_str(html, settings)?;
 

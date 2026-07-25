@@ -157,11 +157,18 @@ struct Cascaded {
     theme: Option<String>,
     shell: Option<String>,
     layout: Option<String>,
-    draft: bool,
-    hidden: bool,
-    noindex: bool,
     toc: bool,
 }
+
+/// The keys `cascade` reads out of markers and rules. Everything else a
+/// default names must be a declared field (§5b) or it is a load error —
+/// `schema::apply_defaults` holds the other end.
+///
+/// Four names, down from seven: `draft`/`hidden`/`noindex` moved into declared
+/// schema (§4e) and now cascade through `schema::apply_defaults` like any
+/// field a site invents. What is left is genuinely engine vocabulary — which
+/// theme renders a row, which shell wraps it, whether to build an outline.
+pub(crate) const CASCADE_KEYS: &[&str] = &["theme", "shell", "layout", "toc"];
 
 /// Resolve those fields once, for any row — one spelling, so posts and tree
 /// rows cannot drift apart on which fields cascade.
@@ -188,11 +195,6 @@ fn cascade(
         theme: front.theme.clone().or_else(|| inherit("theme")),
         shell,
         layout: front.layout.clone().or_else(|| inherit("layout")),
-        draft: front.draft.unwrap_or_else(|| as_bool(defaults, "draft")),
-        hidden: front.hidden.unwrap_or_else(|| as_bool(defaults, "hidden")),
-        noindex: front
-            .noindex
-            .unwrap_or_else(|| as_bool(defaults, "noindex")),
         toc: front.toc.unwrap_or_else(|| as_bool(defaults, "toc")),
     })
 }
@@ -351,10 +353,11 @@ fn read_posts(
             .parent()
             .unwrap_or(Path::new(""))
             .to_path_buf();
-        let checked = match schemas.resolve(&parent) {
-            Some(schema) => schema::validate(&schema, &raw.front.extra, &raw.path)?,
-            None => Default::default(),
-        };
+        // Every row is governed (§4e): declare a field before you use it.
+        let schema = schemas.resolve(&collection, &parent);
+        let mut checked = schema::validate(&schema, &raw.front.extra, &raw.path)?;
+        // Markers and rules fill whatever front matter left unset (§4b).
+        schema::apply_defaults(&schema, &defaults, CASCADE_KEYS, &mut checked, &raw.path)?;
         let worn = cascade(&raw.front, &defaults, &raw.path)?;
 
         let url = if let Some(p) = &raw.front.permalink {
@@ -423,9 +426,6 @@ fn read_posts(
             fields: checked.values,
             images: checked.images,
             order: raw.front.order,
-            draft: worn.draft,
-            hidden: worn.hidden,
-            noindex: worn.noindex,
             toc: worn.toc,
             locale,
             logical,
@@ -592,12 +592,14 @@ fn build_tree_and_objects(
             // governance follows the LOGICAL path (§6f): a translation is
             // governed by the same .schema.toml as its original.
             let parent = logical_rel.parent().unwrap_or(Path::new("")).to_path_buf();
-            let checked = match schemas.resolve(&parent) {
-                Some(schema) if f.has_front_matter => {
-                    schema::validate(&schema, &fm.extra, &f.path)?
-                }
-                _ => Default::default(),
+            // Every row is governed (§4e). A file with no front matter has
+            // nothing to validate, but still takes marker and rule defaults.
+            let schema = schemas.resolve(tree_name, &parent);
+            let mut checked = match f.has_front_matter {
+                true => schema::validate(&schema, &fm.extra, &f.path)?,
+                false => Default::default(),
             };
+            schema::apply_defaults(&schema, &defaults, CASCADE_KEYS, &mut checked, &f.path)?;
             let worn = cascade(&fm, &defaults, &f.rel)?;
             let date = match &fm.date {
                 Some(s) => Some(front_matter_date(s, &f.path)?),
@@ -644,9 +646,6 @@ fn build_tree_and_objects(
                 toc: worn.toc,
                 theme: worn.theme,
                 shell: worn.shell,
-                draft: worn.draft,
-                hidden: worn.hidden,
-                noindex: worn.noindex,
                 fields: checked.values,
                 images: checked.images,
                 locale,
@@ -703,9 +702,7 @@ fn read_page_schema(path: &Path) -> Result<(store::FrontMatter, usize)> {
 fn resolve_image_fields(db: &SiteDb, schemas: &Schemas) -> Result<()> {
     for row in db.rows.iter() {
         let dir = row.rel.parent().unwrap_or(Path::new("")).to_path_buf();
-        let Some(declared) = schemas.resolve(&dir) else {
-            continue;
-        };
+        let declared = schemas.resolve(&row.collection, &dir);
         for (name, ty) in &declared {
             if *ty != crate::schema::FieldType::Image {
                 continue;
@@ -746,6 +743,16 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // `.slots/`, no config entries. One name-only pass with the same
     // .gitignore defence as the marker scan.
     let mut schemas = Schemas::new(grackle_model::row_schema());
+    // The config axes first, so a positional `.schema.toml` is the NEAREST
+    // declaration and wins per name (§5b).
+    schemas.set_site(cfg.schema.clone(), "grackle.toml [schema]")?;
+    for (cname, c) in &cfg.collections {
+        schemas.add_collection(
+            cname,
+            c.schema.clone(),
+            &format!("grackle.toml [collections.{cname}.schema]"),
+        )?;
+    }
     let mut b = store::walker(&root, cfg.gitignore);
     b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
     for entry in b.build().filter_map(|e| e.ok()) {
@@ -765,6 +772,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         }
     }
     db.sections.sort();
+    // The site vocabulary travels with the database (§4e).
+    db.declared = schemas.declared_schema();
     let mut tree_c = None;
     let mut obj_c = None;
     let mut obj_name = String::new();
@@ -835,8 +844,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             Route {
                 source: Some(p.path.clone()),
                 locale: route_locale(&p.locale),
-                draft: p.draft,
-                hidden: p.hidden,
+                fields: p.fields.clone(),
                 ..Route::new(p.url.clone(), kind)
             }
         })
@@ -914,7 +922,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));
     // Star views index routes, so they resolve against the final, sorted list.
-    crate::views::resolve_star_views(cfg, &mut db)?;
+    crate::views::resolve_star_views(cfg, &mut db, &schemas)?;
     Ok(db)
 }
 
@@ -960,16 +968,13 @@ mod cascade_tests {
             ("theme", text("t")),
             ("shell", text("light")),
             ("layout", text("l")),
-            ("draft", yes()),
-            ("hidden", yes()),
-            ("noindex", yes()),
             ("toc", yes()),
         ];
         let c = cascade(&front("{}"), &defaults(&d), Path::new("x")).unwrap();
         assert_eq!(c.theme.as_deref(), Some("t"));
         assert_eq!(c.shell.as_deref(), Some("light"));
         assert_eq!(c.layout.as_deref(), Some("l"));
-        assert!(c.draft && c.hidden && c.noindex && c.toc);
+        assert!(c.toc);
     }
 
     #[test]
@@ -977,7 +982,7 @@ mod cascade_tests {
         let c = cascade(&front("{}"), &defaults(&[]), Path::new("x")).unwrap();
         assert_eq!(c.theme, None);
         assert_eq!(c.layout, None);
-        assert!(!c.draft && !c.toc);
+        assert!(!c.toc);
     }
 
     /// A shell outside the vocabulary must fail loudly — unchecked, a typo

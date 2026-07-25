@@ -1,0 +1,11 @@
+<header class="site-header">
+	<nav class="site-nav" data-slot="nav" aria-label="Site sections"></nav>
+	<a class="site-title" href="/" data-slot="site_title"></a>
+	<button class="search-button" type="button" aria-label="Search" onclick="window.gs?gs.open():document.head.appendChild(Object.assign(document.createElement('script'),{src:'/search.js'}))">
+		<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="2"/></svg>
+	</button>
+</header>
+<main class="site-main" data-slot="main"></main>
+<footer class="site-footer">
+	<p class="copyright" data-slot="copyright"></p>
+</footer>

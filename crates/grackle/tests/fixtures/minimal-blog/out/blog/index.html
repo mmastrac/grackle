@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" data-kind="shell">
+<head>
+	<title>Blog</title>
+	<meta name="author" content="Tester">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta property="og:title" content="Blog">
+	<meta property="og:type" content="website">
+	<meta property="og:url" content="https://example.com/blog/">
+	<link rel="canonical" href="https://example.com/blog/">
+	<meta charset="utf-8">
+	<link href='/css/main.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<header data-frame>
+	<a href="/" data-slot="site_title">A Fixture</a>
+	
+</header>
+<main data-frame data-slot="main"><section data-kind="listing">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Blog</a></span>
+</nav>
+	<h1 data-slot="title">Blog</h1>
+	
+	<div data-slot="items"><article data-kind="summary">
+	<h2><a href="/blog/2026/02/01/second/" data-slot="title">Second</a></h2>
+	<p><time datetime="2026-02-01" data-slot="date_pretty">1 February 2026</time> </p>
+	
+	<div data-slot="content"><p>A post that asks search engines away, so the declared <code class="language-text highlighter-rouge">robots</code> meta has
+something to say on exactly one page — and <code class="language-text highlighter-rouge">noindex</code> being ordinary declared
+schema (§4e) is what lets front matter set it at all.</p>
+</div>
+</article>
+<article data-kind="summary">
+	<h2><a href="/blog/2026/01/01/hello/" data-slot="title">Hello</a></h2>
+	<p><time datetime="2026-01-01" data-slot="date_pretty">1 January 2026</time> <span data-slot="tags"><a data-slot="name" data-kind="tag">meta</a>
+</span></p>
+	
+	<div data-slot="content"><p>The first post. Dated, so the head calls it an article.</p>
+</div>
+</article>
+</div>
+	
+</section>
+</main>
+<footer data-frame>
+	
+</footer>
+</body>
+</html>

@@ -17,8 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use grackle_db::filter::{self, Filter, Rank};
 use grackle_model::{
-    object_schema, row_schema, two_row_schema, Kind, Pool, RelLabel, Relation, SiteDb,
-    DERIVED_RELATIONS,
+    object_schema, two_row_schema, Kind, Pool, RelLabel, Relation, SiteDb, DERIVED_RELATIONS,
 };
 
 use crate::config::{Config, LocalizedStr, RelationCfg};
@@ -69,14 +68,7 @@ fn base_schema(kind: Kind, schemas: &Schemas) -> filter::Schema {
     if kind == Kind::Objects {
         return object_schema();
     }
-    let mut s = row_schema();
-    for (name, ty) in schemas.declared() {
-        // A declaration never shadows a built-in (schema.rs enforces that at
-        // load), so plain insert is fine. Interned, not leaked, so `serve`
-        // reloads do not accumulate keys.
-        s.insert(grackle_model::intern(name.to_string()), ty.filter_type());
-    }
-    s
+    schemas.row_filter_schema()
 }
 
 fn compile_one(
@@ -88,16 +80,21 @@ fn compile_one(
     schema: &filter::Schema,
 ) -> Result<Relation> {
     let pool = resolve_pool(cfg, db, cname, rc.over.as_deref())?;
-    // A defaulted `over` that fell back to the bare collection (no `published`
-    // set) must still drop drafts and hidden rows — otherwise a dated draft
-    // becomes somebody's Later post (q51's exact hole). An EXPLICIT `over` is
-    // taken as written; only the engine defaults' fallback carries this rule.
-    let fallback = rc.over.is_none() && matches!(&pool, Pool::Collection(_));
-    let where_src = match (rc.filter.as_deref(), fallback) {
-        (Some(f), true) => format!("({f}) && !candidate.draft && !candidate.hidden"),
-        (None, true) => "!candidate.draft && !candidate.hidden".to_string(),
-        (Some(f), false) => f.to_string(),
-        (None, false) => "*".to_string(),
+    // A relation's predicate is the one the config wrote, full stop. The engine
+    // used to AND `!candidate.draft && !candidate.hidden` onto a defaulted
+    // `over` that fell back to the bare collection, so a dated draft could not
+    // become somebody's Later post — the engine composing a query about two
+    // field names it had no business knowing.
+    //
+    // The guarantee moved rather than went away: the base config ships
+    // `[sets.published]` (§4d), so the defaulted pool IS that set and is
+    // already filtered. Only a site at `extends = "none"` with no `published`
+    // falls back to the bare collection, and there the pool is what the site
+    // declared — if it wants drafts out of its neighbours it says so, in the
+    // same place it says everything else.
+    let where_src = match rc.filter.as_deref() {
+        Some(f) => f.to_string(),
+        None => "*".to_string(),
     };
     let filter =
         Filter::parse(&where_src, schema).with_context(|| format!("where {where_src:?}"))?;
@@ -131,10 +128,11 @@ fn compile_one(
 /// or collection is a fixed list.
 ///
 /// An explicit `over` must resolve or it is a load error. An ABSENT one is the
-/// engine defaults' pool: the `published` set — the shape every site's
-/// published corpus has — falling back to the collection itself, then filtered
-/// `!draft && !hidden` by the caller, when a site declares no such set (§6g:
-/// a `published` set is not mandatory just to get neighbours).
+/// engine defaults' pool: the `published` set — which the base config ships
+/// (§4d), so this is the normal case and the pool arrives already filtered —
+/// falling back to the collection itself when a site declares no such set
+/// (§6g: a `published` set is not mandatory just to get neighbours). Nothing
+/// is ANDed onto either: the pool is a query the config wrote.
 fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, over: Option<&str>) -> Result<Pool> {
     let Some(name) = over else {
         return Ok(if db.views.contains_key("published") {
@@ -190,21 +188,27 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
 /// added regardless.
 fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
     let mut m = BTreeMap::new();
-    let rel = |over: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
-        RelationCfg {
-            over: over.map(str::to_string),
-            filter: filter.map(str::to_string),
-            scope: None,
-            rank: rank.map(str::to_string),
-            min_rank: None,
-            limit,
-            label: None,
-        }
-    };
+    let rel =
+        |over: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
+            RelationCfg {
+                over: over.map(str::to_string),
+                filter: filter.map(str::to_string),
+                scope: None,
+                rank: rank.map(str::to_string),
+                min_rank: None,
+                limit,
+                label: None,
+            }
+        };
     // Every collection can point at what links to it.
     m.insert(
         "linked_from".to_string(),
-        rel(Some("linked_from"), Some("!(candidate in ancestors)"), None, None),
+        rel(
+            Some("linked_from"),
+            Some("!(candidate in ancestors)"),
+            None,
+            None,
+        ),
     );
     if kind == Kind::Posts {
         // The nearest neighbour on each side. `date` is an ISO string, which
@@ -222,11 +226,21 @@ fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
         const DATE_ORD: &str = "candidate.year * 10000 + candidate.month * 100 + candidate.day";
         m.insert(
             "earlier".to_string(),
-            rel(None, Some("candidate.date < self.date"), Some(DATE_ORD), Some(1)),
+            rel(
+                None,
+                Some("candidate.date < self.date"),
+                Some(DATE_ORD),
+                Some(1),
+            ),
         );
         m.insert(
             "later".to_string(),
-            rel(None, Some("candidate.date > self.date"), Some(&format!("-({DATE_ORD})")), Some(1)),
+            rel(
+                None,
+                Some("candidate.date > self.date"),
+                Some(&format!("-({DATE_ORD})")),
+                Some(1),
+            ),
         );
         m.insert(
             "related".to_string(),
@@ -234,7 +248,9 @@ fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
                 None,
                 // Not the neighbours already shown, not a page it links to
                 // (defect 1). `links_to` is the derived forward-link name.
-                Some("!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"),
+                Some(
+                    "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)",
+                ),
                 Some("embedding_similarity(self, candidate)"),
                 Some(4),
             ),
@@ -290,8 +306,7 @@ fn order_by_dependency(
     let mut emitted: Vec<String> = Vec::new();
     while emitted.len() < initial.len() {
         let next = initial.iter().find(|n| {
-            !emitted.contains(*n)
-                && deps_of(&compiled[*n]).iter().all(|d| emitted.contains(d))
+            !emitted.contains(*n) && deps_of(&compiled[*n]).iter().all(|d| emitted.contains(d))
         });
         match next {
             Some(n) => emitted.push(n.clone()),
@@ -309,7 +324,10 @@ fn order_by_dependency(
             }
         }
     }
-    Ok(emitted.into_iter().map(|n| compiled.remove(&n).unwrap()).collect())
+    Ok(emitted
+        .into_iter()
+        .map(|n| compiled.remove(&n).unwrap())
+        .collect())
 }
 
 #[cfg(test)]
@@ -322,13 +340,16 @@ mod tests {
     /// `[sets.published]` resolves as a pool.
     fn compile(extra: &str) -> Result<Vec<Relation>> {
         let toml = format!(
-            "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root=\".\"\nextends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [schema]\ndraft={{type=\"bool\"}}\nhidden={{type=\"bool\"}}\n\
              [[collections]]\nname=\"posts\"\nkind=\"posts\"\nsource=\"_posts\"\n\
              filename_formats=[\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
         );
         let cfg = Config::from_toml(&toml)?;
         let mut db = SiteDb::seed(vec![], true);
-        let schemas = Schemas::new(row_schema());
+        // What `load` does: the config axes go in before anything resolves.
+        let mut schemas = Schemas::new(row_schema());
+        schemas.set_site(cfg.schema.clone(), "[schema]")?;
         crate::views::build_views(&cfg, &mut db, &schemas)?;
         build_relations(&cfg, &mut db, &schemas)?;
         Ok(db.relations.remove("posts").unwrap_or_default())
@@ -374,7 +395,10 @@ mod tests {
     #[test]
     fn an_unknown_two_row_field_is_caught_at_load() {
         let e = err("[collections.relations.x]\nover=\"posts\"\nwhere=\"candidate.nope\"\n");
-        assert!(e.contains("unknown field") && e.contains("candidate.nope"), "{e}");
+        assert!(
+            e.contains("unknown field") && e.contains("candidate.nope"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -386,25 +410,49 @@ mod tests {
     #[test]
     fn a_declared_relation_overrides_its_default_by_name() {
         // Overriding `related` leaves the other three defaults in place.
-        let rels =
-            compile("[collections.relations.related]\nover=\"posts\"\nlimit=2\n").unwrap();
+        let rels = compile("[collections.relations.related]\nover=\"posts\"\nlimit=2\n").unwrap();
         let ns = names(&rels);
-        assert!(ns.contains(&"earlier") && ns.contains(&"linked_from"), "{ns:?}");
+        assert!(
+            ns.contains(&"earlier") && ns.contains(&"linked_from"),
+            "{ns:?}"
+        );
         assert_eq!(relation(&rels, "related").limit, 2);
     }
 
-    /// The guarantee the deleted `adjacency` test carried: with no `published`
-    /// set the defaults fall back to the collection, so they must exclude
-    /// drafts by rule (else a dated draft becomes somebody's Later post).
+    /// The engine composes NO predicate of its own. It used to AND
+    /// `!candidate.draft && !candidate.hidden` onto a defaulted pool, which
+    /// meant engine code naming two fields it had no business knowing; the
+    /// guarantee lives in the base config's `published` set now (§4d).
+    ///
+    /// Mutation-checked by restoring the injection, which makes this fail and
+    /// `a_relation_over_a_set_reads_only_what_it_declared` fail with it.
     #[test]
-    fn the_fallback_pool_drops_drafts_by_rule() {
-        let refs = relation(&compile("").unwrap(), "earlier").filter.referenced_fields();
-        assert!(refs.iter().any(|f| f == "candidate.draft"), "{refs:?}");
-        assert!(refs.iter().any(|f| f == "candidate.hidden"), "{refs:?}");
+    fn the_engine_ands_nothing_onto_a_declared_predicate() {
+        let refs = relation(&compile("").unwrap(), "earlier")
+            .filter
+            .referenced_fields();
+        assert_eq!(
+            refs,
+            vec!["candidate.date".to_string(), "self.date".to_string()],
+            "the default `earlier` declares a date comparison and nothing else"
+        );
     }
 
-    /// With a `published` set the pool is that set — already filtered — so the
-    /// fallback rule does not fire and `earlier` reads only the date.
+    /// The same, one level out: whatever pool a relation ranges over, its
+    /// `where` is the one the config wrote.
+    #[test]
+    fn a_relation_over_a_set_reads_only_what_it_declared() {
+        let rels = compile(
+            "[sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n\
+             [collections.relations.x]\nwhere=\"candidate.year == 2026\"\n",
+        )
+        .unwrap();
+        let refs = relation(&rels, "x").filter.referenced_fields();
+        assert_eq!(refs, vec!["candidate.year".to_string()]);
+    }
+
+    /// With a `published` set the pool is that set, and the filtering it does
+    /// is its own — `earlier` still reads only the date.
     #[test]
     fn a_published_set_needs_no_fallback_filter() {
         let rels =

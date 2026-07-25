@@ -10,6 +10,15 @@ pub struct Config {
     /// The engine's own kinds are always present; a site adds to them.
     #[serde(default)]
     pub parts: Vec<PartsDecl>,
+    /// The config this one inherits (§4d). `"default"` merges the engine's
+    /// base config underneath this file; `"none"` is the stock setup, where
+    /// the site declares every collection, rule and route itself.
+    ///
+    /// Same word as `theme.toml`'s, for the same reason: it is the same
+    /// operation — a union merge where the child wins — and one word means
+    /// one thing to learn.
+    #[serde(default = "default_extends")]
+    pub extends: String,
     #[serde(default = "default_root")]
     pub root: PathBuf,
     /// Honour .gitignore when walking (default true). It is the site's existing
@@ -45,6 +54,16 @@ pub struct Config {
     /// The config says what a marker means; the tree says where (DESIGN.md §4b).
     #[serde(default)]
     pub markers: BTreeMap<String, BTreeMap<String, toml::Value>>,
+    /// `[html]` (§4e): what the engine puts in the document's head, declared
+    /// rather than compiled in. Today one table — `[html.head.meta]`.
+    #[serde(default)]
+    pub html: HtmlCfg,
+    /// `[schema]` (§5b, third axis): typed fields every row of the site has.
+    /// `.schema.toml` says *where* a field applies; this says *always*. The
+    /// base config uses it for the flag family (§4d/§4e), which are properties
+    /// of a row rather than of a directory.
+    #[serde(default)]
+    pub schema: toml::Table,
     /// Custom block widgets (§5d): `{% name %}…{% endname %}` expands to the
     /// wrapper template with the markdown body spliced at `{body}`. Adding a
     /// widget is one config entry, no code.
@@ -141,6 +160,157 @@ pub struct ProfileView {
     pub filter: Option<String>,
 }
 
+fn default_extends() -> String {
+    "default".to_string()
+}
+
+/// The base config, compiled in (§4d) — the same move as `parts.toml` and the
+/// base theme, for the same reason: a site can forget to copy a file, and
+/// cannot forget the binary.
+const BASE: &str = include_str!("../assets/base.toml");
+
+/// Merge the base config underneath a site's own.
+///
+/// Three shapes, three rules — and every one of them already existed, which is
+/// the evidence that config inheritance needed no new law:
+///
+/// * **`[[collections]]` merge by SOURCE**, and the site's rules **prepend**
+///   to the inherited ones. §4's "first writer wins, per key" then resolves
+///   them with no extra machinery: a site's rule is nearer, so it writes the
+///   route, and the base's `**` catch-all fills whatever is left. Source is
+///   the key rather than `name` because source is the physical thing and
+///   `name` is a label — a site renaming its posts collection to `notes` is
+///   still talking about `_posts/`, and must not end up reading it twice.
+/// * **Registries of definitions shadow by name** — `[sets.*]`, `[routes.*]`,
+///   `[markers]`, `[widgets]`, `[shells]`, `[profiles]`, `[records.*.*]`,
+///   `[i18n.strings.*]`. Your table replaces the base's of that name entire;
+///   you never diff into one. Same rule as a theme fragment shadowing the
+///   base's file of the same name, and it means you never have to know what
+///   the base put in a table to predict what overriding it does.
+/// * **Everything else merges per key, child wins** — `[site]`, `[i18n]`,
+///   scalars. Same rule as front matter over rule defaults.
+///
+/// Arrays other than `collections`/`rules` replace wholesale: a list is one
+/// authored value, and half-inheriting one is never what was meant.
+fn merge_base(site: toml::Value) -> Result<toml::Value> {
+    let base: toml::Value =
+        toml::from_str(BASE).context("parsing the built-in base config (this is an engine bug)")?;
+    let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
+        return Ok(site);
+    };
+    let mut out = bt.clone();
+    for (k, sv) in st.clone() {
+        let merged = match (k.as_str(), out.remove(&k)) {
+            ("collections", Some(bv)) => merge_collection_list(bv, sv),
+            // Registries: one level deep, so the named entry is the unit.
+            (
+                "sets" | "routes" | "markers" | "widgets" | "shells" | "profiles" | "schema",
+                Some(bv),
+            ) => merge_to_depth(bv, sv, 1),
+            // `[records.<field>.<id>]` and `[i18n.strings.<key>]` put the unit
+            // one level further down.
+            ("records" | "i18n", Some(bv)) => merge_to_depth(bv, sv, 2),
+            // `[html.head.meta.<name>]` puts the unit two levels down.
+            ("html", Some(bv)) => merge_to_depth(bv, sv, 3),
+            ("site", Some(bv)) => merge_to_depth(bv, sv, 1),
+            (_, _) => sv,
+        };
+        out.insert(k, merged);
+    }
+    Ok(toml::Value::Table(out))
+}
+
+/// Per-key merge down `depth` levels of tables; below that the site's value
+/// replaces the base's whole. Depth 1 = "the named entry is the unit".
+fn merge_to_depth(base: toml::Value, site: toml::Value, depth: usize) -> toml::Value {
+    let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
+        return site;
+    };
+    if depth == 0 {
+        return site;
+    }
+    let mut out = bt.clone();
+    for (k, sv) in st.clone() {
+        let merged = match out.remove(&k) {
+            Some(bv) => merge_to_depth(bv, sv, depth - 1),
+            None => sv,
+        };
+        out.insert(k, merged);
+    }
+    toml::Value::Table(out)
+}
+
+/// What identifies a collection across the merge: its source directory, else
+/// its name (objects have no source — they are matched by extension).
+fn collection_key(c: &toml::Value) -> Option<String> {
+    let t = c.as_table()?;
+    if let Some(s) = t.get("source").and_then(|v| v.as_str()) {
+        let s = s.trim_end_matches('/');
+        return Some(format!("source:{}", if s.is_empty() { "." } else { s }));
+    }
+    t.get("name")
+        .and_then(|v| v.as_str())
+        .map(|n| format!("name:{n}"))
+}
+
+fn merge_collection_list(base: toml::Value, site: toml::Value) -> toml::Value {
+    let (Some(ba), Some(sa)) = (base.as_array(), site.as_array()) else {
+        return site;
+    };
+    let mut out = ba.clone();
+    for sc in sa {
+        match collection_key(sc).and_then(|k| {
+            out.iter()
+                .position(|bc| collection_key(bc).as_deref() == Some(k.as_str()))
+        }) {
+            Some(i) => out[i] = merge_collection(out[i].clone(), sc.clone()),
+            None => out.push(sc.clone()),
+        }
+    }
+    toml::Value::Array(out)
+}
+
+fn merge_collection(base: toml::Value, site: toml::Value) -> toml::Value {
+    let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
+        return site;
+    };
+    let mut out = bt.clone();
+    for (k, sv) in st.clone() {
+        let merged = match (k.as_str(), out.remove(&k)) {
+            // The one place order carries meaning: the site's rules go FIRST,
+            // which is all "specific rules before the catch-all" ever meant.
+            ("rules", Some(bv)) => match (bv.as_array(), sv.as_array()) {
+                (Some(b), Some(s)) => {
+                    let mut r = s.clone();
+                    r.extend(b.iter().cloned());
+                    toml::Value::Array(r)
+                }
+                _ => sv,
+            },
+            ("relations" | "schema", Some(bv)) => merge_to_depth(bv, sv, 1),
+            (_, _) => sv,
+        };
+        out.insert(k, merged);
+    }
+    toml::Value::Table(out)
+}
+
+/// `index.{md,html}` -> `["index.md", "index.html"]`. One group, which is all
+/// `default_content` has ever needed; anything else is a literal path.
+fn brace_alternatives(pat: &str) -> Vec<String> {
+    let (Some(open), Some(close)) = (pat.find('{'), pat.find('}')) else {
+        return vec![pat.to_string()];
+    };
+    if close < open {
+        return vec![pat.to_string()];
+    }
+    let (head, tail) = (&pat[..open], &pat[close + 1..]);
+    pat[open + 1..close]
+        .split(',')
+        .map(|alt| format!("{head}{}{tail}", alt.trim()))
+        .collect()
+}
+
 fn default_root() -> PathBuf {
     PathBuf::from(".")
 }
@@ -188,6 +358,11 @@ pub struct I18nCfg {
 /// these (per locale or wholesale); nothing else may appear there.
 pub const ENGINE_STRINGS: &[(&str, &str)] = &[
     ("home", "Home"),
+    // Titles the BASE CONFIG's routes wear (§4d). They live here rather than
+    // as literals in `base.toml` so that an inherited route localizes like
+    // every other engine string — a site retitles `/blog/` in one place, in
+    // every language, without restating the route.
+    ("blog", "Blog"),
     ("drafts", "Drafts"),
     ("related", "Related"),
     ("later", "Later post"),
@@ -300,6 +475,40 @@ pub struct PartsDecl {
     /// `html`, `flag`, `stream:<kind>` or `map:<kind>`.
     #[serde(default)]
     pub parts: Vec<(String, String)>,
+}
+
+/// `[html]` (§4e): the parts of the document head that are a site's decision
+/// rather than the engine's.
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct HtmlCfg {
+    #[serde(default)]
+    pub head: HeadCfg,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct HeadCfg {
+    /// `<meta name="KEY" content="…">`, where the content is a §5f text
+    /// expression over the row (or, for a listing, the route). An empty
+    /// result emits no tag — §5e's "an empty part deletes its element", one
+    /// layer up.
+    ///
+    /// This is where `noindex` stopped being engine vocabulary: the engine
+    /// used to read `Row.noindex` and decide to emit a robots meta. Now it
+    /// evaluates whatever the config declares and knows none of the names.
+    #[serde(default)]
+    pub meta: BTreeMap<String, String>,
+    /// `<meta property="KEY" content="…">`. A separate table because the
+    /// ATTRIBUTE is different, not the mechanism: Open Graph and the
+    /// `article:*` family are `property=`, and folding them into `meta` would
+    /// mean the engine deciding which name takes which attribute — the exact
+    /// kind of knowledge §4e is removing.
+    #[serde(default)]
+    pub property: BTreeMap<String, String>,
+    /// `<link rel="KEY" href="…">`. Same shape one element over.
+    #[serde(default)]
+    pub link: BTreeMap<String, String>,
 }
 
 /// Internal-link policy (§6a).
@@ -440,6 +649,12 @@ pub struct Collection {
     /// `linked_from`); declaring one overrides that NAME alone.
     #[serde(default)]
     pub relations: BTreeMap<String, RelationCfg>,
+    /// `[collections.<name>.schema]` (§5b): typed fields every row of THIS
+    /// collection has, whichever source it came from. `.schema.toml` is
+    /// positional and a collection may have several sources, so this is the
+    /// only place "every post has a `series`" can be said once.
+    #[serde(default)]
+    pub schema: toml::Table,
 }
 
 /// One declared relation (§6g). A neighbour list expressed as a query over
@@ -587,6 +802,26 @@ pub struct View {
     /// `{% view <this view> %}` itself — the author owns the arrangement.
     /// A claimed row loses its standalone route and leaves every query.
     pub content: Option<String>,
+    /// q45 mode B, offered rather than demanded: the source path of a row this
+    /// landing claims **if that row exists**. A brace group takes the first
+    /// that does — `index.{md,html}`.
+    ///
+    /// The difference from `content` is entirely in the absence: a missing
+    /// `content` row is an error, a missing `default_content` row just leaves
+    /// the route a plain landing. That is what lets the base config ship `/`
+    /// (§4d). A site with an `index.md` has that row own its homepage; a site
+    /// without one gets the listing; neither had to say anything. The engine
+    /// still never guesses the ARRANGEMENT (§5h) — both outcomes are declared
+    /// here, and which one applies is a fact about the tree.
+    pub default_content: Option<String>,
+    /// True when this view came from the base config rather than the site's
+    /// own file (§4d). It buys one rule: **an inherited route with nothing to
+    /// show does not materialize.** A site with no `_posts/` never asked for
+    /// an empty `/blog/` or a feed with no entries, and the base may not mint
+    /// URLs the author did not ask for. A route the SITE declared still
+    /// materializes empty — it asked.
+    #[serde(skip)]
+    pub inherited: bool,
     /// Computed fields (§6d): columns this view adds to its rows, each
     /// defined by a deriver. Views composed `over` this one inherit them —
     /// fields flow with rows through query composition the way filters do —
@@ -688,6 +923,7 @@ impl Config {
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         cfg.config_file = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        cfg.resolve_default_content();
         cfg.validate()?;
         if let Some(name) = profile {
             cfg.apply_profile(name)?;
@@ -696,12 +932,87 @@ impl Config {
     }
 
     /// Parse and fold the query sections. The one parse path, so a config
-    /// built in a test is the same shape as one read from disk.
+    /// built in a test is the same shape as one read from disk — including
+    /// the §4d base merge, which is why a test wanting isolation says
+    /// `extends = "none"` rather than reaching for a second entry point.
     pub fn from_toml(text: &str) -> Result<Config> {
-        let mut cfg: Config = toml::from_str(text)?;
+        let value: toml::Value = toml::from_str(text)?;
+        let extends = value
+            .get("extends")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
+        // Whose view is whose, recorded before the merge blurs the two.
+        let declared: Vec<String> = ["sets", "routes"]
+            .iter()
+            .filter_map(|k| value.get(k)?.as_table())
+            .flat_map(|t| t.keys().cloned())
+            .collect();
+        let value = match extends {
+            "none" => value,
+            "default" => merge_base(value)?,
+            other => anyhow::bail!(
+                "extends = {other:?} — the only values are \"default\" (inherit \
+                 the engine's base config, §4d) and \"none\" (declare \
+                 everything yourself)."
+            ),
+        };
+        let mut cfg: Config = match value.try_into() {
+            Ok(c) => c,
+            Err(e) => {
+                // Deserializing from a merged Value loses TOML spans, and a
+                // typo in the site's own file is the common failure. So
+                // re-parse the site's text alone: if THAT is what's wrong, its
+                // error carries the line number and is the actionable one.
+                toml::from_str::<Config>(text)?;
+                return Err(anyhow::Error::new(e));
+            }
+        };
         cfg.merge_collections()?;
         cfg.merge_queries()?;
+        for (name, v) in cfg.views.iter_mut() {
+            v.inherited = !declared.contains(name);
+        }
         Ok(cfg)
+    }
+
+    /// Settle every `default_content` offer against the tree (§4d). A
+    /// filesystem question, so it happens here rather than in `from_toml`,
+    /// which has no directory to resolve against.
+    ///
+    /// Three outcomes, and each leaves exactly one thing at the URL:
+    ///
+    /// * **No such row** — the route lands on its own, as an ordinary landing.
+    /// * **The row exists and places `{% view <name> %}`** — it accepts the
+    ///   offer, and the claim is an ordinary q45 mode B claim from there on.
+    /// * **The row exists and declines** — it wants the URL to itself, and it
+    ///   already has its own route there, so the offered route stands down.
+    ///
+    /// The third case is what keeps this safe to inherit. A site whose
+    /// homepage is a hand-built page has said nothing about `[routes.home]`
+    /// and must not have its rendering changed by a route it never wrote.
+    fn resolve_default_content(&mut self) {
+        let root = self.root();
+        for (name, v) in self.views.iter_mut() {
+            let Some(pat) = v.default_content.as_deref() else {
+                continue;
+            };
+            let Some(found) = brace_alternatives(pat)
+                .into_iter()
+                .find(|c| root.join(c).exists())
+            else {
+                continue;
+            };
+            let tag = format!("{{% view {name} %}}");
+            let accepted = std::fs::read_to_string(root.join(&found))
+                .map(|t| t.contains(&tag))
+                .unwrap_or(false);
+            if accepted {
+                v.content = Some(found);
+            } else {
+                v.route = None;
+                v.routes.clear();
+            }
+        }
     }
 
     /// The table a collection contributes to: its `name`, else its source
@@ -764,6 +1075,18 @@ impl Config {
                 );
             }
         }
+        for (name, v) in sets.iter().chain(&routes) {
+            // Checked here rather than in validate() because it is a question
+            // about the config's shape alone — `resolve_default_content` has
+            // folded one into the other by the time validate runs.
+            if v.content.is_some() && v.default_content.is_some() {
+                anyhow::bail!(
+                    "view {name}: declares both content and default_content — \
+                     one claims a row unconditionally, the other only if it \
+                     exists. Pick which."
+                );
+            }
+        }
         for (name, v) in &routes {
             if v.route.is_none() && v.routes.is_empty() {
                 anyhow::bail!(
@@ -786,7 +1109,30 @@ impl Config {
         Ok(())
     }
 
+    /// The fields CONFIG declares, as a filter schema. Not the whole declared
+    /// set — `.schema.toml` is read during the tree walk, which has not
+    /// happened yet wherever this is used.
+    fn config_declared_schema(&self) -> grackle_db::filter::Schema {
+        let mut s = grackle_db::filter::Schema::new();
+        let tables =
+            std::iter::once(&self.schema).chain(self.collections.values().map(|c| &c.schema));
+        for t in tables {
+            for (name, v) in t {
+                let ty = v
+                    .as_table()
+                    .and_then(|t| t.get("type"))
+                    .and_then(|t| t.as_str())
+                    .and_then(crate::schema::FieldType::parse);
+                if let Some(ty) = ty {
+                    s.insert(grackle_model::intern(name.clone()), ty.filter_type());
+                }
+            }
+        }
+        s
+    }
+
     fn apply_profile(&mut self, name: &str) -> Result<()> {
+        let self_declared = self.config_declared_schema();
         let Some(p) = self.profiles.remove(name) else {
             if name == "dev" {
                 self.profile = Some(name.to_string());
@@ -800,6 +1146,16 @@ impl Config {
         if let Some(u) = p.url {
             self.site.url = u;
         }
+        if p.noindex {
+            // q10: a projection in its own URL space asks search engines away,
+            // site-wide. It used to set a bool the head pass read by name;
+            // now it overrides the declaration, which is the same thing said
+            // in the site's own vocabulary (§4e).
+            self.html
+                .head
+                .meta
+                .insert("robots".to_string(), "\"noindex,follow\"".to_string());
+        }
         self.site.noindex = p.noindex;
         for (vname, over) in p.sets.into_iter().chain(p.routes) {
             let v = self
@@ -809,9 +1165,17 @@ impl Config {
             if let Some(f) = over.filter {
                 // Parsed here so a bad profile filter fails at load like any
                 // other, rather than at the pass that first evaluates it.
+                //
+                // The vocabulary is the built-ins plus whatever CONFIG
+                // declares (§4e) — this runs before the tree walk, so a
+                // profile filter naming a positional `.schema.toml` field
+                // still parses at the pass that evaluates it, just not here.
                 grackle_db::filter::Filter::parse(&f, &grackle_model::row_schema())
                     .or_else(|_| {
-                        grackle_db::filter::Filter::parse(&f, &grackle_model::route_schema())
+                        grackle_db::filter::Filter::parse(
+                            &f,
+                            &grackle_model::route_schema(&self_declared),
+                        )
                     })
                     .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
                 v.filter = Some(f);
@@ -1355,7 +1719,7 @@ mod tests {
     /// what the `merge_queries` checks below are about.
     fn cfg_unmerged(views: &str) -> Config {
         let src = format!(
-            "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
         );
         let mut c: Config = toml::from_str(&src).expect("test config should parse");
@@ -1524,7 +1888,7 @@ mod tests {
     #[test]
     fn a_collection_takes_its_name_from_its_source_directory() {
         let c = Config::from_toml(
-            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
              [[collections]]\nkind = \"tree\"\nsource = \"recipes\"\n",
         )
@@ -1537,7 +1901,7 @@ mod tests {
     #[test]
     fn a_root_collection_is_named_entries() {
         let c = Config::from_toml(
-            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [[collections]]\nkind = \"tree\"\nsource = \".\"\n",
         )
         .unwrap();
@@ -1551,7 +1915,7 @@ mod tests {
     #[test]
     fn an_explicit_name_overrides_the_directory() {
         let c = Config::from_toml(
-            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n",
         )
         .unwrap();
@@ -1562,7 +1926,7 @@ mod tests {
     #[test]
     fn a_sourceless_collection_must_be_named() {
         let e = Config::from_toml(
-            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [[collections]]\nkind = \"objects\"\nextensions = [\"png\"]\n",
         )
         .unwrap_err()
@@ -1573,7 +1937,7 @@ mod tests {
     #[test]
     fn two_collections_may_not_resolve_to_one_name() {
         let e = Config::from_toml(
-            "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
              [[collections]]\nkind = \"tree\"\nsource = \"posts\"\n",
         )
@@ -1587,7 +1951,7 @@ mod tests {
     /// rendering.
     #[test]
     fn a_layout_outside_the_vocabulary_is_a_load_error() {
-        let src = "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+        let src = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
                    [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
                    filename_formats = [\"{slug}\"]\n\
                    [routes.x]\npath = \"/x/\"\nfrom = \"posts\"\nlayout = \"tag_index\"\n";
@@ -1602,7 +1966,7 @@ mod tests {
     /// declared; an undeclared listing is indexed.
     #[test]
     fn noindex_is_a_view_declaration_defaulting_to_indexed() {
-        let head = "root = \".\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+        let head = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
                     [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
                     filename_formats = [\"{slug}\"]\n";
         let c = Config::from_toml(&format!(
@@ -1617,19 +1981,146 @@ mod tests {
 
     /// §4a: the flag family reaches the page schema, not just posts —
     /// `draft: true` on a page was once read, dropped, and published.
+    ///
+    /// §4e moved the flags out of `row_schema()` and into declared schema, so
+    /// the vocabulary the filter type-checks against is the SITE's now. That
+    /// the assertion still reads the same way is the point: nothing about
+    /// what a page can be asked changed, only who says so.
     #[test]
     fn the_flag_family_is_queryable_on_pages() {
-        // Type-checking the filter IS the assertion.
         let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden && !noindex\"\n");
         let q = c.query("pages").unwrap();
-        grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &grackle_model::row_schema())
+        let mut schema = grackle_model::row_schema();
+        for f in ["draft", "hidden", "noindex"] {
+            schema.insert(f, grackle_db::filter::Type::Bool);
+        }
+        // Type-checking the filter IS the assertion.
+        grackle_db::filter::Filter::parse(&q.predicate().unwrap(), &schema)
             .expect("!draft && !hidden should type-check against a page");
+    }
+
+    // ---------------------------------------------------------------- §4d
+
+    /// The site's rules go FIRST, which is the whole mechanism: §4's
+    /// first-writer-wins then hands the route to the site and lets the base's
+    /// catch-all fill whatever is left. Mutation-checked by reversing the
+    /// concatenation, which puts the base's `/blog/...` route first.
+    #[test]
+    fn a_sites_rules_prepend_to_the_inherited_ones() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind=\"posts\"\nsource=\"_posts\"\n\
+             [[collections.rules]]\nmatch=\"**\"\nroute=\"/writing/{slug}/\"\n",
+        )
+        .unwrap();
+        let rules = &c.collections["posts"].rules;
+        assert_eq!(rules[0].route.as_deref(), Some("/writing/{slug}/"));
+        assert_eq!(
+            rules.len(),
+            2,
+            "the base's catch-all should still be there, below"
+        );
+        // Not restated, so it comes from the base.
+        assert_eq!(
+            c.collections["posts"].filename_formats,
+            vec!["{year}-{month}-{day}-{slug}".to_string()]
+        );
+    }
+
+    /// Collections are matched by SOURCE, not by name — a site renaming its
+    /// posts collection is still talking about `_posts/`, and two collections
+    /// over one directory would read every post twice.
+    #[test]
+    fn a_renamed_collection_replaces_the_inherited_one_over_the_same_source() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n",
+        )
+        .unwrap();
+        assert!(c.collections.contains_key("notes"));
+        assert!(
+            !c.collections.contains_key("posts"),
+            "`_posts` would be read twice: {:?}",
+            c.collections.keys()
+        );
+    }
+
+    /// A registry entry is the unit: your `[routes.feed]` replaces the base's
+    /// whole, so you never have to know what the base put in one.
+    #[test]
+    fn a_named_route_shadows_the_inherited_one_entire() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [routes.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
+        )
+        .unwrap();
+        let feed = &c.views["feed"];
+        assert_eq!(feed.route.as_deref(), Some("/feed.xml"));
+        assert_eq!(feed.limit, None, "the base's limit = 20 must not leak in");
+        // Untouched neighbours survive.
+        assert!(c.views.contains_key("blog_index"));
+    }
+
+    /// `[site]` is a settings bag, not a registry: you set the two keys you
+    /// care about and keep the rest.
+    #[test]
+    fn site_keys_merge_one_at_a_time() {
+        let c = Config::from_toml("[site]\ntitle = \"Mine\"\n").unwrap();
+        assert_eq!(c.site.title, "Mine");
+        assert_eq!(c.site.url, "http://localhost:8080", "inherited");
+    }
+
+    /// Which views the SITE declared, recorded before the merge blurs it —
+    /// the flag that keeps an inherited route from minting an empty URL.
+    #[test]
+    fn declared_views_are_told_apart_from_inherited_ones() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [routes.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
+        )
+        .unwrap();
+        assert!(!c.views["feed"].inherited, "the site wrote this one");
+        assert!(c.views["blog_index"].inherited);
+    }
+
+    #[test]
+    fn an_unknown_extends_names_the_two_that_exist() {
+        let e = Config::from_toml(
+            "extends = \"ledger\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("\"default\"") && e.contains("\"none\""), "{e}");
+    }
+
+    #[test]
+    fn brace_alternatives_expand_in_order() {
+        assert_eq!(
+            brace_alternatives("index.{md,html}"),
+            ["index.md", "index.html"]
+        );
+        assert_eq!(brace_alternatives("index.md"), ["index.md"]);
+    }
+
+    /// A view may not both demand a row and offer to take one.
+    #[test]
+    fn content_and_default_content_are_exclusive() {
+        let e = Config::from_toml(
+            "extends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind=\"tree\"\nsource=\".\"\n\
+             [routes.r]\npath=\"/r/\"\nfrom=\"entries\"\ncontent=\"a.md\"\n\
+             default_content=\"b.md\"\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("Pick which"), "{e}");
     }
 
     /// A `[site]`-only config used to build successfully over an empty tree.
     #[test]
     fn a_config_with_no_collections_says_so() {
-        let src = "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n";
+        let src =
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n";
         let c = Config::from_toml(src).unwrap();
         let e = c.validate().unwrap_err().to_string();
         assert!(e.contains("no collections declared"), "{e}");
@@ -1711,7 +2202,7 @@ mod tests {
             "[routes.r]\nfrom = \"blog\"\nroute = \"/r/\"\n",
         ] {
             let src = format!(
-                "root = \".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+                "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
                  [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n{stale}"
             );
             let e = Config::from_toml(&src)

@@ -90,24 +90,26 @@ fn kind_of_name(name: &str) -> &str {
     name.split_once("--").map(|(k, _)| k).unwrap_or(name)
 }
 
-impl Fragments {
-    /// Load every `*.html` in a theme directory. The file stem names the
-    /// fragment; its prefix names the kind it binds to.
-    pub fn load_dir(dir: &Path, schemas: &crate::parts::Schemas) -> Result<Fragments> {
-        let mut sources = Vec::new();
-        let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
-        entries.sort_by_key(|e| e.file_name());
-        for e in entries {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x == "html") {
-                let stem = p.file_stem().unwrap().to_string_lossy().to_string();
-                let text = std::fs::read_to_string(&p)?;
-                sources.push((stem, text, p.display().to_string()));
-            }
+/// Every `*.html` in a theme directory, as `(name, source, display)` triples.
+/// The file stem names the fragment; its prefix names the kind it binds to.
+/// Separate from `Fragments::load` because a theme's sources are only the
+/// TOP layer — the engine's base theme supplies the rest (`theme.rs`).
+pub fn dir_sources(dir: &Path) -> Result<Vec<(String, String, String)>> {
+    let mut sources = Vec::new();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        let p = e.path();
+        if p.extension().is_some_and(|x| x == "html") {
+            let stem = p.file_stem().unwrap().to_string_lossy().to_string();
+            let text = std::fs::read_to_string(&p)?;
+            sources.push((stem, text, p.display().to_string()));
         }
-        Self::load(sources, schemas)
     }
+    Ok(sources)
+}
 
+impl Fragments {
     /// Load from `(name, source, display-name)` triples — the testable core.
     /// Parse everything first, then validate: cross-fragment checks (a stream
     /// slot needs its child fragment) need the whole set present.

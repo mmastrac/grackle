@@ -1,0 +1,158 @@
+// The base stylesheet — the user-agent stylesheet, 2026 edition, and the
+// floor every theme is built on. See _tokens.scss for the delegation
+// principle. Every selector below is engine vocabulary — [data-kind],
+// [data-slot], fact attributes, aria-current — never a class, so it lands
+// equally on the base's own markup, on a partial theme's, and on the
+// canonical fallback under both.
+//
+// The line this file draws, and it is the load-bearing one: **structure,
+// never decoration.** A rule belongs here if a theme would have to
+// re-derive it (the measure, a nav that is a row and not a bulleted list,
+// indentation under a nested list, spacing between entries, the reset).
+// A rule does NOT belong here if a theme would have to *undo* it — a
+// `content:` separator, an ellipsis, a pill. Those are personality, they
+// live in `themes/vanilla/` or in `_skin.scss`, and the reason is concrete:
+// under every theme in the site, so anything decorative here becomes a
+// thing all five gallery themes must remember to unset. Two of them
+// already had to, once, which is how the line got drawn.
+//
+// The opinions kept here, each passing "what would the UA do if it knew
+// about this element?":
+//
+//   1. the measure (and edge padding)         — --measure, below
+//   2. body text at leading 1.5               — WCAG 1.4.12 (_tokens.scss)
+//   3. a nav is a row, not a bulleted list
+//   4. aria-current is bold                   — browsers bold things
+//   5. a hairline where a border must exist   — --line (_tokens.scss)
+
+@import "tokens";
+@import "base";
+@import "type";
+@import "search";
+
+// --------------------------------------------------------------- the page
+// Opinion 1. One centred column of one measure, padding to keep text off
+// the phone's bezel.
+//
+// `[data-frame]` is stamped by the base's OWN shell fragment, and that is
+// the whole point of it: **ship a shell, own the frame.** A theme that
+// writes its own shell gets none of these rules, because its header may be
+// a sticky full-bleed bar or a fixed sidebar rail and inheriting a measure
+// and an `auto` inline margin would be actively wrong. A theme that ships
+// no shell renders through this one and inherits a sane page.
+//
+// It is a data attribute rather than a class for the same reason every
+// other selector in this file is: the base owns engine vocabulary, and a
+// class here would be a name themes had to know about.
+[data-frame] {
+	max-inline-size: var(--measure);
+	margin-inline: auto;
+	padding-inline: var(--pad-x);
+}
+
+header[data-frame] {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--nav-gap);
+	padding-block-start: var(--header-pad);
+}
+
+// A site's name is a strong label, not a decorated one.
+a[data-slot="site_title"] {
+	font-weight: var(--weight-head);
+	margin-inline-end: auto;
+}
+
+// Opinion 3. What <nav><ul> would default to if UA sheets were written
+// today: a wrapping row. The bullets stay for every list that is content.
+nav[data-slot="nav"] ul {
+	list-style: none;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--nav-gap);
+	margin: 0;
+	padding: 0;
+}
+
+main[data-frame] {
+	margin-block: var(--space-lg);
+}
+
+footer[data-frame] {
+	margin-block-start: var(--space-xl);
+	padding-block: var(--space-md);
+	border-block-start: var(--rule);
+}
+
+// The grouped-parts tax again, and this time the base is the one paying it:
+// the shell fragment wraps `copyright` in a <footer> of its own, so a site
+// with no `.slots/copyright.md` keeps the wrapper and would draw a rule
+// under nothing. A theme that writes its own shell inherits neither the
+// wrapper nor this rule.
+footer[data-frame]:not(:has(*)) {
+	display: none;
+}
+
+// ---------------------------------------------------------------- listing
+// Space between entries; nothing else. Rules and cards are personality.
+
+[data-kind="summary"] {
+	margin-block: var(--space-lg);
+}
+
+// The grouped-parts tax (themes/README.md): the summary and document meta
+// lines group two parts in one <p>, so when every part inside is deleted
+// by rule 2 the wrapper remains, and the theme that grouped them pays for
+// hiding it. Direct-child only — content paragraphs live in [data-slot=
+// "content"] and are never touched.
+[data-kind="summary"] > p:not(:has(*)),
+[data-kind="document"] > header > p:not(:has(*)) {
+	display: none;
+}
+
+// ------------------------------------------------------------- pagination
+
+[data-kind="pagination"] {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-md);
+	margin-block-start: var(--space-lg);
+}
+
+[data-kind="pagination"] ol {
+	list-style: none;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-sm);
+	margin: 0 auto;
+	padding: 0;
+}
+
+// Opinion 6. Browsers bold things; the current page is bold. It is also a
+// placeholder link, so _base has already made it inert and GrayText —
+// bold + muted reads as "you are here" with no colour authored.
+a[aria-current] {
+	font-weight: var(--weight-head);
+}
+
+// -------------------------------------------------------------- relations
+// Neighbour lists are block links — a list of places to go, one per line.
+// The label is an h2 and styles itself. Translations stays exactly where
+// the reading order put it: repositioning is a theme move.
+
+a[data-kind="neighbor"] {
+	display: block;
+	padding-block: var(--space-xs);
+}
+
+// --------------------------------------------------- section tree, outline
+// Indentation is the one thing a recursive list cannot do without.
+
+[data-slot="children"] {
+	margin-inline-start: var(--space-md);
+}
+
+// No print block: system colours already resolve on paper, and the UA does
+// not hide a page's chrome — neither do we.

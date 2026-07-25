@@ -42,6 +42,12 @@ pub struct Stats {
     /// background with a re-render on completion.
     pub embed_pending: Vec<crate::embed::Pending>,
     pub search_bytes: usize,
+    /// Stylesheets that failed to compile. Collected rather than thrown so
+    /// the two callers can disagree: `serve` prints and keeps the loop
+    /// alive, `build` refuses to publish. A site whose CSS silently failed
+    /// looks deployable and is wrong, which is the one outcome worth
+    /// failing a build over.
+    pub css_errors: Vec<String>,
 }
 
 /// A URL ending in `/` is served as that directory's index.html.
@@ -120,6 +126,17 @@ pub fn build(cfg: &Config, db: &mut SiteDb, out: &Path) -> Result<Stats> {
         }
     }
     let (map, stats) = render_site(cfg, db)?;
+    // A publishing build refuses a stylesheet that did not compile. `serve`
+    // makes the opposite call on the same data — see `Stats::css_errors`.
+    // Nothing is written when this fires, so a failed build leaves the last
+    // good output in place.
+    if !stats.css_errors.is_empty() {
+        anyhow::bail!(
+            "{} stylesheet(s) failed to compile; refusing to publish:\n  {}",
+            stats.css_errors.len(),
+            stats.css_errors.join("\n  ")
+        );
+    }
     let _ = std::fs::remove_dir_all(out);
     std::fs::create_dir_all(out)?;
     for (url, bytes) in &map {
@@ -128,19 +145,55 @@ pub fn build(cfg: &Config, db: &mut SiteDb, out: &Path) -> Result<Stats> {
     Ok(stats)
 }
 
+/// The site-icon candidates, in the order a browser should prefer them (§4d).
+/// SVG leads because it is the one that scales; `.ico` stays in the list even
+/// though browsers probe `/favicon.ico` on their own, because a site whose
+/// only icon is an `.ico` should still say so out loud.
+const ICON_URLS: &[&str] = &[
+    "/favicon.svg",
+    "/favicon.png",
+    "/favicon.ico",
+    "/favicon.webp",
+    "/favicon.gif",
+];
+
+/// The site icon: the first candidate a row occupies, under `baseurl` like
+/// every other published asset. Empty when the tree has none, and empty is
+/// what makes every consumer drop its tag.
+///
+/// **A URL convention, not a filename lookup**, which is why this needs no
+/// config key. An icon that lives somewhere else in the tree is pinned with an
+/// ordinary named object route (§4) — `match = "brand/icon-v3.png"`,
+/// `route = "/favicon.png"` — and this finds it at the URL, not the path.
+///
+/// Nothing here publishes the row. The `<link>` this feeds is a citation, and
+/// `materialize_referenced` publishes what the chrome cites — the case its own
+/// doc comment already named.
+fn site_icon(cfg: &Config, db: &SiteDb) -> String {
+    ICON_URLS
+        .iter()
+        .find(|u| db.row_by_url(u).is_some())
+        .map(|u| format!("{}{u}", cfg.site.baseurl))
+        .unwrap_or_default()
+}
+
 /// Render every routable URL into memory. Writes nothing to the output; the
 /// only disk it touches is the content-addressed `_cache/` (thumbnails, §6b).
 pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)> {
     let mut out_map: SiteOutput = BTreeMap::new();
 
+    let icon = site_icon(cfg, db);
     let site = Site {
         url: &cfg.site.url,
         title: &cfg.site.title,
         author: &cfg.site.author,
         email: cfg.site.email.as_deref(),
         noindex: cfg.site.noindex,
+        icon: &icon,
     };
     let profile = cfg.profile.as_deref();
+    // `[html.head.meta]` (§4e), compiled once against both surfaces.
+    let metas = render::compile_metas(cfg, &db.declared)?;
     // Each theme compiles its own stylesheet; `default` keeps /css/main.css
     // (URL parity with the reference), others get /css/{name}.css.
     let css_of = |theme: Option<&str>| match theme {
@@ -174,12 +227,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     let schemas = parts::Schemas::load(cfg)?;
     let themes =
         theme::Themes::load_all(&root.join("themes"), &root, &schemas).context("loading themes")?;
-    let thm = themes.get(None)?;
 
     // §6a row/view links: the resolution space, once per build.
     let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
     let bodies = render_bodies(cfg, db, &thumbs, &linkspace)?;
-    let page_bodies = render_page_bodies(cfg, db, &site, thm, &thumbs, &linkspace)?;
+    let page_bodies = render_page_bodies(cfg, db, &site, &themes, &thumbs, &linkspace)?;
 
     // ---- the link graph (q38): scan every rendered body once — posts and
     // pages alike — and invert. Backlinks are one more relations axis; the
@@ -228,7 +280,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         .par_iter()
         .filter_map(|k| db.rows.get(k))
         .map(|p| -> Result<(String, String)> {
-            let head = render::head_for_post(p, &site);
+            let mut head = render::head_for_post(p, &site);
+            head.meta = render::eval_metas(&metas, p, &site, &head.title, &p.url);
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[p.url.as_str()].whole.as_str();
             // §6e heading axis: `toc:` rows carry their outline, extracted
@@ -254,12 +307,17 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .unwrap_or_default();
             let mut head = head;
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
-            let groups = parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
+            let groups =
+                parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
             let mut doc = parts::document(cfg, p, whole, trail, groups, outline, &translations);
             parts::fill_from_fields(&mut doc, p, &schemas, &resolve_asset)?;
-            let main = thm.fragments.render(&doc);
             let dir = p.path.parent().unwrap_or(&root);
-            // Theme is per ROW (§5a), posts included.
+            // Theme is per ROW (§5a), posts included — which means the row's
+            // theme arranges the BODY too, not just the shell around it.
+            // Rendering `main` through the site default here (as this did)
+            // shipped one theme's chrome and stylesheet wrapped around
+            // another's markup: a themed post came out as canonical fallback
+            // in a themed shell, and every selector the theme wrote missed.
             let (theme_name, subtheme) = match p.theme.as_deref() {
                 Some(spec) => {
                     let (n, s) = theme::split_spec(spec);
@@ -268,6 +326,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 None => (None, None),
             };
             let row_thm = themes.get(theme_name)?;
+            let main = row_thm.fragments.render(&doc);
             let html = row_thm.page(
                 render::head_html(&head, &css_of(theme_name)),
                 &cfg.site.title,
@@ -293,11 +352,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // output, so their order carries no meaning.
     {
         let ctx = crate::passes::Ctx {
+            metas: &metas,
             cfg,
             db,
             site: &site,
             themes: &themes,
-            thm,
             thumbs: &thumbs,
             bodies: &bodies,
             page_bodies: &page_bodies,
@@ -407,6 +466,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
         // Must-place (q45): the claimed row owns the arrangement — a body
         // that never places the owner's embed strands the view's rows.
+        // (A `default_content` claim only exists if the row already placed the
+        // embed — see `resolve_default_content` — so this stays exact.)
         let text =
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, body) = split_front_matter(&text);
@@ -492,8 +553,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .unwrap_or_default();
         let groups = parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
 
+        // Absent `layout:` means a document (§4d). It used to mean the raw
+        // body, so a row that forgot the key lost its furniture with no error
+        // — which is exactly why every site had to write
+        // `defaults = { layout = "post" }`. `layout: default` is the escape
+        // hatch, and it is the one that always said what it meant.
         let main = match row.layout.as_deref() {
-            Some("page") | Some("post") => {
+            Some("page") | Some("post") | None => {
                 let mut doc = parts::document_tree(
                     cfg,
                     loc,
@@ -515,7 +581,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             }
             _ => frag.clone(),
         };
-        let head = render::head_simple(&title, &r.url, &site, false);
+        let mut head = render::head_simple(&title, &r.url, &site);
+        head.meta = render::eval_metas(&metas, r, &site, &title, &r.url);
         let dir = src.parent().unwrap_or(&root);
         let html = row_thm.page(
             render::head_html(&head, &css_of(theme_name)),
@@ -763,8 +830,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 };
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
-                let head =
-                    render::head_simple(&title, &r.url, &site, row.is_some_and(|p| p.noindex));
+                let mut head = render::head_simple(&title, &r.url, &site);
+                // A page's metas read its ROW when it has one; a sourceless
+                // route falls back to the route's own fields.
+                head.meta = match row {
+                    Some(p) => render::eval_metas(&metas, p, &site, &title, &r.url),
+                    None => render::eval_metas(&metas, r, &site, &title, &r.url),
+                };
                 // §5g/q44: the row picks its shell. `none` is the whole
                 // point of the field — the body IS the output, so an
                 // imported document can carry front matter (title, tags,
@@ -800,8 +872,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         &parts::canonical(&parts::raw(frag)),
                     ),
                     Theme::Default => {
-                        let groups =
-                            parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
+                        let groups = parts::relation_groups(
+                            rel_groups.get(&r.url).cloned().unwrap_or_default(),
+                        );
                         // §6f: this page in other locales.
                         let translations: Vec<(String, String)> = row
                             .and_then(|p| {
@@ -817,8 +890,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         let mut head = head;
                         head.alternates =
                             locale_alternates(&cfg.site.url, row_locale, &r.url, &translations);
+                        // Absent means a document, per §4d — see the post arm.
                         let main = match layout {
-                            Some("page") | Some("post") => {
+                            Some("page") | Some("post") | None => {
                                 let mut doc = parts::document_tree(
                                     cfg,
                                     row_locale,
@@ -1018,7 +1092,7 @@ fn render_bodies<'a>(
 /// A rendered page body: the expanded fragment plus its Doc (markdown
 /// pages) for outline extraction. Computed BEFORE any page is themed so
 /// the link graph (q38) can scan every body first.
-pub(crate) struct PageBody {
+pub struct PageBody {
     pub(crate) frag: String,
     pub(crate) doc: Option<Doc>,
     /// An unimplemented construct survived expansion; the page is skipped.
@@ -1029,7 +1103,7 @@ fn render_page_bodies(
     cfg: &Config,
     db: &SiteDb,
     site: &Site,
-    thm: &theme::Theme,
+    themes: &theme::Themes,
     thumbs: &HashMap<String, crate::thumbs::Thumb>,
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<String, PageBody>> {
@@ -1046,13 +1120,22 @@ fn render_page_bodies(
         let text =
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, body) = split_front_matter(&text);
+        // The row first: what the expander renders an embed WITH is the
+        // row's theme, not the site default (§5a). A `{% view %}` in a
+        // themed page's body arranges its rows the way that page's theme
+        // says, exactly as the landing path does.
+        let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
+        let row_thm = themes.get(
+            row.and_then(|p| p.theme.as_deref())
+                .map(|spec| theme::split_spec(spec).0),
+        )?;
         // Expand FIRST, then decide: most pages that look unsupported use
         // only constructs the expander already handles.
         let cx = tags::Ctx {
             includes: Some(cfg.root().join("_includes")),
             site: Some(site),
             thumbs: Some(thumbs),
-            theme: Some(thm),
+            theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
@@ -1071,7 +1154,6 @@ fn render_page_bodies(
         // §6a row/view links. Both source shapes resolve through the same
         // closure; they differ only in what walks the document — comrak's AST
         // for markdown, lol_html for raw HTML (§6d stage B).
-        let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
         let dir = row
             .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
             .unwrap_or_default();
@@ -1293,6 +1375,116 @@ fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<String> {
         rest = &after[end..];
     }
     out
+}
+
+#[cfg(test)]
+mod css_pass_tests {
+    use super::*;
+
+    /// `who` names the caller: these run in parallel threads, and a shared
+    /// scratch directory means one test compiles another's theme.
+    /// (`CARGO_TARGET_TMPDIR` would be tidier, but Cargo defines it only for
+    /// integration tests — a unit test gets the system temp dir or nothing.)
+    fn compile_as(who: &str, files: &[(&str, &str)]) -> String {
+        let dir = std::env::temp_dir().join(format!("grackle-css-pass-{who}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            std::fs::write(dir.join(name), body).unwrap();
+        }
+        let mut out = SiteOutput::new();
+        let mut stats = Stats::default();
+        css_pass(&dir, "/css/t.css", &mut out, &mut stats).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        String::from_utf8(out.remove("/css/t.css").expect("a sheet is always emitted")).unwrap()
+    }
+
+    /// The smallest theme worth having: retune the palette, inherit every
+    /// rule. It regressed once — a directory holding only `_tokens.scss`
+    /// shipped a stylesheet that never read the file, silently — so the
+    /// property is worth an assertion rather than a convention.
+    #[test]
+    fn a_theme_of_only_tokens_is_compiled() {
+        let css = compile_as(
+            "tokens-only",
+            &[("_tokens.scss", ":root { --measure: 33rem; }")],
+        );
+        assert!(
+            css.contains("33rem"),
+            "a tokens-only theme must reach the stylesheet: {css}"
+        );
+        // It never wrote a sheet, so it never declined the decorative half.
+        assert!(css.contains("border-left"), "and inherits the skins too");
+    }
+
+    /// The heading ladder is unconditional — a theme never loses it by
+    /// writing a stylesheet. This is the fix for the ladder's one growth
+    /// cliff, and it is safe because the ladder reads only tokens (a theme
+    /// retunes it through `--size`/`--scale`) and was measured inert under
+    /// the one theme with a complete type sheet of its own.
+    #[test]
+    fn every_theme_keeps_the_heading_ladder() {
+        for files in [
+            vec![("theme.scss", ".x { color: var(--fg); }")],
+            vec![("_tokens.scss", ":root { --measure: 33rem; }")],
+            vec![],
+        ] {
+            let css = compile_as(&format!("ladder-{}", files.len()), &files);
+            assert!(
+                css.contains("text-wrap: balance"),
+                "the ladder is not a thing a theme can lose by accident: {css}"
+            );
+        }
+    }
+
+    /// The decorative half still waits to be asked for. Measured: applied
+    /// under grack.com the skins move a paragraph 19px and the blog listing
+    /// 61px, because a theme with its own opinions about a blockquote will
+    /// fight them — which is exactly what the ladder does NOT do.
+    #[test]
+    fn a_theme_with_a_sheet_is_not_given_the_skins() {
+        let css = compile_as(
+            "no-imposed-skin",
+            &[("theme.scss", ".x { color: var(--fg); }")],
+        );
+        assert!(css.contains(".x"), "the theme's own rules ship");
+        assert!(
+            !css.contains("border-left: calc(var(--border) * 3)"),
+            "but the base does not impose a blockquote rule: {css}"
+        );
+    }
+
+    /// §5e's cascade order, declared in full even though `overlay` and
+    /// `post` have nothing to emit into them yet: the declaration is what
+    /// makes the order authoritative rather than an accident of which
+    /// layers happen to exist.
+    #[test]
+    fn the_full_cascade_order_is_declared() {
+        let css = compile_as("layer-order", &[("theme.scss", ".x { color: red; }")]);
+        assert!(
+            css.contains("@layer reset, base, theme, overlay, post;"),
+            "the sheet declares §5e's order: {}",
+            &css[..css.len().min(120)]
+        );
+    }
+
+    /// The reset must keep a long code line from scrolling the whole page,
+    /// even for a theme that imports no typography at all — same class of
+    /// bug as an image that overflows its column, and `vanilla` is the
+    /// theme that would otherwise ship it.
+    #[test]
+    fn a_wide_code_block_never_scrolls_the_page() {
+        let bare = compile_as("pre-bare", &[]);
+        assert!(
+            bare.contains("overflow-x: auto"),
+            "the base reset scrolls `pre` itself: {bare}"
+        );
+        let themed = compile_as("pre-themed", &[("theme.scss", ".x { color: red; }")]);
+        assert!(
+            themed.contains("overflow-x: auto"),
+            "and so does a theme that imports no typography"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1599,29 +1791,103 @@ fn search_pass(
     Ok(())
 }
 
-/// A theme owns its stylesheet (§5e) — `theme.scss` compiles to the URL the
-/// theme's pages link (`default` keeps /css/main.css for parity).
+/// `@charset` is only legal as the very first thing in a stylesheet, and
+/// grass emits one per compilation unit — two of which now go INSIDE layer
+/// blocks. Strip them there and write one at the top of the file.
+fn strip_charset(css: &str) -> &str {
+    css.strip_prefix("@charset \"UTF-8\";\n").unwrap_or(css)
+}
+
+/// A theme's stylesheet is the ENGINE BASE plus whatever the theme adds
+/// (§5e) — compiled to the URL the theme's pages link (`default` keeps
+/// /css/main.css for parity).
+///
+/// **The theme's own sheet is `theme.scss`, or failing that `_tokens.scss`
+/// alone.** The second case is the smallest theme worth having: retune the
+/// palette and the measure, inherit every rule. Compiling it needs saying
+/// out loud, because the alternative is the failure mode it replaced — a
+/// directory holding one `_tokens.scss` shipped a stylesheet that never
+/// read it, and nothing said so. A file that is silently ignored is worse
+/// than one that errors.
+///
+/// The two sheets arrive in declared layers, the cascade order §5e states.
+/// That buys what plain concatenation cannot: a theme's rule wins over the
+/// base's whatever the selectors say, so a theme writing `.crumb` is never
+/// outranked by the base's `[data-kind="crumb"] + [data-kind="crumb"]`.
 fn css_pass(
     theme_dir: &Path,
     url: &str,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
 ) -> Result<()> {
-    let scss = theme_dir.join("theme.scss");
-    if !scss.exists() {
-        return Ok(());
-    }
-    let text = std::fs::read_to_string(&scss)?;
-    let (_, body) = split_front_matter(&text);
-    let flat = inline_imports(body, theme_dir, &mut Vec::new())?;
-    let opts = grass::Options::default().load_path(theme_dir);
-    match grass::from_string(flat, &opts) {
-        Ok(css) => {
-            stats.css += css.len();
-            out_map.insert(url.to_string(), css.into_bytes());
+    // `theme.scss` if the theme wrote one, else `_tokens.scss` on its own.
+    // `wants_skin` is the ONLY thing a sheet's presence now decides: the
+    // heading ladder and block rhythm always apply (measured inert under a
+    // theme that has its own — see `base::css`), and only the decorative
+    // skins wait to be asked for. That shrinks the ladder's one
+    // discontinuity from "the whole page changes" to "the code panel and
+    // blockquote rule are missing".
+    let full = theme_dir.join("theme.scss");
+    let tokens = theme_dir.join("_tokens.scss");
+    let (own, wants_skin) = match (full.exists(), tokens.exists()) {
+        (true, _) => (Some(full), false),
+        (false, true) => (Some(tokens.clone()), true),
+        (false, false) => (None, true),
+    };
+
+    // The full cascade order §5e declares, not just the two layers used
+    // today. `overlay` (§5b subtree styles) and `post` (§6c per-post
+    // styles) are unbuilt — declaring them now is free and makes this
+    // statement the authority on the order, so whoever builds them slots
+    // in rather than discovering that an undeclared layer sorts last by
+    // accident. `reset` is the base's own reset partial, which currently
+    // ships inside `base`.
+    let mut css = format!(
+        "@charset \"UTF-8\";\n@layer reset, base, theme, overlay, post;\n\
+         @layer base {{\n{}\n}}\n",
+        strip_charset(crate::base::css(wants_skin))
+    );
+    if let Some(src) = own {
+        let text = std::fs::read_to_string(&src)?;
+        let (_, body) = split_front_matter(&text);
+        let mut seen = Vec::new();
+        let flat = inline_imports(body, theme_dir, &mut seen)?;
+
+        // A `_tokens.scss` nobody imports is the dead-file trap again, one
+        // arm along: the sheet compiles, the tokens are simply never read,
+        // and the only symptom is a theme that ignores its own palette.
+        // Same class of bug as the tokens-only theme that shipped a sheet
+        // it never opened — worth a word, not a failure, because a theme
+        // may legitimately keep a partial it does not use yet.
+        if tokens.exists() && !seen.iter().any(|s| s == "tokens") {
+            eprintln!(
+                "grackle: {} has a _tokens.scss that nothing imports — add \
+                 `@import \"tokens\";` to theme.scss, or the palette is dead \
+                 weight",
+                theme_dir.display()
+            );
         }
-        Err(e) => eprintln!("scss: {e}"),
+
+        let opts = grass::Options::default().load_path(theme_dir);
+        match grass::from_string(flat, &opts) {
+            Ok(theme_css) => css.push_str(&format!(
+                "@layer theme {{\n{}\n}}\n",
+                strip_charset(&theme_css)
+            )),
+            // Reported here so `serve` shows it immediately, and RECORDED so
+            // `build` can refuse: the binder treats a malformed fragment as
+            // a build error with file:line, and the CSS half of the same
+            // theme should not be the lenient one. Publishing a site whose
+            // stylesheet silently failed to compile is the worst outcome
+            // available — it looks deployable and is wrong.
+            Err(e) => {
+                eprintln!("scss: {}: {e}", src.display());
+                stats.css_errors.push(format!("{}: {e}", src.display()));
+            }
+        }
     }
+    stats.css += css.len();
+    out_map.insert(url.to_string(), css.into_bytes());
     Ok(())
 }
 
@@ -1844,15 +2110,21 @@ fn inline_imports(src: &str, load: &Path, seen: &mut Vec<String>) -> Result<Stri
         if seen.iter().any(|s| s == name) {
             continue; // already inlined; sass imports are idempotent here
         }
+        // The theme's own partial wins; failing that, the engine base's, so
+        // a theme can `@import "tokens"` to build on the base vocabulary
+        // without carrying a copy of it. Neither: leave the line for grass,
+        // which will say so.
         let path = load.join(format!("_{name}.scss"));
-        if !path.exists() {
+        let inner = if path.exists() {
+            std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
+        } else if let Some(src) = crate::base::partial(name) {
+            src.to_string()
+        } else {
             out.push_str(line);
             out.push('\n');
             continue;
-        }
+        };
         seen.push(name.to_string());
-        let inner = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
         // Preserve the indentation so nested imports stay inside their block.
         let indent = &line[..line.len() - line.trim_start().len()];
         for l in inline_imports(&inner, load, seen)?.lines() {
