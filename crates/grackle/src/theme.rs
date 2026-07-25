@@ -42,11 +42,17 @@ pub fn split_spec(spec: &str) -> (&str, Option<String>) {
 
 /// Every theme under `themes/`, keyed by directory name. Theme is chosen
 /// per row (§5a): a row names one (`theme:` front matter, cascadable via
-/// rule defaults); the site default is `default`; a site with no themes at
-/// all gets the null theme — §5e's "needs no directory" made literal.
+/// rule defaults); failing that the site default (`[site] theme`, else the
+/// `default` directory); a site with no themes at all gets the null theme —
+/// §5e's "needs no directory" made literal.
 pub struct Themes {
     map: std::collections::BTreeMap<String, Theme>,
     null: Theme,
+    /// `[site] theme`, split. `None` keeps the historical behaviour exactly:
+    /// `get(None)` finds the `default` directory or the base, and the
+    /// stylesheet URL stays `/css/main.css`.
+    site_name: Option<String>,
+    site_sub: Option<String>,
 }
 
 impl Themes {
@@ -54,6 +60,7 @@ impl Themes {
         themes_dir: &Path,
         site_root: &Path,
         schemas: &crate::parts::Schemas,
+        site_theme: Option<&str>,
     ) -> Result<Themes> {
         let mut map = std::collections::BTreeMap::new();
         if let Ok(rd) = std::fs::read_dir(themes_dir) {
@@ -67,16 +74,62 @@ impl Themes {
                 }
             }
         }
+        // `default` is the one name that resolves without a directory (it is
+        // the base), so it is spellable even by a site with no `themes/`.
+        let (site_name, site_sub) = match site_theme {
+            Some(spec) => {
+                let (n, sub) = split_spec(spec);
+                if n != "default" && !map.contains_key(n) {
+                    let known: Vec<&str> = map.keys().map(String::as_str).collect();
+                    anyhow::bail!(
+                        "[site] theme = {spec:?} names no theme — themes in {}: {}",
+                        themes_dir.display(),
+                        if known.is_empty() {
+                            "(none)".into()
+                        } else {
+                            known.join(", ")
+                        }
+                    );
+                }
+                (Some(n.to_string()), sub)
+            }
+            None => (None, None),
+        };
         Ok(Themes {
             map,
             null: Theme::null(site_root, schemas)?,
+            site_name,
+            site_sub,
         })
     }
 
-    /// Resolve a row's theme. None = the site default (`default`, or the
-    /// null theme when no theme directory exists at all); a *named* theme
-    /// that doesn't exist is an error listing the knowns — a row asked for
-    /// it explicitly.
+    /// The site default, split: `[site] theme` when there is one, else
+    /// `None` — which `get` reads as the `default` directory and `css_of` as
+    /// `/css/main.css`, exactly as before this key existed.
+    pub fn site_default(&self) -> (Option<&str>, Option<String>) {
+        (self.site_name.as_deref(), self.site_sub.clone())
+    }
+
+    /// A row's `theme:` spec resolved against the site default — the whole
+    /// cascade in one place, so the five render paths cannot drift on what
+    /// "this row named nothing" means. A row that names a theme states its
+    /// own subtheme tokens; the site's tokens are the site's, and reach only
+    /// the rows that asked for nothing.
+    pub fn resolve<'a>(&'a self, spec: Option<&'a str>) -> (Option<&'a str>, Option<String>) {
+        match spec {
+            Some(s) => {
+                let (n, sub) = split_spec(s);
+                (Some(n), sub)
+            }
+            None => self.site_default(),
+        }
+    }
+
+    /// Look up a theme by directory name. `None` and `"default"` both mean
+    /// the `default` directory, or the base theme when there is none — so
+    /// callers pass the output of `resolve`, which has already spent
+    /// `[site] theme`. A *named* theme that doesn't exist is an error listing
+    /// the knowns: somebody asked for it explicitly.
     pub fn get(&self, name: Option<&str>) -> Result<&Theme> {
         match name {
             None | Some("default") => Ok(self.map.get("default").unwrap_or(&self.null)),
@@ -223,6 +276,92 @@ mod tests {
             ("recipes", Some("spicy festive".into()))
         );
         assert_eq!(split_spec("recipes:"), ("recipes", None));
+    }
+
+    // ------------------------------------------------- the site default
+    //
+    // `[site] theme` is rung 0 of the customization ladder (themes/DESIGN.md
+    // §2): the cheapest way to change how a site looks, and until it existed
+    // the answer was "rename a directory to `default`". It is one rewrite —
+    // a row that named nothing becomes a row that named the site's theme —
+    // which is why these tests are about `resolve` and not about rendering.
+
+    /// Absent, nothing moves. This is the test that protects URL parity:
+    /// `None` is what `css_of` reads as `/css/main.css`, so a site that never
+    /// writes the key must keep producing the byte-identical `None`.
+    #[test]
+    fn no_site_theme_resolves_exactly_as_before() {
+        let schemas = Schemas::engine_only();
+        let root = crate::workspace_root();
+        let themes = Themes::load_all(&gallery(), &root, &schemas, None).unwrap();
+        assert_eq!(themes.resolve(None), (None, None));
+        assert_eq!(themes.site_default(), (None, None));
+    }
+
+    /// The whole feature: a row that names nothing wears the site's spec,
+    /// tokens included — so `[site] theme = "ledger:dark"` is a one-line
+    /// site-wide dark mode, which is rung 2 reached from rung 0.
+    #[test]
+    fn a_themeless_row_wears_the_site_theme_and_its_tokens() {
+        let schemas = Schemas::engine_only();
+        let root = crate::workspace_root();
+        let themes = Themes::load_all(&gallery(), &root, &schemas, Some("ledger:dark")).unwrap();
+        assert_eq!(themes.resolve(None), (Some("ledger"), Some("dark".into())));
+        // And it is the theme that actually renders — not merely a name.
+        let thm = themes.get(themes.resolve(None).0).unwrap();
+        assert!(std::ptr::eq(thm, themes.get(Some("ledger")).unwrap()));
+    }
+
+    /// A row that names a theme states its own tokens. The site's `dark` must
+    /// not follow `terminal` around: a subtheme is a dress, and the row
+    /// changed clothes. (Merging the two would make `theme: terminal` mean
+    /// something different on every site that set a token.)
+    #[test]
+    fn a_rows_own_theme_beats_the_site_and_takes_no_tokens_with_it() {
+        let schemas = Schemas::engine_only();
+        let root = crate::workspace_root();
+        let themes = Themes::load_all(&gallery(), &root, &schemas, Some("ledger:dark")).unwrap();
+        assert_eq!(themes.resolve(Some("terminal")), (Some("terminal"), None));
+        assert_eq!(
+            themes.resolve(Some("terminal:wide")),
+            (Some("terminal"), Some("wide".into()))
+        );
+    }
+
+    /// Named explicitly, so it fails at load with the knowns — the same
+    /// bargain a row's `theme:` already gets. Checking it here rather than at
+    /// render time is the point: a typo in `[site] theme` would otherwise
+    /// surface as an error on the first page that happened to be themeless.
+    #[test]
+    fn an_unknown_site_theme_is_a_load_error_naming_the_knowns() {
+        let schemas = Schemas::engine_only();
+        let root = crate::workspace_root();
+        let err = Themes::load_all(&gallery(), &root, &schemas, Some("legder"))
+            .map(|_| ())
+            .expect_err("a misspelled site theme must not load")
+            .to_string();
+        assert!(err.contains("legder"), "{err}");
+        assert!(err.contains("ledger"), "{err}");
+    }
+
+    /// `default` resolves without a directory — it is the base theme (§5e) —
+    /// so a site with no `themes/` at all may still say so, and gets the
+    /// floor rather than an error listing nothing.
+    #[test]
+    fn default_is_spellable_with_no_themes_directory() {
+        let schemas = Schemas::engine_only();
+        let root = crate::workspace_root();
+        let none = root.join("themes-that-do-not-exist");
+        let themes = Themes::load_all(&none, &root, &schemas, Some("default")).unwrap();
+        assert_eq!(themes.resolve(None), (Some("default"), None));
+        themes.get(Some("default")).expect("the base answers");
+
+        // Any other name has nothing to resolve to, and says so.
+        let err = Themes::load_all(&none, &root, &schemas, Some("ledger"))
+            .map(|_| ())
+            .expect_err("no directory, no ledger")
+            .to_string();
+        assert!(err.contains("(none)"), "{err}");
     }
 
     // ------------------------------------------------------------ gallery
@@ -400,7 +539,7 @@ mod tests {
     fn every_gallery_theme_keeps_a_rows_name() {
         let schemas = Schemas::engine_only();
         let root = crate::workspace_root();
-        let themes = Themes::load_all(&gallery(), &root, &schemas).expect("gallery loads");
+        let themes = Themes::load_all(&gallery(), &root, &schemas, None).expect("gallery loads");
         let names: Vec<String> = themes.names().map(str::to_string).collect();
         assert!(names.len() >= 6, "expected the gallery, found {names:?}");
 

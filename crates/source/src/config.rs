@@ -590,6 +590,16 @@ pub struct Site {
     pub author: String,
     /// The feed's `<author><email>`; omitted from the feed when absent.
     pub email: Option<String>,
+    /// The site's default theme — the root of the per-row cascade (§5a:
+    /// front matter → rule default → here → the `default` directory → the
+    /// base theme). A full spec, so `"ledger:dark"` sets the site's subtheme
+    /// tokens too; a row that names its own theme states its own tokens.
+    ///
+    /// Absent is not "no theme": it means the `default` directory if there is
+    /// one, and the base theme otherwise — which is why this stays `Option`
+    /// rather than defaulting to `"default"`. A name no theme directory
+    /// answers to is a load error listing the knowns (`Themes::load_all`).
+    pub theme: Option<String>,
     /// Set by a profile, never by the site: a projection published to its
     /// own URL space asks search engines away (q10). Site-wide, so it needs
     /// stating once rather than per row.

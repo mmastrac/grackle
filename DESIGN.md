@@ -1361,6 +1361,18 @@ distinction rather than a spelling.)
 **Theme is chosen per row** (unusual, but it is what this site does): `theme:`
 in front matter or a rule default (§5b), rather than a site-wide setting.
 
+> **A root arrived under it** *(built 2026-07-25)*. Per-row is the *mechanism*;
+> it was never the whole answer, because the commonest thing anyone wants is
+> "this theme, everywhere", and until this the way to say it was to rename a
+> directory to `default`. `[site] theme = "name[:tokens]"` is the bottom of the
+> same cascade — front matter → rule default → site → the `default` directory →
+> the base theme — so it adds a rung rather than a mechanism, and the row-level
+> story is untouched. The subtheme tokens ride the site spec too, which makes a
+> site-wide dark mode one config line; a row that names its own theme states
+> its own tokens, since the site's would otherwise follow it into a theme that
+> never declared them. `themes/DESIGN.md` §8 carries the design and the one
+> honest edge (`/css/main.css` is still emitted when another theme is the site
+> default).
 
 **Layout kind follows from what a row *is***: a post or page → `document`; a
 view with `group_by`/`paginate` → `listing`; a feed/sitemap view → `feed`; a

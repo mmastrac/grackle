@@ -72,7 +72,13 @@ impl Pass for Listing {
         let loc = ctx.locale_of(r);
         let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc)?;
 
-        let theme_name = ctx.unanimous_theme(r);
+        // Unanimous members dress the listing (§5h), and their tokens do not
+        // lift — but a listing they do not claim wears the site's own spec,
+        // tokens included, exactly as a themeless row does.
+        let (theme_name, subtheme) = match ctx.unanimous_theme(r) {
+            Some(n) => (Some(n), None),
+            None => ctx.themes.site_default(),
+        };
         let row_thm = ctx.themes.get(theme_name)?;
         let main = row_thm.fragments.render_with(
             &parts::listing(items, v.featured, &title, trail, intro, pagination),
@@ -87,7 +93,7 @@ impl Pass for Listing {
             ctx.root_path(),
             loc,
             &fill_link_resolver(cfg, ctx.linkspace, loc),
-            None,
+            subtheme.as_deref(),
             ctx.profile,
         )?;
         out.insert(r.url.clone(), html.into_bytes());

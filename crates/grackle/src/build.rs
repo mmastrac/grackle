@@ -226,7 +226,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // against it, so a theme can place a part the site invented.
     let schemas = parts::Schemas::load(cfg)?;
     let themes =
-        theme::Themes::load_all(&root.join("themes"), &root, &schemas).context("loading themes")?;
+        theme::Themes::load_all(&root.join("themes"), &root, &schemas, cfg.site.theme.as_deref())
+            .context("loading themes")?;
 
     // §6a row/view links: the resolution space, once per build.
     let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
@@ -318,13 +319,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             // shipped one theme's chrome and stylesheet wrapped around
             // another's markup: a themed post came out as canonical fallback
             // in a themed shell, and every selector the theme wrote missed.
-            let (theme_name, subtheme) = match p.theme.as_deref() {
-                Some(spec) => {
-                    let (n, s) = theme::split_spec(spec);
-                    (Some(n), s)
-                }
-                None => (None, None),
-            };
+            let (theme_name, subtheme) = themes.resolve(p.theme.as_deref());
             let row_thm = themes.get(theme_name)?;
             let main = row_thm.fragments.render(&doc);
             let html = row_thm.page(
@@ -452,13 +447,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
         // The row's theme renders both the slice and the page (§5a: the
         // landing wears its section's clothes).
-        let (theme_name, subtheme) = match row.theme.as_deref() {
-            Some(spec) => {
-                let (n, s) = theme::split_spec(spec);
-                (Some(n), s)
-            }
-            None => (None, None),
-        };
+        let (theme_name, subtheme) = themes.resolve(row.theme.as_deref());
         let row_thm = themes.get(theme_name)?;
         let embed_html = row_thm
             .fragments
@@ -821,13 +810,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // theme — per row, §5a — with a colon suffix carrying
                 // subtheme tokens for CSS subselection (`recipes:spicy` →
                 // data-subtheme="spicy" wherever the shell places it).
-                let (theme_name, subtheme) = match row.and_then(|p| p.theme.as_deref()) {
-                    Some(spec) => {
-                        let (n, s) = theme::split_spec(spec);
-                        (Some(n), s)
-                    }
-                    None => (None, None),
-                };
+                let (theme_name, subtheme) = themes.resolve(row.and_then(|p| p.theme.as_deref()));
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
                 let mut head = render::head_simple(&title, &r.url, &site);
@@ -1125,10 +1108,7 @@ fn render_page_bodies(
         // themed page's body arranges its rows the way that page's theme
         // says, exactly as the landing path does.
         let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
-        let row_thm = themes.get(
-            row.and_then(|p| p.theme.as_deref())
-                .map(|spec| theme::split_spec(spec).0),
-        )?;
+        let row_thm = themes.get(themes.resolve(row.and_then(|p| p.theme.as_deref())).0)?;
         // Expand FIRST, then decide: most pages that look unsupported use
         // only constructs the expander already handles.
         let cx = tags::Ctx {

@@ -43,7 +43,7 @@ forget the binary. Consequences, section by section:
   mixed-lineage variants (the base ships `summary--figure`), identity-slot
   derivation from the merged shell (so even a themeless site gets site nav),
   and the token lint.
-- **Still pending**: rung 0 (`theme add`, `[site] theme`), rung 4 (lockfile),
+- **Still pending**: rung 0's install half (`theme add`), rung 4 (lockfile),
   derive-from-a-theme. A rung *below* 0 appeared instead: **no theme at all is
   now reasonable** — `examples/minimal` has no `themes/` directory and renders
   semantic HTML with a stylesheet.
@@ -204,7 +204,7 @@ usage against the contract vocabulary.
 
 | rung | you want | you do | theme files touched |
 |---|---|---|---|
-| 0 | a look | `grackle theme add <url>`, set site default (§8) | none |
+| 0 | a look | `cp -r` a gallery theme, then `[site] theme = "name"` (§8, built); `grackle theme add <url>` is still specced | none |
 | 1 | different colors/fonts/spacing | site-owned root `.style.scss`: `:root { --accent: … }` — the overlay layer sits above theme CSS | none |
 | 2 | a variant the theme ships | `theme: ledger:dark` subtheme token | none |
 | 3 | different arrangement | derived theme: `extends` + shadowed fragments and/or `_tokens.scss` (§3) | none (parent pristine) |
@@ -499,13 +499,44 @@ severable from §§3–5; ship it last.
 > `revert-layer` remains the documented escape hatch and is now real: theme
 > rules beat base rules by layer, whatever the selectors say.
 
-## 8. Configuration
+## 8. Configuration *(built 2026-07-25)*
 
-`[site] theme = "name[:tokens]"` in `grackle.toml` becomes the root of the
-per-row cascade (front matter → rule defaults → site default), replacing the
+`[site] theme = "name[:tokens]"` in `grackle.toml` is the root of the per-row
+cascade (front matter → rule defaults → site default), replacing the
 `default`-directory magic as the *primary* mechanism; the directory name
 stays honored as a fallback so existing sites don't move. `theme add` then
 never needs a rename, and `theme list` can mark the site default.
+
+**As built**, it is one rewrite rather than a new resolution path.
+`Themes::resolve(row_spec)` spends the key in the single place the five render
+paths all pass through: a row that named nothing becomes a row that named the
+site's theme, and everything downstream — `get`, `css_of`, the stylesheet pass
+— sees a name it already knew how to handle. Absent, `resolve` returns `None`
+and every byte is what it was, which is what let this land under URL parity.
+
+Three consequences worth stating, each of which is a decision:
+
+- **The site default is a full spec, so its tokens apply.**
+  `theme = "ledger:dark"` is a one-line site-wide dark mode — rung 2 reached
+  from rung 0, with no `themes/` edit. A row that names its *own* theme states
+  its own tokens; the site's do not follow it, because a subtheme is a dress
+  and the row changed clothes.
+- **A listing wears it too.** `unanimous_theme` (§5h) still wins when a
+  listing's members agree, and their tokens still do not lift; a listing they
+  do not claim now takes the site's spec, tokens included, exactly as a
+  themeless row does. Before this it took the default theme with no tokens.
+- **`default` is spellable with no `themes/` directory**, because `default`
+  *is* the base theme (§7). So `theme = "default"` is a legal way to say "the
+  floor, explicitly", and only some other name with nothing behind it is a
+  load error — listing the knowns, at load, rather than on the first themeless
+  page to render.
+
+**One honest edge.** `/css/main.css` is the `default` theme's sheet, and it is
+still emitted when `[site] theme` names another theme — referenced by nothing
+unless a row says `theme: default`. Naming sheets after the theme that renders
+them would fix it, except that `default` → `main.css` exists for URL parity
+with the reference build; the real answer is emitting only the sheets a build
+actually referenced, which is a pass this change did not want to invent.
 
 ## 9. Rejected
 
@@ -540,6 +571,10 @@ Each step lands alone; nothing depends on a later step.
    > `is_content` no longer rejects theme files under `/grackle/`). Chain-member
    > invalidation arrives with chains.
 3. **`[site] theme`** default in the config cascade. (`config.rs`)
+   > **Done 2026-07-25** — see §8. One `Themes::resolve` at the top of the
+   > cascade, five call sites collapsed onto it, five tests (three
+   > mutation-checked: ignoring the default, leaking its tokens across a row's
+   > own theme, and skipping the load-time name check).
 4. **Vanilla through the engine**: add it to a real preview config, fix
    whatever `binder.rs` validation and grass find (finding: fragments are
    unvalidated), add the gallery README row + the portability falsifier —

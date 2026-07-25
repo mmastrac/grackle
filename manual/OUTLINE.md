@@ -316,20 +316,27 @@ the binary.
   ```
   That's the whole install — the base comes with the binary, so a copied
   theme has no companion directory to remember.
-- **Choosing one**: engine loads every directory under `themes/` (skipping
-  `_`-prefixed), compiles each `theme.scss` to `/css/<name>.css`; the one
-  named `default` is site-wide and keeps `/css/main.css`. Theme is **per
-  row** — front matter, or cascade it to a subtree with a rule default
-  (`match = "recipes/**"`, `defaults = { theme = "terminal" }`).
-  ★ A `[site] theme = "…"` key is specced but absent — today the
-  directory *named* `default` is the mechanism, so "make this the site
-  theme" means renaming a directory.
+- **Choosing one**: `[site] theme = "terminal"` (built 2026-07-25) — the
+  second line of the install, after `cp -r`. Engine loads every directory
+  under `themes/` (skipping `_`-prefixed), compiles each `theme.scss` to
+  `/css/<name>.css`; the one named `default` keeps `/css/main.css`.
+- **It is only the root of the cascade**, which is the point to teach: theme
+  is **per row** (§5a), so front matter opts a row out and a rule default
+  cascades another theme over a subtree (`match = "recipes/**"`,
+  `defaults = { theme = "ledger" }`). Same law, fifth appearance — front
+  matter → rule → `[site] theme` → a directory named `default` → the base.
+- A misspelled `[site] theme` is a load error listing the themes you have.
+  Good place for the errors-are-a-feature beat, because the alternative
+  (silently rendering the default) is what every other SSG does.
 - Nice consequence of per-row themes, worth one line: a row's **body** is
   rendered through its own theme, not just its shell — so a `recipes/`
   subtree under `terminal` is terminal all the way down.
 - **Subthemes ride after a colon**: `theme: "ledger:dark"` stamps
   `data-subtheme="dark"` on `<html>`; CSS subselects `[data-subtheme~=…]`.
-  They compose — `marginalia:dark:wide`.
+  They compose — `marginalia:dark:wide`. **And they work on `[site] theme`**,
+  so site-wide dark mode is one config line and no theme file — worth showing,
+  because it is the whole ladder (rung 0 reaching rung 2) in one line. A row
+  naming its own theme states its own tokens; the site's do not follow it.
 - **Recolour without touching a theme**: a site-owned root `.style.scss`
   setting `:root { --accent: … }` sits in a layer above theme CSS, and
   because the token names are a cross-theme contract it survives theme
@@ -1067,10 +1074,9 @@ rather than memorize it.
   `theme.toml` (both head-fact selection *and* `extends` inheritance
   chains), the `grackle theme` subcommand family
   (`add`/`update`/`list`/`new`/`derive`/`check`/`try`) with
-  `themes/.lock.toml`, the `?theme=` dev override, and a `[site] theme`
-  default key. Today: install is `cp -r`, "site theme" is a directory
-  named `default`, and there is no update path. Also specced: the fuller
-  cascade (`reset`/`overlay`/`post` layers — only `base, theme` ship).
+  `themes/.lock.toml`, and the `?theme=` dev override. Today: install is
+  `cp -r` plus `[site] theme`, and there is no update path. Also specced: the
+  fuller cascade (`reset`/`overlay`/`post` layers — only `base, theme` ship).
 - Each row: what it would look like, what blocks it, the q number.
 - **Landed since earlier drafts** — out of the ledger, into the chapters
   named: row shells (ch. 19), page flags + **profiles** + **`_drafts` as a

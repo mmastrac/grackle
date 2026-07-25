@@ -66,25 +66,42 @@ with an index-less directory, a card shelf and a masonry wall. There is a
 cp -r grackle/themes/terminal themes/terminal
 ```
 
+…then name it:
+
+```toml
+[site]
+theme = "terminal"
+```
+
 That is the whole install — the base comes with the binary, so a copied theme
 has no companion directory to remember. The engine loads every directory under
 `themes/` (skipping `_`-prefixed ones) and compiles each `theme.scss` to
-`/css/<name>.css`, except `default`, which keeps `/css/main.css`. Theme is
-chosen per row (§5a): a row opts in with front matter, or a rule cascades it to
-a subtree:
+`/css/<name>.css`, except `default`, which keeps `/css/main.css`.
+
+`[site] theme` is only the **root** of the cascade, because theme is chosen per
+row (§5a). A row opts out with front matter, or a rule cascades another theme
+over a subtree:
 
 ```toml
 [[collections.rules]]
 match = "recipes/**"
-defaults = { theme = "terminal" }
+defaults = { theme = "ledger" }
 ```
 
-Rename the directory to `default` and it is the site-wide theme. Subtheme tokens
-ride after a colon — `theme: "ledger:dark"` renders through `ledger` with
-`data-subtheme="dark"` on `<html>`, which CSS subselects via
+Nearest wins, as everywhere: front matter, then a rule default, then
+`[site] theme`, then a directory literally named `default`, then the base. A
+name none of your directories answers to is a load error listing the ones that
+do — `default` excepted, which always resolves, because `default` *is* the
+base.
+
+Subtheme tokens ride after a colon — `theme = "ledger:dark"` renders through
+`ledger` with `data-subtheme="dark"` on `<html>`, which CSS subselects via
 `[data-subtheme~="dark"]`. Every theme here uses that to force light or dark
 against `prefers-color-scheme`; `marginalia` adds a second, independent token
-(`wide`) to show they compose: `theme: "marginalia:dark:wide"`.
+(`wide`) to show they compose: `marginalia:dark:wide`. **Tokens work on the
+site default too**, so a site-wide dark mode is one line and no theme edit —
+and a row that names its own theme states its own tokens, since the site's
+would otherwise follow it into a theme that never heard of them.
 
 ## The token contract
 
