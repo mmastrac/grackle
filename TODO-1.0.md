@@ -8,6 +8,21 @@ Ordering is rough priority within each group, not across groups.
 
 ## Defects
 
+- [ ] **Audit the compressed docs for claims whose correction was deleted** —
+      the one failure mode this compression pass has. These documents state a
+      claim in one section and correct it in another, and the correction
+      usually lives in the dated ledger prose the criteria classify as build
+      narration. Removing the narration can leave the superseded claim standing
+      alone, looking authoritative, with the only thing that contradicted it
+      gone — the doc comes out *more* wrong than it went in.
+      Found once already: `themes/DESIGN.md` §7 said typography was opt-in,
+      while its correction (the `_type.scss` split into an always-on ladder and
+      opt-in skins) sat in the Landed ledger that was cut. Fixed 2026-07-25.
+      The check is mechanical: for each surviving rule in `DESIGN.md` and
+      `themes/DESIGN.md`, confirm it against the code, not against the
+      document. `git show dc96d5d^:grackle/themes/DESIGN.md` and its `DESIGN.md`
+      sibling have the pre-compression text to diff against.
+
 - [x] **The base theme's shell hardcodes grack.com's favicons** — fixed. The
       icon is `site.icon`, filled from a `favicon.*` at the site root and
       declared in `base.toml`'s `[html.head.link]`; empty emits nothing. The fix

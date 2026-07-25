@@ -230,9 +230,26 @@ remain planned. A theme rule beats the base's regardless of selector specificity
 have to re-derive it; it does not if a theme would have to undo it.** This is
 backed by measurement, not taste.
 
-**Typography is opt-in** (`@import "type";` in a theme's `theme.scss`), because
-a second heading ladder underneath a theme that has one is invisible and wrong.
-A site with no theme gets it automatically.
+**Three tiers, and the boundary between them is measured.** The reset and the
+type **ladder** — heading scale, weight, block rhythm — are unconditional. Only
+the **skins** are opt-in (`@import "skin";`): the blockquote rule, the code
+panel, table borders, the callout.
+
+The measurement is the answer to "could the base just always apply?" — it can,
+for half of itself. Under a theme with a complete type sheet of its own the
+ladder is **inert**: the theme's reset zeroes everything the ladder sets, so the
+theme wins every conflict and the ladder only fills gaps. The skins are not
+inert — on a listing they move a paragraph 19px and the page 61px, because a
+blockquote gains a left border and a code block gains a panel. What makes the
+ladder safe to impose is that it reads *only tokens*: a theme retunes the entire
+hierarchy through `--size`/`--scale` without restating a rule, which is a
+stronger sense of "overridable" than the cascade alone provides.
+
+Shipping a `theme.scss` is the only thing that declines the skins. A
+tokens-only theme, and a site with no theme at all, get them automatically —
+they have nobody else to ask. So writing your first `theme.scss` costs you the
+code panel and the blockquote rule, whose absence is legible, rather than the
+heading hierarchy, whose absence would be alarming.
 
 ## 8. Configuration *(built 2026-07-25)*
 

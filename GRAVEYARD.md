@@ -18,6 +18,22 @@ rather than buried. Section and subsection headings were preserved throughout:
 where a whole subsection deserved to go, it is marked `PROPOSED WHOLE-SECTION
 CUT` and left in place for a human to decide. There are four of those.
 
+> **The failure mode this pass has, found once and probably not unique.**
+> These documents record a claim in one section and its later correction in
+> another — the correction usually living in exactly the dated ledger prose the
+> criteria call "build narration". Deleting the narration can therefore leave a
+> superseded claim standing *alone and looking authoritative*, having removed
+> the only thing that contradicted it.
+>
+> Confirmed instance: `themes/DESIGN.md` §7 said "typography is opt-in
+> (`@import "type";`)". Its correction — the `_type.scss` split into an
+> always-on ladder and opt-in skins — lived in the Landed ledger, which this
+> pass removed. The doc came out of the compression *more* wrong than it went
+> in. Fixed, and the entry above is struck through so it is not swept back.
+>
+> Anything in this file that reads like a rule rather than a record should be
+> checked against the code before it is reinstated. See `TODO-1.0.md`.
+
 ---
 
 ## themes/README.md
@@ -185,8 +201,11 @@ CUT` and left in place for a human to decide. There are four of those.
   so this statement is the authority on the order rather than leaving a future
   implementer to discover that an undeclared layer sorts last by accident.
 - The review test became **re-derive/undo**, which is sharper and falsifiable.
-- Typography is opt-in, because a second heading ladder underneath a theme that
-  has one is invisible and wrong.
+- ~~Typography is opt-in, because a second heading ladder underneath a theme
+  that has one is invisible and wrong.~~ **Stale when written** — this was the
+  pre-split claim, and `_type.scss` was later split into an always-on ladder
+  and opt-in skins. Do not sweep it into the manual; ch. 14 already has the
+  correct version. See the note below.
 
 ### §10 implementation order *(completed checklist)*
 
