@@ -7,10 +7,11 @@
 # in six looks" is now true by construction rather than by six copies kept in
 # step by hand. 102 content files became 36.
 #
-# `vanilla` is the canonical member and wears the bare URLs; the other five are
-# alternates and wear their prefix, exactly as the default locale wears no
-# `/fr/`. Every member canonicalizes to the vanilla URL and only it reaches the
-# sitemap — six renderings of one document are not six documents.
+# Every member wears its `{theme}` segment, canonical included: the axis says
+# WHICH forms exist and the route template says where they land. `vanilla` is
+# canonical, so every member points `rel="canonical"` at the vanilla URL and
+# only it reaches the sitemap — six renderings of one document are not six
+# documents.
 #
 # What did NOT merge, and why: a landing CLAIMS a content row, and a row serves
 # one landing (the engine says so at load), so the three landings per theme keep
@@ -92,14 +93,23 @@ kind = "tree"
 source = "."
 exclude = ["themes/**"]
 
+  # The gallery's own landing publishes ONCE, at the root: it is the index of
+  # the six, not one of them. A rule that does not spend the axis opts its rows
+  # out, which is the whole opt-in mechanism (q53 step 2).
+  [[collections.rules]]
+  match = "index.md"
+  front_matter = true
+  route = "/"
+
+  # Everything else spends `{theme}`, so every row below lands six times.
   [[collections.rules]]
   match = "**/index.{html,md}"
-  route = "/{dir}/"
+  route = "/{theme}/{dir}/"
 
   [[collections.rules]]
   match = "**/*.{html,md}"
   front_matter = true
-  route = "/{dir}/{stem}/"
+  route = "/{theme}/{dir}/{stem}/"
 
   [[collections.rules]]
   match = "**/*"
@@ -118,7 +128,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
   match = "**"
-  route = "/notes/{slug}/"
+  route = "/{theme}/notes/{slug}/"
 
 # ---------------------------------------------------------------- objects
 

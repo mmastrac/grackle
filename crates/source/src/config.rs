@@ -766,25 +766,6 @@ pub struct Axis {
     /// corpus six ways; the field is named rather than assumed so the mechanism
     /// is not a theme feature wearing a general name.
     pub field: String,
-    /// An ALTERNATE member's URL, over `{url}` (the row's own) and `{value}`.
-    /// The canonical member is not templated — it keeps the row's URL, exactly
-    /// as the default locale sits above the selector and wears no `/fr/`.
-    ///
-    /// `"/{value}{url}"` (the default) gives `/ledger/notes/one/`, the shape the
-    /// locale axis has. `"{url}index.{value}"` gives `/notes/one/index.md`,
-    /// which is q44's md twin — the same mechanism, and the reason this is a
-    /// template rather than a prefix.
-    #[serde(default = "default_axis_url")]
-    pub url: String,
-    /// Which rows multiply, as a source-path glob. Absent means every row this
-    /// site has, which is rarely what anyone wants: an axis over the whole tree
-    /// multiplies the URL space by `values.len()`.
-    #[serde(rename = "match")]
-    pub scope: Option<String>,
-}
-
-fn default_axis_url() -> String {
-    "/{value}{url}".to_string()
 }
 
 impl Axis {
@@ -793,14 +774,6 @@ impl Axis {
         self.values.first().map(String::as_str)
     }
 
-    /// This member's URL for a row published at `url`. The canonical member
-    /// keeps the row's own; an alternate is templated.
-    pub fn url_for(&self, value: &str, url: &str) -> String {
-        if self.canonical() == Some(value) {
-            return url.to_string();
-        }
-        self.url.replace("{value}", value).replace("{url}", url)
-    }
 }
 
 /// What a view ranges over (§5c). One name — a collection, another view, or

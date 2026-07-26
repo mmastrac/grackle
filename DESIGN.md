@@ -2340,11 +2340,23 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     ```toml
     [axes.theme]
-    values = ["default", "loud"]   # first is CANONICAL
+    values = ["default", "loud"]   # the members; first is CANONICAL
     field  = "theme"               # the row field each member sets
-    url    = "/{value}{url}"       # an ALTERNATE's URL; canonical keeps the row's
-    match  = "notes/**"            # which rows multiply
     ```
+
+    **Where a member lands is not declared with the axis** *(step 2, built 2026-07-25)*. A route template spends it with a `{theme}` segment — a collection rule for row routes, a `[routes.*]` path for view routes — so URL shape lives where every other URL shape lives, and **the rule that spends an axis is the rule that opts its rows in**. An `[axes.*] url` and an `[axes.*] match` both retired into that one idea: the rule already decides where a row lands and which rows it covers, so it was saying half of this twice.
+
+    ```toml
+      [[collections.rules]]
+      match = "index.md"
+      route = "/"                        # spends nothing: publishes once
+
+      [[collections.rules]]
+      match = "**"
+      route = "/{theme}/notes/{slug}/"   # spends the axis: publishes per member
+    ```
+
+    **Canonical-bare went with it.** The canonical member used to keep the row's own URL, mimicking the default locale's missing `/fr/`. Once the template allocates the segment, every member wears one — and that is better: locale's bare default exists to protect URLs on real sites, a general axis has no such debt, and the asymmetry it produced was visible the moment a view route (which prefixed every member) sat beside a row route (which did not). Canonical is now purely a *declaration*: which member `rel="canonical"` names and which one a `*` view sees.
 
     **A correction this build produced, worth keeping.** The question claimed four instances of one shape and listed locale as built. Locale is not that shape: `dal.md` and `dal.fr.md` are **two rows**, one route each, paired after the fact by `by_logical`; thumbnails are derived artifacts and not rows; the md twin was a serialization. So the axis was a *new* mechanism, not the generalization of an existing one — and the argument for building it was accordingly weaker than the question implied. What redeemed it was that the second field cost nothing: `field = "shell"` is q44's md twin, working the day the axis landed, and that is the multiplicativeness the question was actually claiming.
 
@@ -2353,7 +2365,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
     1. **Which rows multiply** — those a `match` glob selects, and only *rendered* rows. An axis publishes alternative forms of a document; a static file or an image has one form, its bytes. (A thumbnail is an axis in spirit but it is the image pipeline's, keyed by size and content-addressed.)
     2. **Identity across members** — one row, N routes, via `Route.row`. This is what the prerequisite bought: before it, a route's row was recovered as `by_url.get(r.url)`, which answers "one" by construction and could never have seen the second.
     3. **The canonical member** — the first declared, and it **keeps the row's own URL**; only alternates are templated. Exactly the shape the default locale has in sitting above the selector with no `/fr/`. Every member's `rel="canonical"` and `og:url` name the canonical form, because the head describes the *document* rather than the form. And a `*` view sees canonical members only: listing every member in the sitemap or search index would ask a crawler to treat six renderings of one document as six documents, which is what `rel="canonical"` exists to deny.
-    4. **Composition with the locale axis** — **not built.** A row on both would want `/fr/ledger/notes/one/`, the cartesian product. The constraint keys on (row, member), so two axes over one row collide today rather than multiplying; that is the honest edge and the next thing to build if a site wants it.
+    4. **Composition with the locale axis** — **not built.** Two axes over one row are now closer than they were, since each would spend its own segment, but the constraint still keys on one member. A row on both would want `/fr/ledger/notes/one/`, the cartesian product. The constraint keys on (row, member), so two axes over one row collide today rather than multiplying; that is the honest edge and the next thing to build if a site wants it.
 
     **How a field takes effect.** An axis sets a named row field, and whether that field *does* anything is the render path's business — `theme` and `shell` are wired (three resolution sites between them), and a field no path consults multiplies URLs without changing bytes. That is a real footgun: it should be a load error naming the fields that mean something, and it is not yet.
 

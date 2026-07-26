@@ -199,6 +199,31 @@ fn cascade(
     })
 }
 
+/// Spend an axis segment in a route template, or discover which axis a
+/// template leaves unspent (q53 step 2).
+///
+/// A rule that writes `{theme}` into its route is what opts its rows into the
+/// theme axis — the rule already decides where a row lands, so it decides this
+/// too, and `[axes.*]` is left declaring only values and a field. Returns the
+/// canonical member's URL plus the template, so `Row.url` is an address and the
+/// template is what the route loop spends per member.
+fn spend_axis(cfg: &Config, tmpl_url: &str) -> (String, Option<grackle_model::RowAxis>) {
+    for (name, axis) in &cfg.axes {
+        let ph = format!("{{{name}}}");
+        if tmpl_url.contains(&ph) {
+            let canon = axis.canonical().unwrap_or_default();
+            return (
+                tmpl_url.replace(&ph, canon),
+                Some(grackle_model::RowAxis {
+                    name: name.clone(),
+                    template: tmpl_url.to_string(),
+                }),
+            );
+        }
+    }
+    (tmpl_url.to_string(), None)
+}
+
 fn build_globset(pats: &[String]) -> Result<GlobSet> {
     let mut b = GlobSetBuilder::new();
     for p in pats {
@@ -386,10 +411,13 @@ fn read_posts(
                 "month" => date.map(|d| d.format("%-m").to_string()),
                 "day" => date.map(|d| d.format("%-d").to_string()),
                 "slug" => Some(slug.clone()),
+                // An axis placeholder is spent per member, not here (q53).
+                k if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
                 _ => None,
             })
             .with_context(|| format!("routing {}", raw.path.display()))?
         };
+        let (url, row_axis) = spend_axis(cfg, &url);
         // §6f: a translation lands at the locale-prefixed twin of its
         // original's URL.
         let url = if locale != cfg.i18n.default {
@@ -399,6 +427,7 @@ fn read_posts(
         };
 
         rows.push(Row {
+            axis: row_axis,
             width: None,
             height: None,
             // Assigned by `insert_rows`, which is where rows become the
@@ -546,9 +575,13 @@ fn build_tree_and_objects(
             bail!("no rule supplies a route for {}", f.path.display());
         };
         let url = tidy(
-            template::render(tmpl, |k| path_tokens(&logical_rel, k))
+            template::render(tmpl, |k| {
+                path_tokens(&logical_rel, k)
+                    .or_else(|| cfg.axes.contains_key(k).then(|| format!("{{{k}}}")))
+            })
                 .with_context(|| format!("routing {}", f.path.display()))?,
         );
+        let (url, row_axis) = spend_axis(cfg, &url);
         let url = if locale != cfg.i18n.default {
             format!("/{locale}{url}")
         } else {
@@ -623,6 +656,7 @@ fn build_tree_and_objects(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
             pages.push(Row {
+                axis: row_axis.clone(),
                 width: None,
                 height: None,
                 key: Default::default(),
@@ -822,21 +856,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // §4 on-demand: the row knows its URL, but nothing publishes it until
     // something references it. `materialize_referenced` (build.rs) emits
     // these after the render pass, once the references exist.
-    // q53: the axes a row participates in, compiled once. An axis with no
-    // `match` takes every row, which is why the glob is worth declaring.
-    let axis_scopes: Vec<(&String, &crate::config::Axis, Option<globset::GlobSet>)> = cfg
-        .axes
-        .iter()
-        .map(|(name, a)| {
-            let g = a
-                .scope
-                .as_ref()
-                .map(|s| build_globset(std::slice::from_ref(s)))
-                .transpose()?;
-            Ok((name, a, g))
-        })
-        .collect::<Result<_>>()?;
-
     let new_routes: Vec<Route> = db
         .rows
         .iter()
@@ -864,32 +883,30 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 fields: p.fields.clone(),
                 ..Route::new(url, kind)
             };
-            // Only a RENDERED row multiplies: an axis publishes alternative
-            // forms of a document, and a static file or an image has one form
-            // — the bytes. (A thumbnail is an axis in q53's sense, but it is
-            // the image pipeline's, keyed by size and content-addressed.)
-            let axis = p.rendered.then(|| {
-                axis_scopes.iter().find(|(_, _, g)| {
-                    g.as_ref().is_none_or(|g| g.is_match(&p.rel))
-                })
-            });
-            match axis.flatten() {
+            // The row's own rule decided this (q53 step 2): a route template
+            // that spends `{theme}` opted its rows in. Only a RENDERED row
+            // multiplies — an axis publishes alternative forms of a document,
+            // and a static file or an image has one form, the bytes.
+            match p.axis.as_ref().filter(|_| p.rendered) {
                 None => vec![one(p.url.clone(), None)],
-                Some((name, a, _)) => a
-                    .values
-                    .iter()
-                    .map(|v| {
-                        one(
-                            a.url_for(v, &p.url),
-                            Some(AxisMember {
-                                axis: (*name).clone(),
-                                value: v.clone(),
-                                field: a.field.clone(),
-                                canonical: a.canonical() == Some(v.as_str()),
-                            }),
-                        )
-                    })
-                    .collect(),
+                Some(ra) => {
+                    let axis = &cfg.axes[&ra.name];
+                    let ph = format!("{{{}}}", ra.name);
+                    axis.values
+                        .iter()
+                        .map(|value| {
+                            one(
+                                ra.template.replace(&ph, value),
+                                Some(AxisMember {
+                                    axis: ra.name.clone(),
+                                    value: value.clone(),
+                                    field: axis.field.clone(),
+                                    canonical: axis.canonical() == Some(value.as_str()),
+                                }),
+                            )
+                        })
+                        .collect()
+                }
             }
         })
         .collect();

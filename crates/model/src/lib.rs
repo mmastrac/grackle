@@ -122,6 +122,9 @@ pub struct Row {
     /// excluded from every query structurally.
     #[serde(skip)]
     pub claimed: bool,
+    /// q53: the axis this row's route rule spends, if any.
+    #[serde(skip)]
+    pub axis: Option<RowAxis>,
 }
 
 impl Keyed for Route {
@@ -240,6 +243,20 @@ impl RouteKind {
             RouteKind::View => "view",
         }
     }
+}
+
+/// The axis a ROW's route rule spends (q53 step 2), and the URL template that
+/// spends it — `/{theme}/notes/{slug}/` with the axis segment still unspent.
+///
+/// The rule that spends an axis is the rule that opts its rows in: `[axes.*]`
+/// declares values and a field, and the URL shape lives where every other URL
+/// shape lives. `Row.url` is the CANONICAL member's, so links, `by_url` and
+/// every reader that wants "the address of this row" get the right answer
+/// without knowing an axis exists.
+#[derive(Debug, Clone, Serialize)]
+pub struct RowAxis {
+    pub name: String,
+    pub template: String,
 }
 
 /// One route's membership of an axis (q53): which axis, which value, and the

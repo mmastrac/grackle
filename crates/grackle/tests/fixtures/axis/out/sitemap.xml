@@ -4,12 +4,12 @@
 <loc>https://example.com/default/all/</loc>
 </url>
 <url>
-<loc>https://example.com/look/</loc>
+<loc>https://example.com/default/look/</loc>
 </url>
 <url>
 <loc>https://example.com/sitemap.xml</loc>
 </url>
 <url>
-<loc>https://example.com/tiers/</loc>
+<loc>https://example.com/tiers/html.html</loc>
 </url>
 </urlset>

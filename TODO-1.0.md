@@ -170,12 +170,12 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       unspent axis is a load error. A landing on an axis claims one row (the
       constraint is per-view), which retired per-group `content` before it was
       built. `view:name?axis=value` links a member.
-- [ ] **Axis URL shape in the collection rule** (q53 step 2) — `route =
-      "/{theme}/notes/{slug}/"`, retiring `[axes.*] url` and canonical-bare.
-      Today a view route prefixes every member while a ROW route leaves the
-      canonical bare, so the gallery's landings are all under `/{theme}/` while
-      its posts have vanilla at the root. That asymmetry is the argument for
-      step 2. (q53)
+- [x] **Axis URL shape in the collection rule** (q53 step 2) — done. A route
+      template spends the axis with a `{theme}` segment and the rule that spends
+      it opts its rows in, so `[axes.*] url` and `[axes.*] match` both retired
+      into the rule that was already deciding both halves. Canonical-bare went
+      with them: every member wears its segment, and canonical is purely the
+      declaration of which one `rel="canonical"` names. (q53)
 - [ ] **Unify the materializer into a product over dimensions** (q53 step 3) —
       axis × locale × group × page is a cartesian product written as three
       nested branches. Only worth it if step 2 does not already do it. (q53)

@@ -28,6 +28,10 @@ pub struct LinkSpace {
     routes: HashSet<String>,
     /// URL → the form a strict-mode error suggests instead.
     url_form: HashMap<String, String>,
+    /// q53: source path → the row's unspent axis template, for rows whose rule
+    /// spends one. A member's URL is that template with the member substituted;
+    /// `source_to_url` holds the canonical, which is what a plain link wants.
+    source_to_axis: HashMap<String, (String, String)>,
 }
 
 impl LinkSpace {
@@ -39,6 +43,7 @@ impl LinkSpace {
 
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
+        let mut source_to_axis: HashMap<String, (String, String)> = HashMap::new();
         // A row that publishes on demand (§4) is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
@@ -51,6 +56,12 @@ impl LinkSpace {
                 continue;
             }
             source_to_url.insert(p.rel.to_string_lossy().to_string(), p.url.clone());
+            if let Some(ra) = &p.axis {
+                source_to_axis.insert(
+                    p.rel.to_string_lossy().to_string(),
+                    (ra.name.clone(), ra.template.clone()),
+                );
+            }
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
@@ -81,6 +92,7 @@ impl LinkSpace {
             source_to_url,
             routes,
             url_form,
+            source_to_axis,
         }
     }
 }
@@ -218,12 +230,26 @@ pub fn resolve(
             // against the route set, so a selector on a row the axis does not
             // cover is a load error rather than a link to nothing — the same
             // standard every other link here is held to.
-            if let Some((axis, value)) = axis_sel {
-                let member = axis.url_for(value, url);
-                if !space.routes.contains(&member) {
+            if let Some((_axis, value)) = axis_sel {
+                let sel_name = suffix
+                    .strip_prefix('?')
+                    .and_then(|q| q.split_once('='))
+                    .map(|(k, _)| k)
+                    .unwrap_or_default();
+                // The row's own template is what a member's URL is made of, so
+                // a selector on a row whose rule never spent that axis has
+                // nothing to substitute into — which is the error below.
+                let member = match space.source_to_axis.get(c) {
+                    Some((name, tmpl)) if name == sel_name => {
+                        tmpl.replace(&format!("{{{name}}}"), value)
+                    }
+                    _ => String::new(),
+                };
+                if member.is_empty() || !space.routes.contains(&member) {
                     bail!(
                         "{source}: link {href:?} selects an axis member that does not \
-                         exist — {url:?} is not on that axis (its `match` does not cover it)"
+                         exist — {url:?} is not on that axis, because the rule that routed \
+                         it does not spend a {{{sel_name}}} segment"
                     );
                 }
                 return Ok(Some(member));
