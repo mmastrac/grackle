@@ -1330,9 +1330,15 @@ never a grackle-only dialect.
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
 
-Route/`title`/`crumb` templates stay the `{token}` placeholder language:
-string interpolation over group params, not computation. Folding them in
-would put logic where §5d forbids it.
+Route/`title`/`crumb`/`content` templates stay the `{token}` placeholder
+language: string interpolation over the route's dimensions, not computation.
+Folding them in would put logic where §5d forbids it. A token may name a
+namespace — `{axis:theme}`, `{group:year}` — for the case where a path spends
+both an axis and a group key of the same field name; a bare `{year}` resolves
+in whichever single namespace has it, and is a load error where both do. The
+pad shares the punctuation without a second convention: a **trailing** `:<digits>`
+is the zero-pad (`{month:02}`, `{group:month:02}`), a `:` before non-digits the
+namespace separator.
 
 ### Typing: the schema is the CEL environment
 
@@ -1536,13 +1542,15 @@ Either the theme owns the arrangement, or the author does. Three tiers:
 
 - **Bare**: query + route + `listing`. 
 - **Declared text**: the view declares `intro` — a `LocalizedStr` rendered as markdown through the locale-aware link resolver (a `view:` link in an intro gets strict validation; no browser-agreement bypass). Fills an `intro` slot on the listing layout. Empty collapses.
-- **Referenced content**: the view declares `content = "path.md"` (mutually exclusive with `intro`). The row becomes the body and **must place `{% view <owner> %}` itself** — a load error otherwise. The self-embed is **route-aware**: page 2 renders page 2's rows, `/fr/recipes/` the French partition.
+- **Referenced content**: the view declares `content = "path.md"` (mutually exclusive with `intro`). The row becomes the body and **must place `{% view <owner> %}` itself** — a load error otherwise. The self-embed is **route-aware**: page 2 renders page 2's rows, `/fr/recipes/` the French partition. **`content` may be a TEMPLATE** *(per-group content, built 2026-07)* — `content = "{group:key}/index.md"` resolves per route through the same `{token}` language `path`/`title` use, so a grouped view gives each of its N routes its own words (`/alpha/` embeds `alpha/index.md`, `/beta/` embeds `beta/index.md`). It resolves over the route's group params (`group:`/bare) and axis members (`axis:`). A templated `content` stays a **promise** (a group whose file is missing is a load error); a templated `default_content` stays the **offer** (missing, or a row that does not place the embed, leaves that route a plain listing — decided per route, not per view).
 
 ### Claiming
 
 A referenced content row is **claimed**: no standalone route, and out of every query **structurally** — by ownership, not a naming convention. The row keeps everything rows have: front matter (its `title:` beats the view's), its rule-derived theme, its directory (slot fills resolve nearest-wins from there), suffix localization with default-locale fallback.
 
 Claiming is **declared, never discovered** — a convention would claim silently — which makes migration incremental: unclaimed index pages behave exactly as before. Load checks: the path names a row, one owner per row, intro XOR content, materialized views only, must-place. **Claimed rows leave the backlink scan** — membership is not citation.
+
+A **literal** claim is settled at load (the row is marked, its own route withheld, it is excluded from every query before views materialize). A **templated** claim cannot be — the group keys are not known until the routes exist — so it is settled in a pass that runs after materialization but before the collision check: it resolves each route's `content`, marks the rows, drops their own routes and their query membership, and records `Route.content` so the landing pass finds the per-route body. That ordering is what lets a group landing at `/alpha/` and the `alpha/index.md` row's own `/alpha/` route coexist through load and then resolve to one — the claim removes the second before the collision check ever sees it.
 
 ### The chain: URL nesting is parent derivation
 
@@ -2373,7 +2381,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
     1. **Which rows multiply** — those a `match` glob selects, and only *rendered* rows. An axis publishes alternative forms of a document; a static file or an image has one form, its bytes. (A thumbnail is an axis in spirit but it is the image pipeline's, keyed by size and content-addressed.)
     2. **Identity across members** — one row, N routes, via `Route.row`. This is what the prerequisite bought: before it, a route's row was recovered as `by_url.get(r.url)`, which answers "one" by construction and could never have seen the second.
     3. **The canonical member** — the first declared, and it **keeps the row's own URL**; only alternates are templated. Exactly the shape the default locale has in sitting above the selector with no `/fr/`. Every member's `rel="canonical"` and `og:url` name the canonical form, because the head describes the *document* rather than the form. And a `*` view sees canonical members only: listing every member in the sitemap or search index would ask a crawler to treat six renderings of one document as six documents, which is what `rel="canonical"` exists to deny.
-    4. **Composition with the locale axis** — **not built.** Two axes over one row are now closer than they were, since each would spend its own segment, but the constraint still keys on one member. A row on both would want `/fr/ledger/notes/one/`, the cartesian product. The constraint keys on (row, member), so two axes over one row collide today rather than multiplying; that is the honest edge and the next thing to build if a site wants it.
+    4. **Composition** *(declared axes built 2026-07)* — two DECLARED axes over one row now compose into the cartesian product rather than colliding. The constraint keys on the member-**tuple**, not one member, so a row (or a view) that spends `{palette}` and `{flavor}` lands at `/plain/sweet/…` through `/fancy/salty/…`, one route per tuple; `Route.axis`/`Row.axis` grew from one member to the list, and spending is per-axis — each must have its own segment or its members collide. Canonical is the tuple of first-declared members, and a `*` view sees a route only when EVERY member in its tuple is canonical. What is NOT folded in yet is **locale**: `/fr/ledger/notes/one/` still awaits it, because locale is its own mechanism (§6f, `by_logical` pairing) rather than an axis, and unifying it means an axis member that resolves to a DIFFERENT row per value — the epic that closes this last.
 
     **How a field takes effect, and why no field is inert** *(2026-07-25)*. An axis sets a named row field: `theme` and `shell` are wired into the render paths, and a field no path consults would once have multiplied URLs without changing a byte. The first answer here was "make that a load error naming the fields that mean something", and it was wrong — Matt's correction: a member can differ *presentationally* with no engine involvement at all, so the mechanism should make that work rather than forbid it.
 
@@ -2388,7 +2396,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     An axis declared purely to give CSS something to key on is therefore a legitimate use with no engine wiring, and `field` is what a member sets *if the engine knows that field* rather than a promise the engine must be able to keep.
 
-    **A VIEW may be materialized across an axis** *(built 2026-07-25)*. `[routes.x] axis = "theme"`, and the path spends it with a `{theme}` segment. The route allocates the URL space because that is where the rest of the URL is already decided — the axis declares its values and its field, not its shape. The axis is the OUTERMOST dimension: locale, grouping and pagination all happen within each member, which is what made this a substitution rather than a rewrite.
+    **A VIEW may be materialized across an axis** *(built 2026-07-25; a LIST of axes 2026-07)*. `[routes.x] axis = "theme"` (or `axis = ["palette", "flavor"]` for the product), and the path spends each with its `{name}` segment. The route allocates the URL space because that is where the rest of the URL is already decided — the axis declares its values and its field, not its shape. The axes are the OUTERMOST dimensions: locale, grouping and pagination all happen within each member-tuple, which is what made this a substitution rather than a rewrite.
 
     Two things fall out. A path that declares an axis and never spends it is a load error — the members would collide on one URL, and five of six would be lost. And **a landing view on an axis claims ONE row**: the "a row serves one landing" constraint is keyed on the view, so six materializations of one view are one claim. That is what retired per-group `content` before it was built: `theme-preview` went from eighteen landing declarations and eighteen copies of their prose to three of each.
 
@@ -2396,9 +2404,9 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     **Linking to a member: `path.md?axis=value`** *(built 2026-07-25)*. A link resolves to a ROW and a row answers with its canonical URL, so a member had no spelling and the merged gallery could not name one — the first build of it failed on exactly that. The selector reads as a query string and resolves to a PATH, which is the point: a member's address is derived like every other URL here. Held to the same standard as every other link — an undeclared value is a load error naming the members, and a selector on a row the axis does not cover is one too. Only a *declared* axis name is read this way, so `?utm=x` stays the literal suffix it always was. A view route wears the same spelling — `view:notes_index?theme=ledger` — and naming an axis-materialized view without one is an error, because it lands at several URLs and there is no honest default among them.
 
-    **Also honest edges**: no `rel="alternate"` for axis members (`Head.alternates` is hreflang-shaped, which is the "variable-length head entries" item), and the `light` tier's minimal head carries no canonical at all, so an alternate at that tier advertises nothing.
+    **Axis members now emit `rel="alternate"`** *(built 2026-07)*. `Head.alternates` grew from a hreflang-shaped `(lang, url)` pair to an `Alternate { href, hreflang?, media_type? }` — the "variable-length head entries" shape (§4e), a list that can repeat `rel` and carry a second attribute. Each member lists its OTHER forms: the locale axis carries `hreflang` (as before), a different-FORMAT form (the md twin) carries `type`, and a same-format restyle — a theme member — carries neither, because it is the same representation at another URL and `rel="canonical"` already names the one that counts. Whether a form is a different representation is read off the member URL's extension. The `light` tier still carries no canonical and, by the same minimal head, no alternates — an alternate at that tier would advertise nothing.
 
-    Two costs paid earlier stand: `hreflang` and `rel="alternate"` are emitted for the locale axis (`Head.alternates`), and `data-axis` was renamed `data-relation` for relations, with `data-axis` kept for translations.
+    A cost paid earlier stands: `data-axis` was renamed `data-relation` for relations, with `data-axis` kept for translations.
 
 
 ### Settled ledger

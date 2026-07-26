@@ -161,14 +161,21 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       spelling; the merged gallery's first build failed on exactly that. Same
       strictness as every other link — undeclared value and not-on-that-axis are
       both load errors, and a non-axis `?k=v` is still a literal suffix. (q53)
-- [ ] **Axis edges, named in q53** — two left, neither blocking: **two axes over
-      one row collide** rather than composing (`/fr/ledger/…` is unbuilt, though
-      each would now spend its own segment), and **axis members emit no
-      `rel="alternate"`** because `Head.alternates` is hreflang-shaped (same item
-      as variable-length head entries). The third — a `field` no render path
-      consults — is closed: a member stamps `data-axis-<name>` on the root, so an
-      axis declared for a purely presentational difference works with no engine
-      wiring. (q53)
+- [ ] **Axis edges, named in q53** — **two axes over one row now compose** (built
+      2026-07): `Route.axis`/`Row.axis` are the member *tuple*, `axis = ["a", "b"]`
+      materializes the cartesian product, the collision constraint keys on the
+      tuple, and a `*` view sees a route only when every member is canonical
+      (fixture `two-axes`). Token grammar grew `{axis:x}`/`{group:x}` namespaces
+      for paths that spend both. **`rel="alternate"` for members is also built**
+      (2026-07): `Head.alternates` grew to `Alternate { href, hreflang?,
+      media_type? }` (the variable-length head-entry shape), and each member lists
+      its other forms — `hreflang` for locale, `type` for a different-format form
+      (the md twin), neither for a same-format restyle (a theme member, which
+      `rel="canonical"` already covers); the `light` tier emits none. The ONE edge
+      left is **locale as an axis**, so `/fr/ledger/…` (locale × theme) still
+      awaits the unification epic — an axis member that resolves to a different row
+      per value (§6f). The `field`-no-path-consults edge was already closed by the
+      `data-axis-<name>` stamp. (q53)
 - [x] **A view may be materialized across an axis** — done (q53 step 1).
       `[routes.x] axis = "theme"` with a `{theme}` segment in the path; an
       unspent axis is a load error. A landing on an axis claims one row (the
@@ -185,14 +192,18 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       loops and a duplicated pagination loop; they are one partition/slice/emit
       over axis × locale × group × page. Byte-identical everywhere. (q53)
 
-- [ ] **Per-group `content`** — the blocker the composition work actually hit.
-      `theme-preview`'s route families each claim a per-theme landing row
-      (`content = "vanilla/notes/index.md"`), so grouping can mint the six URLs
-      but cannot give each its own words. Wants `{key}` interpolation in
-      `content`, using the same `template::render` that `path` and `title`
-      already use — and §4d's distinction kept intact: an explicit templated
-      `content` stays a promise (missing file = error), `default_content` stays
-      the offer. (§5c, §5h)
+- [x] **Per-group `content`** — done (2026-07). `content`/`default_content` may be
+      a `{token}` template, resolved per route through the same `template::render`
+      that `path` and `title` use — over the route's group params (`{group:key}`,
+      bare `{key}`, field names) and axis members (`{axis:name}`). A grouped view
+      now gives each of its N routes its own words. §4d's distinction is kept: a
+      templated `content` is a promise (a group whose file is missing = load
+      error), `default_content` the offer (missing, or no self-embed, = plain
+      listing, decided per route). Literal claims are byte-identical (settled at
+      load); templated claims settle in a post-materialize pass that withholds the
+      claimed row's own route before the collision check. Fixtures:
+      `per-group-content`, `per-group-content-missing`, `per-group-default-content`.
+      (§5c, §5h)
 - [ ] **The same N views over N subtrees** — `theme-preview/` is 341 lines and
       33 `[sets]`/`[routes]` tables for six structurally identical subtrees. Two
       different problems wear one shape: notes and shelf are a real **partition**
@@ -208,10 +219,14 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 - [ ] **Authored `.rewrite.toml` rules** — the full rule table with selectors and
       wrapping. Stage A shipped the narrow HTML-source-link rewrite; the general
       form waits for a second consumer. (§6d)
-- [ ] **Variable-length head entries** — `rel="alternate" hreflang` × n cannot
-      live in a name→string map, and `sizes`/`type` on link entries need the same
-      shape. Subsumes the "link table form" item: the favicon half of that
-      motivation is gone (`site.icon` restored it). (§4e)
+- [ ] **Variable-length head entries** — the `rel="alternate"` half is **built**
+      (2026-07): `Head.alternates` is now a list of `Alternate { href, hreflang?,
+      media_type? }`, which repeats `rel` and carries a second attribute, so
+      hreflang × n and `type` both fit. What remains is the same shape for the
+      DECLARED head (`[html.head.link]` with `sizes`/`type` per entry) — a
+      name→string map still can't express those. Subsumes the "link table form"
+      item: the favicon half of that motivation is gone (`site.icon` restored
+      it). (§4e)
 - [ ] **Expression-form derivers** — v1's `toc` uses a hardcoded h2–h3 window;
       the §5f form would be `toc = outline(content, {"max_depth": 3})`. Same
       shape as the `hero`/`lede` derivers §11 parks under q23. (§6e)

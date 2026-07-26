@@ -234,7 +234,7 @@ impl Theme {
         resolve_link: &dyn Fn(&Path, &str) -> Result<Option<String>>,
         subtheme: Option<&str>,
         profile: Option<&str>,
-        axis: Option<&grackle_model::AxisMember>,
+        axis: &[grackle_model::AxisMember],
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
         m.set("site_title", Part::Text(site_title.to_string()));

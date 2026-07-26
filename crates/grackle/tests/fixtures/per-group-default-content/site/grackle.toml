@@ -1,0 +1,61 @@
+# Per-group `content` (§5c): a grouped view mints one route per group, and a
+# TEMPLATED `content` gives each its own words. `content = "{group:key}/index.md"`
+# resolves per route — `/alpha/` embeds `alpha/index.md`, `/beta/` embeds
+# `beta/index.md` — so one declaration gives two landings their own prose, where
+# before a landing could claim only one fixed row.
+#
+# Each claimed row loses its own standalone route (the landing owns the URL) and
+# leaves every query, exactly as a literal claim does — only settled after the
+# routes exist, because the group keys are not known until then. The claim is a
+# PROMISE: a group whose `{key}/index.md` is missing is a load error (see the
+# `per-group-content-missing` fixture).
+extends = "none"
+
+[html.head.link]
+canonical = 'site.url + url'
+
+[site]
+url = "https://example.com"
+title = "Per-group content"
+author = "Tester"
+
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+topic = { type = "string" }
+
+[[collections]]
+name = "posts"
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{slug}/"
+
+# The tree holds the per-group landing bodies. Each `<key>/index.md` would land
+# at `/<key>/` on its own — the same URL its group's view route claims — but the
+# claim withholds that standalone route, so there is no collision.
+[[collections]]
+kind = "tree"
+source = "."
+exclude = ["_posts/**"]
+
+  [[collections.rules]]
+  match = "*/index.md"
+  front_matter = true
+  route = "/{dir}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[routes.topics]
+path = "/{group:key}/"
+from = "posts"
+where = "!draft && !hidden"
+group_by = "topic"
+layout = "listing"
+default_content = "{group:key}/index.md"
+title = "{group:key}"

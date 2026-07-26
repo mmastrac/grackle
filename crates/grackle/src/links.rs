@@ -28,10 +28,11 @@ pub struct LinkSpace {
     routes: HashSet<String>,
     /// URL → the form a strict-mode error suggests instead.
     url_form: HashMap<String, String>,
-    /// q53: source path → the row's unspent axis template, for rows whose rule
-    /// spends one. A member's URL is that template with the member substituted;
-    /// `source_to_url` holds the canonical, which is what a plain link wants.
-    source_to_axis: HashMap<String, (String, String)>,
+    /// q53: source path → the axes the row's rule spends. A member's URL is the
+    /// shared template with each axis substituted — the selected one by the
+    /// link's value, the rest by their canonical — while `source_to_url` holds
+    /// the all-canonical form, which is what a plain link wants.
+    source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>>,
 }
 
 impl LinkSpace {
@@ -43,7 +44,7 @@ impl LinkSpace {
 
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
-        let mut source_to_axis: HashMap<String, (String, String)> = HashMap::new();
+        let mut source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>> = HashMap::new();
         // A row that publishes on demand (§4) is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
@@ -56,11 +57,8 @@ impl LinkSpace {
                 continue;
             }
             source_to_url.insert(p.rel.to_string_lossy().to_string(), p.url.clone());
-            if let Some(ra) = &p.axis {
-                source_to_axis.insert(
-                    p.rel.to_string_lossy().to_string(),
-                    (ra.name.clone(), ra.template.clone()),
-                );
+            if !p.axis.is_empty() {
+                source_to_axis.insert(p.rel.to_string_lossy().to_string(), p.axis.clone());
             }
         }
         let mut routes = HashSet::new();
@@ -238,10 +236,21 @@ pub fn resolve(
                     .unwrap_or_default();
                 // The row's own template is what a member's URL is made of, so
                 // a selector on a row whose rule never spent that axis has
-                // nothing to substitute into — which is the error below.
+                // nothing to substitute into — which is the error below. A link
+                // picks one member along one axis; any OTHER axis the row spends
+                // stays at its canonical, so the result is a route that exists.
                 let member = match space.source_to_axis.get(c) {
-                    Some((name, tmpl)) if name == sel_name => {
-                        tmpl.replace(&format!("{{{name}}}"), value)
+                    Some(axes) if axes.iter().any(|a| a.name == sel_name) => {
+                        let mut url = axes[0].template.clone();
+                        for a in axes {
+                            let fill = if a.name == sel_name {
+                                value
+                            } else {
+                                cfg.axes.get(&a.name).and_then(|x| x.canonical()).unwrap_or("")
+                            };
+                            url = url.replace(&format!("{{{}}}", a.name), fill);
+                        }
+                        url
                     }
                     _ => String::new(),
                 };
@@ -304,8 +313,8 @@ fn view_link(
     // naming one of them should not need a second syntax. The group-key form
     // (`view:name/key`) stays what it is; they compose, an axis segment and a
     // group segment being different parts of the path.
-    let (rest, sel) = match rest.split_once('?') {
-        Some((r, q)) => (r, q.split_once('=')),
+    let (rest, query) = match rest.split_once('?') {
+        Some((r, q)) => (r, Some(q)),
         None => (rest, None),
     };
     let mut parts = rest.split('/').filter(|s| !s.is_empty());
@@ -319,42 +328,54 @@ fn view_link(
             known.join(", ")
         );
     };
-    // The member substitutes into the template before the group keys do, so
-    // the two halves of a `/{theme}/{key}/` path are filled by the two things
-    // that own them.
-    let axis_sub: Option<(String, String)> = match sel {
-        Some((k, val)) => {
-            let Some(axis) = cfg.axes.get(k) else {
-                let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
-                bail!(
-                    "{source}: view:{name}?{k}= names no axis\n  declared axes: {}",
-                    if known.is_empty() { "(none)".into() } else { known.join(", ") }
-                );
-            };
-            if v.axis.as_deref() != Some(k) {
-                bail!("{source}: view:{name}?{k}= — {name} is not materialized across {k:?}");
-            }
-            if !axis.values.iter().any(|x| x == val) {
-                bail!(
-                    "{source}: view:{name}?{k}={val} names no member of that axis\n  members: {}",
-                    axis.values.join(", ")
-                );
-            }
-            Some((format!("{{{k}}}"), val.to_string()))
+    // The members substitute into the template before the group keys do, so the
+    // two halves of a `/{theme}/{key}/` path are filled by the two things that
+    // own them. A view on several axes is named `view:x?a=1&b=2` — every axis
+    // it lands on must be pinned, or there is no single URL to mean.
+    let selectors: Vec<(&str, &str)> = query
+        .map(|q| q.split('&').filter_map(|s| s.split_once('=')).collect())
+        .unwrap_or_default();
+    let mut axis_subs: Vec<(String, String)> = Vec::new();
+    for (k, val) in &selectors {
+        let Some(axis) = cfg.axes.get(*k) else {
+            let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
+            bail!(
+                "{source}: view:{name}?{k}= names no axis\n  declared axes: {}",
+                if known.is_empty() { "(none)".into() } else { known.join(", ") }
+            );
+        };
+        if !v.axis.iter().any(|a| a == k) {
+            bail!("{source}: view:{name}?{k}= — {name} is not materialized across {k:?}");
         }
-        None => {
-            if let Some(a) = v.axis.as_deref() {
-                bail!(
-                    "{source}: view:{name} is materialized across the {a:?} axis, so it \
-                     lands at several URLs — name one with view:{name}?{a}=<value>"
-                );
-            }
-            None
+        if !axis.values.iter().any(|x| x == val) {
+            bail!(
+                "{source}: view:{name}?{k}={val} names no member of that axis\n  members: {}",
+                axis.values.join(", ")
+            );
         }
-    };
-    let sub = |t: &str| match &axis_sub {
-        Some((ph, val)) => t.replace(ph.as_str(), val),
-        None => t.to_string(),
+        axis_subs.push((format!("{{{k}}}"), val.to_string()));
+    }
+    // Every axis the view lands on must be named; an unpinned one leaves several
+    // URLs and no honest default among them.
+    for a in &v.axis {
+        if !selectors.iter().any(|(k, _)| k == a) {
+            bail!(
+                "{source}: view:{name} is materialized across the {a:?} axis, so it \
+                 lands at several URLs — name one with view:{name}?{a}=<value>{}",
+                if v.axis.len() > 1 {
+                    format!(" (this view spends {} axes: {})", v.axis.len(), v.axis.join(", "))
+                } else {
+                    String::new()
+                }
+            );
+        }
+    }
+    let sub = |t: &str| {
+        let mut t = t.to_string();
+        for (ph, val) in &axis_subs {
+            t = t.replace(ph.as_str(), val);
+        }
+        t
     };
     let chain = cfg.group_specs(name);
     let url = if !chain.is_empty() {
@@ -379,7 +400,13 @@ fn view_link(
             params.push((field.to_string(), value.clone()));
             params.push(("key".to_string(), value));
         }
-        crate::template::render(&sub(tmpl), |k| crate::template::param(&params, k))?
+        crate::template::render(&sub(tmpl), |tok| {
+            // Bare or `group:`-qualified name the same group param.
+            match crate::template::classify(tok) {
+                (None | Some("group"), k) => crate::template::param(&params, k),
+                _ => None,
+            }
+        })?
     } else {
         if !keys.is_empty() {
             bail!("{source}: view:{rest} — {name} is not grouped; drop the key");

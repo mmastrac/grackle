@@ -118,8 +118,12 @@ pub fn run(
         let Some(v) = ctx.cfg.views.get(view) else {
             continue;
         };
-        // §5h: a view that claims a content row renders in the landing pass.
-        if v.content.is_some() {
+        // §5h: a route that claims a content row renders in the landing pass —
+        // view-level for a literal `content`, or per-route (`Route.content`)
+        // when a templated `content`/`default_content` resolved to a row for
+        // THIS route. A templated `default_content` offer declined by a route
+        // leaves `Route.content` unset, so that route lists here as usual.
+        if v.content.is_some() || r.content.is_some() {
             continue;
         }
         let Some(layout) = v.layout.as_deref() else {

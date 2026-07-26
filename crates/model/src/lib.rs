@@ -122,9 +122,13 @@ pub struct Row {
     /// excluded from every query structurally.
     #[serde(skip)]
     pub claimed: bool,
-    /// q53: the axis this row's route rule spends, if any.
+    /// q53: the axes this row's route rule spends. Empty for a row published
+    /// once; more than one when the route template names more than one axis
+    /// placeholder, which is what makes two axes over one row a cartesian
+    /// product of routes rather than a collision. Every entry carries the same
+    /// full template (the one naming every axis); the names drive the product.
     #[serde(skip)]
-    pub axis: Option<RowAxis>,
+    pub axis: Vec<RowAxis>,
 }
 
 impl Keyed for Route {
@@ -297,11 +301,21 @@ pub struct Route {
     /// silently cannot.
     #[serde(skip)]
     pub row: Option<Key>,
-    /// Which axis member this route is (q53), `None` for the ordinary case of
-    /// a row published once. Two routes onto one row are legal exactly when
-    /// they are different members of one axis — see §4's constraint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub axis: Option<AxisMember>,
+    /// Which axis members this route is (q53) — the tuple of members, one per
+    /// axis the route spends, empty for the ordinary case of a row published
+    /// once. Two routes onto one row are legal exactly when they differ in this
+    /// tuple, which is what lets several axes compose into the product rather
+    /// than collide — see §4's constraint.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub axis: Vec<AxisMember>,
+    /// q45 mode B, per route: the resolved logical path of the row this route
+    /// embeds as its landing body, set when the view's `content` is a TEMPLATE
+    /// (`{group:key}/index.md`) and so resolves to a different row per route, or
+    /// when a templated `default_content` route accepted its offer. `None` for a
+    /// literal content claim, which stays view-level on `View.content`, and for
+    /// an ordinary route.
+    #[serde(skip)]
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -357,7 +371,8 @@ impl Route {
             url,
             kind,
             row: None,
-            axis: None,
+            axis: Vec::new(),
+            content: None,
             source: None,
             view: None,
             key: None,

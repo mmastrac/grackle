@@ -38,14 +38,19 @@ fn scan(tmpl: &str, mut emit: impl FnMut(Piece<'_>) -> Result<()>) -> Result<()>
             .ok_or_else(|| anyhow!("unclosed '{{' in template {tmpl:?}"))?
             + open;
         let body = &rest[open + 1..close];
-        let (name, pad) = match body.split_once(':') {
-            Some((n, spec)) => {
+        // The pad is a TRAILING `:<digits>`; everything before it is the name,
+        // which may itself carry an `axis:`/`group:` namespace — `{axis:theme}`,
+        // `{group:month:02}`. Splitting from the RIGHT and requiring digits is
+        // what lets the namespace share the colon without a second convention:
+        // a `:` followed by non-digits is part of the name, not a malformed pad.
+        let (name, pad) = match body.rsplit_once(':') {
+            Some((n, spec)) if !spec.is_empty() && spec.bytes().all(|b| b.is_ascii_digit()) => {
                 let width: usize = spec
                     .parse()
                     .map_err(|_| anyhow!("bad pad width {spec:?} in template {tmpl:?}"))?;
                 (n, Some(width))
             }
-            None => (body, None),
+            _ => (body, None),
         };
         if name.is_empty() {
             bail!("empty token {{}} in template {tmpl:?}");
@@ -103,6 +108,19 @@ pub fn tokens(tmpl: &str) -> Result<Vec<String>> {
 /// want, when their values already exist as pairs rather than as a match.
 pub fn param(params: &[(String, String)], k: &str) -> Option<String> {
     params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+}
+
+/// Split a (pad-stripped) token name into an optional namespace and its bare
+/// name: `"axis:theme"` → `(Some("axis"), "theme")`, `"year"` → `(None,
+/// "year")`. The namespace is the part before the FIRST colon — a bare group
+/// or axis field never contains one, and the only namespaces are `axis` and
+/// `group`, so this is total. Shared by the resolvers and the load-time
+/// validators so "what namespace does this token name" is answered once.
+pub fn classify(name: &str) -> (Option<&str>, &str) {
+    match name.split_once(':') {
+        Some((ns, bare)) => (Some(ns), bare),
+        None => (None, name),
+    }
 }
 
 #[cfg(test)]
@@ -163,9 +181,42 @@ mod tests {
     /// scan behind both.
     #[test]
     fn malformed_templates_fail_the_same_way_in_both() {
-        for bad in ["{unclosed", "closed}", "{}", "{x:notanumber}"] {
+        for bad in ["{unclosed", "closed}", "{}"] {
             assert!(render(bad, |_| Some("v".into())).is_err(), "render {bad:?}");
             assert!(tokens(bad).is_err(), "tokens {bad:?}");
         }
+    }
+
+    /// A `:` followed by non-digits is a NAMESPACE separator, not a malformed
+    /// pad: the token name keeps its colon and reaches `get` whole. This is
+    /// what lets `{axis:theme}` and `{group:month}` share the pad punctuation.
+    #[test]
+    fn a_non_numeric_colon_is_a_namespace_not_a_pad() {
+        assert_eq!(tokens("{axis:theme}").unwrap(), vec!["axis:theme"]);
+        assert_eq!(
+            render("/{axis:theme}/", |k| (k == "axis:theme").then(|| "ledger".into())).unwrap(),
+            "/ledger/"
+        );
+    }
+
+    /// Pad still wins when the trailing segment is all digits — and it binds to
+    /// the RIGHTMOST colon, so a namespace and a pad coexist on one token.
+    #[test]
+    fn a_trailing_numeric_colon_is_still_the_pad() {
+        // Bare name + pad, unchanged.
+        assert_eq!(render("{month:02}", |_| Some("3".into())).unwrap(), "03");
+        // Namespaced name + pad: name is `group:month`, pad is 02.
+        assert_eq!(tokens("{group:month:02}").unwrap(), vec!["group:month"]);
+        assert_eq!(
+            render("{group:month:02}", |k| (k == "group:month").then(|| "3".into())).unwrap(),
+            "03"
+        );
+    }
+
+    #[test]
+    fn classify_splits_on_the_first_colon() {
+        assert_eq!(classify("year"), (None, "year"));
+        assert_eq!(classify("axis:theme"), (Some("axis"), "theme"));
+        assert_eq!(classify("group:month"), (Some("group"), "month"));
     }
 }

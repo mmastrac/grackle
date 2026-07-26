@@ -92,6 +92,12 @@ impl<R: Keyed> Table<R> {
         self.rows.get_mut(i)
     }
 
+    /// Mutate every row in place. Keys are unchanged by construction — a caller
+    /// revising fields, not identities — so the position index stays valid.
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, R> {
+        self.rows.iter_mut()
+    }
+
     /// A unique index over this table: at most one row per key, a second
     /// claim is a `Collision` naming both.
     pub fn unique_index<K: Eq + Hash + Clone>(

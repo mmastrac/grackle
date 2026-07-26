@@ -44,15 +44,27 @@ pub struct Head {
     /// `og:title`, or what makes any of them appear.
     pub meta: Vec<(Tag, String, String)>,
     pub jsonld: Option<String>,
-    /// q53 axis members: alternative FORMS of this row, as
-    /// `(hreflang, absolute url)`. Today only the locale axis fills this;
-    /// thumbnails and the md twin are the other occupants when they land.
+    /// q53 axis members: alternative FORMS of this row, each an absolute URL
+    /// with an optional `hreflang` (the locale axis) OR an optional media `type`
+    /// (a different-format form, e.g. the md twin). A same-format restyle — a
+    /// theme member — carries neither: it is the same representation at another
+    /// URL, and `rel="canonical"` already names the one that counts.
     ///
-    /// A relation points at other rows and renders in the body; an axis
-    /// points at other forms of THIS row and renders here, as
-    /// `rel="alternate"` — which is why translations belong on this axis
-    /// and not among the relations.
-    pub alternates: Vec<(String, String)>,
+    /// A relation points at other rows and renders in the body; an axis points
+    /// at other forms of THIS row and renders here, as `rel="alternate"` — which
+    /// is why translations belong on this axis and not among the relations. The
+    /// shape is the "variable-length head entries" residue (§4e): a name→string
+    /// map cannot repeat a `rel`, nor carry a second attribute beside it.
+    pub alternates: Vec<Alternate>,
+}
+
+/// One `rel="alternate"` entry: an absolute URL, and at most one qualifier —
+/// `hreflang` for a translation, `media_type` for a different-format form.
+#[derive(Debug, Default)]
+pub struct Alternate {
+    pub href: String,
+    pub hreflang: Option<String>,
+    pub media_type: Option<String>,
 }
 
 pub struct Site<'a> {
@@ -266,7 +278,7 @@ pub fn root_shell(
     locale: &str,
     subtheme: Option<&str>,
     profile: Option<&str>,
-    axis: Option<&grackle_model::AxisMember>,
+    axis: &[grackle_model::AxisMember],
     body: &str,
 ) -> String {
     let sub = subtheme
@@ -296,13 +308,28 @@ pub fn root_shell(
     // in a browser, not assumed. A custom property inherits, and `content`
     // takes `var()`, so the value is legible anywhere in the document. The
     // property is quoted so it drops into `content` as-is.
-    let ax = axis
-        .map(|a| {
+    // One route may carry several members (the axis product), so the stamps
+    // accumulate: one `data-axis-<name>` attribute each, and a SINGLE `style`
+    // holding every `--axis-<name>` custom property — two `style=` attributes
+    // would be invalid, and the properties compose in one.
+    let ax = {
+        let mut attrs = String::new();
+        let mut styles = String::new();
+        for a in axis {
             let name = esc(&a.axis.replace(|c: char| !c.is_alphanumeric() && c != '-', "-"));
             let value = esc(&a.value);
-            format!(" data-axis-{name}=\"{value}\" style=\"--axis-{name}:&quot;{value}&quot;\"")
-        })
-        .unwrap_or_default();
+            let _ = write!(attrs, " data-axis-{name}=\"{value}\"");
+            if !styles.is_empty() {
+                styles.push(';');
+            }
+            let _ = write!(styles, "--axis-{name}:&quot;{value}&quot;");
+        }
+        if styles.is_empty() {
+            attrs
+        } else {
+            format!("{attrs} style=\"{styles}\"")
+        }
+    };
     // §6f: a French row wears French labels and a French URL, so the
     // skeleton around it must not claim `en` to screen readers and
     // crawlers. i18n off means every row carries the default locale, so
@@ -378,17 +405,20 @@ pub fn head_html(head: &Head, css: &str) -> String {
     let mut h = String::with_capacity(2048);
     let _ = write!(h, "\n\t<title>{}</title>", esc(&head.title));
     h.push_str(&meta_tags(head));
-    // q53: the locale axis in the head. Self included, which is what the spec
-    // asks for — every version lists every version, itself among them. NOT a
-    // declared tag: it is a variable-length LIST, and `[html.head.*]` is a
-    // name-to-string map. See §4e's residue.
-    for (lang, href) in &head.alternates {
-        let _ = write!(
-            h,
-            "\n\t<link rel=\"alternate\" hreflang=\"{}\" href=\"{}\">",
-            esc(lang),
-            esc(href)
-        );
+    // q53: the axes in the head, each an alternate FORM of this row. The locale
+    // axis carries `hreflang` (self included, as the spec asks — every version
+    // lists every version); a different-format axis carries `type`; a restyle
+    // carries neither. NOT a declared tag: a variable-length LIST, where
+    // `[html.head.*]` is a name-to-string map. See §4e's residue.
+    for a in &head.alternates {
+        h.push_str("\n\t<link rel=\"alternate\"");
+        if let Some(lang) = &a.hreflang {
+            let _ = write!(h, " hreflang=\"{}\"", esc(lang));
+        }
+        if let Some(t) = &a.media_type {
+            let _ = write!(h, " type=\"{}\"", esc(t));
+        }
+        let _ = write!(h, " href=\"{}\">", esc(&a.href));
     }
     if let Some(j) = &head.jsonld {
         let _ = write!(

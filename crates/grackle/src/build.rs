@@ -77,17 +77,60 @@ fn locale_alternates(
     self_locale: &str,
     self_url: &str,
     twins: &[(String, String)],
-) -> Vec<(String, String)> {
+) -> Vec<render::Alternate> {
     if twins.is_empty() {
         return Vec::new();
     }
-    let mut v = vec![(self_locale.to_string(), format!("{site_url}{self_url}"))];
-    v.extend(
-        twins
-            .iter()
-            .map(|(loc, url)| (loc.clone(), format!("{site_url}{url}"))),
-    );
+    let one = |loc: &str, url: &str| render::Alternate {
+        href: format!("{site_url}{url}"),
+        hreflang: Some(loc.to_string()),
+        media_type: None,
+    };
+    let mut v = vec![one(self_locale, self_url)];
+    v.extend(twins.iter().map(|(loc, url)| one(loc, url)));
     v
+}
+
+/// A row's OTHER axis forms as `rel="alternate"` (q53). One entry per member
+/// route of the same row that is NOT this route — a member points at its
+/// siblings, `rel="canonical"` names the one that counts. A form whose URL has a
+/// non-HTML media type (the md twin) carries that `type`; a same-format restyle
+/// (a theme member) carries none, being the same representation elsewhere.
+///
+/// Empty for a row on no axis, so a page with one form announces nothing.
+fn axis_alternates(db: &SiteDb, site_url: &str, r: &Route) -> Vec<render::Alternate> {
+    let Some(row) = &r.row else {
+        return Vec::new();
+    };
+    if r.axis.is_empty() {
+        return Vec::new();
+    }
+    db.routes
+        .iter()
+        .filter(|o| o.row.as_ref() == Some(row) && o.url != r.url)
+        .map(|o| render::Alternate {
+            href: format!("{site_url}{}", o.url),
+            hreflang: None,
+            // `type` only when the form's media type is not the ordinary HTML —
+            // then the alternate is a genuinely different representation.
+            media_type: alt_media_type(&o.url),
+        })
+        .collect()
+}
+
+/// The media type a member URL advertises as a `rel="alternate"` `type`, or
+/// `None` for an ordinary HTML page (a restyle names no type — it is the same
+/// representation). Keyed off the URL's extension, the one thing that says a
+/// form is a different format.
+fn alt_media_type(url: &str) -> Option<String> {
+    let ext = url.rsplit('/').next()?.rsplit_once('.')?.1;
+    match ext {
+        "md" => Some("text/markdown".to_string()),
+        "xml" => Some("application/xml".to_string()),
+        "json" => Some("application/json".to_string()),
+        "txt" => Some("text/plain".to_string()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -102,13 +145,28 @@ mod alternates_tests {
     #[test]
     fn every_version_lists_itself_and_its_twins() {
         let twins = vec![("fr".to_string(), "/fr/a/".to_string())];
+        let alts = locale_alternates("https://s", "en", "/a/", &twins);
+        let got: Vec<(Option<String>, String)> = alts
+            .iter()
+            .map(|a| (a.hreflang.clone(), a.href.clone()))
+            .collect();
         assert_eq!(
-            locale_alternates("https://s", "en", "/a/", &twins),
+            got,
             vec![
-                ("en".to_string(), "https://s/a/".to_string()),
-                ("fr".to_string(), "https://s/fr/a/".to_string()),
+                (Some("en".to_string()), "https://s/a/".to_string()),
+                (Some("fr".to_string()), "https://s/fr/a/".to_string()),
             ]
         );
+        assert!(alts.iter().all(|a| a.media_type.is_none()));
+    }
+
+    #[test]
+    fn alt_media_type_names_only_non_html_forms() {
+        assert_eq!(alt_media_type("/notes/one.md"), Some("text/markdown".into()));
+        assert_eq!(alt_media_type("/feed.xml"), Some("application/xml".into()));
+        // A restyle at a directory URL is the same representation — no type.
+        assert_eq!(alt_media_type("/ledger/notes/one/"), None);
+        assert_eq!(alt_media_type("/page.html"), None);
     }
 }
 
@@ -345,6 +403,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .unwrap_or_default();
             let mut head = head;
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
+            // q53: this row's OTHER axis forms (themes, the md twin) as
+            // `rel="alternate"`, beside the locale twins above.
+            head.alternates
+                .extend(axis_alternates(db, &cfg.site.url, r));
             let groups =
                 parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
             let mut doc = parts::document(cfg, p, whole, trail, groups, outline, &translations);
@@ -368,7 +430,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 &fill_link_resolver(cfg, &linkspace, &p.locale),
                 subtheme.as_deref(),
                 profile,
-                r.axis.as_ref(),
+                &r.axis,
             )?;
             Ok((url.to_string(), html))
         })
@@ -417,7 +479,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(v) = cfg.views.get(view) else {
             continue;
         };
-        let Some(content) = v.content.as_deref() else {
+        // Per-route content (templated `content`, or a templated
+        // `default_content` this route accepted) beats the view-level literal
+        // one, which is what lets one grouped view give each route its own
+        // words (§5c). A view with neither has nothing to embed.
+        let Some(content) = r.content.as_deref().or(v.content.as_deref()) else {
             continue;
         };
         if r.kind != RouteKind::View {
@@ -627,7 +693,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             &fill_link_resolver(cfg, &linkspace, loc),
             subtheme.as_deref(),
             profile,
-            r.axis.as_ref(),
+            &r.axis,
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -911,7 +977,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         row_locale,
                         None,
                         profile,
-                        r.axis.as_ref(),
+                        &r.axis,
                         &parts::canonical(&parts::raw(frag)),
                     ),
                     Theme::Default => {
@@ -933,6 +999,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         let mut head = head;
                         head.alternates =
                             locale_alternates(&cfg.site.url, row_locale, &r.url, &translations);
+                        // q53: this page's other axis forms, beside the locale twins.
+                        head.alternates
+                            .extend(axis_alternates(db, &cfg.site.url, r));
                         // Absent means a document, per §4d — see the post arm.
                         let main = match layout {
                             Some("page") | Some("post") | None => {
@@ -975,7 +1044,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                             &fill_link_resolver(cfg, &linkspace, row_locale),
                             subtheme.as_deref(),
                             profile,
-                            r.axis.as_ref(),
+                            &r.axis,
                         )?
                     }
                 };
@@ -2021,8 +2090,8 @@ pub(crate) fn fill_link_resolver<'a>(
 /// for its canonical self.
 pub(crate) fn axis_field<'a>(r: &'a Route, field: &str) -> Option<&'a str> {
     r.axis
-        .as_ref()
-        .filter(|a| a.field == field)
+        .iter()
+        .find(|a| a.field == field)
         .map(|a| a.value.as_str())
 }
 

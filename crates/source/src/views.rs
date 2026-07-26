@@ -372,8 +372,8 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         // once per member, and everything below it (locale, grouping,
         // pagination) happens within each. Ordering it outermost is what keeps
         // the branches below a substitution rather than a rewrite.
-        for member in axis_members(cfg, name, v)? {
-            build_view(cfg, db, name, v, &q, kind, base.clone(), member)?;
+        for members in axis_member_combos(cfg, name, v)? {
+            build_view(cfg, db, name, v, &q, kind, base.clone(), members)?;
         }
     }
     // §4d: an inherited route with nothing to show does not materialize. The
@@ -458,52 +458,57 @@ fn members_clause(names: &[String]) -> String {
         .join(" || ")
 }
 
-/// The axis members a view materializes across, or a single `None` for a view
-/// on no axis — so the caller loops either way and there is no second path for
-/// the ordinary case.
-fn axis_members(cfg: &Config, name: &str, v: &View) -> Result<Vec<Option<AxisMember>>> {
-    let Some(axis_name) = v.axis.as_deref() else {
-        return Ok(vec![None]);
-    };
-    let Some(axis) = cfg.axes.get(axis_name) else {
-        let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
-        bail!(
-            "view {name}: axis = {axis_name:?} names no axis\n  declared axes: {}",
-            if known.is_empty() {
-                "(none)".into()
-            } else {
-                known.join(", ")
-            }
-        );
-    };
-    // The route has to spend the axis somewhere, or every member renders at one
-    // URL and five of the six are lost to a collision. Checked here because
-    // this is where the two halves — the axis and the path that allocates it —
-    // are both in hand.
-    let placeholder = format!("{{{axis_name}}}");
-    if !v
-        .route
-        .iter()
-        .chain(v.routes.iter())
-        .any(|t| t.contains(&placeholder))
-    {
-        bail!(
-            "view {name}: axis = {axis_name:?} but no path spends it — give the \
-             path a {placeholder} segment, or the members would collide on one URL"
-        );
-    }
-    Ok(axis
-        .values
-        .iter()
-        .map(|value| {
-            Some(AxisMember {
-                axis: axis_name.to_string(),
-                value: value.clone(),
-                field: axis.field.clone(),
-                canonical: axis.canonical() == Some(value.as_str()),
+/// The member-tuples a view materializes across — the cartesian product of its
+/// declared axes, or a single empty tuple for a view on no axis, so the caller
+/// loops either way and there is no second path for the ordinary case. A view
+/// on one axis yields one member per value.
+fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<AxisMember>>> {
+    let mut combos: Vec<Vec<AxisMember>> = vec![Vec::new()];
+    for axis_name in &v.axis {
+        let Some(axis) = cfg.axes.get(axis_name) else {
+            let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
+            bail!(
+                "view {name}: axis = {axis_name:?} names no axis\n  declared axes: {}",
+                if known.is_empty() {
+                    "(none)".into()
+                } else {
+                    known.join(", ")
+                }
+            );
+        };
+        // Each axis must be spent somewhere in the path, or its members collide
+        // on one URL and all but one are lost. Checked here because this is
+        // where the two halves — the axis and the path that allocates it — are
+        // both in hand, and per axis because a product must spend every one.
+        let placeholder = format!("{{{axis_name}}}");
+        if !v
+            .route
+            .iter()
+            .chain(v.routes.iter())
+            .any(|t| t.contains(&placeholder))
+        {
+            bail!(
+                "view {name}: axis = {axis_name:?} but no path spends it — give the \
+                 path a {placeholder} segment, or the members would collide on one URL"
+            );
+        }
+        combos = combos
+            .into_iter()
+            .flat_map(|c| {
+                axis.values.iter().map(move |value| {
+                    let mut c2 = c.clone();
+                    c2.push(AxisMember {
+                        axis: axis_name.to_string(),
+                        value: value.clone(),
+                        field: axis.field.clone(),
+                        canonical: axis.canonical() == Some(value.as_str()),
+                    });
+                    c2
+                })
             })
-        })
-        .collect())
+            .collect();
+    }
+    Ok(combos)
 }
 
 /// Materialize a view — one flow for every base.
@@ -519,7 +524,7 @@ fn build_view(
     q: &Query,
     kind: Kind,
     base: Base,
-    member: Option<AxisMember>,
+    axis_members: Vec<AxisMember>,
 ) -> Result<()> {
     let Base {
         schema,
@@ -588,16 +593,20 @@ fn build_view(
     if tmpls.is_empty() {
         bail!("view {name} needs a route");
     }
-    // Spend the axis segment before anything else reads the templates, so the
+    // Spend every axis segment before anything else reads the templates, so the
     // grouped, paginated and single-route branches below are unchanged: by the
-    // time they see a template it is this member's.
-    let tmpls: Vec<String> = match &member {
-        Some(m) => tmpls
-            .iter()
-            .map(|t| t.replace(&format!("{{{}}}", m.axis), &m.value))
-            .collect(),
-        None => tmpls,
-    };
+    // time they see a template it is this member-tuple's. One axis is a product
+    // of one.
+    let tmpls: Vec<String> = tmpls
+        .iter()
+        .map(|t| {
+            let mut t = t.clone();
+            for m in &axis_members {
+                t = t.replace(&format!("{{{}}}", m.axis), &m.value);
+            }
+            t
+        })
+        .collect();
     // Page 2 would otherwise reuse page 1's URL — a route collision reported
     // against two identical templates, which reads as a mystery. Every
     // paginated view in the corpus already declares both.
@@ -661,9 +670,20 @@ fn build_view(
 
         for cell in cells {
             let url = |tmpl: &str, n: Option<usize>| -> Result<String> {
-                template::render(tmpl, |k| match k {
-                    "n" => n.map(|n| n.to_string()),
-                    _ => template::param(&cell.params, k).map(|val| route_value(k, &val)),
+                template::render(tmpl, |tok| {
+                    // `{n}` is the page number; every other bare or `group:`
+                    // token names a group param (the two spellings are one
+                    // thing). An `axis:` token is spent into the template
+                    // before this closure runs (see `tmpls` above), so it never
+                    // reaches here.
+                    let (ns, k) = template::classify(tok);
+                    match ns {
+                        None if k == "n" => n.map(|n| n.to_string()),
+                        None | Some("group") => {
+                            template::param(&cell.params, k).map(|val| route_value(k, &val))
+                        }
+                        _ => None,
+                    }
                 })
             };
             match v.paginate.map(|p| p.max(1)) {
@@ -679,7 +699,7 @@ fn build_view(
                             .collect();
                         db.routes.push(Route {
                             fields: view_fields(v),
-                            axis: member.clone(),
+                            axis: axis_members.clone(),
                             view: Some(name.to_string()),
                             // A grouped page keeps its GROUP key — `{key}` in a
                             // title names the partition — and `page` carries the
@@ -710,7 +730,7 @@ fn build_view(
                     };
                     db.routes.push(Route {
                         fields: view_fields(v),
-                        axis: member.clone(),
+                        axis: axis_members.clone(),
                         view: Some(name.to_string()),
                         key: cell.key.clone(),
                         rows: Some(members.len()),
@@ -802,7 +822,7 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schema
             .filter(|k| {
                 db.routes
                     .get(k)
-                    .is_none_or(|r| r.axis.as_ref().is_none_or(|a| a.canonical))
+                    .is_none_or(|r| r.axis.iter().all(|a| a.canonical))
             })
             .collect();
         let Some(at) = db

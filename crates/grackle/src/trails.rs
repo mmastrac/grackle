@@ -69,7 +69,13 @@ pub fn listing_title_and_trail(
         .iter()
         .map(|s| crate::db::spec_field(s).to_string())
         .collect();
-    let param = |k: &str| -> Option<String> {
+    let param = |tok: &str| -> Option<String> {
+        // Bare and `group:`-qualified tokens name the same group param; no other
+        // namespace is in scope in a listing trail.
+        let (ns, k) = crate::template::classify(tok);
+        if matches!(ns, Some(n) if n != "group") {
+            return None;
+        }
         let raw = crate::template::param(&r.params, k)?;
         let field = if k == "key" {
             fields.last().map(String::as_str)
@@ -177,7 +183,14 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
             let Some(combo) = combos.first() else { break }; // undated: no trail
             let params: Vec<(String, String)> =
                 combo.iter().flat_map(|k| k.params.clone()).collect();
-            let get = |k: &str| crate::template::param(&params, k);
+            // Bare or `group:`-qualified — one group namespace in scope here.
+            let get = |tok: &str| {
+                let (ns, k) = crate::template::classify(tok);
+                match ns {
+                    None | Some("group") => crate::template::param(&params, k),
+                    _ => None,
+                }
+            };
             let tmpl = v.crumb.as_ref().or(v.title.as_ref());
             if let (Some(tm), Some(rt)) = (tmpl, v.route.as_deref()) {
                 let tm = cfg.i18n.text(tm, loc);

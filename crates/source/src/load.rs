@@ -207,21 +207,24 @@ fn cascade(
 /// too, and `[axes.*]` is left declaring only values and a field. Returns the
 /// canonical member's URL plus the template, so `Row.url` is an address and the
 /// template is what the route loop spends per member.
-fn spend_axis(cfg: &Config, tmpl_url: &str) -> (String, Option<grackle_model::RowAxis>) {
+fn spend_axis(cfg: &Config, tmpl_url: &str) -> (String, Vec<grackle_model::RowAxis>) {
+    let mut url = tmpl_url.to_string();
+    let mut axes = Vec::new();
+    // Every axis whose placeholder the template names — more than one is what
+    // makes two axes over one row a product of routes rather than a collision.
+    // `Row.url` fills each with its canonical; every entry keeps the full
+    // template (naming every axis), and the names drive the product downstream.
     for (name, axis) in &cfg.axes {
         let ph = format!("{{{name}}}");
         if tmpl_url.contains(&ph) {
-            let canon = axis.canonical().unwrap_or_default();
-            return (
-                tmpl_url.replace(&ph, canon),
-                Some(grackle_model::RowAxis {
-                    name: name.clone(),
-                    template: tmpl_url.to_string(),
-                }),
-            );
+            url = url.replace(&ph, axis.canonical().unwrap_or_default());
+            axes.push(grackle_model::RowAxis {
+                name: name.clone(),
+                template: tmpl_url.to_string(),
+            });
         }
     }
-    (tmpl_url.to_string(), None)
+    (url, axes)
 }
 
 fn build_globset(pats: &[String]) -> Result<GlobSet> {
@@ -875,7 +878,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             } else {
                 RouteKind::Static
             };
-            let one = |url: String, axis: Option<AxisMember>| Route {
+            let one = |url: String, axis: Vec<AxisMember>| Route {
                 row: Some(p.key.clone()),
                 axis,
                 source: Some(p.path.clone()),
@@ -887,26 +890,43 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             // that spends `{theme}` opted its rows in. Only a RENDERED row
             // multiplies — an axis publishes alternative forms of a document,
             // and a static file or an image has one form, the bytes.
-            match p.axis.as_ref().filter(|_| p.rendered) {
-                None => vec![one(p.url.clone(), None)],
-                Some(ra) => {
+            let axes: &[grackle_model::RowAxis] = if p.rendered { &p.axis } else { &[] };
+            if axes.is_empty() {
+                vec![one(p.url.clone(), Vec::new())]
+            } else {
+                // The cartesian product of the axes' values: one route per
+                // member-tuple, each substituting every axis placeholder in the
+                // shared template. A single axis is the degenerate product of one.
+                let template = axes[0].template.clone();
+                let mut tuples: Vec<Vec<AxisMember>> = vec![Vec::new()];
+                for ra in axes {
                     let axis = &cfg.axes[&ra.name];
-                    let ph = format!("{{{}}}", ra.name);
-                    axis.values
-                        .iter()
-                        .map(|value| {
-                            one(
-                                ra.template.replace(&ph, value),
-                                Some(AxisMember {
+                    tuples = tuples
+                        .into_iter()
+                        .flat_map(|t| {
+                            axis.values.iter().map(move |value| {
+                                let mut t2 = t.clone();
+                                t2.push(AxisMember {
                                     axis: ra.name.clone(),
                                     value: value.clone(),
                                     field: axis.field.clone(),
                                     canonical: axis.canonical() == Some(value.as_str()),
-                                }),
-                            )
+                                });
+                                t2
+                            })
                         })
-                        .collect()
+                        .collect();
                 }
+                tuples
+                    .into_iter()
+                    .map(|tuple| {
+                        let mut url = template.clone();
+                        for m in &tuple {
+                            url = url.replace(&format!("{{{}}}", m.axis), &m.value);
+                        }
+                        one(url, tuple)
+                    })
+                    .collect()
             }
         })
         .collect();
@@ -919,11 +939,156 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     crate::relations::build_relations(cfg, &mut db, &schemas)?;
     db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-    // q45: a claimed row's URL becomes its landing's — the owning
-    // view's route in the row's locale — so source-path links and the
-    // ancestors walk see the landing, not the retired standalone URL.
-    // A locale variant whose partition didn't materialize keeps no
-    // URL (nothing may link it).
+    // q45 TEMPLATED landings (§5c): a view whose `content`/`default_content` is a
+    // template (`{group:key}/index.md`) resolves to a different row per route, so
+    // its claims can only be settled now — once the routes and their group params
+    // and axis members exist. A LITERAL claim was settled at load (rows marked,
+    // own routes withheld, excluded from queries) and is untouched here, which is
+    // what keeps every existing site byte-identical.
+    {
+        // Resolve each templated landing route to the logical path it embeds.
+        let mut set_content: Vec<(grackle_db::Key, String)> = Vec::new(); // (route id, logical)
+        let mut owner_of: HashMap<String, String> = HashMap::new(); // logical -> view
+        let mut errors: Vec<String> = Vec::new();
+        for r in &db.routes {
+            if r.kind != RouteKind::View {
+                continue;
+            }
+            let Some(view) = r.view.as_deref() else {
+                continue;
+            };
+            let Some(v) = cfg.views.get(view) else {
+                continue;
+            };
+            // A templated `content` is a PROMISE (missing row = error); a
+            // templated `default_content` is an OFFER (missing, or a row that
+            // does not place the embed, = plain landing).
+            let (tmpl, promise) = match (v.content.as_deref(), v.default_content.as_deref()) {
+                (Some(c), _) if crate::config::is_templated(c) => (c, true),
+                (_, Some(d)) if crate::config::is_templated(d) => (d, false),
+                _ => continue,
+            };
+            // Resolve against this route's group params (bare or `group:`) and
+            // axis members (`axis:`); a bare name resolves in whichever single
+            // namespace has it.
+            let cp = template::render(tmpl, |tok| {
+                let (ns, k) = template::classify(tok);
+                let g = || template::param(&r.params, k);
+                let a = || r.axis.iter().find(|m| m.axis == k).map(|m| m.value.clone());
+                match ns {
+                    Some("group") => g(),
+                    Some("axis") => a(),
+                    Some(_) => None,
+                    None => match (g(), a()) {
+                        (Some(x), None) | (None, Some(x)) => Some(x),
+                        _ => None,
+                    },
+                }
+            });
+            let cp = match cp {
+                Ok(c) => c,
+                Err(e) => {
+                    errors.push(format!("view {view}: content template {tmpl:?}: {e:#}"));
+                    continue;
+                }
+            };
+            let sibs = db.by_logical.get(&cp);
+            let exists = sibs.is_some_and(|s| !s.is_empty());
+            if !exists {
+                if promise {
+                    errors.push(format!(
+                        "view {view}: content {cp:?} names no row in the tree \
+                         (resolved from template {tmpl:?} for {})",
+                        r.url
+                    ));
+                }
+                continue; // offer: plain landing
+            }
+            // The OFFER accepts only if the claimed row places the embed;
+            // otherwise the row wants the URL to itself, so the route stays a
+            // plain listing. The PROMISE requires the embed too, but checks it at
+            // render (build.rs), where the literal claim checks it as well.
+            if !promise {
+                let tag = format!("{{% view {view} %}}");
+                let places = sibs
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|k| db.rows.get(k))
+                    .any(|row| {
+                        std::fs::read_to_string(&row.path)
+                            .map(|t| store::split_front_matter(&t).1.contains(&tag))
+                            .unwrap_or(false)
+                    });
+                if !places {
+                    continue;
+                }
+            }
+            // A row serves one landing (§5h) — the load-time check cannot see
+            // this across two DIFFERENT templates, so it is caught here.
+            if let Some(prev) = owner_of.insert(cp.clone(), view.to_string()) {
+                if prev != view {
+                    errors.push(format!(
+                        "row {cp:?} is claimed as content by two views ({prev} and \
+                         {view}) — a row serves one landing"
+                    ));
+                }
+            }
+            set_content.push((r.id.clone(), cp));
+        }
+        if !errors.is_empty() {
+            // A promise route repeats per locale/page, so the same message can
+            // arrive several times.
+            errors.sort();
+            errors.dedup();
+            bail!("{}", errors.join("\n"));
+        }
+
+        let claimed_paths: std::collections::HashSet<&str> =
+            set_content.iter().map(|(_, cp)| cp.as_str()).collect();
+        let claimed_keys: std::collections::HashSet<grackle_db::Key> = db
+            .rows
+            .iter()
+            .filter(|p| claimed_paths.contains(p.logical.as_str()))
+            .map(|p| p.key.clone())
+            .collect();
+        for (rid, cp) in set_content {
+            if let Some(r) = db.routes.get_mut(&rid) {
+                r.content = Some(cp);
+            }
+        }
+        for k in &claimed_keys {
+            if let Some(row) = db.rows.get_mut(k) {
+                row.claimed = true;
+            }
+        }
+        // The landing owns the URL now, so the claimed rows' own standalone
+        // routes go — exactly as a literal claim withholds them at load.
+        db.routes
+            .retain(|r| r.row.as_ref().is_none_or(|k| !claimed_keys.contains(k)));
+        // And the rows leave every query they were materialized into: a literal
+        // claim is excluded at build_views, but a templated one was not known
+        // until now, so its rows are dropped from view membership here.
+        for r in db.routes.iter_mut() {
+            if r.members.iter().any(|k| claimed_keys.contains(k)) {
+                r.members.retain(|k| !claimed_keys.contains(k));
+                r.rows = Some(r.members.len());
+            }
+        }
+        for vr in db.views.values_mut() {
+            let before = vr.members.len();
+            vr.members.retain(|k| !claimed_keys.contains(k));
+            if vr.members.len() != before {
+                vr.rows = vr.members.len();
+            }
+        }
+    }
+
+    // q45: a claimed row's URL becomes its landing's — so source-path links and
+    // the ancestors walk see the landing, not the retired standalone URL. A
+    // TEMPLATED claim points at the specific route that embeds it (the one whose
+    // resolved `content` is this row's logical path, in this locale); a LITERAL
+    // one points at its owner view's bare route. A locale variant whose partition
+    // didn't materialize keeps no URL (nothing may link it).
     {
         let claims = cfg.content_claims();
         let mut fixed: Vec<(grackle_db::Key, String)> = Vec::new();
@@ -935,18 +1100,28 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             if !p.claimed {
                 continue;
             }
-            let owner = claims[p.logical.as_str()];
             let url = db
                 .routes
                 .iter()
                 .find(|r| {
                     r.kind == RouteKind::View
-                        && r.view.as_deref() == Some(owner)
+                        && r.content.as_deref() == Some(p.logical.as_str())
                         && r.locale == route_locale(&p.locale)
-                        && r.key.is_none()
-                        && r.page.is_none_or(|n| n == 1)
                 })
-                .map(|r| r.url.clone());
+                .map(|r| r.url.clone())
+                .or_else(|| {
+                    let owner = *claims.get(p.logical.as_str())?;
+                    db.routes
+                        .iter()
+                        .find(|r| {
+                            r.kind == RouteKind::View
+                                && r.view.as_deref() == Some(owner)
+                                && r.locale == route_locale(&p.locale)
+                                && r.key.is_none()
+                                && r.page.is_none_or(|n| n == 1)
+                        })
+                        .map(|r| r.url.clone())
+                });
             fixed.push((k.clone(), url.unwrap_or_default()));
         }
         for (k, url) in fixed {
@@ -995,15 +1170,27 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // It could not even be expressed until `Route.row` did: recovering a
     // route's row meant looking its URL up in `by_url`, which answers "one" by
     // construction and so could never see the second.
-    let mut by_row: HashMap<(&grackle_db::Key, Option<&str>), &Route> = HashMap::new();
+    let mut by_row: HashMap<(&grackle_db::Key, String), &Route> = HashMap::new();
     for r in &db.routes {
         let Some(k) = &r.row else { continue };
-        // Keyed by (row, axis MEMBER): several routes onto one row are legal
-        // exactly when they are different members of one axis. Two routes with
-        // the same member — or with none — are the collision this forbids, so
-        // an axis buys the exception it needs and no more.
-        let member = r.axis.as_ref().map(|a| a.value.as_str());
-        if let Some(prev) = by_row.insert((k, member), r) {
+        // Keyed by (row, member TUPLE): several routes onto one row are legal
+        // exactly when they differ in the tuple of members they carry — the
+        // cartesian product of the axes. Two routes with the same tuple — or
+        // both with none — are the collision this forbids, so composing axes
+        // buys the exception it needs and no more. Sorted so the key does not
+        // depend on which order the axes were spent.
+        let mut members: Vec<(&str, &str)> = r
+            .axis
+            .iter()
+            .map(|a| (a.axis.as_str(), a.value.as_str()))
+            .collect();
+        members.sort_unstable();
+        let member_desc = members
+            .iter()
+            .map(|(a, v)| format!("{a}={v:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if let Some(prev) = by_row.insert((k, member_desc.clone()), r) {
             bail!(
                 "one row, two routes:\n  {}\n    {}\n    {}\n\
                  A row renders at one URL. Publishing it at several is an AXIS \
@@ -1014,9 +1201,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                     .unwrap_or_default(),
                 prev.url,
                 r.url,
-                match member {
-                    Some(v) => format!(" — and these are both its {v:?} member"),
-                    None => String::new(),
+                if member_desc.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — and these are both its ({member_desc}) member")
                 }
             );
         }

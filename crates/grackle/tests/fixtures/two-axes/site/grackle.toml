@@ -1,0 +1,67 @@
+# Two axes over ONE row: the cartesian product of routes (q53's composition
+# edge). Before this, two axes over one row collided; now each spends its own
+# segment and they multiply.
+#
+# `page.md` spends both `{palette}` and `{flavor}`, so it lands at 2×2 = 4 URLs,
+# one per member-tuple — §4's "a row renders at one route" is broken only along
+# axes, and two of them compose rather than collide. `[routes.grid]` does the
+# same for a VIEW: `axis = ["palette", "flavor"]` materializes it at the product.
+#
+# `palette` and `flavor` are both presentational fields — no render path
+# consults either — so every member proves a field need not be wired: each route
+# carries BOTH `data-axis-*` on the root, with the two custom properties sharing
+# one `style`. Canonical is (plain, sweet) — the first of each axis — and only
+# it reaches `sitemap.xml`, because an alternate is not a second document.
+extends = "none"
+
+[html.head.link]
+canonical = 'site.url + url'
+
+[site]
+url = "https://example.com"
+title = "Two axes"
+author = "Tester"
+
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  # The rule that spends the axes opts the row in (q53 step 2). This one names
+  # both placeholders, so its rows sit on both axes.
+  [[collections.rules]]
+  match = "page.md"
+  front_matter = true
+  route = "/{palette}/{flavor}/page/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# The first value of each axis is canonical: what `rel="canonical"` names and
+# the only member a `*` view sees.
+[axes.palette]
+values = ["plain", "fancy"]
+field = "palette"
+
+[axes.flavor]
+values = ["sweet", "salty"]
+field = "flavor"
+
+# A VIEW across both axes: 4 listing URLs, the product of the two. The path
+# spends each axis with its own segment, the same way the row's rule does.
+[routes.grid]
+path = "/{palette}/{flavor}/all/"
+from = "entries"
+where = "!draft && !hidden"
+layout = "listing"
+axis = ["palette", "flavor"]
+title = "All"
+
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
+shell = "sitemap"

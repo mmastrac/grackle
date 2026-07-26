@@ -320,6 +320,20 @@ fn default_root() -> PathBuf {
     PathBuf::from(".")
 }
 
+/// Whether a `content`/`default_content` string carries `{token}` placeholders
+/// — a template resolved per route against its group params and axis members
+/// (§5c), rather than a literal logical path. A literal claim is settled at
+/// load; a templated one only once the routes exist, so the loader routes the
+/// two differently. A malformed template counts as templated, so its error
+/// surfaces where templates render rather than as a mysterious "names no row".
+///
+/// A `{a,b}` brace-alternative (`index.{md,html}`) is NOT a template token: a
+/// token names ONE field, an alternative carries a comma. So a literal
+/// `default_content` with alternatives is still settled at load, unchanged.
+pub(crate) fn is_templated(s: &str) -> bool {
+    grackle_db::template::tokens(s).map_or(true, |t| t.iter().any(|tok| !tok.contains(',')))
+}
+
 fn default_true() -> bool {
     true
 }
@@ -826,6 +840,26 @@ impl From {
     }
 }
 
+/// `axis = "theme"` or `axis = ["locale", "theme"]` → a Vec, empty when absent.
+/// One axis is the common case; a list declares the cartesian product (q53).
+/// Same string-or-list shape `from` takes, kept as a free deserializer because
+/// the field wants a plain `Vec<String>` rather than a queryable referent.
+fn one_or_many_string<'de, D>(d: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match OneOrMany::deserialize(d)? {
+        OneOrMany::One(s) => vec![s],
+        OneOrMany::Many(v) => v,
+    })
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct View {
@@ -866,15 +900,18 @@ pub struct View {
     /// kind's base fragment. How `/books/` gets cards while `/blog/`
     /// stays textual, both being listings.
     pub variant: Option<String>,
-    /// An axis this route is materialized across (q53): one declaration, one
-    /// route per member, each rendering through that member's field.
+    /// The axes this route is materialized across (q53): `axis = "theme"` for
+    /// one, `axis = ["locale", "theme"]` for the cartesian product. One route
+    /// per member-tuple, each rendering through its members' fields.
     ///
-    /// The route's path allocates the URL space with `{<axis name>}` — the
-    /// route decides where the segment goes, because that is where every other
-    /// part of the URL is already decided. A view route could not be
-    /// axis-multiplied before, which is why a gallery of six themes needed six
-    /// copies of every landing.
-    pub axis: Option<String>,
+    /// The route's path allocates the URL space with a `{<axis name>}` segment
+    /// per axis — the route decides where each segment goes, because that is
+    /// where every other part of the URL is already decided. A view route could
+    /// not be axis-multiplied before, which is why a gallery of six themes
+    /// needed six copies of every landing; two axes over one view could not
+    /// compose, which is the edge this closes.
+    #[serde(default, deserialize_with = "one_or_many_string")]
+    pub axis: Vec<String>,
     /// Which theme dresses this view, `name[:tokens]` like a row's (§5a).
     ///
     /// A listing otherwise takes the theme its member rows agree on, which
@@ -1121,6 +1158,11 @@ impl Config {
             let Some(pat) = v.default_content.as_deref() else {
                 continue;
             };
+            // A templated offer resolves per route once the group keys exist, so
+            // the filesystem question this settles is answered post-materialize.
+            if is_templated(pat) {
+                continue;
+            }
             let Some(found) = brace_alternatives(pat)
                 .into_iter()
                 .find(|c| root.join(c).exists())
@@ -1393,9 +1435,11 @@ impl Config {
             }
             if let Some((name, v)) = cfg.tags_view() {
                 if let Some(tmpl) = v.route.as_deref() {
-                    grackle_db::template::render(tmpl, |k| match k {
-                        "key" | "tags" => Some("probe".to_string()),
-                        _ => None,
+                    grackle_db::template::render(tmpl, |tok| {
+                        match grackle_db::template::classify(tok) {
+                            (None | Some("group"), "key" | "tags") => Some("probe".to_string()),
+                            _ => None,
+                        }
                     })
                     .with_context(|| {
                         format!("view {name}: tag route template needs more than {{key}}")
@@ -1816,6 +1860,9 @@ impl Config {
         self.views
             .iter()
             .filter_map(|(n, v)| v.content.as_deref().map(|c| (c, n.as_str())))
+            // A templated `content` resolves to a different row per route, so its
+            // claims are settled post-materialization (see `load`), not here.
+            .filter(|(c, _)| !is_templated(c))
             .collect()
     }
 
@@ -1850,9 +1897,11 @@ impl Config {
     pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
         let (_, v) = self.tags_view()?;
         let tmpl = v.route.as_deref()?;
-        let url = grackle_db::template::render(tmpl, |k| match k {
-            "key" | "tags" => Some(self.tag_slug(id).to_string()),
-            _ => None,
+        let url = grackle_db::template::render(tmpl, |tok| {
+            match grackle_db::template::classify(tok) {
+                (None | Some("group"), "key" | "tags") => Some(self.tag_slug(id).to_string()),
+                _ => None,
+            }
         })
         .ok()?;
         if locale != self.i18n.default && v.locales.as_deref() != Some("default") {
