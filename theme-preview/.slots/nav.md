@@ -1,0 +1,6 @@
+- [vanilla](/index.md)
+- [ledger](view:ledger_notes)
+- [marginalia](view:marginalia_notes)
+- [terminal](view:terminal_notes)
+- [atlas](view:atlas_notes)
+- [miroir](view:miroir_notes)

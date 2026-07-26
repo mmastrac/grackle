@@ -1,0 +1,363 @@
+# The theme gallery's preview site.
+#
+# One server, six themes, no restart — and since 2026-07-25, ONE content tree.
+# The themes are an axis (q53): a post, a guide page or a shelf entry is a
+# single row published at six routes, each rendering through a different theme.
+# `/notes/one/` and `/ledger/notes/one/` are the same row, so "the same content
+# in six looks" is now true by construction rather than by six copies kept in
+# step by hand. 102 content files became 36.
+#
+# `vanilla` is the canonical member and wears the bare URLs; the other five are
+# alternates and wear their prefix, exactly as the default locale wears no
+# `/fr/`. Every member canonicalizes to the vanilla URL and only it reaches the
+# sitemap — six renderings of one document are not six documents.
+#
+# What did NOT merge, and why: a landing CLAIMS a content row, and a row serves
+# one landing (the engine says so at load), so the three landings per theme keep
+# their own claim rows — 18 files, the only per-theme content left. Each names
+# its own `theme`, which is the half of this that needed no axis. Per-group
+# `content` would collapse those too.
+#
+# `themes` is a symlink to ../themes, the gallery itself, and `serve` watches
+# through it — editing a token file re-renders every page here.
+#
+# This is a harness, not an example site — for the engine's own kitchen sink
+# (i18n, objects, script shells, embeddings) see examples/field-notes.
+
+root = "."
+
+# No base config (§4d). This harness is atypical: its posts live at `/notes/`
+# rather than `/blog/`, and the base's `published` set and `/blog/` archive
+# would be beside the point. The second live user of the escape hatch, after
+# `examples/raw` — a site whose shape the base did not anticipate says so in one
+# line instead of shadowing routes.
+extends = "none"
+
+# Declining the base means declining its vocabulary too (§4e): the flag family
+# is ordinary declared schema, so a site that inherits nothing declares its own
+# before filtering on it.
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+noindex = { type = "bool" }
+
+# Declining the base also declines its head (§4e). This block is the base's,
+# copied — which is the honest cost of `extends = "none"` and worth seeing in
+# the repo next to a site that pays nothing for the same thing.
+[html.head.meta]
+description = 'description'
+author = 'site.author'
+viewport = '"width=device-width, initial-scale=1"'
+robots = 'noindex ? "noindex,follow" : ""'
+
+[html.head.property]
+"og:title" = 'title'
+"og:description" = 'description'
+"og:url" = 'site.url + url'
+# A row with a date is an article. The fact drives the value; nothing branches.
+"og:type" = 'date ? "article" : "website"'
+# `date` is ISO-8601 already, so the Atom-shaped timestamp is a concatenation
+# rather than a function. Empty on an undated row, which emits no tag.
+"article:published_time" = 'date ? date + "T00:00:00+00:00" : ""'
+"article:author" = 'date ? site.author : ""'
+
+[html.head.link]
+canonical = 'site.url + url'
+
+[site]
+url = "http://localhost:8083"
+baseurl = ""
+title = "Theme Gallery"
+author = "grackle"
+
+# ------------------------------------------------------------------ pages
+#
+# ONE content tree. The six themes are an AXIS (q53) over it: one row, six
+# routes, each rendering through a different theme. Before axes this site kept
+# six byte-identical copies of every post, guide page and shelf entry, because
+# the only way to vary a row's theme was to vary the row.
+#
+# `vanilla` is the canonical member and wears the bare URLs (`/notes/one/`);
+# the other five are alternates and wear their prefix (`/ledger/notes/one/`) —
+# the same shape the default locale has in wearing no `/fr/`. Every member
+# canonicalizes to the vanilla URL, and only it is in the sitemap: six
+# renderings of one document are not six documents.
+
+[axes.theme]
+values = ['vanilla', 'ledger', 'marginalia', 'terminal', 'atlas', 'miroir']
+field = "theme"
+
+[[collections]]
+kind = "tree"
+source = "."
+exclude = ["themes/**"]
+
+  [[collections.rules]]
+  match = "**/index.{html,md}"
+  route = "/{dir}/"
+
+  [[collections.rules]]
+  match = "**/*.{html,md}"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# ------------------------------------------------------------------ notes
+#
+# One posts collection, where there were six. The theme comes from the axis
+# now, not from a rule default per collection.
+
+[[collections]]
+name = "notes"
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/notes/{slug}/"
+
+# ---------------------------------------------------------------- objects
+
+[[collections]]
+name = "objects"
+kind = "objects"
+exclude = ["themes/**"]
+extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+bucket = "assets"
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"
+
+# ---------------------------------------------------------------- widgets
+
+[widgets]
+callout = """
+<callout>
+<div>
+
+{body}
+
+</div>
+</callout>
+"""
+
+# ------------------------------------------------------------------- sets
+
+[sets.notes_published]
+from = "notes"
+where = '!draft && !hidden'
+order_by = "-date"
+
+  [sets.notes_published.fields.summary]
+  truncate = { max_blocks = 1, max_chars = 180 }
+
+[sets.shelf]
+from = "entries"
+where = "!draft && !hidden"
+match = "shelf/**"
+order_by = "-date"
+
+# ----------------------------------------------------------------- routes
+#
+# The landings are the one thing an axis cannot multiply: a landing CLAIMS a
+# content row, and a row serves one landing (the engine says so at load). So
+# these stay one per theme, each naming its own `theme` — a view-declared
+# theme, which is the half of this that needed no axis. Their claimed rows are
+# the only per-theme files left in the tree.
+
+[routes.vanilla_notes]
+paths = ["/notes/", "/notes/page/{n}/"]
+from = "notes_published"
+paginate = 2
+layout = "listing"
+theme = "vanilla"
+content = "vanilla/notes/index.md"
+title = "Notes"
+
+[routes.vanilla_shelf]
+path = "/shelf/"
+from = "shelf"
+layout = "listing"
+variant = "cards"
+featured = true
+theme = "vanilla"
+content = "vanilla/shelf/index.md"
+title = "Shelf"
+
+[routes.vanilla_wall]
+path = "/wall/"
+from = "objects"
+match = "wall/**"
+order_by = "name"
+layout = "listing"
+variant = "gallery"
+theme = "vanilla"
+content = "vanilla/wall/index.md"
+title = "Wall"
+
+[routes.ledger_notes]
+paths = ["/ledger/notes/", "/ledger/notes/page/{n}/"]
+from = "notes_published"
+paginate = 2
+layout = "listing"
+theme = "ledger"
+content = "ledger/notes/index.md"
+title = "Notes"
+
+[routes.ledger_shelf]
+path = "/ledger/shelf/"
+from = "shelf"
+layout = "listing"
+variant = "cards"
+featured = true
+theme = "ledger"
+content = "ledger/shelf/index.md"
+title = "Shelf"
+
+[routes.ledger_wall]
+path = "/ledger/wall/"
+from = "objects"
+match = "wall/**"
+order_by = "name"
+layout = "listing"
+variant = "gallery"
+theme = "ledger"
+content = "ledger/wall/index.md"
+title = "Wall"
+
+[routes.marginalia_notes]
+paths = ["/marginalia/notes/", "/marginalia/notes/page/{n}/"]
+from = "notes_published"
+paginate = 2
+layout = "listing"
+theme = "marginalia"
+content = "marginalia/notes/index.md"
+title = "Notes"
+
+[routes.marginalia_shelf]
+path = "/marginalia/shelf/"
+from = "shelf"
+layout = "listing"
+variant = "cards"
+featured = true
+theme = "marginalia"
+content = "marginalia/shelf/index.md"
+title = "Shelf"
+
+[routes.marginalia_wall]
+path = "/marginalia/wall/"
+from = "objects"
+match = "wall/**"
+order_by = "name"
+layout = "listing"
+variant = "gallery"
+theme = "marginalia"
+content = "marginalia/wall/index.md"
+title = "Wall"
+
+[routes.terminal_notes]
+paths = ["/terminal/notes/", "/terminal/notes/page/{n}/"]
+from = "notes_published"
+paginate = 2
+layout = "listing"
+theme = "terminal"
+content = "terminal/notes/index.md"
+title = "Notes"
+
+[routes.terminal_shelf]
+path = "/terminal/shelf/"
+from = "shelf"
+layout = "listing"
+variant = "cards"
+featured = true
+theme = "terminal"
+content = "terminal/shelf/index.md"
+title = "Shelf"
+
+[routes.terminal_wall]
+path = "/terminal/wall/"
+from = "objects"
+match = "wall/**"
+order_by = "name"
+layout = "listing"
+variant = "gallery"
+theme = "terminal"
+content = "terminal/wall/index.md"
+title = "Wall"
+
+[routes.atlas_notes]
+paths = ["/atlas/notes/", "/atlas/notes/page/{n}/"]
+from = "notes_published"
+paginate = 2
+layout = "listing"
+theme = "atlas"
+content = "atlas/notes/index.md"
+title = "Notes"
+
+[routes.atlas_shelf]
+path = "/atlas/shelf/"
+from = "shelf"
+layout = "listing"
+variant = "cards"
+featured = true
+theme = "atlas"
+content = "atlas/shelf/index.md"
+title = "Shelf"
+
+[routes.atlas_wall]
+path = "/atlas/wall/"
+from = "objects"
+match = "wall/**"
+order_by = "name"
+layout = "listing"
+variant = "gallery"
+theme = "atlas"
+content = "atlas/wall/index.md"
+title = "Wall"
+
+[routes.miroir_notes]
+paths = ["/miroir/notes/", "/miroir/notes/page/{n}/"]
+from = "notes_published"
+paginate = 2
+layout = "listing"
+theme = "miroir"
+content = "miroir/notes/index.md"
+title = "Notes"
+
+[routes.miroir_shelf]
+path = "/miroir/shelf/"
+from = "shelf"
+layout = "listing"
+variant = "cards"
+featured = true
+theme = "miroir"
+content = "miroir/shelf/index.md"
+title = "Shelf"
+
+[routes.miroir_wall]
+path = "/miroir/wall/"
+from = "objects"
+match = "wall/**"
+order_by = "name"
+layout = "listing"
+variant = "gallery"
+theme = "miroir"
+content = "miroir/wall/index.md"
+title = "Wall"
+
+[routes.search]
+path = "/search.bin"
+from = "*"
+shell = "search"
+where = '(kind == "post" || kind == "page") && !draft && !hidden && stem != "index"'
+
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
+shell = "sitemap"
+where = '!draft && !hidden && (dir || ext == "html")'
