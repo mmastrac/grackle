@@ -1,0 +1,4 @@
+---
+title: Note (fr)
+---
+Français.

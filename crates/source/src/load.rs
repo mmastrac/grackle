@@ -35,7 +35,7 @@ fn front_matter_date(raw: &str, path: &Path) -> Result<NaiveDate> {
 
 struct CompiledRule<'a> {
     matcher: GlobMatcher,
-    route: Option<&'a str>,
+    route: &'a [String],
     front_matter: Option<bool>,
     on_demand: bool,
     pattern: &'a str,
@@ -50,7 +50,7 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
                 matcher: Glob::new(&r.pattern)
                     .with_context(|| format!("bad rule glob {:?}", r.pattern))?
                     .compile_matcher(),
-                route: r.route.as_deref(),
+                route: &r.route,
                 front_matter: r.front_matter,
                 on_demand: r.on_demand.unwrap_or(false),
                 pattern: r.pattern.as_str(),
@@ -62,7 +62,7 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
 
 /// What the rule cascade decided for one row.
 struct Routing<'a> {
-    template: Option<&'a str>,
+    templates: &'a [String],
     /// The winning route rule was on-demand: compute the URL, emit no route
     /// until something references it.
     on_demand: bool,
@@ -81,7 +81,7 @@ fn apply_rules<'a>(
     rel: &Path,
     has_front_matter: bool,
 ) -> Routing<'a> {
-    let mut template: Option<&str> = None;
+    let mut templates: &[String] = &[];
     let mut on_demand = false;
     let mut on_demand_cover: Vec<&str> = Vec::new();
     let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
@@ -94,21 +94,19 @@ fn apply_rules<'a>(
         if !rule.matcher.is_match(rel) {
             continue;
         }
-        if rule.on_demand && rule.route.is_some() {
+        if rule.on_demand && !rule.route.is_empty() {
             on_demand_cover.push(rule.pattern);
         }
-        if template.is_none() {
-            if let Some(r) = rule.route {
-                template = Some(r);
-                on_demand = rule.on_demand;
-            }
+        if templates.is_empty() && !rule.route.is_empty() {
+            templates = rule.route;
+            on_demand = rule.on_demand;
         }
         for (k, v) in rule.defaults {
             defaults.entry(k.as_str()).or_insert(v);
         }
     }
     Routing {
-        template,
+        templates,
         on_demand,
         on_demand_cover,
         defaults,
@@ -199,32 +197,76 @@ fn cascade(
     })
 }
 
-/// Spend an axis segment in a route template, or discover which axis a
-/// template leaves unspent (q53 step 2).
-///
-/// A rule that writes `{theme}` into its route is what opts its rows into the
-/// theme axis — the rule already decides where a row lands, so it decides this
-/// too, and `[axes.*]` is left declaring only values and a field. Returns the
-/// canonical member's URL plus the template, so `Row.url` is an address and the
-/// template is what the route loop spends per member.
-fn spend_axis(cfg: &Config, tmpl_url: &str) -> (String, Vec<grackle_model::RowAxis>) {
-    let mut url = tmpl_url.to_string();
-    let mut axes = Vec::new();
-    // Every axis whose placeholder the template names — more than one is what
-    // makes two axes over one row a product of routes rather than a collision.
-    // `Row.url` fills each with its canonical; every entry keeps the full
-    // template (naming every axis), and the names drive the product downstream.
-    for (name, axis) in &cfg.axes {
-        let ph = format!("{{{name}}}");
-        if tmpl_url.contains(&ph) {
-            url = url.replace(&ph, axis.canonical().unwrap_or_default());
-            axes.push(grackle_model::RowAxis {
-                name: name.clone(),
-                template: tmpl_url.to_string(),
-            });
+/// The axes a rule's template(s) opt a row into (q53 step 2): a `{theme}` (or
+/// `{axis:theme}`) segment is what spends the theme axis, and locale via
+/// `{axis:locale}`. A rule that writes the segment decides the row lands there,
+/// so `[axes.*]` declares only values and a field. The names drive the product;
+/// locale is excluded here (it is the row's own, not a product dimension).
+fn row_axes(cfg: &Config, templates: &[String]) -> Vec<grackle_model::RowAxis> {
+    cfg.axes
+        .keys()
+        .filter(|n| templates.iter().any(|t| spends(t, n)))
+        .map(|name| grackle_model::RowAxis {
+            name: name.clone(),
+            template: templates.first().cloned().unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// Whether a template spends an axis: `{name}` or the namespaced `{axis:name}`.
+/// Locale also answers to bare `{locale}`.
+fn spends(tmpl: &str, axis: &str) -> bool {
+    tmpl.contains(&format!("{{{axis}}}"))
+        || tmpl.contains(&format!("{{axis:{axis}}}"))
+        || (axis == "locale" && tmpl.contains("{locale}"))
+}
+
+/// One axis coordinate of a materialized route: the axis, its value, and whether
+/// that value is canonical — which is what a shorter template may omit.
+pub(crate) struct Coord<'a> {
+    pub axis: &'a str,
+    pub value: &'a str,
+    pub canonical: bool,
+}
+
+/// Pick the shortest template whose spent axes cover every NON-canonical coord,
+/// and fill it (§6f, the default-axis case). A canonical coord's segment drops
+/// when a shorter template omits it — `["/{theme}/{axis:locale}/", "/{theme}/",
+/// "/"]` lands the all-canonical member at `/`. Locale that no template spends
+/// falls back to a prefix, which is the behavior a config without `{axis:locale}`
+/// has always had. Errors only if no template covers a required set, which the
+/// fullest template always does unless the templates are pathologically split.
+pub(crate) fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
+    let loc_spendable = templates.iter().any(|t| spends(t, "locale"));
+    let required: Vec<&str> = coords
+        .iter()
+        .filter(|c| !c.canonical && (c.axis != "locale" || loc_spendable))
+        .map(|c| c.axis)
+        .collect();
+    // The shortest template that still spends everything required; ties keep
+    // declaration order, so the first-listed shape wins.
+    let tmpl = templates
+        .iter()
+        .filter(|t| required.iter().all(|r| spends(t, r)))
+        .min_by_key(|t| coords.iter().filter(|c| spends(t, c.axis)).count())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no route template spends {required:?} together; add one that does\n  \
+                 templates: {templates:?}"
+            )
+        })?;
+    let mut url = tmpl.clone();
+    for c in coords.iter().filter(|c| spends(tmpl, c.axis)) {
+        url = url
+            .replace(&format!("{{{}}}", c.axis), c.value)
+            .replace(&format!("{{axis:{}}}", c.axis), c.value);
+    }
+    if let Some(loc) = coords.iter().find(|c| c.axis == "locale") {
+        if !loc.canonical && !spends(tmpl, "locale") {
+            url = format!("/{}{url}", loc.value);
         }
     }
-    (url, axes)
+    Ok(tidy(url))
 }
 
 fn build_globset(pats: &[String]) -> Result<GlobSet> {
@@ -355,7 +397,7 @@ fn read_posts(
         // describes a static file and cannot describe a post.
         let routing = apply_rules(&rules, &logical_rel, true);
         check_on_demand_cover(&logical_rel, &routing)?;
-        let (route_tmpl, rule_defaults) = (routing.template, routing.defaults);
+        let (route_tmpls, rule_defaults) = (routing.templates, routing.defaults);
         let root_rel = raw
             .path
             .strip_prefix(&root)
@@ -388,49 +430,74 @@ fn read_posts(
         schema::apply_defaults(&schema, &defaults, CASCADE_KEYS, &mut checked, &raw.path)?;
         let worn = cascade(&raw.front, &defaults, &raw.path)?;
 
-        let url = if let Some(p) = &raw.front.permalink {
-            p.clone()
+        // A `permalink` is a literal URL, spending no axis; otherwise each of
+        // the rule's template(s) is rendered with the post's date/slug tokens,
+        // axis and locale placeholders preserved for per-member selection.
+        let route_templates: Vec<String> = if let Some(p) = &raw.front.permalink {
+            vec![p.clone()]
         } else {
-            let tmpl = route_tmpl.ok_or_else(|| {
-                anyhow::anyhow!("no rule supplies a route for {}", raw.path.display())
-            })?;
-            if date.is_none() {
-                let needs: Vec<String> = template::tokens(tmpl)?
-                    .into_iter()
-                    .filter(|t| matches!(t.as_str(), "year" | "month" | "day"))
-                    .collect();
-                if !needs.is_empty() {
-                    bail!(
-                        "{} has no date (filename doesn't match any filename_formats), \
-                         but its route {:?} requires {{{}}}",
-                        raw.path.display(),
-                        tmpl,
-                        needs.join("}, {")
-                    );
-                }
+            if route_tmpls.is_empty() {
+                bail!("no rule supplies a route for {}", raw.path.display());
             }
-            template::render(tmpl, |k| match k {
-                "year" => date.map(|d| d.format("%Y").to_string()),
-                "month" => date.map(|d| d.format("%-m").to_string()),
-                "day" => date.map(|d| d.format("%-d").to_string()),
-                "slug" => Some(slug.clone()),
-                // An axis placeholder is spent per member, not here (q53).
-                k if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                _ => None,
+            route_tmpls
+                .iter()
+                .map(|tmpl| {
+                    if date.is_none() {
+                        let needs: Vec<String> = template::tokens(tmpl)?
+                            .into_iter()
+                            .filter(|t| matches!(t.as_str(), "year" | "month" | "day"))
+                            .collect();
+                        if !needs.is_empty() {
+                            bail!(
+                                "{} has no date (filename doesn't match any \
+                                 filename_formats), but its route {:?} requires {{{}}}",
+                                raw.path.display(),
+                                tmpl,
+                                needs.join("}, {")
+                            );
+                        }
+                    }
+                    template::render(tmpl, |k| match k {
+                        "year" => date.map(|d| d.format("%Y").to_string()),
+                        "month" => date.map(|d| d.format("%-m").to_string()),
+                        "day" => date.map(|d| d.format("%-d").to_string()),
+                        "slug" => Some(slug.clone()),
+                        // An axis placeholder is spent per member, not here (q53).
+                        k => {
+                            let (_, bare) = template::classify(k);
+                            (cfg.axes.contains_key(bare)
+                                || (bare == "locale" && cfg.i18n.enabled()))
+                            .then(|| format!("{{{k}}}"))
+                        }
+                    })
+                    .map(tidy)
+                    .with_context(|| format!("routing {}", raw.path.display()))
+                })
+                .collect::<Result<_>>()?
+        };
+        let row_axis = row_axes(cfg, &route_templates);
+        // `Row.url` is the canonical address (every axis at canonical, the row's
+        // own locale); §6f's locale prefix is applied by `select_path` when no
+        // template spends locale.
+        let coords: Vec<Coord> = row_axis
+            .iter()
+            .map(|ra| Coord {
+                axis: &ra.name,
+                value: cfg.axes[&ra.name].canonical().unwrap_or_default(),
+                canonical: true,
             })
-            .with_context(|| format!("routing {}", raw.path.display()))?
-        };
-        let (url, row_axis) = spend_axis(cfg, &url);
-        // §6f: a translation lands at the locale-prefixed twin of its
-        // original's URL.
-        let url = if locale != cfg.i18n.default {
-            format!("/{locale}{url}")
-        } else {
-            url
-        };
+            .chain(std::iter::once(Coord {
+                axis: "locale",
+                value: &locale,
+                canonical: locale == cfg.i18n.default,
+            }))
+            .collect();
+        let url = select_path(&route_templates, &coords)?;
+        drop(coords);
 
         rows.push(Row {
             axis: row_axis,
+            route_templates,
             width: None,
             height: None,
             // Assigned by `insert_rows`, which is where rows become the
@@ -571,30 +638,51 @@ fn build_tree_and_objects(
         let routing = apply_rules(rules, &logical_rel, f.has_front_matter);
         check_on_demand_cover(&logical_rel, &routing)?;
         let on_demand = routing.on_demand;
-        let (tmpl, rule_defaults) = (routing.template, routing.defaults);
+        let (tmpls, rule_defaults) = (routing.templates, routing.defaults);
         let marker_defaults = markers.defaults_for(&f.rel);
         let defaults = merged_defaults(&marker_defaults, rule_defaults);
-        let Some(tmpl) = tmpl else {
+        if tmpls.is_empty() {
             bail!("no rule supplies a route for {}", f.path.display());
-        };
-        let url = tidy(
-            template::render(tmpl, |k| {
-                path_tokens(&logical_rel, k)
-                    .or_else(|| cfg.axes.contains_key(k).then(|| format!("{{{k}}}")))
+        }
+        // Render each of the rule's route template(s): path tokens filled, axis
+        // and locale placeholders preserved for the materializer to spend per
+        // member. A single template is the ordinary case; a list is the
+        // default-axis case (§6f), where a canonical member drops its segment.
+        let route_templates: Vec<String> = tmpls
+            .iter()
+            .map(|t| {
+                template::render(t, |k| {
+                    path_tokens(&logical_rel, k).or_else(|| {
+                        let (_, bare) = template::classify(k);
+                        (cfg.axes.contains_key(bare)
+                            || (bare == "locale" && cfg.i18n.enabled()))
+                        .then(|| format!("{{{k}}}"))
+                    })
+                })
+                .map(tidy)
+                .with_context(|| format!("routing {}", f.path.display()))
             })
-                .with_context(|| format!("routing {}", f.path.display()))?,
-        );
-        // The locale prefix goes on BEFORE the axis is spent, so the axis
-        // template a member expands carries it: a French row on the theme axis
-        // composes into `/fr/{theme}/…` rather than losing its prefix when the
-        // product rebuilds each member's URL. Locale is the outer axis, the
-        // theme the inner, exactly as a view materializes them.
-        let url = if locale != cfg.i18n.default {
-            format!("/{locale}{url}")
-        } else {
-            url
-        };
-        let (url, row_axis) = spend_axis(cfg, &url);
+            .collect::<Result<_>>()?;
+        let row_axis = row_axes(cfg, &route_templates);
+        // `Row.url` is the CANONICAL address: every axis at its canonical value,
+        // the row's own locale. `select_path` drops a canonical segment where a
+        // shorter template allows, and applies the locale prefix when no template
+        // spends locale — the shape a config without `{axis:locale}` has always
+        // had.
+        let coords: Vec<Coord> = row_axis
+            .iter()
+            .map(|ra| Coord {
+                axis: &ra.name,
+                value: cfg.axes[&ra.name].canonical().unwrap_or_default(),
+                canonical: true,
+            })
+            .chain(std::iter::once(Coord {
+                axis: "locale",
+                value: &locale,
+                canonical: locale == cfg.i18n.default,
+            }))
+            .collect();
+        let url = select_path(&route_templates, &coords)?;
 
         if is_object {
             // An object is a row that was never rendered. Everything else it
@@ -665,6 +753,7 @@ fn build_tree_and_objects(
                 .unwrap_or_default();
             pages.push(Row {
                 axis: row_axis.clone(),
+                route_templates,
                 width: None,
                 height: None,
                 key: Default::default(),
@@ -864,77 +953,82 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // §4 on-demand: the row knows its URL, but nothing publishes it until
     // something references it. `materialize_referenced` (build.rs) emits
     // these after the render pass, once the references exist.
-    let new_routes: Vec<Route> = db
-        .rows
-        .iter()
-        // q45: a claimed row has no route of its own — the owning view
-        // materializes the landing. §4: an on-demand row has none YET — a
-        // reference materializes it after the render pass.
-        .filter(|p| !p.claimed && !p.on_demand)
-        .flat_map(|p| {
-            // Route kind is a question about the row's PROPERTIES, not about
-            // which vector it arrived in.
-            let kind = if posts.contains(&p.key) {
-                RouteKind::Post
-            } else if objects.contains(&p.key) {
-                RouteKind::Object
-            } else if p.rendered {
-                RouteKind::Page
-            } else {
-                RouteKind::Static
-            };
-            let one = |url: String, axis: Vec<AxisMember>| Route {
-                row: Some(p.key.clone()),
-                axis,
-                source: Some(p.path.clone()),
-                locale: route_locale(&p.locale),
-                fields: p.fields.clone(),
-                ..Route::new(url, kind)
-            };
-            // The row's own rule decided this (q53 step 2): a route template
-            // that spends `{theme}` opted its rows in. Only a RENDERED row
-            // multiplies — an axis publishes alternative forms of a document,
-            // and a static file or an image has one form, the bytes.
-            let axes: &[grackle_model::RowAxis] = if p.rendered { &p.axis } else { &[] };
-            if axes.is_empty() {
-                vec![one(p.url.clone(), Vec::new())]
-            } else {
-                // The cartesian product of the axes' values: one route per
-                // member-tuple, each substituting every axis placeholder in the
-                // shared template. A single axis is the degenerate product of one.
-                let template = axes[0].template.clone();
-                let mut tuples: Vec<Vec<AxisMember>> = vec![Vec::new()];
-                for ra in axes {
-                    let axis = &cfg.axes[&ra.name];
-                    tuples = tuples
-                        .into_iter()
-                        .flat_map(|t| {
-                            axis.values.iter().map(move |value| {
-                                let mut t2 = t.clone();
-                                t2.push(AxisMember {
-                                    axis: ra.name.clone(),
-                                    value: value.clone(),
-                                    field: axis.field.clone(),
-                                    canonical: axis.canonical() == Some(value.as_str()),
-                                });
-                                t2
-                            })
-                        })
-                        .collect();
-                }
-                tuples
-                    .into_iter()
-                    .map(|tuple| {
-                        let mut url = template.clone();
-                        for m in &tuple {
-                            url = url.replace(&format!("{{{}}}", m.axis), &m.value);
-                        }
-                        one(url, tuple)
+    let mut new_routes: Vec<Route> = Vec::new();
+    // q45: a claimed row has no route of its own — the owning view materializes
+    // the landing. §4: an on-demand row has none YET — a reference materializes
+    // it after the render pass.
+    for p in db.rows.iter().filter(|p| !p.claimed && !p.on_demand) {
+        // Route kind is a question about the row's PROPERTIES, not about which
+        // vector it arrived in.
+        let kind = if posts.contains(&p.key) {
+            RouteKind::Post
+        } else if objects.contains(&p.key) {
+            RouteKind::Object
+        } else if p.rendered {
+            RouteKind::Page
+        } else {
+            RouteKind::Static
+        };
+        let one = |url: String, axis: Vec<AxisMember>| Route {
+            row: Some(p.key.clone()),
+            axis,
+            source: Some(p.path.clone()),
+            locale: route_locale(&p.locale),
+            fields: p.fields.clone(),
+            ..Route::new(url, kind)
+        };
+        // The row's own rule decided this (q53 step 2): a route template that
+        // spends `{theme}` opted its rows in. Only a RENDERED row multiplies —
+        // an axis publishes alternative forms of a document, and a static file
+        // or an image has one form, the bytes.
+        let axes: &[grackle_model::RowAxis] = if p.rendered { &p.axis } else { &[] };
+        if axes.is_empty() {
+            new_routes.push(one(p.url.clone(), Vec::new()));
+            continue;
+        }
+        // The cartesian product of the axes' values: one route per member-tuple.
+        // A single axis is the degenerate product of one. Each tuple picks its
+        // template (locale a coordinate beside the theme members) so a canonical
+        // member drops its segment where a shorter template allows.
+        let mut tuples: Vec<Vec<AxisMember>> = vec![Vec::new()];
+        for ra in axes {
+            let axis = &cfg.axes[&ra.name];
+            tuples = tuples
+                .into_iter()
+                .flat_map(|t| {
+                    axis.values.iter().map(move |value| {
+                        let mut t2 = t.clone();
+                        t2.push(AxisMember {
+                            axis: ra.name.clone(),
+                            value: value.clone(),
+                            field: axis.field.clone(),
+                            canonical: axis.canonical() == Some(value.as_str()),
+                        });
+                        t2
                     })
-                    .collect()
-            }
-        })
-        .collect();
+                })
+                .collect();
+        }
+        for tuple in tuples {
+            let url = {
+                let coords: Vec<Coord> = tuple
+                    .iter()
+                    .map(|m| Coord {
+                        axis: &m.axis,
+                        value: &m.value,
+                        canonical: m.canonical,
+                    })
+                    .chain(std::iter::once(Coord {
+                        axis: "locale",
+                        value: &p.locale,
+                        canonical: p.locale == cfg.i18n.default,
+                    }))
+                    .collect();
+                select_path(&p.route_templates, &coords)?
+            };
+            new_routes.push(one(url, tuple));
+        }
+    }
     db.routes.extend(new_routes);
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;

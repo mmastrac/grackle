@@ -207,16 +207,6 @@ fn locales_for<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
     }
 }
 
-/// A route template in one locale. The default locale sits ABOVE the
-/// selector, so it wears no prefix.
-fn prefixed(cfg: &Config, locale: &str, tmpl: &str) -> String {
-    if locale == cfg.i18n.default {
-        tmpl.to_string()
-    } else {
-        format!("/{locale}{tmpl}")
-    }
-}
-
 /// What a route in one locale records as its own. `None` for the default,
 /// which is what `Route.locale` means (§6f) and what filters see as Null.
 fn stamp(cfg: &Config, locale: &str) -> Option<String> {
@@ -593,28 +583,21 @@ fn build_view(
     if tmpls.is_empty() {
         bail!("view {name} needs a route");
     }
-    // Spend every axis segment before anything else reads the templates, so the
-    // grouped, paginated and single-route branches below are unchanged: by the
-    // time they see a template it is this member-tuple's. One axis is a product
-    // of one.
-    let tmpls: Vec<String> = tmpls
-        .iter()
-        .map(|t| {
-            let mut t = t.clone();
-            for m in &axis_members {
-                t = t.replace(&format!("{{{}}}", m.axis), &m.value);
-            }
-            t
-        })
-        .collect();
-    // Page 2 would otherwise reuse page 1's URL — a route collision reported
-    // against two identical templates, which reads as a mystery. Every
-    // paginated view in the corpus already declares both.
-    if v.paginate.is_some() && tmpls.len() < 2 {
+    // The route templates split by pagination: those WITHOUT `{n}` are page-1 /
+    // default-variant candidates, those WITH it paginate. Axis and locale are no
+    // longer spent up front — each cell selects among the candidates by which
+    // non-canonical axes it must show (§6f, the default-axis case), so a member
+    // at its canonical value can drop its segment to a shorter template.
+    let page1: Vec<&String> = tmpls.iter().filter(|t| !t.contains("{n}")).collect();
+    let paged: Vec<&String> = tmpls.iter().filter(|t| t.contains("{n}")).collect();
+    if v.paginate.is_some() && paged.is_empty() {
         bail!(
-            "view {name} paginates but declares one path, so page 2 would reuse \
-             page 1's URL. Give it two: `paths = [\"/x/\", \"/x/page/{{n}}/\"]`."
+            "view {name} paginates but no path spends {{n}}, so page 2 would reuse \
+             page 1's URL. Give it one: `paths = [\"/x/\", \"/x/page/{{n}}/\"]`."
         );
+    }
+    if page1.is_empty() {
+        bail!("view {name} needs a path with no {{n}} for page one");
     }
 
     // ONE materialization, over the product of the view's dimensions.
@@ -647,7 +630,6 @@ fn build_view(
 
     for locale in &locales {
         let row_ix = rows_for(locale);
-        let localized: Vec<String> = tmpls.iter().map(|t| prefixed(cfg, locale, t)).collect();
         let cells = if chain.is_empty() {
             // No rows in this locale = no page (the partition is real, §6f).
             // A GROUPED view needs no such rule: a group with no rows is a
@@ -669,16 +651,20 @@ fn build_view(
         };
 
         for cell in cells {
-            let url = |tmpl: &str, n: Option<usize>| -> Result<String> {
+            // Render a candidate: group params and `{n}` filled, axis and locale
+            // placeholders PRESERVED for `select_path` to spend per member.
+            let render = |tmpl: &str, n: Option<usize>| -> Result<String> {
                 template::render(tmpl, |tok| {
-                    // `{n}` is the page number; every other bare or `group:`
-                    // token names a group param (the two spellings are one
-                    // thing). An `axis:` token is spent into the template
-                    // before this closure runs (see `tmpls` above), so it never
-                    // reaches here.
                     let (ns, k) = template::classify(tok);
                     match ns {
                         None if k == "n" => n.map(|n| n.to_string()),
+                        // Preserve an axis or locale token — it is spent by the
+                        // selection below, not filled from group params here.
+                        Some("axis") => Some(format!("{{{tok}}}")),
+                        None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
+                        None if k == "locale" && cfg.i18n.enabled() => {
+                            Some("{locale}".to_string())
+                        }
                         None | Some("group") => {
                             template::param(&cell.params, k).map(|val| route_value(k, &val))
                         }
@@ -686,10 +672,36 @@ fn build_view(
                     }
                 })
             };
+            // This cell's coordinates: the axis member-tuple, plus the row set's
+            // locale. `select_path` picks the shortest template covering the
+            // non-canonical ones and applies the locale prefix when no template
+            // spends it (the shape a view without `{axis:locale}` always had).
+            let coords: Vec<crate::load::Coord> = axis_members
+                .iter()
+                .map(|m| crate::load::Coord {
+                    axis: &m.axis,
+                    value: &m.value,
+                    canonical: m.canonical,
+                })
+                .chain(std::iter::once(crate::load::Coord {
+                    axis: "locale",
+                    value: locale,
+                    canonical: *locale == cfg.i18n.default,
+                }))
+                .collect();
+            let pick = |cands: &[&String], n: Option<usize>| -> Result<String> {
+                let rendered: Vec<String> =
+                    cands.iter().map(|t| render(t, n)).collect::<Result<_>>()?;
+                crate::load::select_path(&rendered, &coords)
+            };
             match v.paginate.map(|p| p.max(1)) {
                 Some(per) => {
                     for n in 1..=cell.rows.len().div_ceil(per).max(1) {
-                        let tmpl = if n == 1 { &localized[0] } else { &localized[1] };
+                        let url = if n == 1 {
+                            pick(&page1, None)?
+                        } else {
+                            pick(&paged, Some(n))?
+                        };
                         let page: Vec<grackle_db::Key> = cell
                             .rows
                             .iter()
@@ -710,7 +722,7 @@ fn build_view(
                             params: cell.params.clone(),
                             members: page,
                             locale: stamp(cfg, locale),
-                            ..Route::new(url(tmpl, Some(n))?, RouteKind::View)
+                            ..Route::new(url, RouteKind::View)
                         });
                     }
                 }
@@ -737,7 +749,7 @@ fn build_view(
                         params: cell.params.clone(),
                         members,
                         locale: stamp(cfg, locale),
-                        ..Route::new(url(&localized[0], None)?, RouteKind::View)
+                        ..Route::new(pick(&page1, None)?, RouteKind::View)
                     });
                 }
             }

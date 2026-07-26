@@ -125,10 +125,16 @@ pub struct Row {
     /// q53: the axes this row's route rule spends. Empty for a row published
     /// once; more than one when the route template names more than one axis
     /// placeholder, which is what makes two axes over one row a cartesian
-    /// product of routes rather than a collision. Every entry carries the same
-    /// full template (the one naming every axis); the names drive the product.
+    /// product of routes rather than a collision. The names drive the product.
     #[serde(skip)]
     pub axis: Vec<RowAxis>,
+    /// The rule's route template(s), rendered (path/group tokens filled, axis and
+    /// locale placeholders preserved), locale prefix NOT applied. One in the
+    /// ordinary case; a list for the default-axis case (§6f), where a member at
+    /// its canonical value drops its segment by falling to a shorter template.
+    /// The materializer selects among these per member-tuple.
+    #[serde(skip)]
+    pub route_templates: Vec<String>,
 }
 
 impl Keyed for Route {

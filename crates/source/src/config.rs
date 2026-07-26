@@ -726,7 +726,14 @@ pub struct RelationCfg {
 pub struct Rule {
     #[serde(rename = "match")]
     pub pattern: String,
-    pub route: Option<String>,
+    /// Where a matching row lands. One template, or a LIST for the default-axis
+    /// case (§6f): `["/{theme}/{axis:locale}/", "/{theme}/", "/"]` lets a member
+    /// at its canonical value drop its segment by falling to a shorter template.
+    /// The engine picks the shortest template that still spends every
+    /// non-canonical axis. One template is the ordinary case and behaves exactly
+    /// as before.
+    #[serde(default, deserialize_with = "one_or_many_string")]
+    pub route: Vec<String>,
     /// Gate the rule on front-matter presence. This is what separates a Jekyll
     /// *page* (rendered, pretty URL) from a static file (copied verbatim).
     pub front_matter: Option<bool>,
@@ -2227,7 +2234,7 @@ mod tests {
         )
         .unwrap();
         let rules = &c.collections["posts"].rules;
-        assert_eq!(rules[0].route.as_deref(), Some("/writing/{slug}/"));
+        assert_eq!(rules[0].route, vec!["/writing/{slug}/"]);
         assert_eq!(
             rules.len(),
             2,

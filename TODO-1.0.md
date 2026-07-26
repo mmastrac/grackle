@@ -177,11 +177,15 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       `index.fr.md`, and a member with no file simply skips). Locale is
       selectable (`?locale=fr`, with the `.fr` suffix as the implicit value and
       `index.fr.md?locale=en` overriding it) and COMPOSES with another axis —
-      `/fr/{look}/note/` is locale × look, locale the outer (prefix) axis, each
-      cell rendered in its locale's chrome (fixtures `locale-links`,
-      `locale-links-missing`, `locale-axis`). Remaining refinement, not blocking:
-      **explicit `{axis:locale}` positioning** — locale is always the outer
-      prefix; a route cannot yet place the locale segment elsewhere. (q53)
+      `/fr/{look}/note/` is locale × look, each cell rendered in its locale's
+      chrome (fixtures `locale-links`, `locale-links-missing`, `locale-axis`).
+      **`{axis:locale}` is a positionable spent token** and **rules/views take a
+      path LIST** for the default-axis case (2026-07): `route =
+      ["/{theme}/{axis:locale}/", "/{theme}/", "/"]` picks the shortest template
+      spending every non-canonical axis, so a canonical member drops its segment
+      (`/` for the all-canonical member) and locale sits wherever the template
+      places it, falling back to the outer prefix when no template spends it.
+      Fixtures `default-axis` (rules), `default-axis-view` (views). (q53) (§6f)
 - [x] **A view may be materialized across an axis** — done (q53 step 1).
       `[routes.x] axis = "theme"` with a `{theme}` segment in the path; an
       unspent axis is a load error. A landing on an axis claims one row (the

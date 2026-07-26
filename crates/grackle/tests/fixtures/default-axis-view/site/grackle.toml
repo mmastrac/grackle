@@ -1,0 +1,30 @@
+# The default-axis case on a VIEW: a listing materialized across the `look` axis
+# with a path list. The canonical member (plain) drops its segment via the
+# shorter template, so the listing lands at `/all/`; the alternate at `/fancy/all/`.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Default axis view"
+author = "Tester"
+
+[axes.look]
+values = ["plain", "fancy"]
+field = "look"
+
+[[collections]]
+name = "posts"
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{slug}/"
+
+[routes.hub]
+from = "posts"
+layout = "listing"
+axis = "look"
+paths = ["/{look}/all/", "/all/"]
+title = "All"

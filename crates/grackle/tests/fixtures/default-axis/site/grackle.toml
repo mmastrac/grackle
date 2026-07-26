@@ -1,0 +1,38 @@
+# The default-axis case (§6f): a LIST of route templates, one per default-ness
+# combination. The engine picks the shortest template that still spends every
+# NON-canonical axis, so a member at its canonical value drops its segment.
+#
+#   look=plain (canonical), locale=en (default)  -> /            (spends nothing)
+#   look=fancy,             locale=en            -> /fancy/      (spends look)
+#   look=plain,             locale=fr            -> /plain/fr/   (only the full
+#                                                    template covers locale)
+#   look=fancy,             locale=fr            -> /fancy/fr/   (spends both)
+#
+# `{axis:locale}` is a positionable spent token here, not a forced prefix.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Default axis"
+author = "Tester"
+
+[i18n]
+default = "en"
+locales = ["fr"]
+
+[axes.look]
+values = ["plain", "fancy"]
+field = "look"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "note.md"
+  front_matter = true
+  route = ["/{look}/{axis:locale}/", "/{look}/", "/"]
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
