@@ -893,6 +893,15 @@ pub struct View {
     /// kind's base fragment. How `/books/` gets cards while `/blog/`
     /// stays textual, both being listings.
     pub variant: Option<String>,
+    /// An axis this route is materialized across (q53): one declaration, one
+    /// route per member, each rendering through that member's field.
+    ///
+    /// The route's path allocates the URL space with `{<axis name>}` — the
+    /// route decides where the segment goes, because that is where every other
+    /// part of the URL is already decided. A view route could not be
+    /// axis-multiplied before, which is why a gallery of six themes needed six
+    /// copies of every landing.
+    pub axis: Option<String>,
     /// Which theme dresses this view, `name[:tokens]` like a row's (§5a).
     ///
     /// A listing otherwise takes the theme its member rows agree on, which

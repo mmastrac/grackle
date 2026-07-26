@@ -164,190 +164,43 @@ order_by = "-date"
 
 # ----------------------------------------------------------------- routes
 #
-# The landings are the one thing an axis cannot multiply: a landing CLAIMS a
-# content row, and a row serves one landing (the engine says so at load). So
-# these stay one per theme, each naming its own `theme` — a view-declared
-# theme, which is the half of this that needed no axis. Their claimed rows are
-# the only per-theme files left in the tree.
+# THREE landing declarations, where there were eighteen. Each is materialized
+# across the theme axis, and the path spends it with a `{theme}` segment — the
+# route decides where the axis lands, because that is where the rest of the URL
+# is decided too.
+#
+# A landing CLAIMS a content row, and a row serves one landing — but that is
+# keyed on the VIEW, so one view materialized six times claims one row. The six
+# copies of each landing's prose are gone with the six declarations.
 
-[routes.vanilla_notes]
-paths = ["/notes/", "/notes/page/{n}/"]
+[routes.notes_index]
+paths = ["/{theme}/notes/", "/{theme}/notes/page/{n}/"]
 from = "notes_published"
 paginate = 2
 layout = "listing"
-theme = "vanilla"
-content = "vanilla/notes/index.md"
+axis = "theme"
+content = "notes/index.md"
 title = "Notes"
 
-[routes.vanilla_shelf]
-path = "/shelf/"
+[routes.shelf_index]
+path = "/{theme}/shelf/"
 from = "shelf"
 layout = "listing"
 variant = "cards"
 featured = true
-theme = "vanilla"
-content = "vanilla/shelf/index.md"
+axis = "theme"
+content = "shelf/index.md"
 title = "Shelf"
 
-[routes.vanilla_wall]
-path = "/wall/"
+[routes.wall_index]
+path = "/{theme}/wall/"
 from = "objects"
 match = "wall/**"
 order_by = "name"
 layout = "listing"
 variant = "gallery"
-theme = "vanilla"
-content = "vanilla/wall/index.md"
-title = "Wall"
-
-[routes.ledger_notes]
-paths = ["/ledger/notes/", "/ledger/notes/page/{n}/"]
-from = "notes_published"
-paginate = 2
-layout = "listing"
-theme = "ledger"
-content = "ledger/notes/index.md"
-title = "Notes"
-
-[routes.ledger_shelf]
-path = "/ledger/shelf/"
-from = "shelf"
-layout = "listing"
-variant = "cards"
-featured = true
-theme = "ledger"
-content = "ledger/shelf/index.md"
-title = "Shelf"
-
-[routes.ledger_wall]
-path = "/ledger/wall/"
-from = "objects"
-match = "wall/**"
-order_by = "name"
-layout = "listing"
-variant = "gallery"
-theme = "ledger"
-content = "ledger/wall/index.md"
-title = "Wall"
-
-[routes.marginalia_notes]
-paths = ["/marginalia/notes/", "/marginalia/notes/page/{n}/"]
-from = "notes_published"
-paginate = 2
-layout = "listing"
-theme = "marginalia"
-content = "marginalia/notes/index.md"
-title = "Notes"
-
-[routes.marginalia_shelf]
-path = "/marginalia/shelf/"
-from = "shelf"
-layout = "listing"
-variant = "cards"
-featured = true
-theme = "marginalia"
-content = "marginalia/shelf/index.md"
-title = "Shelf"
-
-[routes.marginalia_wall]
-path = "/marginalia/wall/"
-from = "objects"
-match = "wall/**"
-order_by = "name"
-layout = "listing"
-variant = "gallery"
-theme = "marginalia"
-content = "marginalia/wall/index.md"
-title = "Wall"
-
-[routes.terminal_notes]
-paths = ["/terminal/notes/", "/terminal/notes/page/{n}/"]
-from = "notes_published"
-paginate = 2
-layout = "listing"
-theme = "terminal"
-content = "terminal/notes/index.md"
-title = "Notes"
-
-[routes.terminal_shelf]
-path = "/terminal/shelf/"
-from = "shelf"
-layout = "listing"
-variant = "cards"
-featured = true
-theme = "terminal"
-content = "terminal/shelf/index.md"
-title = "Shelf"
-
-[routes.terminal_wall]
-path = "/terminal/wall/"
-from = "objects"
-match = "wall/**"
-order_by = "name"
-layout = "listing"
-variant = "gallery"
-theme = "terminal"
-content = "terminal/wall/index.md"
-title = "Wall"
-
-[routes.atlas_notes]
-paths = ["/atlas/notes/", "/atlas/notes/page/{n}/"]
-from = "notes_published"
-paginate = 2
-layout = "listing"
-theme = "atlas"
-content = "atlas/notes/index.md"
-title = "Notes"
-
-[routes.atlas_shelf]
-path = "/atlas/shelf/"
-from = "shelf"
-layout = "listing"
-variant = "cards"
-featured = true
-theme = "atlas"
-content = "atlas/shelf/index.md"
-title = "Shelf"
-
-[routes.atlas_wall]
-path = "/atlas/wall/"
-from = "objects"
-match = "wall/**"
-order_by = "name"
-layout = "listing"
-variant = "gallery"
-theme = "atlas"
-content = "atlas/wall/index.md"
-title = "Wall"
-
-[routes.miroir_notes]
-paths = ["/miroir/notes/", "/miroir/notes/page/{n}/"]
-from = "notes_published"
-paginate = 2
-layout = "listing"
-theme = "miroir"
-content = "miroir/notes/index.md"
-title = "Notes"
-
-[routes.miroir_shelf]
-path = "/miroir/shelf/"
-from = "shelf"
-layout = "listing"
-variant = "cards"
-featured = true
-theme = "miroir"
-content = "miroir/shelf/index.md"
-title = "Shelf"
-
-[routes.miroir_wall]
-path = "/miroir/wall/"
-from = "objects"
-match = "wall/**"
-order_by = "name"
-layout = "listing"
-variant = "gallery"
-theme = "miroir"
-content = "miroir/wall/index.md"
+axis = "theme"
+content = "wall/index.md"
 title = "Wall"
 
 [routes.search]

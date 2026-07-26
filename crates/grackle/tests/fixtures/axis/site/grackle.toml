@@ -23,6 +23,10 @@ url = "https://example.com"
 title = "Axes"
 author = "Tester"
 
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+
 [[collections]]
 kind = "tree"
 source = "."
@@ -55,6 +59,18 @@ match = "tiers.md"
 
 # `*` views see canonical members only — the alternates are absent from this
 # by construction, not by a filter anyone wrote.
+# A VIEW materialized across an axis (q53 step 1): one declaration, one route
+# per member, and the path spends the axis with a `{theme}` segment — the route
+# decides where the axis lands, because that is where the rest of the URL is
+# decided. Before this a gallery of N themes needed N copies of every landing.
+[routes.looks]
+path = "/{theme}/all/"
+from = "entries"
+where = "!draft && !hidden"
+layout = "listing"
+axis = "theme"
+title = "All"
+
 [routes.sitemap]
 path = "/sitemap.xml"
 from = "*"

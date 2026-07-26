@@ -273,6 +273,15 @@ fn view_link(
     source: &str,
     rest: &str,
 ) -> Result<String> {
+    // q53: `view:name?axis=value` picks a member, the same spelling a row link
+    // uses — a view materialized across an axis lands at several URLs, and
+    // naming one of them should not need a second syntax. The group-key form
+    // (`view:name/key`) stays what it is; they compose, an axis segment and a
+    // group segment being different parts of the path.
+    let (rest, sel) = match rest.split_once('?') {
+        Some((r, q)) => (r, q.split_once('=')),
+        None => (rest, None),
+    };
     let mut parts = rest.split('/').filter(|s| !s.is_empty());
     let name = parts.next().unwrap_or_default();
     let keys: Vec<&str> = parts.collect();
@@ -283,6 +292,43 @@ fn view_link(
             "{source}: view:{name} names no view (views: {})",
             known.join(", ")
         );
+    };
+    // The member substitutes into the template before the group keys do, so
+    // the two halves of a `/{theme}/{key}/` path are filled by the two things
+    // that own them.
+    let axis_sub: Option<(String, String)> = match sel {
+        Some((k, val)) => {
+            let Some(axis) = cfg.axes.get(k) else {
+                let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
+                bail!(
+                    "{source}: view:{name}?{k}= names no axis\n  declared axes: {}",
+                    if known.is_empty() { "(none)".into() } else { known.join(", ") }
+                );
+            };
+            if v.axis.as_deref() != Some(k) {
+                bail!("{source}: view:{name}?{k}= — {name} is not materialized across {k:?}");
+            }
+            if !axis.values.iter().any(|x| x == val) {
+                bail!(
+                    "{source}: view:{name}?{k}={val} names no member of that axis\n  members: {}",
+                    axis.values.join(", ")
+                );
+            }
+            Some((format!("{{{k}}}"), val.to_string()))
+        }
+        None => {
+            if let Some(a) = v.axis.as_deref() {
+                bail!(
+                    "{source}: view:{name} is materialized across the {a:?} axis, so it \
+                     lands at several URLs — name one with view:{name}?{a}=<value>"
+                );
+            }
+            None
+        }
+    };
+    let sub = |t: &str| match &axis_sub {
+        Some((ph, val)) => t.replace(ph.as_str(), val),
+        None => t.to_string(),
     };
     let chain = cfg.group_specs(name);
     let url = if !chain.is_empty() {
@@ -307,18 +353,17 @@ fn view_link(
             params.push((field.to_string(), value.clone()));
             params.push(("key".to_string(), value));
         }
-        crate::template::render(tmpl, |k| crate::template::param(&params, k))?
+        crate::template::render(&sub(tmpl), |k| crate::template::param(&params, k))?
     } else {
         if !keys.is_empty() {
             bail!("{source}: view:{rest} — {name} is not grouped; drop the key");
         }
-        v.route
+        sub(v.route
             .as_deref()
             .or_else(|| v.routes.first().map(String::as_str))
             .ok_or_else(|| {
                 anyhow::anyhow!("{source}: view {name} has no route (is it embed-only?)")
-            })?
-            .to_string()
+            })?)
     };
     // Locale-parallel views (§6f): a translated row links into its own
     // locale's archive when that variant materialized.

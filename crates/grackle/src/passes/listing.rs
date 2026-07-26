@@ -82,7 +82,12 @@ impl Pass for Listing {
         // under several themes: six routes over one query, each naming its own,
         // where before the only way to vary a listing's theme was to vary the
         // rows underneath it.
-        let (theme_name, subtheme) = match v.theme.as_deref() {
+        // q53 first: a route materialized across an axis wears its member's
+        // field, and that is nearer than anything the view or the rows say —
+        // the member IS this route's reason for existing.
+        let (theme_name, subtheme) = match crate::build::axis_field(r, "theme")
+            .or(v.theme.as_deref())
+        {
             Some(spec) => ctx.themes.resolve(Some(spec)),
             None => match ctx.unanimous_theme(r) {
                 Some(n) => (Some(n), None),

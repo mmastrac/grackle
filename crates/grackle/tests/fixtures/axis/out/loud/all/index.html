@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-kind="shell">
+<head>
+	<title>All</title>
+	<link rel="canonical" href="https://example.com/loud/all/">
+	<meta charset="utf-8">
+	<link href='/css/loud.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<header data-frame>
+	<a href="/" data-slot="site_title">Axes</a>
+	
+</header>
+<main data-frame data-slot="main"><section data-kind="listing">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">All</a></span>
+</nav>
+	<h1 data-slot="title">All</h1>
+	
+	<div data-slot="items"><article data-kind="summary">
+	<h2><a href="/look/" data-slot="title">Look</a></h2>
+	<p> </p>
+	
+	<div data-slot="content"><h1 id="heading">Heading<a href="#heading" aria-label="Link to heading 'Heading'" data-heading-content="Heading" class="anchor"></a></h1>
+<p>An axis member is named with a <code class="language-text highlighter-rouge">?axis=value</code> selector, which is the only way
+to link one: a link resolves to a ROW, and a row answers with its canonical
+URL. The selector reads as a query string and resolves to a PATH, because a
+member’s address is derived like every other URL here.</p>
+<ul>
+<li><a href="/look/">this page, canonical</a></li>
+<li><a href="/loud/look/">this page, loud</a></li>
+<li><a href="/tiers/light.html">the other page’s light tier</a></li>
+</ul>
+<p>A value the axis does not declare is a load error naming the ones it does, and
+a selector naming an axis that does not cover the row is an error too. Any
+other query string — <code class="language-text highlighter-rouge">?utm=x</code> — stays the literal suffix it always was.</p>
+</div>
+</article>
+<article data-kind="summary">
+	<h2><a href="/tiers/" data-slot="title">Tiers</a></h2>
+	<p> </p>
+	
+	<div data-slot="content"><h1 id="heading">Heading<a href="#heading" aria-label="Link to heading 'Heading'" data-heading-content="Heading" class="anchor"></a></h1>
+<p>body</p>
+</div>
+</article>
+</div>
+	
+</section>
+</main>
+<footer data-frame>
+	
+</footer>
+</body>
+</html>

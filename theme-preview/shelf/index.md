@@ -7,4 +7,4 @@ The card face. Only the themes that ship a `summary--card`
 fragment draw jackets here; the rest fall back to their plain
 `listing`, which is what partiality looks like in public.
 
-{% view vanilla_shelf %}
+{% view shelf_index %}

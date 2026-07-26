@@ -487,7 +487,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         // which is nearer and explicit. Same order the listing pass uses, and
         // it is what lets several routes over one query wear several looks
         // without several copies of the rows underneath them.
-        let (theme_name, subtheme) = match v.theme.as_deref() {
+        // q53 first, then the view's own, then the claimed row's (§5h).
+        let (theme_name, subtheme) = match axis_field(r, "theme").or(v.theme.as_deref()) {
             Some(spec) => themes.resolve(Some(spec)),
             None => themes.resolve(row.theme.as_deref()),
         };
@@ -1969,7 +1970,7 @@ pub(crate) fn fill_link_resolver<'a>(
 /// is not a member of an axis about that field. The value beats the row's own:
 /// the member IS the alternative form, and a row that named a theme named it
 /// for its canonical self.
-fn axis_field<'a>(r: &'a Route, field: &str) -> Option<&'a str> {
+pub(crate) fn axis_field<'a>(r: &'a Route, field: &str) -> Option<&'a str> {
     r.axis
         .as_ref()
         .filter(|a| a.field == field)

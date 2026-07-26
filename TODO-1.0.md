@@ -165,10 +165,21 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       something; and **axis members emit no `rel="alternate"`** because
       `Head.alternates` is hreflang-shaped (same item as variable-length head
       entries). (q53)
-- [ ] **Collapse `theme-preview`'s six content trees** — now unblocked by the
-      axis, and still wants per-group `content` below for the landings. Worth
-      doing only after `?theme=`: a dev override may retire the harness's shape
-      entirely, and the axis is justified by the md twin regardless. (q53)
+- [x] **A view may be materialized across an axis** — done (q53 step 1).
+      `[routes.x] axis = "theme"` with a `{theme}` segment in the path; an
+      unspent axis is a load error. A landing on an axis claims one row (the
+      constraint is per-view), which retired per-group `content` before it was
+      built. `view:name?axis=value` links a member.
+- [ ] **Axis URL shape in the collection rule** (q53 step 2) — `route =
+      "/{theme}/notes/{slug}/"`, retiring `[axes.*] url` and canonical-bare.
+      Today a view route prefixes every member while a ROW route leaves the
+      canonical bare, so the gallery's landings are all under `/{theme}/` while
+      its posts have vanilla at the root. That asymmetry is the argument for
+      step 2. (q53)
+- [ ] **Unify the materializer into a product over dimensions** (q53 step 3) —
+      axis × locale × group × page is a cartesian product written as three
+      nested branches. Only worth it if step 2 does not already do it. (q53)
+
 - [ ] **Per-group `content`** — the blocker the composition work actually hit.
       `theme-preview`'s route families each claim a per-theme landing row
       (`content = "vanilla/notes/index.md"`), so grouping can mint the six URLs
