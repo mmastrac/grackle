@@ -150,6 +150,30 @@ pub fn resolve(
     let cut = href.find(['#', '?']).unwrap_or(href.len());
     let (path_part, suffix) = href.split_at(cut);
 
+    // An axis selector (q53): `page.md?theme=ledger` links to a specific
+    // MEMBER. Without it an axis member is unreachable from prose — a link
+    // names a row and a row answers with its canonical URL, so "the ledger
+    // rendering of this page" had no spelling. It reads as a query string and
+    // resolves to a PATH, which is the point: the member's address is derived,
+    // exactly like every other URL here.
+    //
+    // Only a DECLARED axis name is read this way. Any other `?k=v` stays the
+    // literal suffix it has always been, so this cannot change what an existing
+    // link means.
+    let axis_sel: Option<(&crate::config::Axis, &str)> = suffix
+        .strip_prefix('?')
+        .and_then(|q| q.split_once('='))
+        .and_then(|(k, v)| cfg.axes.get(k).map(|a| (a, v)));
+    if let Some((axis, value)) = axis_sel {
+        if !axis.values.iter().any(|x| x == value) {
+            bail!(
+                "{source}: link {href:?} names no member of that axis\n  \
+                 members: {}",
+                axis.values.join(", ")
+            );
+        }
+    }
+
     // Source-path resolution: relative to the linking file, then
     // root-relative. A hit that is ALSO a route URL (passthrough files)
     // resolves to the identical string, so trying sources first is safe.
@@ -189,6 +213,20 @@ pub fn resolve(
                 if browser == *url {
                     return Ok(None); // the browser already gets it right
                 }
+            }
+            // q53: the selector picks a member of the row's axis. Checked
+            // against the route set, so a selector on a row the axis does not
+            // cover is a load error rather than a link to nothing — the same
+            // standard every other link here is held to.
+            if let Some((axis, value)) = axis_sel {
+                let member = axis.url_for(value, url);
+                if !space.routes.contains(&member) {
+                    bail!(
+                        "{source}: link {href:?} selects an axis member that does not \
+                         exist — {url:?} is not on that axis (its `match` does not cover it)"
+                    );
+                }
+                return Ok(Some(member));
             }
             // §6f, same invariant as view links: a translated row's source
             // link lands in its own locale's variant when that variant

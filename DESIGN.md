@@ -2357,6 +2357,8 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     **How a field takes effect.** An axis sets a named row field, and whether that field *does* anything is the render path's business — `theme` and `shell` are wired (three resolution sites between them), and a field no path consults multiplies URLs without changing bytes. That is a real footgun: it should be a load error naming the fields that mean something, and it is not yet.
 
+    **Linking to a member: `path.md?axis=value`** *(built 2026-07-25)*. A link resolves to a ROW and a row answers with its canonical URL, so a member had no spelling and the merged gallery could not name one — the first build of it failed on exactly that. The selector reads as a query string and resolves to a PATH, which is the point: a member's address is derived like every other URL here. Held to the same standard as every other link — an undeclared value is a load error naming the members, and a selector on a row the axis does not cover is one too. Only a *declared* axis name is read this way, so `?utm=x` stays the literal suffix it always was.
+
     **Also honest edges**: no `rel="alternate"` for axis members (`Head.alternates` is hreflang-shaped, which is the "variable-length head entries" item), and the `light` tier's minimal head carries no canonical at all, so an alternate at that tier advertises nothing.
 
     Two costs paid earlier stand: `hreflang` and `rel="alternate"` are emitted for the locale axis (`Head.alternates`), and `data-axis` was renamed `data-relation` for relations, with `data-axis` kept for translations.

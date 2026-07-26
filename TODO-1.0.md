@@ -153,6 +153,11 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       canonicalizes to the document; `*` views see canonical members only.
       `field = "theme"` and `field = "shell"` are both wired — the second is
       q44's md twin, which is the multiplicativeness the idea was claiming. (q53)
+- [x] **Link to an axis member** — done: `page.md?theme=ledger`. A link resolves
+      to a row and a row answers with its canonical URL, so a member had no
+      spelling; the merged gallery's first build failed on exactly that. Same
+      strictness as every other link — undeclared value and not-on-that-axis are
+      both load errors, and a non-axis `?k=v` is still a literal suffix. (q53)
 - [ ] **Axis edges, named in q53** — three, none blocking: **two axes over one
       row collide** rather than composing (the cartesian product `/fr/ledger/…`
       is unbuilt); **a `field` no render path consults** multiplies URLs and
