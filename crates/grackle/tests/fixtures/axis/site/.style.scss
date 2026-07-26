@@ -1,0 +1,4 @@
+// The site's own sheet (§5b rung 1): above every theme, owned by nobody's.
+// Selects on the SLOT alone — a theme wraps its parts in whatever it likes, so
+// the slot name is the contract and the tree around it is not.
+[data-slot="title"]::after { content: " [" var(--axis-theme) "]"; }

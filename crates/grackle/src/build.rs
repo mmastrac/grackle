@@ -987,11 +987,19 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     }
 
     search_pass(cfg, db, &bodies, &page_bodies, &mut out_map, &mut stats)?;
-    css_pass(&theme_dir, "/css/main.css", &mut out_map, &mut stats)?;
+    let overlay = site_overlay(&root, &mut stats);
+    css_pass(
+        &theme_dir,
+        "/css/main.css",
+        overlay.as_deref(),
+        &mut out_map,
+        &mut stats,
+    )?;
     for name in themes.names().filter(|n| *n != "default") {
         css_pass(
             &root.join("themes").join(name),
             &format!("/css/{name}.css"),
+            overlay.as_deref(),
             &mut out_map,
             &mut stats,
         )?;
@@ -1439,7 +1447,7 @@ mod css_pass_tests {
         }
         let mut out = SiteOutput::new();
         let mut stats = Stats::default();
-        css_pass(&dir, "/css/t.css", &mut out, &mut stats).unwrap();
+        css_pass(&dir, "/css/t.css", None, &mut out, &mut stats).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         String::from_utf8(out.remove("/css/t.css").expect("a sheet is always emitted")).unwrap()
     }
@@ -1860,6 +1868,7 @@ fn strip_charset(css: &str) -> &str {
 fn css_pass(
     theme_dir: &Path,
     url: &str,
+    overlay: Option<&str>,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
 ) -> Result<()> {
@@ -1929,9 +1938,45 @@ fn css_pass(
             }
         }
     }
+    // §5b rung 1: the site's own sheet, above every theme's. Appended to each
+    // theme's stylesheet rather than served separately, because it must apply
+    // whichever theme is active — that is the whole guarantee, that a knob set
+    // here survives a theme SWITCH and not merely a theme update.
+    if let Some(o) = overlay {
+        css.push_str(&format!("@layer overlay {{\n{}\n}}\n", strip_charset(o)));
+    }
     stats.css += css.len();
     out_map.insert(url.to_string(), css.into_bytes());
     Ok(())
+}
+
+/// The site's own stylesheet: `.style.scss` at the root, compiled once and
+/// handed to every theme's sheet (§5b, rung 1 of themes/DESIGN.md §2).
+///
+/// The cheapest real customization there is, and the one the ladder promised
+/// and could not deliver: `:root { --accent: … }` in a file the site owns,
+/// landing in the `overlay` layer above theme CSS. Because the token names are
+/// a cross-theme contract, an override written here survives switching themes,
+/// not just updating one — which is what makes this a rung below "derive a
+/// theme" rather than a worse way to do it.
+///
+/// Positional `.style.scss` (§5b's other half — a file per subtree, scoped by
+/// `data-scope`) is NOT this. It needs every rendered row to carry its scope
+/// chain, and nothing emits one yet.
+fn site_overlay(root: &Path, stats: &mut Stats) -> Option<String> {
+    let src = root.join(".style.scss");
+    let text = std::fs::read_to_string(&src).ok()?;
+    // Unscoped, so `:root` works here — which is the point of the root file and
+    // exactly what §5b warns is impossible in a SCOPED one, where a `:root`
+    // block would be nested inside a selector and silently never apply.
+    match grass::from_string(text, &grass::Options::default().load_path(root)) {
+        Ok(css) => Some(css),
+        Err(e) => {
+            eprintln!("scss: {}: {e}", src.display());
+            stats.css_errors.push(format!("{}: {e}", src.display()));
+            None
+        }
+    }
 }
 
 /// The kind of the collection at the base of a view's `over` chain — what

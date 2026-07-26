@@ -903,6 +903,10 @@ Redesigning layouts changes the chrome HTML, so `diff` cannot verify it. That wa
 
 ## 5b. Tree overlays: styles, slots and schema declared by position
 
+> **The root `.style.scss` is built** *(2026-07-25)* — rung 1 of the ladder (themes/DESIGN.md §2), and the cheapest real customization there is. A `.style.scss` at the site root compiles into `@layer overlay`, above every theme's CSS, and is appended to **every** theme's stylesheet: the guarantee is that a knob set here survives a theme *switch*, not merely a theme update, which is what makes it a rung below "derive a theme" rather than a worse way to do it. Being unscoped, it may declare `:root` custom properties — precisely what a scoped one cannot (below), and precisely what recolouring needs.
+>
+> Two things learned building it, both from failing first. **Select on the slot, never the tree around it**: a theme wraps its parts in whatever it likes (ledger's title sits in a `header.doc-header`), so a site sheet reaching across six themes may assume the slot name — §5e's contract — and nothing else. A first draft used `> [data-slot="title"]` and matched in zero of six. And **`serve` has to watch it**: `is_content` excluded everything under `/grackle/` bar three exceptions, so the gallery's own sheet was invisible to the watcher and a site sheet you cannot iterate on is half a feature.
+>
 > **Status.** The **schema leg is built** (`schema.rs`): `.schema.toml` declares typed fields for its subtree, resolution accumulates nearest-wins like markers, and a governed row's extra front matter is *validated*. Per-row themes are built (`theme:` field cascading via rule defaults). The **`.style.scss` leg remains unbuilt**, and the `.slots/` leg was **absorbed by §5e**: a slot fill needs no templating.
 
 **This is the marker pattern (§4b) again**, which is the argument for it: the tree declares *where*, the config declares only the vocabulary.

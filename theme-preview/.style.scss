@@ -1,0 +1,17 @@
+// The site's own sheet (§5b rung 1) — not a theme, and above every theme.
+//
+// The gallery uses it for the one thing that is nobody's theme's business:
+// saying which member of the theme axis you are looking at. `--axis-theme` is
+// stamped per route (q53), inherits from the root, and drops into `content`.
+//
+// Selecting on the SLOT and nothing else is deliberate. A theme wraps its parts
+// in whatever it likes — ledger's title sits inside a `header.doc-header` — so
+// a site sheet that reaches across six themes may assume the slot name (which
+// is the contract, §5e) and never the tree around it. The first draft of this
+// file used `> [data-slot="title"]` and matched in zero of the six.
+[data-slot="title"]::after {
+  content: " — " var(--axis-theme);
+  font-size: 0.6em;
+  opacity: 0.55;
+  font-weight: normal;
+}

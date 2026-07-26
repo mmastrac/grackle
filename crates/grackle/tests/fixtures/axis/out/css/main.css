@@ -391,3 +391,9 @@ a[data-kind=neighbor] {
 }
 
 }
+@layer overlay {
+[data-slot=title]::after {
+  content: " [" var(--axis-theme) "]";
+}
+
+}

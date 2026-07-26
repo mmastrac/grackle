@@ -61,13 +61,16 @@ layer with no inspector at all.
 Rung 0's config half landed (`[site] theme`). Everything below is
 `themes/DESIGN.md` §3–§5, specced and unbuilt.
 
-- [ ] **Decide `.style.scss` — build it or cut it.** Rung 1 (recolour without
-      touching a theme) is promised in `themes/DESIGN.md` §2, the manual ch. 13
-      and §5b, and is unbuilt. The gallery README meanwhile teaches a tokens-only
-      theme directory as the place to start, which contradicts the ladder table.
-      Ship one answer to "how do I change the accent colour". Carries two
-      sub-decisions: profile-scoped overlays, and the `:root` constraint below.
-      (§5b, themes/DESIGN.md §2)
+- [x] **`.style.scss` — built, at the root.** Rung 1 is real: a site-owned sheet
+      compiled into `@layer overlay` above every theme's CSS, appended to every
+      theme's stylesheet so an override survives a theme *switch*. Unscoped, so
+      it may declare `:root` properties — which is the recolour case. `serve`
+      watches it. (§5b, themes/DESIGN.md §2)
+- [ ] **Positional `.style.scss`** — §5b's other half: a file per subtree,
+      scoped to `[data-scope~="dir"]`. Needs every rendered row to emit its scope
+      chain, which nothing does yet, and carries the `:root`-in-a-scoped-block
+      constraint below. Separable from the root file, which is the rung the
+      ladder actually promised. (§5b)
 - [ ] **`theme.toml` and `extends` chains** — rung 3. `theme.rs` never reads
       `theme.toml`, so theme-level inheritance is entirely unbuilt while the
       config-level `extends` it was modelled on has shipped. Fragment union

@@ -359,14 +359,16 @@ fn is_content(p: &Path) -> bool {
         return false;
     }
     // grackle's own tree is not site content — except grackle.toml (the config
-    // a running server reloads on), anything under a `themes/` directory, and
-    // the engine's own `assets/base/` when a dev build serves it from source.
-    // All three are presentation, never engine source: without the first
+    // a running server reloads on), a site's own `.style.scss` (§5b rung 1),
+    // anything under a `themes/` directory, and the engine's own `assets/base/`
+    // when a dev build serves it from source.
+    // All four are presentation, never engine source: without the first
     // exclusion, editing grackle's Rust or DESIGN.md would pointlessly rebuild
     // the whole site; without the exceptions, neither a gallery living inside
     // the grackle tree nor the floor itself could hot-reload.
     if s.contains("/grackle/")
         && !s.ends_with("grackle.toml")
+        && !s.ends_with(".style.scss")
         && !s.contains("/themes/")
         && !s.contains("/assets/base/")
     {
