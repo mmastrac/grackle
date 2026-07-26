@@ -242,6 +242,23 @@ impl RouteKind {
     }
 }
 
+/// One route's membership of an axis (q53): which axis, which value, and the
+/// row field that value sets while rendering.
+///
+/// `field` is carried rather than looked up so the render paths need no handle
+/// on the config to ask "what does this member wear" — the same reason a
+/// group key carries its params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AxisMember {
+    pub axis: String,
+    pub value: String,
+    pub field: String,
+    /// The first-declared member, which is what `rel="canonical"` names and the
+    /// only one a `*` view sees. An alternate is not a duplicate; it is what
+    /// `rel="alternate"` is for.
+    pub canonical: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Route {
     /// A route's identity is its URL: unique by the collision check at load,
@@ -251,6 +268,23 @@ pub struct Route {
     pub id: Key,
     pub url: String,
     pub kind: RouteKind,
+    /// The row this route renders, for the routes that render one (`Post`,
+    /// `Page`, `Static`, `Object`). `None` for a view's routes, which render a
+    /// query rather than a row.
+    ///
+    /// The row→route relation, stated. It used to be recovered by looking the
+    /// route's URL up in `by_url`, which works only while a row has exactly one
+    /// URL — an assumption held by every per-row map in the renderer and by
+    /// nothing in the design. Carrying the key means a second route onto one row
+    /// (q53's axis) is a thing the renderer can express rather than a thing it
+    /// silently cannot.
+    #[serde(skip)]
+    pub row: Option<Key>,
+    /// Which axis member this route is (q53), `None` for the ordinary case of
+    /// a row published once. Two routes onto one row are legal exactly when
+    /// they are different members of one axis — see §4's constraint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis: Option<AxisMember>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,6 +339,8 @@ impl Route {
             id: Key::new(&url),
             url,
             kind,
+            row: None,
+            axis: None,
             source: None,
             view: None,
             key: None,

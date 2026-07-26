@@ -47,6 +47,8 @@ grackle/manual/
 | `.schema.toml` on one row type | `reference/` pages carry `since:`, `status:` (q51: pages take typed fields) |
 | computed `summary` | `/news/` listing |
 | row `shell:` tiers | one imported/demo artifact shipped verbatim (§5g) |
+| base config (`extends`) | the manual's `grackle.toml` is almost empty — it inherits, then overrides (§4d) |
+| axes (`[axes.*]`) | a `shell`-axis md twin of every page (`/x/index.md`) is the obvious dogfood (§5g/q53) |
 | profiles + `_drafts` | chapters-in-progress drafted in the open, shipped under a `drafts` projection (§4a) |
 | search shell | manual search is the obvious real need |
 | themes: parts/slots/CSS | one theme that is *only its differences* over the base |
@@ -64,10 +66,12 @@ logged as a §11 question rather than worked around.
 2. **The database framing is stated once (ch. 1) and then not leaned on**
    until Part III. Newcomers do not need "virtual on-disk database" to
    publish a blog post.
-3. **One law, introduced once, referenced forever**: *nearest wins, first
-   writer per key; front matter → tree → config*. Appears in routing,
-   markers, overlays, slots, object refs. Name it early (ch. 4), then
-   just point at it.
+3. **One law in three shapes, introduced once, referenced forever**
+   (§4d's framing): per-key merge, merge-by-source, shadow-by-name. Appears
+   in routing, markers, overlays, slots, object refs, config `extends`,
+   theme inheritance. Name all three early (ch. 4) — teaching only "nearest
+   wins" and then hitting the reader with fragment shadowing reads as a
+   lie — then just point at it.
 4. **Errors are a feature; show them.** Each chapter that adds a
    mechanism shows one real load-time error message from it. This is the
    single strongest differentiator vs Jekyll and it should be visible on
@@ -93,7 +97,7 @@ word "view" before chapter 6.
 - What you get: no template logic, mistakes caught at load, ~225ms
   builds.
 - What it isn't: comments, memberships, live data, dynamic anything
-  (§7b). Point at ch. 33.
+  (§7b). Point at ch. 34.
 - Explicitly: you can read only Part I and have a working blog.
 
 ### 2. Install and the commands
@@ -102,7 +106,7 @@ word "view" before chapter 6.
 - `grackle build`, `grackle serve` (watch + reload), `grackle query`,
   `grackle explain <url>`.
 - `grackle urls --against <dir>` — URL-set parity, the migration
-  instrument (ch. 24). A *missing* URL is a link that used to resolve and
+  instrument (ch. 25). A *missing* URL is a link that used to resolve and
   now 404s (exits non-zero); an *extra* is usually just new content
   (reported only). Note plainly: **body-level `grackle diff` is no longer
   a gate** — the URL set is what's protected, the rendered bytes are
@@ -113,21 +117,52 @@ word "view" before chapter 6.
 - `serve` caveats stated up front: full rebuild per change (~0.3s),
   poll-based reload, no SSE/TLS ★(v2).
 - `grackle explain` introduced here as *the* debugging tool, so it can be
-  used casually in every later chapter.
+  used casually in every later chapter. (Accuracy note: the command is
+  `grackle query explain` today; a top-level `grackle explain` alias is a
+  pre-1.0 checkbox. Write the manual to the alias, ship the alias.)
+- **`grackle config --effective`** (specced, pre-1.0) — prints the merged
+  config with per-key provenance (base vs your file). This is the tool
+  that makes `extends` (ch. 3) *inheritance* rather than magic; worth
+  introducing beside `explain` since the base config means most of a
+  site's real config is inherited, not written.
 
-### 3. Your first site: one page, one post
-- Minimum viable `grackle.toml`: `[site]`, one `posts` collection, one
-  `tree` collection, one `objects` collection, catch-all rules.
-- Write `about.md`, write `_posts/2026-07-19-hello.md`, run `serve`.
-- Front matter is: `title:` and nothing else required.
-- Filename gives `(date, slug)` — `filename_formats`.
-- What just happened, in four lines: file → row → rule → route.
+### 3. Your first site: nothing but content
+- **The minimum `grackle.toml` is empty** (built 2026-07-25). A base
+  config compiled into the binary supplies the three collections, the
+  `published` set, `/`, `/blog/`, the feed and the sitemap; `examples/
+  minimal` is the proof, 27 lines → 0. So this chapter is: make a
+  directory, write `about.md` and `_posts/2026-07-19-hello.md`, run
+  `serve`, get a styled blog with a feed.
+- The only thing a real site writes first is `[site]` (title/url/author) —
+  the base's placeholders are the one part nobody keeps.
+- **Favicon**: drop a `favicon.svg` (or `.png`/`.ico`/`.webp`/`.gif`) at
+  the site root and it's linked automatically; no icon ⇒ no `<link>`. An
+  icon that lives elsewhere is pinned with a named object route to
+  `/favicon.png` (ch. 10). First-hour question, so answer it here. ★ honest
+  edge: `[html.head.link]` entries can't yet carry `sizes`/`type`.
+- Front matter is `title:` and nothing else required; the filename gives
+  `(date, slug)`.
+- What just happened, in four lines: file → row → rule → route — and the
+  rule came from the base you didn't write. That framing (*inherit, then
+  override*) carries the rest of Part I.
 
 ### 4. Front matter, defaults, and the one precedence law
-- Front matter always wins.
+- Front matter always wins — including `permalink:`, which overrides every
+  rule's route outright (the front-matter end of the routing law; note it
+  here and in 33d).
 - Rules supply defaults for whatever front matter omits (`defaults = {…}`).
-- **The law**: nearest wins, first writer per key. Front matter → tree →
-  config. State it in a box; it recurs five more times.
+- **The law, in the shape §4d gives it** — not one rule but *three*, one
+  per kind of thing, so a reader who later meets fragment shadowing isn't
+  blindsided:
+  - **scalars & settings bags** (`[site]`, front matter, `defaults`) —
+    merge **per key**, nearest writer wins (front matter → tree → config).
+  - **collections** — merge **by source**; a site's rules *prepend* to the
+    base's, so §4's first-writer-wins gives the site the route.
+  - **registries** (`[sets]`, `[routes]`, `[markers]`, `[widgets]`,
+    `[records]`, …) — **shadow by name**, whole entry (the same move a
+    theme fragment makes over the base's, ch. 14).
+- State it in a box; the three shapes recur — routing, markers, overlays,
+  slots, object refs, config `extends`, theme inheritance.
 - `grackle explain` shows which rule wrote which key.
 
 ### 5. Routes: deciding where files land
@@ -140,51 +175,59 @@ word "view" before chapter 6.
   matter *presence* decides whether a file is a row at all; `shell:`
   decides how much wrapper a row wears (ch. 19). A file with no front
   matter ships verbatim and is invisible to every query.
-- **`[[collections]]` is an array of tables** — each is a *source* with a
-  `kind` (`posts`/`tree`/`objects`), its name defaulting from the source
-  directory. Objects are still a `kind`, though under the hood it's now
-  one row store with three origins — a user just needs the three kinds and
-  the disjoint membership order (posts → objects → tree).
-- Errors, shown: two rows on one URL; dated route on an undated row; dead
-  rule warning.
-- `grackle urls` lists them.
+- **`[[collections]]` is an array of tables** — each a *source* with a
+  `kind` (`posts`/`tree`/`objects`), name defaulting from the source dir;
+  the three kinds and the disjoint order (posts → objects → tree) are all
+  a user needs. The base already declares all three, so this chapter is
+  mostly *reading* what you inherited and adding a rule that **prepends**
+  (nearest wins, so your route beats the base's `**`).
+- **A row renders at exactly one route** — the constraint worth naming
+  here, because its errors are the ones you'll hit: two rows on one URL,
+  or one row on two URLs, are both load errors naming the file(s). The
+  legal member counts are 0 (a landing claimed it, ch. 18, or it's an
+  unreferenced on-demand asset), 1 (everything else), and **N only along
+  an axis** (ch. 20) — the single sanctioned way to break it.
+- Other errors, shown: dated route on an undated row; dead rule warning.
+  `grackle urls` lists the result.
 
 ### 6. Your first query: a set, then a route
-- The pitch: you never write a loop. You name a set.
-- **The whole model in one sentence: a *set* is a query; a *route* is a
-  query that lands.** They are two config tables and the difference is one
-  key:
+- The pitch: you never write a loop, you name a set — and **`published`,
+  `/`, `/blog/` already exist** (base config). This chapter teaches the
+  model by reading them, then overriding one.
+- **The one sentence: a *set* is a query; a *route* is a query that
+  lands.** Two config tables; `path`/`paths` present ⇒ route (and it may
+  carry the landing keys — `title crumb shell paginate group_by template
+  content intro featured`); absent ⇒ set. Keys on both: `from where match
+  order_by limit layout variant`.
 
   ```toml
-  [sets.published]        # no path ⇒ never lands
-  from  = "posts"
+  [sets.published]        # inherited; shown to explain, not to type
+  from = ["posts", "drafts"]   # a union: two sources, one corpus, said aloud
   where = "!draft && !hidden"
   order_by = "-date"
-
-  [routes.blog_index]     # has paths ⇒ lands, paginated
-  from     = "published"
+  [routes.blog_index]
+  from = "published"
   paginate = 5
-  paths    = ["/blog/", "/blog/page/{n}/"]
+  paths = ["/blog/", "/blog/page/{n}/"]
   ```
 
-- **`path` (or `paths`) is the switch.** Present → it's a route and can
-  carry the landing keys (`title`, `crumb`, `shell`, `paginate`,
-  `group_by`, `template`, `content`, `intro`, `featured`). Absent → it's a
-  set, and those keys are meaningless (and rejected). Keys on both:
-  `from`, `where`, `match`, `order_by`, `limit`, `layout`, `variant`.
-- **`from` is the one composition keyword** (it replaced `over`). It names
-  a collection, `*` (all rows), another set, or a route. What it names
-  decides what it means — composing over a grouped *route* is subdivision
-  (ch. 8), and the engine dispatches on the referent, not a second
-  keyword.
-- Why `published` is a separate set: one definition of "a post list",
-  reused by the feed, tags, archives, home. (The real story: five
-  hand-written Jekyll guards had drifted into three different answers and
-  the feed was shipping drafts.)
-- **`where` is the filter** (it replaced `filter`); bare field =
-  truthiness. `match` is a *separate* key — a glob over the source path,
-  for scoping a query to a subtree — so the filter language stays
-  typed-fields-only.
+- **`from` is the one composition keyword** (replaced `over`): names a
+  collection, `*`, a set, or a route — and what it names decides the
+  meaning (over a grouped route = subdivision, ch. 8). **`where`** is the
+  filter (replaced `filter`); bare field = truthiness. `match` is a
+  *separate* source-path glob, so the filter stays typed-fields-only.
+- **`from` scopes to *exactly* what it names, and unions are spelled out**
+  (built 2026-07-25). Naming a collection no longer quietly means "every
+  collection of that kind" — so "several sources, one corpus" (ch. 5) is
+  said in the config with a **list**: `from = ["posts", "drafts"]`. A
+  union may name only *collections*, and they must *share a kind*
+  (unioning sets, or across kinds, is a load error pointing at `where`
+  instead). This is a real behaviour change — a `published` that named one
+  of two posts collections silently dropped the other's rows.
+- Why `published` is a named set: one definition of "a post list," reused
+  by feed/tags/archives/home. The real story sells it — five hand-written
+  Jekyll guards had drifted into three answers and the feed shipped
+  drafts; the base now names it once so a site can't re-fork it.
 - Error, shown: `unknown field 'drafts' (did you mean 'draft'?)`.
 
 ### 7. Listings that don't ship the whole blog
@@ -199,7 +242,7 @@ word "view" before chapter 6.
   sighting of "a fact becomes an attribute".
 - ★ note: `truncate = {…}` is still a stopgap struct shape (q31), even
   though the expression language (§5f) now exists — it was built for
-  relations (ch. 28), and computed fields haven't been moved onto it yet.
+  relations (ch. 29), and computed fields haven't been moved onto it yet.
   So a `summary` field is still the struct form; don't over-invest in it.
 
 ### 8. Tags and archives for free
@@ -215,21 +258,38 @@ word "view" before chapter 6.
 - Breadcrumbs fall out of the nesting; nothing declares them (§5h/q46).
 - **Pages can be grouped too now** (q51 — one row type): a `date` on a
   tree page means `group_by = "date.year"` works over it. Mention lightly;
-  the payoff is ch. 21/23.
-- Limit, stated plainly: **pagination × subdivision is refused** (q30) —
-  and the config error says so.
+  the payoff is ch. 22/24.
+- **Grouping and pagination work over *every* base now** (built 2026-07-25
+  — one materializer). Objects included: `group_by = "ext"` puts all the
+  jpegs at one route and the pngs at another, because `ext` was always a
+  column of the object vocabulary. Galleries stop being a special case.
+- **A grouped view can paginate too** — pagination happens *inside each
+  partition* (the partition says which rows, `paginate` says how many per
+  page). This was silently ignored before. It is **not** q30: pagination ×
+  *subdivision* (a pageable parent whose children subdivide the same URL
+  space) is still refused, so a grouped-and-paginated view stays a leaf.
+- New error worth showing: a paginated view given a single `path` (not
+  `paths`) — used to collide page 2 onto page 1, or emit nothing.
 
 ### 9. Feeds, sitemap, and `from = "*"`
-- `[routes.feed]` + `shell = "atom"`; `[routes.sitemap]` + `shell =
-  "sitemap"`.
-- Introduce `shell` in one sentence: *how the result is serialized*.
-  Full treatment in ch. 19.
+- **You already have `/atom.xml` and `/sitemap.xml`** — both inherited
+  from the base (which ships exactly the URLs whose *absence* would be a
+  bug anywhere; tag pages and search are not among them, since plenty of
+  sites want neither). So this chapter explains them rather than builds
+  them, and introduces `shell` in one sentence — *how a route is
+  serialized* (`atom`/`sitemap`), full treatment in ch. 19.
 - `from = "*"` = every routable row.
+- **Inherited-empty is silent; declared-empty is not.** A base route with
+  no members (no `_posts/` ⇒ no feed) simply doesn't materialize, so a
+  blogless site pays nothing for the inherited feed. But a route *you*
+  declare materializes even when empty — the difference answers a real
+  "why did/didn't this page appear" and is worth the one line.
 - **The footgun, called out loudly**: a `from = "*"` route ranges over
   *routes*, and a routed row is routed whatever its flags say — so any new
-  one must repeat `!draft && !hidden` or it leaks. Profiles (ch. 23) do
-  not rescue this. The sitemap's own `where` is the worked example; the
-  cautionary tale lives in ch. 23.
+  one must repeat `!draft && !hidden` or it leaks (the base's sitemap
+  already does). Profiles (ch. 24) don't rescue this; cautionary tale
+  there. ★ A validator to refuse a site-declared star route missing the
+  flags is a pre-1.0 checkbox.
 
 ### 10. Images and links
 - Bare name vs path: contains `/` or `://` → path; otherwise → name,
@@ -272,16 +332,16 @@ whole part rests on one idea, delivered in ch. 12 and never contradicted.
   serialization.** Three independent axes; state once, repeat as needed.
 - A layout kind emits a *part map*, not a page. The four kinds are
   `document`, `listing`, `feed`, `raw`; the previews (`summary`) and
-  sub-parts are their own kinds in the vocabulary (ch. 32c).
+  sub-parts are their own kinds in the vocabulary (ch. 33c).
 - **The kind is inferred, never declared** — a row/page → `document`, a
   grouped-or-paginated route → `listing`, a feed/sitemap route → `feed`,
   an opt-out row → `raw`. You do not write `layout: document`. (One row
   type, q51, is why a *page* infers `document` the same as a post does.)
-- ★ Do **not** teach `layout:` as the way to pick furniture. It is a
-  surviving Jekyll word now scheduled to dissolve into `shell:`
-  (q33(f)): `page`/`post` are one value, and the `_layouts/*.html` it
-  names have been unread since §5e. Teach `shell:` (ch. 19); mention
-  `layout:` only in the migration note and the reference.
+- Do **not** teach `layout:` as the way to pick furniture — it **has
+  dissolved** (q33(f) settled): absent `layout:` means a `document`, the
+  kind is inferred (above), and the old `page`/`post` values are inert.
+  Teach `shell:` (ch. 19) for wrapper choice; `layout:` survives only as a
+  past-tense **migration note** for Jekyll sources and a reference entry.
 - **The rule**: want an `if` → you're missing a fact. Want a `for` →
   you're missing a view. Both are design bugs. The load checker is the
   tripwire.
@@ -325,9 +385,18 @@ the binary.
   cascades another theme over a subtree (`match = "recipes/**"`,
   `defaults = { theme = "ledger" }`). Same law, fifth appearance — front
   matter → rule → `[site] theme` → a directory named `default` → the base.
-- A misspelled `[site] theme` is a load error listing the themes you have.
-  Good place for the errors-are-a-feature beat, because the alternative
-  (silently rendering the default) is what every other SSG does.
+- **A route can name a theme too** (built 2026-07-25): `[routes.x] theme =
+  "ledger:dark"` makes the look a property of the *route*, not inferred
+  from its content — the view side of the cascade gains a rung at the top
+  (**view declaration → member unanimity for listings / claimed row for
+  landings → `[site] theme`**). The declaration wins over unanimity
+  because unanimity is only an inference. What it does *not* solve — one
+  query rendered under two *URLs* and two looks — is the axis (ch. 20);
+  this is the half that needs no axis.
+- A misspelled `[site] theme` (or `[routes.x] theme`) is a load error
+  listing the themes you have. Good place for the errors-are-a-feature
+  beat, because the alternative (silently rendering the default) is what
+  every other SSG does.
 - Nice consequence of per-row themes, worth one line: a row's **body** is
   rendered through its own theme, not just its shell — so a `recipes/`
   subtree under `terminal` is terminal all the way down.
@@ -341,7 +410,7 @@ the binary.
   setting `:root { --accent: … }` sits in a layer above theme CSS, and
   because the token names are a cross-theme contract it survives theme
   *switches*, not just updates. Cheapest real customization there is. ★
-  (`.style.scss` overlays themselves are still specced — ch. 26.)
+  (`.style.scss` overlays themselves are still specced — ch. 27.)
 - Dogfood/tooling callout: `theme-preview/` is a site of structurally
   identical subtrees, one per theme, so `/ledger/notes/` and
   `/miroir/notes/` are the same rows in the same shapes — compare in two
@@ -412,9 +481,23 @@ the binary.
 - Order note (narrow): unarranged kinds emit in `parts.toml`'s **declared
   order**, enforced at the schema position, not the order the engine
   produced them. Matters only for kinds nobody arranges.
-- ★ `theme.toml` (head-fact selection, and `extends`) is specced, absent.
+- **The `<head>` is config, not (mostly) a theme concern.** It's declared
+  in `[html.head.meta|property|link]` (three tables = the three elements)
+  as **text expressions over the row plus `site.*`** — with `+`
+  concatenation (`canonical = 'site.url + url'`) and a CEL ternary
+  (`robots = 'noindex ? "noindex,follow" : ""'`); an **empty result emits
+  no tag** (§5e's rule 2, one level up). The ternary is worth calling out:
+  it's the one place §5d's no-`if` rule is deliberately relaxed, because
+  "which string does this meta take" has no fact-shaped spelling. This
+  *supersedes* the old `theme.toml` head-fact selection.
+- ★ But a theme *can* still need head content it can't get from config —
+  a webfont link. The answer is a pending **`head.html`** theme fragment
+  (specced), appended after the computed facts. Name it, so "how do I add
+  a font" has an answer that isn't "you can't."
+- `theme.toml` (theme-level `extends` chains) is still ★ specced;
+  config-level `extends` (ch. 3) is built.
 - ★ honest weakness: a *new* theme is data, but the part vocabulary is
-  Rust — see ch. 33.
+  Rust — see ch. 34.
 
 ### 15. CSS does the geometry
 - Slot names are the styling contract: `[data-slot=…]`, `[data-kind=…]`,
@@ -422,7 +505,7 @@ the binary.
 - Note the one recent rename: a relation group is keyed by
   **`data-relation`** (was `data-axis`), so per-relation CSS
   (`.relation[data-relation="related"]`) targets that. Translations, an
-  *axis*, keep `data-axis`. (ch. 28 for the split.)
+  *axis*, keep `data-axis`. (ch. 29 for the split.)
 - **Canonical (unarranged) markup emits in `parts.toml`'s declared order**
   — the reading order a screen reader or the null theme sees. It's the
   schema's order, enforced, not the producer's incidental one (ch. 13).
@@ -500,11 +583,12 @@ the binary.
 - `data-fragment` as an explicit override on a stream.
 - Galleries as the worked example (object rows, `order_by` required).
 - ★ known silent failure: a variant fragment missing a hole drops that
-  part with no warning (q45 leftover). Now understood as blocked, not
-  merely unbuilt — a *deliberate* omission is byte-identical to a
-  forgotten one, so the warning can't exist until a theme can say "I
-  don't place this part" (q50). Document the symptom and the workaround
-  (diff against canonical), not a promise.
+  part with no warning (q45 leftover). Blocked, not merely unbuilt — a
+  *deliberate* omission is byte-identical to a forgotten one, so the
+  warning can't exist until a theme can say "I don't place this part"
+  (q50). Workaround: **`grackle explain <url> --parts`** (specced,
+  pre-1.0) lists which parts nothing placed — the partial answer that
+  needs no q50 settlement first. Until it ships, diff against canonical.
 
 ### 17. Where the site's own words live: `.slots/`
 - Problem: no theme file should contain your nav or your copyright line.
@@ -524,6 +608,12 @@ the binary.
 - Mode B: the claimed row must place `{% view <owner> %}`, or the rows
   are unreachable — load error. (`{% view %}` still names the query; the
   keyword didn't change with the sets/routes split.)
+- **Offer vs promise** (`default_content`): an *explicit* `content` is a
+  promise the must-place check enforces; a *defaulted* claim (the base's
+  `/` offers `default_content = "index.{md,html}"`) can be *declined* — a
+  hand-built `index.html` that doesn't embed `{% view home %}` just owns
+  `/` as an ordinary page. That exemption is why the base can offer a
+  homepage without forcing every site to embed the feed.
 - Per-key intros via `[records.<field>.<id>]` (`name`, `slug`, `intro`).
 - The chain: URL nesting *is* parent derivation. Crumbs are climbed, not
   declared. `trail` remains only for group-key chains (q46).
@@ -569,7 +659,7 @@ the binary.
   a row the database can see *and* a byte-exact artifact.
 - Pair it with `hidden: true` — the honest way to keep an imported
   artifact out of the sitemap and the search index while keeping it
-  linkable by source path (ties to ch. 10 and ch. 23).
+  linkable by source path (ties to ch. 10 and ch. 24).
 - ★ What `none` does *not* do: lift the meat out of an imported page and
   render it through the theme. That's q50, and it's two operations
   (extraction, then chrome), deliberately not fused.
@@ -585,8 +675,59 @@ the binary.
 - ★ Still open in q44: atom/sitemap becoming true part-map consumers; a
   `json` shell (though `cat` as a script shell already is one).
 
-*Exit check for Part II: a theme of your own, with cards, a nav, and a
-landing page.*
+### 20. Axes: one row, several forms
+**New chapter (built 2026-07-25).** The third member of the route cluster:
+ch. 18 a route owns a URL, ch. 19 how much wrapper a row wears, and now —
+**one row published at several URLs, each a different *form* of it.**
+- **The distinction (ties to relations, ch. 29)**: a *relation* points at
+  *other rows*; an *axis* points at *other forms of the same row*. An axis
+  is the **only** mechanism allowed to break "a row renders at exactly one
+  route" (ch. 5) — everything else producing a second route on one row is
+  a load error.
+- The config, and it must be fully explicit (an axis multiplies URL space,
+  so nothing is implicit):
+
+  ```toml
+  [axes.theme]
+  values = ["ledger", "atlas"]   # the members; FIRST is canonical
+  field  = "theme"               # the row field each member sets
+  url    = "/{value}{url}"       # an alternate's URL; canonical keeps the row's
+  match  = "notes/**"            # which rows multiply (absent = all — rarely wanted)
+  ```
+
+- **Canonical vs alternate** — the load-bearing idea: the first value is
+  canonical and keeps the row's own URL; alternates are templated over
+  `{value}` and `{url}`. Every member's `rel="canonical"` and `og:url`
+  name the *canonical* form (the head describes the document, not the
+  form), and a `*` view (sitemap, search) sees **canonical members only** —
+  otherwise a crawler reads six renderings as six documents, which is
+  exactly what `rel="canonical"` denies.
+- **Two built uses, both real**: `field = "theme"` renders one corpus
+  several ways with no row copies — it's what `theme-preview/`'s six
+  duplicate trees were faking; `field = "shell"` is q44's md twin (`url =
+  "{url}index.{value}"` → `/notes/one/index.md`), working the day the axis
+  landed. The field is *named*, not assumed, so the mechanism isn't "a
+  theme feature wearing a general name."
+- **Correction worth stating** (it revises earlier drafts, incl. this
+  outline): **locale/translations is NOT an axis.** `dal.md` and
+  `dal.fr.md` are *two rows*, one route each, paired after the fact by
+  logical path (ch. 31). It still emits hreflang and keeps `data-axis`,
+  but it isn't `[axes.*]` — so the axis is a genuinely new mechanism, not
+  the generalization of locale it was once pitched as.
+- ★ Honest edges, all real:
+  - **Composition with locale isn't built** — a row on both axes wants the
+    cartesian product (`/fr/ledger/notes/one/`); the (row, member)
+    constraint makes two axes collide today. The next thing to build if a
+    site needs it.
+  - **A `field` no render path consults multiplies URLs without changing
+    bytes** — only `theme` and `shell` are wired; a made-up field is a
+    silent footgun that *should* be a load error and isn't yet.
+  - **No `rel="alternate"` for axis members** yet (only the locale axis
+    fills `Head.alternates`), and the `light` tier's minimal head carries
+    no canonical at all — an alternate there advertises nothing.
+
+*Exit check for Part II: a theme of your own, with cards, a nav, a landing
+page — and, if you want it, the same content under two looks.*
 
 ---
 
@@ -595,15 +736,25 @@ landing page.*
 Target reader: 100+ files, several kinds of content, more than one
 author. Here the database framing pays off and can finally be used.
 
-### 20. The tree declares where, config declares what
+### 21. The tree declares where, config declares what
 - Marker files: `[markers] ".draft" = { draft = true }`, then `touch`.
-- Same law as ch. 4, third appearance.
+- **You inherit `.draft`/`.hidden`/`.noindex` already** — the base config
+  declares those three markers (and the bools behind them, ch. 24), so a
+  `touch _posts/wip/.draft` works in an empty-config site. You write a
+  `[markers]` entry only to name a *new* meaning; the registry shadows by
+  name (ch. 4), so redeclaring one of the three overrides it.
+- Same law as ch. 4 (registries shadow by name).
 - What markers replace: `drafts/**` rules. What rules keep: routes, and
   patterns that cut *across* the tree (`**/*.scss`).
 - Practical: hide a subtree from search with one `touch`.
 
-### 21. Typed fields per subtree: `.schema.toml`
+### 22. Typed fields per subtree: `.schema.toml`
 - `github_link = { type = "url" }`; types `string int bool list url image`.
+- **Three scopes, one precedence** — worth teaching as a unit, since the
+  reader will meet all three: positional `.schema.toml` (a subtree),
+  `[collections.<name>.schema]` (a whole collection), and site-wide
+  `[schema]` (ch. 24 — where the base puts the flags). Nearest wins:
+  positional > collection > site-wide. Same law as everywhere.
 - Buys **four** things now: front-matter validation, filter type-checking,
   slot/field checking, and — since the field-display arc landed — **the
   field renders**. A `list` field fills a stream of `item` parts, an
@@ -614,7 +765,7 @@ author. Here the database framing pays off and can finally be used.
 - Worked example: `recipes/` with `course`, `time`; then group by it.
 - ★ no list-of-records type, no JSON-LD emission (q40).
 
-### 22. Hierarchy: the page's tree and the tree's tree
+### 23. Hierarchy: the page's tree and the tree's tree
 - Two axes, one recursive part kind (`outline_entry`), one fragment.
 - **Heading axis**: `toc: true` (cascade it with a marker). Extracted
   from rendered bytes, so link and target can't desync. ★ depth fixed
@@ -628,22 +779,36 @@ author. Here the database framing pays off and can finally be used.
 - Constraint: rendered rows only; static HTML passthrough gets nothing.
 - Dogfood callout: this is the manual's own nav.
 
-### 23. Drafts, hidden, and profiles
+### 24. Drafts, hidden, and profiles
 - The three flags, where they come from, what each means.
 - `hidden` = routed but unlisted; `draft` = routed to `/drafts/{slug}/`.
+- **The flags are not engine vocabulary** (2026-07-25) — they're ordinary
+  `bool` fields the *base config* declares in `[schema]`, plus the three
+  markers that set them. Nice thing to state, because it's the model
+  paying off: `extends = "none"` genuinely removes them, and then
+  `where = "!draft"` is a load error naming the knowns, not a filter that
+  silently matches everything. Also why flags work on *any* row (a page
+  hides exactly as a post does) — they're row properties, not a post
+  feature.
 - **Drafts live in `_drafts/`** — a *second source* for the posts table
   (ch. 5), not a second table: `[[collections]]` with `kind = "posts"`,
   `source = "_drafts"`, `filename_formats = ["{slug}"]` (a draft has no
   date until it publishes). Ordinary rows otherwise — routed, in the link
   graph, visible to the inspector — kept out of feeds and listings by the
   `!draft` filter the queries already carry.
-- **Flags work on pages too** (fixed 2026-07-19) — same cascade as posts,
-  front matter over marker/rule defaults. `hidden` reaches the row's
-  route so star views filter it; `noindex` reaches the head. Worth a
-  sentence on *why* this is called out: a page declaring `noindex: true`
-  used to be accepted and silently dropped, which is the failure mode
-  this whole system exists to prevent. Good place to teach "if a
-  declaration seems ignored, `grackle explain` it."
+- **The union that makes this work** (post-`from`-scoping, ch. 6): the
+  `published` set must name *both* sources — `from = ["posts", "drafts"]`
+  — or the drafts silently leave every listing. This is the sharp edge of
+  the change: the default projection hides drafts by `where` anyway, so the
+  bug is invisible until `--profile drafts` relaxes the filter to surface
+  them. A URL-set check can't catch it (a draft is routed either way);
+  only a full render under the drafts profile can. Good, concrete lesson in
+  "parity has two profiles, and the interesting rows live in one of them."
+- Cautionary example worth keeping: a page's `noindex: true` was once
+  accepted and silently dropped — the exact failure this system exists to
+  prevent. Teach "if a declaration seems ignored, `grackle explain` it."
+  `hidden` reaches the route (star views filter it); `noindex` reaches the
+  head via `[html.head.meta]` (ch. 14).
 - **Profiles are built** (the outline's loudest ★ closed 2026-07-19) — a
   projection, not a different database. A profile changes three things:
   which rows the queries admit (by patching a set's or a route's `where`),
@@ -669,10 +834,10 @@ author. Here the database framing pays off and can finally be used.
 - Settled since the last draft: q10 (the drafts profile forces `noindex`
   site-wide). Still open: listing `noindex` is an engine name-match (q33).
 
-### 24. Bringing an existing site across
+### 25. Bringing an existing site across
 
 The migration chapter. Placed here because it needs routes (ch. 5),
-shells (ch. 19) and flags (ch. 23) and nothing later. Written against
+shells (ch. 19) and flags (ch. 24) and nothing later. Written against
 the real case: a 27-year tree where **187 of 227 page rows are
 passthrough HTML** — hand-built demos, imported artifacts, pages older
 than the tags they use.
@@ -714,7 +879,7 @@ than the tags they use.
   engine *can* see cited.
 - **What to do about the ugly parts of an import**: `hidden: true` keeps
   an artifact linkable but out of the sitemap and the search index; a
-  `.noindex` marker does a whole subtree at once (ch. 20). This is the
+  `.noindex` marker does a whole subtree at once (ch. 21). This is the
   honest answer for demos and legacy trees, and it's one `touch`.
 - **Where metadata comes from when the file can't carry front matter**
   (q49, ★ mostly unbuilt) — teach the precedence, since it's the shape
@@ -744,7 +909,7 @@ than the tags they use.
   shouldn't be indexed → *then* start converting to markdown, at
   whatever pace, forever.
 
-### 25. Widgets, and the line at control flow
+### 26. Widgets, and the line at control flow
 - `[widgets] callout = "<callout><div>\n\n{body}\n\n</div></callout>"`.
 - Usage: `{% callout %}` … `{% endcallout %}`; body is ordinary markdown
   (no `markdown="1"`).
@@ -759,7 +924,7 @@ than the tags they use.
   tags stay verbatim.
 - Dogfood callout: the `★` and `note` boxes in this manual are widgets.
 
-### 26. Blocks and rewrites
+### 27. Blocks and rewrites
 - Why the body is a block sequence, not a string. Three addressing modes:
   **position** (summaries — built), **selector** (rewrites), **identity**
   (notes).
@@ -778,7 +943,7 @@ than the tags they use.
 - Pipeline order, one diagram: tags → comrak → (narrow) rewrites → layout
   picks blocks → theme.
 
-### 27. Per-post CSS
+### 28. Per-post CSS
 - ★ Entirely specced: a `<style>` block in the body, SCSS, compiled,
   cached, hoisted, auto-scoped, `style_scope: false` to opt out.
 - Where CSS belongs, decision table: one row → per-post `<style>`; a
@@ -786,7 +951,7 @@ than the tags they use.
 - Gotcha to document now because the failure is invisible: **scoped SCSS
   cannot declare `:root` custom properties**.
 
-### 28. Relations: every neighbour list is a query
+### 29. Relations: every neighbour list is a query
 **Rewritten — this landed built 2026-07-23 (q52/q53), and it's the moment
 the expression language (§5f) became real.** Formerly "related posts +
 `[related]`"; both `[related]` and the collection-level `adjacency` key are
@@ -852,11 +1017,12 @@ writes a real expression.
   glob both scopes which rows get the relation *and* names the schema to
   check. Answers "why doesn't the manual show Same course?" with structure.
 - **q53 terminology, now load-bearing**: a *relation* points at other
-  rows; an *axis* points at other **forms of the same row** (translations,
-  thumbnails). Site-defined relations now stamp **`data-relation`** (the
-  old `data-axis`, renamed in this change) — a deliberate theme-contract
-  change. `translations` stays an axis and reaches the head as
-  `rel="alternate" hreflang` (ch. 30).
+  rows; an *axis* points at other **forms of the same row** (ch. 20).
+  Site-defined relations now stamp **`data-relation`** (the old
+  `data-axis`, renamed in this change) — a deliberate theme-contract
+  change. `translations` keeps `data-axis` and reaches the head as
+  `rel="alternate" hreflang` (ch. 31) — it's axis-*shaped*, but note it's
+  a distinct mechanism (paired rows), **not** the `[axes.*]` one (ch. 20).
 - **Backlinks carry the citing row's date**, newest first; `linked_from`
   is the honest *mixed* example (a citing page has no date). One real fix
   rides here: the homepage's recent-posts arrangement no longer counts as
@@ -892,7 +1058,7 @@ writes a real expression.
   comparison (`(a + b) > c`) is valid CEL but unsupported — the error says
   to lift it into a rank term; model upgrade / `reindex` undecided (q13).
 
-### 29. Search
+### 30. Search
 - The searchable set is a **query**, not a setting: `[routes.search] from
   = "*" shell = "search"` with a `where`.
 - Engine assets (`search.bin`, `search.js`, `search.wasm`) ship
@@ -910,16 +1076,18 @@ writes a real expression.
   same lever, not a second one.
 - ★ overlay strings not localized.
 
-### 30. More than one language
+### 31. More than one language
 - `[i18n] default`, `locales`, `selector = "suffix" | "prefix"`.
 - The load-time split: everything downstream sees the **logical** path.
   i18n off is a byte-identical no-op.
-- A translation is a row, not a site copy.
-- The switcher is the `translations` **axis** (q53 — an alternative *form*
-  of the row, not a relation to another row). Zero fragment changes for
-  the body chip, **and** it now reaches the head as `<link
-  rel="alternate" hreflang>` (built 2026-07-20) — the SEO-correct place, a
-  fix over the earlier body-only behaviour.
+- **A translation is a row, not a site copy** — and this is why locale is
+  *not* the `[axes.*]` mechanism (ch. 20): `dal.md` and `dal.fr.md` are two
+  rows, one route each, paired by logical path. Axis-shaped in spirit
+  (alternative forms), separate in build.
+- The switcher is `translations` — zero fragment changes for the body
+  chip, **and** it reaches the head as `<link rel="alternate" hreflang>`
+  (built 2026-07-20), the SEO-correct place. (Note: `[axes.*]` members do
+  *not* yet emit `rel="alternate"` — only this locale path does.)
 - `LocalizedStr` anywhere a display name goes; the **three-level
   hierarchy**: inline > `[i18n.strings]` > engine built-in. `@key`
   references; `@@` escapes.
@@ -937,7 +1105,7 @@ writes a real expression.
   outright and give the workaround (a `.slots/` locale link, or make the
   landing mode B).
 
-### 31. The inspector: the database explaining itself
+### 32. The inspector: the database explaining itself
 Placed last in Part III because it *displays* everything Parts I–III
 taught — claimed rows, star routes, locales, flags, profiles — and is far
 richer once those names mean something. Introduced back in ch. 2 so a
@@ -960,7 +1128,7 @@ reader can use it from day one.
 - **The provenance strip**: source → route → the queries that picked it
   up. A generic db viewer can't show it — the row and the URL aren't the
   same object: a claimed row has no route (ch. 18), a translated row has
-  two (ch. 30), a `from = "*"` route has 66 members and no row.
+  two (ch. 31), a `from = "*"` route has 66 members and no row.
 - **The diagnose lens earns the most space** — every finding is an
   exception (no route, claimed, draft, hidden, noindex, no title, undated
   post, route with no members). State the bar, because it's a transferable
@@ -974,7 +1142,7 @@ reader can use it from day one.
   than showing empty — `/search.bin` 327, `/sitemap.xml` 589 (matching the
   emitted sitemap exactly).
 - Under a profile it says "included in `drafts`, excluded from `default`"
-  — the best demonstration of what a projection *is* (ch. 23).
+  — the best demonstration of what a projection *is* (ch. 24).
 - ★ Honest edges: assets embedded in the binary (hacking the inspector
   needs a rebuild); route order is lexical, so the client owns display
   order (`/blog/page/10/` before `/blog/page/2/` otherwise).
@@ -989,27 +1157,32 @@ site with typed content.*
 Terse, generated where possible, no teaching. Each entry links back to
 the chapter that teaches it.
 
-### 32. Reference
-- **32a. `grackle.toml`** — every key. `[site]`, `[[collections]]` +
-  `[[collections.rules]]` (array-of-tables now; name defaults from the
-  source dir), `[markers]`, **`[sets.*]`** and **`[routes.*]`** (the split;
-  list the route-only keys vs the shared keys), `[sets.*.fields.*]`,
-  `[profiles.*]` (+ nested `.sets.*`/`.routes.*` patches), `[widgets]`,
-  `[records.*]`, **`[collections.relations.*]`** (`over`/`where`/`rank`/
-  `min_rank`/`limit`/`match`/`label`), `[i18n]`, `[i18n.names]`,
-  `[i18n.strings]`, `[shells.*]`, `[cache]`, `[static]`. (**`[related]` and
-  the collection `adjacency` key are gone** — both dissolved into
-  `[collections.relations.*]`. `[links]` is gone as a required
-  block — strict is the default; `policy = "loose"` is the only reason to
-  write one.) Mark built/specced per key. ★ flag the keys that don't mean
-  what they say (`layout` on listings, `template` = "claims a file", row
-  `layout:` deprecated toward `shell:`) pending q33 — replacement named in
-  each case.
-- **32b. Filter (`where`) language** — grammar, operators, truthiness
+### 33. Reference
+- **33a. `grackle.toml`** — every key. Open with **`extends`** (defaults
+  to the base config; `"none"` opts out — and the whole reference should
+  mark which keys the *base* already supplies, since a real site overrides
+  more than it writes). Then `[site]` (incl. **`theme`**), `[schema]`
+  (where the `draft`/`hidden`/`noindex` bools now live),
+  **`[html.head.meta|property|link]`** (the head as text expressions —
+  empty ⇒ no tag), `[[collections]]` + `[[collections.rules]]`
+  (array-of-tables; name from source dir), `[markers]`, **`[sets.*]`** and
+  **`[routes.*]`** (the split; route-only keys incl. **`default_content`**
+  vs shared keys), `[sets.*.fields.*]`, `[profiles.*]` (+ nested
+  `.sets.*`/`.routes.*`), `[widgets]`, `[records.*]`,
+  **`[collections.relations.*]`** (`over`/`where`/`rank`/`min_rank`/
+  `limit`/`match`/`label`), **`[collections.<name>.schema]`** (the middle
+  of the three schema scopes, ch. 22), `[i18n]`, `[i18n.names]`,
+  `[i18n.strings]`, `[shells.*]`, `[cache]`, `[static]`. Gone:
+  **`[related]`**, collection
+  **`adjacency`**, required **`[links]`** (strict is default; `policy =
+  "loose"` opts out). Mark built/specced per key. ★ flag keys that don't
+  mean what they say (`layout` on listings, `template` = "claims a file",
+  row `layout:` deprecated toward `shell:`) pending q33.
+- **33b. Filter (`where`) language** — grammar, operators, truthiness
   table, the functions (`glob`, `under`), and the field vocabularies
   (row / object / route). Note `match` is a *separate* source-path glob,
   not part of `where`.
-- **32c. Part kinds** — the table from `assets/parts.toml`; this *is* the
+- **33c. Part kinds** — the table from `assets/parts.toml`; this *is* the
   theme API. Kind → parts → types (`text url html stream:<k> map:<k>
   flag`). Three things to state: it's **engine-owned data** (themes are
   checked against it; users don't edit it); the **declared order is the
@@ -1018,19 +1191,23 @@ the chapter that teaches it.
   merged preview kind — `figure`/`gallery` are gone, `summary` carries
   both card and image fields. Generate this section from the file, not by
   hand (see open question 8).
-- **32d. Front matter** — reserved keys. One row type now (q51): `date`,
-  `tags`, flags, `order`, `theme`, `shell`, typed fields apply to *any*
-  row, not just posts. `shell:` (`none`/`light`/`html`); `layout:`
-  deprecated.
-- **32e. Tags in markdown** — `{% image %} {% view %} {% include %}`
+- **33d. Front matter** — reserved keys. One row type now (q51): `date`,
+  `tags`, flags, `order`, `theme`, `shell`, `permalink` (route override),
+  typed fields — all apply to *any* row, not just posts. `shell:`
+  (`none`/`light`/`html`); `layout:` deprecated.
+- **33e. Tags in markdown** — `{% image %} {% view %} {% include %}`
   (parameterless) + widgets. `{% post_url %}` is **retired** — use an
   ordinary file-relative link. Unrecognised tags emit verbatim.
-- **32f. CLI** — build / serve / query / explain / **urls** / diff, all
-  flags. `--profile` is global.
-- **32g. Error catalogue** — every load-time error, what it means, the
+- **33f. CLI** — build / serve / query (incl. `query stats` — one count
+  per declared bool field) / explain / **urls** / diff, all flags.
+  `--profile` is global. Note the real spelling `grackle query explain`
+  and the pending top-level alias. ★ pre-1.0, name them anyway:
+  **`config --effective`** (merged config + provenance) and **`explain
+  <url> --parts`** (part map, incl. parts nothing placed).
+- **33g. Error catalogue** — every load-time error, what it means, the
   fix. Sorted by message. High value: this is the page people land on
   from a search engine.
-- **32h. Glossary** — row, collection, origin, **set**, **route**,
+- **33h. Glossary** — row, collection, origin, **set**, **route**,
   landing, claim, part, slot, fragment, kind, variant, **row shell vs
   route shell**, **relation vs axis**, profile, projection, marker, scope
   chain, computed field.
@@ -1042,7 +1219,7 @@ the chapter that teaches it.
 Optional reading. Explains the shape so users can predict behaviour
 rather than memorize it.
 
-### 33. What grackle is not
+### 34. What grackle is not
 - Confirmed non-goals with reasons: comments, memberships/paywalls,
   ratings, live/external data, stateful interactive widgets as *modeled*
   content, control flow in templates, AST access, vector indexes.
@@ -1050,50 +1227,73 @@ rather than memorize it.
   commits data; raw passthrough + per-row assets).
 - Says clearly: if you need these, use something else. That's fine.
 
-### 34. Why it's shaped this way
+### 35. Why it's shaped this way
 - The four layers and their different rates of change.
 - The recurring law, one more time, with all six of its appearances.
 - Why load-time errors instead of 404s.
-- The two honest weaknesses: themes need Rust for new part vocabulary;
-  head facts aren't per-theme selectable ★.
+- The one honest weakness left: a new *part vocabulary* needs Rust
+  (fragments and CSS don't; the head is now config-declared, ch. 14).
+- Worth a section of its own: **inherit-then-override, everywhere.** The
+  base config, the base theme, and `parts.toml` are the same move — a
+  binary-embedded default a site extends and cannot forget to copy — and
+  they decompose into the *same three merge rules* (by-source / by-name /
+  per-key) the engine already had. State it once as the unifying idea.
 - Pointer to `DESIGN.md` for anyone who wants the full argument.
 
-### 35. What isn't real yet
+### 36. What isn't real yet
 - The ledger, in one table: `.style.scss`, `.slots/` typed fills,
   **authored `.rewrite.toml` rules**, **the notes/footnote stream +
   sidenotes**, per-post `<style>`, md shell, **computed fields on §5f**
   (the `truncate = {…}` struct is still the stopgap — the expression
   language exists now but this hasn't moved onto it), board kind, serve
   v2, pagination × subdivision, per-block facts, audio/video field types,
-  faceted filtering, transclusion, profile `baseurl`, **the rest of the
-  axis unification (q53** — thumbnails/md-twin as `rel=alternate`; locale
-  hreflang already landed**)**, the route-token supply merge (q51's
-  remainder — a post still can't route to an arbitrary path).
-- **The whole theme-distribution story is specced** and deserves its own
-  ledger block, because the built base makes it look closer than it is:
-  `theme.toml` (both head-fact selection *and* `extends` inheritance
-  chains), the `grackle theme` subcommand family
+  faceted filtering, transclusion, profile `baseurl`, the route-token
+  supply merge (q51's remainder — a post still can't route to an arbitrary
+  path).
+- **Axis edges (the mechanism is built, ch. 20; these aren't):** axis ×
+  locale composition (the cartesian product — two axes on one row collide
+  today); a `rel="alternate"` for axis members (`Head.alternates` is
+  hreflang-shaped, so only the locale path fills it); a load error for an
+  axis whose `field` no render path consults (silent URL multiplication is
+  the footgun); and a canonical link at the `light` tier (its minimal head
+  carries none, so an alternate there advertises nothing).
+- **Theme *distribution* is still specced** (the built base + `[site]
+  theme` make it look closer than it is): theme-level `theme.toml` +
+  `extends` chains, the `grackle theme` subcommand family
   (`add`/`update`/`list`/`new`/`derive`/`check`/`try`) with
-  `themes/.lock.toml`, and the `?theme=` dev override. Today: install is
-  `cp -r` plus `[site] theme`, and there is no update path. Also specced: the
-  fuller cascade (`reset`/`overlay`/`post` layers — only `base, theme` ship).
+  `themes/.lock.toml`, and `?theme=` dev override. Today: install is `cp
+  -r` + `[site] theme`, no update path. Also specced: the `overlay`/`post`
+  cascade layers (declared, unfilled — only `base`/`theme` carry rules).
+- **Pre-1.0 tooling the manual leans on but that isn't built**: the
+  top-level `grackle explain` alias (it's `query explain` today),
+  `config --effective` (merged-config provenance — the `extends`
+  inspector), and `explain --parts` (part map + unplaced parts). These
+  come from the 1.0 checklist, not `DESIGN.md`; keep them ★ until they land.
 - Each row: what it would look like, what blocks it, the q number.
 - **Landed since earlier drafts** — out of the ledger, into the chapters
   named: row shells (ch. 19), page flags + **profiles** + **`_drafts` as a
-  second source** (ch. 23), search-skips-markup (ch. 29), **the inspector**
-  (ch. 31), **one row type / q51** (pervasive — pages carry dates, tags,
+  second source** (ch. 24), search-skips-markup (ch. 30), **the inspector**
+  (ch. 32), **one row type / q51** (pervasive — pages carry dates, tags,
   flags, typed fields), **`[sets]`/`[routes]` split** (ch. 6), **strict
-  links by default** (ch. 10), **q26 body-image dimensions** (ch. 26),
-  **the narrow HTML-link rewrite** (ch. 26), **locale hreflang** (ch. 30),
+  links by default** (ch. 10), **q26 body-image dimensions** (ch. 27),
+  **the narrow HTML-link rewrite** (ch. 27), **locale hreflang** (ch. 31),
   **declare-your-own relations + the §5f expression language / q52**
-  (ch. 28 — it also built arithmetic, unary minus, the two-row function
+  (ch. 29 — it also built arithmetic, unary minus, the two-row function
   registry, and the `Double` type), **the base theme in the binary**
   (ch. 13/14 — this is the other big one: the null theme went from
   complete-but-unusable to a real default, and the gallery shrank from 109
-  files to 32), and **syntax highlighting** (ch. 15 — built, unconfigurable,
-  theme supplies the four token classes).
+  files to 32), **syntax highlighting** (ch. 15 — built, unconfigurable,
+  theme supplies the four token classes), **the base config** (ch. 3 — an
+  empty `grackle.toml` is valid; `extends`, `default_content`, the head as
+  `[html.head.*]` config, `[site] theme`), **flags as declared bools**
+  (ch. 24 — `draft`/`hidden`/`noindex` left engine vocabulary for the
+  base's `[schema]`), **axes** (ch. 20 — one row, several forms; q53 built,
+  and locale reclassified as *not* an axis), **`from` unions + one
+  materializer** (ch. 6/8 — `from = [list]`, and grouping/pagination now
+  work over objects, inside partitions), and **a route may name a theme**
+  (ch. 13).
 - **Still-open arrivals a reader would notice:**
-  - q47 — no language switcher on listing routes (ch. 29).
+  - q47 — no language switcher on listing routes (ch. 30).
   - q48 — `type:` as row data. Held until something other than the
     renderer consumes it; today the answer is subtree position +
     `.schema.toml`.
@@ -1108,8 +1308,15 @@ rather than memorize it.
 
 ## Open questions about the manual itself
 
-1. **Chapter count.** 35 is a lot. Candidates to merge: 15+16 (CSS +
-   variants), 26+27 (blocks + per-post CSS, both largely ★), 33+34.
+1. **Chapter count.** 35 is a lot, and the base config just made three
+   Part I chapters (3, 6, 9) shorter — they *read* inherited defaults
+   rather than build from scratch, so Part I could plausibly drop to ~8
+   chapters. Concrete merges to consider: **3+5+6** into one
+   "inherit-then-override" chapter (the empty config makes them one
+   story now); **15+16** (CSS + variants); **26+27** (blocks + per-post
+   CSS, both largely ★); **33+34** (non-goals + rationale). My
+   recommendation: do 15+16 and 26+27 now (clean), hold the Part I merge
+   until prose, since it's the pedagogically load-bearing stretch.
 2. ~~**Does Part I need a theme?**~~ **Answered by the engine, 2026-07-24:
    no.** The base theme ships in the binary, so ch. 3's first `serve`
    already looks like a real site with zero configuration. That was the
@@ -1118,7 +1325,7 @@ rather than memorize it.
    theme immediately?** Leaning screenshot-the-base — "you already have a
    site" is a stronger opening than "now install something."
 3. **★-heavy chapters (26, 27) may be premature.** Option: hold them out
-   of v1 and let ch. 35 carry them until §6d stage B fully lands.
+   of v1 and let ch. 36 carry them until §6d stage B fully lands.
 4. **Release notes as posts** is the natural dogfood, but it means the
    manual has a publishing cadence. Acceptable?
 5. **Where does the manual site live and deploy?** `grackle/manual/` in
@@ -1129,19 +1336,22 @@ rather than memorize it.
    ending: q49 metadata derivation, q50 transplant, q28 redirects — the
    questions a migrator asks first. Ship with the ★s loud, or hold until
    q49's cheap derive half (reading a `<title>` already there) lands.
-7. **Does ch. 24 want a worked migration?** A before/after on a small
+7. **Does ch. 25 want a worked migration?** A before/after on a small
    imported tree would carry it better than prose. `field-notes` now has
    `demos/pane.html` (`shell: none`); a second row at the `light` tier
    would make the spectrum visible.
-8. **Reference generation is now urgent, not nice-to-have.** This sync
-   touched 31a (config keys), 31b (`where` functions), 31c (part kinds),
-   31d (front matter) — every one of them churned under a refactor the
-   manual didn't see coming. 32a/32b/32c/31d *must* be generated from the
-   source (config structs, `assets/parts.toml`, the error enums) or they
-   rot in a week, not a month. This is a `grackle docs` subcommand
-   waiting to be specced — the strongest feature request to fall out of
-   writing the manual.
-9. **The vocabulary churned: `[views]`→`[sets]`/`[routes]`, `over`→`from`,
-   `filter`→`where`.** Any prose already drafted against the old spelling
-   is wrong. Worth a one-time grep gate in CI over the manual corpus for
-   the retired spellings, since they read as plausible.
+8. **Reference sections must be generated — a `grackle docs` subcommand.**
+   32a (config keys), 32b (`where` functions), 32c (part kinds), 32d
+   (front-matter keys) each churned under a refactor the manual didn't see
+   coming; hand-written, they rot in a *week*. The fix is a `grackle docs`
+   subcommand that emits them from the single sources of truth — the config
+   structs, `assets/parts.toml`, and the error enums — so the reference
+   can't drift from the binary. The strongest feature request to fall out
+   of writing the manual, and it should exist before the reference is
+   written by hand even once.
+9. **Retired-spelling grep gate in CI.** The vocabulary keeps churning:
+   `[views]`→`[sets]`/`[routes]`, `over`→`from`, `filter`→`where`, and now
+   row `layout:`→`shell:`/inferred and `adjacency`/`[related]`→
+   `[collections.relations.*]`. Every retired spelling reads as plausible,
+   so a grep gate over the manual corpus (fail the build on a banned token)
+   is cheap insurance the prose can't quietly regress.

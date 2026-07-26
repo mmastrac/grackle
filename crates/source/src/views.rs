@@ -94,26 +94,22 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
     }
 }
 
-/// Load-time check for a view's group chain: every spec must name a field
-/// of the base schema plus any `.schema.toml` declaration (§5b) — the
-/// `order_by` discipline applied to grouping, so a typo cannot produce an
-/// empty partition silently.
+/// Load-time check for a view's group chain: every spec must name a field of
+/// the base's own vocabulary — the `order_by` discipline applied to grouping,
+/// so a typo cannot produce an empty partition silently.
 ///
-/// Objects are their own arm: no front matter, so no declared fields.
-fn check_group_chain(schemas: &Schemas, name: &str, chain: &[String], kind: Kind) -> Result<()> {
+/// The vocabulary arrives as a parameter because it belongs to the BASE, not
+/// to the kind. `Base::resolve` is the single place that decides what a view's
+/// expressions may name (§5c); this function held the second copy of that
+/// decision, and its objects arm was unreachable — the dispatch sent objects
+/// to a materializer that refused `group_by` before ever calling this.
+fn check_group_chain(name: &str, chain: &[String], schema: &filter::Schema) -> Result<()> {
+    let mut known: Vec<&str> = schema.keys().copied().collect();
+    known.sort_unstable();
+    known.dedup();
     for spec in chain {
         let field = grackle_model::spec_field(spec);
-        let mut known: Vec<&str> = match kind {
-            Kind::Objects => object_schema().keys().copied().collect(),
-            Kind::Posts | Kind::Tree => {
-                let mut v: Vec<&str> = row_schema().keys().copied().collect();
-                v.extend(schemas.declared().keys().copied());
-                v
-            }
-        };
         if !known.contains(&field) {
-            known.sort_unstable();
-            known.dedup();
             bail!(
                 "view {name}: group_by names unknown field {field:?}\n  known fields: {}",
                 known.join(", ")
@@ -157,7 +153,7 @@ pub fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>>
 fn grouped_routes(
     name: &str,
     v: &View,
-    tmpl: &str,
+    tmpls: &[String],
     chain: &[String],
     rows: &[(grackle_db::Key, &dyn filter::Row)],
     route_value: &dyn Fn(&str, &str) -> String,
@@ -181,23 +177,57 @@ fn grouped_routes(
     }
     let mut out = Vec::new();
     for (sort, (params, members)) in groups {
-        let url = template::render(tmpl, |k| {
-            template::param(&params, k).map(|v| route_value(k, &v))
-        })?;
         let key = sort
             .iter()
             .map(SortKey::display)
             .collect::<Vec<_>>()
             .join("-");
-        out.push(Route {
+        // `{n}` is the page; every other placeholder is a group param. One
+        // renderer for both shapes, so a paginated group's URL cannot be built
+        // by a different rule than an unpaginated one's.
+        let url = |tmpl: &str, n: Option<usize>| -> Result<String> {
+            template::render(tmpl, |k| match k {
+                "n" => n.map(|n| n.to_string()),
+                _ => template::param(&params, k).map(|v| route_value(k, &v)),
+            })
+        };
+        let route = |url: String, page: Option<usize>, members: Vec<grackle_db::Key>| Route {
             fields: view_fields(v),
             view: Some(name.to_string()),
-            key: Some(key),
+            // The group key, not the page number: `{key}` in a title or crumb
+            // names the partition, and `page` carries the pagination.
+            key: Some(key.clone()),
             rows: Some(members.len()),
-            params,
+            page,
+            params: params.clone(),
             members,
             ..Route::new(url, RouteKind::View)
-        });
+        };
+        match v.paginate.map(|p| p.max(1)) {
+            // A grouped view paginates INSIDE each group: the partition says
+            // which rows, pagination says how many to a page. `paginate` used
+            // to be read only on the ungrouped path, so a grouped view that
+            // declared it got one unpaginated route and no warning.
+            //
+            // This is not q30. That question is pagination × SUBDIVISION — a
+            // pageable parent whose children subdivide off its root, where the
+            // two share a URL namespace. `config.query` still refuses to
+            // compose over a paginated route, so a grouped-and-paginated view
+            // remains a leaf.
+            Some(per) => {
+                for n in 1..=members.len().div_ceil(per).max(1) {
+                    let tmpl = if n == 1 { &tmpls[0] } else { &tmpls[1] };
+                    let page: Vec<grackle_db::Key> = members
+                        .iter()
+                        .skip(per * (n - 1))
+                        .take(per)
+                        .cloned()
+                        .collect();
+                    out.push(route(url(tmpl, Some(n))?, Some(n), page));
+                }
+            }
+            None => out.push(route(url(&tmpls[0], None)?, None, members)),
+        }
     }
     Ok(out)
 }
@@ -355,21 +385,26 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         // `over = "*"` views read the finished route set, so they run in a
         // second pass (see build_star_views). Views iterate in name order, so
         // inline would measure a partial list.
-        if v.over == "*" {
+        if v.over.is_star() {
             continue;
         }
         // Both named queries (`published`) and embedded views (`latest`) still
         // have to resolve, so a typo in `over` is a startup error either way.
         let q = cfg.query(name)?;
         // Dispatch on the base collection's KIND, never its name: a posts
-        // collection may be called anything (§7a names one `notes`).
-        let Some(base) = cfg.collections.get(&q.base) else {
+        // collection may be called anything (§7a names one `notes`). A union's
+        // members share a kind (checked in `Config::check_base`), so the first
+        // answers for all of them.
+        let Some(kind) = q
+            .base
+            .first()
+            .and_then(|n| cfg.collections.get(n))
+            .map(|c| c.kind)
+        else {
             continue;
         };
-        match base.kind {
-            Kind::Objects => build_object_view(cfg, db, name, v, &q)?,
-            kind => build_row_view(cfg, db, schemas, name, v, &q, kind)?,
-        }
+        let base = Base::resolve(schemas, name, &q, kind)?;
+        build_view(cfg, db, name, v, &q, kind, base)?;
     }
     // §4d: an inherited route with nothing to show does not materialize. The
     // base config may not mint a URL the author did not ask for, and a site
@@ -381,40 +416,109 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) else {
             return true; // a row's own route, not a view's
         };
-        !v.inherited || v.over == "*" || r.rows.is_none_or(|n| n > 0)
+        !v.inherited || v.over.is_star() || r.rows.is_none_or(|n| n > 0)
     });
     Ok(())
 }
 
-/// Materialize a view over ROWS — posts or tree, one flow.
+/// What a view's base contributes to materialization: the vocabulary its
+/// expressions type-check against, the predicate that scopes it to its own
+/// rows, and whether those rows are PARSED rows.
 ///
-/// A view differs from another only in which index list it starts from: a
-/// set, not a shape. Ordering, `match` scopes and `limit` are one rule each,
-/// applied here for every base.
-fn build_row_view(
+/// These three are the whole of what used to be a second materializer. Objects
+/// differ from posts and tree in exactly them — a narrower vocabulary (no front
+/// matter, so `where = "draft"` on a gallery stays the load error §5b wants),
+/// and bytes rather than parsed rows. Writing them as parameters is what makes
+/// `group_by`, `paginate` and subdivision work over objects: they were never
+/// unsupported, only unreachable, and `check_group_chain` had carried a dead
+/// objects arm to prove it.
+///
+/// Membership used to be the third difference, and is not any more. Objects
+/// scoped to the one collection named; rows ranged over every collection of
+/// their KIND, so `from = "notes"` quietly meant the whole posts table. Now
+/// both mean *the collections `from` names* (§5c), and a site that wants the
+/// old union writes it: `from = ["posts", "drafts"]`.
+struct Base {
+    schema: filter::Schema,
+    membership: filter::Filter,
+    /// `rendered`, `claimed` and `locale` are properties of a parsed row. An
+    /// object is never rendered, cannot be a view's claimed content (q45) and
+    /// carries no locale (§6f) — so row eligibility, applied to objects, would
+    /// exclude every one of them.
+    parsed: bool,
+}
+
+impl Base {
+    fn resolve(schemas: &Schemas, name: &str, q: &Query, kind: Kind) -> Result<Base> {
+        // One rule for every base: the row's collection is one of the ones
+        // `from` named. It parses against the FULL row schema even for objects,
+        // because `collection` is a column only that one names — while the
+        // author's own filter type-checks against the narrow vocabulary below
+        // (§3, q51), which is what keeps `where = "draft"` on a gallery an error.
+        let membership = filter::Filter::parse(&members_clause(&q.base), &row_schema())
+            .with_context(|| format!("view {name}: base {:?}", q.base))?;
+        Ok(match kind {
+            Kind::Objects => Base {
+                schema: object_schema(),
+                membership,
+                parsed: false,
+            },
+            _ => Base {
+                // Built-ins plus every declared field, so `where` sees exactly
+                // what `order_by`, `group_by` and a relation's `rank` see.
+                schema: schemas.row_filter_schema(),
+                membership,
+                parsed: true,
+            },
+        })
+    }
+}
+
+/// `collection == a || collection == b` over the collections a view's `from`
+/// named. Empty names nothing, which is not the same as naming everything.
+fn members_clause(names: &[String]) -> String {
+    if names.is_empty() {
+        return "false".to_string();
+    }
+    names
+        .iter()
+        .map(|n| format!("collection == {n:?}"))
+        .collect::<Vec<_>>()
+        .join(" || ")
+}
+
+/// Materialize a view — one flow for every base.
+///
+/// A view differs from another only in which index list it starts from: a set,
+/// not a shape. Ordering, `match` scopes, `limit`, grouping, pagination and the
+/// locale axis are one rule each, applied here for every base.
+fn build_view(
     cfg: &Config,
     db: &mut SiteDb,
-    schemas: &Schemas,
     name: &str,
     v: &View,
     q: &Query,
     kind: Kind,
+    base: Base,
 ) -> Result<()> {
+    let Base {
+        schema,
+        membership,
+        parsed,
+    } = base;
+    // §6f: objects carry no locale, so an object view that declares them is a
+    // config error rather than a silent ignore.
+    if !parsed && v.locales.is_some() {
+        bail!("view {name}: objects carry no locale; object views cannot declare locales");
+    }
     // Parsed and type-checked once per view, not per row: a bad filter is a
     // startup error naming the view.
-    //
-    // The environment is `row_filter_schema` — built-ins plus every declared
-    // field — so `where` sees exactly what `order_by`, `group_by` and a
-    // relation's `rank` already saw. It was the one consumer parsing against
-    // the bare row schema.
-    let schema = schemas.row_filter_schema();
     let view = grackle_db::View::all()
-        .filter(base_filter(cfg, kind, &schema)?.and(scoped_filter(name, q, &schema)?))
+        .filter(membership.and(scoped_filter(name, q, &schema)?))
         .order({
             // Sorting reads the same vocabulary the filter does — it used to
             // rebuild it here, which is how the two drifted apart in the first
-            // place. (Objects have no front matter, so theirs is
-            // `object_schema` alone; that path is `build_object_view`.)
+            // place.
             let known: Vec<&str> = schema.keys().copied().collect();
             declared_order(&known, &format!("view {name}"), q.order_by.as_deref())?
         });
@@ -427,7 +531,7 @@ fn build_row_view(
     let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
             .iter()
-            .filter(|p| p.rendered && !p.claimed && p.locale == locale)
+            .filter(|p| !parsed || (p.rendered && !p.claimed && p.locale == locale))
             .map(|p| p.key.clone())
             .collect();
         rows.view_within(&eligible, &view)
@@ -445,19 +549,41 @@ fn build_row_view(
     // §6f locale-parallel views, DEFAULT-ON (Matt): a materializing row-query
     // view partitions by locale unless it opts out with `locales = "default"`.
     // A locale with no rows materializes nothing: the partition is real, not
-    // mirrored.
-    let locales = locales_for(cfg, v);
+    // mirrored. An object view has one locale because an object has none.
+    let locales = if parsed {
+        locales_for(cfg, v)
+    } else {
+        vec![cfg.i18n.default.as_str()]
+    };
+
+    // Every template this view lands on. `path` and `paths` are one list here:
+    // an unpaginated view uses the first, a paginated one needs the second for
+    // its `{n}`, and reading them from one place is what lets a grouped view
+    // paginate at all.
+    let tmpls: Vec<String> = if v.routes.is_empty() {
+        v.route.iter().cloned().collect()
+    } else {
+        v.routes.clone()
+    };
+    if tmpls.is_empty() {
+        bail!("view {name} needs a route");
+    }
+    // Page 2 would otherwise reuse page 1's URL — a route collision reported
+    // against two identical templates, which reads as a mystery. Every
+    // paginated view in the corpus already declares both.
+    if v.paginate.is_some() && tmpls.len() < 2 {
+        bail!(
+            "view {name} paginates but declares one path, so page 2 would reuse \
+             page 1's URL. Give it two: `paths = [\"/x/\", \"/x/page/{{n}}/\"]`."
+        );
+    }
 
     // Grouped views, possibly a subdivision chain (§5c): a grouped view
     // `over` a grouped view refines the parent's partition, and the group keys
     // accumulate — GROUP BY year, month, expressed compositionally.
     if v.group_by.is_some() {
-        let tmpl = v
-            .route
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
         let chain = cfg.group_specs(name);
-        check_group_chain(schemas, name, &chain, kind)?;
+        check_group_chain(name, &chain, &schema)?;
         // §6f enum records: URLs wear the record's slug for ANY grouped field
         // (tags, courses, …); keys and titles keep the id.
         let leaf = chain
@@ -476,14 +602,10 @@ fn build_row_view(
                 .iter()
                 .filter_map(|k| rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
                 .collect();
-            let mut routes = grouped_routes(
-                name,
-                v,
-                &prefixed(cfg, locale, tmpl),
-                &chain,
-                &grouped,
-                &route_value,
-            )?;
+            let localized: Vec<String> =
+                tmpls.iter().map(|t| prefixed(cfg, locale, t)).collect();
+            let mut routes =
+                grouped_routes(name, v, &localized, &chain, &grouped, &route_value)?;
             for r in &mut routes {
                 r.locale = stamp(cfg, locale);
             }
@@ -500,12 +622,7 @@ fn build_row_view(
                 continue;
             }
             for n in 1..=row_ix.len().div_ceil(per) {
-                let tmpl = if n == 1 {
-                    v.routes.first()
-                } else {
-                    v.routes.get(1).or_else(|| v.routes.first())
-                };
-                let Some(tmpl) = tmpl else { continue };
+                let tmpl = if n == 1 { &tmpls[0] } else { &tmpls[1] };
                 let url = template::render(&prefixed(cfg, locale, tmpl), |k| match k {
                     "n" => Some(n.to_string()),
                     _ => None,
@@ -533,9 +650,7 @@ fn build_row_view(
 
     // Single route over a (possibly limited) slice: the feed — which is how
     // /fr/atom.xml falls out of the default (§6f).
-    let Some(route) = v.route.as_deref() else {
-        bail!("view {name} needs a route");
-    };
+    let route = tmpls[0].as_str();
     for locale in &locales {
         let row_ix = rows_for(locale);
         // No rows in this locale = no page (the partition is real).
@@ -557,29 +672,6 @@ fn build_row_view(
         });
     }
     Ok(())
-}
-
-/// Which rows a view's base ranges over, as a predicate.
-///
-/// `from = "posts"` means the posts TABLE, not the one collection that names
-/// it — `_posts` and `_drafts` both feed it — so it is a filter over
-/// `collection`, which is what lets `published` be something a tree set can
-/// compose over.
-fn base_filter(cfg: &Config, kind: Kind, schema: &filter::Schema) -> Result<filter::Filter> {
-    let src = cfg
-        .collections
-        .iter()
-        .filter(|(_, c)| c.kind == kind)
-        .map(|(n, _)| format!("collection == {n:?}"))
-        .collect::<Vec<_>>()
-        .join(" || ");
-    if src.is_empty() {
-        // No collection of this kind: the view ranges over nothing, which is
-        // not the same as ranging over everything.
-        return filter::Filter::parse("false", schema);
-    }
-    filter::Filter::parse(&src, schema)
-        .with_context(|| format!("base filter for {kind:?} collections"))
 }
 
 /// A view's declared filter, narrowed by its `match` chain.
@@ -605,62 +697,11 @@ fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filte
     Ok(f)
 }
 
-/// Materialize a view over an objects collection: `match` scopes by path glob
-/// and the filter type-checks against the narrower object vocabulary.
-fn build_object_view(
-    _cfg: &Config,
-    db: &mut SiteDb,
-    name: &str,
-    v: &View,
-    q: &Query,
-) -> Result<()> {
-    if v.group_by.is_some() || v.paginate.is_some() {
-        bail!("view {name}: group_by/paginate on object views is not supported yet");
-    }
-    // §6f: objects carry no locale — an object view never multiplies, and
-    // saying otherwise is a config error, not a silent ignore.
-    if v.locales.is_some() {
-        bail!("view {name}: objects carry no locale; object views cannot declare locales");
-    }
-    let Some(route) = v.route.as_deref() else {
-        bail!("view {name} needs a route");
-    };
-    // Same ordering rule as every other view — `path` unless the view names a
-    // column, `path` as the final tiebreak — against the narrower object
-    // vocabulary.
-    let known: Vec<&str> = object_schema().keys().copied().collect();
-    // Membership is a filter (q51): `collection == <this objects
-    // collection>`, ANDed onto the view's predicate. The two parse against
-    // DIFFERENT schemas on purpose — the user's filter type-checks against
-    // the narrow object vocabulary so `where = "draft"` on a gallery stays
-    // the load error §5b wants, while membership needs a column only the
-    // full row schema names.
-    let membership = filter::Filter::parse(&format!("collection == {:?}", q.base), &row_schema())
-        .with_context(|| format!("view {name}: objects collection {:?}", q.base))?;
-    let view = grackle_db::View::all()
-        .filter(scoped_filter(name, q, &object_schema())?.and(membership))
-        .order(declared_order(
-            &known,
-            &format!("view {name}"),
-            q.order_by.as_deref(),
-        )?)
-        .limit(v.limit);
-    let members: Vec<grackle_db::Key> = db.rows.view(&view);
-    db.routes.push(Route {
-        fields: view_fields(v),
-        view: Some(name.to_string()),
-        rows: Some(members.len()),
-        members,
-        ..Route::new(route.to_string(), RouteKind::View)
-    });
-    Ok(())
-}
-
 /// Views over the whole route set (the sitemap). Runs after every other route
 /// exists, and its `rows` is the count that actually passes its filter.
 pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     for (name, v) in &cfg.views {
-        if v.over != "*" {
+        if !v.over.is_star() {
             continue;
         }
         let tmpl = v
@@ -689,7 +730,7 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 /// nothing was visibly wrong.
 pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
-        if v.over != "*" {
+        if !v.over.is_star() {
             continue;
         }
         let pred = match &v.filter {
@@ -698,6 +739,20 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schema
             None => filter::Filter::always(),
         };
         let members = db.routes.select(&pred);
+        // q53: a `*` view sees the CANONICAL member only. An axis publishes
+        // alternative forms of one row, and an alternate is not a second page —
+        // listing every member in the sitemap or the search index would be
+        // asking a crawler to treat six renderings of one document as six
+        // documents, which is the thing `rel="canonical"` exists to deny.
+        // Reaching them is `rel="alternate"`'s job, in the head.
+        let members: Vec<grackle_db::Key> = members
+            .into_iter()
+            .filter(|k| {
+                db.routes
+                    .get(k)
+                    .is_none_or(|r| r.axis.as_ref().is_none_or(|a| a.canonical))
+            })
+            .collect();
         let Some(at) = db
             .routes
             .iter()

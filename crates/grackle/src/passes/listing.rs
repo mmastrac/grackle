@@ -48,7 +48,7 @@ impl Pass for Listing {
                 if ctx.objects.contains(&p.key) {
                     return object_preview(p, ctx.thumbs);
                 }
-                let (html, truncated) = match ctx.bodies.get(p.url.as_str()) {
+                let (html, truncated) = match ctx.bodies.get(&p.key) {
                     Some(d) => match summary_field {
                         Some(t) => d.truncate(t.max_blocks, t.max_chars),
                         None => (d.whole.clone(), false),
@@ -72,12 +72,22 @@ impl Pass for Listing {
         let loc = ctx.locale_of(r);
         let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc)?;
 
-        // Unanimous members dress the listing (§5h), and their tokens do not
-        // lift — but a listing they do not claim wears the site's own spec,
-        // tokens included, exactly as a themeless row does.
-        let (theme_name, subtheme) = match ctx.unanimous_theme(r) {
-            Some(n) => (Some(n), None),
-            None => ctx.themes.site_default(),
+        // Nearest wins, one more time (§5e): the VIEW's own `theme` if it
+        // declared one — tokens included, because a view that names a theme
+        // states its own, exactly as a row does — then unanimous members
+        // dressing the listing (§5h) with no tokens lifted, then the site.
+        //
+        // The view sits above unanimity because unanimity is an inference and a
+        // declaration is not. It is also the only way to render one row set
+        // under several themes: six routes over one query, each naming its own,
+        // where before the only way to vary a listing's theme was to vary the
+        // rows underneath it.
+        let (theme_name, subtheme) = match v.theme.as_deref() {
+            Some(spec) => ctx.themes.resolve(Some(spec)),
+            None => match ctx.unanimous_theme(r) {
+                Some(n) => (Some(n), None),
+                None => ctx.themes.site_default(),
+            },
         };
         let row_thm = ctx.themes.get(theme_name)?;
         let main = row_thm.fragments.render_with(

@@ -1,0 +1,61 @@
+# An axis: alternative FORMS of one row (DESIGN.md q53).
+#
+# §4's constraint is "a row renders at exactly one route", and an axis is the
+# one thing allowed to break it. Two axes here, over two different fields, to
+# show that the mechanism is not a theme feature wearing a general name:
+#
+#   theme         /page/ and /loud/page/ — one document, two looks
+#   serialization /page/ and /page/light.html — one document, two tiers
+#
+# Both are visible in the blessed output. What is also visible, by absence:
+# neither alternate is in `sitemap.xml`, because an alternate is not a second
+# document — it is what `rel="alternate"` is for, and every member's
+# `rel="canonical"` names the canonical one.
+extends = "none"
+
+# Declared so the blessed output can show the point: every member's canonical
+# names the CANONICAL form, not itself.
+[html.head.link]
+canonical = 'site.url + url'
+
+[site]
+url = "https://example.com"
+title = "Axes"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+exclude = ["themes/**"]
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# The first value is CANONICAL and keeps the row's own URL — the same way the
+# default locale sits above the selector and wears no `/fr/`. Only alternates
+# are templated.
+[axes.theme]
+values = ["default", "loud"]
+field = "theme"
+match = "look.md"
+
+# q44's md twin, as an axis rather than a mechanism of its own: `shell` is a
+# row field like `theme`, so the same machinery serializes one row two ways.
+[axes.serialization]
+values = ["html", "light"]
+field = "shell"
+url = "{url}light.html"
+match = "tiers.md"
+
+# `*` views see canonical members only — the alternates are absent from this
+# by construction, not by a filter anyone wrote.
+[routes.sitemap]
+path = "/sitemap.xml"
+from = "*"
+shell = "sitemap"

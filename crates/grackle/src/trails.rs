@@ -87,7 +87,15 @@ pub fn listing_title_and_trail(
     let title = match &v.title {
         Some(t) => crate::template::render(&text(t), param)
             .with_context(|| format!("view {view}: title"))?,
-        None => r.key.clone().unwrap_or_else(|| view.to_string()),
+        // The empty-title fallback resolves through the i18n string layer keyed
+        // on the view name — the door the base's `@home`/`@blog` routes reach
+        // (§4d) — so an engine view resolves its built-in and any other resolves
+        // to `""`, collapsing the heading rather than leaking the config key. A
+        // grouped archive keeps its group key.
+        None => r
+            .key
+            .clone()
+            .unwrap_or_else(|| cfg.i18n.string(view, loc).to_string()),
     };
     let tail = match r.page {
         // Paginated trails keep the engine's `page` string for now — crumb

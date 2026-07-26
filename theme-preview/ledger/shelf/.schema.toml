@@ -1,5 +1,0 @@
-# A typed subtree (§5b): `cover` is image-typed, so the engine
-# thumbnails it and attaches dimension facts — which is what
-# lets a card reserve its space before the image arrives.
-author = { type = "string" }
-cover = { type = "image" }

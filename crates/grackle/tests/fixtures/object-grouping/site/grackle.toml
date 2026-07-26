@@ -1,0 +1,56 @@
+# Grouping and pagination over the OBJECTS table (DESIGN.md §5c).
+#
+# Both were refused outright until the two materializers merged: objects went
+# through a second function that never grew them, and its error said "not
+# supported yet". The tell was in `views.rs::check_group_chain`, which carried a
+# `Kind::Objects` arm the dispatch made unreachable — grouping validation for
+# objects had been written and could never run.
+#
+# Three things are visible in the blessed output:
+#
+#   /media/png/            three pngs at two to a page...
+#   /media/png/page/2/     ...so the third is on its own page
+#   /media/jpg/            two jpgs, one page, and NO page/2 — pagination is
+#                          per group, not over the whole partition
+#
+# `extends = "none"` so the base's own routes stay out of the way; this fixture
+# is about one view.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Media"
+author = "Tester"
+
+[[collections]]
+name = "objects"
+kind = "objects"
+extensions = ["png", "jpg"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"
+
+# An objects collection has no `source` — it selects by extension out of the
+# tree walk rather than owning a directory — so something has to root the walk.
+# Without this the site loads zero rows and says nothing about it.
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# `ext` is a column of the narrow object vocabulary, which is what makes Matt's
+# case — all the jpegs at one route, the pngs at another — a `group_by` rather
+# than a hand-written route per extension. `order_by` is declared: lexical by
+# luck is not a contract.
+[routes.by_ext]
+paths = ["/media/{key}/", "/media/{key}/page/{n}/"]
+from = "objects"
+group_by = "ext"
+paginate = 2
+order_by = "name"
+layout = "listing"
+title = "Media: {key}"

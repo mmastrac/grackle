@@ -32,7 +32,7 @@ pub struct Ctx<'a> {
     pub thumbs: &'a HashMap<String, crate::thumbs::Thumb>,
     /// Post bodies, held from the loader; tree bodies are re-read into
     /// `page_bodies`. A listing over tree rows finds them there.
-    pub bodies: &'a HashMap<&'a str, Doc>,
+    pub bodies: &'a HashMap<&'a grackle_db::Key, Doc>,
     pub page_bodies: &'a HashMap<String, PageBody>,
     pub linkspace: &'a crate::links::LinkSpace,
     pub backlinks: &'a HashMap<String, Vec<Backlink>>,

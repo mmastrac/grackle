@@ -1,0 +1,35 @@
+# A union naming a SET (DESIGN.md §5c). A union ranges over collections; it is
+# not a general "union of two queries", which is a query operation this does not
+# attempt. The error says how to narrow a set instead — compose over it.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Union"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{slug}/"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[routes.everything]
+path = "/all/"
+from = ["posts", "recent"]
+layout = "listing"
+
+[sets.recent]
+from = "posts"
+limit = 3

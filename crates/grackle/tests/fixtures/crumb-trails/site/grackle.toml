@@ -18,9 +18,15 @@
 # grack.com renders (`Home > Blog > 2026 > June > 25`).
 #
 # The note keeps a year crumb despite its collection declaring no `trail`,
-# because every `kind = "posts"` collection feeds one table (§4) and the
-# archive therefore claims it too. That is engine behaviour this fixture
-# PINS rather than endorses.
+# because the archive's set names both collections and therefore claims it too.
+# That is engine behaviour this fixture PINS rather than endorses.
+#
+# It used to name only `posts` and still see the notes, because `from` a
+# collection quietly meant every collection of that KIND. `from` scopes to what
+# it names now (§5c), so the union that was implicit is written out — and this
+# fixture is what caught the change: naming one collection dropped `_drafts`
+# from every listing, which is precisely the silent failure the union spelling
+# exists to prevent.
 extends = "none"
 
 [site]
@@ -48,7 +54,7 @@ trail = "yearly_archive"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
 [sets.published]
-from = "posts"
+from = ["posts", "drafts"]
 order_by = "-date"
 
 # Paginated, so the climb has a landing with a page stamp to find.
@@ -65,3 +71,12 @@ from = "published"
 group_by = "date.year"
 layout = "listing"
 title = "{year}"
+
+# A titleless listing: no `title`, so the heading resolves to "" through the
+# i18n string layer and the <h1> collapses (§4d). The config key `uncharted`
+# must NOT surface as a heading — the failure this pins.
+[routes.uncharted]
+path = "/uncharted/"
+from = "published"
+limit = 5
+layout = "listing"

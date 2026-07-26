@@ -1,0 +1,58 @@
+# One query, two looks (DESIGN.md §5a, §5c).
+#
+# A listing takes the theme its member rows agree on, and a claimed landing
+# takes its claimed row's — both of which make the theme a property of the
+# CONTENT. So the only way to render one query under two looks was to keep two
+# copies of the rows, which is exactly what `theme-preview/` was doing with six.
+#
+# A view may name its own theme now. Both routes below range over the SAME set
+# and the same four posts; they differ by URL and by look.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Two Looks"
+author = "Tester"
+
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/notes/{slug}/"
+
+[[collections]]
+kind = "tree"
+source = "."
+exclude = ["themes/**"]
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[sets.published]
+from = "posts"
+where = "!draft && !hidden"
+order_by = "-date"
+
+# No theme named: the members agree on nothing, so this is the site default.
+[routes.plain]
+path = "/plain/"
+from = "published"
+layout = "listing"
+title = "Plain"
+
+# The same rows, wearing a theme the route chose. Subtheme tokens ride along
+# exactly as a row's do.
+[routes.loud]
+path = "/loud/"
+from = "published"
+layout = "listing"
+theme = "loud:dark"
+title = "Loud"

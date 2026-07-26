@@ -1,0 +1,31 @@
+# A union across kinds (DESIGN.md §5c). The members of a union decide which
+# vocabulary a `where` type-checks against and whether the rows are parsed, so
+# two kinds in one union is a query with two answers to both questions.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Union"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{slug}/"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[routes.everything]
+path = "/all/"
+from = ["posts", "entries"]
+layout = "listing"

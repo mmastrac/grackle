@@ -1,0 +1,40 @@
+# A paginated view with ONE path (DESIGN.md §5c).
+#
+# Page 2 would render the same URL as page 1. Before the grouped-and-paginated
+# work this was two silent failures depending on which key you used: `paths`
+# with one entry fell back to the page-1 template and collided, and `path`
+# alone left `v.routes` empty so the paginated branch emitted no routes at all
+# — a view that asked to paginate and produced nothing, with no complaint.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Paginated"
+author = "Tester"
+
+[schema]
+draft = { type = "bool" }
+hidden = { type = "bool" }
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{year}/{slug}/"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[routes.blog_index]
+path = "/blog/"
+from = "posts"
+paginate = 1
+layout = "listing"

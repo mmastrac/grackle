@@ -228,6 +228,17 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     let themes =
         theme::Themes::load_all(&root.join("themes"), &root, &schemas, cfg.site.theme.as_deref())
             .context("loading themes")?;
+    // A view's `theme` is checked here rather than in config, because the
+    // registry is what knows which names exist — the same reason `[site] theme`
+    // is checked in `load_all`. A typo would otherwise fall through to the
+    // default and render the wrong look silently.
+    for (name, v) in &cfg.views {
+        if let Some(spec) = v.theme.as_deref() {
+            themes
+                .get(Some(theme::split_spec(spec).0))
+                .with_context(|| format!("view {name}: theme = {spec:?}"))?;
+        }
+    }
 
     // §6a row/view links: the resolution space, once per build.
     let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
@@ -274,22 +285,48 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     };
 
     // ---- posts: document parts -> theme fragments -> shell
-    // Posts only. `bodies` holds the in-memory bodies the posts loader
-    // produced; a tree row is rendered by the `RouteKind::Page` arm below.
-    let rendered: Vec<(String, String)> = db
-        .post_ix
+    //
+    // Driven by the ROUTE table, like the `RouteKind::Page` arm below. It used
+    // to iterate `post_ix` and key its output by `p.url`, which is the same
+    // thing only while a row has exactly one route — and "a row has one URL"
+    // was an assumption the design never made and six maps in here relied on.
+    // Iterating routes means the URL being rendered comes from the route, and a
+    // second route onto one row (q53) renders twice rather than colliding in
+    // `out_map`.
+    //
+    // `bodies` holds the in-memory bodies the posts loader produced, keyed by
+    // ROW rather than by URL for the same reason.
+    let post_routes: Vec<&Route> = db
+        .routes
+        .iter()
+        .filter(|r| r.kind == RouteKind::Post)
+        .collect();
+    let rendered: Vec<(String, String)> = post_routes
         .par_iter()
-        .filter_map(|k| db.rows.get(k))
-        .map(|p| -> Result<(String, String)> {
+        .filter_map(|r| {
+            r.row
+                .as_ref()
+                .and_then(|k| db.rows.get(k))
+                .map(|p| (*r, p))
+        })
+        .map(|(r, p)| -> Result<(String, String)> {
+            let url = r.url.as_str();
             let mut head = render::head_for_post(p, &site);
+            // The head describes the DOCUMENT, and a document's address is its
+            // canonical URL — `p.url`, which is exactly what the canonical axis
+            // member is published at (an alternate is templated, the canonical
+            // one is not). So an alternate's `rel="canonical"` and `og:url`
+            // name the canonical form rather than themselves, which is the
+            // whole difference between an alternative form and a duplicate
+            // page. For a row on no axis this is the route's own URL anyway.
             head.meta = render::eval_metas(&metas, p, &site, &head.title, &p.url);
             let trail = crate::trails::post_trail(cfg, db, p);
-            let whole = bodies[p.url.as_str()].whole.as_str();
+            let whole = bodies[&p.key].whole.as_str();
             // §6e heading axis: `toc:` rows carry their outline, extracted
             // from the same rendered bytes. h2–h3 is the v1 depth window
             // (production policy, not CSS — never ship what a theme hides).
             let outline = if p.toc {
-                let tree = crate::outline::heading_tree(&bodies[p.url.as_str()].headings(), 2, 3);
+                let tree = crate::outline::heading_tree(&bodies[&p.key].headings(), 2, 3);
                 crate::outline::to_parts(&tree, &p.url)
             } else {
                 Vec::new()
@@ -319,7 +356,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             // shipped one theme's chrome and stylesheet wrapped around
             // another's markup: a themed post came out as canonical fallback
             // in a themed shell, and every selector the theme wrote missed.
-            let (theme_name, subtheme) = themes.resolve(p.theme.as_deref());
+            let (theme_name, subtheme) = themes.resolve(axis_field(r, "theme").or(p.theme.as_deref()));
             let row_thm = themes.get(theme_name)?;
             let main = row_thm.fragments.render(&doc);
             let html = row_thm.page(
@@ -332,7 +369,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 subtheme.as_deref(),
                 profile,
             )?;
-            Ok((p.url.clone(), html))
+            Ok((url.to_string(), html))
         })
         .collect::<Result<Vec<_>>>()?;
     for (url, html) in rendered {
@@ -411,7 +448,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     .iter()
                     .filter_map(|k| db.rows.get(k))
                     .map(|p| {
-                        let (html, truncated) = match bodies.get(p.url.as_str()) {
+                        let (html, truncated) = match bodies.get(&p.key) {
                             Some(d) => match summary_field {
                                 Some(t) => d.truncate(t.max_blocks, t.max_chars),
                                 None => (d.whole.clone(), false),
@@ -446,8 +483,14 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         };
 
         // The row's theme renders both the slice and the page (§5a: the
-        // landing wears its section's clothes).
-        let (theme_name, subtheme) = themes.resolve(row.theme.as_deref());
+        // landing wears its section's clothes) — unless the VIEW named one,
+        // which is nearer and explicit. Same order the listing pass uses, and
+        // it is what lets several routes over one query wear several looks
+        // without several copies of the rows underneath them.
+        let (theme_name, subtheme) = match v.theme.as_deref() {
+            Some(spec) => themes.resolve(Some(spec)),
+            None => themes.resolve(row.theme.as_deref()),
+        };
         let row_thm = themes.get(theme_name)?;
         let embed_html = row_thm
             .fragments
@@ -616,7 +659,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .filter_map(|k| db.rows.get(k))
             .map(|p| {
                 let html = bodies
-                    .get(p.url.as_str())
+                    .get(&p.key)
                     .map(|d| d.whole.as_str())
                     .or_else(|| {
                         page_bodies
@@ -720,7 +763,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         "date": p.date.map(crate::db::iso_date),
                         "date_pretty": p.date.map(crate::db::pretty_date),
                         "tags": p.tags,
-                        "html": bodies.get(p.url.as_str()).map(|d| d.whole.as_str()).unwrap_or(""),
+                        "html": bodies.get(&p.key).map(|d| d.whole.as_str()).unwrap_or(""),
                     })
                 })
                 .collect(),
@@ -755,7 +798,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             }
             RouteKind::Page => {
                 let Some(src) = &r.source else { continue };
-                let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
+                let row = r.row.as_ref().and_then(|k| db.rows.get(k));
                 let layout = row.and_then(|p| p.layout.as_deref());
                 let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
 
@@ -810,14 +853,23 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // theme — per row, §5a — with a colon suffix carrying
                 // subtheme tokens for CSS subselection (`recipes:spicy` →
                 // data-subtheme="spicy" wherever the shell places it).
-                let (theme_name, subtheme) = themes.resolve(row.and_then(|p| p.theme.as_deref()));
+                // q53: an axis member's theme beats the row's, same as the
+                // post path — the member IS the alternative form.
+                let (theme_name, subtheme) = themes
+                    .resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())));
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
                 let mut head = render::head_simple(&title, &r.url, &site);
                 // A page's metas read its ROW when it has one; a sourceless
                 // route falls back to the route's own fields.
                 head.meta = match row {
-                    Some(p) => render::eval_metas(&metas, p, &site, &title, &r.url),
+                    // The head describes the DOCUMENT, whose address is its
+                    // canonical URL — the row's own, which is exactly what the
+                    // canonical axis member is published at. So an alternate
+                    // canonicalizes to the canonical form instead of itself,
+                    // which is the difference between an alternative form and a
+                    // duplicate page. Identical to `r.url` off an axis.
+                    Some(p) => render::eval_metas(&metas, p, &site, &title, &p.url),
                     None => render::eval_metas(&metas, r, &site, &title, &r.url),
                 };
                 // §5g/q44: the row picks its shell. `none` is the whole
@@ -825,7 +877,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // imported document can carry front matter (title, tags,
                 // hidden) without being nested inside a second `<html>`.
                 // Absent, the legacy `layout:` still chooses (q33(f)).
-                let shell = row.and_then(|p| p.shell.as_deref());
+                // q53: an axis member over `shell` is the md twin's shape — the
+                // same row serialized two ways, at two URLs. The member's value
+                // beats the row's own for the same reason a member's theme
+                // does: the member IS the alternative form.
+                let shell = axis_field(r, "shell").or(row.and_then(|p| p.shell.as_deref()));
                 if shell == Some("none") {
                     out_map.insert(r.url.clone(), frag.clone().into_bytes());
                     stats.pages += 1;
@@ -1032,15 +1088,18 @@ fn render_bodies<'a>(
     db: &'a SiteDb,
     thumbs: &HashMap<String, crate::thumbs::Thumb>,
     linkspace: &crate::links::LinkSpace,
-) -> Result<HashMap<&'a str, Doc>> {
+) -> Result<HashMap<&'a grackle_db::Key, Doc>> {
     let root = cfg.root();
     // Posts only: these rows hold their body in memory. Tree rows are
     // re-read at render time (§2), which `render_page_bodies` does — the
     // loader asymmetry that outlives the row-type merge.
+    //
+    // Keyed by ROW, not by URL: a body is a property of the row, and keying it
+    // by URL quietly asserted that a row has one.
     db.post_ix
         .par_iter()
         .filter_map(|k| db.rows.get(k))
-        .map(|p| -> Result<(&str, Doc)> {
+        .map(|p| -> Result<(&grackle_db::Key, Doc)> {
             let cx = tags::Ctx {
                 thumbs: Some(thumbs),
                 widgets: Some(&cfg.widgets),
@@ -1067,7 +1126,7 @@ fn render_bodies<'a>(
                     href,
                 )
             })?;
-            Ok((p.url.as_str(), doc))
+            Ok((&p.key, doc))
         })
         .collect()
 }
@@ -1107,8 +1166,9 @@ fn render_page_bodies(
         // row's theme, not the site default (§5a). A `{% view %}` in a
         // themed page's body arranges its rows the way that page's theme
         // says, exactly as the landing path does.
-        let row = db.by_url.get(r.url.as_str()).and_then(|k| db.rows.get(k));
-        let row_thm = themes.get(themes.resolve(row.and_then(|p| p.theme.as_deref())).0)?;
+        let row = r.row.as_ref().and_then(|k| db.rows.get(k));
+        let row_thm = themes
+            .get(themes.resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref()))).0)?;
         // Expand FIRST, then decide: most pages that look unsupported use
         // only constructs the expander already handles.
         let cx = tags::Ctx {
@@ -1560,7 +1620,7 @@ pub(crate) type Backlink = (String, String, Option<chrono::NaiveDate>);
 /// scans with `cited_urls` directly and must still see them.
 fn backlinks_map(
     db: &SiteDb,
-    bodies: &HashMap<&str, Doc>,
+    bodies: &HashMap<&grackle_db::Key, Doc>,
     page_bodies: &HashMap<String, PageBody>,
     site_url: &str,
 ) -> (HashMap<String, Vec<Backlink>>, HashMap<String, Vec<String>>) {
@@ -1577,7 +1637,7 @@ fn backlinks_map(
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
         let html = bodies
-            .get(p.url.as_str())
+            .get(&p.key)
             .map(|d| d.whole.as_str())
             .or_else(|| {
                 page_bodies
@@ -1684,7 +1744,7 @@ fn run_script_shell(root: &Path, command: &str, payload: &serde_json::Value) -> 
 fn search_pass(
     cfg: &Config,
     db: &SiteDb,
-    bodies: &HashMap<&str, Doc>,
+    bodies: &HashMap<&grackle_db::Key, Doc>,
     page_bodies: &HashMap<String, PageBody>,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
@@ -1699,8 +1759,6 @@ fn search_pass(
             continue;
         }
         let route = &star.url;
-        let page_by_url: HashMap<&str, &crate::db::Row> =
-            db.pages().map(|p| (p.url.as_str(), p)).collect();
         // Resolved at load, like the sitemap's.
         let docs: Vec<grackle_search_core::SearchDoc> = star
             .route_members
@@ -1708,13 +1766,13 @@ fn search_pass(
             .filter_map(|k| db.routes.get(k))
             .filter_map(|r| match r.kind {
                 crate::db::RouteKind::Post => {
-                    db.by_url.get(&r.url).and_then(|k| db.rows.get(k)).map(|p| {
+                    r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| {
                         grackle_search_core::SearchDoc {
                             url: p.url.clone(),
                             title: p.title.clone().unwrap_or_else(|| p.url.clone()),
                             date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
                             html: bodies
-                                .get(p.url.as_str())
+                                .get(&p.key)
                                 .map(|d| d.whole.clone())
                                 .unwrap_or_default(),
                             tags: p.tags.clone(),
@@ -1723,7 +1781,7 @@ fn search_pass(
                 }
                 crate::db::RouteKind::Page => {
                     let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
-                    let p = page_by_url.get(r.url.as_str())?;
+                    let p = r.row.as_ref().and_then(|k| db.rows.get(k))?;
                     Some(grackle_search_core::SearchDoc {
                         url: p.url.clone(),
                         // A titleless page is still searchable by body; its
@@ -1874,8 +1932,10 @@ fn css_pass(
 /// The kind of the collection at the base of a view's `over` chain — what
 /// decides which render pass owns its routes. None for `over = "*"`.
 fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
+    // A union's members share a kind (`Config::check_base`), so the first
+    // answers for the whole base.
     let base = cfg.query(view).ok()?.base;
-    Some(cfg.collections.get(&base)?.kind)
+    Some(cfg.collections.get(base.first()?)?.kind)
 }
 
 /// The link resolver a page hands its slot fills (§6a): the fill's owner
@@ -1901,45 +1961,61 @@ pub(crate) fn fill_link_resolver<'a>(
     }
 }
 
-/// Pagination for a paginated route (those carrying a page number);
-/// grouped views (tags, archives) have `page: None` and get nothing.
-/// q32 settled: page URLs render from the owning view's own route
-/// templates (locale-prefixed like the routes were), not from a literal
-/// copy in the producer.
+/// What an axis member sets, when it sets the field asked for (q53).
+///
+/// A member declares which row field its value stands in for — `theme` renders
+/// one corpus several ways, `shell` gives a document its md twin — so a render
+/// path asks for the field it cares about and gets `None` on every route that
+/// is not a member of an axis about that field. The value beats the row's own:
+/// the member IS the alternative form, and a row that named a theme named it
+/// for its canonical self.
+fn axis_field<'a>(r: &'a Route, field: &str) -> Option<&'a str> {
+    r.axis
+        .as_ref()
+        .filter(|a| a.field == field)
+        .map(|a| a.value.as_str())
+}
+
+/// Pagination for a paginated route (those carrying a page number); an
+/// unpaginated grouped view has `page: None` and gets nothing.
+///
+/// q32 settled that page URLs come from the owning view rather than a literal
+/// copy in the producer, and this used to honour that by re-rendering the view's
+/// route templates with `{n}`. It reads the view's already-materialized pages
+/// instead, which is the same rule with one fewer way to be wrong — and it is
+/// what lets a GROUPED view paginate (§5c). Re-rendering had two defects that
+/// only a grouped-and-paginated route could show:
+///
+///   - the template also carries `{key}`, which a `{n}`-only renderer cannot
+///     fill, so rendering failed outright;
+///   - `total` counted every page of the view across ALL groups, so a
+///     three-page partition would have offered three pages to every group in
+///     it.
+///
+/// A materialized URL has neither problem: it already wears its group key, its
+/// record slug (`{key}` is slugged in the URL and not in the params, so
+/// re-rendering could disagree with the route it was naming) and its locale
+/// prefix. Pages are only created where rows exist, so the sibling list is
+/// exactly the pages there are.
 pub(crate) fn pagination_parts(
     db: &SiteDb,
-    view: &str,
-    v: &View,
+    _view: &str,
+    _v: &View,
     r: &Route,
 ) -> Result<Option<parts::PartMap>> {
     let Some(cur) = r.page else { return Ok(None) };
-    let total = db
+    // Same view, same locale, same GROUP: pagination is per partition, and two
+    // routes of one view are in the same partition when their group params
+    // agree (empty for an ungrouped view, so it degenerates correctly).
+    let mut siblings: Vec<&Route> = db
         .routes
         .iter()
-        .filter(|x| x.view == r.view && x.page.is_some() && x.locale == r.locale)
-        .count();
-    let prefix = r
-        .locale
-        .as_deref()
-        .map(|l| format!("/{l}"))
-        .unwrap_or_default();
-    let urls: Vec<String> = (1..=total)
-        .map(|n| -> Result<String> {
-            let tmpl = if n == 1 {
-                v.routes.first()
-            } else {
-                v.routes.get(1).or_else(|| v.routes.first())
-            }
-            .ok_or_else(|| anyhow::anyhow!("view {view}: no routes"))?;
-            Ok(format!(
-                "{prefix}{}",
-                crate::template::render(tmpl, |k| match k {
-                    "n" => Some(n.to_string()),
-                    _ => None,
-                })?
-            ))
+        .filter(|x| {
+            x.view == r.view && x.page.is_some() && x.locale == r.locale && x.params == r.params
         })
-        .collect::<Result<_>>()?;
+        .collect();
+    siblings.sort_by_key(|x| x.page);
+    let urls: Vec<String> = siblings.iter().map(|x| x.url.clone()).collect();
     Ok(parts::pagination(cur, &urls))
 }
 

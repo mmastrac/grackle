@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::template;
-use grackle_model::{Kind, Route, RouteKind, Row, SiteDb};
+use grackle_model::{AxisMember, Kind, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
 use crate::filename::FilenameFormat;
@@ -822,6 +822,21 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // §4 on-demand: the row knows its URL, but nothing publishes it until
     // something references it. `materialize_referenced` (build.rs) emits
     // these after the render pass, once the references exist.
+    // q53: the axes a row participates in, compiled once. An axis with no
+    // `match` takes every row, which is why the glob is worth declaring.
+    let axis_scopes: Vec<(&String, &crate::config::Axis, Option<globset::GlobSet>)> = cfg
+        .axes
+        .iter()
+        .map(|(name, a)| {
+            let g = a
+                .scope
+                .as_ref()
+                .map(|s| build_globset(std::slice::from_ref(s)))
+                .transpose()?;
+            Ok((name, a, g))
+        })
+        .collect::<Result<_>>()?;
+
     let new_routes: Vec<Route> = db
         .rows
         .iter()
@@ -829,7 +844,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         // materializes the landing. §4: an on-demand row has none YET — a
         // reference materializes it after the render pass.
         .filter(|p| !p.claimed && !p.on_demand)
-        .map(|p| {
+        .flat_map(|p| {
             // Route kind is a question about the row's PROPERTIES, not about
             // which vector it arrived in.
             let kind = if posts.contains(&p.key) {
@@ -841,11 +856,40 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             } else {
                 RouteKind::Static
             };
-            Route {
+            let one = |url: String, axis: Option<AxisMember>| Route {
+                row: Some(p.key.clone()),
+                axis,
                 source: Some(p.path.clone()),
                 locale: route_locale(&p.locale),
                 fields: p.fields.clone(),
-                ..Route::new(p.url.clone(), kind)
+                ..Route::new(url, kind)
+            };
+            // Only a RENDERED row multiplies: an axis publishes alternative
+            // forms of a document, and a static file or an image has one form
+            // — the bytes. (A thumbnail is an axis in q53's sense, but it is
+            // the image pipeline's, keyed by size and content-addressed.)
+            let axis = p.rendered.then(|| {
+                axis_scopes.iter().find(|(_, _, g)| {
+                    g.as_ref().is_none_or(|g| g.is_match(&p.rel))
+                })
+            });
+            match axis.flatten() {
+                None => vec![one(p.url.clone(), None)],
+                Some((name, a, _)) => a
+                    .values
+                    .iter()
+                    .map(|v| {
+                        one(
+                            a.url_for(v, &p.url),
+                            Some(AxisMember {
+                                axis: (*name).clone(),
+                                value: v.clone(),
+                                field: a.field.clone(),
+                                canonical: a.canonical() == Some(v.as_str()),
+                            }),
+                        )
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -918,6 +962,47 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
     if !collisions.is_empty() {
         bail!("route collisions:\n{}", collisions.join("\n"));
+    }
+
+    // Constraint: the DUAL of the one above. That check says two rows may not
+    // share a URL; this one says one row may not have two URLs.
+    //
+    // A row is rendered at exactly one route, and the three legal counts are
+    // 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand
+    // and unreferenced), 1 (everything else), and N **only along an axis**
+    // (q53: locales, and whatever follows them). Nothing produces N today, so
+    // this cannot currently fire from any config; it is stated now because the
+    // axis is the feature that will make it reachable, and a contract written
+    // before its first violation is a design decision rather than a patch.
+    //
+    // It could not even be expressed until `Route.row` did: recovering a
+    // route's row meant looking its URL up in `by_url`, which answers "one" by
+    // construction and so could never see the second.
+    let mut by_row: HashMap<(&grackle_db::Key, Option<&str>), &Route> = HashMap::new();
+    for r in &db.routes {
+        let Some(k) = &r.row else { continue };
+        // Keyed by (row, axis MEMBER): several routes onto one row are legal
+        // exactly when they are different members of one axis. Two routes with
+        // the same member — or with none — are the collision this forbids, so
+        // an axis buys the exception it needs and no more.
+        let member = r.axis.as_ref().map(|a| a.value.as_str());
+        if let Some(prev) = by_row.insert((k, member), r) {
+            bail!(
+                "one row, two routes:\n  {}\n    {}\n    {}\n\
+                 A row renders at one URL. Publishing it at several is an AXIS \
+                 (q53), which is the only thing allowed to break this{}.",
+                r.source
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
+                prev.url,
+                r.url,
+                match member {
+                    Some(v) => format!(" — and these are both its {v:?} member"),
+                    None => String::new(),
+                }
+            );
+        }
     }
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));

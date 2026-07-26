@@ -235,7 +235,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         let Some(view) = r.view.as_deref() else {
             return Vec::new();
         };
-        if cfg.views.get(view).is_some_and(|v| v.over == "*") {
+        if cfg.views.get(view).is_some_and(|v| v.over.is_star()) {
             return star_members(view);
         }
         r.members
@@ -277,8 +277,8 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
                 .collect();
             View {
                 name: name.clone(),
-                over: Some(v.over.clone()).filter(|s| !s.is_empty()),
-                base: cfg.query(name).ok().map(|q| q.base),
+                over: Some(v.over.display()).filter(|s| !s.is_empty()),
+                base: cfg.query(name).ok().map(|q| q.base.join(", ")),
                 layout: v.layout.clone(),
                 shell: v.shell.clone(),
                 filter: v.filter.clone(),

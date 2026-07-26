@@ -243,7 +243,8 @@ an explicit `permalink:` in the file wins outright.
 
 ### Constraints (checked at transaction time, not discovered as 404s)
 
-- **Route collisions** → error, naming both rows.
+- **Route collisions** → error, naming both rows. *Two rows may not share a URL.*
+- **One row, two routes** → error, naming the file and both URLs. *The dual, and the stronger statement:* **a row renders at exactly one route.** The legal counts are 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand and unreferenced), 1 (everything else), and **N only along an axis** (q53). An axis is the sole mechanism permitted to break it; anything else producing a second route onto one row is a bug, and now says so at load.
 - **Undated row routed by a dated template**: error naming the file and rule.
 - **Dead rule** (matches zero rows) → warning.
 - **URL-set parity** with reference builds — maintained via `grackle urls`.
@@ -551,11 +552,6 @@ The base config merge is inert on sites that already declared everything, verifi
   provenance per key — is what makes this inheritance rather than magic, and it
   is not built. `examples/raw` is the stopgap. It is `explain`'s "which rule
   wrote which key" one level up, and it should ship before 1.0.
-- **A titleless view still renders its own config key as a heading**
-  (`trails.rs`: `None => r.key.clone().unwrap_or_else(|| view.to_string())`).
-  The base's routes dodge it with `@home`/`@blog` refs into `ENGINE_STRINGS`,
-  so an inherited route localizes; the general fallback is untouched and
-  remains wrong.
 
 ## 4e. The flag family is not engine vocabulary
 
@@ -879,6 +875,12 @@ The schema yields typed **head facts** — `title`, `description`, `canonical`, 
 
 **Theme is chosen per row** (unusual, but it is what this site does): `theme:` in front matter or a rule default (§5b), rather than a site-wide setting. Per-row is the *mechanism*; it was never the whole answer. `[site] theme = "name[:tokens]"` is the bottom of the same cascade — front matter → rule default → site → the `default` directory → the base theme — so it adds a rung rather than a mechanism. A site-wide dark mode is one config line; a row that names its own theme states its own tokens. (The residue of that word on both rows and views is q33.)
 
+**A view may name one too** *(built 2026-07-25)*. A route over a query had no way to say what it wore: an unclaimed listing took the theme its members *agreed* on (`unanimous_theme`), a claimed landing took its claimed row's, and both make the look a property of the CONTENT. The consequence is only visible when you want one query under two looks — the only way to get it was two copies of the rows, which is exactly what `theme-preview/` was doing with six.
+
+`[routes.x] theme = "ledger:dark"` makes it a property of the route, and the cascade gains a rung at the top of the view side: **view → member unanimity (listings) or the claimed row (landings) → `[site] theme`**. The view wins because unanimity is an *inference* and a declaration is not. Tokens ride along exactly as a row's do, and an unknown name is a load error listing the knowns — checked against the theme registry, which is the only thing that knows what exists, and the same reason `[site] theme` is checked there.
+
+What it does **not** solve is the reason the six copies exist: a post at `/vanilla/notes/one/` and the same post at `/ledger/notes/one/` are one row at two URLs, and a row has one route. That is the axis (q53), and this is the half of it that does not need one.
+
 ### Schema drives rendering, not just display
 
 Per-collection fields fall into three kinds, and the distinction *is* the layer boundary:
@@ -1049,6 +1051,53 @@ Two deliberate refusals, both the same line drawn in §6d against exposing block
 ### Grouping is one operation *(generalized 2026-07)*
 
 `group_keys` had three hardcoded specs (`tags`, `date.year`, `date.month`); they were one operation — **group by a typed schema field**. A `List` field multi-keys (one group per item), scalars single-key, `Null` means absent from the partition. The date specs survive as aliases for the `year`/`month` fields the filter schema always had. Proven the strong way: the main site's three groupings are **byte-identical through the general path**.
+
+### One materializer: grouping and pagination over every base *(built 2026-07-25)*
+
+Grouping was one operation over *some* bases. `build_object_view` was a second materializer, and it refused `group_by` and `paginate` with a message that admitted the shape of the problem — *"not supported yet"*. It differed from the row path in exactly three things, and every one is a **parameter**, not control flow:
+
+| | row bases | objects |
+|---|---|---|
+| expression vocabulary | `row_filter_schema()` — built-ins plus declared fields | `object_schema()` — narrow, no front matter |
+| membership | `base_filter(kind)`: OR over every collection of that kind | `collection == <this one>` |
+| eligibility | `rendered && !claimed && locale` | none — an object is bytes |
+
+So they became one `build_view` taking a `Base { schema, membership, parsed }`, and grouping, pagination, subdivision and routeless embedding stopped being row privileges. *All the jpegs at one route, the pngs at another* is now `group_by = "ext"`, because `ext` was always a column of the narrow vocabulary.
+
+**The tell that this was a merge and not a feature**: `check_group_chain` already carried a `Kind::Objects` arm validating group specs against `object_schema()`, reachable only from a branch the dispatch never sent objects to. Grouping validation for objects had been written and could not run. It runs now, and the narrow vocabulary it guards is preserved — `where = "draft"` on a gallery is still a load error naming the object columns, which is the strictness §3 chose on purpose.
+
+**And `paginate` under `group_by` was silently ignored.** The grouped branch returned before the paginated one was read, so a grouped view that asked to paginate got one route per group and no complaint. A grouped view now paginates **inside each partition**: the partition says which rows, pagination says how many to a page. This is not q30 — that is pagination × *subdivision*, where a pageable parent and its subdivided children share a URL namespace, and `config.query` still refuses to compose over a paginated route, so a grouped-and-paginated view stays a leaf.
+
+Two defects surfaced downstream, both visible only to a route that is grouped *and* paginated, and both fixed by deleting a re-render. `pagination_parts` honoured q32 ("page URLs come from the owning view, not a literal copy in the producer") by re-rendering the view's route templates with `{n}` — which cannot fill `{key}`, and whose page count was taken over *every* page of the view rather than the group's, so a three-page partition would have offered three pages to every group beside it. It reads the view's already-materialized sibling pages instead: same rule, one fewer way to be wrong, and a materialized URL already wears its group key, its record slug (`{key}` is slugged in the URL and not in the params, so the two could disagree) and its locale prefix.
+
+One new load error, because the silence it replaces had two shapes: a paginated view declaring a single `path` used to either collide page 2 onto page 1's URL or — with `path` rather than `paths` — emit **no routes at all**, a view that asked to paginate and produced nothing.
+
+Measured: grack.com, field-notes, minimal, raw and theme-preview all render **byte-identical** across the change, the feed's wall-clock `<updated>` excepted. Two fixtures hold the new capability (`object-grouping`, `paginate-one-path`), each mutation-checked when written — per-group pagination fails when the group comparison is dropped, and the page-2 route disappears when `paginate` is un-read.
+
+### `from` scopes to what it names, and unions are written out *(built 2026-07-25)*
+
+The other half of the merge above, and a behaviour change rather than a deletion. The two materializers had disagreed about what `from = "<a collection>"` meant:
+
+| base | ranged over |
+|---|---|
+| an objects collection | **that** collection |
+| a posts or tree collection | **every** collection of that kind |
+
+So `from = "notes"` meant the whole posts table, and §4's "several collections, one table" — `_posts` and `_drafts` as two sources of one corpus — was a thing the *engine* kept and the config could not say. Now `from` scopes to the collections it names, for every base, and the union is spelled:
+
+```toml
+[sets.published]
+from  = ["posts", "drafts"]     # two sources, one corpus, said out loud
+where = "!draft && !hidden"
+```
+
+Membership stops being a per-kind rule and becomes one clause — *the row's collection is one of these* — which is what collapses the last of the objects/rows asymmetry: what remains is the vocabulary and whether the rows are parsed.
+
+A union may name only **collections**, and they must **share a kind**. Unioning two sets is a general query operation this does not attempt (the error says to compose over the set with a `where` instead), and unioning across kinds would ask one `where` to type-check against two vocabularies and one materializer to decide whether the rows are parsed. Both are load errors naming the members.
+
+**What caught the change is worth recording, because it is the failure this spelling exists to prevent.** The `crumb-trails` fixture has two posts collections and a `published` set that named one of them; under scoping its `_drafts` rows silently left every listing. On grack.com the same defect was invisible in the default projection — the `!draft` predicate already excluded those rows — and appeared only under `--profile drafts`, which relaxes the predicate to surface them: 561 pages became 560 and every paginated listing shifted. A URL-set check could not see it, because a draft is routed either way; only a full render under the second profile could. **Parity has two profiles on this site, and one of them is the only place the interesting rows exist.**
+
+`theme-preview` was the beneficiary. Its six per-theme sets each restated `collection == "…"` beside their own `from`, which §4d had read as redundancy and was not — the restatement was the only thing scoping a set to its own theme. They are now one union naming the corpus and six two-line sets narrowing it by `match`, which conjoins along `from`: one declaration of the predicate, the sort and the summary truncation where there were six.
 
 ### Subdivision: `from` a grouped route refines its partition *(built 2026-07)*
 
@@ -2278,7 +2327,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
     
     Three rules merge bought (each from silent failure): `.schema.toml` may not redeclare base field (load error); ordering belongs to SET, not table; for additive capability, byte-identical proves nothing.
 
-53. **Axes: alternative forms of a row** *(Matt, 2026-07-20; locale half built 2026-07-25)*.
+53. **Axes: alternative forms of a row** *(Matt, 2026-07-20; **built 2026-07-25**)*.
 
     | | **relation** (q52) | **axis** |
     |---|---|---|
@@ -2287,16 +2336,31 @@ Only OPEN questions live here; a settled question moves its design into the sect
     | renders as | labelled group in body | `<link rel="alternate">` in head, plus inline affordance |
     | needs a reach? | yes — which set ranges over | no — row determines own members |
 
-    **Mechanical definition: one row, several routes, keyed by variant** — unifies four things built by three mechanisms:
+    **Mechanically: one row, several routes, keyed by a value** — and §4's constraint names an axis as the sole thing permitted to break "a row renders at exactly one route".
 
-    | instance | variant | status |
-    |---|---|---|
-    | locale-parallel routes (§6f) | locale | built |
-    | thumbnails (§6b) | size, content-addressed | built |
-    | md twin (§5g) | serialization | specced |
-    | object's description page | "page about this" | **inexpressible today** |
+    ```toml
+    [axes.theme]
+    values = ["default", "loud"]   # first is CANONICAL
+    field  = "theme"               # the row field each member sets
+    url    = "/{value}{url}"       # an ALTERNATE's URL; canonical keeps the row's
+    match  = "notes/**"            # which rows multiply
+    ```
 
-    **Axes are `rel="alternate"`.** Two costs paid: `hreflang` and `rel="alternate"` now emitted (`Head.alternates` for locale axis). `data-axis` (misnamed once relations weren't axes) renamed to `data-relation`; `data-axis` stays for translations. Open: axis member gets full row or projection; where axes declared (thumbnails from image pipeline, locales from `[i18n]`, unifying may cost more); md twin rides this (plainly yes).
+    **A correction this build produced, worth keeping.** The question claimed four instances of one shape and listed locale as built. Locale is not that shape: `dal.md` and `dal.fr.md` are **two rows**, one route each, paired after the fact by `by_logical`; thumbnails are derived artifacts and not rows; the md twin was a serialization. So the axis was a *new* mechanism, not the generalization of an existing one — and the argument for building it was accordingly weaker than the question implied. What redeemed it was that the second field cost nothing: `field = "shell"` is q44's md twin, working the day the axis landed, and that is the multiplicativeness the question was actually claiming.
+
+    **The four answers.**
+
+    1. **Which rows multiply** — those a `match` glob selects, and only *rendered* rows. An axis publishes alternative forms of a document; a static file or an image has one form, its bytes. (A thumbnail is an axis in spirit but it is the image pipeline's, keyed by size and content-addressed.)
+    2. **Identity across members** — one row, N routes, via `Route.row`. This is what the prerequisite bought: before it, a route's row was recovered as `by_url.get(r.url)`, which answers "one" by construction and could never have seen the second.
+    3. **The canonical member** — the first declared, and it **keeps the row's own URL**; only alternates are templated. Exactly the shape the default locale has in sitting above the selector with no `/fr/`. Every member's `rel="canonical"` and `og:url` name the canonical form, because the head describes the *document* rather than the form. And a `*` view sees canonical members only: listing every member in the sitemap or search index would ask a crawler to treat six renderings of one document as six documents, which is what `rel="canonical"` exists to deny.
+    4. **Composition with the locale axis** — **not built.** A row on both would want `/fr/ledger/notes/one/`, the cartesian product. The constraint keys on (row, member), so two axes over one row collide today rather than multiplying; that is the honest edge and the next thing to build if a site wants it.
+
+    **How a field takes effect.** An axis sets a named row field, and whether that field *does* anything is the render path's business — `theme` and `shell` are wired (three resolution sites between them), and a field no path consults multiplies URLs without changing bytes. That is a real footgun: it should be a load error naming the fields that mean something, and it is not yet.
+
+    **Also honest edges**: no `rel="alternate"` for axis members (`Head.alternates` is hreflang-shaped, which is the "variable-length head entries" item), and the `light` tier's minimal head carries no canonical at all, so an alternate at that tier advertises nothing.
+
+    Two costs paid earlier stand: `hreflang` and `rel="alternate"` are emitted for the locale axis (`Head.alternates`), and `data-axis` was renamed `data-relation` for relations, with `data-axis` kept for translations.
+
 
 ### Settled ledger
 

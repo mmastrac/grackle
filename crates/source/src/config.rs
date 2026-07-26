@@ -52,6 +52,11 @@ pub struct Config {
     routes: BTreeMap<String, View>,
     /// Marker filename -> defaults it applies to its directory and below.
     /// The config says what a marker means; the tree says where (DESIGN.md §4b).
+    /// Axes: alternative FORMS of a row (q53). Each one publishes its rows at
+    /// several URLs, one per value, and is the only mechanism permitted to do
+    /// so — §4's "one row, one route" names this as its sole exception.
+    #[serde(default)]
+    pub axes: BTreeMap<String, Axis>,
     #[serde(default)]
     pub markers: BTreeMap<String, BTreeMap<String, toml::Value>>,
     /// `[html]` (§4e): what the engine puts in the document's head, declared
@@ -732,15 +737,132 @@ pub struct Rule {
 ///   * query only (no route, no layout) — a named set, e.g. `published`
 ///   * query + layout, no route         — embeddable, e.g. `latest`
 ///   * query + layout + route(s)        — materialized, e.g. `blog_index`
+/// An axis: alternative forms of one row (q53).
+///
+/// A relation points at *other rows* and needs a reach; an axis points at
+/// *other forms of this row* and does not, because the row determines its own
+/// members. Mechanically: **one row, several routes, keyed by a value.**
+///
+/// ```toml
+/// [axes.theme]
+/// values = ["ledger", "atlas"]   # the members; order fixes the canonical one
+/// field  = "theme"               # the row field each member sets
+/// prefix = "/{value}"            # what its URL wears
+/// match  = "notes/**"            # which rows multiply (all of them, absent)
+/// ```
+///
+/// The one thing an axis may not be is implicit: every value, the field it
+/// sets and the URL shape are declared, because an axis multiplies the URL
+/// space and §4's constraint exists to make that deliberate.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Axis {
+    /// The members, in order. The first is CANONICAL: it is what
+    /// `<link rel="canonical">` names, what a link to the row resolves to, and
+    /// the only one a `*` view (sitemap, search) sees. The rest are alternates,
+    /// which is what `rel="alternate"` means and why they are not duplicates.
+    pub values: Vec<String>,
+    /// The row field each member sets while rendering. `theme` renders one
+    /// corpus six ways; the field is named rather than assumed so the mechanism
+    /// is not a theme feature wearing a general name.
+    pub field: String,
+    /// An ALTERNATE member's URL, over `{url}` (the row's own) and `{value}`.
+    /// The canonical member is not templated — it keeps the row's URL, exactly
+    /// as the default locale sits above the selector and wears no `/fr/`.
+    ///
+    /// `"/{value}{url}"` (the default) gives `/ledger/notes/one/`, the shape the
+    /// locale axis has. `"{url}index.{value}"` gives `/notes/one/index.md`,
+    /// which is q44's md twin — the same mechanism, and the reason this is a
+    /// template rather than a prefix.
+    #[serde(default = "default_axis_url")]
+    pub url: String,
+    /// Which rows multiply, as a source-path glob. Absent means every row this
+    /// site has, which is rarely what anyone wants: an axis over the whole tree
+    /// multiplies the URL space by `values.len()`.
+    #[serde(rename = "match")]
+    pub scope: Option<String>,
+}
+
+fn default_axis_url() -> String {
+    "/{value}{url}".to_string()
+}
+
+impl Axis {
+    /// The canonical member — the first declared.
+    pub fn canonical(&self) -> Option<&str> {
+        self.values.first().map(String::as_str)
+    }
+
+    /// This member's URL for a row published at `url`. The canonical member
+    /// keeps the row's own; an alternate is templated.
+    pub fn url_for(&self, value: &str, url: &str) -> String {
+        if self.canonical() == Some(value) {
+            return url.to_string();
+        }
+        self.url.replace("{value}", value).replace("{url}", url)
+    }
+}
+
+/// What a view ranges over (§5c). One name — a collection, another view, or
+/// `*` — or a union of collections.
+///
+/// The union exists because `from` a collection SCOPES to that collection, and
+/// §4 deliberately lets several sources feed one table: `_posts` and `_drafts`
+/// are two collections of one corpus. Before scoping, `from = "posts"` quietly
+/// meant every posts collection, so the union was a thing the engine kept and
+/// the config could not say. Now the config says it.
+///
+/// A union may name only COLLECTIONS, and they must share a kind. Unioning a
+/// set with a set is a query operation this does not attempt, and unioning
+/// across kinds would ask one filter to type-check against two vocabularies.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum From {
+    One(String),
+    Union(Vec<String>),
+}
+
+impl From {
+    /// The route set (`from = "*"`), which ranges over routes rather than rows.
+    pub fn is_star(&self) -> bool {
+        matches!(self, From::One(s) if s == "*")
+    }
+
+    /// The single name this composes over, or `None` for a union — which
+    /// terminates a chain rather than continuing it.
+    pub fn single(&self) -> Option<&str> {
+        match self {
+            From::One(s) => Some(s.as_str()),
+            From::Union(_) => None,
+        }
+    }
+
+    pub fn names(&self) -> &[String] {
+        match self {
+            From::One(s) => std::slice::from_ref(s),
+            From::Union(v) => v.as_slice(),
+        }
+    }
+
+    /// How it was written, for diagnostics.
+    pub fn display(&self) -> String {
+        match self {
+            From::One(s) => format!("{s:?}"),
+            From::Union(v) => format!("{v:?}"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct View {
-    /// A collection name, another set/route's name, or `*` for the route
-    /// set. Spelled `from` — one namespace, so what it names decides
-    /// whether this selects or subdivides (§5c); the engine derives that
-    /// from the referent rather than taking a second keyword for it.
+    /// A collection name, another set/route's name, `*` for the route set, or
+    /// a LIST of collections to union. Spelled `from` — one namespace, so what
+    /// it names decides whether this selects, subdivides (§5c) or unions; the
+    /// engine derives that from the referent rather than taking a keyword for
+    /// each.
     #[serde(rename = "from")]
-    pub over: String,
+    pub over: From,
     #[serde(rename = "where")]
     pub filter: Option<String>,
     /// Path-glob scoping (§5 audit): globs already exist in rules (§4), so
@@ -771,6 +893,15 @@ pub struct View {
     /// kind's base fragment. How `/books/` gets cards while `/blog/`
     /// stays textual, both being listings.
     pub variant: Option<String>,
+    /// Which theme dresses this view, `name[:tokens]` like a row's (§5a).
+    ///
+    /// A listing otherwise takes the theme its member rows agree on, which
+    /// makes the theme a property of the CONTENT — so the only way to render
+    /// one query under two looks was to keep two copies of the rows. Declared
+    /// here it is a property of the route, and N routes over one set may each
+    /// wear their own. Nearest wins: the view beats member unanimity, which
+    /// beats `[site] theme`.
+    pub theme: Option<String>,
     /// Fill the listing's `featured` slot with the first row (q36) — the
     /// book-of-the-month shape. Most listings leave it off.
     #[serde(default)]
@@ -882,8 +1013,10 @@ impl View {
 /// A view's query, with the `over` chain flattened.
 #[derive(Debug)]
 pub struct Query {
-    /// Collection name, or `*`.
-    pub base: String,
+    /// The collections this ranges over, or the single name `*`. More than one
+    /// is a union (§5c), and every member shares a kind — checked where the
+    /// chain terminates, so a materializer can read the kind off the first.
+    pub base: Vec<String>,
     /// Every filter along the chain, outermost view last. All must hold.
     pub filters: Vec<String>,
     /// Every `match` glob along the chain. **Conjoined, like filters**: a
@@ -1435,7 +1568,7 @@ impl Config {
                          a landing materializes somewhere"
                     );
                 }
-                if (v.intro.is_some() || v.content.is_some()) && v.over == "*" {
+                if (v.intro.is_some() || v.content.is_some()) && v.over.is_star() {
                     anyhow::bail!(
                         "view {vname}: star views serialize the route set and \
                          have no landing to give prose to"
@@ -1460,7 +1593,7 @@ impl Config {
                          locale-parallel materialization, §6f)"
                     );
                 }
-                if v.over == "*" {
+                if v.over.is_star() {
                     anyhow::bail!(
                         "view {vname}: star views serialize the whole route \
                          set and never materialize per locale — filter on \
@@ -1516,18 +1649,14 @@ impl Config {
             if order_by.is_none() {
                 order_by.clone_from(&v.order_by);
             }
-            // A collection or `*` terminates the chain.
-            let Some(next) = self.views.get(v.over.as_str()) else {
-                if v.over != "*" && !self.collections.contains_key(&v.over) {
-                    anyhow::bail!(
-                        "{name}: `from = {:?}` is neither a collection, a set nor a route",
-                        v.over
-                    );
-                }
+            // A collection, a union, or `*` terminates the chain.
+            let next = v.over.single().and_then(|s| self.views.get(s));
+            let Some(next) = next else {
+                self.check_base(name, &v.over)?;
                 filters.reverse();
                 scopes.reverse();
                 return Ok(Query {
-                    base: v.over.clone(),
+                    base: v.over.names().to_vec(),
                     filters,
                     scopes,
                     order_by,
@@ -1544,7 +1673,7 @@ impl Config {
                          grouped route. Only sets and grouped, unpaginated routes may be \
                          composed over (subdivision, §5c); pagination × subdivision is \
                          punted (open question 30).",
-                        v.over
+                        v.over.display()
                     );
                 }
                 if v.group_by.is_none() {
@@ -1552,12 +1681,54 @@ impl Config {
                         "{name}: `from = {:?}` names a grouped route, but {name} has no \
                          `group_by`. Composing over a grouped route means subdividing its \
                          partition (§5c), so the composer must be grouped too.",
-                        v.over
+                        v.over.display()
                     );
                 }
             }
-            cur = &v.over;
+            cur = v.over.single().expect("a union terminates the chain above");
         }
+    }
+
+    /// What a terminated chain is allowed to name (§5c).
+    ///
+    /// One name may be a collection or `*`. A union may name only collections,
+    /// and they must share a kind: the members decide the vocabulary a `where`
+    /// type-checks against and whether the rows are parsed, so two kinds in one
+    /// union is a query with two answers to both questions.
+    fn check_base(&self, name: &str, over: &From) -> Result<()> {
+        if over.is_star() {
+            return Ok(());
+        }
+        let mut kinds: Vec<(&str, Kind)> = Vec::new();
+        for member in over.names() {
+            let Some(c) = self.collections.get(member) else {
+                if matches!(over, From::Union(_)) {
+                    anyhow::bail!(
+                        "{name}: `from` unions {member:?}, which is not a collection. A union \
+                         ranges over collections; to narrow a set, compose over it with `from = \
+                         {member:?}` and a `where`."
+                    );
+                }
+                anyhow::bail!(
+                    "{name}: `from = {}` is neither a collection, a set nor a route",
+                    over.display()
+                );
+            };
+            kinds.push((member.as_str(), c.kind));
+        }
+        if let Some((first, k)) = kinds.first() {
+            if let Some((other, k2)) = kinds.iter().find(|(_, x)| x != k) {
+                anyhow::bail!(
+                    "{name}: `from` unions collections of two kinds — {first:?} is {k:?} and \
+                     {other:?} is {k2:?}. A union's members share a vocabulary, so they share a \
+                     kind."
+                );
+            }
+        }
+        if over.names().is_empty() {
+            anyhow::bail!("{name}: `from = []` names nothing to range over.");
+        }
+        Ok(())
     }
 
     /// The `over` chain from `name` down to its base, nearest view first.
@@ -1569,7 +1740,8 @@ impl Config {
         let mut cur = name;
         while let Some(v) = self.views.get(cur) {
             out.push((cur, v));
-            cur = &v.over;
+            let Some(n) = v.over.single() else { break };
+            cur = n;
         }
         out
     }
@@ -1770,7 +1942,7 @@ mod tests {
             limit = 3
         "#);
         let q = c.query("latest").unwrap();
-        assert_eq!(q.base, "blog");
+        assert_eq!(q.base, ["blog"]);
         // Outermost last, and every link in the chain must hold.
         assert_eq!(q.predicate().unwrap(), "(!draft && !hidden) && (!noindex)");
     }
@@ -1825,7 +1997,7 @@ mod tests {
             path = "/blog/{year}/{month:02}/"
         "#);
         let q = c.query("monthly").unwrap();
-        assert_eq!(q.base, "blog");
+        assert_eq!(q.base, ["blog"]);
         assert_eq!(q.predicate().unwrap(), "!draft");
     }
 

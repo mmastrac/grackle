@@ -1,6 +1,0 @@
-- [vanilla](/vanilla/index.md)
-- [ledger](/ledger/index.md)
-- [marginalia](/marginalia/index.md)
-- [terminal](/terminal/index.md)
-- [atlas](/atlas/index.md)
-- [miroir](/miroir/index.md)

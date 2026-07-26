@@ -236,8 +236,16 @@ noindex = true
 #
 # Free to correct: the corpus has 0 drafts and 0 hidden posts, so no output
 # moves today. It moves the first time a draft exists, which is the point.
+#
+# `from` names BOTH sources: `_posts` and `_drafts` are two collections of one
+# corpus (§4), and a `from` scopes to the collections it names (§5c). This used
+# to read `from = "posts"` and mean both anyway, because naming a collection
+# quietly meant every collection of its KIND — which is why the union is written
+# out now rather than kept by the engine. The `where` below is what hides the
+# drafts; the drafts PROFILE relaxes it, and that only works if they are in the
+# set to begin with.
 [sets.published]
-from = "posts"
+from = ["posts", "drafts"]
 where = "!draft && !hidden"
 # Newest first. The engine orders by path unless a set says otherwise —
 # a tree is a list of files, and dates are a thing posts have.
