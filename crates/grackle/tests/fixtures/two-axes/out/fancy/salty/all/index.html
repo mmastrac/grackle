@@ -15,6 +15,27 @@
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">All</a></span>
 </nav>
+	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="palette" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">palette</h2>
+	<div data-slot="items"><a href="/plain/salty/all/" data-kind="axis_member">
+	<span data-slot="label">plain</span>
+</a>
+<a href="/fancy/salty/all/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">fancy</span>
+</a>
+</div>
+</nav>
+<nav data-axis="flavor" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">flavor</h2>
+	<div data-slot="items"><a href="/fancy/sweet/all/" data-kind="axis_member">
+	<span data-slot="label">sweet</span>
+</a>
+<a href="/fancy/salty/all/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">salty</span>
+</a>
+</div>
+</nav>
+</nav>
 	<h1 data-slot="title">All</h1>
 	
 	<div data-slot="items"><article data-kind="summary">

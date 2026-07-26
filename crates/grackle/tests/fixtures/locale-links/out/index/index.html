@@ -16,6 +16,17 @@
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">Home</a></span>
 </nav>
+	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="locale" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">Translations</h2>
+	<div data-slot="items"><a href="/fr/index/" data-kind="axis_member">
+	<span data-slot="label">fr</span>
+</a>
+<a href="/index/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">en</span>
+</a>
+</div>
+</nav>
+</nav>
 	<header>
 		<h1 data-slot="title">Home</h1>
 		
@@ -25,15 +36,7 @@
 	
 	<div data-slot="content"><p>The English home. <a href="/fr/index/">en→fr</a></p>
 </div>
-	<nav aria-label="Related" data-slot="relations"><section data-relation="translations" data-kind="relation">
-	<h2 data-slot="label">Translations</h2>
-	<div data-slot="items"><a href="/fr/index/" data-kind="neighbor">
-	
-	<span data-slot="title">fr</span>
-</a>
-</div>
-</section>
-<section data-relation="linked_from" data-kind="relation">
+	<nav aria-label="Related" data-slot="relations"><section data-relation="linked_from" data-kind="relation">
 	<h2 data-slot="label">Linked from</h2>
 	<div data-slot="items"><a href="/hub/" data-kind="neighbor">
 	

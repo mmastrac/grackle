@@ -1,0 +1,33 @@
+# q47: a listing view renders a language switcher. A French reader on /fr/blog/
+# gets a way back to /blog/ — the axis slot, computed for the view route from its
+# own routes in other locales (the same mechanism a row uses through by_logical).
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Locale listing"
+author = "Tester"
+
+[i18n]
+default = "en"
+locales = ["fr"]
+
+[i18n.names]
+en = "English"
+fr = "Français"
+
+[[collections]]
+name = "posts"
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{slug}/"
+
+[routes.blog]
+path = "/blog/"
+from = "posts"
+layout = "listing"
+title = "Blog"

@@ -121,109 +121,6 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       exposure and no policy, and the favicon fix was the forcing case.
       (§4d honest edges)
 
-## Composition
-
-- [x] **Grouping composes over every base** — done. `build_object_view` was a
-      second materializer that never grew `group_by` or `paginate`; the two
-      merged into one `build_view` taking a `Base { schema, membership, parsed }`,
-      so objects group, paginate and subdivide like anything else
-      (`group_by = "ext"` puts the jpegs at one route and the pngs at another).
-      `paginate` under `group_by` was silently ignored and now paginates inside
-      each partition. Byte-identical across all five sites. (§5c)
-- [x] **`from` scopes to what it names** — done. Membership is one clause for
-      every base (*the row's collection is one of these*), and §4's "several
-      collections, one table" is now written out: `from = ["posts", "drafts"]`.
-      A union may name only collections and they must share a kind; both
-      violations are load errors. grack.com needed the one-line union, and the
-      regression that proved it was invisible in the default projection —
-      only `--profile drafts` showed 561 pages become 560. (§5c)
-- [x] **A view may declare its own theme** — done. A listing took the theme its
-      members agreed on and a claimed landing took its claimed row's, so the look
-      was a property of the content and one query could not wear two. `[routes.x]
-      theme = "ledger:dark"` makes it a property of the route; view beats member
-      unanimity beats `[site] theme`, and an unknown name is a load error. (§5a)
-- [x] **The axis prerequisite** — done, and inert. `Route.row` states the
-      row→route relation; post rendering is route-driven like the Page arm (it
-      was the fourth split in the render path, after q51's row type, `passes/`'s
-      view walk and §5c's materializer); per-row maps key on the row rather than
-      its URL. Enforced by a new §4 constraint — **one row, one route, N only
-      along an axis** — the dual of the route-collision check, and unstatable
-      before `Route.row` existed. Byte-identical on five sites, both profiles.
-- [x] **Axes** — built. `[axes.<name>]` with `values`/`field`/`url`/`match`:
-      one row, N routes, keyed by a value, the sole exception to §4's one-row-one-route
-      constraint. The first value is canonical and keeps the row's own URL (the
-      shape the default locale has); alternates are templated; every member
-      canonicalizes to the document; `*` views see canonical members only.
-      `field = "theme"` and `field = "shell"` are both wired — the second is
-      q44's md twin, which is the multiplicativeness the idea was claiming. (q53)
-- [x] **Link to an axis member** — done: `page.md?theme=ledger`. A link resolves
-      to a row and a row answers with its canonical URL, so a member had no
-      spelling; the merged gallery's first build failed on exactly that. Same
-      strictness as every other link — undeclared value and not-on-that-axis are
-      both load errors, and a non-axis `?k=v` is still a literal suffix. (q53)
-- [x] **Axis edges, named in q53** — all closed (built 2026-07). **Two axes over
-      one row compose**: `Route.axis`/`Row.axis` are the member *tuple*, `axis =
-      ["a", "b"]` materializes the cartesian product, the collision constraint
-      keys on the tuple, and a `*` view sees a route only when every member is
-      canonical (fixture `two-axes`); token grammar grew `{axis:x}`/`{group:x}`
-      namespaces. **`rel="alternate"` for members**: `Head.alternates` is now
-      `Alternate { href, hreflang?, media_type? }` (the variable-length
-      head-entry shape); each member lists its other forms — `hreflang` for
-      locale, `type` for a different-format form (the md twin), neither for a
-      same-format restyle (`rel="canonical"` covers it); the `light` tier emits
-      none. **Locale is unified as an axis**: the clean framing is a REUSE axis
-      (theme — every member reuses the canonical row's content, so no member is
-      ever missing) vs a FILE axis (locale — each member owns a file, e.g.
-      `index.fr.md`, and a member with no file simply skips). Locale is
-      selectable (`?locale=fr`, with the `.fr` suffix as the implicit value and
-      `index.fr.md?locale=en` overriding it) and COMPOSES with another axis —
-      `/fr/{look}/note/` is locale × look, each cell rendered in its locale's
-      chrome (fixtures `locale-links`, `locale-links-missing`, `locale-axis`).
-      **`{axis:locale}` is a positionable spent token** and **rules/views take a
-      path LIST** for the default-axis case (2026-07): `route =
-      ["/{theme}/{axis:locale}/", "/{theme}/", "/"]` picks the shortest template
-      spending every non-canonical axis, so a canonical member drops its segment
-      (`/` for the all-canonical member) and locale sits wherever the template
-      places it, falling back to the outer prefix when no template spends it.
-      Fixtures `default-axis` (rules), `default-axis-view` (views). (q53) (§6f)
-- [x] **A view may be materialized across an axis** — done (q53 step 1).
-      `[routes.x] axis = "theme"` with a `{theme}` segment in the path; an
-      unspent axis is a load error. A landing on an axis claims one row (the
-      constraint is per-view), which retired per-group `content` before it was
-      built. `view:name?axis=value` links a member.
-- [x] **Axis URL shape in the collection rule** (q53 step 2) — done. A route
-      template spends the axis with a `{theme}` segment and the rule that spends
-      it opts its rows in, so `[axes.*] url` and `[axes.*] match` both retired
-      into the rule that was already deciding both halves. Canonical-bare went
-      with them: every member wears its segment, and canonical is purely the
-      declaration of which one `rel="canonical"` names. (q53)
-- [x] **Unify the materializer into a product over dimensions** (q53 step 3) —
-      done. Grouped, paginated and single were three branches with three locale
-      loops and a duplicated pagination loop; they are one partition/slice/emit
-      over axis × locale × group × page. Byte-identical everywhere. (q53)
-
-- [x] **Per-group `content`** — done (2026-07). `content`/`default_content` may be
-      a `{token}` template, resolved per route through the same `template::render`
-      that `path` and `title` use — over the route's group params (`{group:key}`,
-      bare `{key}`, field names) and axis members (`{axis:name}`). A grouped view
-      now gives each of its N routes its own words. §4d's distinction is kept: a
-      templated `content` is a promise (a group whose file is missing = load
-      error), `default_content` the offer (missing, or no self-embed, = plain
-      listing, decided per route). Literal claims are byte-identical (settled at
-      load); templated claims settle in a post-materialize pass that withholds the
-      claimed row's own route before the collision check. Fixtures:
-      `per-group-content`, `per-group-content-missing`, `per-group-default-content`.
-      (§5c, §5h)
-- [x] **The same N views over N subtrees** — retired by the axis, as this item
-      anticipated ("only if `?theme=` doesn't retire the harness's shape first" —
-      it did). `theme-preview/` went from 341 lines / 33 tables to **226 / 10**
-      (one `[axes.theme]`, three collections, two sets, five routes): the six
-      structurally identical subtrees collapsed into one content tree with a theme
-      axis. Both problems the item named are the axis, not a grouping primitive —
-      notes/shelf are `notes_index`/`shelf_index` materialized across the axis, and
-      the six wall routes are `wall_index` (`/{theme}/wall/`, `axis = "theme"`),
-      the "one row set at six URLs" case now expressed directly. (§4d, §5c)
-
 ## Unbuilt, and carrying no q number
 
 Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
@@ -269,8 +166,17 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 One line each; `DESIGN.md` §11 carries the design. Everything else in §11 is a
 design question without a release consequence and is not listed here.
 
-- [ ] **q47 — listing views render no language switcher.** A French reader who
-      lands on `/fr/blog/` has no way back. The most user-visible of these.
+- [x] **q47 — listing views render a language switcher** (built 2026-07). The
+      fix generalized to an **axis slot**: the engine computes, per route, every
+      axis THIS page is a member of — the locale axis (a row's `by_logical`
+      twins, a view's own routes in other locales) and any declared axis (theme,
+      …) — as an `axes` part, each group a set of member links with the current
+      one flagged. Themes place `data-slot="axes"`; the base theme's `axis.html`/
+      `axis_member.html` render it. This SUPERSEDED the `translations` relation
+      (the locale switcher is one group here), works for rows AND listing views
+      (so `/fr/blog/` now links back to `/blog/`), and `.?locale=fr` /
+      `.?theme=x` self-pivot links let an author write one by hand. Fixtures:
+      `locale-listing`, `default-axis-view`, `locale-links`. (§6f, q53)
 - [ ] **q26 — body-image dimensions.** Post bodies still ship without them;
       layout shift site-wide until the §6d rewrite stage reaches `{% image %}`.
 - [ ] **q28 — redirects for restructured URL trees.** No mechanism, and the

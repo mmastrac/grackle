@@ -17,6 +17,27 @@
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">Note (fr)</a></span>
 </nav>
+	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="locale" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">Translations</h2>
+	<div data-slot="items"><a href="/plain/fr/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">fr</span>
+</a>
+<a href="/" data-kind="axis_member">
+	<span data-slot="label">en</span>
+</a>
+</div>
+</nav>
+<nav data-axis="look" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">look</h2>
+	<div data-slot="items"><a href="/plain/fr/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">plain</span>
+</a>
+<a href="/fancy/fr/" data-kind="axis_member">
+	<span data-slot="label">fancy</span>
+</a>
+</div>
+</nav>
+</nav>
 	<header>
 		<h1 data-slot="title">Note (fr)</h1>
 		
@@ -26,15 +47,7 @@
 	
 	<div data-slot="content"><p>Français.</p>
 </div>
-	<nav aria-label="Related" data-slot="relations"><section data-relation="translations" data-kind="relation">
-	<h2 data-slot="label">Translations</h2>
-	<div data-slot="items"><a href="/" data-kind="neighbor">
 	
-	<span data-slot="title">en</span>
-</a>
-</div>
-</section>
-</nav>
 </article>
 </main>
 <footer data-frame>

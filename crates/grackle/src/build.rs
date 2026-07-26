@@ -118,6 +118,99 @@ fn axis_alternates(db: &SiteDb, site_url: &str, r: &Route) -> Vec<render::Altern
         .collect()
 }
 
+/// The axis slot (q47, §6f): every axis THIS route is a member of, each a group
+/// of member links with the current one flagged — the switcher a theme renders,
+/// for a row page or a listing view alike. Supersedes the `translations`
+/// relation: the locale axis is one group here.
+///
+/// The locale group comes from `by_logical` (a row's translation files) or the
+/// same view route in other locales; a declared axis (theme, …) from the sibling
+/// routes that differ in exactly that axis, other axes held at the current
+/// member. A group with fewer than two members is no switcher and drops out.
+pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::PartMap> {
+    let default = cfg.i18n.default.as_str();
+    let cur_locale = r.locale.as_deref().unwrap_or(default);
+    let mut groups = Vec::new();
+
+    // The routes that are THIS page in another form: a row's own routes, or the
+    // same view route (same group key and page).
+    let in_scope = |o: &Route| -> bool {
+        match &r.row {
+            Some(k) => o.row.as_ref() == Some(k),
+            None => {
+                o.kind == RouteKind::View
+                    && o.view == r.view
+                    && o.key == r.key
+                    && o.page == r.page
+            }
+        }
+    };
+
+    // Locale axis. A row pivots through its translation files (by_logical); a
+    // view through its own routes in other locales.
+    let loc_members: Vec<(String, String, bool)> = if let Some(k) = &r.row {
+        db.rows
+            .get(k)
+            .and_then(|p| db.by_logical.get(&p.logical))
+            .into_iter()
+            .flatten()
+            .filter_map(|sk| db.rows.get(sk))
+            .filter(|s| !s.url.is_empty())
+            .map(|s| {
+                (
+                    cfg.i18n.name_of(&s.locale).to_string(),
+                    s.url.clone(),
+                    Some(&s.key) == r.row.as_ref(),
+                )
+            })
+            .collect()
+    } else {
+        // Vary ONLY locale: hold the axis members fixed, or a view on another
+        // axis would list its axis siblings as if they were translations.
+        db.routes
+            .iter()
+            .filter(|o| in_scope(o) && o.axis == r.axis)
+            .map(|o| {
+                let loc = o.locale.as_deref().unwrap_or(default);
+                (cfg.i18n.name_of(loc).to_string(), o.url.clone(), o.url == r.url)
+            })
+            .collect()
+    };
+    if let Some(g) = parts::axis_group("locale", cfg.i18n.string("translations", cur_locale), loc_members)
+    {
+        groups.push(g);
+    }
+
+    // Declared axes: pivot one, hold the rest (and locale) at the current member.
+    for m in &r.axis {
+        let Some(axis) = cfg.axes.get(&m.axis) else {
+            continue;
+        };
+        let members: Vec<(String, String, bool)> = axis
+            .values
+            .iter()
+            .filter_map(|v| {
+                db.routes
+                    .iter()
+                    .find(|o| {
+                        in_scope(o)
+                            && o.locale == r.locale
+                            && o.axis.len() == r.axis.len()
+                            && r.axis.iter().all(|rm| {
+                                let want = if rm.axis == m.axis { v } else { &rm.value };
+                                o.axis.iter().any(|om| om.axis == rm.axis && om.value == *want)
+                            })
+                    })
+                    .map(|o| (v.clone(), o.url.clone(), v == &m.value))
+            })
+            .collect();
+        if let Some(g) = parts::axis_group(&m.axis, &m.axis, members) {
+            groups.push(g);
+        }
+    }
+    groups
+}
+
 /// The media type a member URL advertises as a `rel="alternate"` `type`, or
 /// `None` for an ordinary HTML page (a restyle names no type — it is the same
 /// representation). Keyed off the URL's extension, the one thing that says a
@@ -409,7 +502,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .extend(axis_alternates(db, &cfg.site.url, r));
             let groups =
                 parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
-            let mut doc = parts::document(cfg, p, whole, trail, groups, outline, &translations);
+            let mut doc = parts::document(cfg, p, whole, trail, groups, outline, axes_part(cfg, db, r));
             parts::fill_from_fields(&mut doc, p, &schemas, &resolve_asset)?;
             let dir = p.path.parent().unwrap_or(&root);
             // Theme is per ROW (§5a), posts included — which means the row's
@@ -624,25 +717,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             }
         }
 
-        // The landing per locale IS the translation set — computed from
-        // the owner's materialized routes, not from which prose variants
-        // exist (a fallback landing is still the French landing).
-        let translations: Vec<(String, String)> = db
-            .routes
-            .iter()
-            .filter(|x| {
-                x.kind == RouteKind::View
-                    && x.view.as_deref() == Some(view.as_str())
-                    && x.key.is_none()
-                    && x.page.is_none_or(|n| n == 1)
-                    && x.url != r.url
-            })
-            .map(|x| {
-                let l = x.locale.as_deref().unwrap_or(&cfg.i18n.default);
-                (cfg.i18n.name_of(l).to_string(), x.url.clone())
-            })
-            .collect();
-
+        // The landing's locale switcher and any axis are the `axes` slot now,
+        // computed per route by `axes_part` — a landing per locale IS the
+        // translation set (a fallback landing is still the French landing).
         let section: Vec<parts::PartMap> = crate::outline::nearest(&db.sections, &row.rel)
             .map(|sec| {
                 let tree = section_trees
@@ -672,7 +749,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         outline: Vec::new(),
                         hero: None,
                         relation_groups: groups,
-                        translations: &translations,
+                        axes: axes_part(cfg, db, r),
                     },
                     &frag,
                 );
@@ -1017,7 +1094,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                                         outline,
                                         hero,
                                         relation_groups: groups,
-                                        translations: &translations,
+                                        axes: axes_part(cfg, db, r),
                                     },
                                     frag,
                                 );

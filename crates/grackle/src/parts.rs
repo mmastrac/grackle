@@ -531,29 +531,32 @@ pub fn relation_groups(groups: Vec<crate::relate::Group>) -> Vec<PartMap> {
         .collect()
 }
 
-/// The `translations` group (§6f, q53): this row in other locales, as
-/// dateless neighbours labelled by language. An *axis* rather than a
-/// relation — other forms of THIS row, not other rows — so the engine owns
-/// it directly instead of the declared-relation machinery; it still renders
-/// through the shared `relation` fragment, stamped `translations`.
-///
-/// Takes `(locale, url)` and names the locale here, because the LOCALE is
-/// what the head needs for `hreflang` (q53) and the name is only wanted
-/// for display. One computation, two consumers.
-pub fn translations_group(
-    cfg: &crate::config::Config,
-    locale: &str,
-    translations: &[(String, String)],
-) -> Option<PartMap> {
-    let items = translations
-        .iter()
-        .map(|(loc, url)| neighbor(cfg.i18n.name_of(loc), url, None))
+/// One axis group for the axis slot (q47, §6f): a named, labelled set of
+/// members, each a link with the current one flagged. Fewer than two members is
+/// no switcher, so it contributes nothing (hole-algebra rule 2). This is what
+/// superseded the `translations` relation — the locale switcher is one of these,
+/// beside a theme switcher or any declared axis, for rows AND listing views.
+pub fn axis_group(name: &str, label: &str, members: Vec<(String, String, bool)>) -> Option<PartMap> {
+    if members.len() < 2 {
+        return None;
+    }
+    let items = members
+        .into_iter()
+        .map(|(label, url, current)| {
+            let mut m = PartMap::new("axis_member");
+            m.set("label", Part::Text(label));
+            m.set("url", Part::Text(url));
+            if current {
+                m.set("current", Part::Text("true".to_string()));
+            }
+            m
+        })
         .collect();
-    relation_group(
-        "translations",
-        cfg.i18n.string("translations", locale),
-        items,
-    )
+    let mut g = PartMap::new("axis");
+    g.set("axis", Part::Text(name.to_string()));
+    g.set("label", Part::Text(label.to_string()));
+    g.set("items", Part::Stream(items));
+    Some(g)
 }
 
 /// Everything the `document` kind can carry. The two producers below differ
@@ -572,6 +575,7 @@ pub struct Document<'a> {
     pub outline: Vec<PartMap>,
     pub content: &'a str,
     pub relations: Vec<PartMap>,
+    pub axes: Vec<PartMap>,
 }
 
 fn assemble(d: Document) -> PartMap {
@@ -598,6 +602,9 @@ fn assemble(d: Document) -> PartMap {
     if !d.relations.is_empty() {
         m.set("relations", Part::Stream(d.relations));
     }
+    if !d.axes.is_empty() {
+        m.set("axes", Part::Stream(d.axes));
+    }
     m
 }
 
@@ -612,13 +619,8 @@ pub fn document(
     trail: Vec<(String, Option<String>)>,
     relation_groups: Vec<PartMap>,
     outline: Vec<PartMap>,
-    translations: &[(String, String)],
+    axes: Vec<PartMap>,
 ) -> PartMap {
-    // Push order is render order: the translations axis first, then the
-    // declared relations in the order the loader pinned.
-    let mut relations = Vec::new();
-    relations.extend(translations_group(cfg, &p.locale, translations));
-    relations.extend(relation_groups);
     assemble(Document {
         title: p.title.clone().unwrap_or_default(),
         url: p.url.clone(),
@@ -626,7 +628,8 @@ pub fn document(
         tags: tag_stream(cfg, p),
         outline,
         content,
-        relations,
+        relations: relation_groups,
+        axes,
         ..Default::default()
     })
 }
@@ -646,8 +649,8 @@ pub struct TreeDoc<'a> {
     /// page that is `linked_from` by default, plus whatever the collection
     /// declares (field-notes' `same_course`).
     pub relation_groups: Vec<PartMap>,
-    /// This row in other locales (§6f) — `(language label, url)`.
-    pub translations: &'a [(String, String)],
+    /// The axis slot (q47): this row's axes, the locale switcher among them.
+    pub axes: Vec<PartMap>,
 }
 
 pub fn document_tree(
@@ -667,9 +670,6 @@ pub fn document_tree(
         v.push((t.clone(), Some(u.clone())));
     }
     v.push((title.to_string(), None));
-    let mut relations = Vec::new();
-    relations.extend(translations_group(cfg, locale, d.translations));
-    relations.extend(d.relation_groups);
     assemble(Document {
         title: title.to_string(),
         url: url.to_string(),
@@ -679,7 +679,8 @@ pub fn document_tree(
         section: d.section,
         outline: d.outline,
         content,
-        relations,
+        relations: d.relation_groups,
+        axes: d.axes,
         ..Default::default()
     })
 }
@@ -874,6 +875,7 @@ pub fn listing(
     trail: Vec<(String, Option<String>)>,
     intro: Option<String>,
     pagination: Option<PartMap>,
+    axes: Vec<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
@@ -884,6 +886,9 @@ pub fn listing(
     set_items(&mut m, items, featured);
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
+    }
+    if !axes.is_empty() {
+        m.set("axes", Part::Stream(axes));
     }
     m
 }
@@ -1030,6 +1035,7 @@ mod tests {
             vec![("Home".into(), Some("/".into()))],
             None,
             None,
+            Vec::new(),
         );
         let out = canonical(&m);
         assert!(
@@ -1125,7 +1131,7 @@ mod tests {
                 (p.title.clone().unwrap_or_default(), None),
             ];
             let body = crate::store::read_body(&p.path).unwrap_or_default();
-            let m = document(&cfg, p, &body, trail, Vec::new(), Vec::new(), &[]);
+            let m = document(&cfg, p, &body, trail, Vec::new(), Vec::new(), Vec::new());
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -1158,6 +1164,7 @@ mod tests {
                     let urls: Vec<String> = (1..=66).map(|i| format!("/blog/page/{i}")).collect();
                     pagination(n, &urls)
                 }),
+                Vec::new(),
             );
             let out = canonical(&m);
             assert!(complete(&m, &out), "listing {} dropped a part", r.url);
@@ -1229,9 +1236,12 @@ mod schema_asset_tests {
                 "intro",
                 "featured",
                 "items",
-                "pagination"
+                "pagination",
+                "axes"
             ]
         );
+        assert_eq!(names("axis"), ["axis", "label", "items"]);
+        assert_eq!(names("axis_member"), ["label", "url", "current"]);
     }
 
     /// A kind nothing declares is `None`, which is what makes a fragment

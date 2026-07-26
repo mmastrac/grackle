@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-kind="shell">
+<head>
+	<title>Blog</title>
+	<meta charset="utf-8">
+	<link href='/css/main.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<header data-frame>
+	<a href="/" data-slot="site_title">Locale listing</a>
+	
+</header>
+<main data-frame data-slot="main"><section data-kind="listing">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Blog</a></span>
+</nav>
+	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="locale" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">Translations</h2>
+	<div data-slot="items"><a href="/blog/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">English</span>
+</a>
+<a href="/fr/blog/" data-kind="axis_member">
+	<span data-slot="label">Français</span>
+</a>
+</div>
+</nav>
+</nav>
+	<h1 data-slot="title">Blog</h1>
+	
+	<div data-slot="items"><article data-kind="summary">
+	<h2><a href="/blog/hello/" data-slot="title">Hello</a></h2>
+	<p><time datetime="2026-01-01" data-slot="date_pretty">1 January 2026</time> </p>
+	
+	<div data-slot="content"><p>English post.</p>
+</div>
+</article>
+</div>
+	
+</section>
+</main>
+<footer data-frame>
+	
+</footer>
+</body>
+</html>

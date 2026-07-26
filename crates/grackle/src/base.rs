@@ -44,6 +44,8 @@ const FRAGMENTS: &[(&str, &str)] = &[
     ("tag", include_str!("../assets/base/tag.html")),
     ("neighbor", include_str!("../assets/base/neighbor.html")),
     ("relation", include_str!("../assets/base/relation.html")),
+    ("axis", include_str!("../assets/base/axis.html")),
+    ("axis_member", include_str!("../assets/base/axis_member.html")),
     (
         "outline_entry",
         include_str!("../assets/base/outline_entry.html"),

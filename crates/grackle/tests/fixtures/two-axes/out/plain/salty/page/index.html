@@ -18,6 +18,27 @@
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">Page</a></span>
 </nav>
+	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="flavor" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">flavor</h2>
+	<div data-slot="items"><a href="/plain/sweet/page/" data-kind="axis_member">
+	<span data-slot="label">sweet</span>
+</a>
+<a href="/plain/salty/page/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">salty</span>
+</a>
+</div>
+</nav>
+<nav data-axis="palette" aria-label="Other versions" data-kind="axis">
+	<h2 data-slot="label">palette</h2>
+	<div data-slot="items"><a href="/plain/salty/page/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">plain</span>
+</a>
+<a href="/fancy/salty/page/" data-kind="axis_member">
+	<span data-slot="label">fancy</span>
+</a>
+</div>
+</nav>
+</nav>
 	<header>
 		<h1 data-slot="title">Page</h1>
 		
