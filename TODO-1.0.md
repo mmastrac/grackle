@@ -214,13 +214,15 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       claimed row's own route before the collision check. Fixtures:
       `per-group-content`, `per-group-content-missing`, `per-group-default-content`.
       (§5c, §5h)
-- [ ] **The same N views over N subtrees** — `theme-preview/` is 341 lines and
-      33 `[sets]`/`[routes]` tables for six structurally identical subtrees. Two
-      different problems wear one shape: notes and shelf are a real **partition**
-      (six disjoint row sets — `group_by` fits exactly, and now works), while the
-      six wall routes are **one** row set at six URLs, which no grouping
-      primitive can express because nothing is being partitioned. Worth revisiting
-      only if `?theme=` (above) doesn't retire the harness's shape first. (§4d, §5c)
+- [x] **The same N views over N subtrees** — retired by the axis, as this item
+      anticipated ("only if `?theme=` doesn't retire the harness's shape first" —
+      it did). `theme-preview/` went from 341 lines / 33 tables to **226 / 10**
+      (one `[axes.theme]`, three collections, two sets, five routes): the six
+      structurally identical subtrees collapsed into one content tree with a theme
+      axis. Both problems the item named are the axis, not a grouping primitive —
+      notes/shelf are `notes_index`/`shelf_index` materialized across the axis, and
+      the six wall routes are `wall_index` (`/{theme}/wall/`, `axis = "theme"`),
+      the "one row set at six URLs" case now expressed directly. (§4d, §5c)
 
 ## Unbuilt, and carrying no q number
 
