@@ -1,6 +1,0 @@
-- [vanilla](view:notes_index?theme=vanilla)
-- [ledger](view:notes_index?theme=ledger)
-- [marginalia](view:notes_index?theme=marginalia)
-- [terminal](view:notes_index?theme=terminal)
-- [atlas](view:notes_index?theme=atlas)
-- [miroir](view:notes_index?theme=miroir)
