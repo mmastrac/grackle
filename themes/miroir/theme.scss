@@ -23,7 +23,6 @@
 	background: var(--rail-bg);
 	color: var(--rail-fg);
 	border-inline-end: var(--border) solid var(--rail-line);
-	overflow-y: auto;
 
 	// The brand block is daisy's navbar, stood on its end: a saturated
 	// slab of --accent at the head of ojeda's rail.
@@ -43,6 +42,9 @@
 	// exactly. The accent bar on hover is the only motion in the theme.
 	.site-nav {
 		flex: 1;
+		// The rail's scroll lives here, not on the header, so the axis picker's
+		// dropdown is not clipped by an overflow ancestor.
+		overflow-y: auto;
 
 		ul {
 			list-style: none;
