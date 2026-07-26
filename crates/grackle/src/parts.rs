@@ -540,6 +540,13 @@ pub fn axis_group(name: &str, label: &str, members: Vec<(String, String, bool)>)
     if members.len() < 2 {
         return None;
     }
+    // The current member's label heads the dropdown (its summary): "ledger",
+    // "Français" — what you are viewing, with the rest as the menu.
+    let current_label = members
+        .iter()
+        .find(|(_, _, c)| *c)
+        .map(|(l, _, _)| l.clone())
+        .unwrap_or_else(|| label.to_string());
     let items = members
         .into_iter()
         .map(|(label, url, current)| {
@@ -555,6 +562,7 @@ pub fn axis_group(name: &str, label: &str, members: Vec<(String, String, bool)>)
     let mut g = PartMap::new("axis");
     g.set("axis", Part::Text(name.to_string()));
     g.set("label", Part::Text(label.to_string()));
+    g.set("current", Part::Text(current_label));
     g.set("items", Part::Stream(items));
     Some(g)
 }
@@ -575,7 +583,6 @@ pub struct Document<'a> {
     pub outline: Vec<PartMap>,
     pub content: &'a str,
     pub relations: Vec<PartMap>,
-    pub axes: Vec<PartMap>,
 }
 
 fn assemble(d: Document) -> PartMap {
@@ -602,9 +609,6 @@ fn assemble(d: Document) -> PartMap {
     if !d.relations.is_empty() {
         m.set("relations", Part::Stream(d.relations));
     }
-    if !d.axes.is_empty() {
-        m.set("axes", Part::Stream(d.axes));
-    }
     m
 }
 
@@ -619,7 +623,6 @@ pub fn document(
     trail: Vec<(String, Option<String>)>,
     relation_groups: Vec<PartMap>,
     outline: Vec<PartMap>,
-    axes: Vec<PartMap>,
 ) -> PartMap {
     assemble(Document {
         title: p.title.clone().unwrap_or_default(),
@@ -629,7 +632,6 @@ pub fn document(
         outline,
         content,
         relations: relation_groups,
-        axes,
         ..Default::default()
     })
 }
@@ -649,8 +651,6 @@ pub struct TreeDoc<'a> {
     /// page that is `linked_from` by default, plus whatever the collection
     /// declares (field-notes' `same_course`).
     pub relation_groups: Vec<PartMap>,
-    /// The axis slot (q47): this row's axes, the locale switcher among them.
-    pub axes: Vec<PartMap>,
 }
 
 pub fn document_tree(
@@ -680,7 +680,6 @@ pub fn document_tree(
         outline: d.outline,
         content,
         relations: d.relation_groups,
-        axes: d.axes,
         ..Default::default()
     })
 }
@@ -875,7 +874,6 @@ pub fn listing(
     trail: Vec<(String, Option<String>)>,
     intro: Option<String>,
     pagination: Option<PartMap>,
-    axes: Vec<PartMap>,
 ) -> PartMap {
     let mut m = PartMap::new("listing");
     m.set("title", Part::Text(title.to_string()));
@@ -886,9 +884,6 @@ pub fn listing(
     set_items(&mut m, items, featured);
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
-    }
-    if !axes.is_empty() {
-        m.set("axes", Part::Stream(axes));
     }
     m
 }
@@ -1035,7 +1030,6 @@ mod tests {
             vec![("Home".into(), Some("/".into()))],
             None,
             None,
-            Vec::new(),
         );
         let out = canonical(&m);
         assert!(
@@ -1131,7 +1125,7 @@ mod tests {
                 (p.title.clone().unwrap_or_default(), None),
             ];
             let body = crate::store::read_body(&p.path).unwrap_or_default();
-            let m = document(&cfg, p, &body, trail, Vec::new(), Vec::new(), Vec::new());
+            let m = document(&cfg, p, &body, trail, Vec::new(), Vec::new());
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -1164,7 +1158,6 @@ mod tests {
                     let urls: Vec<String> = (1..=66).map(|i| format!("/blog/page/{i}")).collect();
                     pagination(n, &urls)
                 }),
-                Vec::new(),
             );
             let out = canonical(&m);
             assert!(complete(&m, &out), "listing {} dropped a part", r.url);
@@ -1226,7 +1219,10 @@ mod schema_asset_tests {
                 .map(|(n, _)| n.as_str())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(names("shell"), ["nav", "site_title", "main", "copyright"]);
+        assert_eq!(
+            names("shell"),
+            ["nav", "site_title", "axes", "main", "copyright"]
+        );
         assert_eq!(names("item"), ["label"], "the shape a list field fills");
         assert_eq!(
             names("listing"),
@@ -1236,11 +1232,10 @@ mod schema_asset_tests {
                 "intro",
                 "featured",
                 "items",
-                "pagination",
-                "axes"
+                "pagination"
             ]
         );
-        assert_eq!(names("axis"), ["axis", "label", "items"]);
+        assert_eq!(names("axis"), ["axis", "label", "current", "items"]);
         assert_eq!(names("axis_member"), ["label", "url", "current"]);
     }
 

@@ -96,15 +96,7 @@ impl Pass for Listing {
         };
         let row_thm = ctx.themes.get(theme_name)?;
         let main = row_thm.fragments.render_with(
-            &parts::listing(
-                items,
-                v.featured,
-                &title,
-                trail,
-                intro,
-                pagination,
-                crate::build::axes_part(cfg, db, r),
-            ),
+            &parts::listing(items, v.featured, &title, trail, intro, pagination),
             v.variant.as_deref(),
         );
         let mut head = render::head_simple(&title, &r.url, ctx.site);
@@ -119,6 +111,7 @@ impl Pass for Listing {
             subtheme.as_deref(),
             ctx.profile,
             &r.axis,
+            crate::build::axes_part(cfg, db, r),
         )?;
         out.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;

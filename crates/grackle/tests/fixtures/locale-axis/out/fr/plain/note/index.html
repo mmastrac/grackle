@@ -13,13 +13,8 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Locale x axis</a>
 	
-</header>
-<main data-frame data-slot="main"><article data-kind="document" data-tree>
-	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
-<span data-kind="crumb"><a data-slot="label">Note (fr)</a></span>
-</nav>
-	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="locale" aria-label="Other versions" data-kind="axis">
-	<h2 data-slot="label">Translations</h2>
+	<nav aria-label="Other versions" data-slot="axes"><details data-axis="locale" aria-label="Translations" data-kind="axis">
+	<summary data-slot="current">fr</summary>
 	<div data-slot="items"><a href="/fr/plain/note/" data-current="true" data-kind="axis_member">
 	<span data-slot="label">fr</span>
 </a>
@@ -27,9 +22,9 @@
 	<span data-slot="label">en</span>
 </a>
 </div>
-</nav>
-<nav data-axis="look" aria-label="Other versions" data-kind="axis">
-	<h2 data-slot="label">look</h2>
+</details>
+<details data-axis="look" aria-label="look" data-kind="axis">
+	<summary data-slot="current">plain</summary>
 	<div data-slot="items"><a href="/fr/plain/note/" data-current="true" data-kind="axis_member">
 	<span data-slot="label">plain</span>
 </a>
@@ -37,7 +32,12 @@
 	<span data-slot="label">fancy</span>
 </a>
 </div>
+</details>
 </nav>
+</header>
+<main data-frame data-slot="main"><article data-kind="document" data-tree>
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Note (fr)</a></span>
 </nav>
 	<header>
 		<h1 data-slot="title">Note (fr)</h1>

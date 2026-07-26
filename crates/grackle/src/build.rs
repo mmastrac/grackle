@@ -502,7 +502,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .extend(axis_alternates(db, &cfg.site.url, r));
             let groups =
                 parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
-            let mut doc = parts::document(cfg, p, whole, trail, groups, outline, axes_part(cfg, db, r));
+            let mut doc = parts::document(cfg, p, whole, trail, groups, outline);
             parts::fill_from_fields(&mut doc, p, &schemas, &resolve_asset)?;
             let dir = p.path.parent().unwrap_or(&root);
             // Theme is per ROW (§5a), posts included — which means the row's
@@ -524,6 +524,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 subtheme.as_deref(),
                 profile,
                 &r.axis,
+                axes_part(cfg, db, r),
             )?;
             Ok((url.to_string(), html))
         })
@@ -749,7 +750,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         outline: Vec::new(),
                         hero: None,
                         relation_groups: groups,
-                        axes: axes_part(cfg, db, r),
                     },
                     &frag,
                 );
@@ -771,6 +771,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             subtheme.as_deref(),
             profile,
             &r.axis,
+            axes_part(cfg, db, r),
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -1094,7 +1095,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                                         outline,
                                         hero,
                                         relation_groups: groups,
-                                        axes: axes_part(cfg, db, r),
                                     },
                                     frag,
                                 );
@@ -1122,6 +1122,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                             subtheme.as_deref(),
                             profile,
                             &r.axis,
+                            axes_part(cfg, db, r),
                         )?
                     }
                 };

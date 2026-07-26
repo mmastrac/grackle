@@ -9,13 +9,8 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Locale listing</a>
 	
-</header>
-<main data-frame data-slot="main"><section data-kind="listing">
-	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
-<span data-kind="crumb"><a data-slot="label">Blog</a></span>
-</nav>
-	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="locale" aria-label="Other versions" data-kind="axis">
-	<h2 data-slot="label">Translations</h2>
+	<nav aria-label="Other versions" data-slot="axes"><details data-axis="locale" aria-label="Translations" data-kind="axis">
+	<summary data-slot="current">English</summary>
 	<div data-slot="items"><a href="/blog/" data-current="true" data-kind="axis_member">
 	<span data-slot="label">English</span>
 </a>
@@ -23,7 +18,12 @@
 	<span data-slot="label">Français</span>
 </a>
 </div>
+</details>
 </nav>
+</header>
+<main data-frame data-slot="main"><section data-kind="listing">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Blog</a></span>
 </nav>
 	<h1 data-slot="title">Blog</h1>
 	

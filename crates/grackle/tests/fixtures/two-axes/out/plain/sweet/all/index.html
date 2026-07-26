@@ -10,13 +10,8 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Two axes</a>
 	
-</header>
-<main data-frame data-slot="main"><section data-kind="listing">
-	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
-<span data-kind="crumb"><a data-slot="label">All</a></span>
-</nav>
-	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="palette" aria-label="Other versions" data-kind="axis">
-	<h2 data-slot="label">palette</h2>
+	<nav aria-label="Other versions" data-slot="axes"><details data-axis="palette" aria-label="palette" data-kind="axis">
+	<summary data-slot="current">plain</summary>
 	<div data-slot="items"><a href="/plain/sweet/all/" data-current="true" data-kind="axis_member">
 	<span data-slot="label">plain</span>
 </a>
@@ -24,9 +19,9 @@
 	<span data-slot="label">fancy</span>
 </a>
 </div>
-</nav>
-<nav data-axis="flavor" aria-label="Other versions" data-kind="axis">
-	<h2 data-slot="label">flavor</h2>
+</details>
+<details data-axis="flavor" aria-label="flavor" data-kind="axis">
+	<summary data-slot="current">sweet</summary>
 	<div data-slot="items"><a href="/plain/sweet/all/" data-current="true" data-kind="axis_member">
 	<span data-slot="label">sweet</span>
 </a>
@@ -34,7 +29,12 @@
 	<span data-slot="label">salty</span>
 </a>
 </div>
+</details>
 </nav>
+</header>
+<main data-frame data-slot="main"><section data-kind="listing">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">All</a></span>
 </nav>
 	<h1 data-slot="title">All</h1>
 	

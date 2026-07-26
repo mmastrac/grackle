@@ -11,13 +11,8 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Axes</a>
 	
-</header>
-<main data-frame data-slot="main"><article data-kind="document" data-tree>
-	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
-<span data-kind="crumb"><a data-slot="label">Look</a></span>
-</nav>
-	<nav class="axes" aria-label="Other versions" data-slot="axes"><nav data-axis="theme" aria-label="Other versions" data-kind="axis">
-	<h2 data-slot="label">theme</h2>
+	<nav aria-label="Other versions" data-slot="axes"><details data-axis="theme" aria-label="theme" data-kind="axis">
+	<summary data-slot="current">default</summary>
 	<div data-slot="items"><a href="/default/look/" data-current="true" data-kind="axis_member">
 	<span data-slot="label">default</span>
 </a>
@@ -25,7 +20,12 @@
 	<span data-slot="label">loud</span>
 </a>
 </div>
+</details>
 </nav>
+</header>
+<main data-frame data-slot="main"><article data-kind="document" data-tree>
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Look</a></span>
 </nav>
 	<header>
 		<h1 data-slot="title">Look</h1>

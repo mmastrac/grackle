@@ -390,6 +390,55 @@ a[data-kind=neighbor] {
   margin-inline-start: var(--space-md);
 }
 
+[data-slot=axes] {
+  display: inline-flex;
+  gap: var(--nav-gap);
+  align-items: baseline;
+}
+
+[data-kind=axis] {
+  position: relative;
+}
+
+[data-kind=axis] > summary {
+  list-style: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+[data-kind=axis] > summary::-webkit-details-marker {
+  display: none;
+}
+
+[data-kind=axis] > summary::after {
+  content: " ▾";
+  color: var(--fg-muted);
+}
+
+[data-kind=axis] > [data-slot=items] {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + var(--space-xs));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: max-content;
+  background: var(--bg-raised, Canvas);
+  border: var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-xs);
+}
+
+a[data-kind=axis_member] {
+  display: block;
+  padding: var(--space-xs) var(--space-sm);
+  white-space: nowrap;
+}
+
+a[data-kind=axis_member][data-current] {
+  font-weight: var(--weight-head);
+}
+
 }
 @layer overlay {
 [data-slot=title]::after {

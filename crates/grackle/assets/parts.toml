@@ -16,6 +16,7 @@ name = "shell"
 parts = [
   ["nav", "html"],
   ["site_title", "text"],
+  ["axes", "stream:axis"],
   ["main", "html"],
   ["copyright", "html"],
 ]
@@ -33,7 +34,6 @@ parts = [
   ["outline", "stream:outline_entry"],
   ["content", "html"],
   ["relations", "stream:relation"],
-  ["axes", "stream:axis"],
 ]
 
 [[kind]]
@@ -54,19 +54,20 @@ parts = [
   ["featured", "map:summary"],
   ["items", "stream:summary"],
   ["pagination", "map:pagination"],
-  ["axes", "stream:axis"],
 ]
 
 # The axis slot (q47, §6f): every axis THIS page is a member of, each with its
-# members. The locale axis is the language switcher; a theme axis is a
-# "view in another look" switcher. Supersedes the `translations` relation —
-# it is just the `locale` group here. `axis` is the theme contract, stamped
-# `data-axis` so themes key CSS on it.
+# members — rendered in the shell chrome (a dropdown by the search icon). The
+# locale axis is the language switcher; a theme axis is a "view in another look"
+# switcher. Supersedes the `translations` relation — it is just the `locale`
+# group here. `axis` is the theme contract, stamped `data-axis`; `current` is
+# the current member's label, for the dropdown's summary.
 [[kind]]
 name = "axis"
 parts = [
   ["axis", "text"],
   ["label", "text"],
+  ["current", "text"],
   ["items", "stream:axis_member"],
 ]
 

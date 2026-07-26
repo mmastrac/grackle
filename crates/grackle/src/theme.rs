@@ -235,9 +235,13 @@ impl Theme {
         subtheme: Option<&str>,
         profile: Option<&str>,
         axis: &[grackle_model::AxisMember],
+        axes: Vec<PartMap>,
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
         m.set("site_title", Part::Text(site_title.to_string()));
+        if !axes.is_empty() {
+            m.set("axes", Part::Stream(axes));
+        }
         for (name, phrasing) in &self.identity {
             if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, locale) {
                 let rendered = fill.render(&|href| resolve_link(&fill.owner, href))?;
