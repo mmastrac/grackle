@@ -368,6 +368,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 &fill_link_resolver(cfg, &linkspace, &p.locale),
                 subtheme.as_deref(),
                 profile,
+                r.axis.as_ref(),
             )?;
             Ok((url.to_string(), html))
         })
@@ -626,6 +627,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             &fill_link_resolver(cfg, &linkspace, loc),
             subtheme.as_deref(),
             profile,
+            r.axis.as_ref(),
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -909,6 +911,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         row_locale,
                         None,
                         profile,
+                        r.axis.as_ref(),
                         &parts::canonical(&parts::raw(frag)),
                     ),
                     Theme::Default => {
@@ -972,6 +975,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                             &fill_link_resolver(cfg, &linkspace, row_locale),
                             subtheme.as_deref(),
                             profile,
+                            r.axis.as_ref(),
                         )?
                     }
                 };

@@ -234,6 +234,7 @@ impl Theme {
         resolve_link: &dyn Fn(&Path, &str) -> Result<Option<String>>,
         subtheme: Option<&str>,
         profile: Option<&str>,
+        axis: Option<&grackle_model::AxisMember>,
     ) -> Result<String> {
         let mut m = PartMap::new("shell");
         m.set("site_title", Part::Text(site_title.to_string()));
@@ -254,7 +255,7 @@ impl Theme {
         // theme with no shell fragment yields a valid document.
         let body = self.fragments.render_body(&m);
         Ok(crate::render::root_shell(
-            &head_html, locale, subtheme, profile, &body,
+            &head_html, locale, subtheme, profile, axis, &body,
         ))
     }
 }

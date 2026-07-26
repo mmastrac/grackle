@@ -158,13 +158,14 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       spelling; the merged gallery's first build failed on exactly that. Same
       strictness as every other link — undeclared value and not-on-that-axis are
       both load errors, and a non-axis `?k=v` is still a literal suffix. (q53)
-- [ ] **Axis edges, named in q53** — three, none blocking: **two axes over one
-      row collide** rather than composing (the cartesian product `/fr/ledger/…`
-      is unbuilt); **a `field` no render path consults** multiplies URLs and
-      changes no bytes, which should be a load error naming the fields that mean
-      something; and **axis members emit no `rel="alternate"`** because
-      `Head.alternates` is hreflang-shaped (same item as variable-length head
-      entries). (q53)
+- [ ] **Axis edges, named in q53** — two left, neither blocking: **two axes over
+      one row collide** rather than composing (`/fr/ledger/…` is unbuilt, though
+      each would now spend its own segment), and **axis members emit no
+      `rel="alternate"`** because `Head.alternates` is hreflang-shaped (same item
+      as variable-length head entries). The third — a `field` no render path
+      consults — is closed: a member stamps `data-axis-<name>` on the root, so an
+      axis declared for a purely presentational difference works with no engine
+      wiring. (q53)
 - [x] **A view may be materialized across an axis** — done (q53 step 1).
       `[routes.x] axis = "theme"` with a `{theme}` segment in the path; an
       unspent axis is a load error. A landing on an axis claims one row (the
@@ -176,9 +177,10 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       into the rule that was already deciding both halves. Canonical-bare went
       with them: every member wears its segment, and canonical is purely the
       declaration of which one `rel="canonical"` names. (q53)
-- [ ] **Unify the materializer into a product over dimensions** (q53 step 3) —
-      axis × locale × group × page is a cartesian product written as three
-      nested branches. Only worth it if step 2 does not already do it. (q53)
+- [x] **Unify the materializer into a product over dimensions** (q53 step 3) —
+      done. Grouped, paginated and single were three branches with three locale
+      loops and a duplicated pagination loop; they are one partition/slice/emit
+      over axis × locale × group × page. Byte-identical everywhere. (q53)
 
 - [ ] **Per-group `content`** — the blocker the composition work actually hit.
       `theme-preview`'s route families each claim a per-theme landing row

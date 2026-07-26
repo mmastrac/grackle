@@ -266,6 +266,7 @@ pub fn root_shell(
     locale: &str,
     subtheme: Option<&str>,
     profile: Option<&str>,
+    axis: Option<&grackle_model::AxisMember>,
     body: &str,
 ) -> String {
     let sub = subtheme
@@ -278,13 +279,28 @@ pub fn root_shell(
     let prof = profile
         .map(|p| format!(" data-profile=\"{}\"", esc(p)))
         .unwrap_or_default();
+    // q53: which member of which axis this route is, stamped like the two
+    // above. It means an axis `field` is never inert — a field no render path
+    // consults still reaches CSS as `[data-axis-thing="value"]`, so an axis can
+    // be declared for a purely presentational difference and a theme can act on
+    // it with no engine wiring at all. Same shape as the subtheme token, which
+    // is the precedent: the engine stamps, the theme decides what it means.
+    let ax = axis
+        .map(|a| {
+            format!(
+                " data-axis-{}=\"{}\"",
+                esc(&a.axis.replace(|c: char| !c.is_alphanumeric() && c != '-', "-")),
+                esc(&a.value)
+            )
+        })
+        .unwrap_or_default();
     // §6f: a French row wears French labels and a French URL, so the
     // skeleton around it must not claim `en` to screen readers and
     // crawlers. i18n off means every row carries the default locale, so
     // a site without translations is unaffected.
     let lang = esc(locale);
     format!(
-        "<!doctype html>\n<html lang=\"{lang}\" data-kind=\"shell\"{sub}{prof}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{lang}\" data-kind=\"shell\"{sub}{prof}{ax}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
         body.trim_end()
     )
 }

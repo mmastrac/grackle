@@ -144,21 +144,26 @@ pub fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>>
     combos
 }
 
-/// Materialize one route per composite group key. Shared by every base
-/// table — grouping never cared what a post or a page was.
+/// One cell of a view's route product: the rows that landed in it, the URL
+/// params that name it, and the key it wears.
 ///
-/// `route_value` maps a `{param}` to the value the URL wears — the seam
-/// where a tag's route slug (§6f, `[tags.x] slug`) diverges from its id.
-/// Group keys, params and titles keep the id; only the URL is slugged.
-fn grouped_routes(
-    name: &str,
-    v: &View,
-    member: &Option<AxisMember>,
-    tmpls: &[String],
+/// A view without a `group_by` has exactly one cell holding everything, which
+/// is what lets the materializer below have no branches — an ungrouped view is
+/// a grouped one with a single partition, and a single-page view is a
+/// paginated one whose slice happens to be the whole cell.
+struct Cell {
+    key: Option<String>,
+    params: Vec<(String, String)>,
+    rows: Vec<grackle_db::Key>,
+}
+
+/// Partition rows into cells by a subdivision chain (§5c) — one cell per
+/// composite group key, in key order. Shared by every base table: grouping
+/// never cared what a post or a page was.
+fn partition(
     chain: &[String],
     rows: &[(grackle_db::Key, &dyn filter::Row)],
-    route_value: &dyn Fn(&str, &str) -> String,
-) -> Result<Vec<Route>> {
+) -> Vec<Cell> {
     let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> =
         BTreeMap::new();
     for (i, row) in rows {
@@ -176,62 +181,19 @@ fn grouped_routes(
                 .push(i.clone());
         }
     }
-    let mut out = Vec::new();
-    for (sort, (params, members)) in groups {
-        let key = sort
-            .iter()
-            .map(SortKey::display)
-            .collect::<Vec<_>>()
-            .join("-");
-        // `{n}` is the page; every other placeholder is a group param. One
-        // renderer for both shapes, so a paginated group's URL cannot be built
-        // by a different rule than an unpaginated one's.
-        let url = |tmpl: &str, n: Option<usize>| -> Result<String> {
-            template::render(tmpl, |k| match k {
-                "n" => n.map(|n| n.to_string()),
-                _ => template::param(&params, k).map(|v| route_value(k, &v)),
-            })
-        };
-        let route = |url: String, page: Option<usize>, members: Vec<grackle_db::Key>| Route {
-            fields: view_fields(v),
-            axis: member.clone(),
-            view: Some(name.to_string()),
-            // The group key, not the page number: `{key}` in a title or crumb
-            // names the partition, and `page` carries the pagination.
-            key: Some(key.clone()),
-            rows: Some(members.len()),
-            page,
-            params: params.clone(),
-            members,
-            ..Route::new(url, RouteKind::View)
-        };
-        match v.paginate.map(|p| p.max(1)) {
-            // A grouped view paginates INSIDE each group: the partition says
-            // which rows, pagination says how many to a page. `paginate` used
-            // to be read only on the ungrouped path, so a grouped view that
-            // declared it got one unpaginated route and no warning.
-            //
-            // This is not q30. That question is pagination × SUBDIVISION — a
-            // pageable parent whose children subdivide off its root, where the
-            // two share a URL namespace. `config.query` still refuses to
-            // compose over a paginated route, so a grouped-and-paginated view
-            // remains a leaf.
-            Some(per) => {
-                for n in 1..=members.len().div_ceil(per).max(1) {
-                    let tmpl = if n == 1 { &tmpls[0] } else { &tmpls[1] };
-                    let page: Vec<grackle_db::Key> = members
-                        .iter()
-                        .skip(per * (n - 1))
-                        .take(per)
-                        .cloned()
-                        .collect();
-                    out.push(route(url(tmpl, Some(n))?, Some(n), page));
-                }
-            }
-            None => out.push(route(url(&tmpls[0], None)?, None, members)),
-        }
-    }
-    Ok(out)
+    groups
+        .into_iter()
+        .map(|(sort, (params, rows))| Cell {
+            key: Some(
+                sort.iter()
+                    .map(SortKey::display)
+                    .collect::<Vec<_>>()
+                    .join("-"),
+            ),
+            params,
+            rows,
+        })
+        .collect()
 }
 
 /// Which locales a materializing view partitions into (§6f). Default-on:
@@ -646,100 +608,120 @@ fn build_view(
         );
     }
 
-    // Grouped views, possibly a subdivision chain (§5c): a grouped view
-    // `over` a grouped view refines the parent's partition, and the group keys
-    // accumulate — GROUP BY year, month, expressed compositionally.
-    if v.group_by.is_some() {
-        let chain = cfg.group_specs(name);
+    // ONE materialization, over the product of the view's dimensions.
+    //
+    // These used to be three branches — grouped, paginated, single — each with
+    // its own loop over locales and its own idea of how a route is built, and
+    // the grouped one carried a second copy of the pagination loop. They are
+    // one shape: partition, slice, emit. An ungrouped view is a grouped one
+    // with a single cell; a single-page view is a paginated one whose slice is
+    // the whole cell.
+    //
+    // The dimensions, outermost first: AXIS (spent by the caller, already in
+    // `tmpls`), LOCALE, GROUP, then PAGE slicing whatever cell it is handed.
+    let chain = cfg.group_specs(name);
+    if !chain.is_empty() {
         check_group_chain(name, &chain, &schema)?;
-        // §6f enum records: URLs wear the record's slug for ANY grouped field
-        // (tags, courses, …); keys and titles keep the id.
-        let leaf = chain
-            .last()
-            .map(|s| grackle_model::spec_field(s).to_string());
-        let route_value = |k: &str, v: &str| -> String {
-            let field = if k == "key" { leaf.as_deref() } else { Some(k) };
-            match field {
-                Some(f) => cfg.record_slug(f, v).to_string(),
-                None => v.to_string(),
-            }
-        };
-        for locale in &locales {
-            let row_ix = rows_for(locale);
-            let grouped: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
-                .iter()
-                .filter_map(|k| rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
-                .collect();
-            let localized: Vec<String> =
-                tmpls.iter().map(|t| prefixed(cfg, locale, t)).collect();
-            let mut routes =
-                grouped_routes(name, v, &member, &localized, &chain, &grouped, &route_value)?;
-            for r in &mut routes {
-                r.locale = stamp(cfg, locale);
-            }
-            db.routes.extend(routes);
-        }
-        return Ok(());
     }
+    // §6f enum records: URLs wear the record's slug for ANY grouped field
+    // (tags, courses, …); keys and titles keep the id.
+    let leaf = chain
+        .last()
+        .map(|s| grackle_model::spec_field(s).to_string());
+    let route_value = |k: &str, val: &str| -> String {
+        let field = if k == "key" { leaf.as_deref() } else { Some(k) };
+        match field {
+            Some(f) => cfg.record_slug(f, val).to_string(),
+            None => val.to_string(),
+        }
+    };
 
-    // Paginated list.
-    if let Some(per) = v.paginate.map(|p| p.max(1)) {
-        for locale in &locales {
-            let row_ix = rows_for(locale);
+    for locale in &locales {
+        let row_ix = rows_for(locale);
+        let localized: Vec<String> = tmpls.iter().map(|t| prefixed(cfg, locale, t)).collect();
+        let cells = if chain.is_empty() {
+            // No rows in this locale = no page (the partition is real, §6f).
+            // A GROUPED view needs no such rule: a group with no rows is a
+            // group that does not exist.
             if row_ix.is_empty() && *locale != cfg.i18n.default {
                 continue;
             }
-            for n in 1..=row_ix.len().div_ceil(per) {
-                let tmpl = if n == 1 { &tmpls[0] } else { &tmpls[1] };
-                let url = template::render(&prefixed(cfg, locale, tmpl), |k| match k {
-                    "n" => Some(n.to_string()),
-                    _ => None,
-                })?;
-                let members: Vec<grackle_db::Key> = row_ix
-                    .iter()
-                    .skip(per * (n - 1))
-                    .take(per)
-                    .cloned()
-                    .collect();
-                db.routes.push(Route {
-                    fields: view_fields(v),
-                    axis: member.clone(),
-                    view: Some(name.to_string()),
-                    key: Some(format!("page {n}")),
-                    rows: Some(members.len()),
-                    page: Some(n),
-                    members,
-                    locale: stamp(cfg, locale),
-                    ..Route::new(url, RouteKind::View)
-                });
+            vec![Cell {
+                key: None,
+                params: Vec::new(),
+                rows: row_ix,
+            }]
+        } else {
+            let rows_ref: Vec<(grackle_db::Key, &dyn filter::Row)> = row_ix
+                .iter()
+                .filter_map(|k| rows.get(k).map(|r| (k.clone(), r as &dyn filter::Row)))
+                .collect();
+            partition(&chain, &rows_ref)
+        };
+
+        for cell in cells {
+            let url = |tmpl: &str, n: Option<usize>| -> Result<String> {
+                template::render(tmpl, |k| match k {
+                    "n" => n.map(|n| n.to_string()),
+                    _ => template::param(&cell.params, k).map(|val| route_value(k, &val)),
+                })
+            };
+            match v.paginate.map(|p| p.max(1)) {
+                Some(per) => {
+                    for n in 1..=cell.rows.len().div_ceil(per).max(1) {
+                        let tmpl = if n == 1 { &localized[0] } else { &localized[1] };
+                        let page: Vec<grackle_db::Key> = cell
+                            .rows
+                            .iter()
+                            .skip(per * (n - 1))
+                            .take(per)
+                            .cloned()
+                            .collect();
+                        db.routes.push(Route {
+                            fields: view_fields(v),
+                            axis: member.clone(),
+                            view: Some(name.to_string()),
+                            // A grouped page keeps its GROUP key — `{key}` in a
+                            // title names the partition — and `page` carries the
+                            // number. Ungrouped, the page number is all there is.
+                            key: cell.key.clone().or_else(|| Some(format!("page {n}"))),
+                            rows: Some(page.len()),
+                            page: Some(n),
+                            params: cell.params.clone(),
+                            members: page,
+                            locale: stamp(cfg, locale),
+                            ..Route::new(url(tmpl, Some(n))?, RouteKind::View)
+                        });
+                    }
+                }
+                None => {
+                    // `limit` truncates only an unpaginated, ungrouped view —
+                    // where it means "the feed's twenty". Preserved as-is rather
+                    // than generalized: a limit over a partition would silently
+                    // start truncating group pages.
+                    let members: Vec<grackle_db::Key> = match chain.is_empty() {
+                        true => cell
+                            .rows
+                            .iter()
+                            .take(v.limit.unwrap_or(cell.rows.len()))
+                            .cloned()
+                            .collect(),
+                        false => cell.rows.clone(),
+                    };
+                    db.routes.push(Route {
+                        fields: view_fields(v),
+                        axis: member.clone(),
+                        view: Some(name.to_string()),
+                        key: cell.key.clone(),
+                        rows: Some(members.len()),
+                        params: cell.params.clone(),
+                        members,
+                        locale: stamp(cfg, locale),
+                        ..Route::new(url(&localized[0], None)?, RouteKind::View)
+                    });
+                }
             }
         }
-        return Ok(());
-    }
-
-    // Single route over a (possibly limited) slice: the feed — which is how
-    // /fr/atom.xml falls out of the default (§6f).
-    let route = tmpls[0].as_str();
-    for locale in &locales {
-        let row_ix = rows_for(locale);
-        // No rows in this locale = no page (the partition is real).
-        if row_ix.is_empty() && *locale != cfg.i18n.default {
-            continue;
-        }
-        let members: Vec<grackle_db::Key> = row_ix
-            .iter()
-            .take(v.limit.unwrap_or(row_ix.len()))
-            .cloned()
-            .collect();
-        db.routes.push(Route {
-            fields: view_fields(v),
-            axis: member.clone(),
-            view: Some(name.to_string()),
-            rows: Some(members.len()),
-            members,
-            locale: stamp(cfg, locale),
-            ..Route::new(prefixed(cfg, locale, route), RouteKind::View)
-        });
     }
     Ok(())
 }

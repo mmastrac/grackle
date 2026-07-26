@@ -110,6 +110,7 @@ impl Pass for Listing {
             &fill_link_resolver(cfg, ctx.linkspace, loc),
             subtheme.as_deref(),
             ctx.profile,
+            r.axis.as_ref(),
         )?;
         out.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
