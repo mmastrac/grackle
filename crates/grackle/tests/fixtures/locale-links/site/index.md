@@ -1,4 +1,4 @@
 ---
 title: Home
 ---
-The English home.
+The English home. [en→fr](.?locale=fr)

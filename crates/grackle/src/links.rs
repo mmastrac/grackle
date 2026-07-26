@@ -224,6 +224,16 @@ pub fn resolve(
     // root-relative. A hit that is ALSO a route URL (passthrough files)
     // resolves to the identical string, so trying sources first is safe.
     let mut candidates: Vec<(String, bool)> = Vec::new(); // (source path, was relative)
+    // A self-pivot: `.?locale=fr` / `.?theme=ledger` names THIS page's member on
+    // that axis — the switcher an author writes by hand. `.` (or a bare `?…`)
+    // resolves to the linking row itself, so the `?axis=` branch below pivots the
+    // source rather than a directory index. Only when a selector is present, so a
+    // plain `.` still means the directory.
+    if (path_part.is_empty() || path_part == "." || path_part == "./")
+        && (locale_sel.is_some() || axis_sel.is_some())
+    {
+        candidates.push((source.to_string(), false));
+    }
     if !path_part.starts_with('/') {
         candidates.push((
             normalize(&linking_dir.join(path_part))
