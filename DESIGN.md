@@ -2373,7 +2373,16 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     **How a field takes effect, and why no field is inert** *(2026-07-25)*. An axis sets a named row field: `theme` and `shell` are wired into the render paths, and a field no path consults would once have multiplied URLs without changing a byte. The first answer here was "make that a load error naming the fields that mean something", and it was wrong — Matt's correction: a member can differ *presentationally* with no engine involvement at all, so the mechanism should make that work rather than forbid it.
 
-    So a member stamps **`data-axis-<name>="<value>"`** on the root element, beside `data-subtheme` and `data-profile`, which are the same idea: the engine stamps, the theme decides what it means. An axis declared purely to give CSS something to key on is now a legitimate use with no wiring, and `field` is what a member sets *if the engine knows that field* rather than a promise the engine must be able to keep.
+    So a member stamps **two** things on the root, beside `data-subtheme` and `data-profile` — the engine stamps, the theme decides what it means:
+
+    | stamp | for |
+    |---|---|
+    | `data-axis-theme="ledger"` | **selecting** — `[data-axis-theme="ledger"] h1 { … }` |
+    | `--axis-theme: "ledger"` | **reading** — `h1::after { content: var(--axis-theme) }` |
+
+    Both, because neither substitutes for the other, and the reason is a CSS rule worth writing down: **`attr()` reads only the attribute of the element a rule MATCHES.** The axis is on the root, so a descendant cannot reach it that way — `h1::after { content: attr(data-axis-theme) }` computes to the empty string. Verified in a browser rather than assumed. A custom property inherits and `content` accepts `var()`, so the value is legible from anywhere; it is stamped pre-quoted so it drops into `content` as-is.
+
+    An axis declared purely to give CSS something to key on is therefore a legitimate use with no engine wiring, and `field` is what a member sets *if the engine knows that field* rather than a promise the engine must be able to keep.
 
     **A VIEW may be materialized across an axis** *(built 2026-07-25)*. `[routes.x] axis = "theme"`, and the path spends it with a `{theme}` segment. The route allocates the URL space because that is where the rest of the URL is already decided — the axis declares its values and its field, not its shape. The axis is the OUTERMOST dimension: locale, grouping and pagination all happen within each member, which is what made this a substitution rather than a rewrite.
 

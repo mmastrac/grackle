@@ -285,13 +285,22 @@ pub fn root_shell(
     // be declared for a purely presentational difference and a theme can act on
     // it with no engine wiring at all. Same shape as the subtheme token, which
     // is the precedent: the engine stamps, the theme decides what it means.
+    // Stamped TWICE, because the two forms answer different questions and
+    // neither substitutes for the other:
+    //
+    //   data-axis-theme="ledger"   selecting — `[data-axis-theme="ledger"] h1 {…}`
+    //   --axis-theme: "ledger"     reading   — `h1::after { content: var(--axis-theme) }`
+    //
+    // `attr()` reads only the attribute of the element a rule MATCHES, and this
+    // one is on the root, so a descendant cannot reach it that way — verified
+    // in a browser, not assumed. A custom property inherits, and `content`
+    // takes `var()`, so the value is legible anywhere in the document. The
+    // property is quoted so it drops into `content` as-is.
     let ax = axis
         .map(|a| {
-            format!(
-                " data-axis-{}=\"{}\"",
-                esc(&a.axis.replace(|c: char| !c.is_alphanumeric() && c != '-', "-")),
-                esc(&a.value)
-            )
+            let name = esc(&a.axis.replace(|c: char| !c.is_alphanumeric() && c != '-', "-"));
+            let value = esc(&a.value);
+            format!(" data-axis-{name}=\"{value}\" style=\"--axis-{name}:&quot;{value}&quot;\"")
         })
         .unwrap_or_default();
     // §6f: a French row wears French labels and a French URL, so the
