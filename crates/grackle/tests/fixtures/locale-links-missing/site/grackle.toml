@@ -1,0 +1,32 @@
+# The locale axis, as a LINK selector (§6f/q53). `index.md` and `index.fr.md`
+# are two rows sharing one logical identity; `?locale=` picks between them the
+# same way `?theme=` picks a restyle, but resolved through by_logical since the
+# member is a different file. The filename suffix gives the implicit value, the
+# selector overrides it — so `index.md?locale=fr` and `index.fr.md` name one
+# member, and `index.fr.md?locale=en` names the base.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Locale links"
+author = "Tester"
+
+[links]
+policy = "strict"
+
+[i18n]
+default = "en"
+locales = ["fr"]
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"

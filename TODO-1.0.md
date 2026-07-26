@@ -161,21 +161,27 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       spelling; the merged gallery's first build failed on exactly that. Same
       strictness as every other link — undeclared value and not-on-that-axis are
       both load errors, and a non-axis `?k=v` is still a literal suffix. (q53)
-- [ ] **Axis edges, named in q53** — **two axes over one row now compose** (built
-      2026-07): `Route.axis`/`Row.axis` are the member *tuple*, `axis = ["a", "b"]`
-      materializes the cartesian product, the collision constraint keys on the
-      tuple, and a `*` view sees a route only when every member is canonical
-      (fixture `two-axes`). Token grammar grew `{axis:x}`/`{group:x}` namespaces
-      for paths that spend both. **`rel="alternate"` for members is also built**
-      (2026-07): `Head.alternates` grew to `Alternate { href, hreflang?,
-      media_type? }` (the variable-length head-entry shape), and each member lists
-      its other forms — `hreflang` for locale, `type` for a different-format form
-      (the md twin), neither for a same-format restyle (a theme member, which
-      `rel="canonical"` already covers); the `light` tier emits none. The ONE edge
-      left is **locale as an axis**, so `/fr/ledger/…` (locale × theme) still
-      awaits the unification epic — an axis member that resolves to a different row
-      per value (§6f). The `field`-no-path-consults edge was already closed by the
-      `data-axis-<name>` stamp. (q53)
+- [x] **Axis edges, named in q53** — all closed (built 2026-07). **Two axes over
+      one row compose**: `Route.axis`/`Row.axis` are the member *tuple*, `axis =
+      ["a", "b"]` materializes the cartesian product, the collision constraint
+      keys on the tuple, and a `*` view sees a route only when every member is
+      canonical (fixture `two-axes`); token grammar grew `{axis:x}`/`{group:x}`
+      namespaces. **`rel="alternate"` for members**: `Head.alternates` is now
+      `Alternate { href, hreflang?, media_type? }` (the variable-length
+      head-entry shape); each member lists its other forms — `hreflang` for
+      locale, `type` for a different-format form (the md twin), neither for a
+      same-format restyle (`rel="canonical"` covers it); the `light` tier emits
+      none. **Locale is unified as an axis**: the clean framing is a REUSE axis
+      (theme — every member reuses the canonical row's content, so no member is
+      ever missing) vs a FILE axis (locale — each member owns a file, e.g.
+      `index.fr.md`, and a member with no file simply skips). Locale is
+      selectable (`?locale=fr`, with the `.fr` suffix as the implicit value and
+      `index.fr.md?locale=en` overriding it) and COMPOSES with another axis —
+      `/fr/{look}/note/` is locale × look, locale the outer (prefix) axis, each
+      cell rendered in its locale's chrome (fixtures `locale-links`,
+      `locale-links-missing`, `locale-axis`). Remaining refinement, not blocking:
+      **explicit `{axis:locale}` positioning** — locale is always the outer
+      prefix; a route cannot yet place the locale segment elsewhere. (q53)
 - [x] **A view may be materialized across an axis** — done (q53 step 1).
       `[routes.x] axis = "theme"` with a `{theme}` segment in the path; an
       unspent axis is a load error. A landing on an axis claims one row (the

@@ -1,0 +1,36 @@
+# Locale composes with another axis (q53's last edge). `note.md` and
+# `note.fr.md` are the en and fr members of the locale axis; the rule spends a
+# `look` axis too, so each locale is rendered in each look — the cartesian
+# product `/{look}/note/` × locale = `/plain/note/`, `/fancy/note/`,
+# `/fr/plain/note/`, `/fr/fancy/note/`. Locale is the outer axis (the prefix),
+# the look the inner, and a translation is just the fr member owning its file.
+extends = "none"
+
+[html.head.link]
+canonical = 'site.url + url'
+
+[site]
+url = "https://example.com"
+title = "Locale x axis"
+author = "Tester"
+
+[i18n]
+default = "en"
+locales = ["fr"]
+
+[axes.look]
+values = ["plain", "fancy"]
+field = "look"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "note.md"
+  front_matter = true
+  route = "/{look}/note/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"

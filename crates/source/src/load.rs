@@ -584,12 +584,17 @@ fn build_tree_and_objects(
             })
                 .with_context(|| format!("routing {}", f.path.display()))?,
         );
-        let (url, row_axis) = spend_axis(cfg, &url);
+        // The locale prefix goes on BEFORE the axis is spent, so the axis
+        // template a member expands carries it: a French row on the theme axis
+        // composes into `/fr/{theme}/…` rather than losing its prefix when the
+        // product rebuilds each member's URL. Locale is the outer axis, the
+        // theme the inner, exactly as a view materializes them.
         let url = if locale != cfg.i18n.default {
             format!("/{locale}{url}")
         } else {
             url
         };
+        let (url, row_axis) = spend_axis(cfg, &url);
 
         if is_object {
             // An object is a row that was never rendered. Everything else it

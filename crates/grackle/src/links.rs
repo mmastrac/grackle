@@ -33,6 +33,13 @@ pub struct LinkSpace {
     /// link's value, the rest by their canonical — while `source_to_url` holds
     /// the all-canonical form, which is what a plain link wants.
     source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>>,
+    /// q53 locale axis: source path → the row's logical identity, and
+    /// (logical, locale) → URL. A `?locale=` selector picks a SIBLING row — a
+    /// different file, not a restyle of the same one — so it resolves through
+    /// `by_logical`, not through a template. This is the file-axis half of the
+    /// abstraction: a member may add its own content file.
+    source_to_logical: HashMap<String, String>,
+    sibling: HashMap<(String, String), String>,
 }
 
 impl LinkSpace {
@@ -45,6 +52,8 @@ impl LinkSpace {
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
         let mut source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>> = HashMap::new();
+        let mut source_to_logical = HashMap::new();
+        let mut sibling = HashMap::new();
         // A row that publishes on demand (§4) is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
@@ -56,10 +65,13 @@ impl LinkSpace {
             if p.url.is_empty() {
                 continue;
             }
-            source_to_url.insert(p.rel.to_string_lossy().to_string(), p.url.clone());
+            let rel = p.rel.to_string_lossy().to_string();
+            source_to_url.insert(rel.clone(), p.url.clone());
             if !p.axis.is_empty() {
-                source_to_axis.insert(p.rel.to_string_lossy().to_string(), p.axis.clone());
+                source_to_axis.insert(rel.clone(), p.axis.clone());
             }
+            source_to_logical.insert(rel, p.logical.clone());
+            sibling.insert((p.logical.clone(), p.locale.clone()), p.url.clone());
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
@@ -91,6 +103,8 @@ impl LinkSpace {
             routes,
             url_form,
             source_to_axis,
+            source_to_logical,
+            sibling,
         }
     }
 }
@@ -183,6 +197,28 @@ pub fn resolve(
             );
         }
     }
+    // q53 locale axis: `?locale=fr` picks a SIBLING row — a translation, a
+    // different file, not a restyle — the same spelling `?theme=` uses. The
+    // filename suffix (`index.fr.md`) gives the implicit value; the selector
+    // overrides it, so `index.md?locale=fr` and `index.fr.md` name one member,
+    // and `index.fr.md?locale=en` names the base. Read only when i18n is on, so
+    // `?locale=` on a monolingual site stays the literal suffix it always was.
+    let locale_sel: Option<&str> = cfg.i18n.enabled().then(|| {
+        suffix
+            .strip_prefix('?')
+            .and_then(|q| q.split_once('='))
+            .filter(|(k, _)| *k == "locale")
+            .map(|(_, v)| v)
+    }).flatten();
+    if let Some(v) = locale_sel {
+        if v != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == v) {
+            bail!(
+                "{source}: link {href:?} names no locale {v:?}\n  declared: {} {}",
+                cfg.i18n.default,
+                cfg.i18n.locales.join(" ")
+            );
+        }
+    }
 
     // Source-path resolution: relative to the linking file, then
     // root-relative. A hit that is ALSO a route URL (passthrough files)
@@ -222,6 +258,25 @@ pub fn resolve(
                 );
                 if browser == *url {
                     return Ok(None); // the browser already gets it right
+                }
+            }
+            // q53 locale axis: resolve to the sibling row for the named locale,
+            // via by_logical rather than a template — the member is a different
+            // file (a file axis, where the theme axis reuses one row). No such
+            // sibling is the untranslated case: a member with no file does not
+            // materialize, so this is a link to nothing, held to the same
+            // standard as every other selector.
+            if let Some(v) = locale_sel {
+                let url = space
+                    .source_to_logical
+                    .get(c)
+                    .and_then(|lg| space.sibling.get(&(lg.clone(), v.to_string())));
+                match url {
+                    Some(u) => return Ok(Some(u.clone())),
+                    None => bail!(
+                        "{source}: link {href:?} selects locale {v:?}, but {c:?} \
+                         has no such translation"
+                    ),
                 }
             }
             // q53: the selector picks a member of the row's axis. Checked
