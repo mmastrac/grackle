@@ -92,7 +92,7 @@ layer, and grackle maintains a live, queryable view over it.
 ```
 FsStore
   ├─ table mapping: directory ↔ table (from config)
-  ├─ row identity: source path (tree) / extracted (date, slug) (posts)
+  ├─ row identity: source path, always (§3; (date, slug) is an INDEX)
   ├─ row version:  content hash (mtime+size as a fast pre-check)
   └─ event ingest: notify watcher → debounced batch → one transaction
 ```
