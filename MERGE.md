@@ -199,7 +199,7 @@ name with conflicting types are a collision error**, not alphabetical order.
   in the commit). Verify the `cover` leak is gone with a test; byte-parity
   otherwise. *[parity]*
 
-- [ ] **A4. Same-rung schema collisions are errors.** `Schemas::declared()`
+- [x] **A4. Same-rung schema collisions are errors.** `Schemas::declared()`
   (schema.rs:207-220) flattens every subtree schema with `or_insert`, so two
   `.schema.toml` files declaring one name with **different types** resolve by
   alphabetical directory order for the global filter vocabulary — silently,
@@ -458,6 +458,51 @@ the parent commit with it in place and grack.com's own build fails on it.
 content*" bullet names `slots.rs` and `serve.rs` as still carrying private
 skip lists. This item did not touch them; the `NotContent` value now exists
 for them to adopt.
+
+**2026-07-26 — A4.** Landed, with one scoping call the reviewer should weigh.
+
+*The line is nearness, not rung membership.* Rung 2 is "directory ancestry,
+deepest first" — it carries an internal order — so an ancestor and a
+descendant disagreeing about a type is §5b working as designed, and
+`schema.rs`'s own test has said so since it was written (`books/` declares
+`author` string, `books/special/` int, a row picks the nearer). Making that an
+error would contradict a documented, tested law. Two directories with
+**neither inside the other** have no order at all: nothing ranks them, and
+that is the case `declared()` was settling alphabetically. So the guard fires
+exactly when the two dirs are incomparable. `[collections.*.schema]` needs no
+such test — collections are siblings by construction — so any disagreement
+there is the error.
+
+*How it composes with q51's base-field guard:* they do not overlap, and the
+older one runs first. q51's is in `parse_fields` and refuses a **built-in row
+name** at every rung, for an unrelated reason — `Row::field` answers built-ins
+first, so the declaration parses, validates, and is then unreadable. A4's is
+in `add` / `add_collection`, runs after parsing, and is about two *declared*
+names colliding where nothing ranks them. A file redeclaring `month` still
+gets q51's message, not A4's.
+
+*Residual, for the queue (small, deliberate).* The ancestor/descendant case
+still reaches `declared()` with two types, and the flattening gives the global
+name to the **ancestor** (`BTreeMap<PathBuf>` orders a parent before its
+child, so this is at least deterministic — the broader claim takes the site
+vocabulary). A `where` written against it therefore type-checks against the
+ancestor's type while rows under the descendant carry the other. Documented on
+`declared()` rather than changed: there is no obviously right answer for a
+*global* vocabulary built from *positional* claims, and picking one is a
+behaviour change B3 (`--effective`) would make legible first.
+
+*Reachability of the collection case:* real, untested by the corpus — **no
+site anywhere in the repo uses `[collections.*.schema]` at all**, so rung 3
+has zero live writers today. Guarded and unit-tested regardless, since it is
+the rung with no nearness to fall back on.
+
+*Corpus:* nothing tripped. The four `.schema.toml` files in the repo live in
+three different sites and share only `cover = { type = "image" }` between
+field-notes and theme-preview — different roots, and agreeing anyway. grack.com
+and all four examples build. Zero fixture re-blessing; one new fixture
+(`schema-same-rung-conflict`), mutation-checked both ways (deleting the check
+in `add` makes it build silently; deleting the loop in `add_collection` fails
+the unit test).
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
