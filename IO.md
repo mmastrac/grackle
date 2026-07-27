@@ -516,7 +516,7 @@ message is the exemplar; don't stretch it). One follow-up item:
 *→ Batch review I-B.* ✓ done — findings in §11; verdict: sound, I-C clear.
 Two follow-up items (small; run before I6):
 
-- [ ] **IR4. `split_root` closes the wrapper hole.** *(Review I-B findings
+- [x] **IR4. `split_root` closes the wrapper hole.** *(Review I-B findings
   1-2 — holes in I4's new guarantee, both probed live.)* (a) A top-level
   `<html>` (or doctype) in a theme `root.html` makes `wrapped` false, so
   the WHOLE document becomes body chrome — `<title>My Theme</title>` and
@@ -1564,3 +1564,75 @@ emission — one sentence owed when the merge emitter is built).
 (10) commit-message heredoc artifacts in IR2/I5 — history, cosmetic.
 I7 brief amended: the themes/-as-content decision and the Null-collapse
 pointer. I6/I8 unamended.
+
+**2026-07-27 — IR4.** Landed as one commit. Three refusals, no bytes — and
+the doctype question turned out to have an answer that needed no ruling.
+
+*The wrapper hole, and what the mutant published.* An `<html>` at a root's
+top level made `wrapped` false, so the file took the FRAGMENT path and the
+whole document — head, metas, title — became body chrome. Measured on the
+probe shape with the arm deleted rather than reasoned: the site builds
+clean and every page comes out as the engine's document (doctype, `<html
+lang="en" data-kind="root">`, the computed head with the real `<title>`)
+whose `<body>` then opens a second `<html>`, a second `<head>`, `<title>My
+Theme</title>` and the theme's `<meta>`, closing with two spare
+`</body></html>` pairs. Valid enough that no build and no browser says a
+word, which is why the check goes BEFORE the fragment/document test rather
+than beside it: the two accepted shapes cannot make this check for
+themselves.
+
+***[decided]* The doctype is the same mistake, and that is the cheap
+answer.** The brief allowed its own error; one message for both is better
+because a doctype fails *two different ways* and the refusal has to rule on
+neither. Measured on the mutant: in front of a fragment it publishes
+`<!DOCTYPE html>` as the first bytes inside every page's `<body>`; in front
+of a document it was silently dropped pre-IR4 (and now falls to IR4b's text
+rule, which refuses it for the right reason with the wrong advice — the
+arm's other justification). The engine writes the skeleton, doctype and
+`<html>` both, so a theme that declares either has copied a page, and which
+of its two failures is worse never has to be decided.
+
+*The dropped words.* The `continue` that lets whitespace and comments
+through was letting prose through with them — a theme's sentence gone with
+no error and no output (mutant: builds clean, stderr silent, the words
+nowhere). Named now, with the words quoted, because a line number alone in
+a file whose halves are hundreds of lines apart is a search rather than a
+fix. The line reported is the WORDS' — a top-level text run starts at the
+newline after `</head>`, so the run's own line is the previous one.
+`Node::Text` gained a `line` for this; it is the only reason it has one.
+
+*The rider, which is a real bug and not a wording nit.* "Move it inside
+`<body>`" for a top-level `<style>` is advice that lands the theme's CSS in
+its chrome: unlayered, inline, on every page, and valid HTML no build would
+complain about. The fence exists to take a style and I5 compiles what the
+fence takes into the theme's sheet, so the advice now depends on the
+sibling — `<head>` for a `<style>`, `<body>` for everything else.
+
+*Mutations, each restored.* (a) The `<html>` arm → the probe shape above
+builds with title-in-body. (b) The doctype arm → both halves as measured.
+(c) The text test → the silent drop. (d) The advice made unconditional →
+the `<style>` half red, the `<footer>` half green. (e) **The control, the
+other direction**: drop `is_doctype`'s `!is_comment` carve-out and the
+bare-fragment test goes red — a leading comment, which every theme may
+write, told it had declared a doctype. A refusal that is too wide is the
+mistake available here, and only a control catches it.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built
+in a `git worktree` against this one, into separate trees from the same
+content — byte-identical but for the six wall-clock `<updated>` lines,
+logs identical modulo timings, file counts 8 / 8 / 83 / 242 / 1828 / 1829
+unmoved through this. All nine corpus themes are bare fragments, so the two
+new refusals cannot reach them, and the exactness is that fact rather than
+a hope. `cargo test` green; `cargo fmt --check` clean under the pin; clippy
+49 warnings, the set unchanged; zero re-blessing.
+
+*Docs.* IO.md §6 gains the sentence that makes "the engine owns `<html>`" a
+checked claim; DESIGN.md §5g gains the refused shape beside its three
+accepted ones; themes/DESIGN.md §0 says it in a theme author's words.
+
+*For batch review I-C.* One thing to weigh: the wrapper error is refused at
+the TOP LEVEL only, so an `<html>` nested inside a theme's chrome is still
+ordinary markup the binder passes through. That is deliberate (the hole was
+the wrapper, and a nested `<html>` is not a wrapper) but it is the corner
+where "the engine writes `<html>` itself" is still a convention rather than
+a check.
