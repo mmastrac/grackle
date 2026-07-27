@@ -508,8 +508,8 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
 /// Materialize a view — one flow for every base.
 ///
 /// A view differs from another only in which index list it starts from: a set,
-/// not a shape. Ordering, `match` scopes, `limit`, grouping, pagination and the
-/// locale axis are one rule each, applied here for every base.
+/// not a shape. Ordering, `limit`, grouping, pagination and the locale axis
+/// are one rule each, applied here for every base.
 fn build_view(
     cfg: &Config,
     db: &mut SiteDb,
@@ -533,7 +533,7 @@ fn build_view(
     // Parsed and type-checked once per view, not per row: a bad filter is a
     // startup error naming the view.
     let view = grackle_db::View::all()
-        .filter(membership.and(scoped_filter(name, q, &schema)?))
+        .filter(membership.and(declared_filter(name, q, &schema)?))
         .order({
             // Sorting reads the same vocabulary the filter does — it used to
             // rebuild it here, which is how the two drifted apart in the first
@@ -760,20 +760,21 @@ fn build_view(
     Ok(())
 }
 
-/// A view's declared filter, narrowed by its `match` chain.
+/// A view's declared filter: the conjunction of every `where` along its
+/// `from` chain.
 ///
-/// The chain's globs are CONJOINED: a row must satisfy every one, so a child
-/// narrows within its parent's subtree and can never widen out of it (§5c).
-/// They compile to `glob(path, …)` rather than running as a separate pass,
-/// which is what makes a scope and a filter one thing — composable, checked by
-/// one type-checker, applied wherever the filter is.
-fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
-    let mut f = match q.predicate() {
+/// Path scoping is in there, as `glob(path, …)` clauses an author writes
+/// (MERGE.md G2 retired the `match` key that used to compile to exactly
+/// that). A scope and a filter are one thing — composable, checked by one
+/// type-checker, applied wherever the filter is — so there is one conjunction
+/// here rather than a predicate and a glob pass beside it.
+fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
+    Ok(match q.predicate() {
         // A profile's `where` is type-checked HERE, by the pass that evaluates
         // it — `Config` alone cannot see the positional `.schema.toml`
         // vocabulary, so refusing an unknown name at profile-apply time would
         // make a profile's filter stricter than the one it replaces (§4a,
-        // MERGE.md C6a). The conjunction below is the whole `over` chain, so
+        // MERGE.md C6a). The source parsed here is the whole `from` chain, so
         // the note is what keeps the profile in the message.
         Some(src) => filter::Filter::parse(&src, schema).with_context(|| {
             let note = match q.patched.is_empty() {
@@ -783,15 +784,7 @@ fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filte
             format!("view {name}: filter {src:?}{note}")
         })?,
         None => filter::Filter::always(),
-    };
-    for g in &q.scopes {
-        let src = format!("glob(path, {g:?})");
-        f = f.and(
-            filter::Filter::parse(&src, schema)
-                .with_context(|| format!("view {name}: match {g:?}"))?,
-        );
-    }
-    Ok(f)
+    })
 }
 
 /// Views over the whole route set (the sitemap). Runs after every other route
@@ -833,7 +826,7 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schema
         let pred = match &v.filter {
             Some(src) => filter::Filter::parse(src, &route_schema(&schemas.declared_schema()))
                 .with_context(|| match &v.filter_profile {
-                    // As in `scoped_filter`: a star view's `where` may have
+                    // As in `declared_filter`: a star view's `where` may have
                     // been replaced by a profile, and the message says so.
                     Some(p) => {
                         format!("view {name}: filter {src:?} (profile {p} replaced its `where`)")
@@ -929,6 +922,20 @@ mod object_view_tests {
             build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()
         );
         assert!(e.contains("unknown field `draft`"), "{e}");
+    }
+
+    /// The other half of the same sentence, and G2's precondition: a gallery
+    /// scopes itself with `glob(path, …)` in its `where`, and that type-checks
+    /// HERE — `path` is a column of the object vocabulary, so retiring the
+    /// `match` key cost object views nothing. The test above is the control:
+    /// the vocabulary is still narrow, and this is what it does contain.
+    #[test]
+    fn an_object_view_scopes_itself_with_a_path_glob() {
+        let c = cfg("[routes.g]\nfrom = \"objects\"\n\
+             where = 'glob(path, \"photos/**\")'\n\
+             order_by = \"name\"\npath = \"/p/\"\nlayout = \"listing\"\n");
+        build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema()))
+            .expect("a path glob is object vocabulary");
     }
 }
 

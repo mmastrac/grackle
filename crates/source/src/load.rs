@@ -2016,7 +2016,7 @@ where = "{filter}"
     /// names the profile, because the text in it is not in any `[sets]` entry
     /// the reader can go and look at.
     ///
-    /// Mutation check: delete the `q.patched` note in `scoped_filter` and the
+    /// Mutation check: delete the `q.patched` note in `declared_filter` and the
     /// error becomes `view published: filter "!cvoer"` — true, and no help at
     /// all to someone reading a `[sets.published]` that says nothing of the
     /// kind.

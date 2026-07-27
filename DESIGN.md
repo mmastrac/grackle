@@ -926,13 +926,15 @@ Type errors are caught the same way, with the fix in the message.
 ```toml
 [routes.mindstorms]
 from     = "objects"
-match    = "demos/mindstorms/**"
+where    = 'glob(path, "demos/mindstorms/**")'
 group_by = "dir"
 variant  = "gallery"
 path     = "/demos/mindstorms/{key}/"
 ```
 
-**Three gaps this audit found** — objects need schema, scoping needs `match`, and `order_by` must dispatch to row ordering. All **built** 2026-07.
+**Three gaps this audit found** — objects need schema, scoping needs a path predicate, and `order_by` must dispatch to row ordering. All **built** 2026-07.
+
+The scope arrived as its own `match` key and stopped being one (MERGE.md G2, 2026-07-27): it always compiled to `glob(path, …)` and always conjoined with `where`, so it was a clause of the predicate wearing a second spelling. `glob(field, pattern) -> bool` is a registered §5f function, which is what makes this work on an *object* view too — `path` is a column of the narrow object vocabulary, so the expression type-checks there while `where = "draft"` on the same gallery stays the load error §5b wants. `match` now means one thing in the whole config: a rule's glob over files.
 
 Still open: group `hero` (q23), and URL-parity for restructured trees (q28).
 
@@ -1196,7 +1198,7 @@ A union may name only **collections**, and they must **share a kind**. Unioning 
 
 **What caught the change is worth recording, because it is the failure this spelling exists to prevent.** The `crumb-trails` fixture has two posts collections and a `published` set that named one of them; under scoping its `_drafts` rows silently left every listing. On grack.com the same defect was invisible in the default projection — the `!draft` predicate already excluded those rows — and appeared only under `--profile drafts`, which relaxes the predicate to surface them: 561 pages became 560 and every paginated listing shifted. A URL-set check could not see it, because a draft is routed either way; only a full render under the second profile could. **Parity has two profiles on this site, and one of them is the only place the interesting rows exist.**
 
-`theme-preview` was the beneficiary. Its six per-theme sets each restated `collection == "…"` beside their own `from`, which §4d had read as redundancy and was not — the restatement was the only thing scoping a set to its own theme. They are now one union naming the corpus and six two-line sets narrowing it by `match`, which conjoins along `from`: one declaration of the predicate, the sort and the summary truncation where there were six.
+`theme-preview` was the beneficiary. Its six per-theme sets each restated `collection == "…"` beside their own `from`, which §4d had read as redundancy and was not — the restatement was the only thing scoping a set to its own theme. They are now one union naming the corpus and six two-line sets narrowing it by a path glob, which conjoins along `from`: one declaration of the predicate, the sort and the summary truncation where there were six. (The glob was the `match` key then and is a `glob(path, …)` clause of `where` now — same conjunction, one key fewer; MERGE.md G2.)
 
 ### Subdivision: `from` a grouped route refines its partition *(built 2026-07)*
 
@@ -1228,7 +1230,7 @@ Composition rules, enforced at load: `from` may name a set or a **grouped, unpag
 
 "A view is a query; a route is where it lands" was a sentence in this document and one `[views]` section in config, where the only way to tell the two apart was whether `route` happened to be present. It is now the shape: **`[sets]`** for a query that never lands, **`[routes]`** for one that does.
 
-Measured across both sites' 23 queries before deciding: `path(s)`, `title`, `crumb`, `shell`, `template`, `content`, `intro`, `featured`, `paginate` and `group_by` NEVER appear without a route; `from`, `where`, `match`, `order_by`, `limit`, `layout` and `variant` appear in both. Ten keys are meaningless without a URL.
+Measured across both sites' 23 queries before deciding: `path(s)`, `title`, `crumb`, `shell`, `template`, `content`, `intro`, `featured`, `paginate` and `group_by` NEVER appear without a route; `from`, `where`, `match`, `order_by`, `limit`, `layout` and `variant` appear in both. Ten keys are meaningless without a URL. (`match` was one of the seven when this was measured; it is a `where` clause now — MERGE.md G2 — so the shared list is six.)
 
 **One keyword, not two.** `from` names a collection, a set or a route, and what it names decides what it means.
 
@@ -2083,7 +2085,7 @@ from     = "published"    # candidate pool: a set, or a derived relation
 where    = "!(candidate in earlier) && !(candidate in later)"
 rank     = "embedding_similarity(self, candidate)"   # double, bigger wins
 limit    = 4
-# also: match (glob, scopes self), min_rank (threshold), label ("@ref")
+# also: scope (glob, scopes self), min_rank (threshold), label ("@ref")
 ```
 
 Pipeline per row: `from → where → rank (+ min_rank) → limit`. Drops happen before the window, so an exclusion never shortens the list.
@@ -2181,14 +2183,14 @@ Each declared relation with a nonempty list emits one `relation` group — `{rel
   ```toml
   [collections.relations.same_course]
   from  = "recipes"
-  match = "recipes/**"
+  scope = "recipes/**"
   where = "candidate.course == self.course"
   rank  = "-levenshtein(self.title, candidate.title)"
   limit = 3
   label = "@same_course"
   ```
 
-  `match` is why relations carry a glob: `self.course` only type-checks against the recipes subtree's `.schema.toml`. The glob scopes which rows carry the relation *and* names the schema to check against.
+  `scope` is why relations carry a glob: `self.course` only type-checks against the recipes subtree's `.schema.toml`. The glob scopes which rows carry the relation *and* names the schema to check against — **both jobs, which is why the key is `scope` and not `match`** *(MERGE.md G2, 2026-07-27)*. `match` named the first job only, and named it with a word a view and a rule were also using; the hard cutoff leaves `match` to rules, where it is the primal glob over files. A view's path scope went the other way, into `where` as a `glob(path, …)` clause — a relation's could not, because it selects a *schema* before any expression is parsed.
 
 ### Problem 2 belongs to the link layer, and the scanner serves two masters
 

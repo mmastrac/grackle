@@ -1396,7 +1396,11 @@ pub struct RelationCfg {
     /// the pool spans a subtree with its own `.schema.toml`, the schema
     /// `self.*`/`candidate.*` type-check against (§6g: `same_course` needs
     /// `self.course`, a recipes-only field).
-    #[serde(rename = "match")]
+    ///
+    /// Spelled `scope`, because the key does both jobs and `match` named
+    /// only the first (MERGE.md G2). The retired spelling is simply gone —
+    /// `deny_unknown_fields` refuses it — and `match` now means one thing in
+    /// this config: a rule's glob over files.
     pub scope: Option<String>,
     /// The score, bigger wins (§6g slice 2). Absent = the built-in embedding
     /// order, so a relation that only filters need not restate ranking.
@@ -1583,13 +1587,15 @@ pub struct View {
     /// engine derives that from the referent rather than taking a keyword for
     /// each.
     pub from: From,
+    /// The predicate, path scoping included. A view once carried a separate
+    /// `match` glob; it compiled to `glob(path, …)` and conjoined with this,
+    /// so it was a clause of this expression wearing its own key. Written as
+    /// the clause it always was (MERGE.md G2) — `where = 'glob(path,
+    /// "recipes/**") && !draft'` — which is also what makes the
+    /// collection-relative vs root-relative footgun unwritable: `path` is the
+    /// column, and a column has one meaning.
     #[serde(rename = "where")]
     pub filter: Option<String>,
-    /// Path-glob scoping (§5 audit): globs already exist in rules (§4), so
-    /// view scoping reuses them rather than growing the filter language a
-    /// path operator. Matched against the row's root-relative path.
-    #[serde(rename = "match")]
-    pub scope: Option<String>,
     /// Explicit ordering for rows that have no natural one (§5 audit:
     /// posts sort reverse-chronologically by construction; objects don't).
     /// A column name, `-` for descending. Declared rather than defaulted:
@@ -1767,15 +1773,11 @@ pub struct Query {
     /// is a union (§5c), and every member shares a kind — checked where the
     /// chain terminates, so a materializer can read the kind off the first.
     pub base: Vec<String>,
-    /// Every filter along the chain, outermost view last. All must hold.
+    /// Every filter along the chain, outermost view last. All must hold — so
+    /// a child narrows within its parent and can never widen out of it,
+    /// path scoping (`glob(path, …)`) included, that being an ordinary
+    /// clause of an ordinary `where` since MERGE.md G2.
     pub filters: Vec<String>,
-    /// Every `match` glob along the chain. **Conjoined, like filters**: a
-    /// child narrows within its parent's subtree and can never widen out of
-    /// it. `match` is a path predicate that happens to be spelled as a glob
-    /// (§5 chose globs over a filter path-operator to avoid growing the
-    /// filter language, not because it is a different kind of clause), so it
-    /// composes the way a predicate does.
-    pub scopes: Vec<String>,
     /// The nearest `order_by` along the chain — nearest wins, like `fields`.
     /// Re-sorting a parent's rows is ordinary; there is nothing to conjoin.
     pub order_by: Option<String>,
@@ -2895,7 +2897,6 @@ impl Config {
     /// we haven't answered.
     pub fn query(&self, name: &str) -> Result<Query> {
         let mut filters = Vec::new();
-        let mut scopes = Vec::new();
         let mut patched = Vec::new();
         // Nearest wins, and we walk outermost-first, so the first one seen.
         let mut order_by: Option<String> = None;
@@ -2916,9 +2917,6 @@ impl Config {
                 }
                 filters.push(f.clone());
             }
-            if let Some(s) = &v.scope {
-                scopes.push(s.clone());
-            }
             if order_by.is_none() {
                 order_by.clone_from(&v.order_by);
             }
@@ -2930,12 +2928,10 @@ impl Config {
                 // the one whose query was asked for.
                 self.check_base(cur, name, &v.from)?;
                 filters.reverse();
-                scopes.reverse();
                 patched.reverse();
                 return Ok(Query {
                     base: v.from.names().to_vec(),
                     filters,
-                    scopes,
                     order_by,
                     patched,
                 });
@@ -3895,20 +3891,26 @@ mod tests {
         );
     }
 
-    /// `match` conjoins: a child narrows within its parent's subtree.
-    /// Nearest-wins would let a child silently escape it.
+    /// A path scope conjoins along the chain: a child narrows within its
+    /// parent's subtree and cannot escape it. This used to be the `match`
+    /// key's own rule; since MERGE.md G2 the glob is a clause of `where`, so
+    /// it is the filter conjunction that carries it — one law instead of two,
+    /// and the assertion is on the source the type-checker actually sees.
     #[test]
-    fn match_conjoins_along_the_chain() {
-        let c = cfg("[sets.recipes]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n\
-             [sets.desserts]\nfrom = \"recipes\"\nmatch = \"**/sweet/**\"\n");
+    fn a_path_scope_conjoins_along_the_chain() {
+        let c = cfg(
+            "[sets.recipes]\nfrom = \"blog\"\nwhere = 'glob(path, \"recipes/**\")'\n\
+             [sets.desserts]\nfrom = \"recipes\"\n\
+             where = 'glob(path, \"**/sweet/**\") && !draft'\n",
+        );
         assert_eq!(
-            c.query("desserts").unwrap().scopes,
-            vec!["recipes/**".to_string(), "**/sweet/**".to_string()]
+            c.query("desserts").unwrap().predicate().unwrap(),
+            "(glob(path, \"recipes/**\")) && (glob(path, \"**/sweet/**\") && !draft)"
         );
         // The parent keeps only its own.
         assert_eq!(
-            c.query("recipes").unwrap().scopes,
-            vec!["recipes/**".to_string()]
+            c.query("recipes").unwrap().predicate().unwrap(),
+            "glob(path, \"recipes/**\")"
         );
     }
 
@@ -4344,6 +4346,12 @@ mod tests {
             // `deny_unknown_fields` is the whole of the answer, with `from`
             // first in the knowns it lists.
             "[collections.relations.related]\nover = \"published\"\n",
+            // MERGE.md G2: `match` survives only in rules. A view's path
+            // scope is a `glob(path, …)` clause of its `where`, and a
+            // relation's is `scope` — the name that owns both of that key's
+            // jobs. Hard cutoff on both, one sentence from serde.
+            "[sets.s]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n",
+            "[collections.relations.related]\nmatch = \"recipes/**\"\n",
         ] {
             let src = format!(
                 "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\

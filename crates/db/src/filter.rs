@@ -1439,6 +1439,30 @@ mod tests {
         );
     }
 
+    /// `glob` is typed like every other registered function (§5f), which is
+    /// what a view's retired `match` key bought by dissolving into `where`
+    /// (MERGE.md G2): the path scope is now checked by the same pass, against
+    /// the same vocabulary, and both ways of getting it wrong say so.
+    #[test]
+    fn glob_is_typed_like_any_other_function() {
+        // Wrong TYPE: the error names both what the parameter wants and what
+        // the argument is.
+        let e = err(r#"glob(year, "recipes/**")"#);
+        assert!(
+            e.contains("`glob` argument 1 is string, but `year` is int"),
+            "{e}"
+        );
+        // Wrong NAME: the field resolver answers with the knowns, so an
+        // object view's narrow vocabulary is legible at the point of failure.
+        let e = err(r#"glob(paht, "recipes/**")"#);
+        assert!(e.contains("unknown field `paht`"), "{e}");
+        assert!(e.contains("did you mean `path`"), "{e}");
+        assert!(
+            e.contains("known fields: description, draft, hidden, path, tags, title, year"),
+            "{e}"
+        );
+    }
+
     #[test]
     fn scopes_conjoin_the_way_a_view_chain_does() {
         let r = TestRow::default();

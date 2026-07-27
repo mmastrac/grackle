@@ -603,7 +603,7 @@ pub const DERIVED_RELATIONS: &[&str] = &[
 
 /// A compiled relation (§6g): a neighbour query over the two-row environment.
 /// The expression ASTs are parsed and type-checked at load; the engine walks
-/// candidates through `over → where → rank (+min_rank) → limit` per row.
+/// candidates through `from → where → rank (+min_rank) → limit` per row.
 #[derive(Debug, Clone)]
 pub struct Relation {
     pub name: String,
@@ -611,7 +611,7 @@ pub struct Relation {
     /// name (`linked_from`) is row-relative — the difference the engine
     /// resolves per row.
     pub pool: Pool,
-    /// Which `self` rows carry this relation (the `match` glob), already
+    /// Which `self` rows carry this relation (the `scope` glob), already
     /// compiled. `None` = every row of the collection.
     pub scope: Option<globset::GlobMatcher>,
     pub filter: filter::Filter,

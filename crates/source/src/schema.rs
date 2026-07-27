@@ -49,8 +49,8 @@ impl FieldType {
     }
 
     /// How the filter language sees this field. An image is a path, so it
-    /// reads as a string — a relation could `match` on one, though nothing
-    /// does yet.
+    /// reads as a string — a `where` could compare or `glob()` on one, though
+    /// nothing does yet.
     pub fn filter_type(self) -> filter::Type {
         match self {
             FieldType::Str | FieldType::Image => filter::Type::Str,

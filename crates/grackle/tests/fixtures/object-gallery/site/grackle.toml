@@ -8,7 +8,7 @@
 #
 # Two exclusions are visible in the blessed output by their absence:
 #
-#   assets/x.png    an object OUTSIDE the `match` glob
+#   assets/x.png    an object OUTSIDE the view's `glob(path, …)` clause
 #   photos/note.md  a CONTENT row inside it — with one row store, a gallery
 #                   that forgot its membership filter would pick this up
 extends = "none"
@@ -36,11 +36,13 @@ source = "."
   front_matter = true
   route = "/{dir}/{stem}/"
 
-# `order_by` is declared: lexical-by-luck is not a contract.
+# `order_by` is declared: lexical-by-luck is not a contract. The path scope is
+# a `where` clause (MERGE.md G2) — `path` is a column of the OBJECT schema, so
+# the narrow vocabulary type-checks it and still refuses `draft`.
 [routes.gallery]
 path = "/photos/"
 from = "objects"
-match = "photos/**"
+where = 'glob(path, "photos/**")'
 order_by = "name"
 layout = "listing"
 title = "Photos"

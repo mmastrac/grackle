@@ -87,16 +87,17 @@ exclude = ["themes/**", "shells/**"]
   route = "/{path}"
 
   # A relation the engine never hardcoded (§6g): recipes in the same course.
-  # `match` scopes it to the recipes subtree AND names the schema `self.course`
-  # type-checks against — `course` is a recipes-only `.schema.toml` field, so
-  # a whole-tree schema would reject it. Nearest by title, a stand-in for "most
-  # similar" without embeddings on pages; the distance wears a minus sign
-  # because bigger always wins. `linked_from` is the engine default; the tree
-  # gets no earlier/later/related (those are date-and-embedding ideas a page
-  # has no answer for).
+  # `scope` narrows it to the recipes subtree AND names the schema
+  # `self.course` type-checks against — `course` is a recipes-only
+  # `.schema.toml` field, so a whole-tree schema would reject it. The key does
+  # both jobs, which is why it is not spelled `match`. Nearest by title, a
+  # stand-in for "most similar" without embeddings on pages; the distance
+  # wears a minus sign because bigger always wins. `linked_from` is the engine
+  # default; the tree gets no earlier/later/related (those are
+  # date-and-embedding ideas a page has no answer for).
   [collections.relations.same_course]
   from  = "recipes"
-  match = "recipes/**"
+  scope = "recipes/**"
   where = "candidate.course == self.course"
   rank  = "-levenshtein(self.title, candidate.title)"
   limit = 3
@@ -180,24 +181,25 @@ from = "published"
 limit = 3
 layout = "link_list"
 
-# The corpus queries, named once. `match` and `order_by` flow to every
-# consumer along `from` — the glob CONJOINS (a child narrows, never widens),
-# the sort is nearest-wins. Before this the three recipe consumers each
-# restated all three clauses, so a re-sort of /recipes/ silently desynced
-# the homepage block.
+# The corpus queries, named once. `where` and `order_by` flow to every
+# consumer along `from` — the predicate CONJOINS (a child narrows, never
+# widens), the sort is nearest-wins. Before this the three recipe consumers
+# each restated all three clauses, so a re-sort of /recipes/ silently
+# desynced the homepage block.
 # `!draft && !hidden` on a TREE set, which was not expressible until the
 # flag family joined the page schema — the flags cascaded onto every page
 # and reached its route, but no query could name them.
+# Path scoping is a clause like any other: `glob(path, …)` is a registered
+# function (§5f), so the subtree narrowing rides the same conjunction and is
+# type-checked by the same pass. There is no `match` key on a view.
 [sets.recipes]
 from = "entries"
-where = "!draft && !hidden"
-match = "recipes/**"
+where = 'glob(path, "recipes/**") && !draft && !hidden'
 order_by = "title"
 
 [sets.books]
 from = "entries"
-where = "!draft && !hidden"
-match = "books/**"
+where = 'glob(path, "books/**") && !draft && !hidden'
 order_by = "-date"
 
 [sets.latest_recipes]
@@ -272,14 +274,16 @@ from = "*"
 shell = "search"
 where = '(kind == "post" || kind == "page") && !draft && !hidden && stem != "index"'
 
-# The gallery (§5 audit, built): a view over the objects table. `match`
-# scopes by path glob, `order_by` is declared (lexical-by-luck is not a
-# contract), and the route replaces what was a hand-written index page.
+# The gallery (§5 audit, built): a view over the objects table. `where`
+# scopes by path glob — `path` is a column of the OBJECT vocabulary, which is
+# why the narrow schema still type-checks this and would still refuse
+# `draft` — `order_by` is declared (lexical-by-luck is not a contract), and
+# the route replaces what was a hand-written index page.
 
 [routes.gallery]
 path = "/photos/"
 from = "objects"
-match = "photos/**"
+where = 'glob(path, "photos/**")'
 order_by = "name"
 layout = "listing"
 variant = "gallery"

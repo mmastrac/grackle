@@ -105,7 +105,7 @@ fn compile_one(
     let scope = match rc.scope.as_deref() {
         Some(g) => Some(
             globset::Glob::new(g)
-                .with_context(|| format!("match {g:?}"))?
+                .with_context(|| format!("scope {g:?}"))?
                 .compile_matcher(),
         ),
         None => None,
