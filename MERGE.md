@@ -544,8 +544,55 @@ provenance class). Closes §7 q7.
   keep fmt clean under the pin (this lands after F2). Parity: byte-
   identical everywhere; export JSON change documented in the commit.
 
-*→ Batch review 4 after F3, covering E1, E2, F1, F2, F3 (the fmt commit
-reviewed by confirming `git diff -w` emptiness, not by reading hunks).*
+### Phase G — the vocabulary pass, partial *(Matt's calls 2026-07-27; the
+rest of q6 stays parked)*
+
+Approved from the slate: the `from`/`over` unification and the `match`
+consolidation. Everything else (`shell`/`tier`/`frame`, `kind`, row
+`layout`, `[[parts]]` spelling, `template`, tree `source`) remains ON HOLD.
+House migration pattern throughout (E1/E2 set it): the old spelling is a
+load error naming the new one — never a silent alias — and the corpus
+migrates in the same commit under a byte-parity gate.
+
+- [ ] **G1. One word for the candidate pool: `from`.** Views already spell
+  `from` — the Rust field is named `over` with `#[serde(rename = "from")]`,
+  which is the confession. (a) Relations: the `over` key becomes `from`;
+  old `over` errors naming the new spelling. Migrate the corpus: grack.com's
+  `[collections.relations.related]`, field-notes' relations (incl.
+  `same_course`), and the engine's four default relations (relate/config —
+  wherever the defaults are built); DESIGN.md §6g's examples updated
+  (never `manual/OUTLINE.md`). (b) Tidy the view side internally: rename
+  the Rust field to `from`, drop the serde rename; internal type names
+  (`Over`, `is_star`, …) may follow where the diff stays proportionate —
+  judgment call, note it. Config surface for views is unchanged. Parity:
+  byte-identical everywhere; expected-error fixture for the old spelling;
+  mutation-check. *[parity]*
+
+- [ ] **G2. `match` survives only in rules.** (a) Sets/routes: the `match`
+  key dissolves into the expression surface — register a `glob(field,
+  pattern) -> bool` function in the filter registry (§5f: registered in
+  Rust, typed, knowns-listed), then migrate every `[sets.*]`/`[routes.*]`
+  `match` to a conjoined `where` clause (`where = 'glob(path, "recipes/**")
+  && <existing>'`), then delete the key with a fix-it error naming the
+  expression form. VERIFY FIRST, don't assume: (i) object views use
+  `match` (the gallery) — confirm `path` is a column of `object_schema()`
+  so the expression type-checks there, and that the narrow-vocabulary
+  strictness (§3) is preserved; (ii) `match` on a composing view conjoins
+  along `from` (§5c) — confirm the migrated `where` composes identically
+  (parity is the proof). If either fails, STOP and report before
+  committing. Corpus: field-notes sets, theme-preview's six per-theme
+  sets, any route using it. (b) Relations: `match` → **`scope`** — the key
+  does two jobs (scopes which `self` rows carry the relation AND selects
+  the `.schema.toml` the expression type-checks against) and the new name
+  owns both; old spelling errors with fix-it; migrate `same_course`;
+  update DESIGN.md §6g. (c) Rules keep `match` untouched — the primal
+  glob-over-files sense. Parity: byte-identical everywhere; both halves
+  mutation-checked; the collection-relative vs root-relative footgun
+  should now be impossible to write. *[parity]*
+
+*→ Batch review 4 after G2, covering E1, E2, F1, F2, F3, G1, G2 (the fmt
+commit reviewed by confirming `git diff -w` emptiness, not by reading
+hunks).*
 
 ## 6. Review log
 
@@ -2537,9 +2584,11 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    routeless set is declared-and-ignored and becomes a load error — is
    **F3**. *(Note for F3: `layout`/`variant` on sets are LIVE — embedding
    reads them; only `theme` can never apply.)*
-6. **The vocabulary pass** *(ON HOLD 2026-07-27 — Matt thinking; a full
-   term-by-term walkthrough with a proposed rename slate and ordering
-   lives in the session conversation, not yet filed as a phase)* —
+6. **The vocabulary pass** *(PARTIALLY RESOLVED 2026-07-27: `from`/`over`
+   and the `match` consolidation approved and filed as Phase G (G1, G2);
+   the rest — `shell`/`tier`/`frame`, `kind`, row `layout`, `[[parts]]`
+   spelling, `template`, tree `source` — stays ON HOLD, slate in the
+   session conversation)* —
    `shell` ×4, `kind` ×3, `match` ×3 (two path
    bases), `from`/`over`, `layout` ×2, `[[parts]]` vs `parts.toml` `[[kind]]`
    spelling. Two keys this effort measured belong here too: `template`
