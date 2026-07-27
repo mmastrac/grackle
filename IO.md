@@ -500,7 +500,7 @@ message is the exemplar; don't stretch it). One follow-up item:
   what a stale `shell.html` gets post-rename — silence would be silent
   chrome loss; a load error naming `root.html` is the house answer.
 
-- [ ] **I5. Head-style extraction into the existing CSS assembly.** A
+- [x] **I5. Head-style extraction into the existing CSS assembly.** A
   theme root's `<style>` lands in the theme layer of the existing
   per-theme sheets — which are hereby *declared* to be the megacss's
   chunked implementation (no URL changes, no assembly rewrite; the model
@@ -1345,3 +1345,150 @@ pin; clippy 49 warnings, HEAD's number; zero re-blessing.
 `Row` field it has a use for except `description` and `order`, both `Option`s
 that no site in the repo sets; whether they deserve lines is a question about
 what `explain` is for rather than a defect, and I did not answer it.
+
+**2026-07-27 — I5.** Landed as one commit. The extraction itself was small; the
+three decisions around it are the item, and one of them is a claim about a
+mutation I4 had already measured and that this item made false.
+
+*Where it lands, and why after `theme.scss`.* A theme's own CSS is now two
+files in a fixed order inside the one `@layer theme` block: the general sheet,
+then whatever `root.html`'s head declared. The argument is not "later is
+later" — it is that `root.html` is the file where a theme states its own
+frame, so what it says about the frame should outrank the general sheet rather
+than lose to it. The second argument is continuity, and it is the one that
+makes the placement checkable: under I4's interim a `<style>` last in a
+`<head>` was UNLAYERED and beat the stylesheet link outright, so a rule
+written in the head won. Last in the theme layer keeps the same rule winning
+against the same competitor, which is the strongest sense in which this move
+is a relocation and not a behaviour change. One layer block, not two — a test
+pins the count, because two `@layer theme` blocks would order by declaration
+and make the claim true for the wrong reason.
+
+***[decided]* SCSS, not verbatim.** Through `inline_imports` then grass, with
+the theme directory on the load path — the same two steps `theme.scss` takes.
+The cost is a pass over a few lines; the buy is that a head style may nest and
+may `@import "tokens";`, reaching the theme's own partial or the engine
+base's. Verbatim was the simpler code and the worse rule: it would have made
+`root.html` the one file in a theme where the theme's own vocabulary does not
+work, and that kind of exception is never discovered by reading, only by
+hitting it. The other face of the decision is that a head style can now FAIL
+to compile, which is a new error path and gets the treatment its neighbour
+has: `scss:` on stderr naming `root.html`, an entry in `Stats::css_errors`,
+and a publishing build that refuses. `serve` still gets its sheet, minus a
+theme layer.
+
+*The split moved to the source, so the tags never travel.* `binder::Root.head`
+became `Root.style` and holds the `<style>` elements' CONTENTS, not the head's
+markup — `head_styles` collects them in source order. Carrying the tags on
+would only have meant stripping them in `build.rs`, and the type would have
+been lying about what it held for the whole journey. `head_styles` tests
+`el.tag == "style"` itself rather than leaning on the fence two frames up: a
+function whose correctness depends on its caller's check is one refactor from
+being wrong.
+
+*The fence's mutation was RE-MEASURED, and it says something different now.*
+I4 measured that deleting `check_head_fence` PUBLISHES the tag — `<meta
+name="theme-color">` came out in the head of every page — and built the whole
+argument for the fence on "worse than dropping it". After this item the head
+half leaves as CSS, so the same mutation on a probe root carrying a `<meta>`,
+a `<title>` and a `<style>` builds clean and publishes a page with **neither
+the meta nor the title**, only the style, in the sheet. Measured with the real
+binary on the mutant, not reasoned. The failure moved from quietly-wrong
+output to quietly-no output; the fence is what makes it neither, and the test's
+doc comment now records the new outcome rather than inheriting the old claim.
+This is the item's one worked example of why a mutation's *observed effect* is
+part of a test and goes stale like anything else.
+
+***[declared]* The per-theme sheets ARE the megacss's chunking.* A
+documentation event with no code in it, which is exactly what made it worth
+declaring: §6 said the model is one artifact and chunking is a perf detail the
+model never mentions, and `/css/main.css` + `/css/<name>.css` have been that
+chunking since they existed. A page links one sheet and that sheet is the
+whole cascade for that page — engine base, theme, head styles, site overlay,
+in declared layers — which is what "one artifact" means from where a page
+stands. Recorded in `css_pass`'s doc comment, DESIGN.md §5g and §6 here. No
+URL moved, no assembly was restructured, and the parity run is the evidence
+that the declaration cost nothing.
+
+***[open] closed* — the multi-theme scoping paragraph** lives in **IO.md §6**,
+directly under the one-CSS-artifact paragraph it qualifies, with §9's question
+4 struck through and pointed at it and a mirror in **themes/DESIGN.md §3**
+(inside the nested-layers block, which is the construct it reuses). The
+argument in one line: chunking already scopes today, and that is the problem —
+an optimization doing a correctness job — so the model needs an answer that
+holds when chunking is off. Two ingredients, both emitter-side, both inert
+until merging is built: **per-theme sub-layers** (`@layer theme.ledger,
+theme.terminal, …`, themes/DESIGN.md §3's plan pointed sideways instead of
+down the `extends` chain) settle precedence between themes deterministically;
+the **stamped root attribute** (`data-theme`, beside the existing
+`data-subtheme`) is the scope, because layers order rules but do not stop them
+matching. Its cost is stated rather than hidden: prefixing theme rules with an
+attribute selector is a transform the engine does not do today and it lifts
+every theme rule's specificity uniformly — survivable precisely because the
+sub-layers, not specificity, decide the cross-theme case. **I4's flag 3
+restated there**: a root's head is not part of the fragment chain, and the
+paragraph says what that implies — one chain member's CSS occupies ONE
+sub-layer, with `theme.scss` and the head style ordered against each other by
+source position inside it (the ordering this item landed), so shadowing (by
+file name) and ranking (by layer) never do each other's job.
+
+*Five tests, four mutations, each red and each restored*
+(`crates/grackle/tests/io_root.rs`): (1) the style is in the sheet, inside
+`@layer theme` after `@layer base`, and NOWHERE in the page — no
+`rebeccapurple`, no `<style` at all, one `rel='stylesheet'`; it also pins that
+a head style is not a `theme.scss` (the theme still gets the base's skins).
+Mutations: restore I4's emission in `Theme::page` → the head carries it again;
+pass `""` at `css_pass`'s call sites → the sheet loses it while the theme loads
+clean. (2) the ordering pin — the same selector and property in `theme.scss`
+and in the head, root wins, one layer block; mutation: `insert(0, …)` instead
+of `push` → `from-scss` wins. (3) SCSS is real (nesting compiles, a
+`_tokens.scss` partial resolves through `@import`) and a broken style records
+one `css_error` naming `root.html`; mutation: drop the `Err` arm's push → the
+broken style is silently absent from a sheet that publishes fine. (4) the
+head-only-root test updated to look in the sheet. (5) the fence test's
+re-measured mutation, above. A fifth mutation crossed the two halves: make
+`split_root` hand on the head VERBATIM again and four tests go red at once,
+because the `<style>` tags reach grass.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in
+a `git worktree` against this one, over the same content trees so the binary
+was the only variable — byte-identical but for the six wall-clock `<updated>`
+lines, stderr identical for all six, stdout identical modulo timings, file
+counts 8 / 8 / 83 / 242 / 1828 / 1829, unmoved since IR1. `cargo test` green
+(19 result lines); `cargo fmt --check` clean under the pin; clippy 49
+warnings, the warning SET byte-identical to HEAD's rebuilt in the worktree;
+**zero fixture re-blessing** — I4's head-style guards are temp-site tests
+rather than blessed expectations, so the declared byte movement was an edit to
+two assertions, and no `expected` file in the tree moved.
+
+*Docs.* DESIGN.md §5g (the interim paragraph replaced by the extraction, plus
+the megacss declaration); themes/DESIGN.md §0 (the platform fact) and §3 (the
+CSS formula gains the head-style line, and the nested-layers block gains the
+two paragraphs above); IO.md §6 twice and §9's question 4. `manual/OUTLINE.md`
+untouched per §4 — it teaches neither `root.html` nor the CSS assembly, so
+this is the second engine spelling in the sequence that does not outlive that
+file.
+
+*For batch review I-B.* Four things to probe. (i) **The ordering** is the call
+a reviewer might reverse — `theme.scss` after the head style is the other
+reading, and the case for it is that a theme's main sheet is the one an author
+edits most and would then always win. The argument above is the whole of the
+case for what landed, and `a_root_head_style_outranks_the_themes_own_sheet` is
+the one-line change either way. (ii) **The scoping paragraph is
+propose-and-flag** and nothing enforces it — it describes an emitter that does
+not exist, so it is a design commitment with no guard, which is correct for an
+unbuilt merge but means the next agent to touch CSS assembly is the one who
+has to remember it. (iii) **A pre-existing wart, found and NOT fixed**: a
+tokens-only theme (`_tokens.scss`, no `theme.scss`) gets `own = Some(tokens)`,
+so `seen` never contains `"tokens"` and `css_pass` prints *"has a
+_tokens.scss that nothing imports"* at every build — spurious, since the
+tokens ARE the sheet. No theme in the corpus is tokens-only, so no site emits
+it and stderr parity was unaffected; left alone rather than folded in, and
+proposed here as an item. (iv) **DESIGN.md §6c (per-post styles, unbuilt)
+still says a row's `<style>` is "hoisted into `<head>`" as an inline block,
+"not a `<link>`"** — which is the opposite of §6's one-artifact rule and of
+the `post` layer both CSS docs declare. Not touched: I5 did not make it false
+(it was already in tension, and IO.md's header says IO.md is the successor
+where they disagree), and rewriting it would decide a question that belongs to
+whoever builds per-post CSS. Proposed as a doc item, or as a note on that
+item.
