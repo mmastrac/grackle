@@ -2380,7 +2380,10 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    routeless set is declared-and-ignored and becomes a load error — is
    **F3**. *(Note for F3: `layout`/`variant` on sets are LIVE — embedding
    reads them; only `theme` can never apply.)*
-6. **The vocabulary pass** — `shell` ×4, `kind` ×3, `match` ×3 (two path
+6. **The vocabulary pass** *(ON HOLD 2026-07-27 — Matt thinking; a full
+   term-by-term walkthrough with a proposed rename slate and ordering
+   lives in the session conversation, not yet filed as a phase)* —
+   `shell` ×4, `kind` ×3, `match` ×3 (two path
    bases), `from`/`over`, `layout` ×2, `[[parts]]` vs `parts.toml` `[[kind]]`
    spelling. Two keys this effort measured belong here too: `template`
    (parsed and implemented — the tree-walk exclusion is real — but declared
