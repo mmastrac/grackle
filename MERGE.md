@@ -52,7 +52,7 @@ referenced throughout.
 |---|---|---|
 | **0** | the selected profile's veto | `[profiles.*.force]` — fields only, row and route environments (Phase E) |
 | **1** | the row itself | front matter |
-| **2** | directory ancestry, deepest first | markers, `.schema.toml`, `.slots/`, `.style.scss`, buckets |
+| **2** | directory ancestry, deepest first | markers, `.schema.toml`, `.slots/`, `.style.scss`, buckets (parked — F1) |
 | **3** | the collection | rules (in file order), `[collections.*.schema]`, relations |
 | **4** | the site config | `[site]`, `[schema]`, `[sets]`, `[routes]`, … |
 | **5** | site filesystem conventions | `themes/default/`, root `.style.scss` |
@@ -124,7 +124,7 @@ name — see §7.)*
 | slot fills | `.slots/<name>` nearest dir (2) → theme/base fragment content (6) | the file |
 | CSS layers | `@layer reset, base, theme, overlay, post` — farthest-first, last-wins | the rule (Law 1 mirrored) |
 | CSS tokens | same layers | each custom property |
-| bare-name refs (§6a, specced) | siblings (2) → nearest bucket (2) → ascend | the resolved file; two hits at one rung = error, never merge |
+| bare-name refs (§6a, specced and **parked** — F1) | siblings (2) → nearest bucket (2) → ascend | the resolved file; two hits at one rung = error, never merge |
 
 ### D. Strings
 
@@ -504,7 +504,7 @@ provenance class). Closes §7 q7.
 
 ### Phase F — wrap-up closures *(Matt's calls, 2026-07-27; runs after Phase E)*
 
-- [ ] **F1. Delete the buckets feature; park the spec.** *(§7 q1 resolved:
+- [x] **F1. Delete the buckets feature; park the spec.** *(§7 q1 resolved:
   delete-and-park.)* Remove `bucket` from `Collection` (config.rs —
   `deny_unknown_fields` then makes any declaration a parse error), remove
   `bucket = "assets"` from the three declaring configs (grackle.toml,
@@ -2687,6 +2687,121 @@ only those whose `where` changed; a profile restating a set verbatim would
 therefore attribute an unchanged filter to itself in an error message. Harmless
 and arguably right (the profile did write it), noted because it is the one
 place the new provenance is coarser than C6's patch loop was.
+
+**2026-07-27 — F1.** Landed as one commit. The key, its warning and the
+warning's two tests are gone; the design is not, and the thing that made this
+cheap is that **every one of the three sites' declarations was inert** — the
+parity claim was never in doubt, so the whole item is a deletion plus an
+argument about where the design goes to wait.
+
+*`declared_and_unread` goes ENTIRE, and the check the item asked for came back
+negative.* Its only subject was `bucket` (`filter_map(|(name, c)|
+Some((name, c.bucket.as_ref()?)))`), and its only call site was one line in
+`load`. There is no second declared-and-ignored key today — D1 measured the
+neighbourhood and put the one candidate it found (`View::template`, now
+declared by no site) in §7's vocabulary pass instead, because `template` is
+parsed AND IMPLEMENTED (the tree-walk exclusion is real), which is not what
+this function reports. So the shape had nothing left to say and keeping it
+warm for a hypothetical would be a function whose test is its own definition.
+**What survives is six lines of comment where it stood**, naming the shape and
+pointing at D1's §6 entry — the rebuild is one `filter_map`, and D1's argument
+for why a config-fact warning fires before the walk is the part worth not
+re-deriving.
+
+*The error got better, not just different.* D1's warning said "declared and
+read by nothing" from `load`, after a successful parse, on stderr, once per
+collection. `deny_unknown_fields` says `unknown field \`bucket\`, expected one
+of \`kind\`, \`name\`, \`source\`, …` **at line 54, column 1**, and refuses the
+build. That is the house migration pattern (E1/E2: an old spelling is a load
+error naming the alternative) arriving for free, which is why no hand-written
+fix-it error was added: there is no new spelling to name, and the knowns list
+is the honest answer to "then what may I write here".
+
+*`by_name` KEPT — the call, since the item asked for it explicitly.* It is not
+bucket-only. `query stats` reads it twice (`distinct names 812`, `ambiguous
+26` on grack.com), and those two numbers are the *source* of §6a's own
+measurement — "6 basenames look ambiguous site-wide, 4 dissolve under
+bubble+bucket" is a claim someone made by running this. Deleting the index
+would have deleted the evidence for the design being parked. It costs one
+`BTreeMap` fold over the objects list per load. Its doc comment named
+`declared_and_unread` as the other half of "nothing reads §6a" and now names
+the parking; that sentence was going to be false either way.
+
+*Where the parking notice sits, and why not only at the bottom.* §6a's
+existing ⚠️ was the LAST paragraph before the next subsection — a reader who
+meets the config block at "The rule" has already copied `bucket = "assets"`
+by then. The banner is now the first thing under the `## 6a` heading, the
+config block inside the spec carries a one-line `# PARKED` comment saying the
+key does not parse, and the old ⚠️ paragraph stays where it is, updated: it is
+the *measurement* record (dated, with `thumbs::one`'s actual behaviour) and
+that is worth keeping distinct from the disposition. §5b gained the reciprocal
+pointer, because the trigger only reads as a trigger from both ends — its
+`_posts/2022/coffee-part-1/` block already spells `leak.jpeg` as a sibling.
+
+*The tour, minimally.* Step 1 wrote `![](burrs.jpg)`, which is **two** unbuilt
+things at once: the bare name, and the `<img src>` rewrite pass that §6a
+specs in the same breath. It now writes `{% image assets/2026/07/burrs.jpg %}`
+— the form all 194 corpus invocations take, and the one the tour's own §6a
+measurement line quotes — plus one parenthetical naming the parked design.
+The `burrs.jpg` filename stays, so the tour still reads as one continuous
+example. §6a's closing paragraph pointed at "§0 step 4" for this; the tour has
+since been renumbered and the example is step 1, so that pointer was stale
+too, and now just says what F1 did.
+
+*Two other configs taught the dead key and were corrected in the commit that
+killed it:* DESIGN.md §4's worked example config declared `bucket = "assets"`
+(D2's disease — an example that no longer parses), and `base.toml`'s objects
+comment explained "No `bucket`: the directory a site keeps its assets in is a
+site's choice, and bare-name resolution bubbles without one", which is now a
+comment about a key that does not exist justifying its own absence.
+
+*One fixture added, deliberately, against D1's precedent of adding none.* D1
+added no guard for the sass-rule removal because removing a rule adds no code
+path. Removing a FIELD does add one — `deny_unknown_fields`'s — and it is the
+path a reader with an old config meets, so `collection-bucket-deleted` asserts
+it at site scale, with the config comment explaining the parking to whoever
+hits it. Mutation-checked both directions: restoring `bucket` to `Collection`
+makes the fixture *build* ("built successfully, but expected-error says it
+should not have"); leaving the field off the struct but keeping
+`field("bucket", …)` in the shape fails B2's
+`the_shape_covers_the_config_surface` with "Collection's shape and its serde
+keys drifted". That second one is the item's prediction confirmed: **the A2/B2
+compile-time guards did name every place**, and there were exactly three (the
+struct, the never-called destructure, the shape's field list).
+
+*Warning inventory after this item* — the item predicted it and it came out
+exactly so:
+
+| site | before | after |
+|---|---|---|
+| grack.com | `bucket` + `hidden/**` | `hidden/**` alone |
+| field-notes | `bucket` | *(silent)* |
+| theme-preview | `bucket` | *(silent)* |
+| minimal | none | none |
+| raw | `**/index.{html,md}` | unchanged |
+
+*Parity:* five sites plus grack.com under `--profile drafts` built before and
+after into separate trees and diffed — every file byte-identical except each
+feed's wall-clock `<updated>`, identical file counts (1828 / 83 / 8 / 8 / 242,
+and 1829 under drafts). Zero fixture changes beyond the new one, zero
+re-blessing; `cargo test` green (14 result lines, zero failures); `rustfmt
+--check` wants nothing in the lines this item wrote — still the two
+pre-existing `config.rs` hunks and the one in `load.rs` every item since R3
+has reported; no clippy warning names a line this item wrote (the three in
+`load.rs` are the pre-existing `too_many_arguments` family, shifted up by the
+deletion).
+
+*For the queue (small).* (i) `SiteDb::warnings` is back to **two** classes
+(dead rule, unknown `.slots/` stem) from D1's three, so C3(i)/D1(i)'s "a typed
+channel would be worth more than four more format calls" is now less pressing,
+not more. (ii) DESIGN.md §6a's "6 basenames ambiguous site-wide" and the
+`screenshot5/6` pair are the numbers `query stats` still prints (26 ambiguous
+names over 812 today, a wider corpus than the original count) — nothing
+re-measured them here, and the parked section quotes the old figures. (iii)
+`manual/OUTLINE.md` §-296/298 still teach `bucket = "assets"` as a live key.
+Untouched per §4 — it is the user's file — but it is now the only place in the
+repo that teaches a config key which does not parse, and it is worth a line in
+the wrap-up.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
