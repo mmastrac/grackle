@@ -390,6 +390,21 @@ message is the exemplar; don't stretch it). One follow-up item:
   ("a set may not wear a fold shell"), F3's family. Mutation-check all
   three; parity; fmt clean.
 
+- [ ] **IR2. `grackle explain` hardcodes `kind post`** *(Matt, from the
+  I2 agent's filed chip)*. `main.rs`'s `Query::Explain` arm prints
+  `println!("kind post")` — a literal, ~line 486 — for EVERY row: tree
+  pages, byte copies, objects (`grackle explain /humans.txt` says
+  "kind post"). Pre-existing, verified against HEAD and current tree.
+  Decide and implement: (a) print the real kind (the route's `RouteKind`
+  via `db.routes` — a row itself has no kind field), or (b) delete the
+  line — I13 deletes the enum outright, and a debug surface that lies is
+  worse than one that is silent; per §3 ("facts replace kind"), (b) may
+  be the honest answer — if so, say so, and consider printing the real
+  facts (`shell`, `front_mattered`) in its place since they exist now.
+  CLI-only surface, outside the byte-parity gate — but check whether any
+  test or fixture asserts on the line first. MERGE.md §4 rules bind;
+  test any guard added.
+
 ### Phase I-B — themes
 
 - [ ] **I4. `root.html`.** The binder accepts a document-shaped theme root
