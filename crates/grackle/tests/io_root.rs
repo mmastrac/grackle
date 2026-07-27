@@ -1,7 +1,7 @@
-//! `root.html`: a theme root may be document-shaped (IO.md §6, items I4 and
-//! I5).
+//! `root.html`: a theme root may be document-shaped (IO.md §6, items I4, I5
+//! and IR4).
 //!
-//! Four claims, and the first is the one the migration rests on:
+//! Five claims, and the first is the one the migration rests on:
 //!
 //! 1. **A body-only root is the old chrome fragment, byte for byte.** The
 //!    `<body>` wrapper is accepted but not required — a file with neither
@@ -30,6 +30,15 @@
 //!    it would have been is MISLEADING: "fragment names no layout kind
 //!    `shell`" sends its reader hunting for a kind when the fix is a rename.
 //!    That is the one case §10's precedent allows a targeted sentence for.
+//! 5. **The wrapper mistake is refused** (IR4). A theme root that carries a
+//!    top-level `<html>` — or a doctype — is a page skeleton pasted into a
+//!    file that is not a page, and it is the one authoring mistake claim 2
+//!    could not catch: inside an `<html>` the head and the body are invisible
+//!    to the split, so the file reads as a *fragment* and the theme's
+//!    `<title>` and metas ship inside `<body>` on every page, fence and all.
+//!    Refusing it is what makes claims 1 and 2 hold together rather than each
+//!    holding on its own. Authored words beside the two halves are the same
+//!    bargain one size down: silently dropped before, named now.
 //!
 //! A site rather than a unit test, for `io_shell.rs`'s reason: what these
 //! assert is what a PAGE comes out as, and the head half in particular is
@@ -376,6 +385,16 @@ fn a_head_only_root_inherits_the_base_chrome() {
 /// A document-shaped root holds `<head>` and `<body>` and nothing beside
 /// them: the engine writes `<html>`, so a stray sibling has nowhere to go
 /// and would be dropped without this.
+///
+/// **The advice depends on the sibling** (IR4c). A `<footer>` belongs in the
+/// body; a `<style>` does not — the head fence exists to take it, and I5
+/// compiles what the fence takes into the theme's own sheet. Sending a
+/// `<style>` to `<body>` would be advice that lands the theme's CSS in its
+/// chrome: valid HTML, unlayered, on every page, and no build would say a
+/// word.
+///
+/// Mutation: make the arm's advice unconditional `<body>` again and the
+/// `<style>` half goes red while the `<footer>` half stays green.
 #[test]
 fn nothing_may_sit_beside_a_roots_head_and_body() {
     let e = fails(&site(
@@ -387,6 +406,174 @@ fn nothing_may_sit_beside_a_roots_head_and_body() {
         "{e}"
     );
     assert!(e.contains("Move it inside <body>"), "{e}");
+
+    let e = fails(&site(
+        "sibling-style",
+        &format!("<head></head>\n<style>a {{ color: red; }}</style>\n<body>{CHROME}</body>"),
+    ));
+    assert!(
+        e.contains("<style> beside a theme root's <head>/<body>"),
+        "{e}"
+    );
+    assert!(
+        e.contains("Move it inside <head>"),
+        "a style's home is the head, not the body: {e}"
+    );
+}
+
+/// **The wrapper mistake** (IR4a): a `root.html` that opens with `<html>` is
+/// a page skeleton pasted into a file that is not a page, and it is the
+/// authoring mistake the fence could not see. Inside an `<html>` the `<head>`
+/// and `<body>` are not at the top level, so the file reads as a FRAGMENT —
+/// the whole document becomes body chrome, and the theme's `<title>` and
+/// metas are published inside `<body>` of every page.
+///
+/// Mutation: delete the `Node::Element(el) if el.tag == "html"` arm in
+/// `split_root`'s first loop. Measured on the mutant, not reasoned — this
+/// exact site builds CLEAN, and the post's page comes out as the engine's
+/// document (doctype, `<html lang="en" data-kind="root">`, the computed head
+/// with `<title>Hello</title>` and the one stylesheet link) whose `<body>`
+/// then opens `<html>`, `<head>`, `<title>My Theme</title>`, `<meta
+/// name="description" content="themed">`, `</head>`, `<body>` — a second
+/// skeleton and a second title nested inside the first, closing with two
+/// spare `</body></html>` pairs. Valid-enough HTML that no build and no
+/// browser complains, and every page of the site carries it.
+#[test]
+fn an_html_wrapper_is_refused_and_says_what_to_unwrap() {
+    let skeleton = format!(
+        "<html>\n<head>\n\t<title>My Theme</title>\n\
+         \t<meta name=\"description\" content=\"themed\">\n</head>\n\
+         <body>{CHROME}</body>\n</html>\n"
+    );
+    let e = fails(&site("wrapper", &skeleton));
+    assert!(e.contains("root.html:1"), "it names the file and line: {e}");
+    assert!(e.contains("<html> at the top of a theme root"), "{e}");
+    // The reason (the engine writes the skeleton) and the fix (unwrap), in
+    // that order — a theme author who pasted a page needs both.
+    assert!(e.contains("the engine writes the document skeleton"), "{e}");
+    assert!(
+        e.contains("Unwrap to a bare <head>/<body> pair"),
+        "the fix is an edit, and the message says which: {e}"
+    );
+    // And it names the disease, because the disease is invisible: nothing
+    // about a page that quietly carries its theme's <title> in the body
+    // looks wrong from the outside.
+    assert!(e.contains("would ship inside <body> on every page"), "{e}");
+}
+
+/// **A doctype is the same mistake** (IR4a, the decision): the engine writes
+/// the document skeleton — the doctype and `<html>` both — so a theme root
+/// that declares one has copied a page, whatever follows it. One message for
+/// both, before the fragment/document test, because the two shapes fail
+/// differently and identically: a doctype in front of a FRAGMENT rides into
+/// `<body>` as chrome on every page, and a doctype in front of a DOCUMENT is
+/// dropped on the floor. Refusing it needs no decision about which is worse.
+///
+/// Mutation: delete the `Node::Text { .. } if is_doctype(text)` arm. Measured
+/// on the mutant: the FRAGMENT shape builds clean and publishes `<!DOCTYPE
+/// html>` as the first bytes inside every page's `<body>`, and the DOCUMENT
+/// shape — which dropped it in silence before IR4 — falls through to IR4b's
+/// text rule, which refuses it for the right reason with the wrong advice
+/// ("move it inside `<body>`", of a doctype). Two failures, one arm, and
+/// neither is a doctype the theme gets to keep.
+#[test]
+fn a_doctype_in_a_theme_root_is_the_wrapper_mistake_too() {
+    for (who, root) in [
+        ("doctype-fragment", format!("<!DOCTYPE html>\n{CHROME}")),
+        (
+            "doctype-document",
+            format!("<!doctype html>\n<head></head>\n<body>{CHROME}</body>\n"),
+        ),
+    ] {
+        let e = fails(&site(who, &root));
+        assert!(e.contains("root.html:1"), "{who}: {e}");
+        assert!(
+            e.contains("a doctype at the top of a theme root"),
+            "{who}: {e}"
+        );
+        assert!(
+            e.contains("Unwrap to a bare <head>/<body> pair"),
+            "{who}: {e}"
+        );
+    }
+}
+
+/// **Authored words beside the halves are named, not swallowed** (IR4b). The
+/// `continue` that lets whitespace and comments through was letting prose
+/// through with them, and a document's top level has nowhere to put prose —
+/// so a theme's sentence vanished with no error and no output.
+///
+/// The message quotes the words, because a line number alone in a file whose
+/// halves are hundreds of lines apart is a search rather than a fix.
+///
+/// Mutation: restore the bare `else continue` (drop the `is_comment`/`trim`
+/// test). Measured: the site builds clean, stderr says nothing, and the
+/// sentence is nowhere in the page — the silent drop, exactly.
+#[test]
+fn authored_text_beside_a_roots_head_and_body_is_an_error() {
+    let e = fails(&site(
+        "stray-text",
+        &format!(
+            "<head><style>a {{ color: red; }}</style></head>\n\
+             Words the theme meant to say.\n\
+             <body>{CHROME}</body>\n"
+        ),
+    ));
+    assert!(
+        e.contains("root.html:2"),
+        "the line is the words', not the whitespace run's: {e}"
+    );
+    assert!(
+        e.contains("text beside a theme root's <head>/<body>"),
+        "{e}"
+    );
+    assert!(
+        e.contains("`Words the theme meant to say.`"),
+        "it quotes the dropped words: {e}"
+    );
+    assert!(e.contains("Move it inside <body>"), "{e}");
+}
+
+/// **The fragment shape is untouched**, which is the whole parity claim:
+/// every theme in the repository is a bare fragment, and IR4's two new
+/// refusals must not so much as brush them. Comments, blank lines and an
+/// inline `<style>` in the chrome are all things a fragment may hold — the
+/// head fence governs a `<head>`, and a fragment has none.
+///
+/// The `<style>` case is the one worth stating: at the top level of a
+/// DOCUMENT it is now an error pointing at the head, and here, inside the
+/// chrome the theme is writing, it is ordinary markup that reaches the page.
+///
+/// This one is a control, so it is mutation-checked the other way — against
+/// a refusal that is too wide rather than a guard that is absent. Drop the
+/// `!is_comment(text)` half of `is_doctype` (a comment does start with `<!`)
+/// and this test goes red on the leading comment while every refusal above
+/// stays green: nine corpus themes' worth of ordinary markup, told it had
+/// declared a doctype.
+#[test]
+fn a_fragment_root_may_still_hold_comments_and_styles() {
+    let out = render(&site(
+        "fragment-controls",
+        &format!(
+            "<!-- the theme's own note -->\n\n{CHROME}\n\
+             <style>footer {{ color: teal; }}</style>\n"
+        ),
+    ));
+    let html = page(&out, "/blog/2020/01/01/hello/");
+    assert!(html.contains("<!-- the theme's own note -->"), "{html}");
+    assert!(
+        html.contains("<style>footer { color: teal; }</style>"),
+        "{html}"
+    );
+    assert!(
+        html.contains("<footer><p data-slot=\"copyright\">Copyright the tree.</p></footer>"),
+        "the chrome still renders: {html}"
+    );
+    // Still a fragment, so still the body: the engine's head is the only
+    // head, and the theme's inline style is in the body where it was
+    // written.
+    let body = html.split_once("<body>").expect("a body").1;
+    assert!(body.contains("footer { color: teal; }"), "{html}");
 }
 
 /// **The stale file.** A theme still carrying `shell.html` is a load error

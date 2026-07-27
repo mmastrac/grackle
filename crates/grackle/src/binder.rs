@@ -40,9 +40,40 @@ use crate::render::esc;
 
 #[derive(Debug)]
 enum Node {
-    /// Verbatim output: text, comments, doctype.
-    Text(String),
+    /// Verbatim output: text, comments, doctype — one variant because they
+    /// all render the same way, byte for byte. `line` is where the run
+    /// starts; only `split_root`'s top-level rules read it, and they need it
+    /// for the same reason every other error here names a line.
+    Text {
+        text: String,
+        line: usize,
+    },
     Element(Element),
+}
+
+/// The three flavours of `Node::Text`, which the top level of a theme root
+/// has to tell apart: a comment is nothing to see, a doctype is the wrapper
+/// mistake, and authored words are a drop waiting to happen. Spelled as
+/// prefixes because that is exactly what the parser branched on to make them.
+fn is_comment(text: &str) -> bool {
+    text.starts_with("<!--")
+}
+
+fn is_doctype(text: &str) -> bool {
+    text.starts_with("<!") && !is_comment(text)
+}
+
+/// Enough of a text run to recognize it in the file, on one line: whitespace
+/// collapsed, forty characters, an ellipsis if there was more. An error about
+/// dropped words has to quote some of them or its reader is hunting.
+fn snippet(text: &str) -> String {
+    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let short: String = flat.chars().take(40).collect();
+    if short.chars().count() < flat.chars().count() {
+        format!("{short}…")
+    } else {
+        short
+    }
 }
 
 #[derive(Debug)]
@@ -143,10 +174,41 @@ pub struct Root {
 ///   and inherits the base's chrome, which falls out of the fragment merge
 ///   (`theme.rs`) rather than needing a rule of its own.
 ///
-/// The engine keeps owning `<html>` and the computed head either way; the
-/// fence below is what makes that a checked claim rather than a convention.
+/// One shape is REFUSED, and it is the one a full page skeleton pasted into
+/// the file has: a top-level `<html>` element, or a doctype. Neither is the
+/// theme's to write, and neither can be waved through — an `<html>` wrapper
+/// hides the `<head>` and the `<body>` from the fragment/document test, so
+/// the whole document reads as a fragment and every page ships the theme's
+/// `<title>` and metas *inside its `<body>`*: both of this function's
+/// invariants defeated at once, and no error anywhere (IR4).
+///
+/// The engine keeps owning `<html>` and the computed head in every accepted
+/// shape; the wrapper check and the head fence below are what make that a
+/// checked claim rather than a convention.
 pub fn split_root(src: &str, file: &str) -> Result<Root> {
     let nodes = Parser::new(src, file).parse_all()?;
+    // Before anything else, because this is the check the two shapes below
+    // cannot make for themselves: an `<html>` wrapper would sail past the
+    // `wrapped` test as a fragment, and a doctype would sail past it as
+    // verbatim text. One message for both — they are one mistake, and the
+    // fix for it is one edit.
+    for n in &nodes {
+        let (what, line) = match n {
+            Node::Element(el) if el.tag == "html" => ("<html>", el.line),
+            Node::Text { text, line } if is_doctype(text) => ("a doctype", *line),
+            _ => continue,
+        };
+        bail!(
+            "{file}:{line}: {what} at the top of a theme root — the engine \
+             writes the document skeleton itself: the doctype, and <html> \
+             with its lang, subtheme, profile and axis stamps (IO.md §6). \
+             Unwrap to a bare <head>/<body> pair, or to the body chrome \
+             alone. Inside an <html> the head and body are invisible to \
+             this split, so the whole file would become body chrome and the \
+             theme's <title> and <meta> would ship inside <body> on every \
+             page."
+        );
+    }
     let wrapped = nodes
         .iter()
         .any(|n| matches!(n, Node::Element(el) if el.tag == "head" || el.tag == "body"));
@@ -161,9 +223,30 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
         body: None,
     };
     for n in &nodes {
-        // Whitespace and comments between the halves; a document's top level
-        // has nowhere to put text and nothing to do with it.
-        let Node::Element(el) = n else { continue };
+        let el = match n {
+            Node::Element(el) => el,
+            // Whitespace and comments between the halves mean nothing and go
+            // nowhere; authored words mean something and have nowhere to go,
+            // because a document's top level is not a place to put text. So
+            // they are named rather than dropped in silence (IR4).
+            Node::Text { text, line } => {
+                if !is_comment(text) && !text.trim().is_empty() {
+                    // A text run starts at the newline after `</head>`; the
+                    // words are what the reader is looking for, so the line
+                    // reported is theirs and not the run's.
+                    let lead = text.len() - text.trim_start().len();
+                    let at = line + text[..lead].bytes().filter(|&b| b == b'\n').count();
+                    bail!(
+                        "{file}:{at}: text beside a theme root's <head>/<body> \
+                         (`{}`) — a document-shaped root holds those two and \
+                         nothing else, and the engine writes <html> itself \
+                         (IO.md §6). Move it inside <body>.",
+                        snippet(text)
+                    );
+                }
+                continue;
+            }
+        };
         let (slot, take) = match el.tag.as_str() {
             "head" => {
                 check_head_fence(el, file)?;
@@ -174,13 +257,22 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
                 (&mut root.style, head_styles(el, src))
             }
             "body" => (&mut root.body, src[el.inner.clone()].to_string()),
+            // A `<style>` here is the one sibling with an obvious home that
+            // is NOT the body: the head fence exists to take it (I5 compiles
+            // it into the theme's sheet), so pointing at `<body>` would be
+            // advice that lands the theme's CSS in its chrome.
             _ => bail!(
                 "{file}:{}: <{}> beside a theme root's <head>/<body> — a \
                  document-shaped root holds those two and nothing else, and \
                  the engine writes <html> itself (IO.md §6). Move it inside \
-                 <body>.",
+                 {}.",
                 el.line,
-                el.tag
+                el.tag,
+                if el.tag == "style" {
+                    "<head>"
+                } else {
+                    "<body>"
+                }
             ),
         };
         if slot.is_some() {
@@ -448,7 +540,7 @@ impl Fragments {
     fn render_nodes(&self, nodes: &[Node], m: &PartMap, out: &mut String, mut root: bool) {
         for n in nodes {
             match n {
-                Node::Text(t) => out.push_str(t),
+                Node::Text { text, .. } => out.push_str(text),
                 Node::Element(el) => {
                     // The first element of a fragment is its root: stamp
                     // data-kind + the map's true flags for theme CSS.
@@ -641,12 +733,14 @@ impl<'a> Parser<'a> {
             if self.rest().is_empty() || self.rest().starts_with("</") {
                 return Ok(nodes);
             }
+            let line = self.line();
             if self.rest().starts_with("<!--") {
                 let end = self
                     .rest()
                     .find("-->")
                     .ok_or_else(|| self.err("unterminated comment"))?;
-                nodes.push(Node::Text(self.rest()[..end + 3].to_string()));
+                let text = self.rest()[..end + 3].to_string();
+                nodes.push(Node::Text { text, line });
                 self.pos += end + 3;
             } else if self.rest().starts_with("<!") {
                 // doctype, verbatim
@@ -654,13 +748,15 @@ impl<'a> Parser<'a> {
                     .rest()
                     .find('>')
                     .ok_or_else(|| self.err("unterminated <! declaration"))?;
-                nodes.push(Node::Text(self.rest()[..end + 1].to_string()));
+                let text = self.rest()[..end + 1].to_string();
+                nodes.push(Node::Text { text, line });
                 self.pos += end + 1;
             } else if self.rest().starts_with('<') {
                 nodes.push(Node::Element(self.parse_element()?));
             } else {
                 let end = self.rest().find('<').unwrap_or(self.rest().len());
-                nodes.push(Node::Text(self.rest()[..end].to_string()));
+                let text = self.rest()[..end].to_string();
+                nodes.push(Node::Text { text, line });
                 self.pos += end;
             }
         }
@@ -741,7 +837,10 @@ impl<'a> Parser<'a> {
                 .rest()
                 .find(&close)
                 .ok_or_else(|| self.err(&format!("unterminated <{}>", el.tag)))?;
-            el.children.push(Node::Text(self.rest()[..end].to_string()));
+            el.children.push(Node::Text {
+                text: self.rest()[..end].to_string(),
+                line: self.line(),
+            });
             el.inner.end = self.pos + end;
             self.pos += end + close.len();
             return Ok(el);

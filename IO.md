@@ -259,6 +259,12 @@ itself (lang, subtheme, profile, axis stamps) and the computed head (title,
 charset, canonical, the config head tables, hreflang, the one stylesheet
 link). A theme that ships no `root.html` inherits the base's; a body-only
 `root.html` is exactly today's chrome fragment, so migration is mechanical.
+The engine owning `<html>` is a *checked* claim, not an understanding
+(**IR4**): a root that writes its own `<html>` or a doctype is a load error
+naming the file and what to unwrap, because that wrapper hides the head and
+the body from the split and turns the whole file into body chrome — the
+fence below intact and bypassed, the theme's `<title>` shipping inside
+`<body>` on every page.
 
 **The head fence**: a theme's head may contain `<style>` and nothing else —
 and even that is extracted into the site CSS at build (**built, I5**: it lands

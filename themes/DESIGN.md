@@ -24,7 +24,9 @@ mechanical path back down (`theme derive`, §4).
   bare fragment, which is the body chrome and what every theme here writes;
   or document-shaped, with a `<head>` **fenced to `<style>`** and a `<body>`;
   or head-only, inheriting the base's chrome. The engine writes `<html>` and
-  computes the head in every case. A fenced `<style>` **leaves through the
+  computes the head in every case — so writing your own `<html>` or doctype
+  is a load error rather than a wrapper the engine unwraps for you (IO.md
+  IR4), and so is prose left beside the `<head>` and `<body>`. A fenced `<style>` **leaves through the
   CSS** (IO.md I5, landed 2026-07-27): compiled as SCSS into the theme layer
   of the theme's sheet, after `theme.scss`. No page carries an inline
   `<style>`; every page carries one stylesheet link.
