@@ -647,6 +647,15 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   collapses; gallery loses previews), locale selector on former-object
   rows (byte-inert today, latent — gets a test), marker-reach guard.
 
+- [ ] **IR6. The declaration walks skip `themes/` too.** *(I7b's finding
+  3.)* The marker walk and the `.schema.toml`/`.section` vocabulary walk
+  still descend `themes/`, so a theme shipping a `.schema.toml` would
+  enter the site's field vocabulary — MERGE R1's `cover` leak, at a
+  directory I7b declared engine vocabulary. Inert today (no repo theme
+  ships one); mirror I7b's positional filter in `walker_declarations`
+  (same `included` escape hatch), with an R1-style leak fixture proving
+  closure both ways. Parity byte-identical; mutation-check.
+
 - [ ] **I8. Sidecars.** Identity from a sidecar file; governed rows for
   unparseable bytes; the identity/parsed split holds (`front_mattered`
   without content). Parity (no site uses one yet — fixture-driven).
