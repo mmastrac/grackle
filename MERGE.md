@@ -168,11 +168,14 @@ name — see §7.)*
   mis-paired pop nearly conflicted onto one during C5. Need a scratch
   baseline? `git worktree add` to the scratchpad, or diff against
   `git show HEAD:<file>`. *(Added after C5's near-miss.)*
-- **Never run repo-wide `cargo fmt`.** The installed rustfmt (1.9.0) wants to
-  reformat 13 files this work never touched; pathspec discipline does not
-  protect against same-file churn, so format only the lines you wrote (or
-  nothing). A toolchain pin is a §7 question for Matt. *(Added per batch
-  review 2, finding 3.)*
+- **Formatting must be clean under the pinned toolchain** (`cargo fmt --check`
+  passes); **format what you touch.** *(Added per batch review 2, finding 3, as
+  a prohibition on repo-wide `cargo fmt` — the drift it protected against is
+  gone: `rust-toolchain.toml` pins 1.96.0 (§7 q12) and **F2 landed the
+  one-commit resync**, so the tree now matches the pin and a `cargo fmt` in
+  your working area moves only your own lines. If it moves someone else's,
+  something is wrong with the pin — stop and report rather than riding the
+  churn in.)*
 - Check the box here and note deviations in §6 when an item lands. Do not
   reorder or rescope other items.
 
@@ -523,7 +526,7 @@ provenance class). Closes §7 q7.
   disappear from stderr (expected and desired — grack.com's inventory
   drops to `hidden/**` alone). *[parity]*
 
-- [ ] **F2. The repo-wide fmt resync.** *(§7 q12's second half.)* One
+- [x] **F2. The repo-wide fmt resync.** *(§7 q12's second half.)* One
   commit, pure formatting: `cargo fmt` across the workspace under the
   pinned 1.96.0. Verify purity mechanically: `git diff -w` must be empty
   (whitespace-only changes) — any non-whitespace hunk is a STOP, report
@@ -2803,6 +2806,52 @@ Untouched per §4 — it is the user's file — but it is now the only place in 
 repo that teaches a config key which does not parse, and it is worth a line in
 the wrap-up.
 
+**2026-07-27 — F2.** Landed. **11 files, 29 rustfmt hunks**, formatting only;
+`cargo fmt --check` is now clean under the pin and `cargo test` is green (14
+result lines, 0 failures). §4's prohibition is retired above in favor of
+"clean under the pin; format what you touch".
+
+*Deviation — the item's stated gate is not a gate.* F2 says "`git diff -w` must
+be empty". It is not, and it could not have been: `-w` ignores whitespace
+*within* a line, and the bulk of rustfmt's work here is *re-breaking* lines —
+one line split across three is three new lines under any per-line comparison.
+`git diff -w` came back 391 lines over all 11 files. Reading that as a STOP
+would have failed the item on a false alarm.
+
+*What was checked instead, and it is strictly stronger.* Two passes. First, per
+file, compare the whole source with **all whitespace stripped**: six of the 11
+files hash identical, which settles them completely — pure whitespace, no
+reading required (`template.rs`, `links.rs`, `listing.rs`, `render.rs`,
+`load.rs`, and the whitespace-only remainder of the rest). Second, for the six
+that differ, **re-lex both revisions and diff the token streams**. A regex
+tokenizer is not good enough here and quietly lied twice before being replaced:
+`'a` lifetimes make a char-literal pattern swallow code until the next
+apostrophe (9 phantom hunks in `links.rs`), and a `"` inside a `//` comment
+starts a phantom string. The lexer used is a real scanner — comments, raw and
+byte strings, char literals distinguished from lifetimes — and it collapses
+whitespace *inside* comment tokens, so a re-indented comment is invisible while
+an edited one would not be. Under it, five files are token-identical.
+
+*The six token-changing files, every hunk eyeballed.* 13 token hunks in four
+classes, all inert:
+
+| class | where | why inert |
+|---|---|---|
+| trailing comma **added** when a call/tuple/param list breaks across lines | base.rs (the `axis_member` part tuple), build.rs ×3, parts.rs (`axis_group`'s params), config.rs (`classify(tok,)`) | trailing commas are grammar, not meaning |
+| trailing comma **dropped** when a list joins back onto one line | schema.rs (`set_site`), views.rs (`partition`'s params) | same |
+| redundant block braces elided from a closure or match arm whose body is one expression — `\|tok\| { match x {…} }` → `\|tok\| match x {…}` | config.rs ×2 (`tags_view` probe, `tag_url`), build.rs (`filter_map`), views.rs (the `locale` arm) | a block whose whole body is its tail expression |
+| one `use` group re-sorted | views.rs:10 — `AxisMember` moves after the lowercase items into rustfmt's order | import order within a group has no effect |
+
+No comment text changed anywhere in the 11 files.
+
+*For the queue (small).* The two `config.rs` closures come out *uglier* than
+they went in — rustfmt breaks `render(tmpl, |tok| match classify(\n tok,\n ) {`
+across the argument rather than keeping the block. That is rustfmt's call under
+the pin, not a judgment this item made, and re-adding the braces by hand would
+just be un-formatted code. If it grates, the fix is a `let` binding for the
+closure, which is a code change and belongs to whoever next touches those two
+functions — not to a formatting-only commit.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -2907,9 +2956,10 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     future `config --projected`'s job along with profiles?
 12. **RESOLVED (2026-07-27): pinned.** `rust-toolchain.toml` at the repo
     root pins `1.96.0` (the active toolchain — no build change today).
-    Remaining half: the one-commit repo-wide fmt resync — now filed as
-    **F2**, after Phase E; it retires §4's "no repo-wide cargo fmt" rule
-    for a "fmt must be clean" rule.
+    Remaining half: the one-commit repo-wide fmt resync — filed as **F2**,
+    after Phase E; it retires §4's "no repo-wide cargo fmt" rule for a
+    "fmt must be clean" rule. **Both halves closed 2026-07-27: F2 landed
+    the resync (11 files) and §4 now reads "clean under the pin".**
 13. **Subtheme tokens are unvalidated, and closing it is data-model.**
     *(C2 / batch review 3.)* `theme: ledger:drak` stamps
     `data-subtheme="drak"` silently — tokens name nothing the engine knows.
