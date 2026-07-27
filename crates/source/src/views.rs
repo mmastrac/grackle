@@ -353,14 +353,15 @@ fn view_fields(v: &View) -> BTreeMap<String, filter::Value> {
 
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
-        // `from = "*"` views read the finished route set, so they run in a
-        // second pass (see build_star_views). Views iterate in name order, so
-        // inline would measure a partial list.
-        if v.from.is_star() {
+        // A fold with no `from` reads every output (IO.md §4) — at this stage
+        // the finished route set — so it runs in a second pass (see
+        // `build_pool_folds`). Views iterate in name order, so inline would
+        // measure a partial list.
+        if v.reads_all_outputs() {
             continue;
         }
         // Both named queries (`published`) and embedded views (`latest`) still
-        // have to resolve, so a typo in `over` is a startup error either way.
+        // have to resolve, so a typo in `from` is a startup error either way.
         let q = cfg.query(name)?;
         // Dispatch on the base collection's KIND, never its name: a posts
         // collection may be called anything (§7a names one `notes`). A union's
@@ -393,7 +394,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) else {
             return true; // a row's own route, not a view's
         };
-        !v.inherited || v.from.is_star() || r.rows.is_none_or(|n| n > 0)
+        !v.inherited || v.reads_all_outputs() || r.rows.is_none_or(|n| n > 0)
     });
     Ok(())
 }
@@ -805,11 +806,18 @@ fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<fil
     })
 }
 
-/// Views over the whole route set (the sitemap). Runs after every other route
-/// exists, and its `rows` is the count that actually passes its filter.
-pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+/// Folds over every output — a fold shell with no `from` (IO.md §4): the
+/// sitemap, the search index. Runs after every other route exists, and its
+/// `rows` is the count that actually passes its filter.
+///
+/// "Every output" is the route set at this stage of the migration, which is
+/// the outputs database's facts half and is exactly what the retired
+/// `from = "*"` read. A fold whose `from` names a *set* is not here — it goes
+/// through `build_views` with its rows, and the join makes that selection
+/// output-mediated at I9.
+pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     for (name, v) in &cfg.views {
-        if !v.from.is_star() {
+        if !v.reads_all_outputs() {
             continue;
         }
         let tmpl = v
@@ -818,11 +826,11 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
         db.routes.push(Route {
             view: Some(name.clone()),
-            // A star view is a fold like any other, and it answers the `shell`
-            // column like any other (I2): `shell == "sitemap"` selects the
-            // route the sitemap leaves through. This route carried no fields
-            // at all before — `noindex` included, which is why it rides along
-            // rather than being added on its own.
+            // This fold answers the `shell` column like any other route
+            // (I2): `shell == "sitemap"` selects the route the sitemap leaves
+            // through. This route carried no fields at all before — `noindex`
+            // included, which is why it rides along rather than being added on
+            // its own.
             fields: view_fields(v),
             ..Route::new(tmpl.to_string(), RouteKind::View)
         });
@@ -830,28 +838,28 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     Ok(())
 }
 
-/// Resolve each star view's members, once the route list is final.
+/// Resolve each all-outputs fold's members, once the route list is final.
 ///
-/// A star view ranges over ROUTES, so its members name `db.routes` rather
-/// than the row store — the one place in the engine where that is true, and
-/// true because `over = "*"` says so.
+/// These range over ROUTES, so their members name `db.routes` rather than the
+/// row store — the one place in the engine where that is true, and true
+/// because the absent `from` says so (IO.md §4).
 ///
 /// Deferred to here because the route list is only final once it
-/// stops growing and has been sorted. Resolving during `build_star_views`
+/// stops growing and has been sorted. Resolving during `build_pool_folds`
 /// measured a partial list: views build in name order, so `sitemap` saw
 /// `search`'s route and would not have seen it the other way round. Both
 /// filters happen to exclude the other's route by extension, which is why
 /// nothing was visibly wrong.
-pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
+pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
-        if !v.from.is_star() {
+        if !v.reads_all_outputs() {
             continue;
         }
         let pred = match &v.filter {
             Some(src) => filter::Filter::parse(src, &route_schema(&schemas.declared_schema()))
                 .with_context(|| match &v.filter_profile {
-                    // As in `declared_filter`: a star view's `where` may have
-                    // been replaced by a profile, and the message says so.
+                    // As in `declared_filter`: a fold's `where` may have been
+                    // replaced by a profile, and the message says so.
                     Some(p) => {
                         format!("view {name}: filter {src:?} (profile {p} replaced its `where`)")
                     }
@@ -860,7 +868,7 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schema
             None => filter::Filter::always(),
         };
         let members = db.routes.select(&pred);
-        // q53: a `*` view sees the CANONICAL member only. An axis publishes
+        // q53: an all-outputs fold sees the CANONICAL member only. An axis publishes
         // alternative forms of one row, and an alternate is not a second page —
         // listing every member in the sitemap or the search index would be
         // asking a crawler to treat six renderings of one document as six

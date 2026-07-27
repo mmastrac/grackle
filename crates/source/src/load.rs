@@ -230,7 +230,7 @@ struct Cascaded {
 /// closes.
 ///
 /// The values stay in `fields` as well as landing on the row's named fields:
-/// they are declared, so a `where`, an `order_by` or a star view's route may
+/// they are declared, so a `where`, an `order_by` or a fold's route may
 /// name them, and a name that type-checks against nothing readable is the
 /// worse failure (§4e).
 fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
@@ -274,9 +274,9 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
 ///
 /// **Placement: after every route exists, before anything filters routes**
 /// (MERGE.md R6). It runs once materialization and `build_views`/
-/// `build_star_views` have minted the last route, and the engine's one
-/// `db.routes.select` — `views::resolve_star_views` — runs at the end of
-/// `load`, so a `*` view's `where` reads FORCED routes. That is the law and
+/// `build_pool_folds` have minted the last route, and the engine's one
+/// `db.routes.select` — `views::resolve_pool_folds` — runs at the end of
+/// `load`, so an all-outputs fold's `where` reads FORCED routes. That is the law and
 /// not an accident of ordering: rung 0 sits above every reader, the ones that
 /// SELECT as well as the ones that SAY, because §4a's fence puts "which rows
 /// the views admit" inside profile territory in the first place. The row half
@@ -285,14 +285,15 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
 ///
 /// E1 placed this call here and read it the other way round — "rung 0 says
 /// what a surface SAYS, not what a query SELECTS" — on the strength of
-/// `build_star_views` running one line above. But `build_star_views` only
-/// *mints* the star route; it filters nothing. Nothing between the two calls
+/// `build_star_views` running one line above (`build_pool_folds` since IO.md
+/// I3). But that pass only *mints* the fold's route; it filters nothing.
+/// Nothing between the two calls
 /// reads a route field, so the sentence never described the code.
 ///
 /// The one route this does not reach: an on-demand row published by
 /// `build::materialize_referenced`, which mints its route after `load` has
 /// returned. Those are `RouteKind::Object` byte publishes with no head, and
-/// the star pool resolved before they existed, so no reader of theirs is a
+/// the route pool resolved before they existed, so no reader of theirs is a
 /// reader of rung 0 — stated rather than fixed, as E1 stated it.
 ///
 /// The types come from the site vocabulary (`Schemas::declared`) rather than
@@ -1149,7 +1150,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let t = std::time::Instant::now();
     let route_locale = |l: &str| (l != cfg.i18n.default).then(|| l.to_string());
     // `RouteKind::Post` survives because a ROUTE kind is real: it is the
-    // vocabulary star-view filters use (`kind == "post"`). Membership, not
+    // vocabulary route-pool filters use (`kind == "post"`). Membership, not
     // arithmetic — position in the store carries no meaning.
     let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
     let objects: std::collections::HashSet<&grackle_db::Key> = db.object_ix.iter().collect();
@@ -1251,9 +1252,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     db.routes.extend(new_routes);
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
-    crate::views::build_star_views(cfg, &mut db)?;
+    crate::views::build_pool_folds(cfg, &mut db)?;
     // Rung 0 into the route pool, at the first point where the pool is whole —
-    // and necessarily before `resolve_star_views` below, which is the only pass
+    // and necessarily before `resolve_pool_folds` below, which is the only pass
     // that filters routes (MERGE.md R6). A new route-minting pass belongs above
     // this line; a new route-FILTERING pass belongs below it.
     force_route_fields(cfg, &mut db, &schemas)?;
@@ -1534,8 +1535,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));
-    // Star views index routes, so they resolve against the final, sorted list.
-    crate::views::resolve_star_views(cfg, &mut db, &schemas)?;
+    // All-outputs folds index routes, so they resolve against the final,
+    // sorted list.
+    crate::views::resolve_pool_folds(cfg, &mut db, &schemas)?;
     Ok(db)
 }
 

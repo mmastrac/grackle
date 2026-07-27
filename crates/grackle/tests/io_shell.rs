@@ -36,13 +36,13 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-             [routes.html_probe]\npath = \"/html.xml\"\nfrom = \"*\"\n\
+             [routes.html_probe]\npath = \"/html.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"html\"'\n\n\
-             [routes.raw_probe]\npath = \"/raw.xml\"\nfrom = \"*\"\n\
+             [routes.raw_probe]\npath = \"/raw.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"raw\"'\n\n\
-             [routes.atom_probe]\npath = \"/atom-probe.xml\"\nfrom = \"*\"\n\
+             [routes.atom_probe]\npath = \"/atom-probe.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"atom\"'\n\n\
-             [routes.null_probe]\npath = \"/null.xml\"\nfrom = \"*\"\n\
+             [routes.null_probe]\npath = \"/null.xml\"\n\
              shell = \"sitemap\"\nwhere = '!shell'\n",
         ),
         (
@@ -174,13 +174,13 @@ fn an_object_row_answers_no_shell_at_all() {
         null.contains(&"/logo.png".to_string()),
         "an object takes no rule defaults, so it wears no shell: {null:?}"
     );
-    // A star view is a fold like any other and answers the column too — it
-    // carried no fields AT ALL before I2, so without its `view_fields` call
-    // the four probes would be sitting in this set.
+    // An all-outputs fold answers the column too — its route carried no
+    // fields AT ALL before I2, so without its `view_fields` call the four
+    // probes would be sitting in this set.
     for probe in ["/html.xml", "/raw.xml", "/atom-probe.xml", "/null.xml"] {
         assert!(
             !null.contains(&probe.to_string()),
-            "a star route leaves through the sitemap shell: {null:?}"
+            "a fold's route leaves through the sitemap shell: {null:?}"
         );
     }
 }
@@ -190,9 +190,9 @@ fn an_object_row_answers_no_shell_at_all() {
 /// column has to agree with the bytes, or a fold over the route pool would
 /// describe the canonical form twice.
 ///
-/// `light_html` is declared FIRST so it is the canonical member, because a
-/// star view sees canonical members only (q53: an alternate is not a second
-/// document). The row itself takes `html` from the base's front-matter rule,
+/// `light_html` is declared FIRST so it is the canonical member, because an
+/// all-outputs fold sees canonical members only (q53: an alternate is not a
+/// second document). The row itself takes `html` from the base's front-matter rule,
 /// so the two disagree and the probe can tell which one answered.
 ///
 /// Mutation: delete the `m.field == "shell"` correction in `load.rs`'s route
@@ -211,9 +211,9 @@ fn an_axis_member_answers_its_own_shell() {
              [[collections]]\nkind = \"tree\"\nsource = \".\"\n\n\
              [[collections.rules]]\nmatch = \"tiers.md\"\nfront_matter = true\n\
              route = \"/tiers/{serialization}/\"\n\n\
-             [routes.html_probe]\npath = \"/html.xml\"\nfrom = \"*\"\n\
+             [routes.html_probe]\npath = \"/html.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"html\"'\n\n\
-             [routes.light_probe]\npath = \"/light.xml\"\nfrom = \"*\"\n\
+             [routes.light_probe]\npath = \"/light.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"light_html\"'\n",
         ),
         ("tiers.md", "---\ntitle: Tiers\n---\n\nProse.\n"),

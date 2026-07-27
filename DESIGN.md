@@ -343,7 +343,8 @@ noindex = true` key this replaced is a load error naming the new spelling.
 that SAY.** A forced field is written before any view materializes and before
 anything filters routes, so a `where` that reads one filters by the forced
 value: `where = "!noindex"` admits nothing under a profile forcing `noindex`,
-in a set over rows and in a `from = "*"` view over routes alike. This is not a
+in a set over rows and in a fold over the output pool alike (IO.md I3
+respelled the second, and changed nothing about this). This is not a
 second feature bolted beside the head expressions — it is the same fence,
 which already puts *what the queries select* inside profile territory, applied
 at the rung above them all. There is one law and one seam; a force that a
@@ -714,8 +715,8 @@ of every site.
 ### Why the flag move was one step, not two
 
 `route_schema()` declares `draft`/`hidden`
-because `from = "*"` filters over routes, and the base config's own sitemap
-uses them. A route's vocabulary must include what its `where` clause can filter on. **A
+because a fold with no `from` filters over routes, and the base config's own
+sitemap uses them. A route's vocabulary must include what its `where` clause can filter on. **A
 filter environment that type-checks a name nothing can answer is a worse
 failure than the hardcoding it replaced**: it fails at runtime, as `false`,
 silently.
@@ -751,7 +752,7 @@ be typed one way and read the other.
 for IO.md I1, which set out to expose it and found it exposed)*. A declared
 field is a column, the four are declared, and their values live in `fields` as
 well as on the row's named field — so `where = 'shell == "light_html"'` selects
-on a row and, through `Route.fields`, on a star view's routes.
+on a row and, through `Route.fields`, on the routes a fold reads.
 
 I1 recorded two things the column did not yet answer, and **IO.md I2 closed
 both** *(2026-07-27)*:
@@ -927,7 +928,7 @@ The plural is not a hypothetical: `[[collections]] kind = "posts"` is the spelli
 
 **`noindex` is deliberately absent.** Computing it needs the layout chain (phase 2), and a field we cannot populate correctly is worse than no field: omitted, referencing it is a load-time error; present-but-wrong, it silently lies. It also turns out not to be needed.
 
-`from = "*"` views read the finished route set, so they run in a second pass. Views iterate in name order.
+**A fold shell with no `from` reads the finished route set** *(IO.md §4, I3 — it was spelled `from = "*"` until then)*, so those views run in a second pass. Views iterate in name order.
 
 `where`/`group_by`/`limit` are deliberately tiny — a predicate language over row fields, not SQL. Anything fancier is a Rust `Generator` impl registered under a name the config references. View outputs are routable rows like any other, so they land in the same URL→row reverse index.
 
@@ -1167,7 +1168,9 @@ where = "!draft && !hidden"
 | embeddable | — | ✓ | `latest` |
 | materialized | ✓ | ✓ | `blog_index` |
 
-`path` is optional — its presence is what makes an entry a `[routes]` rather than a `[sets]`. `from` may name a collection, `*`, or **another query — but only a query-only one.** That restriction is the whole reason composition stays simple. Compose over things with nothing to inherit. Cycles, unknown names, and composing over a materialized view are all load-time errors.
+`path` is optional — its presence is what makes an entry a `[routes]` rather than a `[sets]`. `from` may name a collection or **another query — but only a query-only one.** That restriction is the whole reason composition stays simple. Compose over things with nothing to inherit. Cycles, unknown names, and composing over a materialized view are all load-time errors.
+
+**`from` may also be absent, and only under a fold shell** *(IO.md §4, item I3, 2026-07-27)*. A fold sits on a query over outputs, so "every output" is a query it can serialize — at this stage of the migration, the finished route set. That is exactly what `from = "*"` read, so the spelling retired and nothing moved: the sitemap and the search index each lost a line. Everything else is a listing, and a listing has to say what it lists, so absent `from` there is a load error naming the fold shells (`atom`, `sitemap`, `search`, plus registered script shells). The old spelling is a hard cutoff and `*` now names nothing; because it was a *value* rather than a key, `deny_unknown_fields` never sees it, and the message that would have sent its reader looking for a collection called `*` was replaced by one sentence of its own. A fold whose `from` names a **set** is unchanged — `[routes.feed] from = "published"` keeps meaning what it means, consuming that set's rows; selecting outputs *through* the join lands with the join itself (IO.md I9).
 
 ### Members: the match this deleted
 
@@ -1579,11 +1582,10 @@ Pending: a theme wanting to add head content (fonts) needs an optional `head.htm
 
 `/search.bin` was the last hardcoded serialization — a posts-only
 projection baked into the pass. Now a view declares it, in exactly the
-sitemap's star shape:
+sitemap's shape — a fold shell and no `from`, so it reads every output:
 
 ```toml
 [routes.search]
-from  = "*"
 path  = "/search.bin"
 shell = "search"
 where = 'front_mattered && !draft && !hidden'
@@ -2163,7 +2165,7 @@ Load rules keep resolution total and typos loud: a per-locale map may only name 
 - **A localized post's trail is complete**: `Accueil(→ /fr/) › Carnet(→ /fr/blog/) › 10 January 2026`. "Home" is **existence-checked** — it links the locale's own homepage when a translated index exists, else the site root.
 - **Localized tree pages walk URL ancestors**, and the duplicate home crumb on `/fr/…` URLs is **cured** (§5h: `ancestors()` skips locale-prefix homes). A section crumb appears in French exactly when the section's landing has a French variant.
 - **`.slots/` fills localize by the same suffix convention** (`nav.fr.md` beside `nav.md`), and their view links resolve per consuming page's locale.
-- **Locale-parallel views are built and DEFAULT-ON.** Every materializing row-query view partitions per declared locale: that locale's rows, the locale-prefixed route (default locale unprefixed), title/crumb/trail resolved at the route's locale. **A locale with no rows materializes nothing**: the partition is real, not mirrored. Opt-out is `locales = "default"`. Exempt by design: **star views** never multiply, **object views** carry no locale, and **embedded views** follow their embedding page (pending).
+- **Locale-parallel views are built and DEFAULT-ON.** Every materializing row-query view partitions per declared locale: that locale's rows, the locale-prefixed route (default locale unprefixed), title/crumb/trail resolved at the route's locale. **A locale with no rows materializes nothing**: the partition is real, not mirrored. Opt-out is `locales = "default"`. Exempt by design: **all-outputs folds** never multiply, **object views** carry no locale, and **embedded views** follow their embedding page (pending).
 - **Still locale-free, and known**: `month_name` (computed at route build), `pretty_date`, the search overlay's strings (client-side, pending search being locale-aware), and `site.title`. Localized group *keys* are q40-adjacent.
 - The markers walk uses **physical** paths — irrelevant for suffix, a known caveat for prefix (built and tested but unexercised by a corpus).
 
@@ -2348,7 +2350,7 @@ Blog sites demonstrably fit the model; feature parity is established.
 
 - **tree** — source and URL side by side. The difference *is* the route template.
 - **rows** — a table per table, typed columns, flags visible.
-- **views** — every declared query and its fan-out. Star views carry no `members` (they range over routes), so payload evaluates filter the same way.
+- **views** — every declared query and its fan-out. An all-outputs fold carries no `members` (it ranges over routes), so payload evaluates filter the same way.
 - **diagnose** — anomaly first. The bar: it must be able to be wrong (an undated draft is not a finding; an undated publishable post is, threefold cost).
 
 **The provenance strip** — source → route → the views that picked it up. A generic database viewer cannot show this: a claimed row has no route (§5h), a translated row has two (§6f), a view route has 66 members and no row.
@@ -2575,7 +2577,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
       route = "/{theme}/notes/{slug}/"   # spends the axis: publishes per member
     ```
 
-    **Canonical-bare, then back — as an opt-in** *(the default-axis case, built 2026-07)*. The canonical member first kept the row's own URL (mimicking the default locale's missing `/fr/`); then, once the template allocated the segment, every member wore one. Both were the wrong default to *force*. A rule or view now takes a LIST of templates — `route = ["/{theme}/{axis:locale}/", "/{theme}/", "/"]` — and the engine picks the shortest one that still spends every NON-canonical axis, so a canonical member drops its segment exactly when a shorter template offers to omit it and wears it otherwise. A single template (the ordinary case) is unchanged: every member wears its segment. Canonical stays a *declaration* — which member `rel="canonical"` names and which one a `*` view sees — and is now *also* what the path list may elide.
+    **Canonical-bare, then back — as an opt-in** *(the default-axis case, built 2026-07)*. The canonical member first kept the row's own URL (mimicking the default locale's missing `/fr/`); then, once the template allocated the segment, every member wore one. Both were the wrong default to *force*. A rule or view now takes a LIST of templates — `route = ["/{theme}/{axis:locale}/", "/{theme}/", "/"]` — and the engine picks the shortest one that still spends every NON-canonical axis, so a canonical member drops its segment exactly when a shorter template offers to omit it and wears it otherwise. A single template (the ordinary case) is unchanged: every member wears its segment. Canonical stays a *declaration* — which member `rel="canonical"` names and which one an all-outputs fold sees — and is now *also* what the path list may elide.
 
     **A correction this build produced, worth keeping.** The question claimed four instances of one shape and listed locale as built. Locale is not that shape: `dal.md` and `dal.fr.md` are **two rows**, one route each, paired after the fact by `by_logical`; thumbnails are derived artifacts and not rows; the md twin was a serialization. So the axis was a *new* mechanism, not the generalization of an existing one — and the argument for building it was accordingly weaker than the question implied. What redeemed it was that the second field cost nothing: `field = "shell"` is q44's md twin, working the day the axis landed, and that is the multiplicativeness the question was actually claiming.
 
@@ -2587,8 +2589,8 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     1. **Which rows multiply** — those a `match` glob selects, and only *rendered* rows. An axis publishes alternative forms of a document; a static file or an image has one form, its bytes. (A thumbnail is an axis in spirit but it is the image pipeline's, keyed by size and content-addressed.)
     2. **Identity across members** — one row, N routes, via `Route.row`. This is what the prerequisite bought: before it, a route's row was recovered as `by_url.get(r.url)`, which answers "one" by construction and could never have seen the second.
-    3. **The canonical member** — the first declared, and it **keeps the row's own URL**; only alternates are templated. Exactly the shape the default locale has in sitting above the selector with no `/fr/`. Every member's `rel="canonical"` and `og:url` name the canonical form, because the head describes the *document* rather than the form. And a `*` view sees canonical members only: listing every member in the sitemap or search index would ask a crawler to treat six renderings of one document as six documents, which is what `rel="canonical"` exists to deny.
-    4. **Composition** *(built 2026-07)* — axes over one row compose into the cartesian product rather than colliding. The constraint keys on the member-**tuple**, not one member, so a row (or a view) that spends `{palette}` and `{flavor}` lands at `/plain/sweet/…` through `/fancy/salty/…`, one route per tuple; `Route.axis`/`Row.axis` grew from one member to the list, and spending is per-axis — each must have its own segment or its members collide. Canonical is the tuple of first-declared members, and a `*` view sees a route only when EVERY member in its tuple is canonical.
+    3. **The canonical member** — the first declared, and it **keeps the row's own URL**; only alternates are templated. Exactly the shape the default locale has in sitting above the selector with no `/fr/`. Every member's `rel="canonical"` and `og:url` name the canonical form, because the head describes the *document* rather than the form. And an all-outputs fold sees canonical members only: listing every member in the sitemap or search index would ask a crawler to treat six renderings of one document as six documents, which is what `rel="canonical"` exists to deny.
+    4. **Composition** *(built 2026-07)* — axes over one row compose into the cartesian product rather than colliding. The constraint keys on the member-**tuple**, not one member, so a row (or a view) that spends `{palette}` and `{flavor}` lands at `/plain/sweet/…` through `/fancy/salty/…`, one route per tuple; `Route.axis`/`Row.axis` grew from one member to the list, and spending is per-axis — each must have its own segment or its members collide. Canonical is the tuple of first-declared members, and an all-outputs fold sees a route only when EVERY member in its tuple is canonical.
 
         **Locale is folded in too**, which retired the "own mechanism" caveat. The unifying distinction is a REUSE axis vs a FILE axis. A reuse axis (theme) renders one row N ways, so every member reuses the canonical row's content and none is ever *missing*. A file axis (locale) gives each member its own content file — `index.fr.md` is the `fr` member's file — and a member with no file simply does not materialize (there is no "duplicate the default" policy: a reuse axis already covers the always-present case, so the only honest answer for a file axis's missing member is to skip it). Locale keeps its two-row model (`by_logical` still pairs the files) but is now exposed *through* the axis interface: `?locale=fr` selects a member the way `?theme=ledger` does — resolved through `by_logical` since the member is a different file, with the `.fr` suffix as the implicit value and `index.fr.md?locale=en` overriding it — and locale composes with another axis, `/fr/{theme}/notes/one/`. Locale is a positionable spent token: `{axis:locale}` (or bare `{locale}`) in a template places the segment wherever the author writes it — `/{theme}/{axis:locale}/` lands the segment after the theme's — and a template that spends no locale token falls back to the outer prefix, the shape a config without `{axis:locale}` has always had. So the "always the outer prefix" limitation is gone: it is the *default*, not the only option.
 

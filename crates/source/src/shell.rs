@@ -153,6 +153,43 @@ pub fn check_view(name: &str, view: &str, registered: &[&str]) -> Result<()> {
     bail!("view {view}: unknown shell {name:?} — a view takes a {folds}");
 }
 
+/// The check a view with **no `from`** takes (IO.md §4, I3).
+///
+/// "A fold shell with no `from` reads all outputs" is §4's sentence, and it is
+/// the successor to the retired `from = "*"` — a respelling, not a new power:
+/// the pool a star view read is the pool this reads.
+///
+/// Absent-`from` is legal exactly where the shell is a fold, because the two
+/// families answer the question differently. A fold sits on a query over
+/// outputs, so "all of them" is a query it can serialize. A map shell wraps
+/// ONE output, so a view wearing one is a listing, and a listing has to say
+/// what it lists — including the undeclared view, whose shell is
+/// [`VIEW_DEFAULT`].
+///
+/// `registered` is `[shells.*]`, as in [`check_view`]: a script shell is a
+/// fold by arity (IO.md §4 gives it a `pulls` declaration later; today it eats
+/// the collection its view selects).
+pub fn check_absent_from(shell: Option<&str>, view: &str, registered: &[&str]) -> Result<()> {
+    if shell.is_some_and(|s| is_fold(s) || registered.contains(&s)) {
+        return Ok(());
+    }
+    bail!(
+        "view {view}: no `from` — a listing has to say what it lists. Only a \
+         FOLD shell reads every output without one (IO.md §4), and this one \
+         leaves through {}, which wraps one output at a time. Name a pool \
+         (`from = \"<collection or set>\"`), or declare a fold shell: {}{}",
+        match shell {
+            Some(s) => format!("{s:?}"),
+            None => format!("the HTML listing ({VIEW_DEFAULT:?}, the default)"),
+        },
+        list(FOLD),
+        match registered.is_empty() {
+            true => String::new(),
+            false => format!("; registered script shells: {}", list(registered)),
+        },
+    )
+}
+
 /// A registered script shell may not take a name the engine already owns.
 ///
 /// It would be a shell nobody could reach: `check_view` answers from the

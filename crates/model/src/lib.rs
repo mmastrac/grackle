@@ -387,7 +387,8 @@ pub struct Route {
     ///
     /// A map rather than the two named bools it replaces, because the flag
     /// family is ordinary declared schema now (§4e): whatever a site declares
-    /// is what a star view may filter on, and the engine names none of it.
+    /// is what an all-outputs fold may filter on, and the engine names none
+    /// of it.
     #[serde(skip)]
     pub fields: BTreeMap<String, filter::Value>,
     /// For a `*` view: the ROUTES it selected.
@@ -400,8 +401,8 @@ pub struct Route {
     /// `self`: the post rows this route materializes, in order.
     ///
     /// The view's declared query decides these once, here — renderers read
-    /// them rather than re-deriving. Empty for `from = "*"` views, which
-    /// range over routes rather than posts.
+    /// them rather than re-deriving. Empty for a fold with no `from` (IO.md
+    /// §4), which ranges over routes rather than posts.
     #[serde(skip)]
     pub members: Vec<Key>,
 }
@@ -494,7 +495,7 @@ pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     s.insert("stem", Str);
     // §6f: the row's locale for translation routes; Null for the default
     // locale (and every sourceless route). `locale != "fr"` keeps French
-    // rows out of a star view; Null passes `!=` by the filter's rule.
+    // rows out of an all-outputs fold; Null passes `!=` by the filter's rule.
     s.insert("locale", Str);
     s
 }

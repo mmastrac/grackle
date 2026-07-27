@@ -32,11 +32,13 @@ check them before acting; three such items turned out to be already built.
       document. `git show dc96d5d^:grackle/DESIGN.md` and its `themes/` sibling
       hold the pre-compression text.
 
-- [ ] **`from = "*"` on a site-declared route** — a routed row is routed whatever
-      its flags say, so every star route must restate `!draft && !hidden`.
-      `View::inherited` already records whose route a view is, so the validator
-      can refuse a site-declared star route whose `where` omits the flags while
-      the base's own passes. (§5c)
+- [ ] **A site-declared fold over every output** *(spelled `from = "*"` until
+      IO.md I3; now an absent `from` under a fold shell — the defect is
+      unmoved, because the pool it reads is the same route set)* — a routed row
+      is routed whatever its flags say, so every such route must restate
+      `!draft && !hidden`. `View::inherited` already records whose route a view
+      is, so the validator can refuse a site-declared one whose `where` omits
+      the flags while the base's own passes. (§5c)
 
 ## Tooling — the pipeline's dark stages
 

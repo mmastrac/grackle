@@ -274,7 +274,6 @@ shell = "llms"
 
 [routes.search]
 path = "/search.bin"
-from = "*"
 shell = "search"
 where = 'front_mattered && !draft && !hidden && stem != "index"'
 
@@ -347,6 +346,5 @@ crumb = "{key}"
 
 [routes.sitemap]
 path = "/sitemap.xml"
-from = "*"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

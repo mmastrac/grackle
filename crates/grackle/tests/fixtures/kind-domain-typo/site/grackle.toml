@@ -10,6 +10,5 @@ author = "Tester"
 
 [routes.search]
 path = "/search.bin"
-from = "*"
 shell = "search"
 where = 'kind == "posts"'

@@ -165,6 +165,5 @@ shell = "atom"
 
 [routes.sitemap]
 path = "/sitemap.xml"
-from = "*"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

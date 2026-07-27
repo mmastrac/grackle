@@ -13,7 +13,10 @@
 # shaped profile is for. What makes it an error is no longer a name check —
 # a profile is a config OVERLAY, so naming an unknown view simply ADDS a
 # definition, which is what a registry does. The addition is then held to the
-# rules every other entry is held to, and a set with no `from` is not a set.
+# rules every other entry is held to, and a set with no `from` is not a set:
+# since IO.md I3 an absent `from` is legal on a FOLD shell (it reads every
+# output — the retired `from = "*"`), and this entry declares no shell, so it
+# is a listing that never says what it lists.
 #
 # That is the whole-shadow law showing its teeth, too: had the name been
 # right, this entry would still have REPLACED `[sets.published]` entire

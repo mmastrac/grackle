@@ -891,17 +891,16 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         stats.serialized += 1;
     }
 
-    // ---- sitemap: `from = "*"` views serialize the finished route set.
+    // ---- sitemap: a fold with no `from` serializes the finished route set.
     //
-    // The star view (§5) counted its matches at load; here we re-run the same
-    // filter to enumerate them. `lastmod` is emitted only for posts, from the
+    // The fold (§5) counted its matches at load; here we read them back. `lastmod` is emitted only for posts, from the
     // content date. jekyll-sitemap also stamps static files with their file
     // *mtime* — but that is checkout-time noise (every clone differs) and works
     // against the indexing goal this whole project exists for, so it is
     // deliberately dropped — the URL *set* is unaffected. (DESIGN §4a is the
     // related draft/hidden concern.)
-    for star in &db.routes {
-        let Some(view) = &star.view else { continue };
+    for fold in &db.routes {
+        let Some(view) = &fold.view else { continue };
         let Some(v) = cfg.views.get(view) else {
             continue;
         };
@@ -911,7 +910,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         }
         // Resolved at load like every other view's, rather than re-derived
         // from the filter's source text here.
-        let entries: Vec<(String, Option<String>)> = star
+        let entries: Vec<(String, Option<String>)> = fold
             .route_members
             .iter()
             .filter_map(|k| db.routes.get(k))
@@ -927,7 +926,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             })
             .collect();
         let xml = render::sitemap(&entries);
-        out_map.insert(star.url.clone(), xml.into_bytes());
+        out_map.insert(fold.url.clone(), xml.into_bytes());
         stats.serialized += 1;
     }
 
@@ -1997,17 +1996,17 @@ fn search_pass(
     stats: &mut Stats,
 ) -> Result<()> {
     let mut any = false;
-    for star in &db.routes {
-        let Some(view) = &star.view else { continue };
+    for fold in &db.routes {
+        let Some(view) = &fold.view else { continue };
         let Some(v) = cfg.views.get(view) else {
             continue;
         };
         if v.shell.as_deref() != Some("search") {
             continue;
         }
-        let route = &star.url;
+        let route = &fold.url;
         // Resolved at load, like the sitemap's.
-        let docs: Vec<grackle_search_core::SearchDoc> = star
+        let docs: Vec<grackle_search_core::SearchDoc> = fold
             .route_members
             .iter()
             .filter_map(|k| db.routes.get(k))
@@ -2213,8 +2212,9 @@ fn site_overlay(root: &Path, stats: &mut Stats) -> Option<String> {
     }
 }
 
-/// The kind of the collection at the base of a view's `over` chain — what
-/// decides which render pass owns its routes. None for `over = "*"`.
+/// The kind of the collection at the base of a view's `from` chain — what
+/// decides which render pass owns its routes. None for a fold over every
+/// output, which has no collection under it (IO.md §4).
 fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
     // A union's members share a kind (`Config::check_base`), so the first
     // answers for the whole base.

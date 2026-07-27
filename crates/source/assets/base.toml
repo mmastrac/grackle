@@ -217,11 +217,11 @@ from = "published"
 limit = 20
 shell = "atom"
 
-# `from = "*"` ranges over ROUTES, and a routed row is routed whatever its
-# flags say — hence the restated predicate. Any star route a site adds needs
-# the same one (DESIGN.md §5c).
+# No `from`: a FOLD shell with no pool named reads every output (IO.md §4),
+# which at this stage is the route set. It ranges over ROUTES, and a routed
+# row is routed whatever its flags say — hence the restated predicate. Any
+# such route a site adds needs the same one (DESIGN.md §5c).
 [routes.sitemap]
 path = "/sitemap.xml"
-from = "*"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

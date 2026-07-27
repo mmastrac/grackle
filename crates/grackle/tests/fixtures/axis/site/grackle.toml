@@ -84,5 +84,4 @@ title = "All"
 
 [routes.sitemap]
 path = "/sitemap.xml"
-from = "*"
 shell = "sitemap"

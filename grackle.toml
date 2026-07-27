@@ -241,7 +241,6 @@ callout = """
   # so `front_mattered` would drop it from this index while `kind` keeps it.
   [profiles.drafts.routes.search]
   path = "/search.bin"
-  from = "*"
   shell = "search"
   where = 'kind == "post" && !hidden'
 
@@ -313,7 +312,8 @@ from = "published"
 limit = 20
 shell = "atom"
 
-# The searchable set is a query (§5g): the same star shape as the sitemap,
+# The searchable set is a query (§5g): the same shape as the sitemap — a
+# fold shell with no `from`, so it reads every output (IO.md §4) —
 # serialized as the postcard index /search.js consumes. Posts only for now —
 # adding `|| kind == "page"` would make /code/ and /writing/ searchable, but
 # that's a deliberate index change, not a mechanism default.
@@ -328,7 +328,6 @@ shell = "atom"
 # forever is a load error while this waits.
 [routes.search]
 path = "/search.bin"
-from = "*"
 shell = "search"
 where = 'kind == "post" && !draft && !hidden'
 
@@ -347,7 +346,6 @@ where = 'kind == "post" && !draft && !hidden'
 # not a page. Keying on ext alone let four such binaries into the sitemap.
 [routes.sitemap]
 path = "/sitemap.xml"
-from = "*"
 shell = "sitemap"
 # `!draft && !hidden` closes the leak §4a flagged: without it a future draft —
 # routed into the main build today — lands in the most public URL there is,

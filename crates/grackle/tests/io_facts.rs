@@ -2,8 +2,8 @@
 //!
 //! A whole site rendered once, so it belongs with the fixtures by `fixtures.rs`'s
 //! own line ("if the subject is *a site*, it belongs here"). It is not a fixture
-//! because what it asserts is a *set membership* — which URLs a star view
-//! selected — and a fixture would express that as several kilobytes of blessed
+//! because what it asserts is a *set membership* — which URLs an all-outputs
+//! fold selected — and a fixture would express that as several kilobytes of blessed
 //! HTML in which the one interesting line is a `<loc>`.
 //!
 //! The loader is the subject. `front_mattered` is a bit written in two places
@@ -21,8 +21,9 @@ use std::path::{Path, PathBuf};
 /// - a page with a block — a tree row the front-matter rule routed prettily;
 /// - an `.html` with no block, and a `.txt` — bytes copied verbatim.
 ///
-/// The two star probes are the sitemap's shape, which is the shape the corpus
-/// filters this item migrates are written in.
+/// The probes are the sitemap's shape — a fold shell with no `from`, so it
+/// reads every output (IO.md §4) — which is the shape the corpus filters this
+/// item migrates are written in.
 fn site(who: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("grackle-io-facts-{who}"));
     let _ = std::fs::remove_dir_all(&dir);
@@ -30,11 +31,11 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-             [routes.identity]\npath = \"/identity.xml\"\nfrom = \"*\"\n\
+             [routes.identity]\npath = \"/identity.xml\"\n\
              shell = \"sitemap\"\nwhere = \"front_mattered\"\n\n\
-             [routes.bytes]\npath = \"/bytes.xml\"\nfrom = \"*\"\n\
+             [routes.bytes]\npath = \"/bytes.xml\"\n\
              shell = \"sitemap\"\nwhere = \"!front_mattered\"\n\n\
-             [routes.old_spelling]\npath = \"/old-spelling.xml\"\nfrom = \"*\"\n\
+             [routes.old_spelling]\npath = \"/old-spelling.xml\"\n\
              shell = \"sitemap\"\nwhere = 'kind == \"post\" || kind == \"page\"'\n",
         ),
         (

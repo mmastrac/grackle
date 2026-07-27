@@ -253,12 +253,10 @@ title = "Wall"
 # (IO.md §3): the documents, as opposed to byte copies and minted listings.
 [routes.search]
 path = "/search.bin"
-from = "*"
 shell = "search"
 where = 'front_mattered && !draft && !hidden && stem != "index"'
 
 [routes.sitemap]
 path = "/sitemap.xml"
-from = "*"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

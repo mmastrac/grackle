@@ -39,9 +39,10 @@ exclude = ["embedded/**"]
   front_matter = true
   route = "/{dir}/{stem}/"
 
+# No `from`: a fold shell reads every output (IO.md §4, I3), which is what
+# puts this `where` in the ROUTE vocabulary — the environment `cover` used to
+# leak into.
 [routes.covered]
-path = "/covered/"
-from = "*"
+path = "/covered.xml"
+shell = "sitemap"
 where = 'cover != ""'
-layout = "listing"
-title = "Covered"

@@ -211,11 +211,11 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         })
         .collect();
 
-    // A star view (`from = "*"`) ranges over ROUTES, not a table, so it
+    // A fold with no `from` (IO.md §4) ranges over ROUTES, not a table, so it
     // carries no `members` — the render passes re-evaluate its filter. The
     // set is real all the same, so evaluate it here rather than show an
     // empty list and imply otherwise.
-    let star_members = |name: &str| -> Vec<String> {
+    let pool_members = |name: &str| -> Vec<String> {
         let Some(v) = cfg.views.get(name) else {
             return Vec::new();
         };
@@ -237,8 +237,8 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         let Some(view) = r.view.as_deref() else {
             return Vec::new();
         };
-        if cfg.views.get(view).is_some_and(|v| v.from.is_star()) {
-            return star_members(view);
+        if cfg.views.get(view).is_some_and(|v| v.reads_all_outputs()) {
+            return pool_members(view);
         }
         r.members
             .iter()
@@ -279,7 +279,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
                 .collect();
             View {
                 name: name.clone(),
-                from: Some(v.from.display()).filter(|s| !s.is_empty()),
+                from: v.from.as_ref().map(|f| f.display()),
                 base: cfg.query(name).ok().map(|q| q.base.join(", ")),
                 layout: v.layout.clone(),
                 shell: v.shell.clone(),

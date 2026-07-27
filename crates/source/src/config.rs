@@ -1501,8 +1501,14 @@ impl Axis {
     }
 }
 
-/// What a view ranges over (§5c). One name — a collection, another view, or
-/// `*` — or a union of collections.
+/// What a view ranges over (§5c). One name — a collection or another view —
+/// or a union of collections.
+///
+/// A view may also range over *no* name: absent `from` on a fold shell is the
+/// whole output pool (IO.md §4, I3), which is why [`View::from`] is an
+/// `Option` of this rather than this carrying a variant for it. The star
+/// spelling that used to say so is retired, and a `*` here now names nothing,
+/// like any other word that names nothing — see [`Config::check_base`].
 ///
 /// The union exists because `from` a collection SCOPES to that collection, and
 /// §4 deliberately lets several sources feed one table: `_posts` and `_drafts`
@@ -1521,11 +1527,6 @@ pub enum From {
 }
 
 impl From {
-    /// The route set (`from = "*"`), which ranges over routes rather than rows.
-    pub fn is_star(&self) -> bool {
-        matches!(self, From::One(s) if s == "*")
-    }
-
     /// The single name this composes over, or `None` for a union — which
     /// terminates a chain rather than continuing it.
     pub fn single(&self) -> Option<&str> {
@@ -1581,12 +1582,20 @@ where
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct View {
-    /// A collection name, another set/route's name, `*` for the route set, or
-    /// a LIST of collections to union. Spelled `from` — one namespace, so what
-    /// it names decides whether this selects, subdivides (§5c) or unions; the
-    /// engine derives that from the referent rather than taking a keyword for
-    /// each.
-    pub from: From,
+    /// A collection name, another set/route's name, or a LIST of collections
+    /// to union. Spelled `from` — one namespace, so what it names decides
+    /// whether this selects, subdivides (§5c) or unions; the engine derives
+    /// that from the referent rather than taking a keyword for each.
+    ///
+    /// **Absent, on a fold shell, is the whole output pool** (IO.md §4, I3):
+    /// a fold sits on a query over outputs, and "all of them" is a query.
+    /// Absent on anything else is a load error — a listing has to say what it
+    /// lists ([`crate::shell::check_absent_from`]). At this stage the pool is
+    /// the route set (the facts half of the outputs database, which is what
+    /// already exists); the join makes `from` naming a *set* select those
+    /// inputs' outputs at I9.
+    #[serde(default)]
+    pub from: Option<From>,
     /// The predicate, path scoping included. A view once carried a separate
     /// `match` glob; it compiled to `glob(path, …)` and conjoined with this,
     /// so it was a clause of this expression wearing its own key. Written as
@@ -1764,14 +1773,26 @@ impl View {
     pub fn is_materialized(&self) -> bool {
         self.route.is_some() || !self.routes.is_empty()
     }
+
+    /// **The fold over every output**: no `from` at all (IO.md §4, I3).
+    ///
+    /// One field answers it because `check_absent_from` has already refused
+    /// absent-`from` on anything but a fold, so "has no pool named" and "folds
+    /// the whole pool" are the same fact by load time. It is the successor to
+    /// `From::is_star`, and the pool is the same pool: today's route set.
+    pub fn reads_all_outputs(&self) -> bool {
+        self.from.is_none()
+    }
 }
 
 /// A view's query, with the `from` chain flattened.
 #[derive(Debug)]
 pub struct Query {
-    /// The collections this ranges over, or the single name `*`. More than one
-    /// is a union (§5c), and every member shares a kind — checked where the
-    /// chain terminates, so a materializer can read the kind off the first.
+    /// The collections this ranges over — **empty** for a fold over every
+    /// output, which ranges over no collection at all (IO.md §4). More than
+    /// one is a union (§5c), and every member shares a kind — checked where
+    /// the chain terminates, so a materializer can read the kind off the
+    /// first.
     pub base: Vec<String>,
     /// Every filter along the chain, outermost view last. All must hold — so
     /// a child narrows within its parent and can never widen out of it,
@@ -2370,8 +2391,9 @@ impl Config {
     /// The vocabulary a view's own `where` type-checks against — one function,
     /// so a profile patching that `where` is held to exactly the same words.
     ///
-    /// It is the same three-way dispatch the build makes: a star view ranges
-    /// over ROUTES (`resolve_star_views`), an objects view over objects, and
+    /// It is the same three-way dispatch the build makes: a fold over every
+    /// output ranges over ROUTES (`resolve_pool_folds`), an objects view over
+    /// objects, and
     /// everything else over rows with every declared field beside the
     /// built-ins (`Base::resolve` → `Schemas::row_filter_schema`). Which
     /// matters because the three vocabularies genuinely differ — `kind` is a
@@ -2390,7 +2412,7 @@ impl Config {
         let Some(v) = self.views.get(name) else {
             return grackle_model::row_schema();
         };
-        if v.from.is_star() {
+        if v.reads_all_outputs() {
             return grackle_model::route_schema(&declared);
         }
         // Dispatch on the base collection's kind, exactly as `build_views`
@@ -2433,7 +2455,9 @@ impl Config {
     /// does, and the addition is held to the same rules as any other — a set
     /// with no `from` is `missing field \`from\``, and a name declared under
     /// both sections collides in the one namespace `merge_queries` folds them
-    /// into.
+    /// into. (A set with no `from` and no fold shell is
+    /// `crate::shell::check_absent_from`'s error, by the same argument: the
+    /// overlay is held to the rules every other entry is.)
     fn check_profiles(&self) -> Result<()> {
         // The vocabulary rung 0 may name: the site's own `[schema]`, parsed by
         // the parser `Schemas::set_site` uses, so the two cannot come to
@@ -2495,7 +2519,7 @@ impl Config {
     /// early. Rejecting it would make a profile's `where` STRICTER than the
     /// `where` it replaces, which is the one thing §4a says a profile is not
     /// allowed to be; and it cannot escape, because `build_views` and
-    /// `resolve_star_views` parse the filter they find with the full schema
+    /// `resolve_pool_folds` parse the filter they find with the full schema
     /// and error naming the view. What is caught here is everything that is
     /// wrong however the tree walk turns out: syntax, arity, and types.
     fn check_profile_filters(&self) -> Result<()> {
@@ -2855,10 +2879,10 @@ impl Config {
                          a landing materializes somewhere"
                     );
                 }
-                if (v.intro.is_some() || v.content.is_some()) && v.from.is_star() {
+                if (v.intro.is_some() || v.content.is_some()) && v.reads_all_outputs() {
                     anyhow::bail!(
-                        "view {vname}: star views serialize the route set and \
-                         have no landing to give prose to"
+                        "view {vname}: a fold over every output serializes the \
+                         route set and has no landing to give prose to"
                     );
                 }
                 if let Some(c) = v.content.as_deref() {
@@ -2880,11 +2904,11 @@ impl Config {
                          locale-parallel materialization, §6f)"
                     );
                 }
-                if v.from.is_star() {
+                if v.reads_all_outputs() {
                     anyhow::bail!(
-                        "view {vname}: star views serialize the whole route \
-                         set and never materialize per locale — filter on \
-                         `locale` instead (§6f)"
+                        "view {vname}: a fold over every output serializes the \
+                         whole route set and never materializes per locale — \
+                         filter on `locale` instead (§6f)"
                     );
                 }
             }
@@ -2892,9 +2916,17 @@ impl Config {
             // so its declared shell is a FOLD — and a map shell here is an
             // arity error rather than an unknown word, because `html` is a
             // perfectly good shell that simply wraps one output.
+            let registered: Vec<&str> = cfg.shells.keys().map(|k| k.as_str()).collect();
             if let Some(s) = v.shell.as_deref() {
-                let registered: Vec<&str> = cfg.shells.keys().map(|k| k.as_str()).collect();
                 crate::shell::check_view(s, vname, &registered)?;
+            }
+            // And the other half of the same contract (IO.md §4, I3): a fold
+            // with no `from` reads every output — the successor to `from =
+            // "*"` — while every other view is a listing and has to say what
+            // it lists. Runs after the shell check so a map shell here is
+            // still diagnosed as the arity mistake it is.
+            if v.reads_all_outputs() {
+                crate::shell::check_absent_from(v.shell.as_deref(), vname, &registered)?;
             }
         }
         // A per-member route is one output, so an axis spending `shell`
@@ -2951,17 +2983,32 @@ impl Config {
             if order_by.is_none() {
                 order_by.clone_from(&v.order_by);
             }
-            // A collection, a union, or `*` terminates the chain.
-            let next = v.from.single().and_then(|s| self.views.get(s));
+            // No `from` at all terminates it hardest: a fold over every output
+            // ranges over no collection, so there is nothing to name and
+            // nothing to check (IO.md §4). Its filters still travel — a chain
+            // cannot compose over it (nothing may name a route), but its own
+            // `where` is the query.
+            let Some(from) = &v.from else {
+                filters.reverse();
+                patched.reverse();
+                return Ok(Query {
+                    base: Vec::new(),
+                    filters,
+                    order_by,
+                    patched,
+                });
+            };
+            // A collection or a union terminates the chain.
+            let next = from.single().and_then(|s| self.views.get(s));
             let Some(next) = next else {
                 // `cur`, not `name`: the entry that CARRIES the `from` is the
                 // one an author has to edit, and on a composed chain it is not
                 // the one whose query was asked for.
-                self.check_base(cur, name, &v.from)?;
+                self.check_base(cur, name, from)?;
                 filters.reverse();
                 patched.reverse();
                 return Ok(Query {
-                    base: v.from.names().to_vec(),
+                    base: from.names().to_vec(),
                     filters,
                     order_by,
                     patched,
@@ -2978,7 +3025,7 @@ impl Config {
                          grouped route. Only sets and grouped, unpaginated routes may be \
                          composed over (subdivision, §5c); pagination × subdivision is \
                          punted (open question 30).{}",
-                        v.from.display(),
+                        from.display(),
                         self.whose_from(cur, name)
                     );
                 }
@@ -2987,21 +3034,27 @@ impl Config {
                         "{cur}: `from = {}` names a grouped route, but {cur} has no \
                          `group_by`. Composing over a grouped route means subdividing its \
                          partition (§5c), so the composer must be grouped too.{}",
-                        v.from.display(),
+                        from.display(),
                         self.whose_from(cur, name)
                     );
                 }
             }
-            cur = v.from.single().expect("a union terminates the chain above");
+            cur = from.single().expect("a union terminates the chain above");
         }
     }
 
     /// What a terminated chain is allowed to name (§5c).
     ///
-    /// One name may be a collection or `*`. A union may name only collections,
+    /// One name may be a collection. A union may name only collections,
     /// and they must share a kind: the members decide the vocabulary a `where`
     /// type-checks against and whether the rows are parsed, so two kinds in one
     /// union is a query with two answers to both questions.
+    ///
+    /// `"*"` is a name like any other now (IO.md I3) and names nothing, so it
+    /// lands in the generic arm below — except that the generic arm would send
+    /// its reader off to look for a collection called `*`, and the fix is to
+    /// delete a line rather than to write one. It gets a sentence of its own:
+    /// the value is invalid, not deprecated.
     ///
     /// `carrier` is the view whose `from` this is; `asked` is the view whose
     /// query was requested, which on a composed chain is a different entry
@@ -3009,8 +3062,15 @@ impl Config {
     /// `from` that terminates). Both, because a message naming only one of
     /// them sends the reader to the wrong table — see [`Config::whose_from`].
     fn check_base(&self, carrier: &str, asked: &str, from: &From) -> Result<()> {
-        if from.is_star() {
-            return Ok(());
+        if matches!(from, From::One(s) if s == "*") {
+            anyhow::bail!(
+                "{carrier}: `from = \"*\"` names nothing — the star spelling is \
+                 gone (IO.md §4). A fold shell reads every output by having no \
+                 `from` at all, so delete the line: the `shell` ({}) is what \
+                 says this folds the pool.{}",
+                crate::shell::FOLD.join(", "),
+                self.whose_from(carrier, asked)
+            );
         }
         let mut kinds: Vec<(&str, Kind)> = Vec::new();
         for member in from.names() {
@@ -3106,7 +3166,9 @@ impl Config {
         let mut cur = name;
         while let Some(v) = self.views.get(cur) {
             out.push((cur, v));
-            let Some(n) = v.from.single() else { break };
+            let Some(n) = v.from.as_ref().and_then(From::single) else {
+                break;
+            };
             cur = n;
         }
         out
@@ -4702,15 +4764,15 @@ mod tests {
     /// a `Bool` on a route — so "the union of all three", which is what a
     /// two-shot try is reaching for, is not a schema anything could
     /// type-check against. The dispatch is `build_views`'s, restated nowhere:
-    /// star → routes, objects → objects, otherwise rows plus every declared
-    /// field.
+    /// an all-outputs fold → routes, objects → objects, otherwise rows plus
+    /// every declared field.
     #[test]
     fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
         let c = cfg_raw(&format!(
             "{PROFILE_VIEWS}\
              [[collections]]\nkind = \"objects\"\nname = \"pics\"\nextensions = [\"jpg\"]\n\
              [sets.gallery]\nfrom = \"pics\"\n\
-             [routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
+             [routes.sitemap]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
         ));
         let rows = c.view_filter_schema("published");
         assert!(rows.contains_key("title") && rows.contains_key("hidden"));
@@ -4729,17 +4791,17 @@ mod tests {
         assert_eq!(rows.get("dir"), Some(&Type::Str));
         assert_eq!(routes.get("dir"), Some(&Type::Bool));
 
-        // And the star view's own overlay applies, against route words.
+        // And the fold's own overlay applies, against route words.
         projected(
             &format!(
-                "{PROFILE_VIEWS}[routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\n\
+                "{PROFILE_VIEWS}[routes.sitemap]\npath = \"/sitemap.xml\"\n\
                  shell = \"sitemap\"\n\
-                 [profiles.p.routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\n\
+                 [profiles.p.routes.sitemap]\npath = \"/sitemap.xml\"\n\
                  shell = \"sitemap\"\nwhere = 'kind == \"post\" && !hidden'\n"
             ),
             "p",
         )
-        .expect("a star view reads routes");
+        .expect("an all-outputs fold reads routes");
     }
 
     /// The deferral C6a's fix rests on, at the unit level: a name this early
@@ -4842,7 +4904,9 @@ mod tests {
     /// profile relaxes — and what makes it an error is no longer a name check.
     /// A profile naming an unknown view ADDS a definition, which is what a
     /// registry does; the addition is then held to the same rules as any other
-    /// entry, and a set with no `from` is `missing field \`from\``.
+    /// entry, and a set with no `from` is not a set — since IO.md I3 an absent
+    /// `from` is legal on a FOLD shell (it reads every output, the retired
+    /// `from = "*"`) and on nothing else, and this entry declares no shell.
     ///
     /// Mutation check: delete the dry-run loop in `from_toml_profile` and both
     /// halves load in silence, failing only under `--profile staging`. The
@@ -4858,7 +4922,7 @@ mod tests {
         );
         assert!(e.contains("profile staging"), "names the profile: {e}");
         assert!(e.contains("checked at every load"), "and why: {e}");
-        assert!(e.contains("missing field `from`"), "{e}");
+        assert!(e.contains("no `from`"), "{e}");
 
         // The other direction: a profile ADDING a well-formed view is legal —
         // a registry gains an entry, which is what a registry is for.
