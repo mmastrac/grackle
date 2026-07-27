@@ -8,6 +8,10 @@ DESIGN.md, this is the intended successor and DESIGN.md records what
 shipped. Remaining **[open]** choices are settled in-item by the
 propose-and-flag pattern (the executing agent proposes, records reasoning
 in the ledger log, and Matt vetoes at review) unless marked Matt-only.
+**Executing agents do not file background-task chips** (Matt, 2026-07-27):
+an out-of-scope find goes into your §11 log entry and your report as a
+proposed item — the orchestrator files it here, where it's sequenced and
+reviewed like everything else. One ledger, no side channels.
 
 The one-sentence model: **the site is two databases — the inputs you wrote
 and the outputs it publishes — joined by a graph the build can hold in its
@@ -404,6 +408,26 @@ message is the exemplar; don't stretch it). One follow-up item:
   CLI-only surface, outside the byte-parity gate — but check whether any
   test or fixture asserts on the line first. MERGE.md §4 rules bind;
   test any guard added.
+
+- [ ] **IR3. Fix explain's doubled `layout` line** *(Matt, absorbing the
+  IR2 agent's chip — runs after I4)*. `grackle explain <url>` prints the
+  `layout` line twice for every row that has one. Cause: the
+  `Query::Explain` row branch prints `layout` as a named line
+  (`println!("layout {}", r.layout.as_deref().unwrap_or("-"))`), then the
+  generic `for (name, value) in &r.fields` dump prints it again — `layout`
+  is one of C1's four cascade keys declared in base `[schema]`, so it is
+  also a declared column in `Row.fields`. IR2 handled the same shape for
+  `shell`: the named line is authoritative (it answers even when the row
+  resolved no value, which the dump cannot), and the dump `continue`s on
+  the name. Apply the same `continue` for `layout` — one line beside the
+  existing `shell` skip. **Check first whether `theme` has the same
+  shape** (the third cascade key; currently printed by NEITHER path,
+  which may be its own small gap — if so, give it the IR2 treatment: a
+  named line + dump skip, recording the decision). No test or fixture
+  asserts on explain's output (verified by grep during IR2); CLI-only,
+  outside the byte-parity gate, but run the standard parity anyway.
+  MERGE.md §4 rules bind; extend IR2's `io_explain.rs` test to pin the
+  single-print (mutation: remove the continue → doubled line → red).
 
 ### Phase I-B — themes
 
