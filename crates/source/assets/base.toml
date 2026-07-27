@@ -40,6 +40,23 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
 
+# The four the engine reads off a row BY NAME — which theme renders it (§5a),
+# which shell wraps it (§5g), which layout it takes, whether it gets an
+# outline (§6e). They are declared here for the same reason the flags are:
+# a marker or a rule setting one goes through `schema::apply_defaults` like
+# every other key, so `toc = "true"` is a load error naming the file and the
+# type rather than a silent `false` (MERGE.md C1).
+#
+# The engine still reads them, so their types are not a site's to choose: a
+# `.schema.toml` (or a site `[schema]`) may restate a line below, but
+# declaring one at another type is a load error. A site that declines the
+# base declares whatever its rows and rules actually use — `examples/raw`
+# copies all four, `theme-preview` takes the two its front matter sets.
+theme = { type = "string" }
+shell = { type = "string" }
+layout = { type = "string" }
+toc = { type = "bool" }
+
 # What the engine puts in the head, declared rather than compiled in (§4e).
 #
 # Each value is a §5f text expression over the row — or, for a listing, over

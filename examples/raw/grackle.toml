@@ -30,10 +30,21 @@ author = ""
 # why it has to appear here at all. Without these three lines `where =
 # "!draft"` below is a load error naming the knowns, and that is the point:
 # `extends = "none"` means the site owns its whole vocabulary.
+#
+# The four below it are the ones the engine still READS by name — theme,
+# shell, layout, toc — declared so that a marker or a rule setting one is
+# type-checked like every other key (MERGE.md C1). Undeclared, they are not
+# silently accepted either: front matter naming one, or a rule defaulting
+# one, is a load error naming the knowns. Their types are the engine's, so
+# these four lines are copied exactly or left out.
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
+theme = { type = "string" }
+shell = { type = "string" }
+layout = { type = "string" }
+toc = { type = "bool" }
 
 # The head, declared rather than compiled in (§4e). Every tag below is one
 # the engine used to emit from Rust.

@@ -61,6 +61,35 @@ impl FieldType {
     }
 }
 
+/// The four fields the engine reads off a row BY NAME: which theme renders it
+/// (§5a), which shell wraps it (§5g), which layout it takes, whether it gets
+/// an outline (§6e). `base.toml` declares them in `[schema]`, which is what
+/// routes a marker's or a rule's value for one of them through
+/// `apply_defaults` — the same typed path every other key takes (MERGE.md C1).
+///
+/// They were `load.rs`'s `CASCADE_KEYS` until then: four names `apply_defaults`
+/// SKIPPED, read back out of raw TOML with `as_str()`/`as_bool()`, so
+/// `defaults = { toc = "true" }` was silently `false` and `theme = 1` silently
+/// vanished. §4e made the flag family declared fields for exactly this reason
+/// and left these four behind as "genuinely engine vocabulary"; being engine
+/// vocabulary is a statement about who READS a field, not about who types it.
+///
+/// The types are the engine's, not a site's: a declaration may restate a pair
+/// below, and declaring one of these names at another type is a load error
+/// (`parse_fields`) — the value would be typed one way and read the other,
+/// which is the silence this item closed.
+pub(crate) const CASCADE: &[(&str, FieldType)] = &[
+    ("theme", FieldType::Str),
+    ("shell", FieldType::Str),
+    ("layout", FieldType::Str),
+    ("toc", FieldType::Bool),
+];
+
+/// The type the engine reads this name at, if it is one of its own.
+pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
+    CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
+}
+
 /// One rung's worth of declarations: the fields, and who wrote them — the
 /// file for a `.schema.toml`, the table name for a `[collections.*.schema]`.
 /// The writer is kept so a collision can name both sides.
@@ -249,7 +278,22 @@ impl Schemas {
                      \"bool\" | \"list\" | \"image\""
                 );
             };
-            if self.reserved.contains_key(name.as_str()) {
+            // The engine's own four are declarable — that declaration is what
+            // types their cascade — but only at the type the engine reads them
+            // at. `layout` and `toc` are also `reserved` (the row carries
+            // them), and for these four that is not a shadowing: the value
+            // goes into the row's named field, so `Row::field` answers the
+            // same thing the declaration typed.
+            if let Some(engine) = cascade_type(&name) {
+                if ty != engine {
+                    bail!(
+                        "{whose}: field {name:?} is one of the engine's own cascade \
+                         keys — it reads {name:?} off every row, so it must be \
+                         declared {} or not at all",
+                        engine.name()
+                    );
+                }
+            } else if self.reserved.contains_key(name.as_str()) {
                 bail!(
                     "{whose}: field {name:?} is a built-in row field, so declaring \
                      it would be silently overruled — every row already has \
@@ -393,24 +437,23 @@ impl Schemas {
 /// Before this, `cascade()`'s seven hardcoded names were the *only* keys a
 /// marker or rule could set. `[markers] ".archived" = { archived = true }`
 /// parsed, matched, and then did nothing at all — no error, the key simply
-/// dropped on the floor. So a default naming something no schema declares, and
-/// that is not one of the engine's own cascade keys, is now a load error: a
-/// marker whose key nothing reads is a typo, and a typo that does nothing
-/// silently is the failure mode this codebase keeps finding.
+/// dropped on the floor. So a default naming something no schema declares is
+/// now a load error: a marker whose key nothing reads is a typo, and a typo
+/// that does nothing silently is the failure mode this codebase keeps finding.
+///
+/// There is no exemption list any more. The engine's own four (`CASCADE`) are
+/// declared in `base.toml` like anything else, so they arrive here typed —
+/// MERGE.md C1, and the last of §4e's "the flag family is not engine
+/// vocabulary".
 pub fn apply_defaults(
     schema: &BTreeMap<&str, FieldType>,
     defaults: &BTreeMap<&str, &toml::Value>,
-    reserved: &[&str],
     fields: &mut Fields,
     path: &Path,
 ) -> Result<()> {
     for (name, v) in defaults {
-        if reserved.contains(name) {
-            continue; // the engine's own cascade reads these
-        }
         let Some(ty) = schema.get(name) else {
             let mut known: Vec<&str> = schema.keys().copied().collect();
-            known.extend_from_slice(reserved);
             known.sort_unstable();
             bail!(
                 "{}: a marker or rule sets {name:?}, which no schema declares \
@@ -500,6 +543,47 @@ pub fn validate(
         out.values.insert(name.clone(), value);
     }
     Ok(out)
+}
+
+/// Front matter's half of the engine's four (`CASCADE`).
+///
+/// They arrive on named `FrontMatter` fields rather than in `extra`, so
+/// `validate` never sees them — serde has already typed them, which is why
+/// front matter never had this item's disease. Seeding them into the row's
+/// fields BEFORE the defaults is what keeps front matter the nearest writer
+/// for these four exactly as it is for every other declared key:
+/// `apply_defaults` leaves a key the row already carries alone.
+///
+/// Governance is the same sentence `validate` says (§4e, "every row is
+/// governed"): a row wearing a name no schema declares is a load error naming
+/// the file and the knowns. On a base-inheriting site all four are declared;
+/// a site that declined the base declares the ones its rows use.
+pub(crate) fn cascade_front(
+    schema: &BTreeMap<&str, FieldType>,
+    front: &crate::store::FrontMatter,
+    fields: &mut Fields,
+    path: &Path,
+) -> Result<()> {
+    let worn: [(&str, Option<Value>); 4] = [
+        ("theme", front.theme.clone().map(Value::Str)),
+        ("shell", front.shell.clone().map(Value::Str)),
+        ("layout", front.layout.clone().map(Value::Str)),
+        ("toc", front.toc.map(Value::Bool)),
+    ];
+    for (name, value) in worn {
+        let Some(value) = value else { continue };
+        if !schema.contains_key(name) {
+            let known: Vec<&str> = schema.keys().copied().collect();
+            bail!(
+                "{}: front matter field {name:?} is not declared by any \
+                 schema governing it\n  declared fields: {}",
+                path.display(),
+                known.join(", ")
+            );
+        }
+        fields.values.insert(name.to_string(), value);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -601,14 +685,7 @@ mod tests {
         fields
             .values
             .insert("series".into(), Value::Str("Mine".into()));
-        apply_defaults(
-            &schema,
-            &defaults,
-            &["theme"],
-            &mut fields,
-            Path::new("x.md"),
-        )
-        .unwrap();
+        apply_defaults(&schema, &defaults, &mut fields, Path::new("x.md")).unwrap();
         assert_eq!(fields.values["archived"], Value::Bool(true));
         assert_eq!(
             fields.values["series"],
@@ -628,7 +705,6 @@ mod tests {
         let e = apply_defaults(
             &schema,
             &defaults,
-            &["draft"],
             &mut Fields::default(),
             Path::new("x.md"),
         )
@@ -636,26 +712,45 @@ mod tests {
         .to_string();
         assert!(e.contains("no schema declares"), "{e}");
         assert!(e.contains("author"), "it names the knowns: {e}");
-        assert!(e.contains("draft"), "including the engine's own: {e}");
     }
 
-    /// A reserved cascade key is the engine's, not a declaration's.
+    /// The engine's own four are declared fields now (MERGE.md C1), so a
+    /// default for one lands in `fields` TYPED — there is no exemption list
+    /// left for `apply_defaults` to skip them through, and a wrong type is
+    /// the same error any other field gets.
     #[test]
-    fn a_cascade_key_is_left_to_the_engine() {
-        let s = schemas();
-        let schema = s.resolve("entries", Path::new("books"));
-        let yes = toml::Value::Boolean(true);
-        let defaults = BTreeMap::from([("draft", &yes)]);
-        let mut fields = Fields::default();
-        apply_defaults(
-            &schema,
-            &defaults,
-            &["draft"],
-            &mut fields,
-            Path::new("x.md"),
+    fn a_cascade_key_is_typed_like_any_other() {
+        let mut s = schemas();
+        s.set_site(
+            CASCADE
+                .iter()
+                .map(|(n, t)| format!("{n} = {{ type = \"{}\" }}\n", t.name()))
+                .collect::<String>()
+                .parse()
+                .unwrap(),
+            "[schema]",
         )
         .unwrap();
-        assert!(fields.values.is_empty(), "{fields:?}");
+        let schema = s.resolve("entries", Path::new("books"));
+
+        let yes = toml::Value::Boolean(true);
+        let defaults = BTreeMap::from([("toc", &yes)]);
+        let mut fields = Fields::default();
+        apply_defaults(&schema, &defaults, &mut fields, Path::new("x.md")).unwrap();
+        assert_eq!(fields.values["toc"], Value::Bool(true));
+
+        let quoted = toml::Value::String("true".into());
+        let defaults = BTreeMap::from([("toc", &quoted)]);
+        let e = apply_defaults(
+            &schema,
+            &defaults,
+            &mut Fields::default(),
+            Path::new("x.md"),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("x.md"), "{e}");
+        assert!(e.contains("declared bool"), "{e}");
     }
 
     #[test]

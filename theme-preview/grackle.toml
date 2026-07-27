@@ -38,10 +38,19 @@ extends = "none"
 # Declining the base means declining its vocabulary too (§4e): the flag family
 # is ordinary declared schema, so a site that inherits nothing declares its own
 # before filtering on it.
+#
+# `layout` and `toc` are here for the same reason one rung over (MERGE.md C1):
+# the engine reads them off a row by name, but the pages under `guide/` set
+# them in front matter, and a name a row wears is a name some schema declares.
+# `theme` and `shell` are NOT declared — this site never sets either on a row
+# (the theme axis below sets it per member, at render), and declaring what
+# nothing uses is how a vocabulary stops meaning anything.
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
+layout = { type = "string" }
+toc = { type = "bool" }
 
 # Declining the base also declines its head (§4e). This block is the base's,
 # copied — which is the honest cost of `extends = "none"` and worth seeing in
