@@ -1,7 +1,7 @@
 # MERGE.md — one precedence law, one atomicity law
 
-**Status: Phase E in flight (profiles as projection — from the wrap-up
-conversation); phases A–D DONE.**
+**Status: phases A–E DONE** (E2 landed profiles as a fenced config overlay,
+2026-07-27); **F and G remain**, then batch review 4 over E1–G2.
 The final review (2026-07-27, §6) verified the whole effort end to end: no
 surviving hand dispatch beyond the two annotations, every table row matches
 shipped behavior, five randomly-chosen guards still fail under mutation, the
@@ -479,7 +479,7 @@ provenance class). Closes §7 q7.
   (force loses to nothing; deleting the route-fields half must fail a
   listing-surface test). *[parity]*
 
-- [ ] **E2. The overlay.** `[profiles.NAME]` becomes a fenced config
+- [x] **E2. The overlay.** `[profiles.NAME]` becomes a fenced config
   overlay: at load, for every declared profile, fence-check its top-level
   keys (projectable set above; `force` reserved to E1; `profiles`
   non-recursive; violations error citing §4a's iron law). Application:
@@ -2556,6 +2556,137 @@ correct, and unexercised by the corpus, so nobody has read that sentence in
 anger. (iv) `force_route_fields` runs before `build_relations`; relations range
 over rows, so nothing observable, but the ordering is now load-bearing for
 star views and worth knowing before anything else is inserted there.
+
+**2026-07-27 — E2.** Landed as one commit. `apply_profile` is **gone**, and
+that deletion is the item: a profile no longer rewrites a resolved config, it
+is one more writer in the merge that builds one. `project(merged, name, t)`
+sits between `merge_base` and the deserializer, and everything downstream —
+`merge_collections`, `merge_queries`, `validate` — runs on the result without
+knowing a projection happened.
+
+*The overlay is `merge_table` with a different nearer writer, and nothing
+else.* Same function, same `Config::shape()`, so no law is stated twice: the
+profile's `[site]` patches per key because `Site` is a struct under an
+engine-chosen name, and its `[sets.published]` replaces whole because a
+definition is an atom. **The bag/definition distinction cost zero lines** —
+that is the whole claim of Phase B arriving as a feature, and it is why the
+item needed no annotation.
+
+*The fence lives beside the field list, and it is TOTAL.* Two consts under
+`impl Shaped for Config` — `PROJECTABLE` (9 keys) and `NOT_PROJECTABLE` (9) —
+with `the_fence_classifies_every_top_level_key` asserting they partition the
+shape's key set exactly. A `Shape` variant was weighed and declined:
+`shape.rs`'s own doc says a shape "describes types, not decisions", and §1's
+annotation is the one exception *because it changes the LAW*. Projectability
+changes no law, so putting it in `Shape` would have made the module mean two
+things. Exhaustiveness is what buys the error its third arm — "you may not
+project this" and "this is not a config key at all" are different sentences,
+and only a total classification can tell them apart.
+
+*The dry run is in `from_toml`, not in `validate`, and the split is
+deliberate.* `check_profiles` (in `validate`) keeps the CHEAP half — the fence
+and rung 0, facts about a profile's own top-level keys, reachable from `&self`.
+The expensive half needs the config's TOML, which a `&self` has not got, so it
+runs where the text is: `from_toml_profile` projects, deserializes and
+validates every declared profile when none is selected. **`resolve_default_
+content` is deliberately not re-run per profile** (it reads a filesystem
+`from_toml` has no handle on), and the direction is safe rather than merely
+convenient: every difference it makes ADDS a possible error (a claimed row, a
+route stood down), so the dry run is strictly the more lenient of the two and
+cannot invent a failure the real load would not have.
+
+*Dry-run cost, measured (the item asked).* 200 iterations, release build,
+grack.com's config: `from_toml` **0.87 ms** with its one dry run, against
+**0.42 ms** for the same parse with the profile already selected — so **~0.45 ms
+per declared profile**, roughly a second config parse each. Against grack.com's
+1090 ms build that is **0.04%**, and it is the only site in the repo with a
+profile. Not worth a cache; worth knowing if a site ever declares ten.
+
+*C6/R5 test survivorship — what died with its check, and what was rewritten.*
+
+| test | disposition |
+|---|---|
+| `a_profile_is_held_to_the_sets_routes_split` (C6c) | **died.** Placement was a law about a closed vocabulary; with an overlay there is no third rule to state. Replaced by `a_misplaced_profile_entry_collides_in_the_one_namespace`, which shows the ORDINARY rules saying it: `[profiles.p.sets.blog_index]` adds a set of a name `[routes]` already holds, and `merge_queries`' one-namespace check refuses it |
+| `a_profile_naming_no_view_fails_a_load_that_never_applies_it` (R5) | **rewritten** as `a_broken_overlay_fails_a_load_that_never_applies_it` — same sentence (a projection nobody is building is checked today), new reason (a set with no `from` is `missing field \`from\``). Its second half is new and is the other direction: a profile ADDING a well-formed view is legal, because that is what a registry does |
+| `a_declined_default_content_route_is_still_a_route` (C6c) | **rewritten.** It asserted the placement error; it now asserts `declared_set` directly, because `whose_from`'s C7b sentence ("declare your own `[sets.home]`") is the field's surviving reader and the declined route is still the case that breaks a derivation |
+| C6a's four filter tests | **survive**, restated whole (the overlay law applied to their own fixtures). `filter_profile` is written where the projection is built rather than where a patch loop ran, so `Query::patched`, `scoped_filter`'s note and `resolve_star_views`' are all untouched |
+| `checking_every_profile_leaves_the_correct_ones_alone` (R5) | **survives**, moved onto `Config::from_toml` so it exercises the dry run; gained the unknown-profile arm `apply_profile` used to own |
+| E1's `a_forced_field_is_declared_and_typed_for_every_profile` | **survives** unchanged in shape (`check_profiles` still owns rung 0), plus one new arm: `force = 3` is refused by `split_profile` |
+| `the_old_profile_noindex_spelling_names_the_new_one` (E1) | **merged** into `the_old_profile_spellings_name_the_new_ones` beside `url`'s. Both are fence arms now — serde says nothing about either, because the body is a partial config |
+| `profile-unknown-view` fixture | **renamed** `profile-dry-run` and re-pointed. Its subject moved from a name check to the dry run; keeping the old name would have been a fixture asserting the opposite of what it says (an unknown view name is legal now) |
+
+*Two fixture edits, both required rather than blessed.* `profile-dry-run`'s
+expected error changes because the check it names was retired by this item;
+`profile-projects-collections` is new and is the fence at site scale — with the
+`fence` call deleted it BUILDS, having loaded a second collection under one
+projection and not the other, which is §4a's iron law failing silently.
+
+*What `--effective --profile NAME` does now.* It runs `project` with the
+recorder on, so the printed table IS the projected one and `# profile drafts`
+is a provenance class beside `# site`. `Trace` grew `near`/`far`: the overlay
+pass records the profile as the nearer writer and has **no** farther one,
+because a key the profile did not write was already attributed by the merge
+underneath — re-recording it as `base` would erase what that merge decided
+(mutation-checked). The `whole` machinery needed nothing: `[sets.published]`
+prints one comment on its header and none on its four keys, which is Law 2
+made visible for a third writer. *One property narrowed, stated:* B3's "answers
+on a config the engine has REJECTED" still holds without `--profile`, but
+`--effective --profile X` now fails when X's overlay is fenced-out — it cannot
+show a projection that cannot happen. Without the flag, the same file prints.
+
+*The migration, and what the parity gate proved.* grack.com's drafts profile
+had no `url` (the item's brief assumed one; E1 had already migrated the only
+other key), so the migration is the two view entries — and **both** had to be
+restated, not just `sets.published`: `[profiles.drafts.routes.search]` was a
+`where`-patch too, and a route is as much a definition as a set. Restated:
+`published` with `from`/`where`/`order_by` and the `fields.summary` deriver,
+`search` with `path`/`from`/`shell`/`where`. Byte-identical output proves the
+restatement faithful, and dropping `order_by` from it moves **144 files** under
+`--profile drafts` — the atom law as an observable, run rather than argued.
+
+*Parity:* five sites plus grack.com under `--profile drafts` built before and
+after into separate trees and diffed — every file byte-identical except each
+feed's wall-clock `<updated>`, identical file counts, no stderr difference on
+any site. `cargo test` green (14 result lines, zero failures); clippy's warning
+multiset identical to HEAD's, compared by building HEAD in a scratch worktree;
+`rustfmt --check` wants nothing in the lines this item wrote (the two
+pre-existing `config.rs` hunks and the one in `load.rs` are the same three
+HEAD wants).
+
+*Mutation-checked seven ways, each restored:* `"axes"` deleted from
+`PROJECTABLE` (the fence test fails both halves — the classification and a
+config that used it); the `fence` call neutered (`profile-projects-collections`
+BUILDS, load-shaping overlay and all); the dry-run loop emptied (the
+`profile-dry-run` fixture builds and `a_broken_overlay_…` passes a `Config`
+back); the `filter_profile` loop deleted (two C6a tests fail, the profile's name
+gone from a filter error); the `project` call in `effective_toml` disabled (the
+projected set prints `# site over base` and the profile's `where` is absent);
+`Trace::layer` keeping `far = Some(Base)` (the overlay relabels `[site] url` as
+`base`); and `split_profile` reading `force` instead of removing it (the
+projected table carries a top-level `force` the deserializer refuses — rung 0
+is reserved, not config surface).
+
+*Docs made false by this commit and corrected in it:* DESIGN.md §4a's opening
+("three things and no others"), its example config, and its `sets`/`routes`
+placement paragraph; §4d's `--effective` bullet gained the projected half.
+`manual/OUTLINE.md` untouched (§4) — its §24 still teaches the old profile
+vocabulary and is the user's file.
+
+*For the queue (small).* (i) `ProfileCfg` is now a newtype over `toml::Table`,
+so `Config::profiles` carries un-deserialized TOML that only `check_profiles`
+and `project` read. That is the honest shape (the body is a partial config, and
+typing it would be a second copy of `Config`), but it means a profile's body
+gets no span-carrying parse error — the same trade `merge_base` already makes,
+and `from_toml`'s re-parse fallback still names the line for a syntax error in
+the site's own file. (ii) A profile that writes a key it also inherits
+unchanged is invisible in `--effective` (it prints `# profile NAME` either way,
+since the merge cannot tell "wrote the same value" from "wrote a value") —
+C3's dead-rule question in overlay space, and nobody has asked it. (iii) The
+`patched` list drives `filter_profile` for every view the overlay names, not
+only those whose `where` changed; a profile restating a set verbatim would
+therefore attribute an unchanged filter to itself in an error message. Harmless
+and arguably right (the profile did write it), noted because it is the one
+place the new provenance is coarser than C6's patch loop was.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
