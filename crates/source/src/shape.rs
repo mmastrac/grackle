@@ -63,14 +63,31 @@ pub(crate) enum Law {
 /// The structure of one config value, in TOML's name space (serde renames
 /// applied, skipped fields absent) rather than Rust's.
 ///
-/// Three structural variants: the law reads exactly three things off a
-/// type — has it keys, are they the engine's or the user's, and is there
-/// anything under them. The fourth is not structure at all, and says so.
+/// The law reads exactly three things off a type — has it keys, are they the
+/// engine's or the user's, and is there anything under them — which is what
+/// [`Shape::Atom`], [`Shape::Struct`] and [`Shape::Map`] answer between them.
+/// [`Shape::TableAtom`] answers a fourth question the LAW never asks and a
+/// DESCENT must, and [`Shape::Annotated`] is not structure at all and says so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Shape {
-    /// A scalar, an array or an enum. No keys to merge by; the nearest
-    /// writer's value is taken whole.
+    /// A scalar, an array or a string-spelled enum. No keys to merge by; the
+    /// nearest writer's value is taken whole.
     Atom,
+    /// An atom that is spelled as a TOML TABLE — `LocalizedStr`, written
+    /// `{ en = "Home", fr = "Accueil" }`.
+    ///
+    /// It merges exactly as [`Shape::Atom`] does, and for the same reason:
+    /// §3 table D's atom is the whole `LocalizedStr`, and composing two of
+    /// them per locale would build a string nobody wrote. Depth 0, `Law::Atom`
+    /// — one law, no exception.
+    ///
+    /// The distinction is for the DESCENT, not the law. One `Descend(n)`
+    /// governs a whole table, so an atom sitting shallower than its siblings
+    /// is descended PAST — harmless while the merge is then handed a scalar or
+    /// an array (it gives back the nearer value whole), fatal when it is
+    /// handed a table, which it merges key by key. This variant is what lets
+    /// `a_nested_struct_ends_at_one_depth` see the difference between the two.
+    TableAtom,
     /// A struct: its fields, under their TOML names.
     ///
     /// Whether one is a namespace or an atom is a question of POSITION, not
@@ -122,12 +139,13 @@ impl Shape {
     /// past a shallower field's atom is harmless while that atom is a scalar
     /// or an array, since a merge that reaches a non-table hands back the
     /// nearer value whole. The shape that would break the rule is an atom
-    /// that IS a table — a definition, a `LocalizedStr` — sitting shallower
-    /// than a map beside it; `a_nested_struct_ends_at_one_depth` asserts the
-    /// config has none.
+    /// that IS a table — a [`Shape::TableAtom`], or a definition — sitting
+    /// shallower than a map beside it; `a_nested_struct_ends_at_one_depth`
+    /// asserts the config has none, which is why the two atoms are told apart
+    /// here at all.
     pub(crate) fn depth(&self) -> usize {
         match self {
-            Shape::Atom => 0,
+            Shape::Atom | Shape::TableAtom => 0,
             Shape::Struct(fields) => 1 + fields.iter().map(|(_, s)| s.depth()).max().unwrap_or(0),
             // A map descends per key. Its value descends FURTHER only if it
             // is itself a map: a struct or an enum under a user-chosen name
@@ -154,6 +172,32 @@ impl Shape {
                 0 => Law::Atom,
                 n => Law::Descend(n),
             },
+        }
+    }
+
+    /// Whether a descent that reached this value would SPLIT it rather than
+    /// hand it back: an atom the merge cannot tell from a namespace once it
+    /// holds the value, because both are TOML tables. See [`Shape::TableAtom`].
+    ///
+    /// A *definition* is table-spelled too and is deliberately not this: it
+    /// can only appear under a user-chosen name, one level below a `Map` that
+    /// stops the descent above it, and
+    /// `a_definition_never_sits_under_an_engine_name` is what keeps it there.
+    ///
+    /// `#[cfg(test)]` states where the enforcement lives, rather than hiding a
+    /// dead method: the MERGE never asks this question. It descends by a
+    /// single `n` and cannot narrow a shape as it goes, so the guard is the
+    /// invariant over the description — total, since it walks every struct in
+    /// it — and making it structural instead means the merge recursing over
+    /// `Shape` and retiring the depth scalar, which is a design change and not
+    /// a guard (MERGE.md §6, R3).
+    #[cfg(test)]
+    pub(crate) fn is_table_atom(&self) -> bool {
+        match self {
+            Shape::TableAtom => true,
+            // An annotation changes the law, not the type.
+            Shape::Annotated(_, inner) => inner.is_table_atom(),
+            _ => false,
         }
     }
 
@@ -280,6 +324,17 @@ mod tests {
     #[test]
     fn the_law_falls_out_of_the_shape_unless_it_is_annotated() {
         assert_eq!(Shape::Atom.law(), Law::Atom);
+        // A table-spelled atom is an atom: same depth, same law. What it
+        // knows that `Atom` does not is what a descent PAST it would cost,
+        // and no law is asked that question.
+        assert_eq!(Shape::TableAtom.law(), Law::Atom);
+        assert_eq!(Shape::TableAtom.depth(), 0);
+        assert!(Shape::TableAtom.is_table_atom());
+        assert!(!Shape::Atom.is_table_atom());
+        assert!(
+            !Shape::definition().is_table_atom(),
+            "a definition is table-spelled but never sits where a descent reaches it"
+        );
         assert_eq!(
             Shape::Map(Box::new(Shape::definition())).law(),
             Law::Descend(1)

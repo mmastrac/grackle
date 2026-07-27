@@ -366,17 +366,33 @@ impl Shaped for LinksCfg {
     }
 }
 
-/// Enums: atoms wherever they sit, including the ones that deserialize from a
-/// TABLE. A `LocalizedStr` written `{ en = "Home", fr = "Accueil" }` is one
-/// value with one authority — §3 table D's "the atom is the `LocalizedStr`" —
-/// and merging two of them per locale would build a string nobody wrote.
+/// Enums: atoms wherever they sit. These three are spelled as STRINGS, so a
+/// descent that reached one would hand it straight back — there is nothing in
+/// them a merge could take apart.
 macro_rules! enums_are_atoms {
     ($($t:ty),* $(,)?) => { $(impl Shaped for $t {
         fn shape() -> Shape { Shape::Atom }
     })* };
 }
 
-enums_are_atoms![Kind, Selector, LinkPolicy, LocalizedStr];
+enums_are_atoms![Kind, Selector, LinkPolicy];
+
+/// `LocalizedStr` is the atom spelled as a TABLE. `{ en = "Home", fr =
+/// "Accueil" }` is one value with one authority — §3 table D's "the atom is
+/// the `LocalizedStr`" — and composing two of them per locale would build a
+/// string nobody wrote.
+///
+/// It merges exactly as the three above do; what [`Shape::TableAtom`] buys is
+/// the tripwire, since a descent CAN take this one apart. Today every
+/// `LocalizedStr` in the config sits at the bottom of its table's deepest path
+/// (`[i18n.strings.*]`, `[records.*.*]`'s own fields) rather than beside it —
+/// `a_nested_struct_ends_at_one_depth` is what holds that, and
+/// `a_localized_string_beside_a_map_would_be_split` is what it would say.
+impl Shaped for LocalizedStr {
+    fn shape() -> Shape {
+        Shape::TableAtom
+    }
+}
 
 /// The definitions: structs that only ever appear under a USER-chosen name,
 /// where Law 2 stops. Their fields are left undescribed on purpose — see
@@ -465,7 +481,10 @@ fn prepend(
 /// Not a second copy of the defaults — these ARE the functions each field's
 /// `#[serde(default = "…")]` names, called. A field given a new default
 /// changes here with nothing to remember; a NEW defaulted scalar has to be
-/// added, which is what `every_defaulted_scalar_is_printed` is for.
+/// added, which is what `every_defaulted_scalar_is_printed`
+/// (`crates/grackle/tests/base_config.rs`) is for: it reads the
+/// `#[serde(default = "…")]` fields off [`Config`]'s own text and requires
+/// each one in the empty site's effective config.
 fn engine_defaults() -> Vec<(&'static str, toml::Value)> {
     vec![
         ("extends", default_extends().into()),
@@ -3169,18 +3188,26 @@ mod tests {
         );
     }
 
+    /// One described field: its TOML name, the depth of its own shape, and
+    /// whether that shape is an atom a descent would SPLIT (`Shape::TableAtom`
+    /// — see `a_nested_struct_ends_at_one_depth`).
+    type Field = (&'static str, usize, bool);
+
     /// Every struct in `shape`, with whether it sits under an ENGINE-chosen
     /// name (a field) or a user-chosen one (a map value).
-    fn each_struct(shape: &Shape, engine_named: bool, seen: &mut Vec<(Vec<(&str, usize)>, bool)>) {
+    fn each_struct(shape: &Shape, engine_named: bool, seen: &mut Vec<(Vec<Field>, bool)>) {
         match shape {
-            Shape::Atom => {}
+            Shape::Atom | Shape::TableAtom => {}
             // The annotation overrides the law, not the description: walk
             // what it wraps, so an annotated field is held to the same
             // invariants as any other.
             Shape::Annotated(_, inner) => each_struct(inner, engine_named, seen),
             Shape::Struct(fields) => {
                 seen.push((
-                    fields.iter().map(|(k, s)| (*k, s.depth())).collect(),
+                    fields
+                        .iter()
+                        .map(|(k, s)| (*k, s.depth(), s.is_table_atom()))
+                        .collect(),
                     engine_named,
                 ));
                 for (_, s) in fields {
@@ -3191,7 +3218,7 @@ mod tests {
         }
     }
 
-    fn config_structs() -> Vec<(Vec<(&'static str, usize)>, bool)> {
+    fn config_structs() -> Vec<(Vec<Field>, bool)> {
         let mut seen = Vec::new();
         each_struct(&Config::shape(), true, &mut seen);
         each_struct(&Collection::shape(), true, &mut seen);
@@ -3213,15 +3240,48 @@ mod tests {
         }
     }
 
-    /// Why one `Descend(n)` can govern a whole table. A struct takes the
-    /// deepest of its fields, so a shallower field is descended past — which
-    /// is safe exactly while that field's atom is a scalar or an array, as
-    /// `merge_to_depth` hands back anything that is not a table. The shape to
-    /// watch is a field that is BOTH an atom and a TOML table (a
-    /// `LocalizedStr`, a definition) sitting beside a deeper sibling: the
-    /// merge would split it. `[i18n]`'s `LocalizedStr`s are at the bottom of
-    /// the deepest path, not beside it, so the config has none — and this
-    /// says so for the next field anyone adds.
+    /// The depth invariant, as a function of the shapes rather than as a body
+    /// of assertions: the only way to mutation-check a tripwire whose whole
+    /// point is that nothing in the config trips it
+    /// (`a_localized_string_beside_a_map_would_be_split` fires it at a shape
+    /// that does).
+    ///
+    /// A field at the table's deepest level is the one `Descend(n)` was
+    /// measured from. Anything shallower is descended PAST, which is safe
+    /// exactly while `merge_to_depth` would then be handed a non-table and
+    /// hand it back whole — so a scalar or an array at depth 0 is fine, and a
+    /// table-spelled atom at depth 0 is the case that would be merged key by
+    /// key by a descent that was measured for its sibling.
+    fn an_atom_a_deeper_sibling_would_split(structs: &[(Vec<Field>, bool)]) -> Option<String> {
+        for (fields, _) in structs {
+            let deepest = fields.iter().map(|(_, d, _)| *d).max().unwrap_or(0);
+            for (name, depth, table_atom) in fields {
+                if *depth == deepest {
+                    continue;
+                }
+                if *table_atom {
+                    return Some(format!(
+                        "`{name}` is an atom spelled as a TABLE at depth {depth}, beside a \
+                         field at {deepest}: `Descend({deepest})` would merge into it \
+                         (MERGE.md §3 table D — the atom is the whole value)"
+                    ));
+                }
+                if *depth != 0 {
+                    return Some(format!(
+                        "`{name}` sits at depth {depth} beside a field at {deepest}: \
+                         one `Descend(n)` cannot serve both"
+                    ));
+                }
+            }
+        }
+        None
+    }
+
+    /// Why one `Descend(n)` can govern a whole table: see
+    /// [`an_atom_a_deeper_sibling_would_split`], which is this invariant.
+    /// `[i18n]`'s `LocalizedStr`s are at the bottom of the deepest path, not
+    /// beside it, so the config has none — and this says so for the next field
+    /// anyone adds.
     #[test]
     fn a_nested_struct_ends_at_one_depth() {
         let mut nested = Vec::new();
@@ -3231,16 +3291,54 @@ mod tests {
         for (_, s) in Collection::shape().fields() {
             each_struct(s, true, &mut nested);
         }
-        for (fields, _) in nested {
-            let deepest = fields.iter().map(|(_, d)| *d).max().unwrap_or(0);
-            for (name, depth) in &fields {
-                assert!(
-                    *depth == 0 || *depth == deepest,
-                    "`{name}` sits at depth {depth} beside a field at {deepest}: \
-                     one `Descend(n)` cannot serve both"
-                );
-            }
-        }
+        assert_eq!(an_atom_a_deeper_sibling_would_split(&nested), None);
+    }
+
+    /// The tripwire, fired — the mutation check for a guard that nothing in
+    /// the config can trip today (batch review 2, finding 1; MERGE.md R3).
+    ///
+    /// `[i18n]` is the table most likely to grow the field: a `LocalizedStr`
+    /// beside `strings` — a site-wide `title`, say — reads as depth 0 under a
+    /// `Descend(2)`, passes `a_definition_never_sits_under_an_engine_name`
+    /// (it is not a struct) and `the_shape_covers_the_config_surface` (serde
+    /// knows the key), and would be composed out of two writers by the merge.
+    #[test]
+    fn a_localized_string_beside_a_map_would_be_split() {
+        let i18n_with_a_title = Shape::Struct(vec![
+            // The three that are there today: a scalar at depth 0 is
+            // descended past harmlessly, which is why the whitelist existed.
+            ("default", Shape::Atom),
+            ("locales", Shape::Atom),
+            ("names", Shape::Map(Box::new(Shape::Atom))),
+            // The hypothetical field. Not added to `I18nCfg` — the point is
+            // that it never has to be for the guard to speak.
+            ("title", LocalizedStr::shape()),
+            ("strings", Shape::Map(Box::new(LocalizedStr::shape()))),
+        ]);
+        assert_eq!(
+            i18n_with_a_title.law(),
+            Law::Descend(2),
+            "the sibling's law"
+        );
+
+        let mut nested = Vec::new();
+        each_struct(&i18n_with_a_title, true, &mut nested);
+        let msg = an_atom_a_deeper_sibling_would_split(&nested)
+            .expect("a table-spelled atom beside a map must trip the invariant");
+        assert!(msg.contains("`title`"), "{msg}");
+
+        // And what the invariant is protecting, since a shape alone does not
+        // say: at `Descend(2)` the base's `en` and the site's `fr` come back
+        // as ONE localized string, written by two files and by no author.
+        let base = toml::from_str::<toml::Value>("title = { en = \"Home\" }\n").unwrap();
+        let site = toml::from_str::<toml::Value>("title = { fr = \"Accueil\" }\n").unwrap();
+        let merged = merge_to_depth(base, site, 2, &mut Vec::new(), &mut Trace::off());
+        let title = merged["title"].as_table().expect("a localized string");
+        assert_eq!(
+            title.keys().collect::<Vec<_>>(),
+            ["en", "fr"],
+            "the merge composed a LocalizedStr out of two writers"
+        );
     }
 
     /// Retired spellings must not be silently ignored: `deny_unknown_fields`

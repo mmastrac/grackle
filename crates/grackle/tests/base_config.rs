@@ -182,6 +182,82 @@ fn the_empty_sites_effective_config_is_entirely_inherited() {
     );
 }
 
+/// Every top-level field `Config` gives a value to when NEITHER file writes
+/// one is in minimal's effective config — the guard `engine_defaults()`'s doc
+/// comment has promised since B3 and did not have (MERGE.md R4, batch review
+/// 2 finding 2: deleting `("extends", …)` passed the whole suite).
+///
+/// `engine_defaults()` is the one hand-maintained list in `--effective`. It
+/// does not COPY the defaults — it calls the very functions each field's
+/// `#[serde(default = "…")]` names — but a NEW defaulted field still has to be
+/// added to it, and nothing said so out loud. This is what says so: a key with
+/// an engine default that nobody adds is a key that prints nowhere, on the one
+/// site where "nowhere" is the whole output.
+#[test]
+fn every_defaulted_scalar_is_printed() {
+    let defaulted = defaulted_scalars();
+    assert!(
+        defaulted.len() >= 3,
+        "the extraction found almost nothing — has `Config` moved? {defaulted:?}"
+    );
+    let path = examples().join("minimal/grackle.toml");
+    let printed = grackle_source::config::Config::effective(&path, None).unwrap();
+    // Top level only: everything before the first table header, which is
+    // where a key of `Config`'s own can appear.
+    let top: Vec<&str> = printed
+        .lines()
+        .take_while(|l| !l.starts_with('['))
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.split_once(" =").map(|(k, _)| k.trim()))
+        .collect();
+    for key in &defaulted {
+        assert!(
+            top.contains(&key.as_str()),
+            "`{key}` has an engine default and the empty site's effective config \
+             never mentions it — add it to `engine_defaults()`. Printed:\n{printed}"
+        );
+    }
+}
+
+/// The defaulted set, read off `Config`'s own text rather than restated here.
+///
+/// `#[serde(default = "…")]` names a function that RETURNS a value, which is
+/// exactly the set `engine_defaults()` must call; plain `#[serde(default)]` is
+/// an empty container (`[sets]`, `[markers]`, …), which has no value to print
+/// and is absent from an effective config on purpose.
+fn defaulted_scalars() -> Vec<String> {
+    let src = include_str!("../../source/src/config.rs");
+    let body = src
+        .split_once("pub struct Config {")
+        .expect("`Config` is declared in crates/source/src/config.rs")
+        .1
+        .split_once("\n}\n")
+        .expect("the struct is closed")
+        .0;
+    let (mut out, mut armed, mut renamed) = (Vec::new(), false, false);
+    for line in body.lines().map(str::trim) {
+        if line.starts_with("#[serde(default = \"") {
+            armed = true;
+        } else if line.starts_with("#[serde(") && line.contains("rename") {
+            renamed = true;
+        } else if line.is_empty() || line.starts_with("//") || line.starts_with('#') {
+            // Doc comments and the other attributes say nothing about defaults.
+        } else {
+            // A field declaration: `pub name: Type,`.
+            if armed {
+                assert!(
+                    !renamed,
+                    "a defaulted field is renamed, and this reads RUST names: {line}"
+                );
+                let name = line.trim_start_matches("pub ").split(':').next().unwrap();
+                out.push(name.to_string());
+            }
+            (armed, renamed) = (false, false);
+        }
+    }
+    out
+}
+
 /// And its mirror: `examples/raw` inherits nothing, so nothing may be
 /// attributed to the base. The pair is what proves the comments track the
 /// merge rather than the shape of the file.
