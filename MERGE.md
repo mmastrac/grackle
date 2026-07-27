@@ -394,7 +394,7 @@ proceed to Phase D and the final review. One new item:
 
 ### Phase D — vestigial keys and doc rot
 
-- [ ] **D1. Declared-and-ignored config cleanup.** Remove
+- [x] **D1. Declared-and-ignored config cleanup.** Remove
   `defaults = { layout = "post" }` from grackle.toml (×2) and field-notes
   (×1) — a no-op since "absent means document", and post-C1 a typed field
   whose absence falls to the engine default; the *[parity]* tag is the proof
@@ -2008,6 +2008,109 @@ appears, a `Config::view_knowns()` is the shape. (iii) A profile whose every
 entry is correct but which patches a view no route ever materializes is still
 silent — that is C3's dead-rule question in profile space, and nobody has
 asked it.
+
+**2026-07-27 — D1.** Landed as one commit. Four keys went, one stayed and
+started speaking, and the whole item is one claim measured rather than argued:
+**every removal changed zero output bytes**, on five sites plus grack.com under
+`--profile drafts`.
+
+*The three `layout = "post"` were provably inert, and the drafts are the
+proof.* "Absent means document" made them a no-op and C1 made them typed, so
+the parity claim was expected — but expected is not measured, and the case that
+measures it is grack.com's `_drafts`: four real rows, routed to `/drafts/…`
+and rendered in the default build (they are not draft-profile-only), so the
+posts render path ran with the key present and with it absent and produced the
+same bytes. field-notes' six note files are the same evidence one site over.
+`_drafts`' rule kept `defaults = { draft = true }` — that key is read by every
+`!draft` filter in the config and was never in scope.
+
+*`template = "atom.xml"` was checked against its one reader before it went.*
+`View::template` is read in exactly one place (`load.rs`'s tree-walk
+exclusion — a file a view CLAIMS is not independently routable) plus two
+config-shape predicates (`is_query_only`, the subdivision test), and
+field-notes' `feed` is neither composed over nor named by any `from`. There is
+no `atom.xml` anywhere in field-notes' source tree (the four under `_site-*`
+are its own output, behind the underscore skip), so the exclusion excluded
+nothing.
+Verified by file COUNT as well as by diff: 83 output files before, 83 after —
+a suddenly-routed template file would have shown up as an 84th, or as a
+collision at `/atom.xml`. **Its removal leaves `template` with zero live
+declarations in the whole repo**; the key is now parsed, implemented, and
+unused, which is a different thing from `bucket` and belongs in §7's
+vocabulary pass rather than here.
+
+*The dead sass rule is replaced by a comment, not deleted into silence.* The
+rule was a faithful transcription of Jekyll's `css/main.scss` compilation; what
+killed it is that the theme owns the stylesheet now (§5e) and every remaining
+`.scss` in the tree is under `themes/` or `grackle/`, both in this
+collection's own `exclude`. That is worth four lines where the rule stood,
+because the next reader porting a Jekyll config will look for exactly this
+rule. `hidden/**` stands, per the item — it is grack.com's declaration of what
+that directory would MEAN, and C3 already called it a policy statement.
+
+*`bucket`: the warning is the deliverable, and it is a config fact, not a
+corpus one.* `load::declared_and_unread` runs at the top of `load`, BEFORE the
+walk, because nothing the tree says can make a key read or unread — which is
+also the one behavioural difference from `dead_rules` beside it, and the test
+that pins it uses a site with no images at all (an empty collection silences a
+dead rule and does not silence this). `SiteDb::warnings` + C3's `grackle: `
+stderr line; `Collection::bucket` lost its `#[allow(dead_code)]`, since the
+attribute was the silence in compiler form.
+
+*Warning inventory after this item, per site (stderr, `grackle build`):*
+
+| site | lines |
+|---|---|
+| grack.com | `collection objects: bucket …` and `collection posts: match = "hidden/**"` — **was** `hidden/**` + `**/*.{scss,sass}`, so the dead-rule count went 2 → 1 as the item predicted, and the scss line is gone because the rule is |
+| field-notes | `collection objects: bucket …` |
+| theme-preview | `collection objects: bucket …` |
+| minimal | none |
+| raw | `collection entries: match = "**/index.{html,md}"` (C3's base-fidelity rule, left alone) |
+
+Three sites now warn about `bucket` and that is the point: it is the mechanism
+§7 q1 rides on, and it is why the key stayed in all three configs. It costs
+nothing that is measured anywhere — **stderr is not build output** (parity is
+`diff -r` over the rendered trees), no fixture site declares `bucket` (checked:
+the only hit under `tests/fixtures/` is a byte sequence inside a cached model
+blob), and the fixture harness never reads `db.warnings` at all.
+
+*Parity:* all five sites plus grack.com under `--profile drafts` built before
+and after into separate trees and diffed — every file byte-identical except
+each feed's wall-clock `<updated>` (one line per feed, six files, nothing else
+in any diff), and identical file counts throughout. The "before" for the
+`--profile drafts` pair came from a `git worktree` of HEAD driven by the NEW
+binary, which isolates the config change from the code change. Zero fixture
+changes, zero re-blessing; clippy's warning multiset identical to HEAD's,
+compared by building HEAD in that worktree. Formatted by hand (§4): `rustfmt`
+wants nothing in the lines this item wrote (it still wants one pre-existing
+hunk in `load.rs` at :762 and two in `config.rs`).
+
+*Mutation-checked both directions, each restored:* deleting the
+`declared_and_unread` call in `load` fails `a_declared_bucket_warns_that_
+nothing_reads_it` **and nothing else** (it was the sole guard); making the
+warning unconditional — every collection, `bucket` or not — fails the control
+`an_undeclared_bucket_says_nothing` along with all four dead-rule tests, which
+is the *only* way to see that the filter is doing work. No new guard was added
+for the sass removal: removing a rule adds no code path, and C3's four tests
+already own the dead-rule machinery. The evidence there is the stderr
+inventory above, taken live before and after.
+
+*Two doc lines were made false by this commit and corrected in it:* DESIGN.md
+§6a's "`[objects] bucket` is parsed but read by nothing" and `SiteDb::by_name`'s
+copy of the same sentence. Both now name the warning as the sole reader.
+`manual/OUTLINE.md` untouched (§4).
+
+*For the queue (small).* (i) C4 declined a typed `SiteDb::warnings` channel on
+the grounds that the third class was not yet legible; it is here now
+(`(collection, key)`), and the three classes still share nothing but
+`Display`, so the call stands — but the "watch for a consumer that wants to
+FILTER" line is worth re-reading when someone builds `--quiet=`. (ii)
+`View::template` is now declared by no site in the repo (see above) — a
+vocabulary-pass candidate, not a removal to take blind: the tree-walk
+exclusion it drives is a real feature for a site that DOES claim a source file
+as a view's template. (iii) The `bucket` warning fires per collection, so a
+site declaring it on two collections would print two lines; no site does, and
+the sentence names the collection precisely so that reads correctly.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
