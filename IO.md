@@ -549,7 +549,7 @@ Two follow-up items (small; run before I6):
 
 ### Phase I-C — the single walk
 
-- [ ] **I6. Extractors move to rules** (the one-row-type remainder):
+- [x] **I6. Extractors move to rules** (the one-row-type remainder):
   `filename_formats` per-rule, one route-token supplier offering path
   tokens always plus extractor results. Parity.
 
@@ -1712,3 +1712,148 @@ shape that triggers it. (ii) `css_warnings` is a test-only channel by
 convention, not by construction — nothing stops a later caller from reading
 it the way `build` reads `css_errors`, and if one ever should, the doc
 comment on the field is where that decision has to be written down.
+
+**2026-07-27 — I6.** Landed as one commit. The item is a relocation, and the
+two decisions worth vetoing are both about where a key LIVES rather than what
+it does.
+
+***[decided]* `filename_formats` stays legal at the collection level, as the
+default its rules inherit.** The brief left it open and the corpus decided it:
+twenty-four configs declare the key, every one of them at the collection level,
+and grack.com's `_posts` declares it beside a rule that carries no route at all
+(`hidden/**`, defaults only). Retiring the collection spelling would have been
+a hard cutoff across all twenty-four for no capability — the capability is the
+per-rule key, which is purely additive — and it would have put the same list on
+two rules of the same collection wherever a scope has more than one. So the
+shape is: **a rule's own `filename_formats` wins; absent one, the collection's**
+— which is the bag-key-feeding-rule-defaults reading the brief named, and it
+costs the merge laws nothing. `Vec` is `Shape::Atom`, so the collection key
+merges as it always did (nearer writer takes it whole) and the per-rule key
+rides its rule through the prepend, whole. **Resolution is first-writer-wins
+across the MATCHING rules, not "whichever rule won the route"**: `filename_
+formats` is a key like `defaults`, and §4's law is stated over keys. The two
+readings differ only when one rule routes and another names the extractor, and
+the law that already exists is the one that needs no new sentence. Zero corpus
+churn: not one config line moved, which is the argument in its most checkable
+form.
+
+*One supplier, and the thing that made it small.* `RouteTokens` holds the path,
+the row's date, the extractor's key and the slug, and answers one `get`. Both
+loaders build one and call `render_all`; the tree loader's inline closure and
+the posts loader's inline `match` are both gone. The tokens a route may spend
+are now a fact about the type rather than about which loader you are in, and
+the error that lists them reads the same list. **Path tokens are relative to
+what the rule's own glob matches** — collection-relative in `_posts`,
+root-relative in the tree — because the rule's `match` and its `route` should
+read the same words; that is what makes q51's example say what it looks like it
+says (`match = "rust/**"` → `/{dir}/{stem}/` → `/rust/hello/`).
+
+*The extractor got honest about partial formats, and that was not optional.*
+`FileKey`'s four fields are `Option`s now: a format yields what it NAMES. The
+old key was built only when all four captures were present, so
+`filename_formats = ["{slug}"]` — grack.com's `_drafts`, and the manual teaches
+it — **matched nothing**, and the config survived by accident: the slug fell
+back to the whole stem, which is exactly what `{slug}` captures. The accident
+does not generalize, and the shape that proves it is `notes-{slug}`, which
+would have kept the prefix in silence. Byte-inert on the corpus (the drafts
+build is one of the six parity trees), and a unit test now holds the literal
+case.
+
+*The validation moved and generalized, and the mutation says what it buys.*
+DESIGN.md §4 has always promised "undated row routed by a dated template →
+error naming the file **and rule**"; the code named the file and the TEMPLATE.
+It now names both, and the question generalized: any token the supplier cannot
+fill for this row is the error, in whatever collection the rule lives. Measured
+rather than assumed — **deleting the check is not silent and does not misroute**:
+`template::render` still refuses an unresolved token, by *"template
+`/blog/{year}/{slug}/` references unknown token {year}"*, a sentence about a
+template rather than about a row. So the check buys the diagnosis, not the
+refusal, and the test asserts the sentence (file, rule, reason, token) rather
+than the failure. The dated case keeps an arm of its own because "this file
+carries no date" is the diagnosis and "unfillable" is only the mechanism.
+
+*One refusal deleted on purpose.* `collection {name} has kind=posts but no
+filename_formats` is gone: a posts scope whose rules route by path tokens needs
+no extractor, so that check would have refused exactly the config q51 exists to
+allow. Its replacement is per row and per template, which is the rung the
+question actually lives at. A test holds the shape (`a_posts_scope_needs_no_
+extractor_when_no_route_spends_a_date`).
+
+***[recorded]* Most-specific-source: handled, not decided — and left for I7.**
+`_posts` sits inside the tree's `.`, and today nothing has to rule on the
+containment because walk-level membership precedence keeps posts files out of
+tree rules entirely (`store::walk_tree` skips `_`-prefixed names; DESIGN.md §3's
+disjointness). Nothing in this item touches that, and the parity run is the
+evidence. Building the general rule now would have meant inventing the
+arbitration for a competition that cannot happen yet, and then re-deciding it
+when I7 retires the precedence machinery for first-rule-wins — so q51's rider is
+restated in DESIGN.md §11 pointing at **I7**, which is where the two sources can
+first reach one file.
+
+***[recorded]* The other half of one supplier waits for I7 too.** A post's route
+date is front-matter-first (§4b, unchanged); a TREE row's route date can only be
+the filename's, because that loader reads a page's front matter *after* routing.
+Making the two identical means moving the front-matter read above the routing
+block, which reorders which error a doubly-broken file reports — a change with
+no caller today, in a loader I7 dissolves. Stated at the seam in code rather
+than quietly left asymmetric.
+
+*Six tests, five mutations plus a control, each red and each restored*
+(`crates/grackle/tests/io_tokens.rs`): (1) q51's example, beside a dated row of
+the same collection — mutation: drop `path_tokens` from the supplier and the
+HEAD-era error returns while the dated row still routes, which is the
+disjointness restored; (2) one template spending `{dir}`, `{year}` and `{slug}`
+together, plus a `legacy/**` rule overriding the collection's format —
+mutation: ignore a rule's own formats; (3) an extractor on a TREE rule (row
+`slug` and `date` from the filename, not just the URL); (4) the moved
+validation, naming file and rule — mutation: delete the check (the generic
+sentence above); (5) the general unfillable-token sentence — mutation: stop
+carrying the winning rule's pattern and both error tests lose the rule name;
+(6) a posts scope with no extractor anywhere. The control is on the collection
+default: `formats.unwrap_or(&[])` breaks dated routes corpus-wide *and* an
+unrelated engine test, which is what says the default is still doing the work
+every site relies on.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in a
+`git worktree` against this one, over the same content trees into separate
+outputs so the binary was the only variable — byte-identical but for the feeds'
+wall-clock `<updated>`, stderr identical for all six, file counts 8 / 8 / 83 /
+242 / 1828 / 1829, unmoved since IR1. Build times interleaved (three runs each
+on grack.com: 886/846/873 vs 844/860/824 ms), so the per-template token scan
+costs nothing measurable. `cargo test` green (20 binaries); `cargo fmt --check`
+clean under the pin; clippy 49 warnings, the warning SET byte-identical to
+HEAD's rebuilt in the worktree; **zero re-blessing** — no fixture's expected
+error moved, because the two messages that changed are reachable only from a
+config no fixture writes.
+
+*Docs.* DESIGN.md §4 gains **Route tokens: one supplier** (the token table, the
+per-rule key with the collection as its default, the optional extractor, the
+worked `legacy/**` snippet); its constraints bullet states the generalization
+and what the check buys; §9b's still-owed list loses the `filename_formats`
+obstacle from the single-tree entry; q51 keeps only its rider, pointed at I7,
+per §11's convention that a settled half moves into the section that carries it.
+Two config comments were corrected in passing, both byte-inert: `base.toml`'s
+posts collection says the key is its rules' default, and grack.com's `_drafts`
+block said *"so no `filename_formats` here"* three lines above a
+`filename_formats` — pre-existing, and this item is what makes that key's
+meaning worth stating correctly. **`manual/OUTLINE.md` untouched per §4, and for
+once it needed nothing**: the collection-level spelling it teaches (line 795) is
+still exactly right, so this is the first key change in the sequence that leaves
+that file honest rather than one spelling staler.
+
+*For batch review I-C.* Three things to probe. (i) **`{slug}` is now fillable on
+every row**, tree rows included, where before it was a posts-only token — it
+resolves to the stem when no format named one, which is what the posts loader
+has always done and is why parity holds. It does mean a tree rule may spell
+`{slug}` where it used to get an unknown-token error; the values are identical
+to `{stem}`'s today, so nothing can tell them apart until an extractor names
+one. (ii) **The extractor now reaches OBJECTS rules**, and an objects row takes
+a `date` from its filename where a rule names a format. No corpus objects
+collection declares one and the row column was `None` before, so this is
+capability rather than change — but it is capability nobody asked for, and the
+cheapest reversal is one line (`date: from_name` → `Default::default()`).
+(iii) **First-writer-wins for `filename_formats` is independent of the route
+rule**, which is the reading §4's law gives and not the only defensible one: "the
+rule that routes the row names its extractor" would also be coherent, and would
+differ exactly when a defaults-only rule sits above a routing rule — grack.com's
+`hidden/**` is that shape, and declares no format.
