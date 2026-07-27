@@ -352,7 +352,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   read as selectors, keep unknown keys literal, but warn when the key
   case-matches a declared axis field or axis name.
 
-- [ ] **C6. Profile hardening.** (a) A profile's `where` parses against a
+- [x] **C6. Profile hardening.** (a) A profile's `where` parses against a
   vocabulary strictly weaker than a view's — the two-shot
   `row_schema()`-then-`route_schema()` with `?` (config.rs:1344-1355)
   cannot mix vocabularies and the comment above it claims otherwise; use
@@ -1627,6 +1627,121 @@ retire it; not done here because `build_view` also needs the paged half.
 (iii) C2's note (i) still stands: the view-theme rung has no expected-error
 fixture. This item did not add one.
 
+**2026-07-27 — C6.** Landed as one commit. The five parts are one sentence —
+*a profile rewrites a resolved config, and nothing downstream knew it had* —
+and (a) and (b) turn out to be the same fix seen from two ends.
+
+*(a) The union the item asked for does not exist, and that is the finding.*
+The ledger said "use `row_filter_schema()` (the union views use)", but views
+do not use one union: `Base::resolve` dispatches on the base collection's
+KIND (rows plus declared fields, or `object_schema()`) and `resolve_star_views`
+uses `route_schema(declared)`. The three genuinely disagree — `kind` is a
+route column, `title` a row column, and **`dir` is a `Str` on a row and a
+`Bool` on a route** — so a union is not a schema anything could type-check
+against. `view_filter_schema` is therefore the same DISPATCH, not a merge,
+and a profile's `where` is accepted exactly where the `where` it patches is.
+The mixed-vocabulary case the item named is real and was failing:
+`title != "" && !hidden` on a set fails shot one on `hidden` (a declared
+field since §4e) and shot two on `title`.
+
+*The comment became true by making the code weaker, which is the honest
+direction.* `apply_profile` is a `Config` method and the positional
+`.schema.toml` vocabulary does not exist until the tree walk, so an early
+parse is short by exactly those names. Rejecting them made a profile's
+`where` **stricter than the `where` it replaces** — the one thing §4a says a
+profile may not be. So `check_profile_filters` defers `unknown field` and
+catches everything that is wrong however the walk turns out (syntax, arity,
+types). The deferral is not a loss of the error: `build_views` and
+`resolve_star_views` already parse the filter they find. What it did lose was
+WHO wrote it, so `Query::patched` carries a sentence per patched view down
+the `over` chain — without it the typo test reports `view blog_index: filter
+"!cvoer"` on a site whose only declared set is `published`, which is the
+`over`-chain conjunction naming a view the author never patched.
+
+*(b) `validate()` was safe to run twice, and vacuous — so it was given
+something to say.* Measured rather than assumed: the profile's write surface
+is `site.url`, `site.noindex`, `html.head.meta["robots"]` and view filters;
+`validate()`'s read surface is layouts, view fields, widgets, the tags view,
+`trail` chains, i18n locales and references, q45 claims, `locales` and
+`shell`. **The intersection is empty**, so a bare re-run would have caught
+nothing and been unfalsifiable — the item asked for something `validate()`
+catches that `apply_profile` can smuggle past it, and there was nothing.
+What makes the re-run load-bearing is putting the profile's own filter check
+INSIDE `validate()` (keyed off `View::filter_profile`, so it is vacuous
+until a profile writes one). That is also the shape the item described —
+"re-run the relevant validation on what the profile touched" — rather than a
+second bespoke check beside the write.
+
+*(c) `View::declared_set` is recorded, not derived, and the reason is one
+line of `resolve_default_content`.* A declined `default_content` offer sets
+`v.route = None` and clears `v.routes`, so a `[routes]` entry can reach
+`apply_profile` with no path at all — `is_materialized()` would call it a set
+and send the author to `[profiles.p.sets]`, where it does not live. The
+`[routes.home]` the base ships is exactly this shape on any site with an
+`index.md` that declines, so it is not hypothetical.
+
+*(d) The decision: OVERRIDE, with a warning, and only when the SITE wrote the
+expression.* DESIGN.md §4e promises the override in as many words ("`noindex
+= true` now overrides the `robots` declaration"), and overriding the BASE's
+`noindex ? "noindex,follow" : ""` is the entire purpose of the key — every
+inheriting site gets that silently, which is why grack.com's `--profile
+drafts` build is byte-identical and says nothing. The error shape the item
+recommended was weighed and declined for a reason beyond the DESIGN promise:
+**a profile's vocabulary is closed** (`url`, `noindex`, `sets`, `routes`), so
+"patch robots in the profile explicitly" is not a thing a user can do —
+widening it to arbitrary keys is the config merge §4a exists to refuse. An
+error would therefore be an ultimatum with two options (drop your expression,
+or drop `noindex`) presented as three. Silence was the other end, and it is
+how an editorial policy disappears. So: it warns, on `load`'s `grackle: `
+stderr convention, and still overrides. §7 q7 is where this gets confirmed.
+Provenance is one lookup in the raw TOML pre-merge (`Config::site_robots`) —
+B3's `Trace` was the wrong tool for the same reason C3 found: it is `off()`
+on the load path by design.
+
+*(d)'s testability, since the choice is invisible in the result.* Both
+branches leave the same string in `html.head.meta`, so the only difference
+between them is the sentence — and stderr is not a value. `robots_override_note`
+is a pure function returning `Option<String>` for exactly that reason;
+`apply_profile` prints what it returns.
+
+*Corpus:* grack.com is the only site in the repo with a `[profiles]` table,
+its two entries are correctly placed, and it declares no `robots` of its own
+(only `apple-mobile-web-app-title` and `application-name`), so (c) and (d)
+are both inert on it. Verified live rather than only by the suite: moving
+`search` under `[profiles.drafts.sets]` reports "*`search` is declared under
+[routes], so write it as [profiles.drafts.routes.search]*", and adding a site
+`robots` expression prints the override warning with the lost expression
+quoted.
+
+*Parity:* all five sites **plus grack.com under `--profile drafts`** built
+before and after into separate trees and diffed — byte-identical but for each
+feed's wall-clock `<updated>`, with no stderr difference either. Zero fixture
+changes, zero re-blessing; clippy's warning multiset identical to HEAD's,
+compared by building HEAD in a scratch worktree.
+
+*Mutation-checked seven ways, each restored:* the two-shot parse restored
+(fails the mixed test on `unknown field \`title\``, and the tree-driven
+positional test on `cover`, naming a field the site declares); the
+`self.validate()` call deleted; the sets/routes chain restored (all three
+errors go silent); the robots note made unconditional, then never fired; the
+preamble's `known.contains` forced true; the `q.patched` note deleted; and
+`declared_set` re-derived from `is_materialized()` (the declined-route test
+is told it is a set).
+
+*For the queue (small).* (i) A profile that is never APPLIED is still
+unchecked — placement, unknown view names and filters are all read at
+`apply_profile`, so a typo in a profile you are not building today surfaces
+the day you build it. Moving the checks into `validate()` proper would fix
+that, at the cost of making every load pay for every profile; it is a real
+change in when errors fire and deserves its own item rather than a rider on
+this one. (ii) `check_profile_filters` recognises the deferred case by
+matching `"unknown field"` in the error text. A typed error kind on
+`filter::Filter::parse` would be better and is a `crates/db` change; the
+string is `resolve()`'s own and is covered both ways by tests. (iii) The
+`--effective` preamble now knows the profile table; §7 q11's "should
+`--effective` show struct-level defaults" is the neighbouring question about
+that output, and a `config --projected` would subsume both.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -1649,8 +1764,13 @@ Not work items. Each needs Matt's call; agents must not attempt them.
 6. **The vocabulary pass** — `shell` ×4, `kind` ×3, `match` ×3 (two path
    bases), `from`/`over`, `layout` ×2, `[[parts]]` vs `parts.toml` `[[kind]]`
    spelling. Every rename touches documented surface; decide before 1.0.
-7. **Profile `noindex` vs site `robots`** — C6(d) makes a provisional call;
-   confirm it.
+7. **Profile `noindex` vs site `robots`** — C6(d) made the call: the profile
+   still OVERRIDES (DESIGN.md §4e promises it, and overriding the base's
+   expression is the key's purpose), and warns when the expression it
+   replaces was the SITE's own. The error shape was declined because a
+   profile's vocabulary is closed — there is no "patch robots in the profile"
+   for the message to point at, so an error would be an ultimatum. Confirm,
+   or reverse to error / to silence.
 8. **The ancestor takes the global `declared()` name** *(A4 residual, batch
    review 1 finding 4)* — an ancestor and descendant `.schema.toml` may
    legally disagree on a field's type (nearest wins per row), but the global
