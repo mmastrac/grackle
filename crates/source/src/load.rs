@@ -789,9 +789,8 @@ fn build_tree_and_objects(
                 template::render(t, |k| {
                     path_tokens(&logical_rel, k).or_else(|| {
                         let (_, bare) = template::classify(k);
-                        (cfg.axes.contains_key(bare)
-                            || (bare == "locale" && cfg.i18n.enabled()))
-                        .then(|| format!("{{{k}}}"))
+                        (cfg.axes.contains_key(bare) || (bare == "locale" && cfg.i18n.enabled()))
+                            .then(|| format!("{{{k}}}"))
                     })
                 })
                 .map(tidy)

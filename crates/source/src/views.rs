@@ -10,7 +10,9 @@ use crate::config::{Config, Kind, Query, View};
 use crate::schema::Schemas;
 use grackle_db::filter;
 use grackle_db::template;
-use grackle_model::{object_schema, AxisMember, route_schema, row_schema, Route, RouteKind, SiteDb, ViewRows};
+use grackle_model::{
+    object_schema, route_schema, row_schema, AxisMember, Route, RouteKind, SiteDb, ViewRows,
+};
 
 /// One group key a row contributes under a single `group_by` spec: the typed
 /// sort component (years/months order numerically, tags lexically), the
@@ -160,10 +162,7 @@ struct Cell {
 /// Partition rows into cells by a subdivision chain (§5c) — one cell per
 /// composite group key, in key order. Shared by every base table: grouping
 /// never cared what a post or a page was.
-fn partition(
-    chain: &[String],
-    rows: &[(grackle_db::Key, &dyn filter::Row)],
-) -> Vec<Cell> {
+fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> Vec<Cell> {
     let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> =
         BTreeMap::new();
     for (i, row) in rows {
@@ -667,9 +666,7 @@ fn build_view(
                         // selection below, not filled from group params here.
                         Some("axis") => Some(format!("{{{tok}}}")),
                         None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                        None if k == "locale" && cfg.i18n.enabled() => {
-                            Some("{locale}".to_string())
-                        }
+                        None if k == "locale" && cfg.i18n.enabled() => Some("{locale}".to_string()),
                         None | Some("group") => {
                             template::param(&cell.params, k).map(|val| route_value(k, &val))
                         }

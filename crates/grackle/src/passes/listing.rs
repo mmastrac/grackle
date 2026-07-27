@@ -85,15 +85,14 @@ impl Pass for Listing {
         // q53 first: a route materialized across an axis wears its member's
         // field, and that is nearer than anything the view or the rows say —
         // the member IS this route's reason for existing.
-        let (theme_name, subtheme) = match crate::build::axis_field(r, "theme")
-            .or(v.theme.as_deref())
-        {
-            Some(spec) => ctx.themes.resolve(Some(spec)),
-            None => match ctx.unanimous_theme(r) {
-                Some(n) => (Some(n), None),
-                None => ctx.themes.site_default(),
-            },
-        };
+        let (theme_name, subtheme) =
+            match crate::build::axis_field(r, "theme").or(v.theme.as_deref()) {
+                Some(spec) => ctx.themes.resolve(Some(spec)),
+                None => match ctx.unanimous_theme(r) {
+                    Some(n) => (Some(n), None),
+                    None => ctx.themes.site_default(),
+                },
+            };
         let row_thm = ctx.themes.get(theme_name)?;
         let main = row_thm.fragments.render_with(
             &parts::listing(items, v.featured, &title, trail, intro, pagination),

@@ -2575,11 +2575,11 @@ impl Config {
             }
             if let Some((name, v)) = cfg.tags_view() {
                 if let Some(tmpl) = v.route.as_deref() {
-                    grackle_db::template::render(tmpl, |tok| {
-                        match grackle_db::template::classify(tok) {
-                            (None | Some("group"), "key" | "tags") => Some("probe".to_string()),
-                            _ => None,
-                        }
+                    grackle_db::template::render(tmpl, |tok| match grackle_db::template::classify(
+                        tok,
+                    ) {
+                        (None | Some("group"), "key" | "tags") => Some("probe".to_string()),
+                        _ => None,
                     })
                     .with_context(|| {
                         format!("view {name}: tag route template needs more than {{key}}")
@@ -3190,13 +3190,12 @@ impl Config {
     pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
         let (_, v) = self.tags_view()?;
         let tmpl = v.route.as_deref()?;
-        let url = grackle_db::template::render(tmpl, |tok| {
-            match grackle_db::template::classify(tok) {
+        let url =
+            grackle_db::template::render(tmpl, |tok| match grackle_db::template::classify(tok) {
                 (None | Some("group"), "key" | "tags") => Some(self.tag_slug(id).to_string()),
                 _ => None,
-            }
-        })
-        .ok()?;
+            })
+            .ok()?;
         if locale != self.i18n.default && v.locales.as_deref() != Some("default") {
             return Some(format!("/{locale}{url}"));
         }

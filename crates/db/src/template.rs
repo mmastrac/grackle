@@ -194,7 +194,9 @@ mod tests {
     fn a_non_numeric_colon_is_a_namespace_not_a_pad() {
         assert_eq!(tokens("{axis:theme}").unwrap(), vec!["axis:theme"]);
         assert_eq!(
-            render("/{axis:theme}/", |k| (k == "axis:theme").then(|| "ledger".into())).unwrap(),
+            render("/{axis:theme}/", |k| (k == "axis:theme")
+                .then(|| "ledger".into()))
+            .unwrap(),
             "/ledger/"
         );
     }
@@ -208,7 +210,9 @@ mod tests {
         // Namespaced name + pad: name is `group:month`, pad is 02.
         assert_eq!(tokens("{group:month:02}").unwrap(), vec!["group:month"]);
         assert_eq!(
-            render("{group:month:02}", |k| (k == "group:month").then(|| "3".into())).unwrap(),
+            render("{group:month:02}", |k| (k == "group:month")
+                .then(|| "3".into()))
+            .unwrap(),
             "03"
         );
     }

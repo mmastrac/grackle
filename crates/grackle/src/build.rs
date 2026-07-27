@@ -138,10 +138,7 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
         match &r.row {
             Some(k) => o.row.as_ref() == Some(k),
             None => {
-                o.kind == RouteKind::View
-                    && o.view == r.view
-                    && o.key == r.key
-                    && o.page == r.page
+                o.kind == RouteKind::View && o.view == r.view && o.key == r.key && o.page == r.page
             }
         }
     };
@@ -172,12 +169,19 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
             .filter(|o| in_scope(o) && o.axis == r.axis)
             .map(|o| {
                 let loc = o.locale.as_deref().unwrap_or(default);
-                (cfg.i18n.name_of(loc).to_string(), o.url.clone(), o.url == r.url)
+                (
+                    cfg.i18n.name_of(loc).to_string(),
+                    o.url.clone(),
+                    o.url == r.url,
+                )
             })
             .collect()
     };
-    if let Some(g) = parts::axis_group("locale", cfg.i18n.string("translations", cur_locale), loc_members)
-    {
+    if let Some(g) = parts::axis_group(
+        "locale",
+        cfg.i18n.string("translations", cur_locale),
+        loc_members,
+    ) {
         groups.push(g);
     }
 
@@ -198,7 +202,9 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
                             && o.axis.len() == r.axis.len()
                             && r.axis.iter().all(|rm| {
                                 let want = if rm.axis == m.axis { v } else { &rm.value };
-                                o.axis.iter().any(|om| om.axis == rm.axis && om.value == *want)
+                                o.axis
+                                    .iter()
+                                    .any(|om| om.axis == rm.axis && om.value == *want)
                             })
                     })
                     .map(|o| (v.clone(), o.url.clone(), v == &m.value))
@@ -255,7 +261,10 @@ mod alternates_tests {
 
     #[test]
     fn alt_media_type_names_only_non_html_forms() {
-        assert_eq!(alt_media_type("/notes/one.md"), Some("text/markdown".into()));
+        assert_eq!(
+            alt_media_type("/notes/one.md"),
+            Some("text/markdown".into())
+        );
         assert_eq!(alt_media_type("/feed.xml"), Some("application/xml".into()));
         // A restyle at a directory URL is the same representation — no type.
         assert_eq!(alt_media_type("/ledger/notes/one/"), None);
@@ -429,9 +438,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // plus whatever `[[parts]]` the site declares. Fragments are checked
     // against it, so a theme can place a part the site invented.
     let schemas = parts::Schemas::load(cfg)?;
-    let themes =
-        theme::Themes::load_all(&root.join("themes"), &root, &schemas, cfg.site.theme.as_deref())
-            .context("loading themes")?;
+    let themes = theme::Themes::load_all(
+        &root.join("themes"),
+        &root,
+        &schemas,
+        cfg.site.theme.as_deref(),
+    )
+    .context("loading themes")?;
     check_theme_names(cfg, db, &themes)?;
     // C4b: a `.slots/` file whose stem names no slot any loaded theme places
     // fills nothing, silently. Said here rather than in the source loader
@@ -513,12 +526,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         .collect();
     let rendered: Vec<(String, String)> = post_routes
         .par_iter()
-        .filter_map(|r| {
-            r.row
-                .as_ref()
-                .and_then(|k| db.rows.get(k))
-                .map(|p| (*r, p))
-        })
+        .filter_map(|r| r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| (*r, p)))
         .map(|(r, p)| -> Result<(String, String)> {
             let url = r.url.as_str();
             let mut head = render::head_for_post(p, &site);
@@ -570,7 +578,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             // shipped one theme's chrome and stylesheet wrapped around
             // another's markup: a themed post came out as canonical fallback
             // in a themed shell, and every selector the theme wrote missed.
-            let (theme_name, subtheme) = themes.resolve(axis_field(r, "theme").or(p.theme.as_deref()));
+            let (theme_name, subtheme) =
+                themes.resolve(axis_field(r, "theme").or(p.theme.as_deref()));
             let row_thm = themes.get(theme_name)?;
             let main = row_thm.fragments.render(&doc);
             let html = row_thm.page(
@@ -1061,8 +1070,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // data-subtheme="spicy" wherever the shell places it).
                 // q53: an axis member's theme beats the row's, same as the
                 // post path — the member IS the alternative form.
-                let (theme_name, subtheme) = themes
-                    .resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())));
+                let (theme_name, subtheme) =
+                    themes.resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())));
                 let row_thm = themes.get(theme_name)?;
                 let row_css = css_of(theme_name);
                 let mut head = render::head_simple(&title, &r.url, &site);
@@ -1396,8 +1405,11 @@ fn render_page_bodies(
         // themed page's body arranges its rows the way that page's theme
         // says, exactly as the landing path does.
         let row = r.row.as_ref().and_then(|k| db.rows.get(k));
-        let row_thm = themes
-            .get(themes.resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref()))).0)?;
+        let row_thm = themes.get(
+            themes
+                .resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())))
+                .0,
+        )?;
         // Expand FIRST, then decide: most pages that look unsupported use
         // only constructs the expander already handles.
         let cx = tags::Ctx {
@@ -1865,15 +1877,12 @@ fn backlinks_map(
     // map differs by origin — posts hold their body, pages are re-read.
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
-        let html = bodies
-            .get(&p.key)
-            .map(|d| d.whole.as_str())
-            .or_else(|| {
-                page_bodies
-                    .get(&p.url)
-                    .filter(|pb| !pb.skipped)
-                    .map(|pb| pb.frag.as_str())
-            });
+        let html = bodies.get(&p.key).map(|d| d.whole.as_str()).or_else(|| {
+            page_bodies
+                .get(&p.url)
+                .filter(|pb| !pb.skipped)
+                .map(|pb| pb.frag.as_str())
+        });
         if let Some(html) = html {
             sources.push((
                 p.url.as_str(),

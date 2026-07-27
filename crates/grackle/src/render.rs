@@ -316,7 +316,9 @@ pub fn root_shell(
         let mut attrs = String::new();
         let mut styles = String::new();
         for a in axis {
-            let name = esc(&a.axis.replace(|c: char| !c.is_alphanumeric() && c != '-', "-"));
+            let name = esc(&a
+                .axis
+                .replace(|c: char| !c.is_alphanumeric() && c != '-', "-"));
             let value = esc(&a.value);
             let _ = write!(attrs, " data-axis-{name}=\"{value}\"");
             if !styles.is_empty() {

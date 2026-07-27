@@ -333,13 +333,17 @@ pub fn resolve(
     // overrides it, so `index.md?locale=fr` and `index.fr.md` name one member,
     // and `index.fr.md?locale=en` names the base. Read only when i18n is on, so
     // `?locale=` on a monolingual site stays the literal suffix it always was.
-    let locale_sel: Option<&str> = cfg.i18n.enabled().then(|| {
-        suffix
-            .strip_prefix('?')
-            .and_then(|q| q.split_once('='))
-            .filter(|(k, _)| *k == "locale")
-            .map(|(_, v)| v)
-    }).flatten();
+    let locale_sel: Option<&str> = cfg
+        .i18n
+        .enabled()
+        .then(|| {
+            suffix
+                .strip_prefix('?')
+                .and_then(|q| q.split_once('='))
+                .filter(|(k, _)| *k == "locale")
+                .map(|(_, v)| v)
+        })
+        .flatten();
     if let Some(v) = locale_sel {
         if v != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == v) {
             bail!(
@@ -367,11 +371,11 @@ pub fn resolve(
     // root-relative. A hit that is ALSO a route URL (passthrough files)
     // resolves to the identical string, so trying sources first is safe.
     let mut candidates: Vec<(String, bool)> = Vec::new(); // (source path, was relative)
-    // A self-pivot: `.?locale=fr` / `.?theme=ledger` names THIS page's member on
-    // that axis — the switcher an author writes by hand. `.` (or a bare `?…`)
-    // resolves to the linking row itself, so the `?axis=` branch below pivots the
-    // source rather than a directory index. Only when a selector is present, so a
-    // plain `.` still means the directory.
+                                                          // A self-pivot: `.?locale=fr` / `.?theme=ledger` names THIS page's member on
+                                                          // that axis — the switcher an author writes by hand. `.` (or a bare `?…`)
+                                                          // resolves to the linking row itself, so the `?axis=` branch below pivots the
+                                                          // source rather than a directory index. Only when a selector is present, so a
+                                                          // plain `.` still means the directory.
     if (path_part.is_empty() || path_part == "." || path_part == "./")
         && (locale_sel.is_some() || axis_sel.is_some())
     {
@@ -557,7 +561,11 @@ fn view_link(
             let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
             bail!(
                 "{source}: view:{name}?{k}= names no axis\n  declared axes: {}",
-                if known.is_empty() { "(none)".into() } else { known.join(", ") }
+                if known.is_empty() {
+                    "(none)".into()
+                } else {
+                    known.join(", ")
+                }
             );
         };
         if !v.axis.iter().any(|a| a == k) {
@@ -583,7 +591,11 @@ fn view_link(
                 "{source}: view:{name} is materialized across the {a:?} axis, so it \
                  lands at several URLs — name one with view:{name}?{a}=<value>{}",
                 if v.axis.len() > 1 {
-                    format!(" (this view spends {} axes: {})", v.axis.len(), v.axis.join(", "))
+                    format!(
+                        " (this view spends {} axes: {})",
+                        v.axis.len(),
+                        v.axis.join(", ")
+                    )
                 } else {
                     String::new()
                 }

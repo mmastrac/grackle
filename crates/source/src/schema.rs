@@ -1033,11 +1033,8 @@ mod tests {
     #[test]
     fn cross_rung_redeclaration_is_nearest_wins_not_a_collision() {
         let mut s = Schemas::new(grackle_model::row_schema());
-        s.set_site(
-            "series = { type = \"int\" }\n".parse().unwrap(),
-            "[schema]",
-        )
-        .unwrap();
+        s.set_site("series = { type = \"int\" }\n".parse().unwrap(), "[schema]")
+            .unwrap();
         s.add_collection(
             "notes",
             "series = { type = \"bool\" }\n".parse().unwrap(),
@@ -1055,7 +1052,10 @@ mod tests {
             FieldType::Str,
             "positional beats collection beats site"
         );
-        assert_eq!(s.resolve("notes", Path::new("x"))["series"], FieldType::Bool);
+        assert_eq!(
+            s.resolve("notes", Path::new("x"))["series"],
+            FieldType::Bool
+        );
         assert_eq!(s.resolve("other", Path::new("x"))["series"], FieldType::Int);
     }
 

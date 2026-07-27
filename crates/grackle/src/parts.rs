@@ -536,7 +536,11 @@ pub fn relation_groups(groups: Vec<crate::relate::Group>) -> Vec<PartMap> {
 /// no switcher, so it contributes nothing (hole-algebra rule 2). This is what
 /// superseded the `translations` relation — the locale switcher is one of these,
 /// beside a theme switcher or any declared axis, for rows AND listing views.
-pub fn axis_group(name: &str, label: &str, members: Vec<(String, String, bool)>) -> Option<PartMap> {
+pub fn axis_group(
+    name: &str,
+    label: &str,
+    members: Vec<(String, String, bool)>,
+) -> Option<PartMap> {
     if members.len() < 2 {
         return None;
     }
