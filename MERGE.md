@@ -306,7 +306,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   load.rs:182-188). Follow the flag-family playbook from §4e. Behavior
   identical on well-typed configs. *[parity]*
 
-- [ ] **C2. Row `theme:` validates like the other rungs.** `[site] theme`
+- [x] **C2. Row `theme:` validates like the other rungs.** `[site] theme`
   errors at load with knowns (theme.rs:79-97); a view's errors with view
   context (build.rs:386-391); a row's fails at render with **no filename**
   (build.rs:515, :1007, :1331). Validate row theme names against the
@@ -1213,6 +1213,85 @@ about `layout`/`toc` (types only) — they cannot drift silently, since the guar
 compares them, but §7's vocabulary pass may want to notice. (iii) DESIGN.md
 §4e's `CASCADE_KEYS` sentence and table row were corrected in the same commit;
 they were made false by it.
+
+**2026-07-27 — C2.** Landed. The view loop in `render_site` became
+`check_theme_names(cfg, db, &themes)`, which walks table C's ladder in one
+place, nearest rung first — axis values, then views, then rows — immediately
+after `Themes::load_all` and before any render path exists. Every `themes.get`
+in the five render paths now names a theme something has already checked.
+
+*C1 is what made the row half one sweep instead of three.* Front matter, a
+marker and a rule default all arrive on `row.theme` through the typed cascade
+now, so the marker/rule rung the item flagged as "may partly fall out of C1"
+falls out **entirely** — no second code path, and `rule-theme-unknown` is that
+claim as a fixture rather than as a sentence here. Its error names `page.md`,
+which is the right thing to name even though a rule wrote the value: the rule
+matched a hundred files and this is the one being rendered.
+
+*The axis rung was in scope and was unguarded, which answers (c).* `[axes.*]`
+values are checked against the registry **only when the axis's `field` is
+`theme`**, and nothing anywhere checked them before — not views.rs's
+declared-but-never-spent check (that is about routes), not links.rs's
+`?axis=value` check (that validates a selector against the axis's own values,
+not the values against anything). So `[axes.theme] values = ["ledger",
+"legder"]` multiplied the URL space first and failed at render second. DESIGN.md
+does not in fact promise this rung anywhere — §5a's "an unknown name is a load
+error listing the knowns" is the *view* rung (line ~888), and q53's
+"undeclared value is a load error" is the *link selector*. So this is a new
+guard rather than a promised-and-missing one, filed here because it is the
+nearest rung of the same ladder and its absence had the same shape.
+The axis's `field` itself is deliberately still unchecked — q53 settled that
+(a member may differ purely presentationally, so no field is inert) — and
+values on an axis whose field is anything else are none of this item's
+business.
+
+*Serve needed nothing.* `serve::render` re-reads config and db and calls
+`render_site` on every change ("rebuild the world"), and the on-demand path
+(`materialize_referenced`) runs *inside* `render_site`, after the check. There
+is no render anywhere that the check does not precede, so validating once at
+load covers the on-demand path and every reload revalidates. Stated rather than
+tested: the fixture harness is `render_site` too, so a serve-specific test
+would assert the same call.
+
+*Scope kept narrow, deliberately.* Only the spec's NAME half is checked
+(`split_spec`); subtheme tokens are CSS selector fodder and name nothing the
+engine could know about. That gap is stated in the function's doc comment
+rather than closed — closing it would need a theme to declare its tokens, which
+is a data-model change and a §7 question, not a validation item. The sweep also
+does not filter on `rendered`/`claimed`: a declared theme name that answers to
+nothing is a typo whether or not that row happens to reach a route, and
+skipping the check for unrendered rows would make the error appear only after
+an unrelated config edit.
+
+*Corpus:* nothing tripped, and the axis half had one live subject —
+theme-preview's fourteen-value `[axes.theme]`, every value naming a real
+directory under `themes/` (subtheme-carrying values like `ledger:dark` check
+their name half only, which is what makes them legal). field-notes' `defaults =
+{ theme = "recipes" }` is the live rule-rung subject and is correct. Parity:
+all five sites built before and after into separate trees and diffed —
+byte-identical but for each feed's wall-clock `<updated>` (5 files, nothing
+else in any diff). Zero re-blessing; three new expected-error fixtures; clippy
+clean on the new code; rustfmt wants nothing in the lines this item wrote (it
+still wants four hunks in `build.rs` that predate it — §4's finding 3, seen
+from the inside again).
+
+*Mutation-checked both new arms, each restored:* deleting the row sweep fails
+`row-theme-unknown` and `rule-theme-unknown` with the old render-time error
+verbatim — `no theme named "nosuch" — themes: loud`, the theme named and the
+file not, which is the item's own description of the disease reproduced as a
+test run. Deleting the axis loop fails `axis-theme-unknown` the same way.
+`row-theme-unknown` carries both controls in the same site (a row wearing
+`loud`, a row wearing nothing) so the sweep's two skip paths are exercised by
+the fixture that asserts its error.
+
+*For the queue (small).* (i) The view rung has no expected-error fixture of its
+own — it was pre-existing code that this item only moved, and `view-theme`
+asserts the success path. If C5 or the final review wants symmetry, it is three
+files. (ii) `check_theme_names` walks every row on every build, but
+only rows that NAME a theme reach a `BTreeMap` lookup — which on grack.com is
+zero of them (its only themed rows live under `grackle/`, which it excludes;
+field-notes' two `recipes:spicy` recipes are the corpus's front-matter rung).
+Deduping the lookup would cost more lines than it saves.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
