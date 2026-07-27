@@ -1,3 +1,4 @@
+use crate::effective::{collection_seg, index_seg, Prov, Trace};
 use crate::markers::MarkerDef;
 use crate::shape::{annotated, field, Law, Shape, Shaped};
 use anyhow::{Context, Result};
@@ -413,33 +414,155 @@ fn law_of(shape: &Shape, key: &str) -> Law {
 
 /// One key's merge, its law now known. A key the base never wrote is the
 /// site's whole under every law, so `base` is always a value both sides hold.
-fn merge_by(law: Law, base: toml::Value, site: toml::Value) -> toml::Value {
+fn merge_by(
+    law: Law,
+    base: toml::Value,
+    site: toml::Value,
+    path: &mut Vec<String>,
+    t: &mut Trace,
+) -> toml::Value {
     match law {
-        Law::Atom => site,
-        Law::Descend(n) => merge_to_depth(base, site, n),
-        Law::Collections => merge_collection_list(base, site),
-        Law::Prepend => prepend(base, site),
+        Law::Atom => {
+            t.record(path, Prov::SiteOverBase);
+            site
+        }
+        Law::Descend(n) => merge_to_depth(base, site, n, path, t),
+        Law::Collections => merge_collection_list(base, site, path, t),
+        Law::Prepend => prepend(base, site, path, t),
     }
 }
 
 /// The site's array in front of the base's. Either side not an array leaves
 /// the site's value whole — there is nothing to interleave.
-fn prepend(base: toml::Value, site: toml::Value) -> toml::Value {
+fn prepend(
+    base: toml::Value,
+    site: toml::Value,
+    path: &mut Vec<String>,
+    t: &mut Trace,
+) -> toml::Value {
     let (Some(b), Some(s)) = (base.as_array(), site.as_array()) else {
+        t.record(path, Prov::SiteOverBase);
         return site;
     };
     let mut out = s.clone();
     out.extend(b.iter().cloned());
+    // Nearness IS the list order here, so the provenance is the index: the
+    // site's rules occupy the front, the base's the tail.
+    if t.on() {
+        for i in 0..out.len() {
+            path.push(index_seg(i));
+            t.record(path, if i < s.len() { Prov::Site } else { Prov::Base });
+            path.pop();
+        }
+    }
     toml::Value::Array(out)
+}
+
+/// The keys that have a value even when neither writer wrote one, and what
+/// that value is. Rung 6 one notch further in than `base.toml`: a serde
+/// default is still the engine speaking.
+///
+/// Not a second copy of the defaults — these ARE the functions each field's
+/// `#[serde(default = "…")]` names, called. A field given a new default
+/// changes here with nothing to remember; a NEW defaulted scalar has to be
+/// added, which is what `every_defaulted_scalar_is_printed` is for.
+fn engine_defaults() -> Vec<(&'static str, toml::Value)> {
+    vec![
+        ("extends", default_extends().into()),
+        ("root", default_root().display().to_string().into()),
+        ("gitignore", default_true().into()),
+    ]
 }
 
 /// Merge the base config underneath a site's own (§4d). Every rule this
 /// applies already existed somewhere in the system, which is the evidence that
 /// config inheritance needed no new law; [`Config::shape`] is the whole of it.
 fn merge_base(site: toml::Value) -> Result<toml::Value> {
+    merge_base_traced(site, &mut Trace::off())
+}
+
+/// The same merge with a recorder attached — the only entry point
+/// `--effective` has, so what it prints is what the load path did. See
+/// [`crate::effective`].
+fn merge_base_traced(site: toml::Value, t: &mut Trace) -> Result<toml::Value> {
     let base: toml::Value =
         toml::from_str(BASE).context("parsing the built-in base config (this is an engine bug)")?;
-    Ok(merge_table(base, site, &Config::shape()))
+    Ok(merge_table(
+        base,
+        site,
+        &Config::shape(),
+        &mut Vec::new(),
+        t,
+    ))
+}
+
+// ------------------------------------------------------------- the recorder
+//
+// Provenance is not derived by comparing two configs afterwards: it is written
+// down by the merge, as it decides. What follows records the decisions the
+// merge does NOT make key by key — a subtree one side never wrote, which the
+// merge passes through untouched and which is therefore where the base is most
+// invisible and most worth naming.
+
+/// Record `prov` for every atom under `path`, descending exactly as far as the
+/// merge would have descended had both sides written here.
+fn note_key(t: &mut Trace, path: &mut Vec<String>, law: Law, v: &toml::Value, prov: Prov) {
+    if !t.on() {
+        return;
+    }
+    match law {
+        Law::Atom => t.record(path, prov),
+        Law::Descend(n) => note_depth(t, path, n, v, prov),
+        Law::Collections => match v.as_array() {
+            Some(a) => {
+                for e in a {
+                    path.push(collection_seg(e));
+                    note_table(t, path, &Collection::shape(), e, prov);
+                    path.pop();
+                }
+            }
+            None => t.record(path, prov),
+        },
+        Law::Prepend => match v.as_array() {
+            Some(a) => {
+                for i in 0..a.len() {
+                    path.push(index_seg(i));
+                    t.record(path, prov);
+                    path.pop();
+                }
+            }
+            None => t.record(path, prov),
+        },
+    }
+}
+
+/// `note_key` for a whole table whose keys have laws of their own — the
+/// config itself, or one `[[collections]]` entry.
+fn note_table(t: &mut Trace, path: &mut Vec<String>, shape: &Shape, v: &toml::Value, prov: Prov) {
+    let Some(tbl) = v.as_table().filter(|tbl| !tbl.is_empty()) else {
+        t.record(path, prov);
+        return;
+    };
+    for (k, kv) in tbl {
+        path.push(k.clone());
+        note_key(t, path, law_of(shape, k), kv, prov);
+        path.pop();
+    }
+}
+
+/// The depth half of Law 2, walked for recording rather than for merging: an
+/// atom sits at `depth` levels down, or wherever the tables run out first.
+fn note_depth(t: &mut Trace, path: &mut Vec<String>, depth: usize, v: &toml::Value, prov: Prov) {
+    match v.as_table().filter(|tbl| depth > 0 && !tbl.is_empty()) {
+        None => t.record(path, prov),
+        Some(tbl) => {
+            for (k, kv) in tbl {
+                path.push(k.clone());
+                note_depth(t, path, depth - 1, kv, prov);
+                path.pop();
+            }
+        }
+    }
 }
 
 /// One table merged over another, each key by its law. The shared body of the
@@ -451,44 +574,89 @@ fn merge_base(site: toml::Value) -> Result<toml::Value> {
 /// and it is the ONLY thing consulted: a key's law is a fact about its
 /// field's type (MERGE.md B2), so there is no table here to keep in step with
 /// `Config` and no depth for anyone to assign.
-fn merge_table(base: toml::Value, site: toml::Value, shape: &Shape) -> toml::Value {
+/// `path` and `t` are the recorder (MERGE.md B3). The load path passes
+/// `Trace::off()`, which reduces the whole apparatus to one bool test per key;
+/// `--effective` passes a recording one and prints what it wrote. There is no
+/// second traversal and no after-the-fact diff of the two configs, so the
+/// provenance cannot disagree with the merge that produced it.
+fn merge_table(
+    base: toml::Value,
+    site: toml::Value,
+    shape: &Shape,
+    path: &mut Vec<String>,
+    t: &mut Trace,
+) -> toml::Value {
     let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
+        t.record(path, Prov::SiteOverBase);
         return site;
     };
     let mut out = bt.clone();
     for (k, sv) in st.clone() {
+        path.push(k.clone());
+        let law = law_of(shape, &k);
         let merged = match out.remove(&k) {
-            Some(bv) => merge_by(law_of(shape, &k), bv, sv),
-            None => sv,
+            Some(bv) => merge_by(law, bv, sv, path, t),
+            None => {
+                note_key(t, path, law, &sv, Prov::Site);
+                sv
+            }
         };
+        path.pop();
         out.insert(k, merged);
+    }
+    if t.on() {
+        for (k, bv) in bt.iter().filter(|(k, _)| !st.contains_key(*k)) {
+            path.push(k.clone());
+            note_key(t, path, law_of(shape, k), bv, Prov::Base);
+            path.pop();
+        }
     }
     toml::Value::Table(out)
 }
 
 /// Per-key merge down `depth` levels of tables; below that the site's value
 /// replaces the base's whole. Depth 1 = "the named entry is the unit".
-fn merge_to_depth(base: toml::Value, site: toml::Value, depth: usize) -> toml::Value {
+fn merge_to_depth(
+    base: toml::Value,
+    site: toml::Value,
+    depth: usize,
+    path: &mut Vec<String>,
+    t: &mut Trace,
+) -> toml::Value {
     let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
+        t.record(path, Prov::SiteOverBase);
         return site;
     };
     if depth == 0 {
+        t.record(path, Prov::SiteOverBase);
         return site;
     }
     let mut out = bt.clone();
     for (k, sv) in st.clone() {
+        path.push(k.clone());
         let merged = match out.remove(&k) {
-            Some(bv) => merge_to_depth(bv, sv, depth - 1),
-            None => sv,
+            Some(bv) => merge_to_depth(bv, sv, depth - 1, path, t),
+            None => {
+                note_depth(t, path, depth - 1, &sv, Prov::Site);
+                sv
+            }
         };
+        path.pop();
         out.insert(k, merged);
+    }
+    if t.on() {
+        for (k, bv) in bt.iter().filter(|(k, _)| !st.contains_key(*k)) {
+            path.push(k.clone());
+            note_depth(t, path, depth - 1, bv, Prov::Base);
+            path.pop();
+        }
     }
     toml::Value::Table(out)
 }
 
 /// What identifies a collection across the merge: its source directory, else
 /// its name (objects have no source — they are matched by extension).
-fn collection_key(c: &toml::Value) -> Option<String> {
+pub(crate) fn collection_key(c: &toml::Value) -> Option<String> {
     let t = c.as_table()?;
     if let Some(s) = t.get("source").and_then(|v| v.as_str()) {
         let s = s.trim_end_matches('/');
@@ -499,25 +667,54 @@ fn collection_key(c: &toml::Value) -> Option<String> {
         .map(|n| format!("name:{n}"))
 }
 
-fn merge_collection_list(base: toml::Value, site: toml::Value) -> toml::Value {
+fn merge_collection_list(
+    base: toml::Value,
+    site: toml::Value,
+    path: &mut Vec<String>,
+    t: &mut Trace,
+) -> toml::Value {
     let (Some(ba), Some(sa)) = (base.as_array(), site.as_array()) else {
+        t.record(path, Prov::SiteOverBase);
         return site;
     };
     let mut out = ba.clone();
+    // Which of the base's entries the site came and met. The rest are the
+    // collections a site inherits without knowing they exist.
+    let mut paired = vec![false; ba.len()];
     for sc in sa {
+        path.push(collection_seg(sc));
         match collection_key(sc).and_then(|k| {
             out.iter()
                 .position(|bc| collection_key(bc).as_deref() == Some(k.as_str()))
         }) {
-            Some(i) => out[i] = merge_collection(out[i].clone(), sc.clone()),
-            None => out.push(sc.clone()),
+            Some(i) => {
+                paired[i] = true;
+                out[i] = merge_collection(out[i].clone(), sc.clone(), path, t);
+            }
+            None => {
+                note_table(t, path, &Collection::shape(), sc, Prov::Site);
+                out.push(sc.clone());
+            }
+        }
+        path.pop();
+    }
+    if t.on() {
+        for bc in ba.iter().zip(&paired).filter(|(_, m)| !**m).map(|(c, _)| c) {
+            path.push(collection_seg(bc));
+            note_table(t, path, &Collection::shape(), bc, Prov::Base);
+            path.pop();
         }
     }
     toml::Value::Array(out)
 }
 
-fn merge_collection(base: toml::Value, site: toml::Value) -> toml::Value {
-    merge_table(base, site, &Collection::shape())
+fn merge_collection(
+    base: toml::Value,
+    site: toml::Value,
+    path: &mut Vec<String>,
+    t: &mut Trace,
+) -> toml::Value {
+    merge_table(base, site, &Collection::shape(), path, t)
 }
 
 /// `index.{md,html}` -> `["index.md", "index.html"]`. One group, which is all
@@ -1019,7 +1216,6 @@ impl Axis {
     pub fn canonical(&self) -> Option<&str> {
         self.values.first().map(String::as_str)
     }
-
 }
 
 /// What a view ranges over (§5c). One name — a collection, another view, or
@@ -1325,30 +1521,110 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Whether this config inherits the base (§4d). Written once so that the
+    /// error naming the two legal values is one sentence with one author, and
+    /// `--effective` cannot come to a different verdict than the load does.
+    fn extends_of(value: &toml::Value) -> Result<bool> {
+        match value
+            .get("extends")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+        {
+            "default" => Ok(true),
+            "none" => Ok(false),
+            other => anyhow::bail!(
+                "extends = {other:?} — the only values are \"default\" (inherit \
+                 the engine's base config, §4d) and \"none\" (declare \
+                 everything yourself)."
+            ),
+        }
+    }
+
+    /// The config the engine actually runs, as TOML with per-key provenance —
+    /// `grackle config --effective` (MERGE.md B3). DESIGN.md §4d calls this
+    /// the thing that makes §4d "inheritance rather than magic".
+    ///
+    /// Stops before deserialization on purpose, for two reasons. The merged
+    /// `toml::Value` is the honest artifact — it is exactly what the
+    /// deserializer is handed, where a re-serialization of `Config` would be a
+    /// second rendering of the truth with its own bugs. And it means the
+    /// command answers on a config the engine has REJECTED, which is when a
+    /// person most needs to see what the engine thinks they wrote.
+    pub fn effective(path: &Path, profile: Option<&str>) -> Result<String> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config {}", path.display()))?;
+        Config::effective_toml(&text, &path.display().to_string(), profile)
+            .with_context(|| format!("reading config {}", path.display()))
+    }
+
+    /// [`Config::effective`] on text already in hand; `label` names the file
+    /// in the preamble.
+    pub fn effective_toml(text: &str, label: &str, profile: Option<&str>) -> Result<String> {
+        let value: toml::Value = toml::from_str(text)?;
+        let mut trace = Trace::recording();
+        let inherits_base = Config::extends_of(&value)?;
+        let mut merged = if inherits_base {
+            merge_base_traced(value, &mut trace)?
+        } else {
+            // `extends = "none"`: no merge happened, so there is nothing for
+            // the merge to have recorded — every key is the site's own. Walked
+            // through the recorder's own descent so the atoms land at exactly
+            // the paths a merged config's would.
+            note_table(
+                &mut trace,
+                &mut Vec::new(),
+                &Config::shape(),
+                &value,
+                Prov::Site,
+            );
+            value
+        };
+        // The keys neither file wrote still have values, and those are the ones
+        // a reader has least chance of finding. Not a copy of serde's defaults:
+        // the same functions `#[serde(default = "…")]` names.
+        if let Some(t) = merged.as_table_mut() {
+            for (k, v) in engine_defaults() {
+                if !t.contains_key(k) {
+                    trace.record(&[k.to_string()], Prov::Default);
+                    t.insert(k.to_string(), v);
+                }
+            }
+        }
+        let mut preamble = format!("# The effective config for {label}.\n#\n");
+        preamble.push_str(if inherits_base {
+            "# This site's grackle.toml merged over the base config compiled into\n\
+             # the engine (DESIGN.md §4d, MERGE.md §3A). It is the table the\n\
+             # deserializer is handed — not a diff of the two files: the merge\n\
+             # itself recorded where every line below came from.\n"
+        } else {
+            "# `extends = \"none\"`, so no base was merged: this site declares its\n\
+             # whole config, and every key below is its own (DESIGN.md §4d).\n"
+        });
+        if let Some(name) = profile {
+            preamble.push_str(&format!(
+                "#\n# NOTE: profile {name:?} is a PROJECTION applied after this merge\n\
+                 # (§4a), in Rust rather than in TOML, and is not shown here.\n"
+            ));
+        }
+        Ok(crate::effective::render(&merged, &trace, &preamble))
+    }
+
     /// Parse and fold the query sections. The one parse path, so a config
     /// built in a test is the same shape as one read from disk — including
     /// the §4d base merge, which is why a test wanting isolation says
     /// `extends = "none"` rather than reaching for a second entry point.
     pub fn from_toml(text: &str) -> Result<Config> {
         let value: toml::Value = toml::from_str(text)?;
-        let extends = value
-            .get("extends")
-            .and_then(|v| v.as_str())
-            .unwrap_or("default");
+        let inherits_base = Config::extends_of(&value)?;
         // Whose view is whose, recorded before the merge blurs the two.
         let declared: Vec<String> = ["sets", "routes"]
             .iter()
             .filter_map(|k| value.get(k)?.as_table())
             .flat_map(|t| t.keys().cloned())
             .collect();
-        let value = match extends {
-            "none" => value,
-            "default" => merge_base(value)?,
-            other => anyhow::bail!(
-                "extends = {other:?} — the only values are \"default\" (inherit \
-                 the engine's base config, §4d) and \"none\" (declare \
-                 everything yourself)."
-            ),
+        let value = match inherits_base {
+            false => value,
+            true => merge_base(value)?,
         };
         let mut cfg: Config = match value.try_into() {
             Ok(c) => c,
@@ -2523,7 +2799,7 @@ mod tests {
     fn merged(base: &str, site: &str) -> toml::Table {
         let b = toml::from_str(base).expect("test base should parse");
         let s = toml::from_str(site).expect("test site should parse");
-        match merge_table(b, s, &Config::shape()) {
+        match merge_table(b, s, &Config::shape(), &mut Vec::new(), &mut Trace::off()) {
             toml::Value::Table(t) => t,
             v => panic!("merging two tables should give a table: {v:?}"),
         }
@@ -3165,5 +3441,227 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(c.i18n.text(i, "en"), "Sure to please!");
+    }
+
+    // ------------------------------------------- `config --effective` (B3)
+
+    /// The effective config of a site whose text is `site`, with the preamble
+    /// stripped so an assertion is about the config and not about the prose.
+    fn effective(site: &str) -> String {
+        let printed =
+            Config::effective_toml(site, "test", None).expect("the effective config should print");
+        printed
+            .lines()
+            .skip_while(|l| l.starts_with('#') || l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The line that carries `key`, comment and all.
+    fn provenance_of(printed: &str, key: &str) -> String {
+        printed
+            .lines()
+            .find(|l| l.trim_start().starts_with(key))
+            .unwrap_or_else(|| panic!("no line for {key} in:\n{printed}"))
+            .to_string()
+    }
+
+    /// Law 2 at the surface a person reads: a redeclared registry entry says
+    /// SITE and the base's entry is gone entirely — not merged, not half
+    /// present. `limit = 20` is the base's `[routes.feed]`, and its absence
+    /// here is the whole claim.
+    #[test]
+    fn a_shadowed_registry_entry_reads_as_one_atom_from_the_site() {
+        let out = effective(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [routes.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
+        );
+        assert!(
+            provenance_of(&out, "[routes.feed]").contains("# site over base, whole"),
+            "{out}"
+        );
+        assert!(
+            !out.contains("limit = 20"),
+            "the base's feed entry survived the shadow:\n{out}"
+        );
+        // And the entry's own keys carry no provenance: the atom said it once.
+        assert_eq!(
+            provenance_of(&out, "path = \"/feed.xml\""),
+            "path = \"/feed.xml\""
+        );
+        // A neighbour the site never wrote is the point of the command.
+        assert!(
+            provenance_of(&out, "[routes.home]").contains("# base, whole"),
+            "{out}"
+        );
+    }
+
+    /// A bag is the other law at the same depth, and reads differently: three
+    /// keys, three answers, on one table.
+    #[test]
+    fn a_merged_bag_shows_its_sources_key_by_key() {
+        let out = effective("[site]\ntitle = \"Mine\"\nemail = \"me@example.com\"\n");
+        assert!(
+            provenance_of(&out, "title =").contains("# site over base"),
+            "{out}"
+        );
+        assert!(provenance_of(&out, "email =").contains("# site"), "{out}");
+        assert!(provenance_of(&out, "url =").ends_with("# base"), "{out}");
+        assert!(
+            provenance_of(&out, "author =").ends_with("# base"),
+            "the base's empty author is still the base's:\n{out}"
+        );
+    }
+
+    /// A whole table the site never mentioned. `[markers]` is the base's
+    /// three, and a site that has never heard of `.draft` still has it — the
+    /// invisible base, made visible, which is the reason this command exists.
+    #[test]
+    fn an_untouched_table_is_all_base() {
+        let out = effective("[site]\ntitle = \"Mine\"\n");
+        for m in ["\".draft\"", "\".hidden\"", "\".noindex\""] {
+            assert!(
+                provenance_of(&out, m).contains("# base, whole"),
+                "{m} in:\n{out}"
+            );
+        }
+        assert!(
+            provenance_of(&out, "[sets.published]").contains("# base, whole"),
+            "{out}"
+        );
+        // Never written by either file: serde's default, and it is named as
+        // such rather than passed off as the base's.
+        assert!(
+            provenance_of(&out, "gitignore =").ends_with("# default"),
+            "{out}"
+        );
+        assert!(
+            provenance_of(&out, "root =").ends_with("# default"),
+            "{out}"
+        );
+    }
+
+    /// §1's annotation, read out loud. A site's rules go in front and say
+    /// `site`; the base's catch-all sits behind them and says `base`, which is
+    /// how "first writer wins" looks when you can see the list.
+    #[test]
+    fn prepended_rules_carry_provenance_per_rule() {
+        let out = effective(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections.rules]]\nmatch = \"drafts/**\"\nroute = \"/d/{slug}/\"\n",
+        );
+        // Only the posts collection's rules: the base's other two collections
+        // are printed too, and their rules are a different list.
+        let posts = out
+            .split("\n[[collections]]")
+            .find(|c| c.contains("source = \"_posts\""))
+            .unwrap_or_else(|| panic!("no posts collection in:\n{out}"));
+        let rules: Vec<&str> = posts
+            .lines()
+            .filter(|l| l.starts_with("[[collections.rules]]"))
+            .collect();
+        assert_eq!(rules.len(), 2, "site rule + the base's catch-all:\n{out}");
+        assert!(rules[0].contains("# site, whole"), "{out}");
+        assert!(rules[1].contains("# base, whole"), "{out}");
+        assert!(
+            out.contains("match = \"drafts/**\""),
+            "the site's rule is first:\n{out}"
+        );
+    }
+
+    /// `extends = "none"` has no merge to record, so the walk that stands in
+    /// for one must reach the same atoms: every key the site's own, at the
+    /// same granularity (`[sets.x]` whole, `[site]` per key).
+    #[test]
+    fn an_uninheriting_site_owns_every_key() {
+        let out = effective(
+            "extends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [sets.mine]\nfrom = \"posts\"\nwhere = \"!draft\"\norder_by = \"-date\"\n\
+             [markers]\n\".x\" = { draft = true }\n",
+        );
+        for (key, want) in [
+            ("extends =", "# site"),
+            ("url =", "# site"),
+            ("[sets.mine]", "# site, whole"),
+            ("\".x\"", "# site, whole"),
+        ] {
+            assert!(provenance_of(&out, key).contains(want), "{key} in:\n{out}");
+        }
+        assert!(!out.contains("# base"), "nothing was inherited:\n{out}");
+    }
+
+    /// The printer neither drops a key nor invents one: parsed back, the text
+    /// IS the merged table. Comments are TOML's own, so nothing is stripped —
+    /// the parser does that.
+    ///
+    /// This is the test that makes the rest safe to read. Provenance is a
+    /// comment and a comment cannot be wrong about a value it does not carry;
+    /// what could go wrong is the VALUE — a definition flattened, an inline
+    /// table mis-quoted, a key printed under the wrong header — and a
+    /// round-trip catches every one of those.
+    #[test]
+    fn printing_the_merged_config_loses_nothing() {
+        for site in [
+            "",
+            "[site]\ntitle = \"Mine\"\n",
+            "extends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n",
+            // Every shape the printer distinguishes, in one file: an
+            // array-of-tables keyed by identity, its rules, a nested map of
+            // definitions, a localized string, a quoted key, an inline table.
+            "root = \"..\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [collections.schema]\ncover = { type = \"image\" }\n\
+             [[collections.rules]]\nmatch = \"**\"\ndefaults = { layout = \"post\" }\n\
+             [collections.relations.related]\nover = \"published\"\nlimit = 3\n\
+             [axes.locale]\nfield = \"locale\"\ntemplate = \"/{locale}{path}\"\n\
+             [html.head.meta]\n\"apple-title\" = 'site.title'\n\
+             [i18n]\nlocales = [\"fr\"]\n[i18n.strings]\nhome = { en = \"Home\", fr = \"Accueil\" }\n\
+             [records.course.dinner]\nname = { en = \"Dinner\", fr = \"Dîner\" }\n\
+             [widgets]\nnote = \"<aside>{body}</aside>\"\n",
+        ] {
+            let printed = Config::effective_toml(site, "test", None).expect("prints");
+            let back: toml::Value = toml::from_str(&printed)
+                .unwrap_or_else(|e| panic!("the printed config is not TOML: {e}\n{printed}"));
+
+            let value: toml::Value = toml::from_str(site).unwrap();
+            let mut want = match Config::extends_of(&value).unwrap() {
+                true => merge_base(value).unwrap(),
+                false => value,
+            };
+            let t = want.as_table_mut().unwrap();
+            for (k, v) in engine_defaults() {
+                if !t.contains_key(k) {
+                    t.insert(k.to_string(), v);
+                }
+            }
+            assert_eq!(back, want, "printed:\n{printed}");
+        }
+    }
+
+    /// A key TOML would not accept bare has to be quoted in a HEADER too, not
+    /// only in a `k = v` line — `[markers.".archive"]`. Found by mutating the
+    /// base-recording loop away, which turned every inherited marker into a
+    /// block and printed `[markers..draft]`; the payload here is long enough
+    /// to take that path without a mutation.
+    #[test]
+    fn a_quoted_key_stays_quoted_in_a_table_header() {
+        let site = "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n[markers]\n\
+                    \".archive\" = { noindex = true, hidden = true, draft = true, layout = \"post\" }\n";
+        let out = effective(site);
+        assert!(out.contains("[markers.\".archive\"]"), "{out}");
+        toml::from_str::<toml::Value>(&Config::effective_toml(site, "t", None).unwrap())
+            .expect("a quoted header must parse");
+    }
+
+    /// The cost argument, asserted rather than claimed: the load path merges
+    /// with a recorder that is off, and an off recorder holds nothing however
+    /// much config goes past it.
+    #[test]
+    fn the_load_path_records_nothing() {
+        let mut off = Trace::off();
+        let site: toml::Value = toml::from_str("[site]\ntitle = \"Mine\"\n").unwrap();
+        merge_base_traced(site, &mut off).unwrap();
+        assert_eq!(off.len(), 0);
     }
 }

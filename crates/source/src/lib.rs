@@ -6,6 +6,7 @@
 //! knows a site is a directory of files described by a `grackle.toml`.
 
 pub mod config;
+mod effective;
 pub mod filename;
 pub mod load;
 pub mod markers;

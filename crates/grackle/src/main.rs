@@ -27,6 +27,20 @@ enum Cmd {
     /// Query the content database.
     #[command(subcommand)]
     Query(Query),
+    /// Everything known about one URL — `query explain` under the name the
+    /// docs teach it by (DESIGN.md §0, TODO-1.0.md).
+    Explain { url: String },
+    /// Show the config the engine actually runs, with per-key provenance.
+    ///
+    /// `--effective` is the name DESIGN.md §4d gives it and the only thing
+    /// this subcommand does today, so the bare command prints the same thing;
+    /// the flag exists so the documented spelling works.
+    Config {
+        /// Print the merged config: the site's file over the base's, with
+        /// where each value came from (§4d).
+        #[arg(long)]
+        effective: bool,
+    },
     /// Dump the whole database as JSON.
     Export {
         /// Write to a file instead of stdout.
@@ -132,12 +146,24 @@ fn main() -> Result<()> {
         .profile
         .clone()
         .or_else(|| matches!(cli.cmd, Cmd::Serve { .. }).then(|| "dev".to_string()));
+    // Before the load, deliberately: `--effective` answers about a config the
+    // engine has rejected, which is when it is most wanted.
+    if let Cmd::Config { .. } = cli.cmd {
+        print!(
+            "{}",
+            config::Config::effective(&cli.config, profile.as_deref())?
+        );
+        return Ok(());
+    }
     let cfg = config::Config::load_profile(&cli.config, profile.as_deref())?;
     let mut db = grackle_source::load(&cfg).context("loading site database")?;
     let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     match cli.cmd {
         Cmd::Query(q) => run_query(q, &cfg, &db, total_ms)?,
+        Cmd::Explain { url } => run_query(Query::Explain { url }, &cfg, &db, total_ms)?,
+        // Handled above, before the database load.
+        Cmd::Config { .. } => unreachable!(),
         Cmd::Export { out, pretty } => {
             let json = if pretty {
                 serde_json::to_string_pretty(&db)?

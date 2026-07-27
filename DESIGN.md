@@ -525,8 +525,8 @@ Two live users, which is what keeps the escape hatch real:
 - **`examples/raw`** is the base config *printed*: the same content tree as
   `minimal`, everything spelled out. A test holds the two to the same URL set,
   so the printed copy cannot drift from the compiled one without going red.
-  This is also the answer to "what am I inheriting" until `grackle config
-  --effective` exists.
+  It is also the answer to "what am I inheriting" that a person can read and
+  argue with; `grackle config --effective` is the exact one.
 - **`theme-preview/`**, whose shape the base did not anticipate: six posts
   collections, one per theme, and no site-level blog. Every `kind = "posts"`
   collection feeds the one posts table (§4), so the base's `published` swept
@@ -550,8 +550,10 @@ The base config merge is inert on sites that already declared everything, verifi
   and no policy yet.
 - **`grackle config --effective`** — printing the merged config with
   provenance per key — is what makes this inheritance rather than magic, and it
-  is not built. `examples/raw` is the stopgap. It is `explain`'s "which rule
-  wrote which key" one level up, and it should ship before 1.0.
+  ships (MERGE.md B3). The merge itself records which writer supplied each
+  atom, so the output cannot disagree with the load; `examples/raw` stays the
+  readable copy beside it. It is `explain`'s "which rule wrote which key" one
+  level up.
 
 ## 4e. The flag family is not engine vocabulary
 

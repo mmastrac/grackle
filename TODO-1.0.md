@@ -44,17 +44,17 @@ The pipeline is `file → row → query → doc model → parts → slots → CS
 Stages 1–2 have `query explain`; 4–6 have nothing, and the config merge added a
 layer with no inspector at all.
 
-- [ ] **`grackle config --effective`** — print the merged config with provenance
+- [x] **`grackle config --effective`** — print the merged config with provenance
       per key (base vs site file). This is what makes `extends` inheritance
       rather than magic; `examples/raw` is the stopgap. (§4d, named there as
-      "should ship before 1.0")
+      "should ship before 1.0") — landed, MERGE.md B3.
 - [ ] **`grackle explain <url> --parts`** — the part map, which producer filled
       each part, which fragment placed it, and **which parts nothing placed**.
       The last is a partial answer to q50's forgotten-vs-deliberate hole that
       needs no settlement first.
-- [ ] **Top-level `grackle explain`** — `DESIGN.md` §0 and the manual (ch. 2)
+- [x] **Top-level `grackle explain`** — `DESIGN.md` §0 and the manual (ch. 2)
       both teach `grackle explain <url>` as *the* debugging tool; the command is
-      `grackle query explain`. Alias it.
+      `grackle query explain`. Alias it. — landed beside B3.
 
 ## The theme ladder and distribution
 

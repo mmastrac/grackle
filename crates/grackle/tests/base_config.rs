@@ -116,3 +116,90 @@ fn extends_none_inherits_nothing() {
     assert!(cfg.views.is_empty(), "{:?}", cfg.views.keys());
     assert!(cfg.markers.is_empty(), "{:?}", cfg.markers.keys());
 }
+
+// ------------------------------------------------- `config --effective` (B3)
+//
+// No golden file, deliberately. `examples/raw` is already the printed base and
+// it is a document a person edits and argues with; a machine-generated second
+// copy would have to be re-blessed on every `base.toml` edit, and a golden
+// nobody reads is a test that asserts the code does what the code does
+// (fixtures.rs says this out loud). What follows asserts the things a golden
+// would have been consulted FOR, and none of them churn: the text is TOML, and
+// the two example sites that have an absolute answer about provenance give it.
+
+/// Every config in the repo prints, and prints TOML. Comments are TOML's own,
+/// so "valid with the comments stripped" needs no stripping — the parser does
+/// it, which is also the only definition of stripping that cannot be wrong.
+#[test]
+fn every_sites_effective_config_parses_back() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for rel in [
+        "grackle.toml", // grack.com itself
+        "theme-preview/grackle.toml",
+        "examples/minimal/grackle.toml",
+        "examples/raw/grackle.toml",
+        "examples/field-notes/grackle.toml",
+    ] {
+        let path = repo.join(rel);
+        let printed = grackle_source::config::Config::effective(&path, None)
+            .unwrap_or_else(|e| panic!("{rel}: {e:#}"));
+        let back: toml::Value = toml::from_str(&printed)
+            .unwrap_or_else(|e| panic!("{rel} printed something that is not TOML: {e}\n{printed}"));
+        let t = back.as_table().expect("a config is a table");
+        assert!(t.contains_key("site"), "{rel} lost [site]");
+        assert!(t.contains_key("collections"), "{rel} lost the collections");
+    }
+}
+
+/// The claim §4d is built on, seen instead of inferred: an empty
+/// `grackle.toml` is a whole config, and every line of it says `base` —
+/// except the three keys neither file writes, which say `default`.
+///
+/// This is the golden test's job without the golden's churn: it fails if the
+/// merge starts attributing the base's own values to the site, and it does not
+/// care what the base config happens to contain today.
+#[test]
+fn the_empty_sites_effective_config_is_entirely_inherited() {
+    let path = examples().join("minimal/grackle.toml");
+    let printed = grackle_source::config::Config::effective(&path, None).unwrap();
+    let body: Vec<&str> = printed
+        .lines()
+        .skip_while(|l| l.starts_with('#') || l.is_empty())
+        .collect();
+    assert!(body.len() > 50, "suspiciously short:\n{printed}");
+    for line in &body {
+        let Some((_, comment)) = line.split_once("# ") else {
+            continue;
+        };
+        assert!(
+            comment.starts_with("base") || comment.starts_with("default"),
+            "the empty site wrote something: {line}"
+        );
+    }
+    assert!(
+        body.iter().any(|l| l.contains("# default")),
+        "the defaulted keys are missing:\n{printed}"
+    );
+}
+
+/// And its mirror: `examples/raw` inherits nothing, so nothing may be
+/// attributed to the base. The pair is what proves the comments track the
+/// merge rather than the shape of the file.
+#[test]
+fn the_uninheriting_sites_effective_config_is_entirely_its_own() {
+    let path = examples().join("raw/grackle.toml");
+    let printed = grackle_source::config::Config::effective(&path, None).unwrap();
+    let body: Vec<&str> = printed
+        .lines()
+        .skip_while(|l| l.starts_with('#') || l.is_empty())
+        .collect();
+    for line in &body {
+        let Some((_, comment)) = line.split_once("# ") else {
+            continue;
+        };
+        assert!(
+            comment.starts_with("site") || comment.starts_with("default"),
+            "extends = \"none\" inherited something: {line}"
+        );
+    }
+}
