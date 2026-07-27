@@ -131,14 +131,14 @@ pub struct Config {
     /// to know the trap exists.
     #[serde(skip)]
     pub config_file: PathBuf,
-    /// Whether the SITE's own file wrote `[html.head.meta] robots` (§4a,
-    /// MERGE.md C6d). A profile's `noindex = true` overrides that expression,
-    /// and overriding the BASE's is the whole point — but overriding one the
-    /// author wrote is a loss, so this is what lets the override say so.
-    /// Read off the raw TOML before the merge, which is the cheapest place
-    /// the question has an answer at all.
+    /// The selected profile's rung-0 fields, once `apply_profile` has run
+    /// (§2, MERGE.md E1) — `[profiles.NAME.force]`, lifted out of the profile
+    /// so the loader can reach it without knowing about profiles.
+    ///
+    /// Empty is the ordinary case and the whole cost of the feature on a site
+    /// that declares none: `schema::force` iterates it once per row.
     #[serde(skip)]
-    pub site_robots: bool,
+    pub forced: BTreeMap<String, toml::Value>,
 }
 
 /// One profile's overrides. Closed vocabulary, checked at load: an unknown
@@ -155,10 +155,34 @@ pub struct ProfileCfg {
     /// canonical URL pointing at the real site. Making it a true route
     /// prefix is the punted half of this axis.
     pub url: Option<String>,
-    /// A profile publishing to its own URL space usually should not be
-    /// indexed — q10 is exactly this case, stated once instead of per page.
+    /// **Rung 0** (§2, MERGE.md E1): schema-declared fields the projection
+    /// forces, above front matter, markers and rules — on the ROW and on every
+    /// ROUTE, so a listing surface answers the same expression a document does.
+    ///
+    /// It is the projection's veto, and the only rung that outranks the row
+    /// itself. A profile publishing to its own URL space says
+    /// `force = { noindex = true }` and the site's own
+    /// `robots = 'noindex ? …'` expression evaluates it — which is why this
+    /// replaced a key that reached into `[html.head.meta]` and overwrote the
+    /// declaration with a constant: forcing the FIELD says the same thing in
+    /// the site's own vocabulary, and a site that wrote a different expression
+    /// keeps it.
+    ///
+    /// Names come from the site's `[schema]` and are type-checked at load, for
+    /// every declared profile — see [`Config::check_profiles`].
     #[serde(default)]
-    pub noindex: bool,
+    pub force: BTreeMap<String, toml::Value>,
+    /// **The removed spelling**, kept only so it can say what it became
+    /// (MERGE.md E1). `[profiles.NAME] noindex = true` used to overwrite
+    /// `[html.head.meta] robots` with the constant `"noindex,follow"`,
+    /// clobbering a site's own expression on every page of the projection.
+    /// Deleting the field outright would leave serde's "unknown field
+    /// `noindex`" — true, and silent about the one-line migration — so the
+    /// spelling survives as a load error naming the new one. One meaning per
+    /// spelling: `noindex = false` is refused too, since it never meant
+    /// anything either.
+    #[serde(default)]
+    pub noindex: Option<bool>,
     /// Selection: per-query `where` replacements. Queries are the only
     /// selection mechanism, so a profile never changes what LOADS — the
     /// database is identical under every profile, which is what makes two
@@ -235,7 +259,7 @@ fn every_config_key_has_a_law(c: Config) {
         profile: _,
         dir: _,
         config_file: _,
-        site_robots: _,
+        forced: _,
     } = c;
 }
 
@@ -301,7 +325,8 @@ impl Shaped for Config {
             field("profiles", |c: &Config| &c.profiles),
             field("links", |c: &Config| &c.links),
             // The `#[serde(skip)]` fields have no TOML name and so no shape:
-            // `collections`, `views`, `profile`, `dir`, `config_file`.
+            // `collections`, `views`, `profile`, `dir`, `config_file`,
+            // `forced`.
         ])
     }
 }
@@ -1100,6 +1125,15 @@ pub struct Site {
     /// Set by a profile, never by the site: a projection published to its
     /// own URL space asks search engines away (q10). Site-wide, so it needs
     /// stating once rather than per row.
+    ///
+    /// **The profile's record of itself, not the mechanism** (MERGE.md E1).
+    /// What reaches a page is `[profiles.NAME.force] noindex`, written onto
+    /// every row and every route at rung 0 and read by the site's own
+    /// `[html.head.meta] robots` expression; this bool is what that projection
+    /// says about itself, mirrored here from the forced value. Nothing in the
+    /// engine reads it today — `data-profile` is stamped from
+    /// [`Config::profile`] — so it is a surface for a theme or a future pass
+    /// rather than a live one; see MERGE.md §7.
     #[serde(skip)]
     pub noindex: bool,
 }
@@ -1783,15 +1817,6 @@ impl Config {
                     .collect()
             })
             .unwrap_or_default();
-        // And whose `robots` expression is whose (MERGE.md C6d). One key, asked
-        // of the site's own text before the base is folded in — the merge would
-        // answer "there is one" either way.
-        let site_robots = value
-            .get("html")
-            .and_then(|v| v.get("head"))
-            .and_then(|v| v.get("meta"))
-            .and_then(|v| v.get("robots"))
-            .is_some();
         let value = match inherits_base {
             false => value,
             true => merge_base(value)?,
@@ -1807,7 +1832,6 @@ impl Config {
                 return Err(anyhow::Error::new(e));
             }
         };
-        cfg.site_robots = site_robots;
         cfg.merge_collections()?;
         cfg.merge_queries()?;
         for (name, v) in cfg.views.iter_mut() {
@@ -2128,12 +2152,30 @@ impl Config {
     /// that picks a projection, not the moment its declaration becomes
     /// checkable.
     ///
+    /// The `force` block joins them (MERGE.md E1) for the same reason and with
+    /// no caveat at all: rung 0 names fields the site's `[schema]` declares and
+    /// types them against that declaration, which is a fact about this config
+    /// with no tree and no projection in it.
+    ///
     /// Filter EXPRESSIONS deliberately stay at apply time — see
     /// [`Config::check_profile_filters`], which this pass does NOT subsume:
     /// a profile's `where` type-checks against the vocabulary of the view it
     /// REPLACES, and there is no patched view to attribute it to until the
     /// projection is in place.
     fn check_profiles(&self) -> Result<()> {
+        // The vocabulary rung 0 may name: the site's own `[schema]`, parsed by
+        // the parser `Schemas::set_site` uses, so the two cannot come to
+        // different verdicts about what a declaration says. A positional
+        // `.schema.toml` is deliberately NOT in it — see `schema::site_fields`.
+        let declared = crate::schema::site_fields(&self.schema, "grackle.toml [schema]")?;
+        let field_knowns = || {
+            let mut names: Vec<&str> = declared.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            match names.is_empty() {
+                true => "none".to_string(),
+                false => names.join(", "),
+            }
+        };
         // "sets: a, b; routes: c" — a profile patches views by name, and the
         // section is half of the answer, so the knowns are listed by section.
         let knowns = || {
@@ -2152,6 +2194,38 @@ impl Config {
             format!("sets: {}; routes: {}", by(true), by(false))
         };
         for (pname, p) in &self.profiles {
+            // The spelling that became `force` (MERGE.md E1). It is checked
+            // before anything else this profile says, because everything else
+            // it says is beside the point until the key is rewritten.
+            if p.noindex.is_some() {
+                anyhow::bail!(
+                    "profile {pname}: `noindex` is no longer a profile key — it \
+                     overwrote [html.head.meta] robots with a constant, which \
+                     silently replaced a site's own expression. Force the FIELD \
+                     instead, and the expression evaluates it:\n  \
+                     [profiles.{pname}.force]\n  noindex = true"
+                );
+            }
+            // Rung 0: every forced name is declared, and every forced value
+            // fits its declaration. Both are checked for a profile nobody is
+            // building, which is R5's whole sentence one table over.
+            for (field, v) in &p.force {
+                let Some(ty) = declared.get(field) else {
+                    anyhow::bail!(
+                        "profile {pname}: [profiles.{pname}.force] {field} — a \
+                         forced field is written onto every row and every route, \
+                         so it must be declared in the site's own [schema]\n  \
+                         declared fields: {}",
+                        field_knowns()
+                    );
+                };
+                crate::schema::typed(
+                    *ty,
+                    field,
+                    v,
+                    &format!("profile {pname}: [profiles.{pname}.force]"),
+                )?;
+            }
             // The `sets`/`routes` split exists to be read: relaxing a set
             // patches a QUERY, relaxing a route patches a LANDING. Chaining
             // them into one lookup made it decorative — either word reached
@@ -2251,41 +2325,6 @@ impl Config {
         Ok(())
     }
 
-    /// What a profile's `noindex = true` has to say about the `robots`
-    /// expression it is about to replace (§4a, MERGE.md C6d) — `None` when
-    /// there is nothing to say.
-    ///
-    /// **The decision: the profile still wins, and it stops being silent.**
-    /// Replacing the BASE's expression is the whole point of the key —
-    /// DESIGN.md §4e says so in as many words ("now overrides the `robots`
-    /// declaration instead of setting a bool the head pass read by name"), and
-    /// every site that inherits gets exactly that, with nothing reported.
-    /// Replacing an expression the SITE wrote is a different act: an editorial
-    /// policy its author spelled out is swapped for the engine's blunt string
-    /// on every page in the projection, and a profile has no vocabulary to say
-    /// "keep mine" — its keys are `url`, `noindex`, `sets`, `routes`, and
-    /// widening them is the config-merge §4a exists to refuse. So an error
-    /// would be an ultimatum with no third option, and silence is how the
-    /// expression disappears. It warns. MERGE.md §7 q7 is where the promise
-    /// gets confirmed or reversed.
-    ///
-    /// A pure function because the choice has to be assertable: both branches
-    /// leave the same string in `html.head.meta`, so the only difference
-    /// between them is this sentence, and stderr is not a value.
-    fn robots_override_note(&self, profile: &str) -> Option<String> {
-        if !self.site_robots {
-            return None;
-        }
-        let old = self.html.head.meta.get("robots").map_or("", String::as_str);
-        Some(format!(
-            "profile {profile}: `noindex = true` replaces this site's own \
-             [html.head.meta] robots expression ({old}) with \"noindex,follow\" \
-             on every page of the projection (§4a). A profile can only ask \
-             search engines away site-wide; if the expression is what you \
-             want, drop `noindex` from the profile and let the rows carry it."
-        ))
-    }
-
     /// Project this config through a profile (§4a): the one thing in the
     /// system that rewrites a resolved config, which is why it re-validates.
     fn apply_profile(&mut self, name: &str) -> Result<()> {
@@ -2302,27 +2341,19 @@ impl Config {
         if let Some(u) = p.url {
             self.site.url = u;
         }
-        if p.noindex {
-            // q10: a projection in its own URL space asks search engines away,
-            // site-wide. It used to set a bool the head pass read by name;
-            // now it overrides the declaration, which is the same thing said
-            // in the site's own vocabulary (§4e).
-            //
-            // MERGE.md C6d, and the note is the whole of the decision — see
-            // `robots_override_note`.
-            let note = self.robots_override_note(name);
-            self.html
-                .head
-                .meta
-                .insert("robots".to_string(), "\"noindex,follow\"".to_string());
-            if let Some(note) = note {
-                // `load`'s convention (C3, C4); there is no `SiteDb` to put a
-                // warning on this early, and a projection's head is decided
-                // here or nowhere.
-                eprintln!("grackle: {note}");
-            }
-        }
-        self.site.noindex = p.noindex;
+        // Rung 0 (§2, MERGE.md E1). The fields are lifted out whole — already
+        // named and typed by `check_profiles`, which `validate` ran over every
+        // declared profile before this method was reachable — and the loader
+        // writes them onto each row and each route. Nothing is done to
+        // `[html.head.meta]` here: the site's own `robots` expression reads the
+        // forced field like any other, on documents and listings alike, which
+        // is what retired a key that overwrote the declaration with a constant.
+        self.forced = p.force;
+        // The profile's record of ITSELF, distinct from what it forces: q10's
+        // "this projection asks search engines away", carried on `Site` for a
+        // theme or a future surface to read. `data-profile` is the other half
+        // and comes off `self.profile` below.
+        self.site.noindex = matches!(self.forced.get("noindex"), Some(toml::Value::Boolean(true)));
         // Placement — the `sets`/`routes` split, and whether these names are
         // views at all — belongs to `check_profiles`, which `validate` runs
         // over EVERY declared profile before this method is ever reached
@@ -4180,14 +4211,17 @@ mod tests {
     /// `Site.noindex` is `#[serde(skip)]`, so `deny_unknown_fields` rejects
     /// it in `[site]` — which is what the doc comment there already claims
     /// ("set by a profile, never by the site"). The profile still sets it,
-    /// because it does so in Rust, not through a second deserialization.
+    /// because it does so in Rust, not through a second deserialization —
+    /// off the forced field now (MERGE.md E1), which is the profile's record
+    /// of itself rather than the mechanism.
     #[test]
     fn a_profile_still_sets_the_skipped_noindex() {
-        let mut c = cfg_raw("[profiles.p]\nnoindex = true\n");
+        let mut c = cfg_raw(
+            "[schema]\nnoindex = { type = \"bool\" }\n[profiles.p.force]\nnoindex = true\n",
+        );
         assert!(!c.site.noindex);
         c.apply_profile("p").expect("the profile applies");
         assert!(c.site.noindex);
-        assert_eq!(c.html.head.meta["robots"], "\"noindex,follow\"");
 
         let e = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
@@ -4410,7 +4444,7 @@ mod tests {
 
         // grack.com's shape: one profile, correctly placed, never applied.
         let mut both = cfg(&format!(
-            "{PROFILE_VIEWS}[profiles.drafts]\nnoindex = true\n\
+            "{PROFILE_VIEWS}[profiles.drafts.force]\nhidden = false\n\
              [profiles.drafts.sets.published]\nwhere = \"!hidden\"\n\
              [profiles.drafts.routes.blog_index]\nwhere = 'title != \"\"'\n"
         ));
@@ -4463,42 +4497,99 @@ mod tests {
         assert!(e.contains("patches a route"), "{e}");
     }
 
-    /// MERGE.md C6d, both directions. The override stands either way —
-    /// DESIGN.md §4e promises it — and the only thing that changes is whether
-    /// anything is said. Mutation-checked both ways: dropping the
-    /// `self.site_robots` test reports on every base-inheriting site (the
-    /// first half fails), and returning `None` unconditionally loses the
-    /// site's expression in silence (the second half fails).
+    /// MERGE.md E1, the whole point of the shape: the profile writes the
+    /// FIELD, and the site's own `robots` expression is left exactly as its
+    /// author wrote it. C6d's key overwrote `[html.head.meta] robots` with the
+    /// constant `"noindex,follow"` on every page of the projection, which is
+    /// why it needed a warning to be honest; there is nothing left to warn
+    /// about, and the two configs below — one inheriting the base's
+    /// expression, one writing its own — now come out saying different things
+    /// about the same forced fact, which is what "the site's vocabulary"
+    /// means.
+    ///
+    /// Mutation check: have `apply_profile` insert into `html.head.meta` again
+    /// and the second half fails, the site's expression gone.
     #[test]
-    fn a_profile_noindex_reports_only_when_it_replaces_the_sites_own_robots() {
+    fn a_forced_field_leaves_the_sites_robots_expression_alone() {
         let site = "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n";
-        // The base wrote the expression: replacing it IS the key's meaning.
         let mut inherited = Config::from_toml(&format!(
-            "root = \".\"\n{site}[profiles.drafts]\nnoindex = true\n"
+            "root = \".\"\n{site}[profiles.drafts.force]\nnoindex = true\n"
         ))
         .expect("a base-inheriting config");
-        assert!(!inherited.site_robots);
-        assert!(inherited.robots_override_note("drafts").is_none());
-        assert!(inherited.html.head.meta.contains_key("robots"));
         inherited
             .apply_profile("drafts")
             .expect("the profile applies");
-        assert_eq!(inherited.html.head.meta["robots"], "\"noindex,follow\"");
+        assert_eq!(
+            inherited.html.head.meta["robots"], "noindex ? \"noindex,follow\" : \"\"",
+            "the base's expression, untouched — it EVALUATES the forced field"
+        );
 
-        // The site wrote it: overridden all the same, and reported.
         let mut own = Config::from_toml(&format!(
-            "root = \".\"\n{site}[profiles.drafts]\nnoindex = true\n\
+            "root = \".\"\n{site}[profiles.drafts.force]\nnoindex = true\n\
              [html.head.meta]\nrobots = 'noindex ? \"noindex,nofollow\" : \"index,follow\"'\n"
         ))
         .expect("a site may write its own robots expression");
-        assert!(own.site_robots);
-        let note = own
-            .robots_override_note("drafts")
-            .expect("the site's own expression is a loss");
-        assert!(note.contains("noindex,nofollow"), "quotes it: {note}");
-        assert!(note.contains("profile drafts"), "names the profile: {note}");
         own.apply_profile("drafts").expect("the profile applies");
-        assert_eq!(own.html.head.meta["robots"], "\"noindex,follow\"");
+        assert_eq!(
+            own.html.head.meta["robots"], "noindex ? \"noindex,nofollow\" : \"index,follow\"",
+            "an editorial policy its author spelled out is not a profile's to \
+             replace — it answers the forced fact its own way"
+        );
+        assert_eq!(own.forced["noindex"], toml::Value::Boolean(true));
+    }
+
+    /// MERGE.md E1: rung 0's names come from the site's own `[schema]`, and
+    /// they are checked for EVERY declared profile at every load — R5's
+    /// sentence, one table over. `cfg_err` applies no profile at all.
+    ///
+    /// Mutation-checked three ways: deleting the `declared.get` arm accepts
+    /// `nosuchfield` (first half); deleting the `schema::typed` call accepts
+    /// `noindex = "yes"` (second half); and deleting the whole block from
+    /// `check_profiles` loses both plus the migration error below.
+    #[test]
+    fn a_forced_field_is_declared_and_typed_for_every_profile() {
+        const S: &str = "[schema]\nnoindex = { type = \"bool\" }\n";
+
+        let e = cfg_err(&format!(
+            "{S}[profiles.staging.force]\nnosuchfield = true\n"
+        ));
+        assert!(e.contains("profile staging"), "names the profile: {e}");
+        assert!(e.contains("[profiles.staging.force] nosuchfield"), "{e}");
+        assert!(e.contains("declared in the site's own [schema]"), "{e}");
+        assert!(e.contains("declared fields: noindex"), "the knowns: {e}");
+
+        let e = cfg_err(&format!("{S}[profiles.staging.force]\nnoindex = \"yes\"\n"));
+        assert!(e.contains("[profiles.staging.force]"), "{e}");
+        assert!(e.contains("declared bool"), "{e}");
+
+        // The control: correct, and inert on a load that applies no profile.
+        let ok = cfg(&format!("{S}[profiles.staging.force]\nnoindex = true\n"));
+        assert!(ok.forced.is_empty(), "nothing is forced until applied");
+    }
+
+    /// MERGE.md E1's migration. `[profiles.NAME] noindex = true` meant
+    /// something materially different — it overwrote the head declaration with
+    /// a constant — so the spelling is a load error naming the new one rather
+    /// than a silent retype.
+    ///
+    /// The judgment recorded: serde's own message for a deleted field is
+    /// "unknown field `noindex`, expected one of `url`, `force`, `sets`,
+    /// `routes`". True, and it names `force` — but it does not say that the
+    /// fix is one indented table, and this key is live in a shipped config and
+    /// in DESIGN.md. So the field survives as a tombstone.
+    ///
+    /// Mutation check: delete the `p.noindex.is_some()` bail and both halves
+    /// load in silence, doing nothing at all.
+    #[test]
+    fn the_old_profile_noindex_spelling_names_the_new_one() {
+        for old in ["noindex = true", "noindex = false"] {
+            let e = cfg_err(&format!(
+                "[schema]\nnoindex = {{ type = \"bool\" }}\n[profiles.drafts]\n{old}\n"
+            ));
+            assert!(e.contains("no longer a profile key"), "{e}");
+            assert!(e.contains("[profiles.drafts.force]"), "{e}");
+            assert!(e.contains("noindex = true"), "the new spelling: {e}");
+        }
     }
 
     #[test]

@@ -1,0 +1,105 @@
+//! `[profiles.NAME.force]` — rung 0, on both surfaces (MERGE.md E1).
+//!
+//! This is a whole site rendered twice, so it belongs with the fixtures by
+//! `fixtures.rs`'s own line ("if the subject is *a site*, it belongs here").
+//! It cannot BE a fixture: the harness builds every fixture with
+//! `Config::load` and passes no `--profile` anywhere, which is exactly the
+//! property `profile-unknown-view` exists to assert. A projection needs the
+//! flag, so it needs its own harness.
+//!
+//! What is asserted is the rendered bytes rather than a field on a `Route`,
+//! because the failure this guards is a rendered one: a listing page that does
+//! not say `noindex` while every document under it does, in a projection whose
+//! whole purpose is to stay out of search indexes.
+
+use std::path::{Path, PathBuf};
+
+/// A site with one post, one listing, and a profile that forces `noindex`.
+///
+/// The post declares `noindex: false` in its front matter — deliberately, and
+/// it is the whole of the rung-0 statement: front matter is rung 1 and wins
+/// against every other writer in the system, and it loses to this.
+fn site(who: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("grackle-force-{who}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    let files = [
+        (
+            "grackle.toml",
+            "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+             [profiles.drafts.force]\nnoindex = true\n",
+        ),
+        (
+            "_posts/2020-01-01-hello.md",
+            "---\ntitle: Hello\nnoindex: false\n---\n\nProse.\n",
+        ),
+    ];
+    for (rel, body) in files {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
+        std::fs::write(&p, body).unwrap();
+    }
+    dir
+}
+
+/// Build the site, and hand back (post page, `/blog/` listing) as text.
+fn build(dir: &Path, profile: Option<&str>) -> (String, String) {
+    let cfg = grackle::config::Config::load_profile(&dir.join("grackle.toml"), profile)
+        .expect("the config loads");
+    let mut db = grackle_source::load(&cfg).expect("the site loads");
+    let (out, _) = grackle::build::render_site(&cfg, &mut db).expect("the site renders");
+    let _ = std::fs::remove_dir_all(dir.join("_cache"));
+    let get = |url: &str| {
+        String::from_utf8(
+            out.get(url)
+                .unwrap_or_else(|| panic!("no route at {url} — routes: {:?}", out.keys()))
+                .clone(),
+        )
+        .expect("html is utf-8")
+    };
+    (get("/blog/2020/01/01/hello/"), get("/blog/"))
+}
+
+const ROBOTS: &str = r#"<meta name="robots" content="noindex,follow">"#;
+
+/// The item, both halves, in one build.
+///
+/// The base's `robots = 'noindex ? "noindex,follow" : ""'` is what emits the
+/// tag, and it is evaluated against the ROW on a document and against the
+/// ROUTE on a listing — so a force that reached only rows would leave `/blog/`
+/// saying nothing at all, which is the sitemap leak §4a exists to close. The
+/// two assertions below are the two halves, and each fails alone.
+///
+/// Mutation-checked in both directions, each restored:
+///
+/// - delete the `schema::force` calls in `load.rs` (the row half) and the
+///   document assertion fails — the post's own `noindex: false` stands and it
+///   ships indexable inside a noindexed projection;
+/// - delete the `force_route_fields` call (the route half) and the listing
+///   assertion fails, with `/blog/` carrying no robots meta at all.
+#[test]
+fn a_forced_field_reaches_documents_and_listings() {
+    let dir = site("both");
+    let (post, listing) = build(&dir, Some("drafts"));
+    assert!(
+        post.contains(ROBOTS),
+        "rung 0 beats the row's own `noindex: false`:\n{post}"
+    );
+    assert!(
+        listing.contains(ROBOTS),
+        "a listing has no row — the force must reach its ROUTE:\n{listing}"
+    );
+}
+
+/// The control, and the proof that the two assertions above are about the
+/// profile rather than about the base: the same site, same bytes, no `--profile`.
+///
+/// `noindex: false` is what the post wrote and what it keeps; the listing
+/// never had a `noindex` to begin with, so its expression comes out empty and
+/// §5e's rule 2 drops the tag.
+#[test]
+fn without_the_profile_the_row_keeps_its_own_answer() {
+    let dir = site("control");
+    let (post, listing) = build(&dir, None);
+    assert!(!post.contains("robots"), "{post}");
+    assert!(!listing.contains("robots"), "{listing}");
+}

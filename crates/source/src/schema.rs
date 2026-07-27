@@ -163,7 +163,7 @@ impl Schemas {
             .parse()
             .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
         let whose = file.display().to_string();
-        let fields = self.parse_fields(table, &whose)?;
+        let fields = parse_fields(table, &whose, &self.reserved)?;
         self.check_positional_collision(dir, &whose, &fields)?;
         self.by_dir.insert(dir.to_path_buf(), (whose, fields));
         Ok(())
@@ -221,7 +221,7 @@ impl Schemas {
     /// properties of a row, not of a directory, and no positional file could
     /// state that without sitting at the root of every site.
     pub fn set_site(&mut self, table: toml::Table, whose: &str) -> Result<()> {
-        self.site = self.parse_fields(table, whose)?;
+        self.site = parse_fields(table, whose, &self.reserved)?;
         Ok(())
     }
 
@@ -233,7 +233,7 @@ impl Schemas {
     /// source and could then drift — the disease `[sets.published]` exists to
     /// cure, one layer down.
     pub fn add_collection(&mut self, name: &str, table: toml::Table, whose: &str) -> Result<()> {
-        let fields = self.parse_fields(table, whose)?;
+        let fields = parse_fields(table, whose, &self.reserved)?;
         // The same law one rung down, and here there is no nearness at all to
         // fall back on: collections are siblings by construction. Two of them
         // declaring one name differently is `declared()` picking by
@@ -262,67 +262,6 @@ impl Schemas {
         self.by_collection
             .insert(name.to_string(), (whose.to_string(), fields));
         Ok(())
-    }
-
-    fn parse_fields(&self, table: toml::Table, whose: &str) -> Result<BTreeMap<String, FieldType>> {
-        let mut fields = BTreeMap::new();
-        for (name, v) in table {
-            let ty = v
-                .as_table()
-                .and_then(|t| t.get("type"))
-                .and_then(|t| t.as_str())
-                .and_then(FieldType::parse);
-            let Some(ty) = ty else {
-                bail!(
-                    "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
-                     \"bool\" | \"list\" | \"image\""
-                );
-            };
-            // The engine's own four are declarable — that declaration is what
-            // types their cascade — but only at the type the engine reads them
-            // at. `layout` and `toc` are also `reserved` (the row carries
-            // them), and for these four that is not a shadowing: the value
-            // goes into the row's named field, so `Row::field` answers the
-            // same thing the declaration typed.
-            if let Some(engine) = cascade_type(&name) {
-                if ty != engine {
-                    bail!(
-                        "{whose}: field {name:?} is one of the engine's own cascade \
-                         keys — it reads {name:?} off every row, so it must be \
-                         declared {} or not at all",
-                        engine.name()
-                    );
-                }
-            } else if self.reserved.contains_key(name.as_str()) {
-                bail!(
-                    "{whose}: field {name:?} is a built-in row field, so declaring \
-                     it would be silently overruled — every row already has \
-                     one. Rename the declaration."
-                );
-            }
-            // A declaration table has exactly one key. Anything else was read
-            // as a property of the field and dropped, which is how `default =`
-            // and `required =` get written by someone reasonably expecting
-            // them to work.
-            let extra: Vec<&str> = v
-                .as_table()
-                .map(|t| {
-                    t.keys()
-                        .map(String::as_str)
-                        .filter(|k| *k != "type")
-                        .collect()
-                })
-                .unwrap_or_default();
-            if !extra.is_empty() {
-                bail!(
-                    "{whose}: field {name:?} has unknown key(s) {} — a field \
-                     declaration takes: type",
-                    extra.join(", ")
-                );
-            }
-            fields.insert(name, ty);
-        }
-        Ok(fields)
     }
 
     /// The schema governing a row: its collection's declarations and the
@@ -426,6 +365,93 @@ impl Schemas {
     }
 }
 
+/// Parse one declaration table — `[schema]`, `[collections.*.schema]`, or a
+/// `.schema.toml` — into typed names.
+///
+/// A free function rather than a method because a `Config` has to ask the same
+/// question before there is a [`Schemas`] to ask it of: `check_profiles`
+/// type-checks a profile's `force` block against the site's own `[schema]` at
+/// `validate` time, one tree walk before the positional files exist
+/// (MERGE.md E1). One parser, so the two cannot disagree about what a
+/// declaration says.
+fn parse_fields(
+    table: toml::Table,
+    whose: &str,
+    reserved: &Schema,
+) -> Result<BTreeMap<String, FieldType>> {
+    let mut fields = BTreeMap::new();
+    for (name, v) in table {
+        let ty = v
+            .as_table()
+            .and_then(|t| t.get("type"))
+            .and_then(|t| t.as_str())
+            .and_then(FieldType::parse);
+        let Some(ty) = ty else {
+            bail!(
+                "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
+                 \"bool\" | \"list\" | \"image\""
+            );
+        };
+        // The engine's own four are declarable — that declaration is what
+        // types their cascade — but only at the type the engine reads them
+        // at. `layout` and `toc` are also `reserved` (the row carries
+        // them), and for these four that is not a shadowing: the value
+        // goes into the row's named field, so `Row::field` answers the
+        // same thing the declaration typed.
+        if let Some(engine) = cascade_type(&name) {
+            if ty != engine {
+                bail!(
+                    "{whose}: field {name:?} is one of the engine's own cascade \
+                     keys — it reads {name:?} off every row, so it must be \
+                     declared {} or not at all",
+                    engine.name()
+                );
+            }
+        } else if reserved.contains_key(name.as_str()) {
+            bail!(
+                "{whose}: field {name:?} is a built-in row field, so declaring \
+                 it would be silently overruled — every row already has \
+                 one. Rename the declaration."
+            );
+        }
+        // A declaration table has exactly one key. Anything else was read
+        // as a property of the field and dropped, which is how `default =`
+        // and `required =` get written by someone reasonably expecting
+        // them to work.
+        let extra: Vec<&str> = v
+            .as_table()
+            .map(|t| {
+                t.keys()
+                    .map(String::as_str)
+                    .filter(|k| *k != "type")
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !extra.is_empty() {
+            bail!(
+                "{whose}: field {name:?} has unknown key(s) {} — a field \
+                 declaration takes: type",
+                extra.join(", ")
+            );
+        }
+        fields.insert(name, ty);
+    }
+    Ok(fields)
+}
+
+/// The site-wide declared vocabulary, read from a `[schema]` table alone —
+/// what a [`crate::config::Config`] knows before the tree walk (MERGE.md E1).
+///
+/// This is exactly the rung a profile's `force` block may name. A positional
+/// `.schema.toml` governs a subtree, and a `[collections.*.schema]` governs one
+/// collection; a forced field is written onto EVERY row, so a name from either
+/// of those would be undeclared for the rows outside it — which is
+/// `apply_defaults`' "no schema declares it" error, arriving per row instead of
+/// once at load.
+pub(crate) fn site_fields(table: &toml::Table, whose: &str) -> Result<BTreeMap<String, FieldType>> {
+    parse_fields(table.clone(), whose, &grackle_model::row_schema())
+}
+
 /// Validate a row's extra front matter against its governing schema:
 /// unknown keys and type mismatches are load errors naming the file.
 /// Fold marker and rule defaults (§4b, §4) into a row's declared fields.
@@ -451,49 +477,115 @@ pub fn apply_defaults(
     fields: &mut Fields,
     path: &Path,
 ) -> Result<()> {
+    let whose = format!("{}: a marker or rule", path.display());
     for (name, v) in defaults {
         let Some(ty) = schema.get(name) else {
-            let mut known: Vec<&str> = schema.keys().copied().collect();
-            known.sort_unstable();
             bail!(
-                "{}: a marker or rule sets {name:?}, which no schema declares \
+                "{whose} sets {name:?}, which no schema declares \
                  — nothing would read it\n  declared fields: {}",
-                path.display(),
-                known.join(", ")
+                knowns(schema)
             );
         };
         if fields.values.contains_key(*name) {
             continue; // front matter is nearer
         }
-        let value = match (ty, v) {
-            (FieldType::Str, toml::Value::String(s)) => Value::Str(s.clone()),
-            (FieldType::Image, toml::Value::String(s)) => {
-                fields.images.insert(name.to_string(), s.clone());
-                Value::Str(s.clone())
-            }
-            (FieldType::Int, toml::Value::Integer(i)) => Value::Int(*i),
-            (FieldType::Bool, toml::Value::Boolean(b)) => Value::Bool(*b),
-            (FieldType::List, toml::Value::Array(a)) => Value::List(
-                a.iter()
-                    .map(|x| match x.as_str() {
-                        Some(s) => Ok(s.to_string()),
-                        None => bail!(
-                            "{}: default {name:?}: list items must be strings, got {x}",
-                            path.display()
-                        ),
-                    })
-                    .collect::<Result<_>>()?,
-            ),
-            (ty, other) => bail!(
-                "{}: a marker or rule sets {name:?} to {other}, but it is \
-                 declared {}",
-                path.display(),
-                ty.name()
-            ),
-        };
-        fields.values.insert(name.to_string(), value);
+        write_typed(*ty, name, v, fields, &whose)?;
     }
     Ok(())
+}
+
+/// Rung 0 (§2): the selected profile's `[profiles.NAME.force]` fields, written
+/// over whatever the row's own ladder resolved to (MERGE.md E1).
+///
+/// **This runs LAST because it is the TOP rung.** Every rung below it — front
+/// matter, then the nearest marker, then the rules — is "first writer wins", so
+/// the only way to sit above all three without disturbing their order among
+/// themselves is to write after them. Front matter is what the seam is
+/// measured against: a row declaring `noindex: false` under a forcing profile
+/// still comes out forced, which is the whole of what rung 0 means.
+///
+/// Force decides the VALUE, not whether the row is well formed: a row whose
+/// front matter mistypes a forced field, or a marker that does, is the same
+/// load error it was before, because those rungs still run and still speak.
+///
+/// The lookup cannot fail — `Config::check_profiles` accepts only site
+/// `[schema]` names and `Schemas::resolve` chains that table into every row's
+/// schema — but it is a real lookup rather than an `unwrap`, because a nearer
+/// `.schema.toml` may legally RETYPE a site-wide name for its own subtree
+/// (§5b), and a forced value that does not fit where it lands should say so
+/// naming the row.
+pub fn force(
+    forced: &BTreeMap<String, toml::Value>,
+    schema: &BTreeMap<&str, FieldType>,
+    fields: &mut Fields,
+    path: &Path,
+) -> Result<()> {
+    for (name, v) in forced {
+        let Some(ty) = schema.get(name.as_str()) else {
+            bail!(
+                "{}: the profile forces {name:?}, which no schema governing this \
+                 row declares\n  declared fields: {}",
+                path.display(),
+                knowns(schema)
+            );
+        };
+        let whose = format!("{}: the profile", path.display());
+        write_typed(*ty, name, v, fields, &whose)?;
+    }
+    Ok(())
+}
+
+/// The declared names, sorted — what an error about an undeclared one lists.
+fn knowns(schema: &BTreeMap<&str, FieldType>) -> String {
+    let mut known: Vec<&str> = schema.keys().copied().collect();
+    known.sort_unstable();
+    known.join(", ")
+}
+
+/// Convert one TOML value at its declared type and write it into `fields`.
+///
+/// The three writers of a typed field value — a marker, a rule, and a profile's
+/// `force` block — share this, so "declared bool, given a string" is one
+/// sentence with one author and the image side channel is fed from one place.
+/// `whose` is the prefix each caller owns ("x.md: a marker or rule").
+fn write_typed(
+    ty: FieldType,
+    name: &str,
+    v: &toml::Value,
+    fields: &mut Fields,
+    whose: &str,
+) -> Result<()> {
+    let value = typed(ty, name, v, whose)?;
+    if ty == FieldType::Image {
+        if let Value::Str(s) = &value {
+            fields.images.insert(name.to_string(), s.clone());
+        }
+    }
+    fields.values.insert(name.to_string(), value);
+    Ok(())
+}
+
+/// One TOML value read at its declared type — see [`write_typed`], and
+/// [`crate::config::Config::check_profiles`], which type-checks a `force`
+/// block through this without a row to write into.
+pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> Result<Value> {
+    Ok(match (ty, v) {
+        (FieldType::Str | FieldType::Image, toml::Value::String(s)) => Value::Str(s.clone()),
+        (FieldType::Int, toml::Value::Integer(i)) => Value::Int(*i),
+        (FieldType::Bool, toml::Value::Boolean(b)) => Value::Bool(*b),
+        (FieldType::List, toml::Value::Array(a)) => Value::List(
+            a.iter()
+                .map(|x| match x.as_str() {
+                    Some(s) => Ok(s.to_string()),
+                    None => bail!("{whose}: {name:?}: list items must be strings, got {x}"),
+                })
+                .collect::<Result<_>>()?,
+        ),
+        (ty, other) => bail!(
+            "{whose} sets {name:?} to {other}, but it is declared {}",
+            ty.name()
+        ),
+    })
 }
 
 pub fn validate(

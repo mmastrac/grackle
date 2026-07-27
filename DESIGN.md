@@ -289,7 +289,9 @@ It never changes what *loads* — the database is identical under every profile.
 
 ```toml
 [profiles.drafts]
-noindex = true
+
+  [profiles.drafts.force]
+  noindex = true             # rung 0: forced on every row AND every route
 
   [profiles.drafts.sets.published]
   where = "!hidden"          # relax the filter that hides drafts
@@ -301,6 +303,17 @@ what exists.
 
 **Selection is the view's job.** Relaxing `published`'s filter carries
 every listing, archive and feed with it.
+
+**`force` is rung 0, the projection's veto** (MERGE.md §2, E1). Its keys are
+schema-declared fields — the site's own `[schema]`, checked and type-checked
+for every declared profile at load — and the values are written above front
+matter, markers and rules, onto every row and into every route's `fields`.
+Both halves are load-bearing: a head expression reads a ROW on a document and
+a ROUTE on a listing, so a force that reached only rows would let `/blog/`
+into a search index while every post under it said `noindex`. The projection
+does not touch `[html.head.meta]`: it forces the FIELD, and a site's own
+`robots` expression answers it in the site's own words. The `[profiles.NAME]
+noindex = true` key this replaced is a load error naming the new spelling.
 
 **The `sets`/`routes` split is checked, not decorative.** A name under
 `sets` must be a `[sets]` entry and a name under `routes` a `[routes]` one;
@@ -737,15 +750,18 @@ Three notes on the shape:
   for both surfaces. The engine still spells `noindex` at that one spot; the
   honest end state is `fields = { noindex = true }` on a route, once a view can
   declare arbitrary fields.
-- **The drafts profile keeps working**, as a config patch: `[profiles.drafts]
-  noindex = true` now overrides the `robots` declaration instead of setting a
-  bool the head pass read by name. Same behaviour, said in the site's
-  vocabulary. `Site.noindex` survives as the profile's own record of it.
-  Overriding the *base's* expression is the point of the key and is silent;
-  overriding one the **site itself** wrote replaces an editorial policy its
-  author spelled out, so it warns and still overrides (MERGE.md C6d — a
-  profile has no vocabulary to say "keep mine", so an error would be an
-  ultimatum with no third option).
+- **The drafts profile keeps working**, and no longer by overwriting anything:
+  `[profiles.drafts.force] noindex = true` writes the FIELD at rung 0 — above
+  front matter, on every row and every route — and the `robots` declaration
+  evaluates it, unchanged, wherever it was declared (MERGE.md E1). The key it
+  replaced (`[profiles.drafts] noindex = true`) overwrote `[html.head.meta]
+  robots` with the constant `"noindex,follow"`, which meant a site that wrote
+  its own expression silently lost it; that whole apparatus — the override,
+  its warning, and `Config::site_robots` — is gone, because forcing a field
+  the site already declares needs no vocabulary of its own. `Site.noindex`
+  survives as the profile's own record of it. Byte-identical output on
+  grack.com under `--profile drafts` across the change: the clobber's constant
+  and `noindex ? "noindex,follow" : ""` are the same 552 tags.
 
 Verified by mutation: deleting `[html.head.meta]` from `base.toml` drops every
 `<meta name="robots">` on grack.com from its usual set to zero, and the site is

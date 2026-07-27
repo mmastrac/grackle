@@ -285,6 +285,52 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
     })
 }
 
+/// Rung 0's other half (§2, MERGE.md E1): the selected profile's forced fields,
+/// written into EVERY route.
+///
+/// **This is the load-bearing half.** A head expression is evaluated against a
+/// ROW when the surface has one and against the ROUTE when it does not, so a
+/// force that reached only rows would leave every listing, archive and tag page
+/// saying the opposite of the documents beneath it — `/blog/` in a search index
+/// under the drafts profile, which is precisely the leak §4a exists to close.
+/// The row half is not a substitute: a view route has no row to read.
+///
+/// It runs AFTER materialization, deliberately. Rung 0 says what a surface
+/// SAYS, not what a query SELECTS: writing it earlier would put forced values
+/// into the pool a `*` view filters on, and a profile that changes which URLs
+/// are in the sitemap is a different feature (E2's overlay) with a different
+/// spelling.
+///
+/// The types come from the site vocabulary (`Schemas::declared`) rather than
+/// from a row's resolved schema, because a route is not in a directory — it is
+/// the same table `Schemas::declared_schema` builds a route's own filter
+/// environment from.
+fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
+    if cfg.forced.is_empty() {
+        return Ok(());
+    }
+    let declared = schemas.declared();
+    let mut values: Vec<(String, grackle_db::Value)> = Vec::new();
+    for (name, v) in &cfg.forced {
+        // `Config::check_profiles` already refused a name the site's `[schema]`
+        // does not declare, and `declared()` is a superset of that table — so
+        // this cannot fire, and it is a lookup rather than an `unwrap` for the
+        // reason `schema::force`'s is.
+        let Some(ty) = declared.get(name.as_str()) else {
+            bail!("the profile forces {name:?}, which no schema declares");
+        };
+        // "the profile", the same subject `schema::force` names one layer
+        // over — with no file to blame, because a route is not in the tree.
+        values.push((name.clone(), schema::typed(*ty, name, v, "the profile")?));
+    }
+    for r in db.routes.iter_mut() {
+        for (name, value) in &values {
+            r.fields.insert(name.clone(), value.clone());
+        }
+    }
+    Ok(())
+}
+
 /// The axes a rule's template(s) opt a row into (q53 step 2): a `{theme}` (or
 /// `{axis:theme}`) segment is what spends the theme axis, and locale via
 /// `{axis:locale}`. A rule that writes the segment decides the row lands there,
@@ -533,6 +579,9 @@ fn read_posts(
         schema::cascade_front(&schema, &raw.front, &mut checked, &raw.path)?;
         // Markers and rules fill whatever front matter left unset (§4b).
         schema::apply_defaults(&schema, &defaults, &mut checked, &raw.path)?;
+        // …and rung 0 overrules all three (§2, MERGE.md E1). Above `cascade`,
+        // so a forced `theme` or `toc` is what the row wears.
+        schema::force(&cfg.forced, &schema, &mut checked, &raw.path)?;
         let worn = cascade(&checked, &raw.path)?;
 
         // A `permalink` is a literal URL, spending no axis; otherwise each of
@@ -838,6 +887,9 @@ fn build_tree_and_objects(
             };
             schema::cascade_front(&schema, &fm, &mut checked, &f.path)?;
             schema::apply_defaults(&schema, &defaults, &mut checked, &f.path)?;
+            // Rung 0, above all three (§2, MERGE.md E1) — the posts loader
+            // says the same thing at the same seam.
+            schema::force(&cfg.forced, &schema, &mut checked, &f.path)?;
             let worn = cascade(&checked, &f.rel)?;
             let date = match &fm.date {
                 Some(s) => Some(front_matter_date(s, &f.path)?),
@@ -1190,6 +1242,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_star_views(cfg, &mut db)?;
+    force_route_fields(cfg, &mut db, &schemas)?;
     // §6g: relations compile after views, so a relation's `over` set is
     // already resolved. Type errors and cycles surface here, at load.
     crate::relations::build_relations(cfg, &mut db, &schemas)?;

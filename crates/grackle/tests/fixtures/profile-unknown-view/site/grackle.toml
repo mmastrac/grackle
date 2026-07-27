@@ -24,7 +24,9 @@ source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 [profiles.staging]
-noindex = true
+
+  [profiles.staging.force]
+  noindex = true
 
   [profiles.staging.sets.publised]
   where = "!hidden"

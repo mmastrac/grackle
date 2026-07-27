@@ -203,12 +203,16 @@ callout = """
 # exist rather than porting it.
 
 [profiles.drafts]
-# This OVERRIDES `[html.head.meta] robots` for every page in the projection
-# (§4a) — here the base's `noindex ? "noindex,follow" : ""`, which is what
-# the key is for. A site that writes its own robots expression loses it to
-# this and is told so at load, because a profile has no way to say "keep
-# mine" (MERGE.md C6d).
-noindex = true
+
+  # Rung 0 (MERGE.md E1): the projection's veto. `noindex` is an ordinary
+  # declared field, and forcing it here writes it onto every row and every
+  # route above front matter, markers and rules — so the site's own
+  # `[html.head.meta] robots` expression (`noindex ? "noindex,follow" : ""`)
+  # evaluates it on documents and listings alike. Nothing overwrites the
+  # declaration: a site with a different robots expression keeps it and gets
+  # its own answer to the same fact.
+  [profiles.drafts.force]
+  noindex = true
 
   # Selection is the query's job: relax the one `where` that hides drafts and
   # every listing, archive and feed downstream follows, because they all
