@@ -805,7 +805,9 @@ pub struct I18nCfg {
     #[serde(default)]
     pub selector: Selector,
     /// Display names for the translations axis (`fr = "Français"`);
-    /// a missing entry falls back to the locale code.
+    /// a missing entry falls back to the locale code. Keyed by LOCALE, so
+    /// every key must be the default locale or one of `locales` — a name for
+    /// an undeclared locale labels nothing, and is a load error (C4a).
     #[serde(default)]
     pub names: BTreeMap<String, String>,
     /// The GLOBAL string map (§6f): the fallback layer of the display-name
@@ -2110,6 +2112,24 @@ impl Config {
                 }
                 Ok(())
             };
+            // `[i18n.names]` obeys the same rule one level out (MERGE.md C4a).
+            // It is the one localized string `check` cannot see: its LOCALES
+            // are keys, not the keys of a `LocalizedStr` value, so nothing
+            // above ever looked at them. `names = { fr_CA = "…" }` on a site
+            // declaring `locales = ["fr"]` labels a member of the translations
+            // axis that will never exist — `name_of` is only ever asked about
+            // a locale a path may declare, and only a declared locale is one.
+            for loc in cfg.i18n.names.keys() {
+                if *loc != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == loc) {
+                    anyhow::bail!(
+                        "i18n.names: names locale {loc:?}, which is neither the \
+                         default ({:?}) nor in i18n.locales {:?} — nothing would \
+                         ever read it",
+                        cfg.i18n.default,
+                        cfg.i18n.locales
+                    );
+                }
+            }
             for (field, recs) in &cfg.records {
                 for (id, t) in recs {
                     if let Some(n) = &t.name {
@@ -3693,6 +3713,29 @@ mod tests {
             "[sets.a]\nfrom = \"posts\"\ntitle = \"@x\"\n\n[i18n.strings]\nx = \"@y\"\ny = \"z\"\n",
         );
         assert!(e.contains("no chains"), "{e}");
+    }
+
+    /// §6f, C4a: `[i18n.names]` is keyed by locale, so a key naming no
+    /// declared locale is dead — it labels a translations-axis member that
+    /// can never exist. The error names the default and the declared set,
+    /// like every other locale error in this block.
+    #[test]
+    fn an_i18n_name_must_name_a_declared_locale() {
+        let c = cfg("[i18n]\nlocales = [\"fr\"]\n\n\
+             [i18n.names]\nen = \"English\"\nfr = \"Français\"\n");
+        assert_eq!(c.i18n.name_of("fr"), "Français");
+        assert_eq!(c.i18n.name_of("en"), "English");
+        // The default locale needs no `locales` entry, and a name for it is
+        // the shape every live site uses.
+        let e =
+            cfg_err("[i18n]\nlocales = [\"fr\"]\n\n[i18n.names]\nfr_CA = \"Français canadien\"\n");
+        assert!(e.contains("fr_CA"), "{e}");
+        assert!(e.contains("\"en\""), "the default is named: {e}");
+        assert!(e.contains("\"fr\""), "the knowns are named: {e}");
+        // …and with i18n off, only the default locale may be named.
+        let e = cfg_err("[i18n.names]\nfr = \"Français\"\n");
+        assert!(e.contains("\"fr\""), "{e}");
+        assert!(e.contains("[]"), "the empty locale set is shown: {e}");
     }
 
     /// §6f enum records: slug and display names default to the id; a

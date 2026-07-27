@@ -115,6 +115,14 @@ impl SlotFills {
         }
     }
 
+    /// Every fill in the tree, sorted: (stem as authored, source file).
+    /// `nav.fr` is one stem — that is what `resolve` compares against.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Path)> + '_ {
+        self.by_dir
+            .values()
+            .flat_map(|m| m.iter().map(|(stem, f)| (stem.as_str(), f.file.as_path())))
+    }
+
     /// The fill for a phrasing-only element: exactly one block, unwrapped.
     /// Zero or several blocks is the hard error the rule promises.
     pub fn inline_or_err(fill: &RenderedFill) -> Result<&str> {
@@ -127,6 +135,60 @@ impl SlotFills {
             )
         })
     }
+}
+
+/// Fills nothing will ever read (MERGE.md C4b): a `.slots/` file whose stem
+/// names no identity slot of any loaded theme's shell — `.slots/copyrite.md`
+/// is walked, read, keyed, and then looked at by nothing.
+///
+/// `known` is the UNION over loaded themes (`Themes::identity_slots`) —
+/// different themes place different slots, and a fill is dead only when NO
+/// theme would read it. `locales` is the default locale plus `[i18n]
+/// locales`, because §6f's `nav.fr` is the stem `nav.fr` and only a declared
+/// locale makes it a localized `nav`.
+///
+/// **A warning, not an error, and deliberately.** A site may keep fills for a
+/// theme it has uninstalled, or install one before its words — erroring would
+/// make theme switching a two-step edit and would fail a build over a file
+/// whose only cost is disk. The engine says what it will not read; the author
+/// decides whether that is a typo or a spare.
+pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (stem, file) in fills.iter() {
+        // `nav.fr` is `nav` in French — but only where `fr` is declared;
+        // `nav.frr` is its own stem, and its own dead name.
+        let slot = match stem.rsplit_once('.') {
+            Some((base, loc)) if locales.contains(&loc) => base,
+            _ => stem,
+        };
+        if known.contains(&slot) {
+            continue;
+        }
+        // Case variants are unknown stems BY CONSTRUCTION (batch review 2,
+        // finding 7): `resolve` compares stems byte for byte, so `Nav.md`
+        // fills nothing even on a filesystem that would call it `nav.md`.
+        // That makes it the one wrong spelling worth naming outright — the
+        // author is looking at a file the filesystem says is there.
+        let lowered = slot.to_ascii_lowercase();
+        let hint = known
+            .iter()
+            .find(|k| **k == lowered)
+            .map(|k| {
+                format!(" (did you mean `{k}`? slot names are matched exactly, so case counts)")
+            })
+            .unwrap_or_default();
+        out.push(format!(
+            "{}: fills slot {slot:?}, which no loaded theme's shell places{hint} — \
+             slots the tree may fill: {}",
+            file.display(),
+            if known.is_empty() {
+                "(none)".to_string()
+            } else {
+                known.join(", ")
+            }
+        ));
+    }
+    out
 }
 
 fn walk(root: &Path, dir: &Path, fills: &mut SlotFills) -> Result<()> {
@@ -412,6 +474,63 @@ mod tests {
             Some("default")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The guard (MERGE.md C4b). Delete the body of `unknown_stems` and this
+    /// goes silent: `.slots/copyrite.md` is read, keyed, and never looked at
+    /// by anything, on every build, forever.
+    #[test]
+    fn a_fill_naming_no_slot_is_reported_with_the_knowns() {
+        let dir = tree(
+            "unknown-stem",
+            &[
+                (".slots/copyright.md", "© 1998"),
+                (".slots/copyrite.md", "© 1998, misspelt"),
+            ],
+        );
+        let fills = SlotFills::load(&dir).expect("both stems load; only one is read");
+        let w = unknown_stems(&fills, &["copyright", "nav"], &["en"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(w.len(), 1, "only the misspelt one is dead: {w:?}");
+        assert!(w[0].contains("copyrite.md"), "{}", w[0]);
+        assert!(w[0].contains("\"copyrite\""), "{}", w[0]);
+        // The knowns, so the fix is readable off the message.
+        assert!(w[0].contains("copyright, nav"), "{}", w[0]);
+    }
+
+    /// Batch review 2, finding 7: a case variant is an unknown stem BY
+    /// CONSTRUCTION — `resolve` compares stems byte for byte, so `Nav.md`
+    /// fills nothing on every filesystem, including the ones that would call
+    /// it `nav.md`. That is the one dead name worth spelling out.
+    #[test]
+    fn a_case_variant_of_a_known_slot_says_so() {
+        let dir = tree("case-variant", &[(".slots/Nav.md", "[home](/)")]);
+        let fills = SlotFills::load(&dir).expect("a stem is a stem");
+        let w = unknown_stems(&fills, &["copyright", "nav"], &["en"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("did you mean `nav`?"), "{}", w[0]);
+        assert!(w[0].contains("case counts"), "{}", w[0]);
+    }
+
+    /// The control §6f needs, and the shape the live corpus has: a localized
+    /// fill is `{slot}.{locale}`, so `nav.fr` is `nav` where `fr` is
+    /// declared — and only there. `nav.frr` is its own dead name.
+    #[test]
+    fn a_localized_fill_is_known_when_its_locale_is() {
+        let dir = tree(
+            "localized-stem",
+            &[
+                (".slots/nav.md", "nav"),
+                (".slots/nav.fr.md", "navigation"),
+                (".slots/nav.frr.md", "typo"),
+            ],
+        );
+        let fills = SlotFills::load(&dir).expect("locale suffixes are stems");
+        let w = unknown_stems(&fills, &["nav"], &["en", "fr"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(w.len(), 1, "only the undeclared locale is dead: {w:?}");
+        assert!(w[0].contains("nav.frr.md"), "{}", w[0]);
     }
 
     /// The law that stays: directory levels ARE ordered, so the same stem

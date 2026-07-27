@@ -2,17 +2,20 @@
 //! loads one and renders full pages: the layout kind's part map through its
 //! fragment, the result into the shell, identity slots filled from the tree.
 //!
-//! The shell's engine-provided parts are `head` (computed facts, §5a),
-//! `site_title` (config) and `main` (the rendered kind). **Every other shell
-//! slot is an identity slot**, resolved from `.slots/` up the source path —
-//! the theme places `<p data-slot="copyright">`; the tree owns the words.
+//! The shell's engine-provided parts are `site_title` (config), `axes` (the
+//! language/theme switcher) and `main` (the rendered kind). **Every other
+//! `html`-typed shell slot is an identity slot**, resolved from `.slots/` up
+//! the source path — the theme places `<p data-slot="copyright">`; the tree
+//! owns the words. A fill is markup, so the part type is what decides
+//! (`from_sources`); a fill naming no identity slot of any loaded theme is a
+//! load-time warning (`build::render_site`).
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::base;
 use crate::binder::{self, Fragments};
-use crate::parts::{Part, PartMap};
+use crate::parts::{Part, PartMap, PartType};
 use crate::slots::SlotFills;
 
 pub struct Theme {
@@ -151,6 +154,34 @@ impl Themes {
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.map.keys().map(String::as_str)
     }
+
+    /// Every slot the tree may fill, over every theme that can RENDER —
+    /// sorted and deduped.
+    ///
+    /// The union is the point (C4b). Themes ship their own shells and may
+    /// place different identity slots, so a fill is dead only when NO theme
+    /// would read it — a site that switches between two themes keeps both
+    /// sets of words, and neither is a typo. The base theme joins the union
+    /// on exactly the condition `get` reaches it: there is no
+    /// `themes/default` for it to stand behind.
+    pub fn identity_slots(&self) -> Vec<&'static str> {
+        let base = (!self.map.contains_key("default")).then_some(&self.null);
+        let mut out: Vec<&'static str> = base
+            .into_iter()
+            .flat_map(|t| t.identity_slots())
+            .chain(self.map.values().flat_map(|t| t.identity_slots()))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// The tree's `.slots/` fills. Every theme scans the same tree at load,
+    /// so the null theme's copy IS the tree's — this is a reader for that
+    /// scan, not a second one.
+    pub fn fills(&self) -> &SlotFills {
+        &self.null.fills
+    }
 }
 
 impl Theme {
@@ -195,18 +226,33 @@ impl Theme {
         let fragments =
             Fragments::load(sources, schemas).with_context(|| format!("loading theme {what}"))?;
         let fills = SlotFills::load(site_root)?;
-        // Identity slots = shell slots the engine does not provide, matched
-        // back to the schema so the names stay 'static and checked.
-        let engine = ["main", "site_title"];
+        // Identity slots = shell slots the TREE fills, matched back to the
+        // schema so the names stay 'static and checked.
+        //
+        // Which ones those are is read off the declared PART TYPE rather than
+        // off a list of names (MERGE.md C4c). A `.slots/` fill is HTML by
+        // construction — `Fill::render` produces markup and `page` sets it as
+        // `Part::Html` — so a shell slot declared as anything else can never
+        // take one. That answers `site_title` (`text`) and, the case this was
+        // written for, `axes` (`stream:axis`, the engine's own language/theme
+        // switcher): without the type test, `.slots/axes.md` lands in a slot
+        // the binder validated as a stream and replaces it with prose.
+        //
+        // `main` is the one NAME left, because no type can say it: it is HTML
+        // the engine renders into itself.
+        let engine = ["main"];
         let mut identity = Vec::new();
         for (slot, tag) in fragments.slot_tags("shell") {
             if engine.contains(&slot.as_str()) {
                 continue;
             }
-            let name = schemas
+            let (name, ty) = schemas
                 .get("shell")
-                .and_then(|s| s.iter().find(|(n, _)| **n == *slot).map(|(n, _)| *n))
+                .and_then(|s| s.iter().find(|(n, _)| **n == *slot).copied())
                 .with_context(|| format!("shell fragment slots unknown part `{slot}`"))?;
+            if ty != PartType::Html {
+                continue;
+            }
             identity.push((name, binder::is_phrasing_only(&tag)));
         }
         Ok(Theme {
@@ -215,6 +261,12 @@ impl Theme {
             root: site_root.to_path_buf(),
             identity,
         })
+    }
+
+    /// The shell slots this theme leaves for the tree to fill — what a
+    /// `.slots/` file may be named for this theme (§5e).
+    pub fn identity_slots(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.identity.iter().map(|(n, _)| *n)
     }
 
     /// Render one full page: `main` is the already-rendered layout kind;
@@ -576,12 +628,94 @@ mod tests {
         }
     }
 
+    // ------------------------------------------------- identity slots (C4)
+
+    /// C4c: the identity set is derived from the declared PART TYPE, not from
+    /// a list of names. `axes` is `stream:axis` — the engine's own
+    /// language/theme switcher — so `.slots/axes.md` can no longer land in a
+    /// slot the binder validated as a stream. `site_title` falls out the same
+    /// way (`text`), which leaves `main` as the one hand-written name.
+    ///
+    /// Delete the `ty != PartType::Html` test and this fails on `axes`, and
+    /// the `locale-axis` fixture panics with the switcher's stream and a
+    /// prose fill set on one part.
+    #[test]
+    fn the_identity_slots_are_the_html_ones_the_engine_does_not_fill() {
+        let schemas = Schemas::engine_only();
+        let base = Theme::null(&crate::workspace_root(), &schemas).expect("base loads");
+        let slots: Vec<&str> = base.identity_slots().collect();
+        assert_eq!(
+            slots,
+            ["nav", "copyright"],
+            "canonical order, from the schema"
+        );
+        // Stated as the thing the base's shell DOES place, so this test fails
+        // if someone reads the exclusion off a name list again.
+        let placed: Vec<String> = base
+            .fragments
+            .slot_tags("shell")
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect();
+        for engine in ["axes", "main", "site_title"] {
+            assert!(placed.contains(&engine.to_string()), "the shell places it");
+            assert!(!slots.contains(&engine), "but the tree does not fill it");
+        }
+    }
+
+    /// The union, and why it is one (C4b): themes ship their own shells and
+    /// may place different identity slots, so a fill is dead only when NO
+    /// loaded theme would read it.
+    ///
+    /// Two claims in one tree. `nav` is placed by `other` alone and is live
+    /// anyway — that is the union. `copyright` is placed by neither, and is
+    /// dead **even though the base's shell places it**, because a site with
+    /// a `themes/default` can never reach the base's shell: the union takes
+    /// the base on exactly the condition `get` does. This is the case
+    /// `no_theme_shell_drops_an_identity_slot` calls a live hazard, reported
+    /// rather than merely linted.
+    #[test]
+    fn a_stem_one_loaded_theme_places_is_not_dead() {
+        let dir = std::env::temp_dir().join("grackle-theme-union");
+        let _ = std::fs::remove_dir_all(&dir);
+        for (theme, places) in [("default", ""), ("other", "<nav data-slot=\"nav\"></nav>")] {
+            let d = dir.join("themes").join(theme);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("shell.html"),
+                format!(
+                    "<header><a data-slot=\"site_title\"></a>{places}</header>\
+                     <main data-slot=\"main\"></main>"
+                ),
+            )
+            .unwrap();
+        }
+        std::fs::create_dir_all(dir.join(".slots")).unwrap();
+        for stem in ["nav", "copyright", "copyrite"] {
+            std::fs::write(dir.join(".slots").join(format!("{stem}.md")), "words").unwrap();
+        }
+        let schemas = Schemas::engine_only();
+        let themes =
+            Themes::load_all(&dir.join("themes"), &dir, &schemas, None).expect("two shells load");
+        assert_eq!(
+            themes.identity_slots(),
+            ["nav"],
+            "one theme's slot, and the base's are out of reach"
+        );
+        let w = crate::slots::unknown_stems(themes.fills(), &themes.identity_slots(), &["en"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(w.len(), 2, "one theme placing `nav` is enough: {w:?}");
+        assert!(w[0].contains("copyright.md"), "{}", w[0]);
+        assert!(w[1].contains("copyrite.md"), "{}", w[1]);
+    }
+
     /// Edge 2 of §3's back-tested list, as a lint rather than a hope: a
-    /// theme that writes its own `shell.html` takes over the identity slots
+    /// theme that writes its own `shell.html` takes over the shell's slots
     /// too, and dropping one puts a site file — its copyright, its nav —
-    /// silently dark. Five gallery themes ship their own shell, so this is
-    /// a live hazard rather than a hypothetical one. Until `theme check`
-    /// exists, the gallery is the corpus and this is the check.
+    /// silently dark (or, for `main`, the page itself). Five gallery themes
+    /// ship their own shell, so this is a live hazard rather than a
+    /// hypothetical one. Until `theme check` exists, the gallery is the
+    /// corpus and this is the check.
     #[test]
     fn no_theme_shell_drops_an_identity_slot() {
         let base: std::collections::HashSet<String> = slots_of(
