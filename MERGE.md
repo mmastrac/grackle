@@ -297,7 +297,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
 
 ### Phase C — the laws hold at every rung (strictness symmetry)
 
-- [ ] **C1. Dissolve `CASCADE_KEYS`.** `theme`/`shell`/`layout`/`toc`
+- [x] **C1. Dissolve `CASCADE_KEYS`.** `theme`/`shell`/`layout`/`toc`
   (load.rs:169) skip `apply_defaults` and get no type checking:
   `defaults = { toc = "true" }` is silently `false`, `theme = 1` silently
   vanishes (load.rs:131-133, :178). Declare the four in base `[schema]` with
@@ -1136,6 +1136,83 @@ the change; zero fixture changes, zero re-blessing; clippy's warning multiset
 identical before and after. Formatted by hand (§4): `rustfmt` on `config.rs`
 still wants two hunks at lines 1962 and 2424 that this work never touched,
 which is finding 3 seen from the inside.
+
+**2026-07-27 — C1.** Landed. `CASCADE_KEYS` is gone and `apply_defaults` has no
+`reserved` parameter: the four are `schema::CASCADE`, declared in `base.toml`'s
+`[schema]`, and every key a marker or a rule sets now takes one path. Table B's
+"every key here is schema-typed" is true of the code.
+
+*`Cascaded` survives, and its name finally fits.* It is a typed READ of the
+row's resolved fields — `worn("theme")` off `fields.values` — plus the one
+vocabulary the engine closes (`shell`). The cascade is two calls above it,
+`schema::cascade_front` then `apply_defaults`, in that order, which is the same
+ladder every declared key climbs; keeping the struct meant two call sites
+unchanged and the posts/tree "one spelling" property intact.
+
+*The seeding step is the part the item did not predict, and it is load-bearing.*
+The four arrive on named `FrontMatter` fields rather than in `extra` — serde had
+already typed them, which is exactly why front matter never had this disease —
+so `validate` never sees them and `apply_defaults`' nearness test ("does the row
+already carry this key") was blind to them. `cascade_front` seeds them, which
+makes that test true and, in the same move, carries §4e's "every row is
+governed" to the four: a row wearing one no schema declares is a load error
+naming the knowns. **That is the one behaviour change beyond typing**, and it is
+what made `theme-preview` grow two lines.
+
+*The values STAY in `fields` rather than being lifted out.* They also land on
+the row's named fields, so `layout`/`toc` read identically through `Row::field`
+and `theme`/`shell` — previously unfilterable — now answer from `fields` at both
+layers (a route copies `p.fields`). Stripping them would have left four names in
+`declared()` that type-check and answer `Null`, which §4e names as the worse
+failure. Visible consequence: `grackle export`'s JSON now shows these keys under
+a row's `fields`. No built artifact contains them (the search payload lists six
+named keys; `fill_from_fields` is keyed by PART name and no kind in `parts.toml`
+— nor any site's `[[parts]]`, of which there are none — declares one of the
+four).
+
+*Why the base may declare `layout` and `toc` at all.* Both are `reserved` names
+(`row_schema()` has them), and q51's guard refuses those because a declaration
+would be silently overruled. For these four it is not overruled — the value goes
+INTO the row's named field — so `parse_fields` takes a cascade name, but only at
+the type the engine reads it at. Retyping (`toc = { type = "string" }`) is a load
+error: it would type a rule's value one way and have `cascade` read it the
+other, which is this item's silence one rung out. Restating the engine's line is
+legal, which is what `examples/raw` does. `row_schema()` was left alone — the
+alternative (drop `layout`/`toc` from it and let `declared()` supply them) would
+have narrowed the filter vocabulary of every `extends = "none"` site for no
+gain.
+
+*Corpus: nothing ill-typed, and little to type.* The only cascade-key defaults
+in the repo are grack.com's two `defaults = { layout = "post" }`, field-notes'
+one, and field-notes' `defaults = { theme = "recipes" }` — all correct, all on
+base-inheriting sites. (D1 plans to delete the three `layout = "post"` as
+no-ops.) Front matter is where the four actually live: theme-preview's ten
+`layout: page` and one `toc: true`, all under `guide/`, on the one
+`extends = "none"` site that has content — hence its two new `[schema]` lines.
+`theme`/`shell` are deliberately left undeclared there: nothing sets either on a
+row (the theme axis sets its member field at render), and a site declaring what
+it does not use is how a vocabulary stops meaning anything. `examples/raw` takes
+all four, being the base printed out. **Zero fixture configs needed governance
+fixes** — every fixture site with front matter inherits the base.
+
+*Parity:* all five sites built before and after into separate trees and diffed —
+byte-identical but for each feed's wall-clock `<updated>`. Zero re-blessing; one
+new fixture (`cascade-default-mistyped`); clippy's warning multiset identical.
+
+*Mutation-checked three ways, each restored:* re-exempting the cascade keys in
+`apply_defaults` fails six unit tests AND the fixture, which then builds with
+its `notes/outline.md` carrying no outline and nothing said — the silence, live;
+dropping the `ty != engine` test accepts `theme = { type = "int" }`; dropping
+`cascade_front`'s governance check accepts an undeclared front-matter `layout`.
+
+*For the queue (small).* (i) C2 inherits a cleaner surface than it expected: a
+row's `theme` is now a typed declared field, so validating its VALUE against the
+theme registry has one place to sit for the front-matter and default rungs
+alike. (ii) `schema::CASCADE` is a second statement of what `row_schema()` says
+about `layout`/`toc` (types only) — they cannot drift silently, since the guard
+compares them, but §7's vocabulary pass may want to notice. (iii) DESIGN.md
+§4e's `CASCADE_KEYS` sentence and table row were corrected in the same commit;
+they were made false by it.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
