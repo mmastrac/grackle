@@ -257,6 +257,19 @@ sources of one corpus — same row shape, schema, views — so every `kind =
 over all of them**. Before this, a second posts collection silently overwrote
 the first with no warning.
 
+**Posts only, and the other two kinds now say so** *(MERGE.md C7a,
+2026-07-27)*. A tree collection has no source to read that is not the site
+root, and an objects collection has none at all — objects are picked out of
+that same one walk by extension. So there is nothing for a second collection
+of either kind to contribute, and until C7a the loader still took whichever
+came last in name order, dropping the other's rules, `exclude`, `include` and
+`schema` in silence — the same disease this section records as fixed for
+posts, still live at the two kinds that never got multi-source support. A
+second `kind = "tree"` or `kind = "objects"` collection is now a load error
+naming both entries, and saying which of them came from the base: since
+collections key on `source` (MERGE.md §1), a site that declares its tree
+anywhere but `.` inherits the base's beside its own rather than replacing it.
+
 Drafts ride this: `_drafts` is a source whose rule sets `draft = true`,
 and the `!draft` filters the views already carry keep them out of feeds and
 listings. They are ordinary rows in every other respect — they materialize

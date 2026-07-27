@@ -1,0 +1,28 @@
+# An INHERITED view's `from` naming a collection this site renamed away
+# (MERGE.md C7b).
+#
+# Views are a registry keyed by NAME, so the base's `[sets.published]`
+# survives whatever a site does. Collections key on `source` (MERGE.md §1),
+# so `name = "notes"` here does not add a collection — it renames the base's
+# `_posts` one, and the name `posts` stops existing. The base's
+# `from = "posts"` then names nothing, on a site whose grackle.toml has no
+# `published` in it at all.
+#
+# The old error read `blog_index: from = "posts" is neither a collection, a
+# set nor a route` — the wrong entry AND a line the author never wrote. Both
+# halves are what the message has to fix: `published` carries the `from`, and
+# it came from the base.
+#
+# The fix a reader should reach for is one line — `[sets.published] from =
+# "notes"` — which is exactly what `examples/field-notes` writes.
+
+[site]
+url = "https://example.com"
+title = "Renamed"
+author = "Tester"
+
+[[collections]]
+name = "notes"
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]

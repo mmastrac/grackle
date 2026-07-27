@@ -257,6 +257,9 @@ fn every_collection_key_has_a_law(c: Collection) {
         tags: _,
         relations: _,
         schema: _,
+        // Not config surface: `#[serde(skip)]`, recorded at parse time from
+        // the site's own TOML, so no key of a site's ever reaches it.
+        inherited: _,
     } = c;
 }
 
@@ -322,6 +325,8 @@ impl Shaped for Collection {
             field("tags", |c: &Collection| &c.tags),
             field("relations", |c: &Collection| &c.relations),
             field("schema", |c: &Collection| &c.schema),
+            // `inherited` is `#[serde(skip)]`: it has no TOML name and so no
+            // shape, like `Config`'s five below.
         ])
     }
 }
@@ -701,6 +706,20 @@ fn identity(source: Option<&str>, name: Option<&str>) -> Option<String> {
         return Some(format!("source:{}", if s.is_empty() { "." } else { s }));
     }
     name.map(|n| format!("name:{n}"))
+}
+
+/// How an identity error names one collection: the table name `from` would
+/// use, plus the thing that actually identifies it across the merge. Written
+/// once so two entries in one message are described the same way — the whole
+/// point of such a message is that the reader can tell them apart.
+fn describe_collection(name: &str, c: &Collection) -> String {
+    match (c.source.as_deref(), c.extensions.is_empty()) {
+        (Some(s), _) => format!("{name:?} at `source = {s:?}`"),
+        // Objects have no source; their extension list is the only other
+        // thing about them a reader could recognise.
+        (None, false) => format!("{name:?} (extensions {})", c.extensions.join(", ")),
+        (None, true) => format!("{name:?} (no `source`)"),
+    }
 }
 
 fn merge_collection_list(
@@ -1143,6 +1162,17 @@ pub struct Collection {
     /// only place "every post has a `series`" can be said once.
     #[serde(default)]
     pub schema: toml::Table,
+    /// True when this entry came from the base config rather than the site's
+    /// own file (§4d) — [`View::inherited`] and [`Rule::inherited`] are the
+    /// same flag on the other two registries, recorded the same way: the
+    /// site's own TOML is read before the merge blurs the two.
+    ///
+    /// It buys one sentence, and `check_collection_kinds` is where it is
+    /// said: an identity error naming a collection the author never wrote
+    /// has to explain where it came from, or it is an error about a line
+    /// that is not in their file.
+    #[serde(skip)]
+    pub inherited: bool,
 }
 
 /// One declared relation (§6g). A neighbour list expressed as a query over
@@ -1766,13 +1796,19 @@ impl Config {
             v.inherited = !declared.contains(name);
         }
         for c in cfg.collections.values_mut() {
+            // `site_rules` is keyed by the same identity the merge pairs on,
+            // so its KEY SET is "the collections the site declared" and its
+            // values are how many rules each of them wrote. One read of the
+            // pre-merge TOML answers both questions.
             let mine = identity(c.source.as_deref(), c.name.as_deref())
-                .and_then(|k| site_rules.get(&k).copied())
-                .unwrap_or(0);
+                .and_then(|k| site_rules.get(&k).copied());
+            c.inherited = mine.is_none();
+            let mine = mine.unwrap_or(0);
             for (i, r) in c.rules.iter_mut().enumerate() {
                 r.inherited = i >= mine;
             }
         }
+        cfg.check_collection_kinds()?;
         Ok(cfg)
     }
 
@@ -1863,6 +1899,77 @@ impl Config {
                     prev.source.unwrap_or_default(),
                 );
             }
+        }
+        Ok(())
+    }
+
+    /// The tree collection and the objects collection are SINGLETONS, and
+    /// this is where a second one of either is refused (MERGE.md C7a).
+    ///
+    /// Several `posts` collections feeding one table is the multi-source
+    /// shape the engine has — `_posts` and `_drafts` are two sources of one
+    /// corpus (§4) — and it works because each has a `source` directory of
+    /// its own to read. The other two kinds have no second thing to range
+    /// over. The tree is the site ROOT, walked once (`store::walk_tree`
+    /// takes `cfg.root()`, never a collection's `source`), and objects are
+    /// picked out of that same walk by EXTENSION. So `load` reads exactly
+    /// one collection of each kind, and before this check it took whichever
+    /// came last in name order: the loser's rules, `exclude`, `include` and
+    /// `schema` were dropped without a word, which is DESIGN.md §4's
+    /// "a second posts collection silently overwrote the first" disease
+    /// still live at the two kinds that never got multi-source support.
+    ///
+    /// Whether a site SHOULD be able to declare two is a design question
+    /// nobody has asked; until someone does, the answer is an error that
+    /// names both entries rather than a build that honours one of them.
+    fn check_collection_kinds(&self) -> Result<()> {
+        // Spelled rather than `{kind:?}`: the error quotes what a site
+        // WRITES (`kind = "tree"`), which is serde's lowercase rename and
+        // not `Kind`'s Rust name.
+        for (kind, spelling, why, merge_hint) in [
+            (
+                Kind::Tree,
+                "tree",
+                "the tree is the site root, walked once, so a second tree \
+                 collection has no second tree to read",
+                "collections key on `source` (MERGE.md §1), so a site declares \
+                 its tree at `source = \".\"` to REPLACE the base's rather than \
+                 sit beside it",
+            ),
+            (
+                Kind::Objects,
+                "objects",
+                "objects are picked out of that same one tree walk by extension, \
+                 so a second objects collection has no second walk to read",
+                "an objects collection has no `source`, so it keys on its NAME \
+                 (MERGE.md §1): a site declares `name = \"objects\"` to REPLACE \
+                 the base's rather than sit beside it",
+            ),
+        ] {
+            let mut of_kind = self.collections.iter().filter(|(_, c)| c.kind == kind);
+            let (Some(a), Some(b)) = (of_kind.next(), of_kind.next()) else {
+                continue;
+            };
+            // Whichever of the two the author did not write is the one that
+            // needs explaining, and at most one of them can be inherited —
+            // the base declares one collection of each kind.
+            let note = match [a, b].into_iter().find(|(_, c)| c.inherited) {
+                Some((name, _)) => format!(
+                    "\n  {name:?} is inherited from the base config (§4d), so it is not \
+                     in your file: {merge_hint}. `extends = \"none\"` declines the base \
+                     entirely."
+                ),
+                None => String::new(),
+            };
+            anyhow::bail!(
+                "two `kind = \"{spelling}\"` collections — {} and {}. Only one of each is \
+                 supported: {why}, and only one of the two would be read at all — the \
+                 other's rules, `exclude`, `include` and `schema` would be silently \
+                 dropped. (Several `posts` collections feeding one table is the \
+                 multi-source shape the engine has, §4.){note}",
+                describe_collection(a.0, a.1),
+                describe_collection(b.0, b.1),
+            );
         }
         Ok(())
     }
@@ -2572,7 +2679,10 @@ impl Config {
             // A collection, a union, or `*` terminates the chain.
             let next = v.over.single().and_then(|s| self.views.get(s));
             let Some(next) = next else {
-                self.check_base(name, &v.over)?;
+                // `cur`, not `name`: the entry that CARRIES the `from` is the
+                // one an author has to edit, and on a composed chain it is not
+                // the one whose query was asked for.
+                self.check_base(cur, name, &v.over)?;
                 filters.reverse();
                 scopes.reverse();
                 patched.reverse();
@@ -2591,19 +2701,21 @@ impl Config {
                     && next.template.is_none();
                 if !subdividable {
                     anyhow::bail!(
-                        "{name}: `from = {:?}` names something that is neither a set nor a \
+                        "{cur}: `from = {}` names something that is neither a set nor a \
                          grouped route. Only sets and grouped, unpaginated routes may be \
                          composed over (subdivision, §5c); pagination × subdivision is \
-                         punted (open question 30).",
-                        v.over.display()
+                         punted (open question 30).{}",
+                        v.over.display(),
+                        self.whose_from(cur, name)
                     );
                 }
                 if v.group_by.is_none() {
                     anyhow::bail!(
-                        "{name}: `from = {:?}` names a grouped route, but {name} has no \
+                        "{cur}: `from = {}` names a grouped route, but {cur} has no \
                          `group_by`. Composing over a grouped route means subdividing its \
-                         partition (§5c), so the composer must be grouped too.",
-                        v.over.display()
+                         partition (§5c), so the composer must be grouped too.{}",
+                        v.over.display(),
+                        self.whose_from(cur, name)
                     );
                 }
             }
@@ -2617,7 +2729,13 @@ impl Config {
     /// and they must share a kind: the members decide the vocabulary a `where`
     /// type-checks against and whether the rows are parsed, so two kinds in one
     /// union is a query with two answers to both questions.
-    fn check_base(&self, name: &str, over: &From) -> Result<()> {
+    ///
+    /// `carrier` is the view whose `from` this is; `asked` is the view whose
+    /// query was requested, which on a composed chain is a different entry
+    /// (`blog_index` composes over `published`, and it is `published`'s
+    /// `from` that terminates). Both, because a message naming only one of
+    /// them sends the reader to the wrong table — see [`Config::whose_from`].
+    fn check_base(&self, carrier: &str, asked: &str, over: &From) -> Result<()> {
         if over.is_star() {
             return Ok(());
         }
@@ -2626,14 +2744,23 @@ impl Config {
             let Some(c) = self.collections.get(member) else {
                 if matches!(over, From::Union(_)) {
                     anyhow::bail!(
-                        "{name}: `from` unions {member:?}, which is not a collection. A union \
+                        "{carrier}: `from` unions {member:?}, which is not a collection. A union \
                          ranges over collections; to narrow a set, compose over it with `from = \
-                         {member:?}` and a `where`."
+                         {member:?}` and a `where`.{}",
+                        self.whose_from(carrier, asked)
                     );
                 }
                 anyhow::bail!(
-                    "{name}: `from = {}` is neither a collection, a set nor a route",
-                    over.display()
+                    "{carrier}: `from = {}` is neither a collection, a set nor a route \
+                     (collections: {}; sets and routes: {}){}",
+                    over.display(),
+                    self.collections
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    self.views.keys().cloned().collect::<Vec<_>>().join(", "),
+                    self.whose_from(carrier, asked)
                 );
             };
             kinds.push((member.as_str(), c.kind));
@@ -2641,16 +2768,60 @@ impl Config {
         if let Some((first, k)) = kinds.first() {
             if let Some((other, k2)) = kinds.iter().find(|(_, x)| x != k) {
                 anyhow::bail!(
-                    "{name}: `from` unions collections of two kinds — {first:?} is {k:?} and \
+                    "{carrier}: `from` unions collections of two kinds — {first:?} is {k:?} and \
                      {other:?} is {k2:?}. A union's members share a vocabulary, so they share a \
-                     kind."
+                     kind.{}",
+                    self.whose_from(carrier, asked)
                 );
             }
         }
         if over.names().is_empty() {
-            anyhow::bail!("{name}: `from = []` names nothing to range over.");
+            anyhow::bail!(
+                "{carrier}: `from = []` names nothing to range over.{}",
+                self.whose_from(carrier, asked)
+            );
         }
         Ok(())
+    }
+
+    /// Who owns a bad `from`, when it is not the entry the reader is looking
+    /// at (MERGE.md C7b).
+    ///
+    /// Two things blur that. A view composes over another, so the entry
+    /// carrying the broken reference need not be the one whose query was
+    /// asked for. And **an inherited `from` is the one reference in this
+    /// config a site can break without touching the entry that carries it**:
+    /// views are a registry keyed by NAME, so an inherited set survives every
+    /// rename a site can perform, while collections key on `source` (§1's
+    /// annotation), so renaming the collection at `_posts` retires the name
+    /// `posts` — and the base's `[sets.published] from = "posts"` then names
+    /// nothing, on a site whose grackle.toml contains no `published` at all.
+    /// The old message quoted that line back at its reader as if they had
+    /// written it.
+    ///
+    /// Empty for a view the site wrote and asked about directly, which is
+    /// every message this does not need to explain.
+    fn whose_from(&self, carrier: &str, asked: &str) -> String {
+        let mut note = String::new();
+        if carrier != asked {
+            note.push_str(&format!(
+                "\n  (reached from {asked:?}, which composes `over` it.)"
+            ));
+        }
+        let Some(v) = self.views.get(carrier) else {
+            return note;
+        };
+        if v.inherited {
+            let table = if v.declared_set { "sets" } else { "routes" };
+            note.push_str(&format!(
+                "\n  {carrier:?} is inherited from the base config (§4d) — it is not in your \
+                 grackle.toml, and its `from` names a collection the BASE declares. A site \
+                 that renames or drops that collection has to say what {carrier:?} means to \
+                 it: declare your own [{table}.{carrier}] over the inherited one, or keep a \
+                 collection under the name it asks for."
+            ));
+        }
+        note
     }
 
     /// The `over` chain from `name` down to its base, nearest view first.
@@ -3152,6 +3323,94 @@ mod tests {
             "`_posts` would be read twice: {:?}",
             c.collections.keys()
         );
+    }
+
+    /// MERGE.md C7a. A site declaring its tree at another `source` does not
+    /// replace the base's — it sits beside it, and only one of the two would
+    /// ever be read. Both are named, and the one the author cannot find in
+    /// their own file is placed.
+    #[test]
+    fn a_second_tree_collection_names_both_and_places_the_inherited_one() {
+        let e = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind=\"tree\"\nsource=\"pages\"\n",
+        )
+        .expect_err("two tree collections should not load")
+        .to_string();
+        assert!(e.contains("two `kind = \"tree\"` collections"), "{e}");
+        assert!(e.contains("\"entries\" at `source = \".\"`"), "{e}");
+        assert!(e.contains("\"pages\" at `source = \"pages\"`"), "{e}");
+        assert!(
+            e.contains("\"entries\" is inherited from the base config"),
+            "the base's is the one that is not in the author's file: {e}"
+        );
+    }
+
+    /// Same sentence one kind over, and the provenance hint differs because
+    /// the identity does: objects have no `source`, so they key on NAME.
+    #[test]
+    fn a_second_objects_collection_names_both() {
+        let e = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname=\"images\"\nkind=\"objects\"\nextensions=[\"png\"]\n",
+        )
+        .expect_err("two objects collections should not load")
+        .to_string();
+        assert!(e.contains("two `kind = \"objects\"` collections"), "{e}");
+        assert!(e.contains("\"images\" (extensions png)"), "{e}");
+        assert!(e.contains("\"objects\" (extensions png, jpg"), "{e}");
+        assert!(e.contains("`name = \"objects\"`"), "the fix: {e}");
+    }
+
+    /// The control, and the shape every site in the repo has: one tree, one
+    /// objects, and as many posts collections as it likes — `_posts` and
+    /// `_drafts` are two sources of one corpus (§4), which is the multi-source
+    /// support the other two kinds never got.
+    #[test]
+    fn one_of_each_kind_beside_several_posts_collections_is_legal() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind=\"posts\"\nsource=\"_drafts\"\n\
+             [[collections]]\nkind=\"tree\"\nsource=\".\"\n\
+             [[collections]]\nname=\"objects\"\nkind=\"objects\"\n",
+        )
+        .expect("one tree, one objects, two posts");
+        let posts = c
+            .collections
+            .values()
+            .filter(|c| c.kind == Kind::Posts)
+            .count();
+        assert_eq!(posts, 2, "the site's `_drafts` beside the base's `_posts`");
+        assert_eq!(
+            c.collections
+                .values()
+                .filter(|c| c.kind == Kind::Tree)
+                .count(),
+            1
+        );
+        assert_eq!(
+            c.collections
+                .values()
+                .filter(|c| c.kind == Kind::Objects)
+                .count(),
+            1
+        );
+    }
+
+    /// `extends = "none"` reaches the same guard with nothing to explain:
+    /// both entries are the author's own, and a provenance sentence about a
+    /// base this site declined would be a lie.
+    #[test]
+    fn two_tree_collections_a_site_wrote_itself_get_no_provenance_sentence() {
+        let e = Config::from_toml(
+            "extends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nkind=\"tree\"\nsource=\".\"\n\
+             [[collections]]\nkind=\"tree\"\nsource=\"pages\"\n",
+        )
+        .expect_err("two tree collections should not load")
+        .to_string();
+        assert!(e.contains("two `kind = \"tree\"` collections"), "{e}");
+        assert!(!e.contains("inherited from the base config"), "{e}");
     }
 
     /// A registry entry is the unit: your `[routes.feed]` replaces the base's
@@ -4100,6 +4359,78 @@ mod tests {
             e.contains("neither a collection, a set nor a route"),
             "unexpected error: {e}"
         );
+        // The author wrote this one, so there is nothing to explain about
+        // where it came from — the control for the two tests below.
+        assert!(!e.contains("inherited from the base config"), "{e}");
+        assert!(!e.contains("reached from"), "{e}");
+    }
+
+    /// MERGE.md C7b: renaming the collection at `_posts` retires the name
+    /// `posts`, and the base's `[sets.published] from = "posts"` then names
+    /// nothing — on a site whose grackle.toml has no `published` in it.
+    ///
+    /// Views key on NAME and survive every rename; collections key on
+    /// `source` and do not. That asymmetry is the whole of this bug, and it
+    /// is why an inherited `from` is the one reference a site can break
+    /// without touching the entry that carries it.
+    #[test]
+    fn an_inherited_sets_dangling_from_says_it_came_from_the_base() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n",
+        )
+        .unwrap();
+        let e = c.query("published").unwrap_err().to_string();
+        assert!(e.starts_with("published: `from = \"posts\"`"), "{e}");
+        assert!(
+            e.contains("\"published\" is inherited from the base config (§4d)"),
+            "{e}"
+        );
+        assert!(
+            e.contains("declare your own [sets.published]"),
+            "the fix, in the table the entry would live in: {e}"
+        );
+        // The knowns are what show the author their own rename.
+        assert!(e.contains("collections: entries, notes, objects"), "{e}");
+    }
+
+    /// The other half of the same blame: `blog_index` composes over
+    /// `published`, so asking for `blog_index`'s query is what surfaces
+    /// `published`'s broken `from` — and the old message put `blog_index`'s
+    /// name in front of a `from` that is not in `blog_index`.
+    #[test]
+    fn a_composed_chain_blames_the_view_that_carries_the_from() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n",
+        )
+        .unwrap();
+        let e = c.query("blog_index").unwrap_err().to_string();
+        assert!(
+            e.starts_with("published: `from = \"posts\"`"),
+            "the carrier, not the asker: {e}"
+        );
+        assert!(
+            e.contains("(reached from \"blog_index\", which composes `over` it.)"),
+            "{e}"
+        );
+    }
+
+    /// The control, and the shape `examples/field-notes` really has: rename
+    /// the collection AND say what the inherited set means now. One line, and
+    /// it is the line the error above asks for.
+    #[test]
+    fn a_renamed_collection_with_its_own_published_set_resolves() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n\
+             [sets.published]\nfrom=\"notes\"\nwhere=\"!draft\"\n",
+        )
+        .unwrap();
+        let q = c
+            .query("blog_index")
+            .expect("the chain terminates at `notes`");
+        assert_eq!(q.base, vec!["notes".to_string()]);
     }
 
     #[test]

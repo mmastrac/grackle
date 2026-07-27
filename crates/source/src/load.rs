@@ -954,6 +954,15 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // a private copy of "what to skip" is q34's disease, and it is how an
     // embedded site's `.schema.toml` (`cover`, under `grackle/examples/`)
     // joined grack.com's own field vocabulary at the same rung.
+    //
+    // At most ONE collection of each kind reaches these bindings, and the
+    // config is what guarantees it (`Config::check_collection_kinds`, MERGE.md
+    // C7a): the tree is the root, walked once, and objects come out of that
+    // same walk by extension, so a second collection of either kind has
+    // nothing of its own to read. Before that guard this loop was the silent
+    // discard — an unconditional assignment over a `BTreeMap`, so the
+    // alphabetically last collection of each kind won and the other's rules,
+    // `exclude`, `include` and `schema` went nowhere.
     let mut tree_c = None;
     let mut tree_name = String::new();
     let mut obj_c = None;

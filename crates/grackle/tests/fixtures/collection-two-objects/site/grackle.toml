@@ -1,0 +1,25 @@
+# A second `kind = "objects"` collection (MERGE.md C7a), the same disease one
+# kind over.
+#
+# An objects collection has no `source` — it is matched by extension out of
+# the one tree walk — so it keys on its NAME (MERGE.md §1). Naming this one
+# `images` therefore leaves the base's `objects` in place rather than
+# replacing it, and only one of the two would ever be read: `png` files here
+# would be claimed by whichever came last in name order, with the other's
+# `extensions` and rules silently dropped.
+#
+# `name = "objects"` is what this site meant to write.
+
+[site]
+url = "https://example.com"
+title = "Two Object Collections"
+author = "Tester"
+
+[[collections]]
+name = "images"
+kind = "objects"
+extensions = ["png"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/assets/{path}"
