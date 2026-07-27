@@ -1352,8 +1352,19 @@ pub struct Collection {
     /// A rule declaring its own list overrides this for the rows it governs.
     #[serde(default)]
     pub filename_formats: Vec<String>,
+    /// What the site walk does NOT read, and what re-admits it — **for the
+    /// `tree` collection only** (§4c, IO.md I7b). `load` compiles these two
+    /// lists into the one [`crate::store::NotContent`] the tree, marker and
+    /// vocabulary walks share, so a posts or objects collection writing them
+    /// configures nothing and `check_scope_content_keys` says so.
+    ///
+    /// `include` has first say over `exclude`, and over the engine's own
+    /// positional not-content rule (a site-root `themes/`): it is the one
+    /// key that means "publish this anyway".
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// See [`Collection::exclude`] — the same key, in the other direction,
+    /// with the same tree-only restriction.
     #[serde(default)]
     pub include: Vec<String>,
     #[serde(default)]
@@ -2143,6 +2154,7 @@ impl Config {
             }
         }
         cfg.check_collection_kinds()?;
+        cfg.check_scope_content_keys()?;
         if let Some(name) = profile {
             // Rung 0, lifted out of the profile so the loader can reach it
             // without knowing about profiles (§2, MERGE.md E1).
@@ -2291,10 +2303,10 @@ impl Config {
     /// takes `cfg.root()`, never a collection's `source`), and objects are
     /// picked out of that same walk by EXTENSION. So `load` reads exactly
     /// one collection of each kind, and before this check it took whichever
-    /// came last in name order: the loser's rules, `exclude`, `include` and
-    /// `schema` were dropped without a word, which is DESIGN.md §4's
-    /// "a second posts collection silently overwrote the first" disease
-    /// still live at the two kinds that never got multi-source support.
+    /// came last in name order: the loser's keys were dropped without a word,
+    /// which is DESIGN.md §4's "a second posts collection silently overwrote
+    /// the first" disease still live at the two kinds that never got
+    /// multi-source support.
     ///
     /// Whether a site SHOULD be able to declare two is a design question
     /// nobody has asked; until someone does, the answer is an error that
@@ -2303,12 +2315,17 @@ impl Config {
         // Spelled rather than `{kind:?}`: the error quotes what a site
         // WRITES (`kind = "tree"`), which is serde's lowercase rename and
         // not `Kind`'s Rust name.
-        for (kind, spelling, why, merge_hint) in [
+        // `lost` is per-kind because the key sets differ: only a tree
+        // collection may write `exclude`/`include` at all (IO.md I7b), so
+        // naming them in the objects sentence would describe a loss that
+        // cannot happen.
+        for (kind, spelling, why, lost, merge_hint) in [
             (
                 Kind::Tree,
                 "tree",
                 "the tree is the site root, walked once, so a second tree \
                  collection has no second tree to read",
+                "rules, `exclude`, `include` and `schema`",
                 "collections key on `source` (MERGE.md §1), so a site declares \
                  its tree at `source = \".\"` to REPLACE the base's rather than \
                  sit beside it",
@@ -2319,6 +2336,7 @@ impl Config {
                 "objects are picked out of that same one tree walk by their \
                  own rules, so a second objects collection has no second walk \
                  to read",
+                "rules and `schema`",
                 "an objects collection has no `source`, so it keys on its NAME \
                  (MERGE.md §1): a site declares `name = \"objects\"` to REPLACE \
                  the base's rather than sit beside it",
@@ -2342,11 +2360,59 @@ impl Config {
             anyhow::bail!(
                 "two `kind = \"{spelling}\"` collections — {} and {}. Only one of each is \
                  supported: {why}, and only one of the two would be read at all — the \
-                 other's rules, `exclude`, `include` and `schema` would be silently \
-                 dropped. (Several `posts` collections feeding one table is the \
-                 multi-source shape the engine has, §4.){note}",
+                 other's {lost} would be silently dropped. (Several `posts` \
+                 collections feeding one table is the multi-source shape the engine \
+                 has, §4.){note}",
                 describe_collection(a.0, a.1),
                 describe_collection(b.0, b.1),
+            );
+        }
+        Ok(())
+    }
+
+    /// `exclude`/`include` belong to the TREE collection, and to no other
+    /// (IO.md I7b).
+    ///
+    /// What is and is not content is one question with one answer: `load`
+    /// compiles a single [`store::NotContent`] from the tree collection's two
+    /// lists and hands it to all three walks (§4c, MERGE.md R1/R2). A posts or
+    /// objects collection's copies have no reader anywhere — theme-preview
+    /// carried `exclude = ["themes/**"]` on its objects scope for as long as
+    /// it has existed and deleting the line rebuilt the site byte-identical
+    /// (IO.md I7a's finding iii). Declared and ignored is the disease this
+    /// ledger exists to refuse, so the key says so at the line that wrote it.
+    ///
+    /// Made real for the other kinds instead? The alternative was weighed and
+    /// is not the same feature: a posts scope's `exclude` would have to mean
+    /// "narrow my `source` walk" and an objects scope's "narrow which files my
+    /// rules may claim" — two new semantics, neither of which any site has
+    /// asked for, and the second of which a rule glob already expresses.
+    fn check_scope_content_keys(&self) -> Result<()> {
+        for (name, c) in &self.collections {
+            // Spelled, not `{kind:?}`: the error quotes what the site WROTE.
+            // The tree is the one that reads these, so it is the one that
+            // leaves by this arm rather than by a test above.
+            let spelling = match c.kind {
+                Kind::Tree => continue,
+                Kind::Posts => "posts",
+                Kind::Objects => "objects",
+            };
+            let Some(key) = [("exclude", &c.exclude), ("include", &c.include)]
+                .into_iter()
+                .find(|(_, v)| !v.is_empty())
+                .map(|(k, _)| k)
+            else {
+                continue;
+            };
+            anyhow::bail!(
+                "collection {}: `{key}` on a `kind = \"{spelling}\"` collection \
+                 configures nothing. What counts as content is decided once, by the \
+                 `kind = \"tree\"` collection — its `exclude`/`include` are compiled \
+                 into the one value the tree, marker and vocabulary walks all read \
+                 (§4c) — and every other scope picks its rows out of that same walk. \
+                 Move the patterns to the tree collection's `{key}`, or delete the \
+                 line.",
+                describe_collection(name, c),
             );
         }
         Ok(())

@@ -244,6 +244,16 @@ impl NotContent {
         NotContent { exclude, include }
     }
 
+    /// Does an `include` pattern name `rel` explicitly?
+    ///
+    /// `include` is the escape hatch, and `keeps` gives it first say — so a
+    /// *positional* not-content rule (IO.md I7b's site-root `themes/`) has to
+    /// ask the same question the same way, or the hatch would open for the
+    /// declared layer and not for the engine's own.
+    pub fn included(&self, rel: &Path) -> bool {
+        self.include.is_match(rel)
+    }
+
     /// Is `rel` (root-relative) still inside the site?
     fn keeps(&self, rel: &Path) -> bool {
         rel.as_os_str().is_empty() || self.include.is_match(rel) || !self.exclude.is_match(rel)

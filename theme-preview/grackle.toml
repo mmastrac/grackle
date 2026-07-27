@@ -169,7 +169,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 [[collections]]
 name = "objects"
 kind = "objects"
-exclude = ["themes/**"]
 
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"

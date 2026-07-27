@@ -864,6 +864,17 @@ fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows
 }
 
+/// Is `rel` (root-relative) *inside* the site's `themes/` directory?
+///
+/// The directory itself, were a site ever to hold a root-level FILE by that
+/// name, is not: what the engine reads is `root.join("themes")` as a
+/// directory, so the positional claim is over its contents. `Path::starts_with`
+/// compares whole components, so `themes-old/x.md` is ordinary content.
+fn under_themes(rel: &Path) -> bool {
+    let mut parts = rel.components();
+    parts.next().is_some_and(|c| c.as_os_str() == "themes") && parts.next().is_some()
+}
+
 /// One walk of the site root, partitioned by membership precedence
 /// (DESIGN.md §3): a file the objects scope's rules claim is an object,
 /// tree takes the rest.
@@ -908,6 +919,18 @@ fn build_tree_and_objects(
                 .map(|p| p != cfg.config_file)
                 .unwrap_or(true)
         })
+        // Nor are theme SOURCES (IO.md I7b). A site-root `themes/` is engine
+        // vocabulary by POSITION, the class `.slots/`, `.section` and
+        // `.schema.toml` already occupy: the build reads themes from exactly
+        // one place (`root.join("themes")`), so what sits there is input to
+        // the build in the same sense the config file is, and publishing a
+        // theme's `root.html` at `/themes/mine/root.html` is the same
+        // accident as publishing `grackle.toml`.
+        //
+        // `include` stays the escape hatch — asked the way `NotContent::keeps`
+        // asks it, so a site that deliberately publishes something underneath
+        // says so in the one key that already means that.
+        .filter(|f| not_content.included(&f.rel) || !under_themes(&f.rel))
         .collect();
 
     // q45: rows named by a view's `content` — claimed landings. Matched

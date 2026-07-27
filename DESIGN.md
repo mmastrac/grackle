@@ -224,7 +224,10 @@ to: `extensions = [...]` beside the rules, scanned before them. The list is a
 does it land", and the answer is visible in `--effective` beside every other
 rule. **Rule globs compile case-insensitively** — the scan lowercased an
 extension before comparing and a glob would not have, and `.PNG` must stay a
-`png`. The old key is a parse error.
+`png`. The old key is a parse error. **Nor `exclude`/`include`** *(IO.md I7b)*:
+those are the tree collection's keys, because what counts as content is decided
+once for the whole site (§4c) and every other scope picks its rows out of that
+one walk — a narrowing an objects scope wants is a narrowing of its `match`.
 
 ### Route tokens: one supplier *(q51's remainder; built 2026-07-27, IO.md I6)*
 
@@ -314,8 +317,10 @@ identifies it across the merge, and the walk ignores it — `walk_tree` takes
 the site root, always. `source = "pages"` there means "call me `pages`", not
 "read `pages/`", which is not what it reads like. So there is nothing for a
 second collection of either kind to contribute, and until C7a the loader
-still took whichever came last in name order, dropping the other's rules,
-`exclude`, `include` and `schema` in silence — the same disease this section
+still took whichever came last in name order, dropping the other's rules and
+`schema` in silence (and, for a tree, its `exclude`/`include` — which since
+IO.md I7b are a **tree collection's keys and no other's**: what counts as
+content is decided once, §4c) — the same disease this section
 records as fixed for posts, still live at the two kinds that never got
 multi-source support. A second `kind = "tree"` or `kind = "objects"` collection
 is now a load error naming both entries, and saying which of them came from the
@@ -494,18 +499,54 @@ is complete (marker + front matter); view routes still need the layout chain
 and stay out of the route schema until phase 2, on the same reasoning: a field
 we cannot populate correctly is worse than no field (q33(e)).
 
-## 4c. What counts as content: three layers
+## 4c. What counts as content: four layers
 
-`gitignore = true` (default). Three mechanisms, each doing what only it can:
+`gitignore = true` (default). Four mechanisms, each doing what only it can:
 
 | Layer | Covers |
 |---|---|
 | **`.gitignore`** | build artifacts: `_site*`, `_log*`, `vendor`, `_cache`, `.jekyll-cache` |
 | **dot/underscore skip** | `_posts`, `_layouts`, `_sass`, `_includes`, `.git` |
 | **`exclude`** | `docker/`, `scripts/`, `TODO`, `*.sh`, `Gemfile`, `*.yml`, `*.toml` |
+| **position** | what the engine reads by where it sits: the site's own `grackle.toml`, and `themes/` |
 
 Tracked content files are excluded by the dot/underscore skip and `exclude`;
 `.gitignore` handles untracked build artifacts.
+
+### The positional layer: what the engine reads by position
+
+Three of the four layers are declared or conventional. The fourth is neither:
+some paths are **engine vocabulary by position**, the class `.slots/`,
+`.section` and `.schema.toml` already occupy, and the two that are also
+*whole inputs to the build* are excluded from content by that fact alone.
+
+- **The config file** — matched by identity, not by glob, so no site needs an
+  `exclude` entry to avoid publishing its own `grackle.toml` (which is how a
+  `grackle.toml` ended up on a website).
+- **A site-root `themes/`** *(IO.md I7b)* — the build reads themes from exactly
+  one place, `root.join("themes")`, so what sits there is input in the same
+  sense the config file is. Without the rule a site with no `exclude` publishes
+  its theme's `root.html` at `/themes/mine/root.html` and its `theme.scss`
+  beside the compiled sheet the engine already emits at `/css/mine.css`.
+  Every site in the corpus writes `exclude = ["themes/**"]` to say this, which
+  is the evidence: a rule every site has to restate is the engine's.
+
+**`include` is the escape hatch, and it is the one that already exists.**
+`include` has first say over `exclude` (`NotContent::keeps`), so it has first
+say over the positional rule too — a site that deliberately publishes something
+under `themes/` says so in the key that already means that, and no second
+mechanism exists for it. (The config file is the exception, and deliberately:
+it is one named file, not a subtree, and there is no site that means to
+publish it.)
+
+**Not content is not the same as not watched.** `serve`'s `is_content`
+deliberately treats `themes/` as something to watch — a theme edit changes
+every page — which is the same fact from the other side: theme sources are
+*build input*, so they drive rebuilds and are not published. `exclude`/`include`
+are keys of the **tree** collection alone; a posts or objects collection writing
+them configures nothing, and says so at the line that wrote it *(IO.md I7b —
+`NotContent` is compiled from the tree collection's lists and nothing else
+reads the other kinds' copies)*.
 
 ### Where `.gitignore` actually earns its keep
 
@@ -2605,7 +2646,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure.
 30. **Pagination × subdivision (§5c).** A grouped view can subdivide; paginated one cannot yet. Year archive could paginate while months subdivide — row-set semantics cohere but namespace shares. Collision (hard error today) vs pattern-space overlap (should warn or declare).
 33. **View-name policy in `build.rs` (§9b).** Settled: (a) listing `noindex` is a view declaration; (c) dead layout names renamed to `listing`; (f) row `layout:` dissolved. Remains: (b) `"blog_index"` fallback dies when view declares layout; (d) `template` no longer templates — it claims a legacy file; (e) sitemap filter's second evaluation.
-34. **Three "not content" lists (§9b).** §4c's layers are now one shared `store::NotContent`, read by the tree, declaration and marker walks (MERGE.md R1/R2). Remaining: `slots.rs` and `serve.rs` carry private skips — and `slots.rs`'s hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host build (MERGE.md A6), so adopting the shared value means consulting the site's `exclude` too. Serve's `_cache/` stays its own (rebuild *writes* it).
+34. **Three "not content" lists (§9b).** §4c's layers are now one shared `store::NotContent`, read by the tree, declaration and marker walks (MERGE.md R1/R2). Remaining: `slots.rs` and `serve.rs` carry private skips — and `slots.rs`'s hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host build (MERGE.md A6), so adopting the shared value means consulting the site's `exclude` too. Serve's `_cache/` stays its own (rebuild *writes* it). **IO.md I7b sharpened the case without paying it**: the tree walk now names `themes` positionally too, so the literal appears in `load.rs` and in `slots.rs`'s `SKIP` — where it means the same thing — and in `serve.rs`, where it means the OPPOSITE (theme sources are watched precisely because they are build input). Two of the three are the same fact stated twice; the third is a different fact wearing the same word, and any port has to keep them apart.
 37. **The `board` kind (§5c-adjacent, specced, deliberately pending).** A board is a query over queries. Would retire last hand-written arrangement on either homepage. Pending: (a) member declaration; (b) labels — per-member vs inherited; (c) routable or embed-only; (d) boards-in-boards; (e) board items vs opaque.
 38. **Transclusion (§7b).** Render row X inline by reference. Backlinks half built; waits on real consumer, with §5d's no-control-flow rule.
 39. **Set-scoped computed fields (§7b).** Fields derive from ONE row; survey wants aggregates — `count()`, `sum(minutes)`, date spans. Natural §5f extension but changes inheritance story.
