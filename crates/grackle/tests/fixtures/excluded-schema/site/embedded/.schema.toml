@@ -1,0 +1,9 @@
+# A declaration at the excluded subtree's FIRST level (MERGE.md R2).
+#
+# `exclude = ["embedded/**"]` names this directory's contents, not the
+# directory itself, which is the one place a walk pruning on `keeps` alone
+# still stepped in: `broken/` and `books/` below are matched and pruned, this
+# file is not. It is deliberately not valid TOML, so a walk that reaches it
+# fails the host's load with a parse error naming this file instead of the
+# `unknown field cover` the fixture expects.
+this file is not valid TOML either [

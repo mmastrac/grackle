@@ -212,6 +212,12 @@ fn is_git_dir(e: &ignore::DirEntry) -> bool {
 /// what lies outside the site is how `cover`, declared under grack.com's
 /// excluded `grackle/**`, became part of grack.com's field vocabulary
 /// (MERGE.md R1 — q34's disease, one rung up).
+///
+/// One value is not by itself one verdict, though: the walks ask it different
+/// questions. `keeps` answers for a single path, which is all the tree walk
+/// needs — it post-checks every file it emits. A walk that decides by pruning
+/// directories has no second chance at the files inside, so it must ask
+/// `keeps_dir` (MERGE.md R2).
 #[derive(Clone)]
 pub struct NotContent {
     exclude: globset::GlobSet,
@@ -226,6 +232,26 @@ impl NotContent {
     /// Is `rel` (root-relative) still inside the site?
     fn keeps(&self, rel: &Path) -> bool {
         rel.as_os_str().is_empty() || self.include.is_match(rel) || !self.exclude.is_match(rel)
+    }
+
+    /// Is the directory `rel` — and everything under it — still inside the
+    /// site? A subtree pattern names the contents, not the directory:
+    /// `embedded/**` matches `embedded/x`, never `embedded`, so a walk that
+    /// prunes on `keeps` alone steps one level into every excluded subtree and
+    /// reads whatever sits directly there (MERGE.md R2).
+    ///
+    /// The second question is the same path with a trailing separator — the
+    /// empty child, `embedded/`. A subtree pattern matches it; a file-shaped
+    /// one cannot (`*.toml` matches `a/b.toml`, never `a/`), which is what
+    /// keeps R1's narrowing: grack.com excludes `*.toml` and must not thereby
+    /// prune the directory a `.schema.toml` lives in.
+    fn keeps_dir(&self, rel: &Path) -> bool {
+        // `Path::join("")` is that empty child: "embedded" -> "embedded/".
+        let below = rel.join("");
+        rel.as_os_str().is_empty()
+            || self.include.is_match(rel)
+            || self.include.is_match(&below)
+            || !(self.exclude.is_match(rel) || self.exclude.is_match(&below))
     }
 }
 
@@ -244,6 +270,10 @@ impl NotContent {
 /// vocabulary. A file-shaped pattern is a statement about *content* —
 /// grack.com's `exclude` lists `*.toml` — and must not silently unspeak a
 /// declaration, which is the same silent loss in the other direction.
+///
+/// Directory-only means `keeps_dir`, not `keeps`: the subtree's own root has
+/// to be pruned with it, or the walk steps one level in and reads the
+/// declaration sitting directly there (MERGE.md R2).
 pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ignore::WalkBuilder {
     let root_owned = root.to_path_buf();
     let not = not.clone();
@@ -256,7 +286,7 @@ pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ig
             return true;
         }
         match e.path().strip_prefix(&root_owned) {
-            Ok(rel) => not.keeps(rel),
+            Ok(rel) => not.keeps_dir(rel),
             Err(_) => true,
         }
     });
@@ -345,6 +375,53 @@ pub fn load_dir(source: &Path, extensions: &[&str]) -> Result<Vec<RawRow>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn not_content(exclude: &[&str], include: &[&str]) -> NotContent {
+        fn set(pats: &[&str]) -> globset::GlobSet {
+            let mut b = globset::GlobSetBuilder::new();
+            for p in pats {
+                b.add(globset::Glob::new(p).unwrap());
+            }
+            b.build().unwrap()
+        }
+        NotContent::new(set(exclude), set(include))
+    }
+
+    #[test]
+    fn an_excluded_subtree_is_pruned_at_its_own_root() {
+        // `embedded/**` matches the contents, not the directory — so `keeps`
+        // says yes to `embedded` itself and a pruning walk steps one level in
+        // (MERGE.md R2). `keeps_dir` is the one that closes it.
+        let not = not_content(&["embedded/**"], &[]);
+        assert!(not.keeps(Path::new("embedded")));
+        assert!(!not.keeps_dir(Path::new("embedded")));
+        assert!(!not.keeps_dir(Path::new("embedded/books")));
+        assert!(not.keeps_dir(Path::new("books")));
+        assert!(not.keeps_dir(Path::new("")));
+    }
+
+    #[test]
+    fn a_file_shaped_pattern_still_does_not_prune_a_directory() {
+        // R1's deliberate narrowing: grack.com excludes `*.toml`, which is a
+        // statement about content. It must not unspeak the `.schema.toml`
+        // declarations the vocabulary walk exists to find, and it must not
+        // prune the directories they live in.
+        let not = not_content(&["*.toml", "Gemfile*", "*.sh"], &[]);
+        assert!(not.keeps_dir(Path::new("posts")));
+        assert!(not.keeps_dir(Path::new("posts/2026")));
+        // The same set does still exclude the files themselves for the tree
+        // walk, which is where a content statement belongs.
+        assert!(!not.keeps(Path::new("posts/thing.toml")));
+    }
+
+    #[test]
+    fn include_re_adds_at_the_same_granularity() {
+        // Both questions are asked of `include` first, so a subtree-shaped
+        // re-add keeps the subtree's root walkable.
+        let not = not_content(&["vendor/**"], &["vendor/**"]);
+        assert!(not.keeps_dir(Path::new("vendor")));
+        assert!(not.keeps_dir(Path::new("vendor/keep")));
+    }
 
     #[test]
     fn splits_front_matter() {

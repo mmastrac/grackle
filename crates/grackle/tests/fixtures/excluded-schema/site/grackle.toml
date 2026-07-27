@@ -15,6 +15,13 @@
 # half: a walk that reads it fails the load outright, which is why a broken
 # declaration committed anywhere in a repo used to be unsafe (MERGE.md §6,
 # A1's deviation). Under an excluded directory it is now inert.
+#
+# `embedded/.schema.toml` — same broken half, one level up — is the boundary
+# itself: `embedded/**` matches this directory's contents but not the
+# directory, so pruning on `keeps` alone let the walk take exactly one step in
+# and read it (MERGE.md R2). Delete the `keeps_dir` question in
+# `store::walker_declarations` and this fixture fails on a TOML parse error
+# instead of the expected `unknown field cover`.
 extends = "none"
 
 [site]
