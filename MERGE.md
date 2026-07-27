@@ -262,7 +262,7 @@ to build Phase B on. Two follow-up items:
   Byte-parity across grack.com, field-notes, minimal, raw, theme-preview and
   the fixture suite. *[parity]*
 
-- [ ] **B3. `grackle config --effective`.** Print the merged config with,
+- [x] **B3. `grackle config --effective`.** Print the merged config with,
   per key: provenance (site / base / default) and the law applied (atom
   taken from X vs merged). This is the item DESIGN.md §4d says "should ship
   before 1.0" and the review said is the single highest-leverage tool. TOML
@@ -871,6 +871,122 @@ on its way to `deny_unknown_fields`, and B3's `--effective` is where that
 would become visible. (iii) `markers.rs`'s test helper `cfg()` was already
 dead before this item and now also describes a type `scan` no longer takes;
 left alone as out of scope.
+
+**2026-07-26 — B3.** Landed. `merge_table`, `merge_to_depth`,
+`merge_collection_list` and `prepend` carry a `path` and a `Trace` and record
+each decision as they make it; `crates/source/src/effective.rs` holds the
+`Prov`/`Trace` types and the printer, and `Config::effective(path, profile)`
+is the entry point. `grackle config --effective` and the `grackle explain`
+alias are both in `main.rs`.
+
+*The recorder is a parameter, not a second pass.* The load path merges with
+`Trace::off()` — one bool test per key, and the two `for` loops that exist
+only to record are inside `if t.on()`. `the_load_path_records_nothing` asserts
+it on the real `merge_base` rather than on a stand-in. The alternative the
+item allowed (merge twice, once with a recorder) was not taken: two merges is
+two chances to differ, and threading the recorder cost four signatures.
+`merge_table`'s traced variant was folded back into `merge_table` itself so
+there is still exactly ONE merge function; A3's `merged` helper passes
+`Trace::off()` and still drives the shipping code.
+
+*What the merge does NOT decide is where the base is most invisible.* The
+merge's own loops only visit keys the site wrote — a table the site never
+mentioned is passed through untouched and would have no note at all, which is
+precisely the case a reader needs. So `note_key`/`note_depth`/`note_table`
+walk an unmerged subtree to ATOM granularity and stamp it, descending by the
+same law (`law_of`) and the same depth the merge would have used. That is what
+lets `[routes.home]` say `# base, whole` on its header and nothing on its six
+keys, while `[site]` says something per key: **where the comment sits is Law 2,
+made visible.** It is the whole design of the output.
+
+*Provenance has four values, not three.* `site` / `site over base` / `base`,
+and `default` for a key neither file wrote (`extends`, `root`, `gitignore`).
+The values come from calling the same `default_extends()` / `default_root()` /
+`default_true()` functions that `#[serde(default = "…")]` names, so this is a
+USE of the defaults rather than a copy of them; a NEW defaulted scalar would
+have to be added to `engine_defaults()`, which is the one hand-maintained list
+this item adds and the reason it is a three-line function with a comment
+saying so. Deserializing to read them was rejected — `Config` is
+`Deserialize`-only, and `--effective` deliberately answers on a config the
+engine has REJECTED (`bogus_key = 1` prints as `# site` beside the value the
+build refuses). That is the item's most useful property and it is worth the
+small list.
+
+*Key order.* Top level follows `base.toml` (`ORDER` in `effective.rs`); every
+nested table keeps the order the merged `toml::Value` already has, which is
+alphabetical — `toml` 0.8 without `preserve_order` sorts, so base.toml's
+authored order inside a table is not recoverable and inventing one would be a
+third opinion. One exception: within a table, sub-tables print before arrays
+of them, so `[collections.schema]` never lands after `[[collections.rules]]`.
+That ordering is legal TOML either way (a header path is absolute) but a
+printer that leans on it is one edit from being wrong.
+
+*Presentation, stated because it is the only non-derived thing here.* A
+table-valued atom prints inline (`draft = { type = "bool" }`) when it fits in
+62 columns and as a `[block]` when it does not, which happens to reproduce how
+`base.toml` writes each of them. Comments align at column 46.
+
+*No golden file, and the reasoning.* The fixture harness is site → rendered
+tree; a CLI text has nowhere to live in it. `base_config.rs` was the right
+home, but a byte golden of minimal's effective config would be a SECOND copy
+of the base config, machine-generated, needing `UPDATE_EXPECT` on every
+`base.toml` edit — while `examples/raw`, the first copy, needs a human edit
+and an argument. fixtures.rs's own warning applies exactly ("a blessing tool
+that is trusted blindly is a test suite that asserts the code does what the
+code does"). What landed instead asserts what a golden would have been
+consulted for and cannot churn: **minimal's effective config is entirely
+`# base`/`# default`, raw's is entirely `# site`/`# default`**, and all five
+sites' output parses back as TOML. The pair is stronger than a golden at the
+thing that matters — it fails if the merge starts crediting the site for the
+base's values, and it does not notice when the base merely changes.
+
+*Round-trip as the value check.* `printing_the_merged_config_loses_nothing`
+parses the printed text back and asserts it EQUALS the merged `toml::Value`
+plus the defaults. A comment cannot be wrong about a value it does not carry;
+what could go wrong is a definition flattened, an inline table mis-quoted, a
+key printed under the wrong header — and the round-trip catches all of those.
+It caught one immediately: header path segments were joined unquoted, so a
+long marker payload printed `[markers..draft]`. Found by mutation (deleting
+the base-recording loop turned every inherited marker into a block), fixed,
+and now `a_quoted_key_stays_quoted_in_a_table_header` reaches it without a
+mutation.
+
+*Mutation-checked five ways, each restored:* dropping `merge_table`'s
+base-recording loop (`an_untouched_table_is_all_base`); `merge_to_depth`'s
+depth-0 verdict recording `Site` instead of `SiteOverBase`
+(`a_shadowed_registry_entry_reads_as_one_atom_from_the_site`); swapping which
+end of a prepended rules list is the site's
+(`prepended_rules_carry_provenance_per_rule`); deleting `gitignore` from
+`engine_defaults` (`an_untouched_table_is_all_base`); and never marking a
+paired collection paired, which lets the Base sweep overwrite the merge's own
+per-key notes (`prepended_rules_carry_provenance_per_rule`).
+
+*Bare `grackle config` prints the effective config* — `--effective` is the
+documented spelling and accepted, but there is nothing else the subcommand
+could mean today and a usage message would be a worse default. Noted so a
+later flag (`--json`, `--path`) knows what it is changing.
+
+*The `explain` alias was trivial and is in.* One `Cmd` variant, one match arm
+forwarding to `run_query(Query::Explain{..})`; both TODO-1.0.md boxes are
+ticked and DESIGN.md §4d's two "not built yet" sentences are corrected, since
+this commit is what made them false.
+
+*Parity:* grack.com and all four examples built before and after into separate
+trees and diffed — every file byte-identical except each feed's wall-clock
+`<updated>`. Zero fixture changes, zero re-blessing, no new clippy warnings
+(compared before/after as a multiset).
+
+*For the queue (small).* (i) `--effective` shows the config BEFORE
+`apply_profile`, because a profile is a projection applied in Rust after
+deserialization. The preamble says so when `--profile` is passed; showing the
+projected result would need `Config` to be `Serialize`, and that is a
+different tool (`config --projected`?). (ii) B2's note (ii) — `law_of`'s
+unknown-key fallback to `Law::Atom` — is now visible in the output: an unknown
+key prints with a provenance like any other, on its way to
+`deny_unknown_fields`. (iii) Two collections that key the same
+(`collection_key` collision) would collide in the trace; the merge would have
+paired them first, so it is unreachable today, but it is the one place a path
+is not unique by construction.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
