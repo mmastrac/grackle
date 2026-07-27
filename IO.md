@@ -151,6 +151,35 @@ Rules of the axis:
   block's rung-0 values, so the drafts profile flows into crawl policy for
   free. **[open]**: exact emission spec.
 
+## 4a. Images: one input, many outputs
+
+An image is an input row like any other (identity optional, via sidecar);
+what is special about images is only that one input routinely fans to many
+outputs — and the model already has the law for that (a form is an output):
+
+- **The original**: `shell = raw`, at whatever URL its rule routes. A site
+  that needs inbound-link parity keeps `/{path}`; a site that doesn't
+  routes originals through a **`{hash}` token** and gets immutability for
+  free. Content-hashed naming is route policy, not engine behavior.
+- **Renditions** (sizes, formats): more outputs of the same input,
+  transform-bearing. **Parameters come from demand**: the citing edge
+  (`{% image %}`, a body `<img>`) carries what it needs, the pull
+  materializes exactly the renditions citations request, and an image's
+  rendition set is the union of its consumers' asks. No config surface;
+  eager rendition sets (srcset defaults) are a future opt-in on top.
+- **The description page**: an image with a sidecar has identity, so it can
+  wear an html output too — the "object's description page" from the old
+  axis notes, landing free.
+- Galleries that include it are `viewed_by`; documents that cite it hold it
+  in their `inputs`; an image nothing cites and no rule routes eagerly
+  never materializes — the pull model is the garbage collector.
+
+**The hashing law** (required to keep §1's planning/materialization split
+honest): a content-hashed URL hashes the **inputs plus the transform
+parameters, never the output bytes** — the address must be computable at
+planning, before any transform runs. Today's thumbnail cache already obeys
+this (`blake3(image bytes + variant)`); the law codifies it.
+
 ## 5. The graph
 
 Every shell has a concrete inputs → output mapping, so the build constructs
@@ -240,6 +269,11 @@ one thing in the whole system: the serialization a route leaves through.
 3. **[spec]** `robots_txt` emission details.
 4. **[design detail]** multi-theme CSS scoping in the one artifact.
 5. **[naming]** this document's name.
+7. **[shape]** renditions in the shell axis: a transform-bearing output
+   (resize, re-encode) is map-shell-shaped but parameterized — whether
+   that's a parameterized shell (`image:256w`), a distinct transform stage
+   upstream of `raw`, or purely edge-carried demand with no named surface
+   at all (the §4a lean) wants one decision when the migration reaches it.
 6. **[downstream]** `manual/OUTLINE.md` teaches several constructs this
    design retires (`bucket` already does not parse; `kind`, star views,
    tier vocabulary will follow) — the manual re-write rides the migration,
