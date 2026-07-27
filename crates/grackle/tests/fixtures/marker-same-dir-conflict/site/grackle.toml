@@ -1,0 +1,33 @@
+# Two marker files in one directory, both claiming `draft` (MERGE.md A5).
+#
+# `blog/` holds a `.draft` and a `.published`. The config says one means
+# `draft = true` and the other `draft = false`; nothing says which of the two
+# governs the directory. `defaults_for` walks *directory levels*, and
+# nearest-wins ranks levels — it has nothing to say about two files sitting at
+# one level, so the winner used to be whichever the (unsorted) tree walk
+# reached last.
+#
+# Delete the `bail!` in `Markers::fold` and this site loads again, with
+# `blog/post.md` published or drafted by directory-iteration order.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Two Markers"
+author = "Tester"
+
+[schema]
+draft = { type = "bool" }
+
+[markers]
+".draft" = { draft = true }
+".published" = { draft = false }
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"

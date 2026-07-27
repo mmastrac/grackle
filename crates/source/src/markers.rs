@@ -5,11 +5,28 @@
 //!
 //! Resolution is the same shape as bucket lookup (§6a): walk up, nearest wins.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 pub type Defaults = BTreeMap<String, toml::Value>;
+
+/// Which marker file set each key, per directory. Lives only as long as a
+/// scan: nothing downstream needs a key's provenance, only the collision
+/// check below does.
+type Writers = HashMap<PathBuf, BTreeMap<String, String>>;
+
+/// "`.draft` says true, `.retired` says false" — the two markers claiming one
+/// key, ordered by filename so the message reads the same however the walk
+/// happened to find them (the declaration walk is unsorted).
+fn conflict(a: &str, av: &toml::Value, b: &str, bv: &toml::Value) -> String {
+    let mut both = [(a, av), (b, bv)];
+    both.sort_by(|x, y| x.0.cmp(y.0));
+    format!(
+        "{} says {}, {} says {}",
+        both[0].0, both[0].1, both[1].0, both[1].1
+    )
+}
 
 #[derive(Debug, Default)]
 pub struct Markers {
@@ -45,6 +62,7 @@ impl Markers {
             return Ok(m);
         }
         let b = crate::store::walker_declarations(root, not, gitignore);
+        let mut writers = Writers::new();
         for entry in b.build().filter_map(|e| e.ok()) {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
@@ -56,14 +74,62 @@ impl Markers {
             let Ok(rel) = entry.path().strip_prefix(root) else {
                 continue;
             };
-            let dir = rel.parent().unwrap_or(Path::new("")).to_path_buf();
-            let slot = m.by_dir.entry(dir).or_default();
-            for (k, v) in defaults {
-                slot.insert(k.clone(), v.clone());
-            }
+            let dir = rel.parent().unwrap_or(Path::new(""));
+            m.fold(dir, &name, defaults, &mut writers)?;
             m.found += 1;
         }
         Ok(m)
+    }
+
+    /// Fold one marker file's defaults into the directory it sits in.
+    ///
+    /// Two markers in one directory setting **different** keys compose —
+    /// that is the point of having more than one marker. Two setting the
+    /// **same** key do not: `defaults_for` walks *directory levels*, and
+    /// nearness ranks levels, not files at one level. Whichever the walk
+    /// reached last would win, which from the config's point of view is no
+    /// answer at all. So a disagreement here is the error (MERGE.md A5).
+    ///
+    /// Agreement is not a disagreement: two markers writing the same value
+    /// for one key leave the directory with the same defaults whatever the
+    /// order, so the walk's arbitrariness is unobservable and there is
+    /// nothing to rank. That is the line `check_positional_collision` draws
+    /// for `.schema.toml` too (A4) — the error is the *unrankable
+    /// disagreement*, not the second writer.
+    fn fold(
+        &mut self,
+        dir: &Path,
+        name: &str,
+        defaults: &Defaults,
+        writers: &mut Writers,
+    ) -> Result<()> {
+        let slot = self.by_dir.entry(dir.to_path_buf()).or_default();
+        let wrote = writers.entry(dir.to_path_buf()).or_default();
+        for (k, v) in defaults {
+            // `wrote` and `slot` are written together below, so a key in one
+            // of them is in the other.
+            if let (Some(prev), Some(prev_v)) = (wrote.get(k), slot.get(k)) {
+                if prev_v != v {
+                    let place = if dir.as_os_str().is_empty() {
+                        "the site root".to_string()
+                    } else {
+                        format!("{}/", dir.display())
+                    };
+                    bail!(
+                        "{} — two marker files in {place} set {k:?} and \
+                         disagree. Nearest-wins ranks directory levels; two \
+                         markers at one level have no order between them, so \
+                         the winner would be whichever the tree walk reached \
+                         last. Give them different keys, give them the same \
+                         value, or move one.",
+                        conflict(name, v, prev, prev_v)
+                    );
+                }
+            }
+            slot.insert(k.clone(), v.clone());
+            wrote.insert(k.clone(), name.to_string());
+        }
+        Ok(())
     }
 
     pub fn is_marker(&self, path: &Path) -> bool {
@@ -177,6 +243,126 @@ mod tests {
         let d = m.defaults_for(Path::new("a/b/x.md"));
         assert_eq!(d.get("noindex").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(d.get("hidden").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    /// One marker file's payload, as `[markers] ".x" = { … }` would spell it.
+    fn payload(pairs: &[(&str, toml::Value)]) -> Defaults {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
+    fn s(v: &str) -> toml::Value {
+        toml::Value::String(v.into())
+    }
+
+    /// Fold a sequence of markers into one directory, as `scan` would.
+    fn fold_all(dir: &str, files: &[(&str, Defaults)]) -> Result<Markers> {
+        let mut m = Markers::default();
+        let mut writers = Writers::new();
+        for (name, defaults) in files {
+            m.fold(Path::new(dir), name, defaults, &mut writers)?;
+        }
+        Ok(m)
+    }
+
+    /// The control: composition. Two markers in one directory saying
+    /// different things is the whole reason more than one marker exists.
+    #[test]
+    fn two_markers_in_one_directory_with_disjoint_keys_compose() {
+        let m = fold_all(
+            "_posts/2003",
+            &[
+                (".hidden", payload(&[("hidden", true.into())])),
+                (".noindex", payload(&[("noindex", true.into())])),
+            ],
+        )
+        .expect("disjoint keys are composition, not conflict");
+        let d = m.defaults_for(Path::new("_posts/2003/x.md"));
+        assert_eq!(d.get("hidden").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(d.get("noindex").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    /// The guard. Delete the `bail!` in `fold` and this loads silently, with
+    /// the theme decided by whichever file the (unsorted) walk saw last.
+    #[test]
+    fn two_markers_in_one_directory_may_not_disagree_on_a_key() {
+        let e = fold_all(
+            "blog",
+            &[
+                (
+                    ".draft",
+                    payload(&[("draft", true.into()), ("theme", s("a"))]),
+                ),
+                (".featured", payload(&[("theme", s("b"))])),
+            ],
+        )
+        .expect_err("same key, two files, one directory: nothing ranks them")
+        .to_string();
+        assert!(e.contains(".draft"), "{e}");
+        assert!(e.contains(".featured"), "{e}");
+        assert!(e.contains("\"theme\""), "{e}");
+        assert!(e.contains("blog/"), "{e}");
+
+        // Sorted by filename, so the walk order does not reach the message.
+        let flipped = fold_all(
+            "blog",
+            &[
+                (".featured", payload(&[("theme", s("b"))])),
+                (".draft", payload(&[("theme", s("a"))])),
+            ],
+        )
+        .expect_err("still a conflict the other way round")
+        .to_string();
+        assert!(
+            flipped.starts_with(".draft says \"a\", .featured says \"b\""),
+            "{flipped}"
+        );
+        assert!(
+            e.starts_with(".draft says \"a\", .featured says \"b\""),
+            "{e}"
+        );
+    }
+
+    /// Agreement is not a conflict (A4's line, applied here): the walk's
+    /// order is unobservable when both files write the same value.
+    #[test]
+    fn two_markers_agreeing_on_a_key_is_legal() {
+        let m = fold_all(
+            "archive",
+            &[
+                (".retired", payload(&[("noindex", true.into())])),
+                (".noindex", payload(&[("noindex", true.into())])),
+            ],
+        )
+        .expect("same key, same value, same directory either way round");
+        let d = m.defaults_for(Path::new("archive/x.md"));
+        assert_eq!(d.get("noindex").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    /// The law that stays: levels are ordered, so a deeper marker overriding
+    /// a shallower one is not a collision even for the same key.
+    #[test]
+    fn the_same_key_at_two_levels_is_still_nearest_wins() {
+        let mut m = Markers::default();
+        let mut writers = Writers::new();
+        m.fold(
+            Path::new(""),
+            ".noindex",
+            &payload(&[("noindex", true.into())]),
+            &mut writers,
+        )
+        .unwrap();
+        m.fold(
+            Path::new("code/legacy"),
+            ".indexed",
+            &payload(&[("noindex", false.into())]),
+            &mut writers,
+        )
+        .expect("different directories are ranked by nearness");
+        let d = m.defaults_for(Path::new("code/legacy/x.html"));
+        assert_eq!(d.get("noindex").and_then(|v| v.as_bool()), Some(false));
     }
 
     #[test]
