@@ -300,9 +300,14 @@ every listing, archive and feed with it.
 
 **The `sets`/`routes` split is checked, not decorative.** A name under
 `sets` must be a `[sets]` entry and a name under `routes` a `[routes]` one;
-either misplaced, or the same view under both, is a load error naming where
-the entry actually lives. And a profile's `where` is accepted exactly where
-the `where` it replaces is — same vocabulary, same pass, same error.
+either misplaced, or the same view under both, or naming no view at all, is
+a load error naming where the entry actually lives. **Every declared profile
+is checked at every load**, not only the one being built — placement and
+names are facts about the config, so a typo in a profile you are not
+building today does not wait for the day you build it. A profile's `where`
+is the exception, and by necessity: it is type-checked when the projection
+is applied, against the vocabulary of the view it replaces — same
+vocabulary, same pass, same error as that view's own.
 
 **Presentation costs no engine code.** The root shell stamps `data-profile`,
 so a dev banner is a theme CSS rule on `[data-profile="dev"]`.

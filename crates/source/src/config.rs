@@ -2096,6 +2096,109 @@ impl Config {
         s
     }
 
+    /// Placement and view names for EVERY declared profile, at load (§4a,
+    /// MERGE.md R5).
+    ///
+    /// Both questions are facts about this config alone — which section a
+    /// view was declared under, and whether a name is a view at all — so
+    /// both are answerable for every `[profiles.*]` entry rather than only
+    /// for the one being applied. C6c built them inside `apply_profile`,
+    /// where they were reachable only under the flag that selects the
+    /// profile: `[profiles.staging.sets] serach = { … }` was a config error
+    /// that first spoke the day someone built `--profile staging`. A profile
+    /// is part of the config, not a second one, and `--profile` is a flag
+    /// that picks a projection, not the moment its declaration becomes
+    /// checkable.
+    ///
+    /// Filter EXPRESSIONS deliberately stay at apply time — see
+    /// [`Config::check_profile_filters`], which this pass does NOT subsume:
+    /// a profile's `where` type-checks against the vocabulary of the view it
+    /// REPLACES, and there is no patched view to attribute it to until the
+    /// projection is in place.
+    fn check_profiles(&self) -> Result<()> {
+        // "sets: a, b; routes: c" — a profile patches views by name, and the
+        // section is half of the answer, so the knowns are listed by section.
+        let knowns = || {
+            let by = |want: bool| {
+                let names: Vec<&str> = self
+                    .views
+                    .iter()
+                    .filter(|(_, v)| v.declared_set == want)
+                    .map(|(n, _)| n.as_str())
+                    .collect();
+                match names.is_empty() {
+                    true => "none".to_string(),
+                    false => names.join(", "),
+                }
+            };
+            format!("sets: {}; routes: {}", by(true), by(false))
+        };
+        for (pname, p) in &self.profiles {
+            // The `sets`/`routes` split exists to be read: relaxing a set
+            // patches a QUERY, relaxing a route patches a LANDING. Chaining
+            // them into one lookup made it decorative — either word reached
+            // either entry, and a view named under both was patched twice in
+            // map order (MERGE.md C6c).
+            //
+            // A name in both that names NO view is skipped here: there is no
+            // right section for it, and the loop below says the more useful
+            // thing.
+            for both in p.sets.keys().filter(|k| p.routes.contains_key(*k)) {
+                let Some(v) = self.views.get(both) else {
+                    continue;
+                };
+                let section = match v.declared_set {
+                    true => "sets",
+                    false => "routes",
+                };
+                anyhow::bail!(
+                    "profile {pname}: {both:?} is patched under both \
+                     [profiles.{pname}.sets] and [profiles.{pname}.routes] — one \
+                     entry patches one view, and the second would win by map \
+                     order. It is a {}, so keep the [profiles.{pname}.{section}] \
+                     one.",
+                    match section {
+                        "sets" => "set",
+                        _ => "route",
+                    }
+                );
+            }
+            let entries = p
+                .sets
+                .keys()
+                .map(|k| (k, true))
+                .chain(p.routes.keys().map(|k| (k, false)));
+            for (vname, under_sets) in entries {
+                let wrote = match under_sets {
+                    true => "sets",
+                    false => "routes",
+                };
+                let Some(v) = self.views.get(vname) else {
+                    anyhow::bail!(
+                        "profile {pname}: [profiles.{pname}.{wrote}.{vname}] names \
+                         no view — a profile replaces the `where` of a query this \
+                         config declares ({}).",
+                        knowns()
+                    );
+                };
+                if v.declared_set != under_sets {
+                    let (is, belongs) = match under_sets {
+                        true => ("route", "routes"),
+                        false => ("set", "sets"),
+                    };
+                    anyhow::bail!(
+                        "profile {pname}: [profiles.{pname}.{wrote}.{vname}] patches a \
+                         {is} — {vname:?} is declared under [{belongs}], so write it \
+                         as [profiles.{pname}.{belongs}.{vname}]. The split says which \
+                         of the two a profile means (§4a): a set is a query, a route \
+                         is a landing."
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Type-check every `where` a profile wrote (§4a, MERGE.md C6a/C6b).
     ///
     /// Run from [`Config::validate`], which [`Config::apply_profile`] re-runs
@@ -2202,56 +2305,20 @@ impl Config {
             }
         }
         self.site.noindex = p.noindex;
-        // The `sets`/`routes` split exists to be read: relaxing a set patches
-        // a QUERY, relaxing a route patches a LANDING. Chaining them into one
-        // lookup made it decorative — either word reached either entry, and a
-        // view named under both was patched twice in map order (MERGE.md C6c).
-        if let Some((both, v)) = p
-            .sets
-            .keys()
-            .find(|k| p.routes.contains_key(*k))
-            // A name in both that names NO view is the loop's error to report,
-            // and the more useful one — there is no right section for it.
-            .and_then(|k| Some((k, self.views.get(k)?)))
-        {
-            let section = match v.declared_set {
-                true => "sets",
-                false => "routes",
-            };
-            anyhow::bail!(
-                "profile {name}: {both:?} is patched under both \
-                 [profiles.{name}.sets] and [profiles.{name}.routes] — one \
-                 entry patches one view, and both were applied. It is a \
-                 {}, so keep the [profiles.{name}.{section}] one.",
-                match section {
-                    "sets" => "set",
-                    _ => "route",
-                }
-            );
-        }
-        let patches = p
-            .sets
-            .into_iter()
-            .map(|(k, v)| (k, v, true))
-            .chain(p.routes.into_iter().map(|(k, v)| (k, v, false)));
-        for (vname, over, under_sets) in patches {
+        // Placement — the `sets`/`routes` split, and whether these names are
+        // views at all — belongs to `check_profiles`, which `validate` runs
+        // over EVERY declared profile before this method is ever reached
+        // (MERGE.md R5). Which is why the two sections may be chained here
+        // again: the split is a law about what a profile SAYS, and by the
+        // time one is applied it has been read.
+        for (vname, over) in p.sets.into_iter().chain(p.routes) {
+            // The lookup cannot fail for the same reason, but it still has to
+            // answer something, and an error beats an `unwrap` on an
+            // invariant held one function away.
             let v = self
                 .views
                 .get_mut(&vname)
                 .with_context(|| format!("profile {name}: no view named {vname:?}"))?;
-            if v.declared_set != under_sets {
-                let (wrote, is, belongs) = match under_sets {
-                    true => ("sets", "route", "routes"),
-                    false => ("routes", "set", "sets"),
-                };
-                anyhow::bail!(
-                    "profile {name}: [profiles.{name}.{wrote}.{vname}] patches a \
-                     {is} — {vname:?} is declared under [{belongs}], so write it \
-                     as [profiles.{name}.{belongs}.{vname}]. The split says which \
-                     of the two a profile means (§4a): a set is a query, a route \
-                     is a landing."
-                );
-            }
             if let Some(f) = over.filter {
                 v.filter = Some(f);
                 v.filter_profile = Some(name.to_string());
@@ -2633,6 +2700,7 @@ impl Config {
                 }
             }
         }
+        cfg.check_profiles()?;
         cfg.check_profile_filters()?;
         Ok(())
     }
@@ -4227,12 +4295,24 @@ mod tests {
     /// chained into one lookup, so either word reached either entry — the
     /// split, whose entire purpose is to say which of the two a profile means
     /// (relaxing a set patches a QUERY, relaxing a route patches a LANDING),
-    /// was decorative. Mutation-checked by restoring the chain, which makes
-    /// all three errors below apply silently.
+    /// was decorative.
+    ///
+    /// **R5 moved the question one pass earlier**: every error below is
+    /// `validate`'s, so `cfg_err` reaches it with NO profile applied — the
+    /// section a view was declared under is a fact about the config, and a
+    /// profile nobody is building says it wrong just as loudly.
+    ///
+    /// Mutation-checked three ways: chaining the two sections back into one
+    /// lookup (`v.declared_set != under_sets` never firing) loses the first
+    /// two errors and `a_declined_default_content_route_is_still_a_route`
+    /// with them; emptying the doubly-named loop loses the third; and
+    /// deleting the `cfg.check_profiles()?` call in `validate` makes all
+    /// three configs load, after which they fail only under `--profile p` —
+    /// which is the disease this item is named for.
     #[test]
     fn a_profile_is_held_to_the_sets_routes_split() {
         // The control: both entries where they belong, both applied.
-        let mut ok = cfg_raw(&format!(
+        let mut ok = cfg(&format!(
             "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
              [profiles.p.routes.blog_index]\nwhere = 'title != \"\"'\n"
         ));
@@ -4243,41 +4323,93 @@ mod tests {
             Some("title != \"\"")
         );
 
-        let e = format!(
-            "{:#}",
-            cfg_raw(&format!(
-                "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\nwhere = \"!hidden\"\n"
-            ))
-            .apply_profile("p")
-            .expect_err("blog_index is a route")
-        );
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\nwhere = \"!hidden\"\n"
+        ));
         assert!(e.contains("patches a route"), "{e}");
         assert!(e.contains("[profiles.p.routes.blog_index]"), "{e}");
 
-        let e = format!(
-            "{:#}",
-            cfg_raw(&format!(
-                "{PROFILE_VIEWS}[profiles.p.routes.published]\nwhere = \"!hidden\"\n"
-            ))
-            .apply_profile("p")
-            .expect_err("published is a set")
-        );
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[profiles.p.routes.published]\nwhere = \"!hidden\"\n"
+        ));
         assert!(e.contains("patches a set"), "{e}");
         assert!(e.contains("[profiles.p.sets.published]"), "{e}");
 
         // The same view under both: two entries, one view, and the second
-        // silently won by map order.
-        let e = format!(
-            "{:#}",
-            cfg_raw(&format!(
-                "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
-                 [profiles.p.routes.published]\nwhere = 'title != \"\"'\n"
-            ))
-            .apply_profile("p")
-            .expect_err("one entry patches one view")
-        );
+        // silently winning by map order.
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
+             [profiles.p.routes.published]\nwhere = 'title != \"\"'\n"
+        ));
         assert!(e.contains("patched under both"), "{e}");
         assert!(e.contains("keep the [profiles.p.sets] one"), "{e}");
+    }
+
+    /// MERGE.md R5, the name half: a profile naming a view that does not
+    /// exist is a load error at EVERY load, under no profile at all. The
+    /// typo is in `[profiles.staging]` and the config is loaded the way
+    /// `grackle build` loads it — which is the whole item, since under C6
+    /// this site built happily until the day someone passed
+    /// `--profile staging`.
+    ///
+    /// Mutation check: delete `cfg.check_profiles()?` from `validate` and
+    /// both halves load in silence.
+    #[test]
+    fn a_profile_naming_no_view_fails_a_load_that_never_applies_it() {
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[profiles.staging.sets.serach]\nwhere = \"!hidden\"\n"
+        ));
+        assert!(e.contains("[profiles.staging.sets.serach]"), "{e}");
+        assert!(e.contains("names no view"), "{e}");
+        // The knowns, by section — half the answer to "where should this
+        // have gone" is which section the name lives in.
+        assert!(e.contains("sets: published"), "{e}");
+        assert!(e.contains("routes: blog_index"), "{e}");
+
+        // A name in BOTH sections that names nothing gets this error rather
+        // than the placement one: there is no right section for it.
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[profiles.staging.sets.serach]\nwhere = \"!hidden\"\n\
+             [profiles.staging.routes.serach]\nwhere = \"!hidden\"\n"
+        ));
+        assert!(e.contains("names no view"), "{e}");
+    }
+
+    /// R5's three controls, in one place because they are one sentence: a
+    /// profile that is CORRECT is not disturbed by being checked early.
+    ///
+    /// The `dev` one is the load-bearing half. DESIGN.md §4a makes `dev`
+    /// implicit — `serve` defaults to it and undeclared it changes nothing —
+    /// so `check_profiles` must never be the thing that invents a
+    /// `[profiles.dev]` requirement. It cannot be: it iterates the profiles a
+    /// config DECLARES, and an implicit one declares nothing.
+    #[test]
+    fn checking_every_profile_leaves_the_correct_ones_alone() {
+        // A site with no profiles at all — `cfg` is `cfg_raw` + `validate`,
+        // so reaching the next line is the assertion.
+        let plain = cfg(PROFILE_VIEWS);
+        assert!(plain.profiles.is_empty());
+
+        // grack.com's shape: one profile, correctly placed, never applied.
+        let mut both = cfg(&format!(
+            "{PROFILE_VIEWS}[profiles.drafts]\nnoindex = true\n\
+             [profiles.drafts.sets.published]\nwhere = \"!hidden\"\n\
+             [profiles.drafts.routes.blog_index]\nwhere = 'title != \"\"'\n"
+        ));
+        // And applying it still works, which is the same config one flag on.
+        both.apply_profile("drafts").expect("as declared");
+
+        // `serve`'s default: undeclared `dev` needs no `[profiles.dev]`, and
+        // a config carrying an unrelated profile still loads under it.
+        let mut dev = cfg(&format!(
+            "{PROFILE_VIEWS}[profiles.drafts.sets.published]\nwhere = \"!hidden\"\n"
+        ));
+        assert!(!dev.profiles.contains_key("dev"));
+        dev.apply_profile("dev").expect("dev is implicit (§4a)");
+        assert_eq!(dev.profile.as_deref(), Some("dev"));
+        // …and changes nothing: `drafts` was declared, not applied.
+        assert_eq!(dev.views["published"].filter.as_deref(), Some("!hidden"));
+        assert!(dev.views["published"].filter_profile.is_none());
     }
 
     /// A `[routes]` entry whose `default_content` offer was DECLINED loses its
@@ -4302,12 +4434,12 @@ mod tests {
             c
         };
         decline("[profiles.p.routes.home]\nwhere = 'title != \"\"'\n")
-            .apply_profile("p")
+            .validate()
             .expect("a route with no path left is still a route");
         let e = format!(
             "{:#}",
             decline("[profiles.p.sets.home]\nwhere = 'title != \"\"'\n")
-                .apply_profile("p")
+                .validate()
                 .expect_err("and is not a set")
         );
         assert!(e.contains("patches a route"), "{e}");
