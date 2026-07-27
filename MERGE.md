@@ -170,7 +170,7 @@ name with conflicting types are a collision error**, not alphabetical order.
   for at least the `Rule` and `.schema.toml` cases. Note: `Site.noindex` is
   `#[serde(skip)]` — confirm profiles can still set it after the change.
 
-- [ ] **A2. Exhaustive destructure in `merge_base`/`merge_collection`.**
+- [x] **A2. Exhaustive destructure in `merge_base`/`merge_collection`.**
   In `crates/source/src/config.rs` (~200-226, ~278-301), destructure the
   full `Config` (and `Collection`) so adding a field without deciding its
   merge law is a **compile error**, not a silent fallthrough to
@@ -372,6 +372,28 @@ to do with each other. Not touched here.
 Also confirmed: `[site] noindex` is now a parse error (it is `#[serde(skip)]`),
 which matches what its doc comment already promised; `apply_profile` sets it in
 Rust and is unaffected. Both halves are asserted.
+
+**2026-07-26 — A2.** Landed. The merge operates on `toml::Value`, so a literal
+destructure inside `merge_base` was not available: the shape chosen is a law
+table per struct (`CONFIG_LAWS`, `COLLECTION_LAWS`) that both merges dispatch
+through, guarded by two functions whose entire body is a destructure of
+`Config` / `Collection`. A new field fails the build there; the test
+`the_law_tables_cover_the_config_surface` checks the tables' TOML spellings
+against serde's own `deny_unknown_fields` list, so a rename or a
+`#[serde(skip)]` cannot leave a law naming nothing. Both directions are
+mutation-checked. The prose registry list above `merge_base` (the one missing
+`schema`) was deleted rather than corrected — the table is that list now.
+
+*For B1/B2:* the four laws as named there are `Atom`, `Descend(n)`,
+`Collections`, `Prepend`. B1's structural mechanism should be able to *derive*
+the `Descend(n)` depths — 1, 2 and 3 today — and check them against the table,
+which would make the depth column of table A executable rather than asserted.
+
+*Finding, for the queue:* `[[parts]]` is `Law::Atom` — the site's array
+replaces the base's whole — but table A describes a vocabulary ladder where
+"engine part wins collisions". Nothing in this item changed it, and the base
+config declares no `[[parts]]`, so the two never meet today. Worth confirming
+the intended law before B2 makes it structural.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
