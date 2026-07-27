@@ -163,6 +163,26 @@ impl Schemas {
                      one. Rename the declaration."
                 );
             }
+            // A declaration table has exactly one key. Anything else was read
+            // as a property of the field and dropped, which is how `default =`
+            // and `required =` get written by someone reasonably expecting
+            // them to work.
+            let extra: Vec<&str> = v
+                .as_table()
+                .map(|t| {
+                    t.keys()
+                        .map(String::as_str)
+                        .filter(|k| *k != "type")
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !extra.is_empty() {
+                bail!(
+                    "{whose}: field {name:?} has unknown key(s) {} — a field \
+                     declaration takes: type",
+                    extra.join(", ")
+                );
+            }
             fields.insert(name, ty);
         }
         Ok(fields)
@@ -583,6 +603,25 @@ mod tests {
                 Path::new("books/.schema.toml"),
             )
             .is_err());
+    }
+
+    /// The declaration table is closed, like every other config table. A
+    /// `default =` beside the type parsed, was dropped, and left a field the
+    /// author believed had a default and the engine had never heard of.
+    #[test]
+    fn an_unknown_key_in_a_declaration_is_a_load_error() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        let e = s
+            .add(
+                Path::new("books"),
+                "blurb = { type = \"string\", default = \"\", required = true }\n",
+                Path::new("books/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("books/.schema.toml"), "{e}");
+        assert!(e.contains("unknown key(s) default, required"), "{e}");
+        assert!(e.contains("takes: type"), "{e}");
     }
 
     #[test]

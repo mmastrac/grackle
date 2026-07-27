@@ -340,6 +340,7 @@ fn default_true() -> bool {
 
 /// A registered script shell: `sh -c command`, run from the site root.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShellDef {
     pub command: String,
 }
@@ -350,6 +351,7 @@ pub struct ShellDef {
 /// sees the LOGICAL path (locale stripped), so a translation rides the same
 /// rule as its original and lands at the locale-prefixed URL.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct I18nCfg {
     #[serde(default = "default_locale")]
     pub default: String,
@@ -532,6 +534,7 @@ pub struct HeadCfg {
 
 /// Internal-link policy (§6a).
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LinksCfg {
     #[serde(default)]
     pub policy: LinkPolicy,
@@ -601,6 +604,7 @@ impl LocalizedStr {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Site {
     pub url: String,
     #[serde(default)]
@@ -723,6 +727,7 @@ pub struct RelationCfg {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Rule {
     #[serde(rename = "match")]
     pub pattern: String,
@@ -2430,6 +2435,56 @@ mod tests {
                 .to_string();
             assert!(e.contains("unknown field"), "{stale} -> {e}");
         }
+    }
+
+    /// The strictness reaches the leaf tables too. Each of these parsed and
+    /// dropped the key before: `[site] them =` left the site on the base
+    /// theme, `[i18n] locale =` left i18n off, `[links] strict =` left the
+    /// policy at its default.
+    #[test]
+    fn an_unknown_key_on_a_leaf_table_is_a_parse_error() {
+        for stale in [
+            "[i18n]\nlocale = \"fr\"\n",
+            "[links]\nstrict = true\n",
+            "[shells.x]\ncommand = \"c\"\nargs = []\n",
+        ] {
+            let src = format!(
+                "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n{stale}"
+            );
+            let e = Config::from_toml(&src)
+                .expect_err("stale spelling should not parse")
+                .to_string();
+            assert!(e.contains("unknown field"), "{stale} -> {e}");
+        }
+        let e = Config::from_toml(
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             them = \"ledger\"\n",
+        )
+        .expect_err("a misspelled [site] key should not parse")
+        .to_string();
+        assert!(e.contains("unknown field"), "{e}");
+    }
+
+    /// `Site.noindex` is `#[serde(skip)]`, so `deny_unknown_fields` rejects
+    /// it in `[site]` — which is what the doc comment there already claims
+    /// ("set by a profile, never by the site"). The profile still sets it,
+    /// because it does so in Rust, not through a second deserialization.
+    #[test]
+    fn a_profile_still_sets_the_skipped_noindex() {
+        let mut c = cfg_raw("[profiles.p]\nnoindex = true\n");
+        assert!(!c.site.noindex);
+        c.apply_profile("p").expect("the profile applies");
+        assert!(c.site.noindex);
+        assert_eq!(c.html.head.meta["robots"], "\"noindex,follow\"");
+
+        let e = Config::from_toml(
+            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             noindex = true\n",
+        )
+        .expect_err("[site] noindex is the profile's to set")
+        .to_string();
+        assert!(e.contains("unknown field `noindex`"), "{e}");
     }
 
     #[test]

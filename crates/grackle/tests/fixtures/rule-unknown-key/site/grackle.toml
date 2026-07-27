@@ -1,0 +1,20 @@
+# A rule is not a bag: it carries `match`, `route`, `front_matter`,
+# `on_demand` and `defaults`, and nothing else. `theme` on a rule reads like
+# it should work — the theme cascade names the rule rung (§5a) — but a rule
+# says it through `defaults`, and the bare key was silently dropped.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Strict rules"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+  [[collections.rules]]
+  match = "**"
+  route = "/blog/{slug}/"
+  theme = "ledger"

@@ -1,0 +1,28 @@
+# A field declaration says one thing — its type. `default`, `required` and
+# `label` all read like they belong beside it, and all of them were read as
+# part of the table and thrown away, leaving a declaration that looked richer
+# than the engine ever treated it.
+#
+# Declared here rather than in a `.schema.toml` beside the rows, which is the
+# case this is really about: the `.schema.toml` walk (load.rs) is root-wide and
+# does not consult the tree collection's `exclude`, so a deliberately-broken
+# declaration anywhere in this repo fails grack.com's own load. Same table,
+# same `parse_fields`; schema.rs's unit test covers the positional file.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Strict declarations"
+author = "Tester"
+
+[schema]
+summary = { type = "string", default = "" }
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  front_matter = true
+  route = "/{path}"
