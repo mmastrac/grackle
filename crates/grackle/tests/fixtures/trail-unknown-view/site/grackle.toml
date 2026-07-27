@@ -1,0 +1,32 @@
+# `trail` names a view, exactly as `tags` does — and until MERGE.md C3 it was
+# the one reference of that shape nothing checked. A typo produced no trail
+# and said nothing: `Config::chain` stops walking at a name no view answers
+# to, so `grouped_chain` came back empty and `post_trail` simply pushed the
+# date crumb and went home.
+#
+# The knowns matter here. `monthly_archive` is one character away and really
+# is declared below, which is what the error has to be able to say.
+[site]
+url = "https://example.com"
+title = "A Trail To Nowhere"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+trail = "montly_archive"
+
+[routes.yearly_archive]
+path = "/blog/{year}/"
+from = "published"
+group_by = "date.year"
+layout = "listing"
+title = "{year}"
+
+[routes.monthly_archive]
+path = "/blog/{year}/{month:02}/"
+from = "yearly_archive"
+group_by = "date.month"
+layout = "listing"
+title = "{year} {month_name}"
+crumb = "{month_name}"

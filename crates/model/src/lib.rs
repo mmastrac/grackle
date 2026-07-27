@@ -571,6 +571,12 @@ pub struct SiteDb {
     /// the `adjacency` sequence.
     #[serde(skip)]
     pub relations: BTreeMap<String, Vec<Relation>>,
+    /// What the load had to say but would not fail over — today, DESIGN.md
+    /// §4's dead rules. They are printed by the loader as they are found;
+    /// they are also kept here because a warning nothing can read is a
+    /// warning no test can hold the loader to.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
     pub stats: LoadStats,
 }
 

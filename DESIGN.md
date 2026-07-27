@@ -246,7 +246,7 @@ an explicit `permalink:` in the file wins outright.
 - **Route collisions** → error, naming both rows. *Two rows may not share a URL.*
 - **One row, two routes** → error, naming the file and both URLs. *The dual, and the stronger statement:* **a row renders at exactly one route.** The legal counts are 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand and unreferenced), 1 (everything else), and **N only along an axis** (q53). An axis is the sole mechanism permitted to break it; anything else producing a second route onto one row is a bug, and now says so at load.
 - **Undated row routed by a dated template**: error naming the file and rule.
-- **Dead rule** (matches zero rows) → warning.
+- **Dead rule** (matches zero rows) → warning, naming the collection and the glob. Scoped to rules the **site declared**, in a collection that produced rows: the base's rules go dead for ordinary reasons (no `_posts/`, no `index.md`) and are nobody's to fix, and a collection with no rows at all says nothing about any one glob.
 - **URL-set parity** with reference builds — maintained via `grackle urls`.
 
 ### Several collections, one table *(built 2026-07-19)*

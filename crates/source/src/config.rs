@@ -677,13 +677,21 @@ fn merge_to_depth(
 /// its name (objects have no source — they are matched by extension).
 pub(crate) fn collection_key(c: &toml::Value) -> Option<String> {
     let t = c.as_table()?;
-    if let Some(s) = t.get("source").and_then(|v| v.as_str()) {
+    identity(
+        t.get("source").and_then(|v| v.as_str()),
+        t.get("name").and_then(|v| v.as_str()),
+    )
+}
+
+/// [`collection_key`]'s rule, stated once so the TOML side (which runs during
+/// the merge) and the typed side (which runs after it, to say whose rules are
+/// whose) cannot come to different verdicts about which entry is which.
+fn identity(source: Option<&str>, name: Option<&str>) -> Option<String> {
+    if let Some(s) = source {
         let s = s.trim_end_matches('/');
         return Some(format!("source:{}", if s.is_empty() { "." } else { s }));
     }
-    t.get("name")
-        .and_then(|v| v.as_str())
-        .map(|n| format!("name:{n}"))
+    name.map(|n| format!("name:{n}"))
 }
 
 fn merge_collection_list(
@@ -1190,6 +1198,18 @@ pub struct Rule {
     pub on_demand: Option<bool>,
     #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
+    /// True when this rule came from the base config rather than the site's
+    /// own file (§4d) — [`View::inherited`] one table over, and recorded the
+    /// same way: the site's own TOML is read before the merge blurs the two.
+    ///
+    /// It buys one rule: **only a rule the site WROTE can be dead.** §4's
+    /// "dead rule (matches zero rows) → warning" is a message to the author
+    /// of the glob, and the base's globs are nobody's to fix — a site with no
+    /// `_posts/` never asked for `match = "**"` there, and a site with no
+    /// `index.md` never asked for `**/index.{html,md}` (both are live in
+    /// `examples/minimal`, which has neither).
+    #[serde(skip)]
+    pub inherited: bool,
 }
 
 /// A view is a *query* plus, optionally, a *materialization*.
@@ -1641,6 +1661,24 @@ impl Config {
             .filter_map(|k| value.get(k)?.as_table())
             .flat_map(|t| t.keys().cloned())
             .collect();
+        // And whose RULE is whose. The site's rules prepend (§1's annotation),
+        // so how many it wrote per collection is all the provenance a list
+        // needs: the first n are the site's, the tail is the base's.
+        let site_rules: BTreeMap<String, usize> = value
+            .get("collections")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|e| {
+                        let n = e
+                            .get("rules")
+                            .and_then(|r| r.as_array())
+                            .map_or(0, |r| r.len());
+                        Some((collection_key(e)?, n))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let value = match inherits_base {
             false => value,
             true => merge_base(value)?,
@@ -1660,6 +1698,14 @@ impl Config {
         cfg.merge_queries()?;
         for (name, v) in cfg.views.iter_mut() {
             v.inherited = !declared.contains(name);
+        }
+        for c in cfg.collections.values_mut() {
+            let mine = identity(c.source.as_deref(), c.name.as_deref())
+                .and_then(|k| site_rules.get(&k).copied())
+                .unwrap_or(0);
+            for (i, r) in c.rules.iter_mut().enumerate() {
+                r.inherited = i >= mine;
+            }
         }
         Ok(cfg)
     }
@@ -1971,6 +2017,69 @@ impl Config {
                     .with_context(|| {
                         format!("view {name}: tag route template needs more than {{key}}")
                     })?;
+                }
+            }
+        }
+        // `trail` is the same shape of reference as `tags` — a collection
+        // naming a view — and until MERGE.md C3 it was the only one nothing
+        // checked: `chain` stops at an unknown name and `post_trail` walks an
+        // empty chain, so `trail = "montly_archive"` produced no trail and
+        // said nothing. What the machinery needs is not "a view" but a
+        // SUBDIVISION CHAIN it can render a crumb from at every level
+        // (`trails.rs::post_trail`), so that is what is checked.
+        for (cname, c) in &cfg.collections {
+            let Some(name) = c.trail.as_deref() else {
+                continue;
+            };
+            let knowns = || cfg.views.keys().cloned().collect::<Vec<_>>().join(", ");
+            if !cfg.views.contains_key(name) {
+                anyhow::bail!(
+                    "collection {cname}: trail {name:?} is not a declared view \
+                     — views: {}",
+                    knowns()
+                );
+            }
+            // The trail renders each GROUPED view along the `over` chain, so
+            // the named view need not itself be grouped — but something in
+            // its chain must be, or the trail is a chain of nothing.
+            let chain = cfg.grouped_chain(name);
+            if chain.is_empty() {
+                anyhow::bail!(
+                    "collection {cname}: trail {name:?} declares no `group_by`, \
+                     and neither does anything it composes `over` — a trail is a \
+                     subdivision chain (a year archive, then a month archive), \
+                     rendered from a row's own group keys. Grouped views: {}",
+                    cfg.views
+                        .iter()
+                        .filter(|(_, v)| v.group_by.is_some())
+                        .map(|(n, _)| n.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            for level in &chain {
+                let v = &cfg.views[level];
+                // A level with no route, or nothing to label it with, is
+                // SKIPPED by `post_trail` — the crumb between its neighbours
+                // silently goes missing, which is the failure this whole item
+                // is about, one rung in.
+                if v.route.is_none() {
+                    anyhow::bail!(
+                        "collection {cname}: trail {name:?} — its subdivision \
+                         chain ({}) passes through view {level:?}, which lands \
+                         at no single `path`, so that crumb has no URL and the \
+                         level would be dropped from every trail.",
+                        chain.join(" > ")
+                    );
+                }
+                if v.crumb.is_none() && v.title.is_none() {
+                    anyhow::bail!(
+                        "collection {cname}: trail {name:?} — its subdivision \
+                         chain ({}) passes through view {level:?}, which declares \
+                         neither `crumb` nor `title`, so that crumb has no label \
+                         and the level would be dropped from every trail.",
+                        chain.join(" > ")
+                    );
                 }
             }
         }
@@ -3038,6 +3147,78 @@ mod tests {
             merge_err("[sets.x]\nfrom = \"blog\"\n[routes.x]\nfrom = \"blog\"\npath = \"/x/\"\n");
         assert!(e.contains("both a set and a route"), "{e}");
     }
+
+    // ---------------------------------------------------------------- trail
+    //
+    // MERGE.md C3(b). `cfg_unmerged` splices its argument straight after the
+    // collection's `source`, so a `trail = …` line lands on the collection
+    // and the `[routes]` after it close the table — which is exactly the
+    // shape these need.
+
+    /// The control, and the shape grack.com really has: a month archive
+    /// composed `over` a year archive, both routed and both labelled.
+    #[test]
+    fn a_grouped_routed_trail_validates() {
+        cfg(TRAIL_CHAIN);
+    }
+
+    /// The typo. Also a fixture (`trail-unknown-view`), which is what pins
+    /// that the SITE fails rather than that the function does.
+    #[test]
+    fn a_trail_naming_no_view_is_a_load_error() {
+        let e = cfg_err(&TRAIL_CHAIN.replace("monthly_archive\"\n", "montly_archive\"\n"));
+        assert!(e.contains("is not a declared view"), "{e}");
+        assert!(e.contains("monthly_archive"), "the knowns are listed: {e}");
+    }
+
+    /// A trail is a SUBDIVISION chain — `post_trail` renders each grouped
+    /// view along the `over` chain from the row's own group keys. A view
+    /// that groups by nothing, over nothing that groups, is a chain of
+    /// nothing, and produced a silently empty trail.
+    #[test]
+    fn a_trail_over_nothing_grouped_is_a_load_error() {
+        let e = cfg_err(
+            "trail = \"flat\"\n\
+             [routes.flat]\npath = \"/flat/\"\nfrom = \"blog\"\nlayout = \"listing\"\ntitle = \"F\"\n",
+        );
+        assert!(e.contains("subdivision chain"), "{e}");
+        assert!(e.contains("Grouped views: "), "the knowns are listed: {e}");
+    }
+
+    /// A level with no `path` has no URL to hang its crumb on, so
+    /// `post_trail` skips it and the trail comes out with a hole in the
+    /// middle — Home > December > 16, the year gone.
+    #[test]
+    fn a_trail_level_that_lands_nowhere_is_a_load_error() {
+        let e = cfg_err(
+            &TRAIL_CHAIN
+                .replace("[routes.yearly_archive]", "[sets.yearly_archive]")
+                .replace("path = \"/blog/{year}/\"\n", ""),
+        );
+        assert!(e.contains("lands at no single `path`"), "{e}");
+        assert!(e.contains("yearly_archive > monthly_archive"), "{e}");
+    }
+
+    /// Same hole, other cause: nothing to write in the crumb.
+    #[test]
+    fn a_trail_level_with_no_label_is_a_load_error() {
+        let e = cfg_err(&TRAIL_CHAIN.replace("title = \"{year}\"\n", ""));
+        assert!(e.contains("neither `crumb` nor `title`"), "{e}");
+    }
+
+    const TRAIL_CHAIN: &str = "trail = \"monthly_archive\"\n\
+         [routes.yearly_archive]\n\
+         path = \"/blog/{year}/\"\n\
+         from = \"blog\"\n\
+         group_by = \"date.year\"\n\
+         layout = \"listing\"\n\
+         title = \"{year}\"\n\
+         [routes.monthly_archive]\n\
+         path = \"/blog/{year}/{month:02}/\"\n\
+         from = \"yearly_archive\"\n\
+         group_by = \"date.month\"\n\
+         layout = \"listing\"\n\
+         crumb = \"{month_name}\"\n";
 
     /// The field names serde accepts for `T`, read out of its own
     /// `deny_unknown_fields` complaint — renames applied, skipped fields

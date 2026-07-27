@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 use chrono::NaiveDate;
 use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
 use rayon::prelude::*;
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -40,6 +41,13 @@ struct CompiledRule<'a> {
     on_demand: bool,
     pattern: &'a str,
     defaults: &'a BTreeMap<String, toml::Value>,
+    /// From the base config rather than the site's own file (§4d).
+    inherited: bool,
+    /// Whether the walk ever found this rule eligible for a row — the corpus
+    /// answering the glob. Written as the rows go past, read once afterwards
+    /// by [`dead_rules`]; a `Cell` because the rule list is shared (`&[…]`)
+    /// across a walk that only ever visits one row at a time.
+    governed: Cell<bool>,
 }
 
 fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
@@ -55,7 +63,52 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
                 on_demand: r.on_demand.unwrap_or(false),
                 pattern: r.pattern.as_str(),
                 defaults: &r.defaults,
+                inherited: r.inherited,
+                governed: Cell::new(false),
             })
+        })
+        .collect()
+}
+
+/// The site's own rules that governed no row — DESIGN.md §4's promised
+/// **"Dead rule (matches zero rows) → warning"**, which nothing provided
+/// before MERGE.md C3.
+///
+/// A warning and not an error, on the doc's word: a rule may be written for
+/// content that has not landed yet, and an empty `_posts/` is documented as
+/// legal (§4d). It reports what the corpus said, so it is computed here —
+/// after the walk — rather than guessed from the glob's text.
+///
+/// **Only rules the site WROTE are reported**, which is what
+/// [`crate::config::Rule::inherited`] is for. The base's globs are not the
+/// author's to fix and go dead for perfectly ordinary reasons: `examples/
+/// minimal` has no `index.md`, so the base's `**/index.{html,md}` matches
+/// nothing there, and a site with no `_posts/` never asked for a rule over it.
+/// Warning about those would put a permanent, unfixable line on every
+/// base-inheriting site, which is how a warning stops being read.
+///
+/// "Matched zero rows" means *eligible for* zero rows: a rule gated
+/// `front_matter = false` in a tree of nothing but pages governs nothing,
+/// whatever its glob would say on its own.
+///
+/// A collection that produced NO rows reports nothing either (`found`), for
+/// the same reason and one level up: a rule is dead relative to a corpus, and
+/// an absent `_posts/` (or a site with no images) is a statement about the
+/// source, not about any one glob. Three warnings for one missing directory
+/// would bury the case this is for.
+fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<String> {
+    if found == 0 {
+        return Vec::new();
+    }
+    rules
+        .iter()
+        .filter(|r| !r.inherited && !r.governed.get())
+        .map(|r| {
+            format!(
+                "collection {collection}: the rule `match = {:?}` governs no rows \
+                 — nothing in the site matches it. Fix the glob or delete the rule.",
+                r.pattern
+            )
         })
         .collect()
 }
@@ -94,6 +147,10 @@ fn apply_rules<'a>(
         if !rule.matcher.is_match(rel) {
             continue;
         }
+        // Past both gates: this rule governs this row, whether or not it is
+        // the one that wins the route. That is what keeps a rule shadowed by
+        // a nearer one (it still fills defaults) out of `dead_rules`.
+        rule.governed.set(true);
         if rule.on_demand && !rule.route.is_empty() {
             on_demand_cover.push(rule.pattern);
         }
@@ -328,6 +385,7 @@ fn read_posts(
     c: &Collection,
     markers: &Markers,
     schemas: &Schemas,
+    warnings: &mut Vec<String>,
 ) -> Result<(Vec<Row>, f64)> {
     // Bound here because the row loop shadows `name` with the post's own
     // path identity — silently, since both are strings.
@@ -542,6 +600,7 @@ fn read_posts(
         });
     }
 
+    warnings.extend(dead_rules(&collection, &rules, rows.len()));
     Ok((rows, read_ms))
 }
 
@@ -566,6 +625,7 @@ fn build_tree_and_objects(
     // Compiled by `load` from this very collection, and shared with the marker
     // and vocabulary walks so all three agree on what is not content (§4c).
     not_content: &store::NotContent,
+    warnings: &mut Vec<String>,
 ) -> Result<(Vec<Row>, Vec<Row>)> {
     let Some(tree_c) = tree_c else {
         return Ok((Vec::new(), Vec::new()));
@@ -810,6 +870,8 @@ fn build_tree_and_objects(
         }
     });
 
+    warnings.extend(dead_rules(tree_name, &tree_rules, pages.len()));
+    warnings.extend(dead_rules(obj_name, &obj_rules, objects.len()));
     Ok((pages, objects))
 }
 
@@ -949,16 +1011,32 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut post_rows: Vec<Row> = Vec::new();
     for (name, c) in &cfg.collections {
         if c.kind == Kind::Posts {
-            let (rows, read_ms) = read_posts(cfg, name, c, &markers, &schemas)?;
+            let (rows, read_ms) = read_posts(cfg, name, c, &markers, &schemas, &mut db.warnings)?;
             post_rows.extend(rows);
             db.stats.read_ms += read_ms;
         }
     }
     let t = std::time::Instant::now();
     let (page_rows, objects) = build_tree_and_objects(
-        cfg, &tree_name, tree_c, &obj_name, obj_c, &markers, &schemas, &not_content,
+        cfg,
+        &tree_name,
+        tree_c,
+        &obj_name,
+        obj_c,
+        &markers,
+        &schemas,
+        &not_content,
+        &mut db.warnings,
     )?;
     db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
+    // Said once, here, where every caller reaches it — `serve` rebuilds the
+    // world through this function, so a warning fixed stops being printed on
+    // the next save. The convention is `build.rs`'s and `base.rs`'s: a
+    // `grackle: ` line on stderr, because a warning that is not an error must
+    // not be mistaken for one.
+    for w in &db.warnings {
+        eprintln!("grackle: {w}");
+    }
 
     let t_index = std::time::Instant::now();
     db.insert_rows(sort_posts(post_rows), page_rows, objects, &cfg.i18n.default)?;
@@ -1558,5 +1636,200 @@ mod cascade_tests {
         // Restating the engine's own line is legal — that is what `raw` does.
         s.set_site("theme = { type = \"string\" }".parse().unwrap(), "[schema]")
             .unwrap();
+    }
+}
+
+/// DESIGN.md §4's promised dead-rule warning (MERGE.md C3), driven through
+/// the real `load` on a real (tiny) site: the subject is a corpus answering a
+/// glob, and nothing smaller than a tree can be that.
+#[cfg(test)]
+mod dead_rule_tests {
+    use super::*;
+
+    /// Write a site under the system temp dir. `who` names the caller —
+    /// unit tests run in parallel threads, and a shared scratch directory
+    /// means one test loads another's content (`slots.rs`'s precedent).
+    fn site(who: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("grackle-dead-rule-{who}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (rel, body) in files {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
+            std::fs::write(&p, body).unwrap();
+        }
+        dir
+    }
+
+    fn warnings(dir: &Path) -> Vec<String> {
+        let cfg = Config::load(&dir.join("grackle.toml")).expect("the test site should load");
+        load(&cfg).expect("the test site should build").warnings
+    }
+
+    const PAGE: &str = "---\ntitle: About\n---\n\nProse.\n";
+
+    /// A site inheriting the base, with ONE rule of its own that names a
+    /// directory the site does not have.
+    ///
+    /// The controls are in the same site, which is the point of driving a
+    /// whole load: the site's other rule matches `about.md` and is silent,
+    /// and the base's `**/index.{html,md}` matches nothing here (there is no
+    /// `index.md`) and is silent too, because it is not this author's rule.
+    ///
+    /// Mutation check: delete `rule.governed.set(true)` in `apply_rules` and
+    /// the live rule is reported dead as well; delete the `dead_rules` call
+    /// in `build_tree_and_objects` and nothing is reported at all.
+    #[test]
+    fn a_site_declared_rule_that_matches_nothing_warns() {
+        let dir = site(
+            "unmatched",
+            &[
+                (
+                    "grackle.toml",
+                    r#"
+[site]
+url = "https://example.com"
+title = "T"
+author = "A"
+
+[[collections]]
+kind = "tree"
+name = "entries"
+source = "."
+
+  [[collections.rules]]
+  match = "photos/**"
+  route = "/pics/{path}"
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{stem}/"
+"#,
+                ),
+                ("about.md", PAGE),
+            ],
+        );
+        let w = warnings(&dir);
+        assert_eq!(w.len(), 1, "one dead rule, and only one: {w:?}");
+        assert!(w[0].contains("entries"), "names the collection: {w:?}");
+        assert!(w[0].contains(r#""photos/**""#), "names the glob: {w:?}");
+    }
+
+    /// The false positive this scope exists to prevent. `examples/minimal` is
+    /// this site: no `_posts/`, no `index.md`, so the base's `match = "**"`
+    /// over `_posts` and its `**/index.{html,md}` both govern nothing — and
+    /// neither is the author's to fix. Every base-inheriting site would carry
+    /// these forever.
+    ///
+    /// Mutation check: drop the `!r.inherited` test in `dead_rules` and this
+    /// site starts reporting the base's rules.
+    #[test]
+    fn an_inherited_rule_governing_nothing_says_nothing() {
+        let dir = site(
+            "inherited",
+            &[
+                (
+                    "grackle.toml",
+                    "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n",
+                ),
+                ("about.md", PAGE),
+            ],
+        );
+        assert_eq!(warnings(&dir), Vec::<String>::new());
+    }
+
+    /// A collection with no rows at all reports nothing, whoever wrote the
+    /// rules: a rule is dead relative to a CORPUS, and an absent source is a
+    /// statement about the source. `extends = "none"` so every rule below is
+    /// the site's own — under the `!inherited` test alone, all three would be
+    /// reported for the one missing directory.
+    ///
+    /// Mutation check: delete the `found == 0` early return and this site
+    /// reports its three object rules.
+    #[test]
+    fn a_collection_with_no_rows_reports_nothing() {
+        let dir = site(
+            "no-rows",
+            &[
+                (
+                    "grackle.toml",
+                    r#"
+extends = "none"
+[site]
+url = "https://example.com"
+title = "T"
+author = "A"
+
+[[collections]]
+kind = "objects"
+name = "objects"
+extensions = ["png", "jpg"]
+
+  [[collections.rules]]
+  match = "covers/**"
+  route = "/covers/{path}"
+
+  [[collections.rules]]
+  match = "art/**"
+  route = "/art/{path}"
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"
+
+[[collections]]
+kind = "tree"
+name = "entries"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+"#,
+                ),
+                ("about.md", PAGE),
+            ],
+        );
+        assert_eq!(warnings(&dir), Vec::<String>::new());
+    }
+
+    /// A rule the cascade never lets WIN is still live: `apply_rules` walks
+    /// every eligible rule for its defaults, and only the first with a route
+    /// decides the URL. Reporting a shadowed rule would be reporting the
+    /// engine's own precedence as an error.
+    #[test]
+    fn a_rule_shadowed_for_the_route_is_not_dead() {
+        let dir = site(
+            "shadowed",
+            &[
+                (
+                    "grackle.toml",
+                    r#"
+[site]
+url = "https://example.com"
+title = "T"
+author = "A"
+
+[[collections]]
+kind = "tree"
+name = "entries"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{stem}/"
+
+  # Never wins the route — the rule above claims it first — but it fills a
+  # default, which is governing.
+  [[collections.rules]]
+  match = "**/*.md"
+  defaults = { hidden = true }
+"#,
+                ),
+                ("about.md", PAGE),
+            ],
+        );
+        assert_eq!(warnings(&dir), Vec::<String>::new());
     }
 }

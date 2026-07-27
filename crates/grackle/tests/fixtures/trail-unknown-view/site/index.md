@@ -1,0 +1,5 @@
+---
+title: Home
+---
+
+{% view home %}
