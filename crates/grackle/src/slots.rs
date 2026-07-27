@@ -164,6 +164,30 @@ fn walk(root: &Path, dir: &Path, fills: &mut SlotFills) -> Result<()> {
     Ok(())
 }
 
+/// "nav.html is verbatim markup, nav.md renders through comrak" — the two
+/// files claiming one slot, ordered by filename so the message reads the same
+/// however `read_dir` happened to hand them over (the scan is unsorted).
+fn conflict(a: &Path, b: &Path) -> String {
+    let mut both = [a, b];
+    both.sort();
+    format!(
+        "{} {}, {} {}",
+        both[0].display(),
+        pipeline(both[0]),
+        both[1].display(),
+        pipeline(both[1])
+    )
+}
+
+/// What a fill's extension makes of it — the half of §5e that says two files
+/// with one stem can never be the same statement.
+fn pipeline(p: &Path) -> &'static str {
+    match p.extension().and_then(|e| e.to_str()) {
+        Some("md") => "renders through comrak",
+        _ => "is verbatim markup",
+    }
+}
+
 fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()> {
     for e in std::fs::read_dir(slots_dir)?.filter_map(|e| e.ok()) {
         let p = e.path();
@@ -173,15 +197,40 @@ fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()>
         let Some(ext) = p.extension().map(|s| s.to_string_lossy().to_string()) else {
             continue;
         };
-        let text = std::fs::read_to_string(&p)
-            .with_context(|| format!("reading slot fill {}", p.display()))?;
+        // Asked before the file is read, so a fill the engine cannot run never
+        // reaches the map and can never be one half of a collision below.
         if !matches!(ext.as_str(), "md" | "html") {
             bail!(
                 "{}: unknown slot fill extension .{ext} (md renders, html is verbatim)",
                 p.display()
             );
         }
-        fills.by_dir.entry(owner.to_path_buf()).or_default().insert(
+        let text = std::fs::read_to_string(&p)
+            .with_context(|| format!("reading slot fill {}", p.display()))?;
+        let slot = fills.by_dir.entry(owner.to_path_buf()).or_default();
+        // Two files in ONE `.slots/` resolving to one key are unordered peers:
+        // `resolve` walks *directory levels*, and nearness ranks levels, not
+        // files at one level — so the winner used to be whichever `read_dir`
+        // handed over last (MERGE.md A6).
+        //
+        // The only reachable shape is two extensions, since a directory cannot
+        // hold two files of one name — and A5's "agreement is not a conflict"
+        // exemption cannot follow it here: `.md` renders and `.html` is
+        // trusted verbatim (§5e), so even byte-identical files are two
+        // different fills. There is no equality to test.
+        if let Some(prev) = slot.get(&stem) {
+            bail!(
+                "{} — two files in {} fill slot {stem:?}. Extension picks the \
+                 pipeline, so these are different fills of one name, and \
+                 nothing ranks two files in one directory: nearest-wins ranks \
+                 directory levels. Delete one, or give them different names — \
+                 a locale suffix is a different name ({stem}.fr.md beside \
+                 {stem}.md is §6f, not a collision).",
+                conflict(&prev.file, &p),
+                slots_dir.display()
+            );
+        }
+        slot.insert(
             stem,
             Fill {
                 raw: text,
@@ -293,5 +342,100 @@ mod tests {
     fn nested_divs_are_one_block() {
         let (n, _) = block_shape("<div><div>a</div><p>b</p></div>");
         assert_eq!(n, 1);
+    }
+
+    /// Write a site tree under the system temp dir and scan it. `who` names
+    /// the caller: unit tests run in parallel threads, and a shared scratch
+    /// directory means one test loads another's fills.
+    fn tree(who: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("grackle-slots-{who}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (rel, body) in files {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().expect("a fill has a directory")).unwrap();
+            std::fs::write(&p, body).unwrap();
+        }
+        dir
+    }
+
+    /// The guard (MERGE.md A6). Delete the `bail!` in `load_dir` and this
+    /// loads silently, with the slot filled by whichever file `read_dir`
+    /// handed over last.
+    #[test]
+    fn two_fills_of_one_stem_in_one_directory_is_an_error() {
+        let dir = tree(
+            "same-stem",
+            &[
+                (".slots/nav.md", "[home](/)"),
+                (".slots/nav.html", "<p><a href=\"/\">home</a></p>"),
+            ],
+        );
+        let e = SlotFills::load(&dir)
+            .expect_err("one stem, two pipelines, one directory: nothing ranks them")
+            .to_string();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(e.contains("nav.html"), "{e}");
+        assert!(e.contains("nav.md"), "{e}");
+        assert!(e.contains("fill slot \"nav\""), "{e}");
+        // Sorted by filename, so `read_dir`'s order does not reach the message.
+        assert!(e.find("nav.html") < e.find("nav.md"), "{e}");
+    }
+
+    /// …and the sort is the message's, not the caller's: `conflict` says one
+    /// sentence whichever way round the walk found the pair. (`read_dir`'s
+    /// order is not ours to choose, so this half is asserted directly.)
+    #[test]
+    fn the_conflict_message_does_not_depend_on_walk_order() {
+        let (md, html) = (Path::new(".slots/nav.md"), Path::new(".slots/nav.html"));
+        assert_eq!(conflict(md, html), conflict(html, md));
+        assert!(conflict(md, html).starts_with(".slots/nav.html is verbatim markup,"));
+    }
+
+    /// The control that is also the live corpus's shape (§6f): a locale suffix
+    /// IS a different slot name, and the base file is the default locale.
+    #[test]
+    fn a_locale_suffix_is_a_different_slot_not_a_collision() {
+        let dir = tree(
+            "locale",
+            &[
+                (".slots/nav.md", "default"),
+                (".slots/nav.fr.md", "français"),
+            ],
+        );
+        let fills = SlotFills::load(&dir).expect("nav.md beside nav.fr.md is the designed shape");
+        assert_eq!(
+            fills.resolve(&dir, &dir, "nav", "fr").map(|f| &f.raw[..]),
+            Some("français")
+        );
+        assert_eq!(
+            fills.resolve(&dir, &dir, "nav", "en").map(|f| &f.raw[..]),
+            Some("default")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The law that stays: directory levels ARE ordered, so the same stem
+    /// deeper in the tree is nearest-wins, not a collision (table C).
+    #[test]
+    fn the_same_stem_at_two_levels_is_still_nearest_wins() {
+        let dir = tree(
+            "two-levels",
+            &[
+                (".slots/nav.md", "site nav"),
+                ("blog/.slots/nav.md", "blog nav"),
+            ],
+        );
+        let fills = SlotFills::load(&dir).expect("different levels are ranked by nearness");
+        assert_eq!(
+            fills
+                .resolve(&dir, &dir.join("blog"), "nav", "en")
+                .map(|f| &f.raw[..]),
+            Some("blog nav")
+        );
+        assert_eq!(
+            fills.resolve(&dir, &dir, "nav", "en").map(|f| &f.raw[..]),
+            Some("site nav")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

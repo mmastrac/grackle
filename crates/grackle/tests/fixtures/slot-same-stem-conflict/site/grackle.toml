@@ -1,0 +1,29 @@
+# Two files in one `.slots/` filling one slot (MERGE.md A6).
+#
+# `.slots/copyright.md` and `.slots/copyright.html` both key on the stem
+# `copyright`. The extension picks the pipeline — `.md` renders through
+# comrak, `.html` is trusted verbatim (§5e) — so these are two different
+# fills of one name, and `SlotFills::resolve` walks *directory levels*:
+# nearest-wins ranks levels and has nothing to say about two files at one
+# level. The winner used to be whichever `read_dir` handed over last.
+#
+# Delete the `bail!` in `slots::load_dir` and this site builds again, with the
+# footer's copyright line decided by directory-iteration order.
+#
+# (This collision is invisible to grack.com's own build: the `.slots/` walk
+# skips `grackle/` outright, unlike the declaration walk R1/R2 had to teach.)
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Two Fills"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
