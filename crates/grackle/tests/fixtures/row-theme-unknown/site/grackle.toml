@@ -1,0 +1,15 @@
+# A ROW's `theme:` is held to the same standard as every other rung of the
+# theme ladder (MERGE.md table C, C2): the name must be one the theme registry
+# answers to, and a name that answers to nothing is a **load error naming the
+# file**.
+#
+# `[site] theme` has errored with the knowns since it existed, and a view's
+# `theme =` errors with its view. A row's did not: it travelled all the way to
+# the render paths, where a bare `themes.get` says "no theme named legder" and
+# nothing at all says which of three hundred posts wrote it. Delete the row
+# sweep in `check_theme_names` and this fixture fails again with exactly that
+# message — the theme named, the file not.
+[site]
+url = "https://example.com"
+title = "Unknown Theme"
+author = "Tester"

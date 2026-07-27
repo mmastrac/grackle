@@ -1,0 +1,39 @@
+# The NEAREST rung of the theme ladder (MERGE.md table C): an axis member's
+# field, set on the row at render time.
+#
+# `[axes.theme] field = "theme"` means every one of its values IS a theme
+# spec — `axis_field(r, "theme")` beats the row's own in all five render
+# paths — and nothing validated them anywhere. A typo here multiplied the URL
+# space first and failed at render second, with the theme named and neither
+# the axis nor the value's position named.
+#
+# The `field` itself is deliberately NOT checked against anything (q53: a
+# member may differ purely presentationally, so no field is inert). It is the
+# value that has to answer, and only when the field is one the engine reads.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Unknown Theme, On An Axis"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+exclude = ["themes/**"]
+
+  # The rule that spends the axis is the rule that opts its rows in.
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{theme}/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+# `loud` exists; `nosuch` does not, and would have rendered a whole member of
+# the axis — every row, at its own URL — through a theme that is not there.
+[axes.theme]
+values = ["loud", "nosuch"]
+field = "theme"

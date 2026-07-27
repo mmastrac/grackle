@@ -1,0 +1,27 @@
+# The same guard, one rung down: the theme a row wears came from a RULE
+# default rather than from its own front matter (MERGE.md C2, §3 table B rung
+# 3).
+#
+# There is nothing extra in the engine for this case, and that is the point
+# C1 bought. `theme` is a declared, typed field now, so a rule's
+# `defaults = { theme = … }` cascades onto `row.theme` exactly as front matter
+# does, and the one sweep over the rows sees both. The error still names the
+# FILE — which is the right thing to name even though the rule wrote the
+# value, because the rule matched a hundred files and this is the one being
+# rendered.
+[site]
+url = "https://example.com"
+title = "Unknown Theme, By Default"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  # Site rules prepend (Law 1 in list form), so this wins for `.md` over the
+  # base's own page rule and hands every page a theme that does not exist.
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+  defaults = { theme = "nosuch" }

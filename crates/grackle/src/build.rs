@@ -328,6 +328,59 @@ fn site_icon(cfg: &Config, db: &SiteDb) -> String {
         .unwrap_or_default()
 }
 
+/// Every declared theme name, checked against the registry before anything
+/// renders (MERGE.md table C's theme ladder, C2).
+///
+/// This lives here rather than in config because the REGISTRY is the only
+/// thing that knows which names exist — the same reason `[site] theme` is
+/// checked in `load_all` and not in `Site`'s deserializer. A name that answers
+/// to nothing used to reach the render paths, where a bare `themes.get` names
+/// the theme and **nothing names the writer**: one post with `theme: legder`
+/// failed the whole build with "no theme named legder" and no file to open.
+///
+/// Three rungs, nearest first — one per writer that can name a theme:
+///
+///   * an **axis** whose `field` is `theme`: its values are set on the row at
+///     render (`axis_field`), which makes each one a theme spec, and the
+///     nearest rung there is. Nothing checked them at all before this.
+///   * a **view**'s `theme =`, named with its view.
+///   * a **row**'s `theme:` — front matter, a marker, or a rule default, all
+///     of which now arrive on `row.theme` through one typed cascade (C1), so
+///     one sweep covers every rung below the view's.
+///
+/// Only the spec's NAME half is checked (`split_spec`). Subtheme tokens are
+/// CSS selector fodder and name nothing the engine could know about; that they
+/// go unvalidated is a §7-adjacent gap, stated rather than closed. A row
+/// naming no theme is skipped: it resolves to the site default, and `load_all`
+/// has already checked that one.
+fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Themes) -> Result<()> {
+    for (name, axis) in &cfg.axes {
+        if axis.field != "theme" {
+            continue;
+        }
+        for value in &axis.values {
+            themes
+                .get(Some(theme::split_spec(value).0))
+                .with_context(|| format!("[axes.{name}] values: {value:?}"))?;
+        }
+    }
+    for (name, v) in &cfg.views {
+        if let Some(spec) = v.theme.as_deref() {
+            themes
+                .get(Some(theme::split_spec(spec).0))
+                .with_context(|| format!("view {name}: theme = {spec:?}"))?;
+        }
+    }
+    for row in db.rows.iter() {
+        if let Some(spec) = row.theme.as_deref() {
+            themes
+                .get(Some(theme::split_spec(spec).0))
+                .with_context(|| format!("{}: theme = {spec:?}", row.path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Render every routable URL into memory. Writes nothing to the output; the
 /// only disk it touches is the content-addressed `_cache/` (thumbnails, §6b).
 pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)> {
@@ -379,17 +432,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     let themes =
         theme::Themes::load_all(&root.join("themes"), &root, &schemas, cfg.site.theme.as_deref())
             .context("loading themes")?;
-    // A view's `theme` is checked here rather than in config, because the
-    // registry is what knows which names exist — the same reason `[site] theme`
-    // is checked in `load_all`. A typo would otherwise fall through to the
-    // default and render the wrong look silently.
-    for (name, v) in &cfg.views {
-        if let Some(spec) = v.theme.as_deref() {
-            themes
-                .get(Some(theme::split_spec(spec).0))
-                .with_context(|| format!("view {name}: theme = {spec:?}"))?;
-        }
-    }
+    check_theme_names(cfg, db, &themes)?;
 
     // §6a row/view links: the resolution space, once per build.
     let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
