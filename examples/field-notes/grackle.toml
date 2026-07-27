@@ -38,7 +38,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   # embedding order with a floor — the mechanical migration of the old
   # `[related]` block. `earlier`/`later`/`linked_from` are engine defaults;
   # the retired `adjacency = "published"` key is now the `earlier`/`later`
-  # default's `over`.
+  # default's `from`.
   [collections.relations.related]
   where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
   rank     = "embedding_similarity(self, candidate)"
@@ -95,7 +95,7 @@ exclude = ["themes/**", "shells/**"]
   # gets no earlier/later/related (those are date-and-embedding ideas a page
   # has no answer for).
   [collections.relations.same_course]
-  over  = "recipes"
+  from  = "recipes"
   match = "recipes/**"
   where = "candidate.course == self.course"
   rank  = "-levenshtein(self.title, candidate.title)"

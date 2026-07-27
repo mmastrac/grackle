@@ -335,10 +335,10 @@ fn view_fields(v: &View) -> BTreeMap<String, filter::Value> {
 
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
-        // `over = "*"` views read the finished route set, so they run in a
+        // `from = "*"` views read the finished route set, so they run in a
         // second pass (see build_star_views). Views iterate in name order, so
         // inline would measure a partial list.
-        if v.over.is_star() {
+        if v.from.is_star() {
             continue;
         }
         // Both named queries (`published`) and embedded views (`latest`) still
@@ -375,7 +375,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) else {
             return true; // a row's own route, not a view's
         };
-        !v.inherited || v.over.is_star() || r.rows.is_none_or(|n| n > 0)
+        !v.inherited || v.from.is_star() || r.rows.is_none_or(|n| n > 0)
     });
     Ok(())
 }
@@ -798,7 +798,7 @@ fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filte
 /// exists, and its `rows` is the count that actually passes its filter.
 pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     for (name, v) in &cfg.views {
-        if !v.over.is_star() {
+        if !v.from.is_star() {
             continue;
         }
         let tmpl = v
@@ -827,7 +827,7 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
 /// nothing was visibly wrong.
 pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
-        if !v.over.is_star() {
+        if !v.from.is_star() {
             continue;
         }
         let pred = match &v.filter {

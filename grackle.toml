@@ -60,7 +60,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
   # `limit`/`min_score`/`year_penalty` were three knobs of a formula the rank
   # expression now spells out.
   [collections.relations.related]
-  over     = "published"
+  from     = "published"
   where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
   rank     = "embedding_similarity(self, candidate) - 0.01 * year_gap(self, candidate)"
   min_rank = 0.4

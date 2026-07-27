@@ -443,7 +443,7 @@ function lensViews() {
 	var tbl = el("table");
 	var thead = el("thead");
 	var tr = el("tr");
-	["view", "over", "base", "layout", "group_by", "paginate", "filter", "routes"].forEach(function (c) {
+	["view", "from", "base", "layout", "group_by", "paginate", "filter", "routes"].forEach(function (c) {
 		tr.appendChild(el("th", null, c));
 	});
 	thead.appendChild(tr);
@@ -454,7 +454,7 @@ function lensViews() {
 	}).forEach(function (v) {
 		var row = el("tr");
 		if (sel && sel.kind === "view" && sel.key === v.name) row.dataset.sel = "1";
-		[v.name, v.over || "", v.base || "", v.layout || v.shell || "", v.group_by || "",
+		[v.name, v.from || "", v.base || "", v.layout || v.shell || "", v.group_by || "",
 			v.paginate == null ? "" : String(v.paginate), v.filter || "", String(v.route_count)]
 			.forEach(function (t) { row.appendChild(el("td", null, t)); });
 		row.onclick = function () { sel = { kind: "view", key: v.name, view: v }; draw(); };
@@ -675,7 +675,7 @@ function detailView(v) {
 		[v.route_count + " routes"]
 	));
 	d.appendChild(kv([
-		["over", v.over],
+		["from", v.from],
 		["base table", v.base],
 		["layout", v.layout],
 		["shell", v.shell],

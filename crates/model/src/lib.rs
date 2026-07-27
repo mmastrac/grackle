@@ -366,7 +366,7 @@ pub struct Route {
     /// `self`: the post rows this route materializes, in order.
     ///
     /// The view's declared query decides these once, here — renderers read
-    /// them rather than re-deriving. Empty for `over = "*"` views, which
+    /// them rather than re-deriving. Empty for `from = "*"` views, which
     /// range over routes rather than posts.
     #[serde(skip)]
     pub members: Vec<Key>,

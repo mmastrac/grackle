@@ -103,8 +103,10 @@ struct Route {
 #[derive(Serialize)]
 struct View {
     name: String,
+    /// The view's `from` — the pool it ranges over. Named for the config
+    /// key, which is what a reader of the inspector has in front of them.
     #[serde(skip_serializing_if = "Option::is_none")]
-    over: Option<String>,
+    from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     base: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,7 +211,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         })
         .collect();
 
-    // A star view (`over = "*"`) ranges over ROUTES, not a table, so it
+    // A star view (`from = "*"`) ranges over ROUTES, not a table, so it
     // carries no `members` — the render passes re-evaluate its filter. The
     // set is real all the same, so evaluate it here rather than show an
     // empty list and imply otherwise.
@@ -235,7 +237,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         let Some(view) = r.view.as_deref() else {
             return Vec::new();
         };
-        if cfg.views.get(view).is_some_and(|v| v.over.is_star()) {
+        if cfg.views.get(view).is_some_and(|v| v.from.is_star()) {
             return star_members(view);
         }
         r.members
@@ -277,7 +279,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
                 .collect();
             View {
                 name: name.clone(),
-                over: Some(v.over.display()).filter(|s| !s.is_empty()),
+                from: Some(v.from.display()).filter(|s| !s.is_empty()),
                 base: cfg.query(name).ok().map(|q| q.base.join(", ")),
                 layout: v.layout.clone(),
                 shell: v.shell.clone(),

@@ -891,7 +891,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         stats.serialized += 1;
     }
 
-    // ---- sitemap: `over = "*"` views serialize the finished route set.
+    // ---- sitemap: `from = "*"` views serialize the finished route set.
     //
     // The star view (§5) counted its matches at load; here we re-run the same
     // filter to enumerate them. `lastmod` is emitted only for posts, from the

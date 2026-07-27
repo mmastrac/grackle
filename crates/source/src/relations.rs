@@ -24,7 +24,7 @@ use crate::config::{Config, LocalizedStr, RelationCfg};
 use crate::schema::Schemas;
 
 /// Compile every collection's relations onto `db.relations`, in dependency
-/// order. Runs after `build_views`, so the sets a relation ranges `over` are
+/// order. Runs after `build_views`, so the sets a relation ranges `from` are
 /// already resolved.
 pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<Relation>> = BTreeMap::new();
@@ -79,10 +79,10 @@ fn compile_one(
     rc: &RelationCfg,
     schema: &filter::Schema,
 ) -> Result<Relation> {
-    let pool = resolve_pool(cfg, db, cname, rc.over.as_deref())?;
+    let pool = resolve_pool(cfg, db, cname, rc.from.as_deref())?;
     // A relation's predicate is the one the config wrote, full stop. The engine
     // used to AND `!candidate.draft && !candidate.hidden` onto a defaulted
-    // `over` that fell back to the bare collection, so a dated draft could not
+    // `from` that fell back to the bare collection, so a dated draft could not
     // become somebody's Later post — the engine composing a query about two
     // field names it had no business knowing.
     //
@@ -124,17 +124,17 @@ fn compile_one(
     })
 }
 
-/// Resolve `over` to a candidate pool. A derived name is row-relative; a set
+/// Resolve `from` to a candidate pool. A derived name is row-relative; a set
 /// or collection is a fixed list.
 ///
-/// An explicit `over` must resolve or it is a load error. An ABSENT one is the
+/// An explicit `from` must resolve or it is a load error. An ABSENT one is the
 /// engine defaults' pool: the `published` set — which the base config ships
 /// (§4d), so this is the normal case and the pool arrives already filtered —
 /// falling back to the collection itself when a site declares no such set
 /// (§6g: a `published` set is not mandatory just to get neighbours). Nothing
 /// is ANDed onto either: the pool is a query the config wrote.
-fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, over: Option<&str>) -> Result<Pool> {
-    let Some(name) = over else {
+fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, from: Option<&str>) -> Result<Pool> {
+    let Some(name) = from else {
         return Ok(if db.views.contains_key("published") {
             Pool::Set("published".to_string())
         } else {
@@ -154,7 +154,7 @@ fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, over: Option<&str>) -> R
     let mut sets: Vec<&str> = db.views.keys().map(String::as_str).collect();
     sets.sort_unstable();
     bail!(
-        "over = {name:?} on collection {cname} names nothing: expected a set \
+        "from = {name:?} on collection {cname} names nothing: expected a set \
          ({}), a collection, or a derived relation ({})",
         sets.join(", "),
         DERIVED_RELATIONS.join(", "),
@@ -189,9 +189,9 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
 fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
     let mut m = BTreeMap::new();
     let rel =
-        |over: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
+        |from: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
             RelationCfg {
-                over: over.map(str::to_string),
+                from: from.map(str::to_string),
                 filter: filter.map(str::to_string),
                 scope: None,
                 rank: rank.map(str::to_string),
@@ -385,8 +385,8 @@ mod tests {
     #[test]
     fn a_reference_cycle_is_a_load_error() {
         let e = err(
-            "[collections.relations.a]\nover=\"posts\"\nwhere=\"!(candidate in b)\"\n\
-             [collections.relations.b]\nover=\"posts\"\nwhere=\"!(candidate in a)\"\n",
+            "[collections.relations.a]\nfrom=\"posts\"\nwhere=\"!(candidate in b)\"\n\
+             [collections.relations.b]\nfrom=\"posts\"\nwhere=\"!(candidate in a)\"\n",
         );
         assert!(e.contains("cycle"), "{e}");
         assert!(e.contains('a') && e.contains('b'), "{e}");
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn an_unknown_two_row_field_is_caught_at_load() {
-        let e = err("[collections.relations.x]\nover=\"posts\"\nwhere=\"candidate.nope\"\n");
+        let e = err("[collections.relations.x]\nfrom=\"posts\"\nwhere=\"candidate.nope\"\n");
         assert!(
             e.contains("unknown field") && e.contains("candidate.nope"),
             "{e}"
@@ -403,14 +403,14 @@ mod tests {
 
     #[test]
     fn a_non_numeric_rank_is_caught_at_load() {
-        let e = err("[collections.relations.x]\nover=\"posts\"\nrank=\"candidate.title\"\n");
+        let e = err("[collections.relations.x]\nfrom=\"posts\"\nrank=\"candidate.title\"\n");
         assert!(e.contains("must be a number"), "{e}");
     }
 
     #[test]
     fn a_declared_relation_overrides_its_default_by_name() {
         // Overriding `related` leaves the other three defaults in place.
-        let rels = compile("[collections.relations.related]\nover=\"posts\"\nlimit=2\n").unwrap();
+        let rels = compile("[collections.relations.related]\nfrom=\"posts\"\nlimit=2\n").unwrap();
         let ns = names(&rels);
         assert!(
             ns.contains(&"earlier") && ns.contains(&"linked_from"),

@@ -1345,7 +1345,7 @@ pub struct Collection {
     /// view is found on its own; no tags view at all = unlinked pills.
     pub tags: Option<String>,
     /// This collection's neighbour queries (§6g, q52). Each `[collections.
-    /// relations.NAME]` is a small row-relative query — `over` (candidate
+    /// relations.NAME]` is a small row-relative query — `from` (candidate
     /// pool), `where` (a predicate over the two-row `self`/`candidate`
     /// environment), `rank` (a score, bigger wins), `limit` — that produces
     /// one labelled group in a document's body. A collection declaring none
@@ -1382,8 +1382,12 @@ pub struct RelationCfg {
     /// name (`linked_from`, `ancestors`, …). Absent = the collection's
     /// published set — "the shape every site's published set has" (§6g open
     /// sub-question), resolved at load.
-    #[serde(rename = "over")]
-    pub over: Option<String>,
+    ///
+    /// Spelled `from`, the same word a view spells (§5c): both name a
+    /// candidate pool, and one word is what MERGE.md G1 bought. The retired
+    /// `over` is simply gone — `deny_unknown_fields` refuses it, naming the
+    /// knowns, and `from` is first in that list.
+    pub from: Option<String>,
     /// A boolean over `self`/`candidate` (qualified fields) and relation
     /// names (`!(candidate in earlier)`). Absent = every candidate.
     #[serde(rename = "where")]
@@ -1578,8 +1582,7 @@ pub struct View {
     /// it names decides whether this selects, subdivides (§5c) or unions; the
     /// engine derives that from the referent rather than taking a keyword for
     /// each.
-    #[serde(rename = "from")]
-    pub over: From,
+    pub from: From,
     #[serde(rename = "where")]
     pub filter: Option<String>,
     /// Path-glob scoping (§5 audit): globs already exist in rules (§4), so
@@ -1711,7 +1714,7 @@ pub struct View {
     #[serde(skip)]
     pub filter_profile: Option<String>,
     /// Computed fields (§6d): columns this view adds to its rows, each
-    /// defined by a deriver. Views composed `over` this one inherit them —
+    /// defined by a deriver. Views composed `from` this one inherit them —
     /// fields flow with rows through query composition the way filters do —
     /// and redeclaring a name overrides (nearest wins). The field named
     /// `summary` is what listing previews consume.
@@ -1740,7 +1743,7 @@ pub struct Truncate {
 
 impl View {
     /// A view with nothing but a query — nothing to inherit ambiguously, which
-    /// is why it is the only thing `over` may name.
+    /// is why it is the only thing `from` may name.
     pub fn is_query_only(&self) -> bool {
         self.route.is_none()
             && self.routes.is_empty()
@@ -1757,7 +1760,7 @@ impl View {
     }
 }
 
-/// A view's query, with the `over` chain flattened.
+/// A view's query, with the `from` chain flattened.
 #[derive(Debug)]
 pub struct Query {
     /// The collections this ranges over, or the single name `*`. More than one
@@ -2367,7 +2370,7 @@ impl Config {
         let Some(v) = self.views.get(name) else {
             return grackle_model::row_schema();
         };
-        if v.over.is_star() {
+        if v.from.is_star() {
             return grackle_model::route_schema(&declared);
         }
         // Dispatch on the base collection's kind, exactly as `build_views`
@@ -2623,14 +2626,14 @@ impl Config {
                     knowns()
                 );
             }
-            // The trail renders each GROUPED view along the `over` chain, so
+            // The trail renders each GROUPED view along the `from` chain, so
             // the named view need not itself be grouped — but something in
             // its chain must be, or the trail is a chain of nothing.
             let chain = cfg.grouped_chain(name);
             if chain.is_empty() {
                 anyhow::bail!(
                     "collection {cname}: trail {name:?} declares no `group_by`, \
-                     and neither does anything it composes `over` — a trail is a \
+                     and neither does anything it composes `from` — a trail is a \
                      subdivision chain (a year archive, then a month archive), \
                      rendered from a row's own group keys. Grouped views: {}",
                     cfg.views
@@ -2832,7 +2835,7 @@ impl Config {
                          a landing materializes somewhere"
                     );
                 }
-                if (v.intro.is_some() || v.content.is_some()) && v.over.is_star() {
+                if (v.intro.is_some() || v.content.is_some()) && v.from.is_star() {
                     anyhow::bail!(
                         "view {vname}: star views serialize the route set and \
                          have no landing to give prose to"
@@ -2857,7 +2860,7 @@ impl Config {
                          locale-parallel materialization, §6f)"
                     );
                 }
-                if v.over.is_star() {
+                if v.from.is_star() {
                     anyhow::bail!(
                         "view {vname}: star views serialize the whole route \
                          set and never materialize per locale — filter on \
@@ -2880,10 +2883,10 @@ impl Config {
         Ok(())
     }
 
-    /// Flatten a view's `over` chain into a base collection plus every filter
+    /// Flatten a view's `from` chain into a base collection plus every filter
     /// along the way.
     ///
-    /// `over` may name a **query-only** view (nothing to inherit ambiguously)
+    /// `from` may name a **query-only** view (nothing to inherit ambiguously)
     /// or a **grouped, unpaginated** view — subdivision (§5c): the composer
     /// refines the parent's partition, so it must itself be grouped, and the
     /// parent's route/layout are *not* inherited (the child declares its own).
@@ -2902,9 +2905,9 @@ impl Config {
             let v = self
                 .views
                 .get(cur)
-                .with_context(|| format!("view {name}: `over` names unknown view {cur:?}"))?;
+                .with_context(|| format!("view {name}: `from` names unknown view {cur:?}"))?;
             if seen.contains(&cur) {
-                anyhow::bail!("view {name}: `over` chain is cyclic at {cur:?}");
+                anyhow::bail!("view {name}: `from` chain is cyclic at {cur:?}");
             }
             seen.push(cur);
             if let Some(f) = &v.filter {
@@ -2920,17 +2923,17 @@ impl Config {
                 order_by.clone_from(&v.order_by);
             }
             // A collection, a union, or `*` terminates the chain.
-            let next = v.over.single().and_then(|s| self.views.get(s));
+            let next = v.from.single().and_then(|s| self.views.get(s));
             let Some(next) = next else {
                 // `cur`, not `name`: the entry that CARRIES the `from` is the
                 // one an author has to edit, and on a composed chain it is not
                 // the one whose query was asked for.
-                self.check_base(cur, name, &v.over)?;
+                self.check_base(cur, name, &v.from)?;
                 filters.reverse();
                 scopes.reverse();
                 patched.reverse();
                 return Ok(Query {
-                    base: v.over.names().to_vec(),
+                    base: v.from.names().to_vec(),
                     filters,
                     scopes,
                     order_by,
@@ -2948,7 +2951,7 @@ impl Config {
                          grouped route. Only sets and grouped, unpaginated routes may be \
                          composed over (subdivision, §5c); pagination × subdivision is \
                          punted (open question 30).{}",
-                        v.over.display(),
+                        v.from.display(),
                         self.whose_from(cur, name)
                     );
                 }
@@ -2957,12 +2960,12 @@ impl Config {
                         "{cur}: `from = {}` names a grouped route, but {cur} has no \
                          `group_by`. Composing over a grouped route means subdividing its \
                          partition (§5c), so the composer must be grouped too.{}",
-                        v.over.display(),
+                        v.from.display(),
                         self.whose_from(cur, name)
                     );
                 }
             }
-            cur = v.over.single().expect("a union terminates the chain above");
+            cur = v.from.single().expect("a union terminates the chain above");
         }
     }
 
@@ -2978,14 +2981,14 @@ impl Config {
     /// (`blog_index` composes over `published`, and it is `published`'s
     /// `from` that terminates). Both, because a message naming only one of
     /// them sends the reader to the wrong table — see [`Config::whose_from`].
-    fn check_base(&self, carrier: &str, asked: &str, over: &From) -> Result<()> {
-        if over.is_star() {
+    fn check_base(&self, carrier: &str, asked: &str, from: &From) -> Result<()> {
+        if from.is_star() {
             return Ok(());
         }
         let mut kinds: Vec<(&str, Kind)> = Vec::new();
-        for member in over.names() {
+        for member in from.names() {
             let Some(c) = self.collections.get(member) else {
-                if matches!(over, From::Union(_)) {
+                if matches!(from, From::Union(_)) {
                     anyhow::bail!(
                         "{carrier}: `from` unions {member:?}, which is not a collection. A union \
                          ranges over collections; to narrow a set, compose over it with `from = \
@@ -2996,7 +2999,7 @@ impl Config {
                 anyhow::bail!(
                     "{carrier}: `from = {}` is neither a collection, a set nor a route \
                      (collections: {}; sets and routes: {}){}",
-                    over.display(),
+                    from.display(),
                     self.collections
                         .keys()
                         .cloned()
@@ -3018,7 +3021,7 @@ impl Config {
                 );
             }
         }
-        if over.names().is_empty() {
+        if from.names().is_empty() {
             anyhow::bail!(
                 "{carrier}: `from = []` names nothing to range over.{}",
                 self.whose_from(carrier, asked)
@@ -3048,7 +3051,7 @@ impl Config {
         let mut note = String::new();
         if carrier != asked {
             note.push_str(&format!(
-                "\n  (reached from {asked:?}, which composes `over` it.)"
+                "\n  (reached from {asked:?}, which composes over it.)"
             ));
         }
         let Some(v) = self.views.get(carrier) else {
@@ -3067,7 +3070,7 @@ impl Config {
         note
     }
 
-    /// The `over` chain from `name` down to its base, nearest view first.
+    /// The `from` chain from `name` down to its base, nearest view first.
     /// The one chain walker — everything derived from composition
     /// (`fields_for`, `group_specs`, `grouped_chain`) reads this. Assumes the
     /// chain is acyclic, which `query()` validated at load.
@@ -3076,15 +3079,16 @@ impl Config {
         let mut cur = name;
         while let Some(v) = self.views.get(cur) {
             out.push((cur, v));
-            let Some(n) = v.over.single() else { break };
+            let Some(n) = v.from.single() else { break };
             cur = n;
         }
         out
     }
 
     /// The `group_by` specs governing a view, outermost ancestor first. This
-    /// is subdivision (§5c): a grouped view `over` a grouped view refines the
-    /// parent's partition, so the parent's spec applies before the child's.
+    /// is subdivision (§5c): a grouped view composed `from` a grouped view
+    /// refines the parent's partition, so the parent's spec applies before
+    /// the child's.
     pub fn group_specs(&self, name: &str) -> Vec<String> {
         let mut v: Vec<String> = self
             .chain(name)
@@ -3109,7 +3113,7 @@ impl Config {
     }
 
     /// The computed-field set a view's rows carry: the union along the
-    /// `over` chain, nearest declaration winning per name — fields compose
+    /// `from` chain, nearest declaration winning per name — fields compose
     /// exactly as filters do (§5c). Declaring `fields.summary` once on a
     /// shared query view (`published`) covers every listing composed over
     /// it; a view wanting different budgets redeclares the field.
@@ -3976,7 +3980,7 @@ mod tests {
     }
 
     /// A trail is a SUBDIVISION chain — `post_trail` renders each grouped
-    /// view along the `over` chain from the row's own group keys. A view
+    /// view along the `from` chain from the row's own group keys. A view
     /// that groups by nothing, over nothing that groups, is a chain of
     /// nothing, and produced a silently empty trail.
     #[test]
@@ -4335,6 +4339,11 @@ mod tests {
             "[sets.s]\nover = \"blog\"\n",
             "[sets.s]\nfrom = \"blog\"\nfilter = \"!draft\"\n",
             "[routes.r]\nfrom = \"blog\"\nroute = \"/r/\"\n",
+            // MERGE.md G1: a relation's candidate pool is `from` now, the
+            // word a view already spelled. Hard cutoff — the key is gone and
+            // `deny_unknown_fields` is the whole of the answer, with `from`
+            // first in the knowns it lists.
+            "[collections.relations.related]\nover = \"published\"\n",
         ] {
             let src = format!(
                 "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
@@ -4923,7 +4932,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_over_is_an_error() {
+    fn unknown_from_is_an_error() {
         let c = cfg("[sets.latest]\nfrom = \"pubished\"\nlimit = 3\n");
         let e = c.query("latest").unwrap_err().to_string();
         assert!(
@@ -4982,7 +4991,7 @@ mod tests {
             "the carrier, not the asker: {e}"
         );
         assert!(
-            e.contains("(reached from \"blog_index\", which composes `over` it.)"),
+            e.contains("(reached from \"blog_index\", which composes over it.)"),
             "{e}"
         );
     }
@@ -5316,7 +5325,7 @@ mod tests {
              [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
              [collections.schema]\ncover = { type = \"image\" }\n\
              [[collections.rules]]\nmatch = \"**\"\ndefaults = { layout = \"post\" }\n\
-             [collections.relations.related]\nover = \"published\"\nlimit = 3\n\
+             [collections.relations.related]\nfrom = \"published\"\nlimit = 3\n\
              [axes.locale]\nfield = \"locale\"\ntemplate = \"/{locale}{path}\"\n\
              [html.head.meta]\n\"apple-title\" = 'site.title'\n\
              [i18n]\nlocales = [\"fr\"]\n[i18n.strings]\nhome = { en = \"Home\", fr = \"Accueil\" }\n\

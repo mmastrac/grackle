@@ -880,7 +880,7 @@ Everything Jekyll plugins generated becomes a declared, incrementally maintained
 
 **`noindex` is deliberately absent.** Computing it needs the layout chain (phase 2), and a field we cannot populate correctly is worse than no field: omitted, referencing it is a load-time error; present-but-wrong, it silently lies. It also turns out not to be needed.
 
-`over = "*"` views read the finished route set, so they run in a second pass. Views iterate in name order.
+`from = "*"` views read the finished route set, so they run in a second pass. Views iterate in name order.
 
 `where`/`group_by`/`limit` are deliberately tiny — a predicate language over row fields, not SQL. Anything fancier is a Rust `Generator` impl registered under a name the config references. View outputs are routable rows like any other, so they land in the same URL→row reverse index.
 
@@ -1126,7 +1126,7 @@ Routeless views have no route to hang `members` on, so their single row set live
 
 ### Why compose over views, not routes
 
-The tempting shape is `over = "/blog"`. It does not work: `/blog` is **66 routes**, so "the posts from /blog" is ambiguous — page 1's five, or the whole set? Routes are *outputs*. Querying one means `/` depends on `/blog` having been materialized, inverting the dependency graph §2's incremental rebuild rests on. Views are pure functions of tables; routes are results.
+The tempting shape is `from = "/blog"`. It does not work: `/blog` is **66 routes**, so "the posts from /blog" is ambiguous — page 1's five, or the whole set? Routes are *outputs*. Querying one means `/` depends on `/blog` having been materialized, inverting the dependency graph §2's incremental rebuild rests on. Views are pure functions of tables; routes are results.
 
 ### The embedding seam
 
@@ -2079,14 +2079,16 @@ Relations are hardcoded — five groups in `parts.rs`, unconditional, ranging ov
 
 ```toml
 [collections.relations.related]
-over     = "published"    # candidate pool: a set, or a derived relation
+from     = "published"    # candidate pool: a set, or a derived relation
 where    = "!(candidate in earlier) && !(candidate in later)"
 rank     = "embedding_similarity(self, candidate)"   # double, bigger wins
 limit    = 4
 # also: match (glob, scopes self), min_rank (threshold), label ("@ref")
 ```
 
-Pipeline per row: `over → where → rank (+ min_rank) → limit`. Drops happen before the window, so an exclusion never shortens the list.
+Pipeline per row: `from → where → rank (+ min_rank) → limit`. Drops happen before the window, so an exclusion never shortens the list.
+
+**The pool key is `from`, the word a view already spelled** *(MERGE.md G1, 2026-07-27)*. Relations spelled it `over` and views spelled it `from` for the same idea — the candidate pool a query ranges over — and the Rust field behind a view's `from` was itself named `over`, which was the confession. One word now, and a hard cutoff: `over` is simply gone, so `deny_unknown_fields` refuses it and lists `from` first among the knowns.
 
 ### The shape war, closed
 
@@ -2107,7 +2109,7 @@ What relations force into existence: arithmetic on doubles, unary minus, registe
 
 ### Graph and path are names, not expressions
 
-Two of q52's four families cannot be computed from two rows' fields — they need the link graph or the tree. They become **derived relations**: names the engine always provides, usable two ways — referenced in `where` (`!(candidate in ancestors)`) or as the candidate pool (`over = "linked_from"`).
+Two of q52's four families cannot be computed from two rows' fields — they need the link graph or the tree. They become **derived relations**: names the engine always provides, usable two ways — referenced in `where` (`!(candidate in ancestors)`) or as the candidate pool (`from = "linked_from"`).
 
 | family | operators | becomes |
 |---|---|---|
@@ -2124,20 +2126,20 @@ A collection declaring no relations gets these four; overriding is per NAME:
 
 ```toml
 [collections.relations.earlier]
-over  = "published"
+from  = "published"
 where = "candidate.date < self.date"
 rank  = "candidate.date"
 limit = 1
 # `later` is the mirror image
 
 [collections.relations.related]
-over  = "published"
+from  = "published"
 where = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
 rank  = "embedding_similarity(self, candidate)"
 limit = 4
 
 [collections.relations.linked_from]
-over  = "linked_from"
+from  = "linked_from"
 where = "!(candidate in ancestors)"
 ```
 
@@ -2147,7 +2149,7 @@ Three defects, found by eyeballing real pages, are why the defaults are not toda
 2. **"Linked from: Home."** The homepage's recent-posts arrangement counts as a citation. Not fixable in this syntax — see below.
 3. **"Linked from: its own breadcrumb parent."** Fixed by `!(candidate in ancestors)` — and the scoping is data, not an `if`: a blog post's trail is date archives, so it *has* no page ancestors and the clause does nothing there.
 
-Retired by the defaults: the collection-level `adjacency` key and the `[related]` block. An explicit `over` is taken verbatim; only the defaults' fallback carries the filter.
+Retired by the defaults: the collection-level `adjacency` key and the `[related]` block. An explicit `from` is taken verbatim; only the defaults' fallback carries the filter.
 
 ### Evaluation, pinned
 
@@ -2167,7 +2169,7 @@ Each declared relation with a nonempty list emits one `relation` group — `{rel
 
   ```toml
   [collections.relations.related]
-  over     = "published"
+  from     = "published"
   where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
   rank     = "embedding_similarity(self, candidate) - 0.01 * year_gap(self, candidate)"
   min_rank = 0.4
@@ -2178,7 +2180,7 @@ Each declared relation with a nonempty list emits one `relation` group — `{rel
 
   ```toml
   [collections.relations.same_course]
-  over  = "recipes"
+  from  = "recipes"
   match = "recipes/**"
   where = "candidate.course == self.course"
   rank  = "-levenshtein(self.title, candidate.title)"
@@ -2553,5 +2555,5 @@ One line per retired question; the named section carries the design.
 | 44 | shells: root HTML shell engine-owned; atom/sitemap/search built-in; script shells as the bench; md specced; row tiers are pipeline exits (`none` is the shell layer's escape hatch, not an object and not a theme) | §5g |
 | 10 | the drafts profile forces `noindex` site-wide — one profile key, not a per-row flag | §4a |
 | 45 | landings: a view owns the URL, a row may own the words; claiming, the chain, theme provenance | §5h |
-| 52 | relations are declared queries — `over`/`where`/`rank`/`limit` in §5f CEL; names mean finished lists; graph+path families are derived names; defaults ship the eye-check fixes; `adjacency` and `[related]` retire | §6g |
+| 52 | relations are declared queries — `from`/`where`/`rank`/`limit` in §5f CEL; names mean finished lists; graph+path families are derived names; defaults ship the eye-check fixes; `adjacency` and `[related]` retire | §6g |
 | 46 | `collection.crumb`/`index` dissolved — the URL climb is the sole source of a landing crumb, `trail` keeps the subdivision chain | §5h |
