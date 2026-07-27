@@ -502,7 +502,38 @@ provenance class). Closes §7 q7.
   set missing `order_by` must change output — that's the atom law
   observable), and the dry-run. *[parity]*
 
-*→ Batch review 4 after E2.*
+### Phase F — wrap-up closures *(Matt's calls, 2026-07-27; runs after Phase E)*
+
+- [ ] **F1. Delete the buckets feature; park the spec.** *(§7 q1 resolved:
+  delete-and-park.)* Remove `bucket` from `Collection` (config.rs —
+  `deny_unknown_fields` then makes any declaration a parse error), remove
+  `bucket = "assets"` from the three declaring configs (grackle.toml,
+  examples/field-notes, theme-preview), and remove D1's
+  `declared_and_unread` bucket warning with its tests (its reason is gone;
+  check whether the function has other clients before deleting it whole).
+  DESIGN.md §6a: record the deletion and park the design — bubbling +
+  buckets stay specced, marked "parked; key deleted 2026-07-27 (q1);
+  the reintroduction trigger is page bundles (§5b), where bare sibling
+  references become the natural authoring form." Make §0's tour honest
+  about `burrs.jpg` (step 4's bare-name example is parked, not built —
+  minimal edit, the tour should teach what works). Evaluate `by_name`
+  separately and do NOT cascade: it is read by `query stats` and the
+  collision report; keep it unless it is genuinely bucket-only, and record
+  the call in §6. Parity: five sites byte-identical; the bucket warnings
+  disappear from stderr (expected and desired — grack.com's inventory
+  drops to `hidden/**` alone). *[parity]*
+
+- [ ] **F2. The repo-wide fmt resync.** *(§7 q12's second half.)* One
+  commit, pure formatting: `cargo fmt` across the workspace under the
+  pinned 1.96.0. Verify purity mechanically: `git diff -w` must be empty
+  (whitespace-only changes) — any non-whitespace hunk is a STOP, report
+  before committing. `cargo test` green after. Then amend §4: retire
+  "never run repo-wide `cargo fmt`" in favor of "formatting must be clean
+  under the pinned toolchain; format what you touch", noting the resync
+  landed. The commit is formatting-only — nothing else rides in it.
+
+*→ Batch review 4 after F2, covering E1, E2, F1, F2 (the fmt commit
+reviewed by confirming `git diff -w` emptiness, not by reading hunks).*
 
 ## 6. Review log
 
@@ -2314,11 +2345,13 @@ test for theme-preview's copied head block.
 
 Not work items. Each needs Matt's call; agents must not attempt them.
 
-1. **`bucket` / §6a bare-name resolution** — build it or delete it. The tour
-   (§0) and base.toml comments imply it works; it is specced, unbuilt, and
-   unexercised (all 194 corpus refs are paths). Since D1 every build of a
-   site declaring it prints a warning saying so — three sites do — so
-   either answer is now a visible change rather than a silent one.
+1. **RESOLVED (2026-07-27): delete and park — F1.** The design (bubbling +
+   buckets, §6a) stays specced and parked; the key, its warning, and the
+   three config lines go. Reintroduction trigger: page bundles (§5b),
+   where bare sibling references become the natural authoring form and
+   the branch gets built whole, bucket included. *(Original: build it or
+   delete it — specced, unbuilt, unexercised; all 194 corpus refs are
+   paths.)*
 2. **`variant` validation policy** — "silent variant degradation is the
    design" for row requests across themes, but a view's `variant` naming a
    fragment *no loaded theme provides* is probably a typo. Warning? Error?
@@ -2393,11 +2426,9 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     future `config --projected`'s job along with profiles?
 12. **RESOLVED (2026-07-27): pinned.** `rust-toolchain.toml` at the repo
     root pins `1.96.0` (the active toolchain — no build change today).
-    Remaining half: the one-commit repo-wide fmt resync that makes
-    `cargo fmt` clean under the pin — deferred until Phase E lands so it
-    doesn't collide with the in-flight agent's files; then §4's
-    "no repo-wide cargo fmt" rule can be retired for a "fmt must be clean"
-    rule instead.
+    Remaining half: the one-commit repo-wide fmt resync — now filed as
+    **F2**, after Phase E; it retires §4's "no repo-wide cargo fmt" rule
+    for a "fmt must be clean" rule.
 13. **Subtheme tokens are unvalidated, and closing it is data-model.**
     *(C2 / batch review 3.)* `theme: ledger:drak` stamps
     `data-subtheme="drak"` silently — tokens name nothing the engine knows.
