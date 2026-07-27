@@ -1,10 +1,13 @@
 # IO.md — two databases: inputs and outputs
 
-**Status: DRAFT, from the 2026-07-27 design session (Matt + Fable, in
-conversation).** Matt edits this before any of it becomes a ledger. Nothing
-here is built; where this contradicts DESIGN.md, this is the intended
-successor and DESIGN.md records what shipped. Open choices are marked
-**[open]** inline and gathered in §9.
+**Status: APPROVED TO LEDGER (2026-07-27)** — Matt greenlit serial
+execution after the MERGE.md pipeline drains (F3 → G1 → G2 → batch
+review 4). §10 is the work ledger; Matt may still edit the model sections
+at any time and the ledger follows the document. Where this contradicts
+DESIGN.md, this is the intended successor and DESIGN.md records what
+shipped. Remaining **[open]** choices are settled in-item by the
+propose-and-flag pattern (the executing agent proposes, records reasoning
+in the ledger log, and Matt vetoes at review) unless marked Matt-only.
 
 The one-sentence model: **the site is two databases — the inputs you wrote
 and the outputs it publishes — joined by a graph the build can hold in its
@@ -301,12 +304,124 @@ one thing in the whole system: the serialization a route leaves through.
    (lean: closure).
 3. **[spec]** `robots_txt` emission details.
 4. **[design detail]** multi-theme CSS scoping in the one artifact.
-5. **[naming]** this document's name.
+5. ~~this document's name~~ — settled by use: `IO.md`.
 7. **[shape]** renditions in the shell axis: a transform-bearing output
    (resize, re-encode) is map-shell-shaped but parameterized — whether
    that's a parameterized shell (`image:256w`), a distinct transform stage
    upstream of `raw`, or purely edge-carried demand with no named surface
    at all (the §4a lean) wants one decision when the migration reaches it.
+
+## 10. The ledger
+
+Execution begins when the MERGE.md pipeline drains. **MERGE.md §4's
+process rules bind verbatim** (one fresh Opus agent per item, serial;
+pathspec commits to master; never bare `git stash`; never touch
+`manual/OUTLINE.md`; `cargo fmt --check` clean under the pin;
+mutation-check every guard; fix-it errors on retired spellings; corpus
+migrates in-commit under byte-parity gates). IO-specific additions:
+every item updates DESIGN.md where it makes a section false (this
+document must not create the doc-rot it was born from), and every item
+notes its **[open]** resolutions in §11's log. Fable batch reviews at the
+marked points; findings append to §11 and may file R-items.
+
+### Phase I-A — facts beside the fossil
+
+- [ ] **I1. Expose `shell` and `front_mattered` as filter columns**, on
+  the schemas where each is answerable; migrate the corpus's `kind ==`
+  filters to what they mean (search routes; anything else grep finds);
+  give the surviving `kind` column **enum value-domain checking** (a
+  comparison against a value outside post/page/static/object/view errors
+  naming the knowns) so the fossil is safe while it dies. Parity.
+
+- [ ] **I2. One shell axis.** Merge the row-tier and view-serialization
+  vocabularies into one schema-typed `shell` field with one validator;
+  `light` → `light_html` with a fix-it error; the family/arity checks
+  (map shells on rows and per-member routes; fold shells on views only;
+  identity required for the html family); base-config rules gain explicit
+  shell defaults reproducing today's implicit behavior exactly. Parity.
+
+- [ ] **I3. `from = "*"` retires.** A fold shell with no `from` reads all
+  outputs (at this stage: the route set — the facts half already exists);
+  the star spelling gets a fix-it error; a fold's `from` naming a set
+  selects those inputs' outputs through the join. Parity.
+
+*→ Batch review I-A.*
+
+### Phase I-B — themes
+
+- [ ] **I4. `root.html`.** The binder accepts a document-shaped theme root
+  (head + body); the head fence (style-only, load errors naming the
+  element); `shell.html` migrates to body-only `root.html` across the
+  base theme and gallery (mechanical); the chrome part kind renames
+  `shell` → `root`; the `data-kind` stamp follows. Parity except the
+  stamp rename, declared.
+
+- [ ] **I5. Head-style extraction into the existing CSS assembly.** A
+  theme root's `<style>` lands in the theme layer of the existing
+  per-theme sheets — which are hereby *declared* to be the megacss's
+  chunked implementation (no URL changes, no assembly rewrite; the model
+  changed, the bytes did not). The multi-theme scoping paragraph gets
+  written as part of this item's doc updates. Parity.
+
+*→ Batch review I-B.*
+
+### Phase I-C — the single walk
+
+- [ ] **I6. Extractors move to rules** (the one-row-type remainder):
+  `filename_formats` per-rule, one route-token supplier offering path
+  tokens always plus extractor results. Parity.
+
+- [ ] **I7. The front-matter gate becomes the fact; tree and objects
+  dissolve into rules over one walk.** Extension selection becomes rules;
+  collections become named scopes; the membership-precedence machinery
+  retires in favor of first-rule-wins. **Split on arrival** — the
+  executing agent proposes the split as sub-items before starting, and
+  the orchestrator sequences them. Parity throughout.
+
+- [ ] **I8. Sidecars.** Identity from a sidecar file; governed rows for
+  unparseable bytes; the identity/parsed split holds (`front_mattered`
+  without content). Parity (no site uses one yet — fixture-driven).
+
+*→ Batch review I-C.*
+
+### Phase I-D — the join and the graph
+
+- [ ] **I9. The join fields.** `output` (record; canonical), `viewed_by`
+  **[open: name — propose-and-flag]**, `inputs`; the `alternates` derived
+  name; claimed rows visible as `!output`. Parity.
+
+- [ ] **I10. The graph.** Planner builds nodes/edges upfront; cycle
+  detection at load; invalidation keys derive from edges; serve becomes
+  the pull (on-demand = unforced content stage). Parity + the serve
+  behavior tests.
+
+*→ Batch review I-D.*
+
+### Phase I-E — assets and the end of `kind`
+
+- [ ] **I11. The embed policy and strong URLs.** `/static/` hashed
+  default for embedded citations (**[open: table name —
+  propose-and-flag]**); disable/subset; authored links demand routes with
+  the fix-it suggestion; `strong_url` beside `url`; the untransformed
+  twin rule; the `{hash}` route token; the base's objects catch-all dies;
+  grack.com gains its explicit parity rule. The hashing law
+  (inputs + parameters, never output bytes) stated in code. Parity for
+  grack.com by its declared rule; minimal/examples adopt the new default.
+
+- [ ] **I12. Renditions formalized as demand-driven outputs** — the
+  citing edge carries parameters; the thumbnail machinery becomes the
+  first transform; §9's rendition-surface **[open]** settled here by
+  propose-and-flag. Parity.
+
+- [ ] **I13. Delete `kind`.** By now unread: out of the schemas, the
+  inspector, the export. The enum survives internally only if something
+  structural still wants it — the item measures and says. Parity.
+
+*→ Final IO review, whole-ledger, MERGE.md-final-review style.*
+
+## 11. Ledger log
+
+*Executing agents and batch reviews append here, MERGE.md §6 style.*
 6. **[downstream]** `manual/OUTLINE.md` teaches several constructs this
    design retires (`bucket` already does not parse; `kind`, star views,
    tier vocabulary will follow) — the manual re-write rides the migration,
