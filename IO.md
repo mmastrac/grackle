@@ -578,7 +578,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   + asserted object count and by_name size; mutation: the .PNG pin, and
   one deleted glob empties the mindstorms gallery.
 
-- [ ] **I7b. Theme sources are not content.** A site-root `themes/` is
+- [x] **I7b. Theme sources are not content.** A site-root `themes/` is
   engine vocabulary by POSITION (the class `.slots/`/`.section` already
   occupy; build reads themes from exactly one place). One line beside
   the config-file identity filter. Defers q34's other two skip lists.
@@ -2069,3 +2069,132 @@ what is actually doing the work) — proposed as an item, and it belongs beside
 **I7b**, which is about that exact directory. (iv) **The extractor still reaches
 objects rules** (I6's flag ii), and now those rules are extension-shaped globs;
 nothing changed, but the two capabilities now sit on the same line of config.
+
+**2026-07-27 — I7b.** Landed as one commit. Two rulings and no bytes: the
+positional one the item is named for, and the dead-key one I7a handed it. The
+interesting output of both is what the *measurement* said, because in each case
+the reasoning and the observation disagreed about something.
+
+*The ruling, and the one place it lives.* `build_tree_and_objects` gains one
+filter beside the config-file identity filter: a path under a site-root
+`themes/` is not content. The build reads themes from exactly one place —
+verified, and it is two call sites of one path: `build.rs`'s
+`Themes::load_all(&root.join("themes"), …)` and the per-theme CSS pass
+`root.join("themes").join(name)`; `theme.rs`'s other three are the gallery test
+helper and its own tests. So the directory is engine vocabulary by POSITION in
+the same sense the config file is, and the two now sit as one layer of §4c
+rather than as one identity filter and one thing every site has to remember.
+
+**The evidence is that every site in the corpus already writes the rule.**
+grack.com, field-notes and theme-preview all carry `exclude = ["themes/**"]`;
+`examples/minimal` and `examples/raw` do not, and have no `themes/` directory
+to be wrong about. A rule every site has to restate is the engine's — and the
+one that does not restate it is not disagreeing, it is just not there yet.
+
+*The disease, measured on HEAD's binary rather than on a mutant.* The review
+I-B probe shape, built with the worktree's release binary: a minimal site with
+a `themes/mine/` holding a `root.html` and a `theme.scss`, no `exclude` at all,
+publishes **`/themes/mine/root.html` and `/themes/mine/theme.scss`** — the
+theme's chrome fragment served as a page, and its stylesheet SOURCE served
+beside the compiled sheet the same build already emits at `/css/mine.css`. The
+new binary publishes neither, and the twin copy of the same two files at
+`pages/mine/` still ships, which is the control the ruling owes: what those
+bytes lose, they lose for their position and not for their name, their
+extension or their shape.
+
+***[answered]* `include` CAN override it, and that took no new machinery.** The
+brief asked for the limitation to be recorded if it could not. It can:
+`NotContent::keeps` gives `include` first say over `exclude`, so the positional
+filter asks the same set the same way (`NotContent::included`, one accessor
+over a globset that already existed). Probed live before it was tested — a
+minimal site with `include = ["themes/**"]` and no exclude publishes both theme
+files under the new binary. One pre-existing corner is worth writing down
+because it looks like this rule's and is not: `include` cannot re-admit a
+subtree *inside* an excluded one (`exclude = ["themes/**"]` +
+`include = ["themes/mine/**"]` prunes at `themes/mine`, because
+`walk_tree`'s directory filter asks `include.is_match("themes/mine")` and a
+`themes/mine/**` pattern does not match its own root). That is R2-era
+directory-pruning behaviour, unchanged by this item and unreachable from it —
+a site using the hatch has no `exclude` to fight.
+
+***[decided]* The dead keys: (i), the error.** `Collection::exclude`/`include`
+have exactly one reader in the whole engine — `load.rs`'s two `tree_c.map_or`
+lines, which compile the ONE `NotContent` the tree, marker and vocabulary walks
+share — so a posts or objects collection writing either configures nothing.
+(ii) was weighed and is not the same feature wearing a different scope: a posts
+scope's `exclude` would have to mean "narrow my `source` walk" and an objects
+scope's "narrow which files my rules may claim", which are two new semantics,
+neither asked for by any site, and the second of which **a rule glob already
+expresses** — narrowing what an objects scope claims is narrowing its `match`,
+which is exactly what I7a just made the mechanism. So (i): a load error naming
+the collection (through `describe_collection`, so a sourceless objects scope is
+identified by its rules), the key, and where the patterns belong. theme-preview's
+line went with it, and it is the repository's only one — verified by grepping
+every `exclude`/`include` in every `.toml` and reading the collection each sits
+under: **twelve lines, eleven of them on a `kind = "tree"`** (five configs,
+seven fixtures), and after the removal eleven of eleven. Corpus `exclude =
+["themes/**"]` lines STAY, per the brief — the ruling makes them redundant, not
+wrong, and three fixtures carry the same now-redundant line for the same
+reason.
+
+*One message had to move with it, and it cost no re-blessing.*
+`check_collection_kinds` told a site that a second collection's "rules,
+`exclude`, `include` and `schema` would be silently dropped" — true for a tree,
+and after this item false for objects, which may no longer write two of those
+four. The list became per-kind. The two fixtures that assert this error
+(`collection-two-objects`, `collection-two-trees`) hold only its first line, so
+the tail moved with nothing to re-bless — checked before editing rather than
+discovered after.
+
+*Four tests, four mutations plus two controls, each red and each restored*
+(`crates/grackle/tests/io_themes.rs` — built sites, not loaded ones, because
+publishing is the disease). (1) the ruling, with the `pages/mine/` twin and
+`/css/mine.css` asserted beside it — the theme still LOADS, this is a rule about
+the walk; mutation: delete the filter and the probe's two URLs join the
+published set. (2) the hatch; mutation: drop the `included` clause and it is
+bolted shut with no spelling left. (3) the dead key in both spellings on both
+kinds (`exclude` on objects, `include` on posts); mutation: delete the check's
+call and both halves load clean, forever, which is the disease named. (4) the
+control a narrowing owes — the TREE collection's `exclude` still decides what is
+content; mutation: widen the check to every kind and this site stops loading.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in a
+`git worktree` against this one over the same content trees — **byte-identical
+but for the six wall-clock `<updated>` lines** (2 diff lines per feed, 0 of them
+anything else), `theme-preview` identical outright since it has no feed, stderr
+identical for all six, file counts 8 / 8 / 83 / 242 / 1828 / 1829, unmoved since
+IR1. Run twice, before and after a control-flow tidy in the new check. `cargo
+test` green (22 result lines); `cargo fmt --check` clean under the pin; clippy
+48, I7a's number; **zero re-blessing** — `git status` after the commit shows
+nothing but the six files the item touched.
+
+*Docs.* DESIGN.md §4c is now four layers, with a new subsection for the
+positional one (the config file and `themes/`, the `include` hatch, and the
+distinction `serve.rs` draws that is worth keeping straight: **not content is
+not the same as not watched** — `is_content` deliberately treats `themes/` as
+something to WATCH, which is the same fact from the other side, since a theme
+edit changes every page). §3's two-collections paragraph and §4's objects
+paragraph gain the tree-only key fact. §9's settled-ledger row 5 ("three
+explicit not-content layers") is **left as written**, per G2's precedent that
+ledger rows record what was decided when — it points at §4c, which now says
+four. `manual/OUTLINE.md` untouched per §4, and checked rather than assumed:
+its one `exclude` teaching is the script-shell gotcha (`add shells/** to
+exclude`), which is the TREE collection's key on the site that ships it and
+stays true word for word, and it teaches nothing about `themes/` at all. Third
+change in the sequence that leaves that file honest.
+
+*For batch review I-C.* Three things. (i) **The dead-key decision** is the call
+a reviewer might reverse, and the argument against (ii) is above rather than
+assumed. (ii) **q34 got sharper without being paid**: the literal `themes` now
+appears in three places — `load.rs`'s new filter and `slots.rs`'s `SKIP`, where
+it means the same thing, and `serve.rs`'s `is_content`, where it means the
+OPPOSITE (an explicit exception so a gallery inside the grackle tree can
+hot-reload). Recorded in DESIGN.md's q34 entry, because whoever ports those
+lists has to keep the two senses apart and the count alone would hide it.
+(iii) **The positional rule is content-only, deliberately.** The marker walk and
+the `.schema.toml`/`.section` vocabulary walk still descend `themes/` — a
+`.schema.toml` under a theme would enter the site's field vocabulary, which is
+q34's disease one rung up (MERGE.md R1's `cover` leak) at a directory this item
+just declared engine vocabulary. No theme in the repository ships one, so it is
+inert today and unmeasurable from a build; the brief scoped this item to the
+content filter, so it is filed rather than folded in.
