@@ -1,7 +1,7 @@
 # MERGE.md — one precedence law, one atomicity law
 
-**Status: phases A–E DONE** (E2 landed profiles as a fenced config overlay,
-2026-07-27); **F and G remain**, then batch review 4 over E1–G2.
+**Status: phases A–F DONE** (F3 landed the two strictness closures,
+2026-07-27); **G remains**, then batch review 4 over E1–G2.
 The final review (2026-07-27, §6) verified the whole effort end to end: no
 surviving hand dispatch beyond the two annotations, every table row matches
 shipped behavior, five randomly-chosen guards still fail under mutation, the
@@ -535,7 +535,7 @@ provenance class). Closes §7 q7.
   under the pinned toolchain; format what you touch", noting the resync
   landed. The commit is formatting-only — nothing else rides in it.
 
-- [ ] **F3. Two small strictness closures.** *(§7 q5 rider + q14, Matt's
+- [x] **F3. Two small strictness closures.** *(§7 q5 rider + q14, Matt's
   calls.)* (a) Drop `RowAxis::template` — written by `row_axes`, read by
   nothing since C5's lookup port; it is `Serialize`d, so `grackle export`
   loses a field nothing consumes (verify nothing reads it: grep, then the
@@ -2852,6 +2852,98 @@ just be un-formatted code. If it grates, the fix is a `let` binding for the
 closure, which is a code change and belongs to whoever next touches those two
 functions — not to a formatting-only commit.
 
+**2026-07-27 — F3.** Landed as one commit. Two closures with nothing in
+common but their shape (*a key that can never be read*), and the first one's
+headline is that **the observable change this ledger predicted three times
+does not exist**.
+
+*(a) `RowAxis::template` was never in `grackle export`, and §7 q14 is wrong
+about it.* C5's queue note (i), batch review 3 finding 6 and q14 all say the
+field is `Serialize`d and therefore visible in the export, so removing it is
+an observable data-model change. `RowAxis` does derive `Serialize` — which is
+presumably what was read — but its only holder is `Row::axis`, and that field
+has been `#[serde(skip)]` since it was introduced (421a659, back when it was
+an `Option<RowAxis>`). Measured rather than reasoned: `grackle export
+--pretty` on theme-preview, the corpus's one live axis site, contains **zero**
+occurrences of `"template"` before this commit as well as after, and the two
+exports differ only in `LoadStats`' wall-clock timings. `debug.rs` names no
+axis at all. So the removal is invisible on every surface, and the commit
+message records that instead of the promised JSON diff.
+
+*What survives, and what does not.* The struct keeps `name` — the one
+question every reader asks it (`row_axes` filters on `spends`, the
+materializer indexes `cfg.axes[&ra.name]`, `LinkSpace` asks only *does this
+row's rule spend that axis at all*). The three doc comments that explained the
+field's absence of readers (`LinkSpace::source_to_axis`, `member_url`, and the
+`axis_db` test helper) now explain the same history without naming a field
+that is gone.
+
+*No tripwire, deliberately, and the reasoning is D1's.* `Row` is a runtime
+struct outside `shape.rs`'s config surface, so no serde-surface or
+depth-invariant test describes it; the only structural guard is the struct
+literal in `row_axes`, which is what fails if the field returns unwritten. A
+removal adds no code path, so there is nothing to mutation-check — stated here
+so a later reader does not go hunting for the missing test.
+
+*(b) The stop condition was checked first, and `theme` genuinely flows
+nowhere on a set.* The embed path is `tags.rs::view_inner`: it dispatches on
+`v.layout` (`link_list` / `card`), renders through `v.variant`, and takes its
+theme from `cx.theme` — the embedding page's. The strongest evidence is one
+type: the db-side record the embed reads, `grackle_model::ViewRows`, carries
+`layout`, `variant`, `rows`, `table`, `members` and **no theme field at all**,
+so a set's theme does not reach the seam even in principle. Every `v.theme`
+read in the engine is a per-ROUTE loop — `build.rs:377` (C2's name sweep, which
+walks `cfg.views` and so was *validating* a name nothing would ever wear),
+`build.rs:720` (the claimed-landing path, `for r in &db.routes`) and
+`passes/listing.rs:89`. `layout`/`variant` are untouched and the test says so.
+
+*Why `declared_set` and not `route.is_none()`.* validate() runs after
+`resolve_default_content`, which takes a declined `default_content` offer's
+path away — so a `[routes]` entry can be pathless at that point (C6c's
+finding, and the base's `[routes.home]` is exactly that shape on any site with
+an `index.md` that declines). A route that stood down is not a set, and
+`declared_set` is the recorded fact. `merge_queries` already guarantees the
+other direction (a `[sets.*]` entry declaring a path is refused there), so the
+two statements do not overlap.
+
+*Corpus: nothing to migrate.* Five site configs, `base.toml`, ten fixture
+configs and the `[profiles.*.sets.*]` overlays scanned for a `theme` key under
+a `sets` header — zero hits. The live set shapes are grack.com's `latest`
+(`layout = "link_list"`) and field-notes' `book_of_the_month` (`layout =
+"card"`, `variant = "card"`), which is q5's note as corpus evidence: the two
+keys that ARE live are the two the item protects.
+
+*Test shape:* one `cfg_err` unit test (R5's harness — `cfg_raw` + `validate`,
+no profile) carrying both controls in one config, rather than an
+expected-error fixture. The subject is a config fact with no filesystem in it,
+and the route control has a site-scale twin already (`view-theme`'s
+`theme = "loud:dark"` on a route). Mutation-checked both ways: neutering the
+condition loads the config **in silence** and fails that test alone — it is
+the sole guard; dropping `declared_set` (erroring on every view) fails the
+same test's route control.
+
+*Parity:* five sites plus grack.com under `--profile drafts`, built before and
+after into separate trees with their own binaries (HEAD from a `git worktree`)
+and diffed — byte-identical but for each feed's wall-clock `<updated>` (six
+files, nothing else in any diff), identical file counts (1828 / 1829 / 83 / 8
+/ 8 / 242), no stderr difference on any site. Zero fixture changes, zero
+re-blessing; `cargo test` green (14 result lines, 0 failures); `cargo fmt
+--check` clean under the pin, including the lines this item wrote (F2's rule,
+first item to inherit it); clippy's warning multiset identical to HEAD's,
+compared by building HEAD in that worktree.
+
+*For the queue (small).* (i) `RowAxis` is now a one-field struct that is
+`Serialize`d by nothing — collapsing `Vec<RowAxis>` to `Vec<String>` is the
+obvious follow-on and was NOT taken here, because it touches three crates for
+no behaviour and the item's brief was one field. If batch review 4 wants it,
+it is a rename-shaped change with the same zero-observable claim. (ii) §7 q14
+and batch review 3 finding 6 both assert an export surface that does not
+exist; q14's entry is amended below, and the finding stands as the historical
+record. (iii) C2's `check_theme_names` still walks `cfg.views` rather than the
+routed ones — after this item that loop can only meet a route's theme, so the
+generality is now free rather than misleading, but it is one more place that
+would notice if sets ever grew a theme of their own.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -2965,6 +3057,10 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     `data-subtheme="drak"` silently — tokens name nothing the engine knows.
     Validation needs a theme to *declare* its tokens (theme.toml territory,
     themes/DESIGN.md §3), which is a design decision, not a guard.
-14. **RESOLVED (2026-07-27): drop it — F3.** Declared-and-ignored in the
-    data model; the export-JSON field nothing consumes goes with it.
+14. **RESOLVED (2026-07-27): drop it — F3, and it is shipped.** Declared-
+    and-ignored in the data model. **The export half of this entry was
+    false:** `RowAxis` derives `Serialize`, but its only holder `Row::axis`
+    is `#[serde(skip)]` and always has been, so no export surface ever
+    carried the field — F3 measured it (zero `"template"` in theme-preview's
+    export, before and after) and the removal is invisible everywhere.
     *(Original: written and never read, but `Serialize`d.)*
