@@ -356,7 +356,7 @@ marked points; findings append to §11 and may file R-items.
   identity required for the html family); base-config rules gain explicit
   shell defaults reproducing today's implicit behavior exactly. Parity.
 
-- [ ] **I3. `from = "*"` retires.** A fold shell with no `from` reads all
+- [x] **I3. `from = "*"` retires.** A fold shell with no `from` reads all
   outputs (at this stage: the route set — the facts half already exists);
   the star spelling is removed (hard cutoff); a fold's `from` naming a set
   selects those inputs' outputs through the join. **Sequenced after
@@ -702,3 +702,135 @@ engine spelling to outlive that file, after `bucket` (F1), relations' `over`
 (G1) and view `match` (G2). DESIGN.md's settled-ledger row for q44 (§9's
 table) still names `none`; left as a settled row, per G2's precedent that
 ledger rows record what was decided when.
+
+**2026-07-27 — I3.** Landed as one commit. A respelling, and the interesting
+work was in the two places a respelling is not the whole of it: what the retired
+VALUE errors as, and where absent-`from` is *not* allowed.
+
+*The pool did not move, and that is the claim.* `from = "*"` read the finished
+route set; a fold shell with no `from` reads the same set, through the same two
+passes. Six config lines were deleted and six trees came out byte-identical.
+What changed is that the spelling now follows from §4's model instead of
+naming a sentinel: a fold sits on a query over outputs, so "every output" is a
+query it can serialize, and it needs no word to say so. The internal names
+followed — `build_star_views`/`resolve_star_views` → `build_pool_folds`/
+`resolve_pool_folds`, `From::is_star` → `View::reads_all_outputs` — because
+leaving them would be this document's own disease, one release later. G1 kept
+`is_star` on the grounds that it "is about the VALUE `from = "*"`, not about the
+word `over`" (MERGE.md §6); the value is gone, so it went with it.
+
+*What `from = "*"` says now, and why it says anything at all.* The star was a
+value, not a key, so `deny_unknown_fields` never sees it — removing the arm
+drops it through `check_base` with every other name that names nothing, and the
+generic sentence there is *"sitemap: `from = "*"` is neither a collection, a set
+nor a route (collections: drafts, objects, posts, tree; sets and routes: …)"*.
+True, and useless: it sends its reader to go look for a collection called `*`
+when the fix is to delete a line. Per the brief's allowance, the literal gets one
+sentence of its own —
+
+    sitemap: `from = "*"` names nothing — the star spelling is gone (IO.md §4).
+    A fold shell reads every output by having no `from` at all, so delete the
+    line: the `shell` (atom, sitemap, search) is what says this folds the pool.
+
+— which is a REAL error about an invalid value, not a teaching error about a
+migration: it does not promise the old spelling once worked, it says what the
+value is (nothing) and what the construct is instead. Mutation-checked by
+deleting the arm: the load still fails, by the generic sentence, which is the
+diagnosis rather than the check.
+
+*The other half was the item's actual content: absent-`from` is legal ONLY under
+a fold.* `shell::check_absent_from` joins I2's four in the module that knows the
+families. The reason it is a load error and not a comment is that **it does not
+fail on its own**: `reads_all_outputs()` is one field (`from.is_none()`), so a
+listing that forgot its `from` succeeds *as a fold* — `build_views` skips it,
+`build_pool_folds` mints its route, and the site publishes an empty listing at
+the URL the author asked a query for. Verified by building the mutant, not
+reasoned: `/orphan/` comes out as a complete, themed, memberless page. Two
+shapes in the corpus already exercised the rule, which is why it needed no new
+fixture:
+
+- **`profile-dry-run`**, whose whole point is a profile overlay adding
+  `[sets.publised]` with only a `where`. Its expected error moves from serde's
+  `missing field \`from\`` to the sentence that says why a set needs one — the
+  requirement kept, its statement improved, and the one expected-error re-blessed
+  in this item.
+- **`excluded-schema`'s `[routes.covered]`**, which was `from = "*"` wearing
+  `layout = "listing"` — a star view materializing an HTML landing over the ROUTE
+  pool, i.e. exactly the shape the new law refuses. Migrated to a `sitemap` fold,
+  which is what keeps its `where` in the route vocabulary the `cover` leak used
+  to reach; the fixture still fails on `unknown field cover`, which is its job.
+
+*The feed did not move, and the item says where the join lands.* A fold whose
+`from` names a set consumes that set's ROWS — `[routes.feed] from = "published"`
+and field-notes' `[routes.llms]` both — which is "those inputs' outputs" at the
+only fidelity that exists today. **The join-mediated semantics land at I9**;
+until then the amended brief's sentence is true by construction rather than by
+mechanism, and `a_fold_over_a_set_still_reads_that_set` pins the half that must
+not move either way: the route pool's sourceless artifacts (the sitemap, the
+feed itself) can never appear in a feed, because a row query cannot reach them.
+
+*Rung 0: nothing added, by design.* Fold selection sees forced fields on both
+pools already — MERGE.md **R6** moved `force_route_fields` above
+`resolve_pool_folds`, the engine's only `db.routes.select`, and
+`profile_force.rs`'s `a_forced_field_is_read_by_both_pools_filters` guards it in
+both directions (its route probe renamed from `star_probe` to `pool_probe` here,
+nothing else). Stated in the log rather than re-tested, per the amended item: a
+second guard on the same ordering would be a second thing to forget.
+
+*Four tests, each mutation-checked and restored* (`crates/grackle/tests/io_folds.rs`):
+(1) the unfiltered pool lists every route — the byte copy, the feed, both fold
+artifacts, its own URL — and a predicate narrows *that* pool; mutating
+`reads_all_outputs` to `false` makes `/all.xml` not exist, to `true` breaks the
+base's own `blog_index`; (2) the feed over a set, unmoved; (3) absent-`from`
+without a fold is a load error (delete the call → the silent empty listing
+above); (4) `from = "*"` errors, by its own sentence (delete the arm → the
+generic one).
+
+*Corpus, and a correction to §10.* Migrated: `base.toml`'s sitemap (its comment
+too), grack.com's `search` + `sitemap` + the `search` restated inside
+`[profiles.drafts]`, theme-preview's two, field-notes' two, `examples/raw`'s
+printed copy, and four fixtures. §10 says grack.com's drafts profile "carries
+`kind ==` twice and `from = "*"` three times" — those are counts for the FILE,
+not the profile: the overlay body holds exactly one of each (the restated
+`[profiles.drafts.routes.search]`), and the other two star spellings were the
+site's own `[routes.search]` and `[routes.sitemap]`. The grep is still the guard
+the paragraph says it is; only the arithmetic was off.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, built from a `git
+worktree` of HEAD with its own release binary and from this one, into separate
+trees, caches seeded so binary and config were the only variables —
+byte-identical but for each feed's wall-clock `<updated>` (6 atom.xml files, one
+line each), stdout/stderr identical for all six modulo timings, file counts 8 / 8
+/ 83 / 242 / 1828 / 1829 (G1's numbers, unmoved through I2 and I3). `cargo test`
+green; `cargo fmt --check` clean under the pin; clippy 49 warnings, identical to
+HEAD's rebuilt in the worktree; zero re-blessing beyond `profile-dry-run`'s
+expected-error, and the two wall-clock atom fixtures were reverted rather than
+re-blessed.
+
+*Docs.* DESIGN.md §4a (the rung-0 paragraph's "in a `from = "*"` view over
+routes" clause), §4e twice, §5's route-fields prose, §5c's key census (a new
+paragraph — the census is where a reader looks for what `from` may be), §5g's
+search-shell example, §6f's locale exemption, §7a's export note and the three
+q53 axis sentences that named a `*` view. TODO-1.0.md's star-route defect item
+was **re-verified rather than re-worded away**: it is still accurate — the pool
+is still the route set, a routed row is still routed whatever its flags say, so a
+site-declared fold still has to restate `!draft && !hidden` — and only its
+spelling moved. `manual/OUTLINE.md` teaches the star spelling in five places
+(274, 281, 287, 832, 1131/1140, including a whole section titled after it),
+untouched per §4; that is the fifth engine spelling to outlive that file.
+
+*For batch review I-A.* Three things to probe. (i) **The targeted `*` message** is
+the call a reviewer might reverse — MERGE.md §4 bans teaching errors for retired
+spellings, and this is a message that exists *because* of a retired spelling even
+though it is provoked by an invalid value. The argument for it is above; the
+argument against is that the generic sentence was never wrong. (ii)
+**`check_absent_from` treats every registered `[shells.*]` script shell as a
+fold**, so `[routes.x] shell = "llms"` with no `from` would read the route pool —
+untested, because no site writes it, and IO.md §4 says a script shell will
+eventually DECLARE its database (`pulls = "inputs" | "outputs"`). Today the
+permissive reading is the only consistent one (`check_view` already accepts
+registered names as folds), but it is a decision, not a derivation. (iii) **A
+routeless fold** (`[sets.x] shell = "sitemap"`, no `path`) passes the new check
+and then dies in `build_pool_folds` with "view x needs a route" — pre-existing
+behaviour, carried forward unchanged, and arguably one of F3's "a set never
+lands" family.
