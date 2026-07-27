@@ -460,7 +460,7 @@ writes the FIELD; the site's own `robots` expression evaluates), and most of
 q11's preamble caveat (`--effective --profile` gains a `# profile NAME`
 provenance class). Closes §7 q7.
 
-- [ ] **E1. The `force` block.** `[profiles.NAME.force]` — a map of
+- [x] **E1. The `force` block.** `[profiles.NAME.force]` — a map of
   schema-declared field names to typed values, validated like a marker
   payload (C1's machinery) for every declared profile (R5's pass extends).
   When the profile is applied, forced fields win over front matter, markers
@@ -2353,6 +2353,163 @@ paragraph in DESIGN.md §4d (finding 2), status header flipped. Left as
 notes: the doubly-named error's post-R5 wording nit; an optional equality
 test for theme-preview's copied head block.
 
+**2026-07-27 — E1.** Landed as one commit. The item is one sentence — *a
+profile forces a FIELD, and the site's own expression reads it* — and the
+whole of the robots apparatus (`apply_profile`'s `html.head.meta` insert,
+`Config::site_robots`, `robots_override_note` and its warning) went with the
+key it existed to apologise for.
+
+*The clobber-vs-expression parity evidence, taken first, because the item said
+to stop if it disagreed.* The old key wrote the literal `"noindex,follow"` into
+`[html.head.meta] robots`, and the base's expression is
+`noindex ? "noindex,follow" : ""` — **the same string**, so the migration is a
+change of mechanism and not of output. Measured rather than reasoned: under
+`--profile drafts` grack.com emits `<meta name="robots" content="noindex,
+follow">` on **552 of its 591 HTML files** before and after, the same 552 (the
+39 without it are front-matterless files that ship verbatim and have no head at
+all). All six trees — grack.com default, grack.com `--profile drafts`,
+field-notes, minimal, raw, theme-preview — built before and after into separate
+trees and diffed: **byte-identical but for each feed's wall-clock `<updated>`**,
+identical file counts, and no stderr difference on any site. The "before" came
+from a `git worktree` of HEAD with its own binary, since code and config change
+together here and neither alone is the baseline.
+
+*Where the rung-0 seam landed: LAST, and that is what makes it the top.* The
+row ladder is `validate` → `cascade_front` → `apply_defaults`, and every rung in
+it is *first writer wins* — `apply_defaults` skips a key `fields` already
+carries, which is the line front matter wins on. So the only way to sit above
+all three without reordering them among themselves is to write after them:
+`schema::force` inserts unconditionally, between `apply_defaults` and
+`cascade`, at both loader sites. Seeding at the top was the other reading and
+it is worse three ways — `validate` and `cascade_front` both insert
+unconditionally too, so it would need a skip-list threaded through three
+functions; and the skip would *suppress governance*, which is exactly what
+should not happen. **Force decides the VALUE, not whether the row is well
+formed:** a row whose front matter mistypes a forced field is the same load
+error it always was, because the rungs below still run and still speak. Being
+above `cascade` is deliberate too — a forced `theme` or `toc` is what the row
+wears.
+
+*The route half is a sweep, and it runs after materialization.* `[routes.x]
+noindex = true` already put a view's own declaration into `Route.fields`
+(§4e), so the shape existed; `force_route_fields` writes rung 0 into every
+route once `build_views`/`build_star_views` have run. **After**, deliberately:
+rung 0 says what a surface SAYS, not what a query SELECTS, and writing it
+earlier would put forced values into the pool a `*` view filters on — a profile
+that changes which URLs are in the sitemap is E2's feature with E2's spelling.
+Row-backed routes would inherit the value anyway (they copy `p.fields`), but
+the sweep is written to cover every route rather than the ones the row half
+missed, because "every route" is the property the sitemap-leak argument needs.
+On-demand routes materialized later (`build.rs`'s `materialize_referenced`) are
+`RouteKind::Object` byte publishes with no head, and are outside it — stated
+rather than fixed.
+
+*The vocabulary decision: the site's own `[schema]`, and nothing nearer.* A
+positional `.schema.toml` governs a subtree and a `[collections.*.schema]`
+governs one collection; a forced field is written onto EVERY row, so a name
+from either would be undeclared for the rows outside it — which is
+`apply_defaults`' "no schema declares it", arriving per row instead of once at
+load. Restricting to `[schema]` is therefore not a narrowing, it is the
+well-formedness condition stated where it can be checked: `Schemas::resolve`
+always chains the site table, so a site-`[schema]` name is in every row's
+schema by construction. That is why `schema::force`'s missing-key arm cannot
+fire — it is a lookup rather than an `unwrap` because a nearer `.schema.toml`
+may legally RETYPE a site-wide name for its subtree (§5b), and a forced value
+that does not fit where it lands should say so naming the row.
+
+*Reuse, as the item asked.* `parse_fields` became a free function taking
+`reserved`, so `check_profiles` reads the `[schema]` table through the parser
+`Schemas::set_site` uses and the two cannot disagree about what a declaration
+says. The TOML→`Value` conversion came out of `apply_defaults` as
+`schema::typed`/`write_typed`, now shared by three writers — a marker, a rule,
+and a `force` block — so "declared bool, given a string" is one sentence with
+one author and the image side channel is fed from one place. One message
+changed shape: a bad list item read `x.md: default "tags": …` and now reads
+`x.md: a marker or rule: "tags": …`, which is the same specificity every other
+arm already had. No test asserted the old wording.
+
+*The old spelling: a tombstone field, and the judgment is recorded because the
+item asked for it.* With `noindex` simply deleted, `deny_unknown_fields` says
+`unknown field \`noindex\`, expected one of \`url\`, \`force\`, \`sets\`,
+\`routes\``. True, and it does name `force` — but it does not say that the fix
+is one indented table, and this key is live in a shipped config and in
+DESIGN.md §4a's example. So `ProfileCfg.noindex` survives as
+`Option<bool>` whose only job is to bail in `check_profiles` naming
+`[profiles.NAME.force]` and the line to write. One meaning per spelling:
+`noindex = false` is refused too, since it never meant anything either.
+
+*`Site.noindex` survives, and the thing to know about it is that NOTHING READS
+IT.* The item said to check before touching, so: `cfg.site.noindex` is copied
+into `render::Site.noindex` at `build.rs:395` and no code anywhere reads that
+field — `data-profile` is stamped from `cfg.profile`, not from this. It is kept
+and now mirrors the forced value (`forced["noindex"] == true`), so the field
+means what it always meant and `a_profile_still_sets_the_skipped_noindex` still
+asserts both halves of A1's finding. Filed for the queue rather than removed:
+retiring it is a `render::Site` change and not this item's business.
+
+*One stated deviation.* `check_profiles` now parses the site `[schema]` on
+every load, including sites with no profiles at all, so a malformed `[schema]`
+errors in `validate()` rather than in `load()`. Same parser, same message,
+strictly earlier — which is the direction R5 and C6b already pushed — and the
+`schema-field-unknown-key` fixture asserts the unchanged text.
+
+*Observable outside the parity gate, and intended:* under `--profile drafts`,
+`grackle export`'s row `fields` now show `"noindex": true` beside `"draft":
+true`. That is C1's precedent exactly (a declared field that is set is a
+declared field that shows), it is not build output, and the default projection
+is unmoved.
+
+*Tests, and the harness they needed.* The fixture suite builds every site with
+`Config::load` and passes no `--profile` anywhere — which is the property
+`profile-unknown-view` exists to assert — so rung-0 SEMANTICS cannot be a
+fixture. `crates/grackle/tests/profile_force.rs` is a two-test harness in the
+fixtures' spirit: a temp site with one post and the base's `/blog/` listing,
+built twice. The post declares `noindex: false` in its front matter and still
+ships the robots meta, which is THE rung-0 statement made in rendered bytes;
+the listing ships it with no row to read; and the control (same bytes, no
+`--profile`) asserts neither surface says anything. Config-level checks live
+beside R5's in `config.rs` and run through `cfg_err` — no profile applied,
+which is the R5 shape the item asked for. `profile-unknown-view`'s own fixture
+was migrated to the new spelling (its subject is the name check, and the
+migration error now fires first).
+
+*Mutation-checked seven ways, each restored:* the two `schema::force` calls
+deleted (the document assertion fails — the post's own `noindex: false` stands
+and it ships indexable inside a noindexed projection); the `force_route_fields`
+call deleted (the listing assertion fails, `/blog/` carrying no robots meta at
+all — **the two halves fail independently**, which is the item's requirement);
+the `declared.get` arm made infallible; the `schema::typed` call dropped; the
+whole force block deleted from `check_profiles`; the `p.noindex.is_some()` bail
+deleted (both old spellings load in silence, doing nothing); and
+`apply_profile` made to insert into `html.head.meta` again (the site's own
+expression disappears).
+
+*Corpus:* grack.com remains the only site with a `[profiles]` table, and it is
+the only forced field in the repo. Zero fixture re-blessing; one fixture config
+edited (the migration), one new test file. `cargo test` green (14 result lines,
+zero failures); clippy's warning multiset identical to HEAD's, compared by
+building HEAD in a scratch worktree. Formatted by hand (§4): `rustfmt --check`
+wants nothing in the lines this item wrote, and the five hunks it still wants
+(two in `config.rs`, one in `load.rs`, two in `schema.rs`) are the same five it
+wanted at HEAD.
+
+*Docs made false by this commit and corrected in it:* DESIGN.md §4a's example
+config and its new `force` paragraph, and §4e's "the drafts profile keeps
+working" bullet, which described the override and its warning.
+`manual/OUTLINE.md` untouched (§4) — its §24 still teaches `[profiles.drafts]`
+and is the user's file to update.
+
+*For the queue (small).* (i) `Site.noindex` is written and read by nothing (see
+above) — a `RowAxis::template`-shaped question (§7 q14), except that this one is
+`#[serde(skip)]` and so not even an `export` change. (ii) `force` and E2's
+overlay will meet at `[profiles.NAME]`'s key set: `force` is reserved to E1 and
+the fence must say so, which is E2's brief already. (iii) A forced field a
+nearer `.schema.toml` has retyped fails per row with a message naming the row —
+correct, and unexercised by the corpus, so nobody has read that sentence in
+anger. (iv) `force_route_fields` runs before `build_relations`; relations range
+over rows, so nothing observable, but the ordering is now load-bearing for
+star views and worth knowing before anything else is inserted there.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -2391,10 +2548,13 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    and a tree collection's `source` (decorative — merge identity only, the
    walk ignores it; C7/D2 documented it, renaming it is this pass's call).
    Every rename touches documented surface; decide before 1.0.
-7. **RESOLVED (Phase E, 2026-07-27)** — Matt's design: `[profiles.*.force]`
+7. **RESOLVED (Phase E, 2026-07-27) — and shipped: E1 landed it.**
+   Matt's design: `[profiles.*.force]`
    forces the *field* at rung 0 instead of clobbering the meta, so the
    site's own `robots` expression evaluates and the override/warning
-   machinery dissolves. E1 implements. Original question kept below for
+   machinery dissolves. `Config::site_robots` and `robots_override_note`
+   are gone; grack.com's projection is byte-identical. Original question
+   kept below for
    the record: — C6(d) made the call: the profile
    still OVERRIDES (DESIGN.md §4e promises it, and overriding the base's
    expression is the key's purpose), and warns when the expression it
