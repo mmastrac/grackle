@@ -1,1 +1,1 @@
-two `kind = "objects"` collections — "images" (extensions png) and "objects"
+two `kind = "objects"` collections — "images" (no `source`; rules "**/*.png") and "objects"

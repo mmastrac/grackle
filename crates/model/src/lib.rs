@@ -1178,8 +1178,8 @@ mod row_column_tests {
         assert_eq!(r.field("size"), filter::Value::Int(42));
     }
 
-    /// Lowercased, because the objects loader matches `extensions` case
-    /// -insensitively and a query should agree with what got claimed.
+    /// Lowercased, because a rule's `match` glob compiles case-insensitively
+    /// (IO.md I7a) and a query should agree with what got claimed.
     #[test]
     fn ext_is_lowercased_and_empty_when_absent() {
         assert_eq!(

@@ -20,7 +20,8 @@ file → row → query → doc model → part map → slots → CSS → URL
 site root, which is what all 194 of them are. (A bare `burrs.jpg` resolving to
 a sibling is §6a's bubble-and-bucket design: specced, **parked**, and not what
 this tour is showing.) Every file belongs
-to exactly one table by precedence — posts, then objects (by extension), then tree.
+to exactly one table by precedence — posts, then objects (whatever the objects
+scope's rules claim), then tree.
 The post lands in `blog` at `/blog/2026/07/17/espresso-grinder/`.
 
 **2. Views query it.** Queries are declared once, never in loops:
@@ -132,7 +133,7 @@ their filename. Identity = path keeps every row addressable; dated-ness is a pro
 |---|---|---|---|
 | `posts` | source path | `(date, slug)` unique | `_posts/**` |
 | `tree` | source path | path hierarchy | site root |
-| `objects` | source path | `by_name` (non-unique) | by extension |
+| `objects` | source path | `by_name` (non-unique) | its own rules, out of the tree walk |
 
 **One store, three origins.** These were three tables; they are one `SiteDb.rows`
 and three lists of keys. Objects went last because q51 had already written every
@@ -149,7 +150,7 @@ the membership clause names a column only the full row schema has.
   Undated rows (drafts) are absent from the chronological indexes and sort last.
 - **Tree pages**: hierarchical. Derived relations: `ancestors(page)` (breadcrumbs),
   `children(page)`.
-- **Objects**: binary assets, selected by extension. `by_name` is non-unique
+- **Objects**: binary assets, selected by the scope's own rules. `by_name` is non-unique
   (multiple `screenshot5.png` can exist), so resolution is a query that can fail.
 
 ### Membership is disjoint
@@ -157,7 +158,8 @@ the membership clause names a column only the full row schema has.
 A file belongs to **exactly one** table, resolved by precedence:
 
 1. **posts** — under a posts collection's `source`, and a `.md`
-2. **objects** — matches a configured extension
+2. **objects** — matched by a rule of the objects scope (a `match` glob
+   naming the extensions, `**/*.{png,jpg,…}`)
 3. **tree** — everything else
 
 This removes a whole class of ambiguity: without it, `assets/x.png`
@@ -205,17 +207,24 @@ source = "."
   route = "/{dir}/{stem}/"
 
 [[collections]]
-kind       = "objects"
-extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+kind = "objects"
 
   [[collections.rules]]
   match = "assets/branding/logo.png"
   route = "/logo.png"
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   route = "/{path}"
 ```
+
+**An objects scope has no extension list** *(IO.md I7a, 2026-07-27)*. It used
+to: `extensions = [...]` beside the rules, scanned before them. The list is a
+`match` glob now, so one mechanism answers both "is this row mine" and "where
+does it land", and the answer is visible in `--effective` beside every other
+rule. **Rule globs compile case-insensitively** — the scan lowercased an
+extension before comparing and a glob would not have, and `.PNG` must stay a
+`png`. The old key is a parse error.
 
 ### Route tokens: one supplier *(q51's remainder; built 2026-07-27, IO.md I6)*
 
@@ -299,7 +308,7 @@ the first with no warning.
 **Posts only, and the other two kinds now say so** *(MERGE.md C7a,
 2026-07-27)*. A tree collection has no source to read that is not the site
 root, and an objects collection has none at all — objects are picked out of
-that same one walk by extension. **A tree collection's `source` is therefore
+that same one walk by their own rules (IO.md I7a). **A tree collection's `source` is therefore
 decorative**: it names the collection (`_pages` → the table `pages`) and
 identifies it across the merge, and the walk ignores it — `walk_tree` takes
 the site root, always. `source = "pages"` there means "call me `pages`", not
@@ -1715,7 +1724,8 @@ only as the name for where a row leaves.
 | `light_html` | minimal — 85 B | canonical parts, no theme | engine |
 | `html` | full — 739 B | theme fragments | engine |
 
-**"Aren't `shell: raw` rows just objects?"** They emit verbatim (last step only they share), but enter the full pipeline: tag expansion, object resolution, thumbnailing, content-addressed assets — all run with load-time enforcement. Objects never enter; their bytes come off disk by extension. **"Isn't `shell: light_html` just `theme: light`?"** No: a theme chooses body chrome; the head is computed from schema and no theme may write it. The root shell enforces this separation. `theme: none` fails because **the null theme still emits a valid document**, so `shell: raw` (promising the body already is one) cannot be silent about the head.
+**"Aren't `shell: raw` rows just objects?"** They emit verbatim (last step only they share), but enter the full pipeline: tag expansion, object resolution, thumbnailing, content-addressed assets — all run with load-time enforcement. Objects never enter; their bytes come off disk, and what makes a file one is
+a rule of the objects scope claiming it. **"Isn't `shell: light_html` just `theme: light`?"** No: a theme chooses body chrome; the head is computed from schema and no theme may write it. The root shell enforces this separation. `theme: none` fails because **the null theme still emits a valid document**, so `shell: raw` (promising the body already is one) cannot be silent about the head.
 
 **One correction:** `light_html` is not "the null theme" — it bypasses the theme registry; there is no `themes/light/` directory. (This is why the rename is `light_html` rather than `light`: the name now says what it *is*, the html shell with no theme root merged, instead of naming a rung.)
 
@@ -1865,10 +1875,12 @@ A reference is a **path** if it contains `/` or `://`; otherwise it's a **name**
 Exhaust the root → error.
 
 ```toml
-# PARKED — `bucket` is not a key today; declaring it is a parse error.
+# PARKED — neither key is live. `bucket` was deleted (MERGE.md F1) and
+# `extensions` retired for rule globs (IO.md I7a); declaring either is a parse
+# error. What the design needs is a bucket NAME, and where it would be spelled
+# is the question this section leaves open.
 [objects]
-extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
-bucket     = "assets"              # directory NAME that marks a bucket, not a path
+bucket = "assets"                  # directory NAME that marks a bucket, not a path
 
 [[collections]]
 name = "blog"

@@ -136,14 +136,17 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # own path, which is the same bytes at the same URL — the difference an objects
 # collection makes is the `by_name` index (§6a, parked) and header-read
 # dimensions, and neither means anything for a `.zip`.
+#
+# The extension list IS the rule's glob (IO.md I7a): membership in this scope
+# is what its rules claim, in the one mechanism that also says where a claimed
+# row lands. Globs compile case-insensitively, so `.PNG` is a `png`.
 
 [[collections]]
 name = "objects"
 kind = "objects"
-extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   route = "/{path}"
 
 # ---------------------------------------------------------------- pages

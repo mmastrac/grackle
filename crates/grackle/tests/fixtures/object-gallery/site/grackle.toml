@@ -21,10 +21,9 @@ author = "Tester"
 [[collections]]
 name = "objects"
 kind = "objects"
-extensions = ["png"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.png"
   route = "/{path}"
 
 [[collections]]

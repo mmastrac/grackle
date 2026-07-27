@@ -87,13 +87,19 @@ filename_formats = ["{slug}"]
 
 # ---------------------------------------------------------------- objects
 
-# Matched by extension anywhere in the tree; membership precedence is
+# Claimed by these rules' globs anywhere in the tree; membership precedence is
 # posts -> objects -> tree (DESIGN.md §3), so these never collide with the
 # tree's passthrough rule.
+#
+# The extension list that used to sit here is now part of every glob below
+# (IO.md I7a) — one mechanism decides both what this scope claims and where
+# the claim lands. The base contributes its own six-extension rule after
+# these three, which is why `ico` had to be spelled here and nowhere else.
+# Globs compile case-insensitively, which is what keeps
+# `assets/2004/06/after-theme-hack.PNG` an object.
 [[collections]]
 name = "objects"
 kind = "objects"
-extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
 
   # Browser-convention assets: a favicon or a touch icon is fetched by URL
   # with nothing on the site linking it, so it cannot be reference-driven.
@@ -101,7 +107,7 @@ extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
   # (§4) — which is the whole reason the overlap check is scoped to
   # on-demand rules only.
   [[collections.rules]]
-  match = "resource/**"
+  match = "resource/**/*.{png,jpg,jpeg,gif,webp,svg,ico}"
   route = "/{path}"
 
   # Frozen legacy subtrees. These are hand-written pages from 1996 onward
@@ -110,14 +116,14 @@ extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
   # going to change again. Publishing them wholesale is cheaper and more
   # honest than teaching the scanner twenty years of dead HTML dialects.
   [[collections.rules]]
-  match = "{code,demos,writing}/**"
+  match = "{code,demos,writing}/**/*.{png,jpg,jpeg,gif,webp,svg,ico}"
   route = "/{path}"
 
   # §4 on-demand: an image publishes at its literal path when something
   # references it. The template still says WHERE, so `{% image %}` and every
   # authored link resolve before anything materializes.
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg,jpeg,gif,webp,svg,ico}"
   route = "/{path}"
   on_demand = true
 

@@ -47,13 +47,14 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 # ---------------------------------------------------------------- objects
 
+# Membership is what this scope's rules claim (IO.md I7a): the extension list
+# is the glob, case-insensitively.
 [[collections]]
 name = "objects"
 kind = "objects"
-extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   route = "/{path}"
 
 # ---------------------------------------------------------------- pages

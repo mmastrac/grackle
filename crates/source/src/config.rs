@@ -264,7 +264,6 @@ fn every_collection_key_has_a_law(c: Collection) {
         kind: _,
         name: _,
         source: _,
-        extensions: _,
         filename_formats: _,
         exclude: _,
         include: _,
@@ -420,7 +419,6 @@ impl Shaped for Collection {
             field("kind", |c: &Collection| &c.kind),
             field("name", |c: &Collection| &c.name),
             field("source", |c: &Collection| &c.source),
-            field("extensions", |c: &Collection| &c.extensions),
             field("filename_formats", |c: &Collection| &c.filename_formats),
             field("exclude", |c: &Collection| &c.exclude),
             field("include", |c: &Collection| &c.include),
@@ -865,7 +863,8 @@ fn merge_to_depth(
 }
 
 /// What identifies a collection across the merge: its source directory, else
-/// its name (objects have no source — they are matched by extension).
+/// its name (objects have no source — their own rules pick them out of the
+/// tree walk).
 pub(crate) fn collection_key(c: &toml::Value) -> Option<String> {
     let t = c.as_table()?;
     identity(
@@ -890,12 +889,25 @@ fn identity(source: Option<&str>, name: Option<&str>) -> Option<String> {
 /// once so two entries in one message are described the same way — the whole
 /// point of such a message is that the reader can tell them apart.
 fn describe_collection(name: &str, c: &Collection) -> String {
-    match (c.source.as_deref(), c.extensions.is_empty()) {
-        (Some(s), _) => format!("{name:?} at `source = {s:?}`"),
-        // Objects have no source; their extension list is the only other
-        // thing about them a reader could recognise.
-        (None, false) => format!("{name:?} (extensions {})", c.extensions.join(", ")),
-        (None, true) => format!("{name:?} (no `source`)"),
+    match c.source.as_deref() {
+        Some(s) => format!("{name:?} at `source = {s:?}`"),
+        // Objects have no source, and since IO.md I7a no `extensions` list
+        // either — what picks their rows out of the walk is their rules, so
+        // the rules are what a reader has left to recognise them by. Listed
+        // rather than counted: two objects collections in one config differ
+        // in what their globs claim, and that is the difference the reader
+        // has to see to know which entry is the one they meant.
+        None => match c.rules.as_slice() {
+            [] => format!("{name:?} (no `source`, no rules)"),
+            rules => format!(
+                "{name:?} (no `source`; rules {})",
+                rules
+                    .iter()
+                    .map(|r| format!("{:?}", r.pattern))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        },
     }
 }
 
@@ -1316,10 +1328,17 @@ pub struct Collection {
     /// means "call me `pages`", not "read `pages/`", and since it changes the
     /// merge key it inherits the base's tree beside its own, which
     /// `check_collection_kinds` refuses (MERGE.md C7a). Objects have no source
-    /// at all: they are picked out of that same walk by extension.
+    /// at all: they are picked out of that same walk by whatever their own
+    /// rules claim.
     pub source: Option<String>,
-    #[serde(default)]
-    pub extensions: Vec<String>,
+    // No `extensions`. Membership in an objects scope is what its RULES say
+    // (IO.md I7a): a `match` glob naming the extensions
+    // (`**/*.{png,jpg,…}`) does the job the list did, in the one mechanism
+    // that already decides where a row lands. Hard cutoff — the key is gone
+    // and `deny_unknown_fields` names it at the line that wrote it. Rule
+    // globs compile case-INSENSITIVE, which is what keeps `after-theme-hack
+    // .PNG` an object now that a glob rather than a lowercased extension
+    // scan is doing the claiming.
     // No `bucket`. §6a's bubble+bucket bare-name resolution is specced and
     // PARKED (MERGE.md F1, §7 q1): the key was declared ahead of the code that
     // would consume it, and nothing ever consumed it, so it went rather than
@@ -2297,8 +2316,9 @@ impl Config {
             (
                 Kind::Objects,
                 "objects",
-                "objects are picked out of that same one tree walk by extension, \
-                 so a second objects collection has no second walk to read",
+                "objects are picked out of that same one tree walk by their \
+                 own rules, so a second objects collection has no second walk \
+                 to read",
                 "an objects collection has no `source`, so it keys on its NAME \
                  (MERGE.md §1): a site declares `name = \"objects\"` to REPLACE \
                  the base's rather than sit beside it",
@@ -3605,12 +3625,12 @@ mod tests {
         assert!(c.collections.contains_key("notes"));
     }
 
-    /// Objects are matched by extension, so no directory names them.
+    /// Objects are matched by their rules' globs, so no directory names them.
     #[test]
     fn a_sourceless_collection_must_be_named() {
         let e = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"objects\"\nextensions = [\"png\"]\n",
+             [[collections]]\nkind = \"objects\"\n",
         )
         .unwrap_err()
         .to_string();
@@ -3825,13 +3845,20 @@ mod tests {
     fn a_second_objects_collection_names_both() {
         let e = Config::from_toml(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"images\"\nkind=\"objects\"\nextensions=[\"png\"]\n",
+             [[collections]]\nname=\"images\"\nkind=\"objects\"\n\
+             [[collections.rules]]\nmatch=\"**/*.png\"\nroute=\"/{path}\"\n",
         )
         .expect_err("two objects collections should not load")
         .to_string();
         assert!(e.contains("two `kind = \"objects\"` collections"), "{e}");
-        assert!(e.contains("\"images\" (extensions png)"), "{e}");
-        assert!(e.contains("\"objects\" (extensions png, jpg"), "{e}");
+        assert!(
+            e.contains("\"images\" (no `source`; rules \"**/*.png\")"),
+            "{e}"
+        );
+        assert!(
+            e.contains("\"objects\" (no `source`; rules \"**/*.{png,jpg"),
+            "the base's globs are what identify it now: {e}"
+        );
         assert!(e.contains("`name = \"objects\"`"), "the fix: {e}");
     }
 
@@ -4540,6 +4567,11 @@ mod tests {
             // jobs. Hard cutoff on both, one sentence from serde.
             "[sets.s]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n",
             "[collections.relations.related]\nmatch = \"recipes/**\"\n",
+            // IO.md I7a: an objects scope's membership is what its rules
+            // claim, so the extension list is a `match` glob
+            // (`**/*.{png,jpg,…}`) and the key is gone. Appended to the
+            // `[[collections]]` table above, which is where it used to sit.
+            "extensions = [\"png\"]\n",
         ] {
             let src = format!(
                 "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
@@ -4865,7 +4897,7 @@ mod tests {
     fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
         let c = cfg_raw(&format!(
             "{PROFILE_VIEWS}\
-             [[collections]]\nkind = \"objects\"\nname = \"pics\"\nextensions = [\"jpg\"]\n\
+             [[collections]]\nkind = \"objects\"\nname = \"pics\"\n\
              [sets.gallery]\nfrom = \"pics\"\n\
              [routes.sitemap]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
         ));

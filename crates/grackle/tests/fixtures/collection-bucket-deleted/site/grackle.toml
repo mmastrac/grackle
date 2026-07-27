@@ -17,9 +17,8 @@ author = "Tester"
 [[collections]]
 kind = "objects"
 name = "objects"
-extensions = ["png", "jpg", "jpeg"]
 bucket = "assets"
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg,jpeg}"
   route = "/{path}"

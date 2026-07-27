@@ -85,7 +85,7 @@ first atom sits.
 | `[html.head.*]` | `html` → `head` → element table → entry | the expression string | same (depth 3 falls out) |
 | `[links]` | the bag | `policy` | **changed** (invisibly) — today wholesale |
 | `[[parts]]` | — | the array | same (arrays are atoms). The *vocabulary* ladder is separate machinery (`parts.rs::Schemas::load`), not this merge: a site re-declaring an engine part at the same type is a no-op (engine kept); a retype is a load error. *(Amended per batch review 1.)* |
-| `[[collections]]` | **by `source`** (annotation) | scalars & arrays whole; `relations.*` and `schema.*` as name-keyed atoms | same; `extensions` replaces wholesale *by law* — arrays have no keys |
+| `[[collections]]` | **by `source`** (annotation) | scalars & arrays whole; `relations.*` and `schema.*` as name-keyed atoms | same; `filename_formats` replaces wholesale *by law* — arrays have no keys. *(`extensions` was this row's example until IO.md I7a retired the key; objects membership is rule globs now, so it rides the `rules` annotation below and a site's globs ADD to the base's rather than replacing a list.)* |
 | `[[collections.rules]]` | — | see table B | same — site rules **prepend** (Law 1 in list form) |
 | `extends`, `root`, `gitignore` | — | scalar atoms | same |
 

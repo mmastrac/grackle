@@ -5,7 +5,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::NaiveDate;
-use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobBuilder, GlobMatcher, GlobSet, GlobSetBuilder};
 use rayon::prelude::*;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
@@ -59,7 +59,15 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
         .iter()
         .map(|r| {
             Ok(CompiledRule {
-                matcher: Glob::new(&r.pattern)
+                // Case-INSENSITIVE, and for every rule of every scope
+                // (IO.md I7a): a `match` glob names a KIND of file and the
+                // shift key is not part of the kind. Objects forced it —
+                // their membership is a glob now (below) where it used to be
+                // a lowercased extension scan, and `after-theme-hack.PNG` is
+                // the corpus row that tells the two apart.
+                matcher: GlobBuilder::new(&r.pattern)
+                    .case_insensitive(true)
+                    .build()
                     .with_context(|| format!("bad rule glob {:?}", r.pattern))?
                     .compile_matcher(),
                 route: &r.route,
@@ -857,7 +865,8 @@ fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
 }
 
 /// One walk of the site root, partitioned by membership precedence
-/// (DESIGN.md §3): objects win by extension, tree takes the rest.
+/// (DESIGN.md §3): a file the objects scope's rules claim is an object,
+/// tree takes the rest.
 fn build_tree_and_objects(
     cfg: &Config,
     tree_name: &str,
@@ -906,9 +915,6 @@ fn build_tree_and_objects(
     // original.
     let claims = cfg.content_claims();
 
-    let obj_exts: Vec<String> = obj_c
-        .map(|c| c.extensions.iter().map(|e| e.to_lowercase()).collect())
-        .unwrap_or_default();
     let tree_rules = compile_rules(tree_c)?;
     let obj_rules = obj_c.map(compile_rules).transpose()?.unwrap_or_default();
     // The collection-level default, on this side too (IO.md I6): the tree and
@@ -920,13 +926,21 @@ fn build_tree_and_objects(
         .transpose()?
         .unwrap_or_default();
 
-    let is_obj = |rel: &Path| {
-        let ext = rel
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        obj_exts.iter().any(|e| *e == ext)
-    };
+    // Membership in the objects scope is what that scope's rules claim
+    // (IO.md I7a) — `**/*.{png,jpg,…}` says "these files are objects" in the
+    // one mechanism that also says where they land.
+    //
+    // The GLOB only, and not `apply_rules`, because a rule's front-matter gate
+    // cannot be consulted here: whether a file was peeked for front matter is
+    // decided BY this answer (the peek skips binaries, below). Nothing is lost
+    // — an object's `has_front_matter` is always false, so a `front_matter =
+    // true` objects rule routed nothing before this either.
+    //
+    // Bare matchers rather than `obj_rules` itself: this closure runs inside
+    // the parallel peek, and a `CompiledRule` carries the `Cell<bool>` that
+    // `dead_rules` writes.
+    let obj_globs: Vec<&GlobMatcher> = obj_rules.iter().map(|r| &r.matcher).collect();
+    let is_obj = |rel: &Path| obj_globs.iter().any(|m| m.is_match(rel));
 
     // Only text rows can carry front matter, and only non-objects need the
     // page/static decision — so skip the peek for the ~800 binaries and run the
@@ -1232,7 +1246,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // At most ONE collection of each kind reaches these bindings, and the
     // config is what guarantees it (`Config::check_collection_kinds`, MERGE.md
     // C7a): the tree is the root, walked once, and objects come out of that
-    // same walk by extension, so a second collection of either kind has
+    // same walk by their own rules, so a second collection of either kind has
     // nothing of its own to read. Before that guard this loop was the silent
     // discard — an unconditional assignment over a `BTreeMap`, so the
     // alphabetically last collection of each kind won and the other's rules,
@@ -2123,18 +2137,17 @@ author = "A"
 [[collections]]
 kind = "objects"
 name = "objects"
-extensions = ["png", "jpg"]
 
   [[collections.rules]]
-  match = "covers/**"
+  match = "covers/**/*.{png,jpg}"
   route = "/covers/{path}"
 
   [[collections.rules]]
-  match = "art/**"
+  match = "art/**/*.{png,jpg}"
   route = "/art/{path}"
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg}"
   route = "/{path}"
 
 [[collections]]

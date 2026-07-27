@@ -25,14 +25,14 @@ author = "Tester"
 [[collections]]
 name = "objects"
 kind = "objects"
-extensions = ["png", "jpg"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{png,jpg}"
   route = "/{path}"
 
-# An objects collection has no `source` — it selects by extension out of the
-# tree walk rather than owning a directory — so something has to root the walk.
+# An objects collection has no `source` — its rules pick its rows out of the
+# tree walk rather than it owning a directory — so something has to root the
+# walk.
 # Without this the site loads zero rows and says nothing about it.
 [[collections]]
 kind = "tree"
