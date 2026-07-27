@@ -586,6 +586,12 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   measured); mutation: the review I-B probe shape returns (a minimal
   site publishes /themes/mine/root.html). `include` stays the escape
   hatch. Corpus `exclude` lines stay (byte-inert tidy, unrequested).
+  **Addition from I7a**: an objects collection's `exclude`/`include`
+  configure NOTHING (`NotContent` reads the tree collection alone —
+  proven by deleting theme-preview's `exclude = ["themes/**"]` on its
+  objects scope and rebuilding byte-identical). Decide: error on the
+  dead keys for non-tree scopes (the declared-and-ignored disease), or
+  make them real; either way theme-preview's dead line goes.
 
 - [ ] **I7c. The gate becomes the fact; degenerate rows land.** One law:
   a row renders iff `front_mattered || shell ∈ {html, light_html}` — the
