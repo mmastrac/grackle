@@ -390,7 +390,7 @@ message is the exemplar; don't stretch it). One follow-up item:
   ("a set may not wear a fold shell"), F3's family. Mutation-check all
   three; parity; fmt clean.
 
-- [ ] **IR2. `grackle explain` hardcodes `kind post`** *(Matt, from the
+- [x] **IR2. `grackle explain` hardcodes `kind post`** *(Matt, from the
   I2 agent's filed chip)*. `main.rs`'s `Query::Explain` arm prints
   `println!("kind post")` — a literal, ~line 486 — for EVERY row: tree
   pages, byte copies, objects (`grackle explain /humans.txt` says
@@ -1002,3 +1002,68 @@ view must name a `from`; §5b's `kind`-domain example records that the tail
 follows the operator; the sets-vs-routes key census notes that two of its ten
 route-only keys (`theme` by F3, `shell` by this) are now checked rather than
 observed. `manual/OUTLINE.md` untouched per §4.
+
+**2026-07-27 — IR2.** Landed as one commit. **Decision: (b), deletion — and the
+argument for it is not "I13 is coming", it is that (a) had no correct value to
+print.** A row has no kind. The arm could have reached `db.routes` for one, and
+what it would have printed is a fact about the OUTPUT under a heading in a
+block of row facts — true for one release, and a caller for I13 to unpick. §3
+says the enum is a flattened product of independent facts; the honest fix is to
+print the factors.
+
+*What replaced it, and why three lines rather than the two the item named.* The
+item said `shell` and `front_mattered`. The third is `collection`, and it is the
+one that answers the original lie directly: `kind == "post"` never meant "is a
+post", it meant **scope membership** — §3's table says so and `Route.kind`'s doc
+comment says so — so the line that used to say `post` for a `.txt` now says
+`collection entries`. All three are filter columns, which is the property worth
+having: every line of the block is a name a reader can put in a `where`.
+
+*The measurement that changed the shape of the fix.* `shell` looked like it
+needed no line at all — `explain` already dumps `r.fields`, and I1 recorded that
+the value lives there as well as on the named field, which is why
+`explain /humans.txt` printed `shell raw` at HEAD. Counted rather than assumed:
+of grack.com's 1396 rows, 366 resolve `html`, 187 `raw`, 1 `light_html`, and
+**842 resolve nothing** (every object among them). The dump prints a field only
+where the row has one, so the surface was answering "which shell" with silence
+for 60% of the corpus while answering "which kind" with a lie for 100% of it. An
+absent line is not an answer, so `shell` is printed explicitly off `Row.shell`
+and reads `-` when Null; the dump skips `shell` so the 554 rows that have one do
+not print it twice.
+
+    url         /humans.txt        url         /code/…/dice2.png
+    collection  entries            collection  objects
+    shell       raw                shell       -
+    front_mattered false           front_mattered false
+
+*The grep came first and found nothing*, which is what let the line go without
+re-blessing: no test, no fixture, no script and no doc reproduces `explain`'s
+output — DESIGN.md §0 shows the command being *invoked*, never its lines, so
+nothing in DESIGN.md became false here and nothing needed amending. The route
+branch of the same arm is untouched: its `kind` comes from `tag(r.kind, …)` and
+is real until I13.
+
+*Guard.* `crates/grackle/tests/io_explain.rs` asserts the block for two rows
+that disagree in all three facts — a post with a block (`posts`/`html`/`true`)
+and a `.txt` copied verbatim (`entries`/`raw`/`false`) — through the loader,
+because a unit test over a hand-built `Row` would prove only that `format!`
+interpolates and would pass against an engine that never gave a byte copy the
+`raw` shell. The formatter moved to `debug::row_facts` to be reachable from
+`tests/` at all (`main.rs` is not in the lib), beside `value_text`, which
+`explain` already shares with the inspector. Mutations, each red and each
+restored: hardcode any one of the three — `"posts"` (the original lie), `"html"`,
+`true` — and the byte copy's assertion fails on that line.
+
+*Parity, run though nothing here is in a build path.* Five sites plus grack.com
+`--profile drafts`, HEAD's binary built in a `git worktree` against this one over
+the same content trees — byte-identical but for the four wall-clock `<updated>`
+lines, stderr identical for all six, file counts 8 / 8 / 83 / 242 / 1828 / 1829,
+IR1's numbers unmoved. `cargo test` green; `cargo fmt --check` clean under the
+pin; clippy 49 warnings, HEAD's number; zero re-blessing.
+
+*One thing found in passing, not fixed.* `explain` prints `layout` twice for
+every row that has one — once as a named line, once from the field dump, because
+`layout` is both a `Cascaded` key the engine reads by name and a declared column
+(MERGE.md C1). Noise rather than untruth, and the same shape `shell` would have
+grown here, so it is filed rather than folded in: the `shell` skip is keyed on
+the one name this item is about.
