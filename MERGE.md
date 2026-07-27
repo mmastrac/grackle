@@ -255,7 +255,7 @@ to build Phase B on. Two follow-up items:
   Unit tests proving each table's derived depth matches table A above,
   including `[records]` at depth 2 and `[html.head.*]` at depth 3.
 
-- [ ] **B2. Port `merge_base` onto it; delete the dispatch.** Collections
+- [x] **B2. Port `merge_base` onto it; delete the dispatch.** Collections
   keep their annotation (key on `source`, rules prepend). The A2
   destructure remains as the compile-time completeness check; the per-key
   law now comes from B1's structure, not from a hand-assigned depth.
@@ -787,6 +787,90 @@ note stands: the helper is version-fragile and fails loudly.
 *Parity:* zero fixture changes, zero re-blessing, no non-test code path
 touched — the only edits outside the new module are the `Law` derives
 (`Debug`/`PartialEq`), the additive shape block, and the tests.
+
+**2026-07-26 — B2.** Landed in two commits: the marker newtype, then the port.
+`merge_table(base, site, &Shape)` reads each key's law off the description
+(`law_of` → `Shape::law`), and `CONFIG_LAWS`, `COLLECTION_LAWS`,
+`derived_laws`, both annotation lists and the agreement test are gone. Table A
+is now a *description* of the code rather than a second copy of it: there is
+one list of keys in `crates/source/src/config.rs`, and the compiler already
+checks it against `Config`.
+
+*The annotation is on the field, not beside it.* `Shape::Annotated(law, inner)`
+is a fourth variant, and the two hand laws read as
+`annotated("collections", |c: &Config| &c.declared_collections,
+Law::Collections)` and `annotated("rules", |c: &Collection| &c.rules,
+Law::Prepend)` — in the field list, in declaration order, where a reader
+meets them. It keeps the field's own shape underneath rather than erasing it,
+so the annotation overrides the LAW and not the description and B1's invariant
+walks pass through it like any other field. `Law` moved to `shape.rs` beside
+the law it spells out; nothing else moved.
+
+*What replaces `KNOWN_EXCEPTIONS`.* The exception list only meant something
+against a hand table, so it retired with one — but the thing it guarded did
+not. With the law read off the shape, the only way to write one by hand is
+`annotated(…)`, so `only_the_annotated_keys_have_a_hand_written_law` counts
+those instead and pins them to exactly `collections`/`rules`. A third one now
+fails a test that says to file a §6 entry. That test is also what fires if
+anyone "fixes" a key by forcing its law, which is mutation-check (c) below.
+
+*q10 landed as its own commit, first, as B1 required.* `MarkerDef` is a
+`#[serde(transparent)]` newtype over the payload whose `Shape` is a
+definition — no TOML change, no site change — and it emptied the exception
+list before the port could read a law off a type the ledger had not settled.
+Its behaviour is pinned on the live path (`base.toml` really declares the
+three markers, so `Config::from_toml` reaches the arm):
+`a_redeclared_marker_replaces_the_payload_whole`. §7 q10 stays open for veto
+at the wrap-up; vetoing it now means changing table A's `[markers]` row, not
+this code.
+
+*A2's guards are what the item said they were.* Both never-called destructure
+functions survive verbatim (`every_config_key_has_a_law`,
+`every_collection_key_has_a_law`) — a new field still stops the build — and
+the serde-surface test now checks the SHAPE against serde's
+`deny_unknown_fields` list per struct, which is the same sentence one table
+over: a renamed or skipped field leaves a key no shape claims, and `law_of`
+would hand it back whole. B1's `a_definition_never_sits_under_an_engine_name`,
+`a_nested_struct_ends_at_one_depth` and `table_as_depths_fall_out_of_the_types`
+survive too and now guard the live merge; the depth pin reads through `law_of`
+(the merge's own lookup, not a test-side restatement) and gained the
+`[markers]` row.
+
+*Signature change, stated:* `merge_table`'s third parameter is a `&Shape`
+instead of a law slice. The only call sites are `merge_base`,
+`merge_collection` and A3's `merged` test helper, which still drives the
+shipping entry point — one line each. A3's and B1's tests are otherwise
+untouched.
+
+*Parity:* grack.com, field-notes, minimal, raw and theme-preview built before
+and after into separate trees and diffed — every file byte-identical except
+each feed's two `<updated>` lines (5 files across the five sites, and nothing
+else in any diff). Zero fixture changes, zero re-blessing. This was expected
+rather than hoped: B1's agreement test had already proven every derived law
+equal to its hand-assigned twin, and the port deleted the twin.
+
+*Mutation-checked three ways, each restored:* (a) `HeadCfg` described as a
+definition fails `a_definition_never_sits_under_an_engine_name`,
+`the_shape_covers_the_config_surface` and the depth pin (`html` reads
+`Descend(2)`); (b) unwrapping `MarkerDef` back to a bare
+`BTreeMap<String, toml::Value>` fails the depth pin and
+`a_redeclared_marker_replaces_the_payload_whole`, whose message shows the
+base's `noindex` composing itself into the site's marker — the `Descend(2)`
+disagreement, resurfaced as behaviour rather than as a table entry; (c)
+forcing `axes` to atom behaviour (`annotated(… Law::Atom)`) fails A3's
+`a_base_declared_axis_survives_a_site_declaring_a_different_one`, the depth
+pin, and the new annotation count.
+
+*For the queue (small).* (i) `Config::shape()`/`Collection::shape()` allocate
+on every call, and `merge_collection` calls the latter once per paired
+collection — a few `Vec`s per merge, once per load, against a saving of a
+whole parallel table; noted rather than optimised. (ii) The unknown-key
+fallback in `law_of` is still `Law::Atom` (unchanged from the table era) and
+is now the one place a key's law does not come from the shape — it is a key
+on its way to `deny_unknown_fields`, and B3's `--effective` is where that
+would become visible. (iii) `markers.rs`'s test helper `cfg()` was already
+dead before this item and now also describes a type `scan` no longer takes;
+left alone as out of scope.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
