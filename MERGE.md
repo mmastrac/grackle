@@ -553,9 +553,12 @@ rest of q6 stays parked)*
 Approved from the slate: the `from`/`over` unification and the `match`
 consolidation. Everything else (`shell`/`tier`/`frame`, `kind`, row
 `layout`, `[[parts]]` spelling, `template`, tree `source`) remains ON HOLD.
-House migration pattern throughout (E1/E2 set it): the old spelling is a
-load error naming the new one — never a silent alias — and the corpus
-migrates in the same commit under a byte-parity gate.
+**Migration pattern (amended 2026-07-27, Matt): hard cutoff.** No site
+ships grackle, so retired spellings need no teaching errors until Matt
+says otherwise — remove the key, let `deny_unknown_fields` reject the old
+spelling, migrate every local config/example/fixture in the same commit
+under the byte-parity gate. (E1/E2's existing fix-it errors stay as built;
+don't add new ones.)
 
 - [ ] **G1. One word for the candidate pool: `from`.** Views already spell
   `from` — the Rust field is named `over` with `#[serde(rename = "from")]`,
@@ -576,8 +579,8 @@ migrates in the same commit under a byte-parity gate.
   pattern) -> bool` function in the filter registry (§5f: registered in
   Rust, typed, knowns-listed), then migrate every `[sets.*]`/`[routes.*]`
   `match` to a conjoined `where` clause (`where = 'glob(path, "recipes/**")
-  && <existing>'`), then delete the key with a fix-it error naming the
-  expression form. VERIFY FIRST, don't assume: (i) object views use
+  && <existing>'`), then delete the key (hard cutoff — serde rejects
+  the old spelling). VERIFY FIRST, don't assume: (i) object views use
   `match` (the gallery) — confirm `path` is a column of `object_schema()`
   so the expression type-checks there, and that the narrow-vocabulary
   strictness (§3) is preserved; (ii) `match` on a composing view conjoins
@@ -587,7 +590,7 @@ migrates in the same commit under a byte-parity gate.
   sets, any route using it. (b) Relations: `match` → **`scope`** — the key
   does two jobs (scopes which `self` rows carry the relation AND selects
   the `.schema.toml` the expression type-checks against) and the new name
-  owns both; old spelling errors with fix-it; migrate `same_course`;
+  owns both; hard cutoff on the old spelling; migrate `same_course`;
   update DESIGN.md §6g. (c) Rules keep `match` untouched — the primal
   glob-over-files sense. Parity: byte-identical everywhere; both halves
   mutation-checked; the collection-relative vs root-relative footgun

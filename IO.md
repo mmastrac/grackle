@@ -136,7 +136,7 @@ Rules of the axis:
   and rules cascade the field like any other (the machinery already exists
   and is typed).
 - **A fold shell with no `from` reads all outputs.** `from = "*"` retires
-  with a fix-it error. A fold's `from` may also name an inputs refinement
+  (hard cutoff). A fold's `from` may also name an inputs refinement
   (a set) — selecting inputs and following the join *is* selecting their
   outputs, so `[routes.feed] from = "published"` keeps meaning what it
   means. External/script shells are the one construct whose nature does not
@@ -317,7 +317,8 @@ Execution begins when the MERGE.md pipeline drains. **MERGE.md §4's
 process rules bind verbatim** (one fresh Opus agent per item, serial;
 pathspec commits to master; never bare `git stash`; never touch
 `manual/OUTLINE.md`; `cargo fmt --check` clean under the pin;
-mutation-check every guard; fix-it errors on retired spellings; corpus
+mutation-check every guard; retired spellings are HARD CUTOFFS (no
+teaching errors until Matt says otherwise — no site ships); corpus
 migrates in-commit under byte-parity gates). IO-specific additions:
 every item updates DESIGN.md where it makes a section false (this
 document must not create the doc-rot it was born from), and every item
@@ -335,14 +336,14 @@ marked points; findings append to §11 and may file R-items.
 
 - [ ] **I2. One shell axis.** Merge the row-tier and view-serialization
   vocabularies into one schema-typed `shell` field with one validator;
-  `light` → `light_html` with a fix-it error; the family/arity checks
+  `light` → `light_html` (hard cutoff); the family/arity checks
   (map shells on rows and per-member routes; fold shells on views only;
   identity required for the html family); base-config rules gain explicit
   shell defaults reproducing today's implicit behavior exactly. Parity.
 
 - [ ] **I3. `from = "*"` retires.** A fold shell with no `from` reads all
   outputs (at this stage: the route set — the facts half already exists);
-  the star spelling gets a fix-it error; a fold's `from` naming a set
+  the star spelling is removed (hard cutoff); a fold's `from` naming a set
   selects those inputs' outputs through the join. Parity.
 
 *→ Batch review I-A.*
