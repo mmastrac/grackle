@@ -410,7 +410,7 @@ proceed to Phase D and the final review. One new item:
   not built) — removal vs. implementation is a §7 question for Matt.
   *[parity]*
 
-- [ ] **D2. Doc-rot batch (code comments and configs only; never
+- [x] **D2. Doc-rot batch (code comments and configs only; never
   `manual/OUTLINE.md`).** Re-verify each target against the tree you find —
   several were reported against an earlier tree state and later items may
   have mooted them; skip and note anything already fixed. (a) `Axis` doc
@@ -2111,6 +2111,119 @@ exclusion it drives is a real feature for a site that DOES claim a source file
 as a view's template. (iii) The `bucket` warning fires per collection, so a
 site declaring it on two collections would print two lines; no site does, and
 the sentence names the collection precisely so that reads correctly.
+
+**2026-07-27 — D2.** Landed as one commit. Every target was re-verified against
+the tree before it was touched; **eight of the nine were still false**, (g) was
+the one already fixed, and nothing had been mooted into something different from
+what the brief described.
+
+| part | disposition |
+|---|---|
+| (a) `Axis` doc example | fixed — `prefix`/`match` gone; the two real keys, plus where the members actually land |
+| (b) `[links] policy` | fixed — `strict` is the default; the enum's own doc had been right all along |
+| (c) themes/DESIGN.md `theme.toml` | fixed at both lines — specced-here-unbuilt, TODO-1.0.md's spelling |
+| (d) theme-preview head block | **restored the two lines** (below) |
+| (e) theme-preview/index.md | fixed, plus the same false belief one file over |
+| (f) DESIGN.md §5a cascade | marker rung inserted; **§5e's box deliberately not amended** (below) |
+| (g) theme.rs module doc | struck — C4 fixed it; it names `site_title`/`axes`/`main` and no `head` |
+| (h) tree `source` is decorative | said on `Collection::source` (which had NO doc) and in DESIGN.md §4 + §4d |
+| (i) R4's extractor | hardened; extraction moved behind `defaulted_scalars_in(src)`, three tests |
+
+*(d) restore, not reword, and the reason is a measurement.* The question the
+item posed — does theme-preview have a favicon that would make the two lines
+live — answers no, and that is what makes RESTORING the cheap option rather
+than the expensive one. `site.icon` is `build::site_icon`, the first of five
+`/favicon.*` URLs a row occupies; theme-preview has no such file and no route
+pinning one, so both expressions evaluate empty, and `eval_metas` drops an
+empty value before it becomes a tag (§5e's rule 2, one layer up). So the
+comment's claim is now true and the output did not move — **byte-identical
+head on all 211 of theme-preview's rendered pages**, which is the only way to
+tell the difference between "restored" and "restored something". The
+alternative (narrowing the comment to "the base's, minus the icons") would
+have documented an accident: the lines went missing, they were never declined.
+No fixture holds theme-preview's head; the one fixture with an icon head
+(`site-icon`) is a base-inheriting site of its own and is unmoved.
+
+*(f) §5e's precedence box was read and left alone, which the item asked for
+explicitly.* Its ladder — front matter > tree overlay (`.slots/`) > layout kind
+> theme default — ranks **what fills a slot**, and its rungs below the first
+are fragment-side. A marker writes ROW FIELDS; there is no rung of that ladder
+it could occupy, and the sentence above the box ("the same resolution order
+governs rules, markers, buckets, and slots") is a claim about the ORDER, which
+is Law 1 and is true. §5a's sentence was the wrong one because it enumerates
+the theme ladder specifically, and that ladder does have the rung
+(`merged_defaults`: markers inserted first, rules `or_insert` behind them —
+and post-C1 `theme` travels it like any declared key).
+
+*What the staleness sweep caught, all of it made stale by this effort:*
+
+1. **§4d's merge table** listed the registries without `[axes.*]` (A3 moved it
+   there out of wholesale replace — the bug that motivated Law 2) and the bags
+   without `[links]` (A3 again). Both rows fixed, and a paragraph added saying
+   the lists are *descriptions* of what `shape.rs` derives, since B2 deleted the
+   hand table they used to mirror.
+2. **§9b's and q34's "three definitions of *not content*"** — now two walks'
+   worth, not three: R1/R2 gave the tree, declaration and marker walks one
+   `store::NotContent`. Amended, not deleted, per A6's note: `slots.rs`'s
+   hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host
+   build, so adopting the shared value there needs the site's `exclude` too —
+   a decision, not a port. Both entries now say which half is done.
+3. **§4's example config** still taught `defaults = { layout = "post" }`, the
+   key D1 deleted from the last three configs carrying it — and §5's own prose
+   two hundred lines down already says "every config *had to* carry" it, past
+   tense. Dropped from the example; the rule above it still shows `defaults`.
+
+*Verified already-corrected and left alone* (each was on the sweep list): §4d's
+two `--effective` sentences and TODO-1.0.md's `--effective` and `explain`-alias
+boxes (B3 did them, and the boxes are ticked); both surviving `CASCADE_KEYS`
+mentions (DESIGN.md §4e and `schema.rs`'s `CASCADE` doc — both past-tense
+accounts of a name that is gone, which is what C1's note said it left); §4's
+dead-rule bullet (C3); `Collection::bucket`'s doc and §6a (D1).
+
+*One find in the neighbourhood, fixed with (a) because it is the same edit's
+subject:* `View`'s doc comment had been stranded above `Axis` by an insertion,
+so "a view is a query plus, optionally, a materialization" was reading as the
+axis's opening paragraph in rustdoc. Moved back onto `View`; `Axis` keeps its
+own first line. No text was rewritten in the move.
+
+*One out-of-brief config comment, fixed with (e) because it is (e)'s claim in
+another voice:* theme-preview/grackle.toml said "`vanilla` is the canonical
+member and wears the bare URLs (`/notes/one/`)". It does not — `grackle routes`
+shows `/vanilla/notes/one/` and no bare `/notes/`, because the rule's template
+is `/{theme}/notes/{slug}/` and spends the axis for every member including the
+canonical one. The comment had been corrected once before (0610452) and came
+back in a later rewrite; the corrected wording is 0610452's, adapted to the
+fourteen members there are now. This is the same false belief (e) reports, so
+leaving it would have left the config contradicting the page beside it.
+
+*Parity, run because (d) could have moved bytes.* All five sites built before
+and after into separate trees and diffed: every file byte-identical except each
+feed's wall-clock `<updated>` **and theme-preview's `index.html`, whose two
+edited sentences are (e)** — a deliberate prose change to a page whose subject
+is the sentence being fixed. Nothing else in any diff, no file-count change, no
+stderr difference on any site. Zero fixture changes, zero re-blessing; `cargo
+test` green (13 result lines, zero failures); clippy names no warning site in
+either file this item touched — measured that way rather than as a multiset
+diff, since the change is comments plus one test file; `rustfmt --check` clean on
+`base_config.rs` and wanting only the two pre-existing `config.rs` hunks every
+item since R3 has reported.
+
+*Mutation-checked, the one guard this item adds:* deleting the
+`renamed |= line.contains("rename")` line leaves
+`a_default_and_a_rename_on_one_line_is_refused` as the only red test — the
+finding restated as a test run, and the two-line twin beside it stays green,
+which is the whole shape of the hole.
+
+*For the queue (small).* (i) theme-preview's `[html.head.*]` is now the base's
+block copied verbatim, and nothing checks that: the site's whole point is
+paying `extends = "none"`'s cost in public, so a `base.toml` head edit silently
+un-copies it. A test asserting the two tables equal would be cheap, and is a
+statement about an EXAMPLE rather than about the engine — filed rather than
+taken. (ii) DESIGN.md §4d still describes theme-preview as "six posts
+collections, one per theme", which the axis rewrite (9a4877a, before this
+effort) made false — one posts collection, fourteen axis members. Out of this
+item's brief (nothing here made it stale) and left, but it is the kind of thing
+the final review may want to sweep for on its own terms.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
