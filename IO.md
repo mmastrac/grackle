@@ -157,10 +157,23 @@ An image is an input row like any other (identity optional, via sidecar);
 what is special about images is only that one input routinely fans to many
 outputs — and the model already has the law for that (a form is an output):
 
-- **The original**: `shell = raw`, at whatever URL its rule routes. A site
-  that needs inbound-link parity keeps `/{path}`; a site that doesn't
-  routes originals through a **`{hash}` token** and gets immutability for
-  free. Content-hashed naming is route policy, not engine behavior.
+- **The embed policy**: by default, a cited-but-unrouted asset
+  materializes under **`/static/`, content-hashed** — no config, the base
+  ships the policy; immutable cache headers fall out of the URL shape.
+  Disabled, a cited-but-unrouted asset is a load error naming the asset
+  and the fix ("route it, or re-enable the policy"); subset, the policy
+  carries a match/extension filter. **[open]**: the table's name
+  (`[embeds]` vs `[static]`), and whether *linked* (not embedded)
+  citations share the policy or demand explicit routes.
+- **The original, when it needs an address**: a declared route — the
+  existing machinery, unchanged. A named rule pins one asset
+  (`route = "/logo.png"`); a catch-all `/{path}` rule gives a whole corpus
+  literal paths (grack.com's inbound-link parity becomes one explicit
+  line in its own config). **Precedence: a routed output wins — citations
+  link the declared address; the policy is the fallback for the
+  unrouted.** The base's objects catch-all dies, and the base's "may not
+  mint a URL the author did not ask for" rule gets strictly stronger:
+  every human-addressable asset URL exists because a rule said so.
 - **Renditions** (sizes, formats): more outputs of the same input,
   transform-bearing. **Parameters come from demand**: the citing edge
   (`{% image %}`, a body `<img>`) carries what it needs, the pull
