@@ -145,6 +145,80 @@ fn a_fold_over_a_set_still_reads_that_set() {
     }
 }
 
+/// **A script shell has to say what it eats** (IO.md §4, IR1(a)).
+///
+/// I3 let every registered `[shells.*]` name be `from`-less on the grounds
+/// that a script shell is a fold by arity. Arity was the right reading and the
+/// wrong conclusion, and batch review I-A proved it live: the engine's folds
+/// read the route pool *themselves* (`resolve_pool_folds` fills
+/// `route_members`), while `build.rs`'s script pass reads `r.members` — the
+/// ROW projection, which a pool fold never fills. So a `from`-less script
+/// shell loaded clean and published `"rows":[]` at the URL its author asked a
+/// query for: the silent-empty disease, one family over.
+///
+/// Mutation: delete the `registered` arm in `shell::check_absent_from` and
+/// this site LOADS — `/probe.json` is published, with an empty `rows`. That is
+/// the assertion below the error, and it is why the guard is a load error
+/// rather than a note in a doc comment.
+#[test]
+fn a_script_shell_with_no_from_is_a_load_error() {
+    let dir = site("script-orphan");
+    let cfg = dir.join("grackle.toml");
+    let base = std::fs::read_to_string(&cfg).expect("the fixture wrote it");
+    std::fs::write(
+        &cfg,
+        format!(
+            "{base}\n[shells.echo]\ncommand = \"cat\"\n\n\
+             [routes.probe]\npath = \"/probe.json\"\nshell = \"echo\"\n"
+        ),
+    )
+    .unwrap();
+    let e = format!(
+        "{:#}",
+        grackle::config::Config::load(&cfg).expect_err("a script shell must be told what to eat")
+    );
+    assert!(e.contains("view probe: shell = \"echo\""), "{e}");
+    assert!(e.contains("is a script shell and has no `from`"), "{e}");
+    // It says WHY — the payload's rows — and names the shells that really do
+    // read the pool, so the reader can tell "I forgot a line" from "I wanted
+    // the sitemap's power".
+    assert!(e.contains("the payload's `rows`"), "{e}");
+    assert!(e.contains("atom, sitemap, search"), "{e}");
+}
+
+/// **The control, both halves.** The narrowing is about the missing `from`,
+/// not about script shells: one WITH a `from` still eats its rows, and the
+/// engine's own folds are still legal without one.
+///
+/// `examples/field-notes` is the live user (`[shells.llms]` +
+/// `[routes.llms] from = "published"`), and it must keep building; this is
+/// the same shape in a test the item can mutate. `cat` is the identity
+/// shell, so the payload the engine wrote is the artifact it published and
+/// the assertion can read it directly.
+#[test]
+fn a_script_shell_with_a_from_still_eats_its_rows() {
+    let dir = site("script-fed");
+    let cfg = dir.join("grackle.toml");
+    let base = std::fs::read_to_string(&cfg).expect("the fixture wrote it");
+    std::fs::write(
+        &cfg,
+        format!(
+            "{base}\n[shells.echo]\ncommand = \"cat\"\n\n\
+             [routes.probe]\npath = \"/probe.json\"\nfrom = \"posts\"\n\
+             shell = \"echo\"\n"
+        ),
+    )
+    .unwrap();
+    let out = render(&dir);
+    let payload = text(&out, "/probe.json");
+    assert!(payload.contains("\"shell\":\"echo\""), "{payload}");
+    assert!(payload.contains("\"title\":\"Hello\""), "{payload}");
+    assert!(!payload.contains("\"rows\":[]"), "{payload}");
+    // And the engine's folds are untouched by the narrowing: `all` is still
+    // `from`-less, and still lists every output including this one.
+    assert!(locs(&out, "/all.xml").contains(&"/probe.json".to_string()));
+}
+
 /// **The control: absent `from` is legal only under a fold.** Every other view
 /// is a listing, and a listing has to say what it lists.
 ///

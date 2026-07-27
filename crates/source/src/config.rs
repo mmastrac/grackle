@@ -2584,6 +2584,36 @@ impl Config {
                      query, or drop it."
                 );
             }
+            // The same family, one field over (IO.md §4, IR1(c)): a set may
+            // not wear a FOLD shell, because a fold lands at a route. A fold
+            // serializes its query into one artifact, and an artifact is a
+            // file at a path — every fold pass in `build.rs` (atom, sitemap,
+            // search, the script shells) ranges over `db.routes` and finds a
+            // view by the route that carries it, so a routeless one is
+            // unreachable by construction. Today it fails LATE and only half
+            // the time: a `from`-less set reaches `build_pool_folds` and dies
+            // with "view x needs a route" mid-build, while a set WITH a `from`
+            // goes through `build_views` into `insert_routeless` and publishes
+            // nothing at all, silently. Config-time, both say why.
+            //
+            // Only a fold, deliberately: a MAP shell here is an arity mistake,
+            // and `check_view` below owns that sentence.
+            if v.declared_set {
+                if let Some(s) = v
+                    .shell
+                    .as_deref()
+                    .filter(|s| crate::shell::is_fold(s) || self.shells.contains_key(*s))
+                {
+                    anyhow::bail!(
+                        "[sets.{vname}] wears shell = {s:?}, and a set never \
+                         lands. A fold shell serializes its query into ONE \
+                         artifact, and an artifact needs an address to be \
+                         written at — so a fold belongs on a route: move it to \
+                         `[routes.{vname}]` with a `path`, or drop the shell \
+                         and let the set stay a query."
+                    );
+                }
+            }
             for (fname, f) in &v.fields {
                 if f.truncate.is_none() {
                     anyhow::bail!(
@@ -3617,6 +3647,50 @@ mod tests {
         assert_eq!(c.views["blog_index"].theme.as_deref(), Some("loud"));
         assert_eq!(c.views["latest"].layout.as_deref(), Some("link_list"));
         assert_eq!(c.views["latest"].variant.as_deref(), Some("compact"));
+    }
+
+    /// IO.md §4 / IR1(c), the same family one field over: a set may not wear a
+    /// fold shell, because a fold lands at a route.
+    ///
+    /// Verified before the check was written: there is no routeless-fold
+    /// shape. All four fold passes in `build.rs` (atom, sitemap, search, the
+    /// script shells) iterate `db.routes` and reach a view through the route
+    /// carrying it, and a routeless view only ever reaches `db.views` via
+    /// `insert_routeless`, which `{% view %}` embedding reads by layout and
+    /// variant — no reader of `shell` at all. So the two live outcomes today
+    /// are both bad and neither says why: `from`-less, it reaches
+    /// `build_pool_folds` and dies mid-build with "view x needs a route"; with
+    /// a `from`, it goes quietly through `insert_routeless` and publishes
+    /// nothing.
+    ///
+    /// Mutation: delete the `declared_set`/fold check in `validate` and the
+    /// first case validates clean (then dies late), the second validates and
+    /// publishes nothing.
+    #[test]
+    fn a_set_may_not_wear_a_fold_shell() {
+        for src in [
+            "[sets.everything]\nshell = \"sitemap\"\n",
+            "[sets.everything]\nfrom = \"blog\"\nshell = \"atom\"\n",
+            "[shells.llms]\ncommand = \"cat\"\n\
+             [sets.everything]\nfrom = \"blog\"\nshell = \"llms\"\n",
+        ] {
+            let e = cfg_err(src);
+            assert!(e.contains("[sets.everything] wears shell ="), "{e}");
+            assert!(e.contains("a set never lands"), "{e}");
+            assert!(e.contains("[routes.everything]"), "{e}");
+        }
+        // The controls. A routed fold is the shape the key exists for, and a
+        // set with no shell is still an ordinary query.
+        let c = cfg(
+            "[routes.everything]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n\
+             [sets.latest]\nfrom = \"blog\"\nlimit = 3\n",
+        );
+        assert_eq!(c.views["everything"].shell.as_deref(), Some("sitemap"));
+        assert!(c.views["latest"].shell.is_none());
+        // And a MAP shell on a set is still the ARITY mistake `check_view`
+        // owns — this check does not steal that sentence.
+        let e = cfg_err("[sets.latest]\nfrom = \"blog\"\nshell = \"html\"\n");
+        assert!(e.contains("is a map shell"), "{e}");
     }
 
     /// noindex was once hardcoded as `view != "blog_index"`, making every

@@ -979,8 +979,8 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
     // Both orders, because `"post" == kind` says exactly what `kind == "post"`
     // says and a checker that only knows one of them is a checker a config can
     // step around.
-    check_domain(l, lt, r)?;
-    check_domain(r, rt, l)
+    check_domain(l, lt, op, r)?;
+    check_domain(r, rt, op, l)
 }
 
 /// A closed-domain column compared against a literal outside its domain
@@ -994,7 +994,17 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
 ///
 /// Non-literal right-hand sides are not checked and cannot be: `kind == view`
 /// compares two columns, and neither one is a value.
-fn check_domain(col: &Operand, col_ty: Type, other: &Operand) -> Result<()> {
+///
+/// The tail says what the constant is, and it is **not always `false`**
+/// (IR1(b), batch review I-A): `kind != "posts"` is the same mistake — the
+/// author meant to exclude something, and excluded nothing — but it can only
+/// ever be TRUE, and a message that said "false" would send its reader looking
+/// for a predicate that never fires when theirs always does. An ordering
+/// comparison against an out-of-domain value is not constant at all (`kind >
+/// "pages"` splits the domain), so it gets the honest neutral sentence rather
+/// than an invented one; it is still an error, because the literal is still a
+/// value the column can never hold.
+fn check_domain(col: &Operand, col_ty: Type, op: Op, other: &Operand) -> Result<()> {
     let Some(domain) = col_ty.domain() else {
         return Ok(());
     };
@@ -1011,9 +1021,13 @@ fn check_domain(col: &Operand, col_ty: Type, other: &Operand) -> Result<()> {
         .min_by_key(|(d, _)| *d)
         .map(|(_, k)| format!(" (did you mean `{k}`?)"))
         .unwrap_or_default();
+    let tail = match op {
+        Op::Eq => "the comparison can only ever be false",
+        Op::Ne => "the comparison can only ever be true",
+        _ => "the comparison orders against a value the column never holds",
+    };
     bail!(
-        "`{col}` is never {v:?}{hint} — the comparison can only ever be false\n  \
-         {col} is one of: {}",
+        "`{col}` is never {v:?}{hint} — {tail}\n  {col} is one of: {}",
         domain.join(", ")
     )
 }
@@ -1688,6 +1702,44 @@ mod tests {
         // column, not about which side of the `==` it was written on.
         assert!(e(r#""posts" == kind"#).contains("is never \"posts\""));
         assert!(e(r#"kind != "pages""#).contains("is never \"pages\""));
+    }
+
+    /// The tail names the constant the comparison became, and which constant
+    /// that is depends on the OPERATOR (IR1(b), batch review I-A).
+    ///
+    /// `kind != "posts"` is the same authoring mistake as `kind == "posts"` —
+    /// an exclusion that excludes nothing — but it is true forever, not false
+    /// forever, and the old message said "false" for both. A reader who trusts
+    /// it goes looking for a predicate that never fires when theirs always
+    /// does, which is the opposite end of the same haystack. Ordering gets
+    /// neither word: `kind > "pages"` against a value outside the domain is
+    /// not constant at all, so the sentence says what IS true.
+    ///
+    /// Mutation: collapse the `match op` back to a single "false" arm and the
+    /// `!=` and ordering assertions fail.
+    #[test]
+    fn the_constant_the_message_names_follows_the_operator() {
+        let e = |s: &str| Filter::parse(s, &schema()).unwrap_err().to_string();
+        assert!(
+            e(r#"kind == "posts""#).contains("can only ever be false"),
+            "{}",
+            e(r#"kind == "posts""#)
+        );
+        let ne = e(r#"kind != "posts""#);
+        assert!(ne.contains("can only ever be true"), "{ne}");
+        assert!(!ne.contains("can only ever be false"), "{ne}");
+        // The hint rides along whatever the operator is — it is about the
+        // literal, not about the comparison.
+        assert!(ne.contains("did you mean `post`"), "{ne}");
+        let gt = e(r#"kind > "posts""#);
+        assert!(gt.contains("never holds"), "{gt}");
+        assert!(!gt.contains("can only ever be"), "{gt}");
+        // Both orders, still: the domain is a fact about the column.
+        assert!(
+            e(r#""posts" != kind"#).contains("can only ever be true"),
+            "{}",
+            e(r#""posts" != kind"#)
+        );
     }
 
     /// The domain buys the check and nothing else. Every value IN it parses,

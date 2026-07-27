@@ -922,6 +922,8 @@ view search: filter "kind == \"posts\""
     kind is one of: post, page, static, object, view
 ```
 
+The tail names the constant the comparison became, and **which constant depends on the operator** *(IO.md IR1(b), 2026-07-27)*: `kind != "posts"` is the same mistake — an exclusion that excludes nothing — but it can only ever be *true*, and the message says so rather than sending its reader to hunt a predicate that never fires. An ordering comparison against an out-of-domain value is not constant at all, so it gets the honest neutral sentence.
+
 The plural is not a hypothetical: `[[collections]] kind = "posts"` is the spelling one line of config away, and the route column typed that way used to type-check perfectly and then match nothing for as long as the config lived. A domain is what a schema column declares when the engine can enumerate its values; `Type::Enum` is the mechanism and `kind` is its one user today.
 
 **`front_mattered` is identity, and it is not `rendered`** *(IO.md §3)*. It answers "did the file this output came from carry a front-matter block", which is what `kind == "post" || kind == "page"` was always a flattened spelling of. It is `false` for a byte copy and `false` for a view route (which has no source file at all — the predicate is total over the route pool by design, so `!front_mattered` means something on every row). It differs from `rendered` on exactly one shape: a `.md` in a posts scope with no block is parsed all the same — the scope hands it a date and a route — so it is `rendered` without being `front_mattered`. grack.com has one. That difference is why `kind == "post"` means **scope membership**, not identity, and why grack.com's search route did not migrate with the example sites'.
@@ -1170,7 +1172,11 @@ where = "!draft && !hidden"
 
 `path` is optional — its presence is what makes an entry a `[routes]` rather than a `[sets]`. `from` may name a collection or **another query — but only a query-only one.** That restriction is the whole reason composition stays simple. Compose over things with nothing to inherit. Cycles, unknown names, and composing over a materialized view are all load-time errors.
 
-**`from` may also be absent, and only under a fold shell** *(IO.md §4, item I3, 2026-07-27)*. A fold sits on a query over outputs, so "every output" is a query it can serialize — at this stage of the migration, the finished route set. That is exactly what `from = "*"` read, so the spelling retired and nothing moved: the sitemap and the search index each lost a line. Everything else is a listing, and a listing has to say what it lists, so absent `from` there is a load error naming the fold shells (`atom`, `sitemap`, `search`, plus registered script shells). The old spelling is a hard cutoff and `*` now names nothing; because it was a *value* rather than a key, `deny_unknown_fields` never sees it, and the message that would have sent its reader looking for a collection called `*` was replaced by one sentence of its own. A fold whose `from` names a **set** is unchanged — `[routes.feed] from = "published"` keeps meaning what it means, consuming that set's rows; selecting outputs *through* the join lands with the join itself (IO.md I9).
+**`from` may also be absent, and only under a fold shell** *(IO.md §4, item I3, 2026-07-27)*. A fold sits on a query over outputs, so "every output" is a query it can serialize — at this stage of the migration, the finished route set. That is exactly what `from = "*"` read, so the spelling retired and nothing moved: the sitemap and the search index each lost a line. Everything else is a listing, and a listing has to say what it lists, so absent `from` there is a load error naming the fold shells (`atom`, `sitemap`, `search`). The old spelling is a hard cutoff and `*` now names nothing; because it was a *value* rather than a key, `deny_unknown_fields` never sees it, and the message that would have sent its reader looking for a collection called `*` was replaced by one sentence of its own. A fold whose `from` names a **set** is unchanged — `[routes.feed] from = "published"` keeps meaning what it means, consuming that set's rows; selecting outputs *through* the join lands with the join itself (IO.md I9).
+
+**A script shell is the exception, and only the engine's folds may be `from`-less** *(IO.md §4, item IR1, 2026-07-27)*. I3 let a registered `[shells.*]` name stand in for a fold here, on the arity argument, and batch review I-A measured what that actually did: the engine's folds read the route pool *themselves* (`resolve_pool_folds` fills `route_members`), while the script pass reads the view's ROW members — which a pool fold never fills. So a `from`-less script shell loaded clean and published `{"rows":[]}` at the URL its author asked a query for. It is now a load error naming the view, the shell and the fix. IO.md §4 gives script shells a `pulls = "inputs" | "outputs"` declaration eventually; until it lands, a script shell eats rows and has to be told which ones.
+
+**And a fold lands at a route, so a set may not wear one** *(IO.md §4, item IR1)*. Every fold pass reaches its view through the route carrying it, so a routeless fold is unreachable by construction — `[sets.x] shell = "sitemap"` used to die mid-build with "view x needs a route", and `[sets.x] from = "posts" shell = "atom"` used to build clean and publish nothing at all. Both are config-time errors now, in the same family as a set declaring a `theme` (MERGE.md F3): a key that can never apply where it was written.
 
 ### Members: the match this deleted
 
@@ -1282,7 +1288,7 @@ Composition rules, enforced at load: `from` may name a set or a **grouped, unpag
 
 "A view is a query; a route is where it lands" was a sentence in this document and one `[views]` section in config, where the only way to tell the two apart was whether `route` happened to be present. It is now the shape: **`[sets]`** for a query that never lands, **`[routes]`** for one that does.
 
-Measured across both sites' 23 queries before deciding: `path(s)`, `title`, `crumb`, `shell`, `template`, `content`, `intro`, `featured`, `paginate` and `group_by` NEVER appear without a route; `from`, `where`, `match`, `order_by`, `limit`, `layout` and `variant` appear in both. Ten keys are meaningless without a URL. (`match` was one of the seven when this was measured; it is a `where` clause now — MERGE.md G2 — so the shared list is six.)
+Measured across both sites' 23 queries before deciding: `path(s)`, `title`, `crumb`, `shell`, `template`, `content`, `intro`, `featured`, `paginate` and `group_by` NEVER appear without a route; `from`, `where`, `match`, `order_by`, `limit`, `layout` and `variant` appear in both. Ten keys are meaningless without a URL. (`match` was one of the seven when this was measured; it is a `where` clause now — MERGE.md G2 — so the shared list is six.) Two of the ten have since become *checked* rather than merely observed: `theme` on a set (MERGE.md F3) and `shell` on a set (IO.md IR1) are load errors, because a key that can never apply where it was written is the declared-and-ignored disease.
 
 **One keyword, not two.** `from` names a collection, a set or a route, and what it names decides what it means.
 
@@ -1605,6 +1611,10 @@ with `shell = "name"`. The engine pipes the view's member rows to the
 command's stdin as JSON and writes its stdout at the view's route
 verbatim — PDF, PostScript, whatever the command emits. `sh -c`, run
 from the site root; non-zero exit fails the build carrying stderr.
+**The view must name a `from`** *(IO.md IR1, 2026-07-27)*: "member rows"
+is the whole input, and the engine's own pool folds fill a different
+list, so a `from`-less script shell was fed an empty `rows` and said
+nothing about it. Load error now (§5c).
 
 The payload schema is **TEMP by declaration** (stamped
 `"schema": "grackle-shell/0"`, asserted by consumers): `{schema, shell,

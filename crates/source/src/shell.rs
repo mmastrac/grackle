@@ -167,26 +167,38 @@ pub fn check_view(name: &str, view: &str, registered: &[&str]) -> Result<()> {
 /// [`VIEW_DEFAULT`].
 ///
 /// `registered` is `[shells.*]`, as in [`check_view`]: a script shell is a
-/// fold by arity (IO.md §4 gives it a `pulls` declaration later; today it eats
-/// the collection its view selects).
+/// fold by arity — but only the ENGINE's folds may be `from`-less, which is
+/// the narrowing IR1(a) lands. The engine's folds read the output pool
+/// themselves (`resolve_pool_folds` fills `route_members`); a script shell is
+/// fed the row projection its view selected, so a `from`-less one is handed
+/// `rows: []` and publishes an empty payload at a URL the author asked a query
+/// for — the same silent-empty disease one family over. IO.md §4 gives a
+/// script shell a `pulls = "inputs" | "outputs"` declaration later; until it
+/// lands, a script shell eats rows and has to be told which ones.
 pub fn check_absent_from(shell: Option<&str>, view: &str, registered: &[&str]) -> Result<()> {
-    if shell.is_some_and(|s| is_fold(s) || registered.contains(&s)) {
+    if shell.is_some_and(is_fold) {
         return Ok(());
+    }
+    if let Some(s) = shell.filter(|s| registered.contains(s)) {
+        bail!(
+            "view {view}: shell = {s:?} is a script shell and has no `from`, \
+             so it would be handed no rows at all. A script shell eats the row \
+             projection its view selects — the payload's `rows` — and only the \
+             engine's own folds ({}) read every output without a `from` \
+             (IO.md §4). Name a pool: `from = \"<collection or set>\"`.",
+            list(FOLD),
+        );
     }
     bail!(
         "view {view}: no `from` — a listing has to say what it lists. Only a \
          FOLD shell reads every output without one (IO.md §4), and this one \
          leaves through {}, which wraps one output at a time. Name a pool \
-         (`from = \"<collection or set>\"`), or declare a fold shell: {}{}",
+         (`from = \"<collection or set>\"`), or declare a fold shell: {}",
         match shell {
             Some(s) => format!("{s:?}"),
             None => format!("the HTML listing ({VIEW_DEFAULT:?}, the default)"),
         },
         list(FOLD),
-        match registered.is_empty() {
-            true => String::new(),
-            false => format!("; registered script shells: {}", list(registered)),
-        },
     )
 }
 
