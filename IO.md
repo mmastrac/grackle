@@ -333,7 +333,7 @@ marked points; findings append to §11 and may file R-items.
 
 ### Phase I-A — facts beside the fossil
 
-- [ ] **I1. Expose `shell` and `front_mattered` as filter columns**, on
+- [x] **I1. Expose `shell` and `front_mattered` as filter columns**, on
   the schemas where each is answerable; migrate the corpus's `kind ==`
   filters to what they mean (search routes; anything else grep finds);
   give the surviving `kind` column **enum value-domain checking** (a
@@ -438,3 +438,103 @@ marked points; findings append to §11 and may file R-items.
    design retires (`bucket` already does not parse; `kind`, star views,
    tier vocabulary will follow) — the manual re-write rides the migration,
    Matt's pen.
+
+**2026-07-27 — I1.** Landed as one commit. Two facts, one domain, two of the
+four corpus `kind ==` filters migrated — and the two that stayed are the
+item's most useful output.
+
+*`shell` needed no code, and that was measured rather than assumed.* MERGE.md
+C1 declared the engine's four cascade keys in the base `[schema]`, and a
+declared field is a column: `Schemas::declared()` feeds both
+`row_filter_schema()` and `declared_schema()` → `route_schema()`, and the
+values live in `fields` as well as on the row's named field. Probed on a temp
+site: `where = 'shell == "light"'` parses and selects, on rows and through
+`Route.fields` on a star view. So §8 step 1's `shell` half was already
+shipped; what I1 adds is the sentence saying so (DESIGN.md §4e) and the two
+**[open]-adjacent** gaps, both **waiting on I2** and both probed, not
+reasoned:
+
+- **the row column holds the tier vocabulary, and only where someone wrote
+  it.** `shell == "html"` selected **0** routes on a site whose every page is
+  html — absent is Null and Null matches nothing. §3's target spellings
+  (sitemap and search as `shell == "html"`) are therefore NOT reachable until
+  I2's rules carry explicit shell defaults onto every row. Not forced here:
+  materializing a default to make a filter read nicely, before the item that
+  owns the defaults, is how a fact becomes a fiction.
+- **a view route's serialization is not in the column at all.** `[routes.feed]
+  shell = "atom"` is a route declaration, not a row field, so `shell ==
+  "atom"` selected **0**. Merging the two vocabularies is I2's whole brief, so
+  it waits there rather than half-landing here.
+
+*`front_mattered` is identity, and the decision worth vetoing is that it is
+NOT `rendered`.* The brief allowed "today it equals was-parsed"; the corpus
+says otherwise. `_drafts/caret/why-is-a-cursor-called-a-caret.md` is a `.md`
+in a posts scope with **no `---` block**: the scope hands it a date, a slug
+and a route, so `rendered` is true, and the author wrote no identity, so
+`front_mattered` is false. Defining the column as "was parsed" would have made
+the name lie about a real row on the site the ledger exists to serve; defining
+it as the block keeps the name honest and makes the disagreement *visible*,
+which is the whole method. §3's table calls the fact "has identity — a block
+or a sidecar", and I8 widens it to the sidecar without changing this bit's
+meaning. **Decided and recorded** per §10's propose-and-flag: exposed on the
+row schema AND the route schema (the migration target is a star view over
+routes, so the route side is not optional), and a view route answers
+**`false`, not Null** — it has no source file, so it carried nothing, and a
+fold over the route pool needs a predicate that is total rather than one that
+says "not applicable" to every listing.
+
+*The two that migrated, and the two that did not.* `examples/field-notes` and
+`theme-preview` moved `(kind == "post" || kind == "page")` → `front_mattered`:
+same set, byte-identical `search.bin`. **grack.com's two did not** — the
+`[routes.search]` and its full restatement inside `[profiles.drafts]`, which
+the §10 grep is exactly for. There `kind == "post"` means *the blog corpus*,
+which is **scope membership, not identity**, and `front_mattered` is the wrong
+migration twice over: it would admit every page under `/code/` and `/writing/`
+(a deliberate index change the config already declines), and it would drop the
+blockless draft above. The honest spelling is a scope column on the output
+side, which the join brings (**I9**); a `collection ==` column on routes was
+considered and rejected as contortion — it would trade a domain-checked column
+for an unchecked one, i.e. re-mint the silent-empty knife under a new name.
+Both configs now carry the reason at the line.
+
+*The domain check: general, because kind-specific was the more expensive
+mistake.* `filter::Type::Enum(&'static [&'static str])` — a string column that
+knows its values. Every type rule in the checker compares `.scalar()`, so an
+enum behaves as a `Str` in ordering, concatenation, `in`, arity and mismatch
+messages; the one thing it buys is `check_domain`, which fires on either side
+of a comparison against a string literal outside the set. Kind-specific was
+the alternative and was worse in the way that matters: `grackle-db` cannot
+know what a route kind is, so the check would have had to live at each of the
+three sites that parse a route filter (`views.rs`, `config.rs`'s profile
+pre-check, `debug.rs`) — three chances to forget one, and forgetting is a
+guard that is silently absent. Riding the schema means it is checked wherever
+a filter is parsed, forever, and it is the mechanism §3 wants later. Cost: one
+enum variant and ten `.scalar()` calls.
+
+*Mutations, each restored.* (a) Delete either `check_domain` call: the db unit
+test fails, and — probed on a temp site with the release binary — `kind ==
+"posts"` **builds clean and selects zero URLs**, which is the disease exactly.
+(b) Posts loader `front_mattered: raw.front_mattered` → `true` (the value
+`rendered` takes there): the blockless post joins the identity set. (c) Tree
+loader → `false`: `/about/` leaves it. (d) Drop the route-carry line: the
+identity set empties. `RouteKind::NAMES` is a second spelling of the enum, so
+a test holds it: its `match` stops **compiling** the day a variant is added,
+because a domain that is wrong (rejecting a real value) is worse than one that
+is absent.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, built from a `git
+worktree` of HEAD with its own release binary and from this one, against the
+same content tree (caches seeded so the only variables were binary and
+config) — byte-identical but for each feed's wall-clock `<updated>` (6
+atom.xml files, one line each), stderr identical for all six. `cargo test`
+green; `cargo fmt --check` clean under the pin; `cargo clippy` warning set
+identical to HEAD's; zero re-blessing beyond one new `expected-error`
+fixture.
+
+*For batch review I-A.* The `front_mattered`-vs-`rendered` split is the one
+call here that a reviewer might want reversed, and the blockless post is the
+evidence either way. It also lands a question in **I7**'s lap ("the
+front-matter gate becomes the fact"): under §1 a file without a block has no
+identity, so I7 must decide what a blockless `.md` in a posts scope *is* — a
+governed row by scope, or bytes. Today it is a full post, and the answer moves
+grack.com's output.
