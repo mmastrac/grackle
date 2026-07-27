@@ -532,7 +532,19 @@ provenance class). Closes §7 q7.
   under the pinned toolchain; format what you touch", noting the resync
   landed. The commit is formatting-only — nothing else rides in it.
 
-*→ Batch review 4 after F2, covering E1, E2, F1, F2 (the fmt commit
+- [ ] **F3. Two small strictness closures.** *(§7 q5 rider + q14, Matt's
+  calls.)* (a) Drop `RowAxis::template` — written by `row_axes`, read by
+  nothing since C5's lookup port; it is `Serialize`d, so `grackle export`
+  loses a field nothing consumes (verify nothing reads it: grep, then the
+  inspector/debug surfaces). (b) `theme` on a routeless `[sets.*]` entry
+  becomes a load error ("a set never lands; theme belongs on a route") —
+  a set's theme can never apply, materialized or embedded (embeds wear the
+  host's theme). CAREFUL: `layout` and `variant` on sets are LIVE — the
+  embed path reads them; error on `theme` only. Mutation-check both;
+  keep fmt clean under the pin (this lands after F2). Parity: byte-
+  identical everywhere; export JSON change documented in the commit.
+
+*→ Batch review 4 after F3, covering E1, E2, F1, F2, F3 (the fmt commit
 reviewed by confirming `git diff -w` emptiness, not by reading hunks).*
 
 ## 6. Review log
@@ -2356,14 +2368,18 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    design" for row requests across themes, but a view's `variant` naming a
    fragment *no loaded theme provides* is probably a typo. Warning? Error?
    Where's the line?
-3. **The `extensions` array knife** — adding `ico` wholesale-replaces the
-   base's six. Arrays stay atoms by law; if the pain is real the answer is a
-   data-model change, not a softer merge.
+3. **RESOLVED (2026-07-27): accepted as law.** Arrays are atoms; the knife
+   stays documented and `--effective` makes the replacement visible.
+   *(Original: adding `ico` wholesale-replaces the base's six.)*
 4. **Per-post `<style>` layering** — today unlayered (beats everything);
    §6c's `@layer post` would invert that. Behavior change on existing posts;
    needs a decision before building §6c.
-5. **A view's `theme` when embedded** — `{% view %}` renders through the
-   host page's theme; a view-declared theme silently doesn't apply. Correct?
+5. **RESOLVED (2026-07-27): correct as designed** — an embed is content in
+   the host's document, and a document wears one stylesheet; the view's
+   theme applies where it materializes. The strictness rider — `theme` on a
+   routeless set is declared-and-ignored and becomes a load error — is
+   **F3**. *(Note for F3: `layout`/`variant` on sets are LIVE — embedding
+   reads them; only `theme` can never apply.)*
 6. **The vocabulary pass** — `shell` ×4, `kind` ×3, `match` ×3 (two path
    bases), `from`/`over`, `layout` ×2, `[[parts]]` vs `parts.toml` `[[kind]]`
    spelling. Two keys this effort measured belong here too: `template`
@@ -2383,7 +2399,11 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    profile's vocabulary is closed — there is no "patch robots in the profile"
    for the message to point at, so an error would be an ultimatum. Confirm,
    or reverse to error / to silence.
-8. **The ancestor takes the global `declared()` name** *(A4 residual, batch
+8. **RESOLVED (2026-07-27): stays as documented** — deterministic,
+   legible via `--effective`, and erroring would forbid §5b's legal
+   ancestor/descendant refinement; a flatten-time warning is the future
+   fix if it ever bites. *(Original:)* **The ancestor takes the global
+   `declared()` name** *(A4 residual, batch
    review 1 finding 4)* — an ancestor and descendant `.schema.toml` may
    legally disagree on a field's type (nearest wins per row), but the global
    filter vocabulary flattens to the ancestor's type, so a `where` can
@@ -2391,12 +2411,15 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    Deterministic, documented on `declared()`, deferred to B3's legibility —
    is that the end state, or should a cross-type ancestor/descendant pair be
    an error too?
-9. **Markers: configured ×5, used ×0** *(A5 + batch review 1 finding 10)* —
-   every site declares `[markers]`, no directory carries a marker file.
-   Keep as documented convention, trim from the base, or leave as-is?
+9. **RESOLVED (2026-07-27): keep as the documented convention** — the scan
+   is ~6ms, the base's three markers are teaching surface, `--effective`
+   shows them. *(Original: configured ×5, used ×0 — keep, trim, or
+   leave?)*
    *(Batch review 2 datum: `--effective` now surfaces the three inherited
    markers to every site, which slightly strengthens "keep".)*
-10. **Is a marker payload a definition or a bag?** *(B1)* — table A says the
+10. **RESOLVED (2026-07-27): CONFIRMED — a definition.** The veto window
+    is closed; the shipped `MarkerDef` default stands. *(Original:)*
+    **Is a marker payload a definition or a bag?** *(B1)* — table A says the
     payload table is the atom (`Descend(1)`); the type is a map of maps, so
     Law 2 derives `Descend(2)`. Inert today (every redeclaration restates the
     base's payload verbatim), and the only key where structure and the hand
@@ -2434,7 +2457,6 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     `data-subtheme="drak"` silently — tokens name nothing the engine knows.
     Validation needs a theme to *declare* its tokens (theme.toml territory,
     themes/DESIGN.md §3), which is a design decision, not a guard.
-14. **`RowAxis::template` is written and never read** *(C5 / batch
-    review 3)* — but it is `Serialize`d, so `grackle export` shows it;
-    retiring it is an observable data-model change. Drop it, keep it, or
-    document it?
+14. **RESOLVED (2026-07-27): drop it — F3.** Declared-and-ignored in the
+    data model; the export-JSON field nothing consumes goes with it.
+    *(Original: written and never read, but `Serialize`d.)*
