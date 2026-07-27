@@ -273,11 +273,28 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
 /// under the drafts profile, which is precisely the leak §4a exists to close.
 /// The row half is not a substitute: a view route has no row to read.
 ///
-/// It runs AFTER materialization, deliberately. Rung 0 says what a surface
-/// SAYS, not what a query SELECTS: writing it earlier would put forced values
-/// into the pool a `*` view filters on, and a profile that changes which URLs
-/// are in the sitemap is a different feature (E2's overlay) with a different
-/// spelling.
+/// **Placement: after every route exists, before anything filters routes**
+/// (MERGE.md R6). It runs once materialization and `build_views`/
+/// `build_star_views` have minted the last route, and the engine's one
+/// `db.routes.select` — `views::resolve_star_views` — runs at the end of
+/// `load`, so a `*` view's `where` reads FORCED routes. That is the law and
+/// not an accident of ordering: rung 0 sits above every reader, the ones that
+/// SELECT as well as the ones that SAY, because §4a's fence puts "which rows
+/// the views admit" inside profile territory in the first place. The row half
+/// is already there by the same law (`schema::force` runs before any view
+/// materializes), so the two pools answer one question the same way.
+///
+/// E1 placed this call here and read it the other way round — "rung 0 says
+/// what a surface SAYS, not what a query SELECTS" — on the strength of
+/// `build_star_views` running one line above. But `build_star_views` only
+/// *mints* the star route; it filters nothing. Nothing between the two calls
+/// reads a route field, so the sentence never described the code.
+///
+/// The one route this does not reach: an on-demand row published by
+/// `build::materialize_referenced`, which mints its route after `load` has
+/// returned. Those are `RouteKind::Object` byte publishes with no head, and
+/// the star pool resolved before they existed, so no reader of theirs is a
+/// reader of rung 0 — stated rather than fixed, as E1 stated it.
 ///
 /// The types come from the site vocabulary (`Schemas::declared`) rather than
 /// from a row's resolved schema, because a route is not in a directory — it is
@@ -1211,6 +1228,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_star_views(cfg, &mut db)?;
+    // Rung 0 into the route pool, at the first point where the pool is whole —
+    // and necessarily before `resolve_star_views` below, which is the only pass
+    // that filters routes (MERGE.md R6). A new route-minting pass belongs above
+    // this line; a new route-FILTERING pass belongs below it.
     force_route_fields(cfg, &mut db, &schemas)?;
     // §6g: relations compile after views, so a relation's `over` set is
     // already resolved. Type errors and cycles surface here, at load.

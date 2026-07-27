@@ -339,6 +339,17 @@ does not touch `[html.head.meta]`: it forces the FIELD, and a site's own
 `robots` expression answers it in the site's own words. The `[profiles.NAME]
 noindex = true` key this replaced is a load error naming the new spelling.
 
+**Rung 0 is above every reader — the ones that SELECT as well as the ones
+that SAY.** A forced field is written before any view materializes and before
+anything filters routes, so a `where` that reads one filters by the forced
+value: `where = "!noindex"` admits nothing under a profile forcing `noindex`,
+in a set over rows and in a `from = "*"` view over routes alike. This is not a
+second feature bolted beside the head expressions — it is the same fence,
+which already puts *what the queries select* inside profile territory, applied
+at the rung above them all. There is one law and one seam; a force that a
+filter could not see would be a rung 0 that stopped at the surface, and the
+first thing to leak through it would be the sitemap. *(MERGE.md E1, R6.)*
+
 **Every declared profile is projected at every load**, not only the one being
 built: the fence, then the merge, then the deserializer, then `validate`, for
 each `[profiles.*]` entry. A projection is part of this config rather than a

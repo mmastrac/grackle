@@ -103,3 +103,104 @@ fn without_the_profile_the_row_keeps_its_own_answer() {
     assert!(!post.contains("robots"), "{post}");
     assert!(!listing.contains("robots"), "{listing}");
 }
+
+// ---------------------------------------------------------------------------
+// Rung 0 is above every reader — selection as well as surface (MERGE.md R6).
+// ---------------------------------------------------------------------------
+
+/// The same force, read by two *filters* instead of by two head expressions.
+///
+/// `row_probe` filters the ROW pool (`from = "published"`, so its clause
+/// conjoins along the `from` chain); `star_probe` filters the ROUTE pool
+/// (`from = "*"`, the sitemap's own shape). Both ask `!noindex`, and under a
+/// profile that forces `noindex = true` both must come out empty: a profile
+/// changes which rows the views admit (§4a), and rung 0 is not exempt from
+/// that because it is the highest rung, it is *especially* not exempt.
+fn pools_site(who: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("grackle-force-pools-{who}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    let files = [
+        (
+            "grackle.toml",
+            "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+             [profiles.drafts.force]\nnoindex = true\n\n\
+             [routes.row_probe]\npath = \"/row-probe/\"\nfrom = \"published\"\n\
+             where = \"!noindex\"\nlayout = \"listing\"\ntitle = \"Row probe\"\n\n\
+             [routes.star_probe]\npath = \"/star-probe.xml\"\nfrom = \"*\"\n\
+             shell = \"sitemap\"\nwhere = '!noindex && (dir || ext == \"html\")'\n",
+        ),
+        (
+            "_posts/2020-01-01-hello.md",
+            "---\ntitle: Hello\n---\n\nProse.\n",
+        ),
+    ];
+    for (rel, body) in files {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
+        std::fs::write(&p, body).unwrap();
+    }
+    dir
+}
+
+/// Build `pools_site` and hand back (row-pool listing, route-pool sitemap).
+fn build_pools(dir: &Path, profile: Option<&str>) -> (String, String) {
+    let cfg = grackle::config::Config::load_profile(&dir.join("grackle.toml"), profile)
+        .expect("the config loads");
+    let mut db = grackle_source::load(&cfg).expect("the site loads");
+    let (out, _) = grackle::build::render_site(&cfg, &mut db).expect("the site renders");
+    let _ = std::fs::remove_dir_all(dir.join("_cache"));
+    let get = |url: &str| {
+        String::from_utf8(
+            out.get(url)
+                .unwrap_or_else(|| panic!("no route at {url} — routes: {:?}", out.keys()))
+                .clone(),
+        )
+        .expect("html is utf-8")
+    };
+    (get("/row-probe/"), get("/star-probe.xml"))
+}
+
+/// One law, both pools: a `where` that reads a forced field selects by the
+/// forced value, whether it ranges over rows or over routes.
+///
+/// The route half is the one nothing guarded before R6, and the ordering it
+/// depends on is subtle enough to deserve a test: `force_route_fields` runs
+/// while the route list is complete, and `resolve_star_views` — the engine's
+/// *only* `db.routes.select` — runs at the end of `load`, so the star pool is
+/// already forced when it is filtered. Nothing said so, and nothing checked it.
+///
+/// Mutation-checked in both directions, each restored:
+///
+/// - move the `force_route_fields` call in `load.rs::load` below the
+///   `resolve_star_views` call and `/star-probe.xml` lists all three URLs
+///   under the profile — the star pool reads unforced routes;
+/// - delete the `schema::force` calls (the row half) and `/row-probe/` links
+///   the post under the profile — the row pool reads unforced rows.
+#[test]
+fn a_forced_field_is_read_by_both_pools_filters() {
+    let dir = pools_site("under");
+    let (rows, routes) = build_pools(&dir, Some("drafts"));
+    assert!(
+        !rows.contains("Hello"),
+        "the row pool must filter on the forced value:\n{rows}"
+    );
+    assert!(
+        !routes.contains("<loc>"),
+        "the route pool must filter on the forced value:\n{routes}"
+    );
+}
+
+/// The control: without the profile nothing is forced, so both filters admit
+/// everything they would have admitted anyway. Without this, the test above
+/// passes just as well against an engine that selects nothing, ever.
+#[test]
+fn without_the_profile_both_pools_admit_everything() {
+    let dir = pools_site("control");
+    let (rows, routes) = build_pools(&dir, None);
+    assert!(rows.contains("Hello"), "{rows}");
+    assert!(
+        routes.matches("<loc>").count() == 4,
+        "the home page, /blog/, /row-probe/ and the post — /star-probe.xml \
+         fails the sitemap's own `dir || ext == \"html\"` clause:\n{routes}"
+    );
+}

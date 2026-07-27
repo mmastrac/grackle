@@ -2477,10 +2477,21 @@ wears.
 noindex = true` already put a view's own declaration into `Route.fields`
 (§4e), so the shape existed; `force_route_fields` writes rung 0 into every
 route once `build_views`/`build_star_views` have run. **After**, deliberately:
-rung 0 says what a surface SAYS, not what a query SELECTS, and writing it
+~~rung 0 says what a surface SAYS, not what a query SELECTS, and writing it
 earlier would put forced values into the pool a `*` view filters on — a profile
-that changes which URLs are in the sitemap is E2's feature with E2's spelling.
-Row-backed routes would inherit the value anyway (they copy `p.fields`), but
+that changes which URLs are in the sitemap is E2's feature with E2's spelling.~~
+**[Corrected 2026-07-27, R6: this sentence was false in both halves, and the
+call site it justified was right anyway.** It was reasoned from
+`build_star_views` running one line above — but that pass only MINTS the star
+route, it filters nothing; the engine's one `db.routes.select` is
+`resolve_star_views`, at the end of `load`, ~280 lines below this call. So a
+`*` view's `where` has always read forced routes, the row pool has always been
+forced before any view materialized, and rung 0 has always decided what a
+query SELECTS as well as what a surface SAYS. Which is the law §4a wanted:
+the fence puts "which rows the views admit" inside profile territory, so the
+rung above them all is not the one exception. R6 changed no ordering — it
+pinned this one with a test and wrote the law down.]** Row-backed routes would
+inherit the value anyway (they copy `p.fields`), but
 the sweep is written to cover every route rather than the ones the row half
 missed, because "every route" is the property the sitemap-leak argument needs.
 On-demand routes materialized later (`build.rs`'s `materialize_referenced`) are
