@@ -2520,6 +2520,23 @@ impl Config {
                     );
                 }
             }
+            // §7 q5 / MERGE.md F3: a set's `theme` can never apply, so declaring
+            // one is declared-and-ignored. A set does not materialize, so there
+            // is no document for a theme to dress; embedded, it is content
+            // inside the HOST's document, and a document wears one stylesheet.
+            // `layout` and `variant` on a set are LIVE by contrast — `tags.rs`'s
+            // `{% view %}` dispatches on the layout and renders through the
+            // variant — so this is about `theme` alone.
+            if v.declared_set && v.theme.is_some() {
+                anyhow::bail!(
+                    "[sets.{vname}] declares a theme, and nothing could ever \
+                     wear it. A set never lands, so there is no page for a \
+                     theme to dress; embedded with {{% view {vname} %}} it \
+                     wears the embedding page's theme. Theme belongs on a \
+                     route — move it to the [routes.*] entry that lands this \
+                     query, or drop it."
+                );
+            }
             for (fname, f) in &v.fields {
                 if f.truncate.is_none() {
                     anyhow::bail!(
@@ -3481,6 +3498,32 @@ mod tests {
         let e = format!("{:#}", c.validate().unwrap_err());
         assert!(e.contains("layout \"tag_index\" is not a layout"), "{e}");
         assert!(e.contains("listing, link_list, card"), "{e}");
+    }
+
+    /// §7 q5 / MERGE.md F3: a set's `theme` can never apply — a set never
+    /// lands, and an embedded set is content in the HOST's document, which
+    /// wears one stylesheet. Declared-and-ignored, so it is a load error.
+    ///
+    /// The controls are the point of the item: a ROUTE's theme is the shape
+    /// this key exists for (its NAME is checked against the registry once the
+    /// themes are loaded — C2), and `layout`/`variant` on a set are LIVE, since
+    /// `{% view %}` dispatches on the one and renders through the other.
+    #[test]
+    fn a_set_may_not_declare_a_theme() {
+        let e = cfg_err(
+            "[sets.latest]\nfrom = \"blog\"\nlimit = 3\n\
+             layout = \"link_list\"\ntheme = \"loud\"\n",
+        );
+        assert!(e.contains("[sets.latest] declares a theme"), "{e}");
+        assert!(e.contains("never lands"), "{e}");
+
+        let c = cfg("[routes.blog_index]\npath = \"/blog/\"\nfrom = \"blog\"\n\
+             layout = \"listing\"\ntheme = \"loud\"\n\
+             [sets.latest]\nfrom = \"blog\"\nlimit = 3\n\
+             layout = \"link_list\"\nvariant = \"compact\"\n");
+        assert_eq!(c.views["blog_index"].theme.as_deref(), Some("loud"));
+        assert_eq!(c.views["latest"].layout.as_deref(), Some("link_list"));
+        assert_eq!(c.views["latest"].variant.as_deref(), Some("compact"));
     }
 
     /// noindex was once hardcoded as `view != "blog_index"`, making every

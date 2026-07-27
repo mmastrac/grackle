@@ -37,15 +37,16 @@ pub struct LinkSpace {
     /// only — *does this row's rule spend that axis at all* — which is what
     /// separates "you selected a member of an axis this row is not on" from
     /// "that member did not materialize". The member's URL comes from
-    /// `member_url`, never from `RowAxis::template`.
+    /// `member_url`, never from a template — which is why `RowAxis` carries a
+    /// name and nothing else (MERGE.md F3).
     source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>>,
     /// q53: (source path, axis, value) → the URL that route ACTUALLY landed at,
     /// for the routes whose every other axis sits at its canonical — which is
     /// what a one-axis selector means.
     ///
     /// A lookup rather than a reconstruction, and that is the whole point
-    /// (MERGE.md C5c). Rebuilding the URL meant picking a template — `axes[0].
-    /// template`, an arbitrary one of the rule's list — and then blaming the
+    /// (MERGE.md C5c). Rebuilding the URL meant picking a template — the first
+    /// of the rule's list, an arbitrary one — and then blaming the
     /// rule when the guess missed, while `select_path` had chosen a different
     /// template for that very member. DESIGN.md q32's law is that producers take
     /// URLs from the owning view rather than construct them; the materialized
@@ -439,8 +440,8 @@ pub fn resolve(
             // q53: the selector picks a member of the row's axis, and the answer
             // is LOOKED UP in the materialized routes rather than rebuilt from a
             // template (MERGE.md C5c). The reconstruction that used to live here
-            // chose `axes[0].template` — an arbitrary member of the rule's path
-            // list — so a rule written `route = ["/{look}/{axis:locale}/",
+            // chose the first of the rule's path list — an arbitrary member of
+            // it — so a rule written `route = ["/{look}/{axis:locale}/",
             // "/{look}/", "/"]` produced a URL `select_path` never issued, and
             // then blamed the rule for not spending a segment it plainly spent.
             if let Some((_axis, value)) = axis_sel {
@@ -886,10 +887,10 @@ mod axis_tests {
         }
     }
 
-    /// One row, published at two looks by a rule with a path list. The row's
-    /// `RowAxis::template` here is DELIBERATELY a template no route used — it
-    /// is `templates.first()`, an arbitrary pick, and the whole point of C5(c)
-    /// is that a member's URL no longer comes from it.
+    /// One row, published at two looks by a rule with a path list. The row says
+    /// only WHICH axis its rule spends — since C5(c) a member's URL comes from
+    /// the routes the build issued, and F3 dropped the template the row used to
+    /// carry beside the name (an arbitrary pick out of the rule's list).
     fn axis_db() -> SiteDb {
         let mut db = SiteDb::seed(Vec::new(), false);
         let key = grackle_db::Key::new("note.md");
@@ -904,7 +905,6 @@ mod axis_tests {
             logical: "note".into(),
             axis: vec![grackle_model::RowAxis {
                 name: "look".into(),
-                template: "/{axis:look}/note/".into(),
             }],
             ..Default::default()
         });
@@ -957,7 +957,6 @@ mod axis_tests {
             logical: "later".into(),
             axis: vec![grackle_model::RowAxis {
                 name: "look".into(),
-                template: "/{axis:look}/later/".into(),
             }],
             ..Default::default()
         });
@@ -1058,10 +1057,7 @@ mod axis_tests {
             logical: "page".into(),
             axis: ["look", "flavor"]
                 .into_iter()
-                .map(|n| grackle_model::RowAxis {
-                    name: n.into(),
-                    template: "/{look}/{flavor}/page/".into(),
-                })
+                .map(|n| grackle_model::RowAxis { name: n.into() })
                 .collect(),
             ..Default::default()
         });

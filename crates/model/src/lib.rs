@@ -255,26 +255,22 @@ impl RouteKind {
     }
 }
 
-/// The axis a ROW's route rule spends (q53 step 2), and the URL template that
-/// spends it — `/{theme}/notes/{slug}/` with the axis segment still unspent.
+/// The axis a ROW's route rule spends (q53 step 2) — the rule's template writes
+/// a `{theme}` (or `{axis:theme}`) segment, and that is what opts its rows in.
 ///
-/// The rule that spends an axis is the rule that opts its rows in: `[axes.*]`
-/// declares values and a field, and the URL shape lives where every other URL
-/// shape lives. `Row.url` is the CANONICAL member's, so links, `by_url` and
+/// `[axes.*]` declares values and a field; the URL shape lives where every other
+/// URL shape lives. `Row.url` is the CANONICAL member's, so links, `by_url` and
 /// every reader that wants "the address of this row" get the right answer
 /// without knowing an axis exists.
+///
+/// The name is all this carries. It used to carry the rule's first template too,
+/// which was an arbitrary pick out of a list and the seed of MERGE.md C5's bug —
+/// a member's address is LOOKED UP in the routes the build issued
+/// (`LinkSpace::member_url`), never rebuilt from a template. Nothing read the
+/// field after C5, so F3 dropped it.
 #[derive(Debug, Clone, Serialize)]
 pub struct RowAxis {
     pub name: String,
-    /// The rule's FIRST template, which is an arbitrary pick when the rule
-    /// declares a list (§6f, the default-axis case) — `select_path` may well
-    /// have chosen another one for any given member.
-    ///
-    /// **Nothing computes a URL from this.** It did, in the link resolver, and
-    /// that was MERGE.md C5's bug: a member's address is looked up in the routes
-    /// the build issued. Kept because `grackle export` serializes it; retiring
-    /// it is a §6-queue question, not a link question.
-    pub template: String,
 }
 
 /// One route's membership of an axis (q53): which axis, which value, and the

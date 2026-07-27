@@ -318,10 +318,7 @@ fn row_axes(cfg: &Config, templates: &[String]) -> Vec<grackle_model::RowAxis> {
     cfg.axes
         .keys()
         .filter(|n| templates.iter().any(|t| spends(t, n)))
-        .map(|name| grackle_model::RowAxis {
-            name: name.clone(),
-            template: templates.first().cloned().unwrap_or_default(),
-        })
+        .map(|name| grackle_model::RowAxis { name: name.clone() })
         .collect()
 }
 
