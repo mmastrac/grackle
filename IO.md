@@ -531,7 +531,7 @@ Two follow-up items (small; run before I6):
   Mutation-check each; parity (all nine corpus themes are bare
   fragments — verified unaffected).
 
-- [ ] **IR5. The tokens warning stops lying twice, and §6c stops
+- [x] **IR5. The tokens warning stops lying twice, and §6c stops
   contradicting.** *(Review I-B findings 4+9.)* (a) `css_pass`'s
   "`_tokens.scss` that nothing imports" warning is false in two shapes:
   a tokens-only theme (the tokens ARE the sheet — pre-existing, GRAVEYARD
@@ -1636,3 +1636,79 @@ ordinary markup the binder passes through. That is deliberate (the hole was
 the wrapper, and a nested `<html>` is not a wrapper) but it is the corner
 where "the engine writes `<html>` itself" is still a convention rather than
 a check.
+
+**2026-07-27 — IR5.** One commit, no bytes. A warning that fired three times
+and was right once.
+
+*One question, asked of one file.* "Does anything import this
+`_tokens.scss`?" lived inside the `theme.scss` pass and read that pass's
+`seen` list, which is the whole bug: it is a question about every source the
+theme compiles, and a per-pass list can only answer for one of them. Both
+false shapes fall out of that, and the fix is one line of scope — pool both
+passes' imports, then ask. Measured on the probe sites rather than reasoned:
+the head-style shape warned, the tokens-only shape warned, and each stopped
+when its own half of the fix landed.
+
+***The tokens-only shape is not an import at all***, which is why pooling
+alone does not cover it. With no `theme.scss` the partial IS the compiled
+sheet — `own = Some(_tokens.scss)` — so no `@import` names it and none could;
+the file is fully alive with an empty import list, the one shape where
+"nothing imports it" and "nothing reads it" come apart. The advice was
+unfollowable on top of being wrong: it names a `theme.scss` the theme does
+not have. Treated as self-importing (`own == tokens`) rather than by
+suppressing the warning when the list is empty, because the empty list is
+also the true case's list.
+
+*The channel, and why it exists.* `Stats::css_warnings` beside `css_errors`,
+pushed where the `eprintln!` already was. A guard fixed into SILENCE cannot
+be tested by scraping a process's stderr in-process, and the alternative — a
+subprocess run of the release binary — is a test harness this suite does not
+have for one warning. Nothing reads the field to decide anything, which is
+the difference between this and `css_errors` (which `build` refuses on).
+The message text is byte-identical to what it was; only its position moved,
+after both passes instead of between them.
+
+*Three-way, two mutations and a control* (`io_root.rs`,
+`the_orphaned_tokens_warning_asks_the_whole_theme`). Silence in the two false
+shapes is asserted *with* the bytes that make it true — `--edge: peru`
+reaches the sheet in both, so the test says the tokens are live rather than
+merely that nobody complained. Mutations, each red alone and each restored:
+drop the head pass's `imported.append` → the head-style case warns again
+(the I5-created half, exactly as the review found it); drop the `!tokens_only`
+term → the tokens-only case warns again. The control is the third assertion,
+and it is the one that matters for a narrowing item — delete the warning
+outright and the first two shapes pass while the real case goes red, so this
+cannot be a removal wearing a fix's clothes.
+
+*§6c, one sentence and no more.* DESIGN.md §6c said a row's `<style>` is
+"hoisted into `<head>`" as an inline block, "not a `<link>`" — the opposite
+of IO.md §6's one-artifact rule and of the `post` layer `css_pass` has
+declared since I5. The blockquote-after-the-heading form §5a already uses,
+saying three things: pre-IO prose, who governs, and that the substance stays
+undecided. The scoping default is named as the live question because it is
+the one a reader would otherwise take as settled. Nothing else in the section
+moved, and no other doc states the warning's rule — §5g and themes/DESIGN.md
+§3 describe where a head style *goes*, not what the orphan check asks — so
+this item's doc surface is one sentence.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built
+in a `git worktree` against this one, over the same content trees into
+separate outputs — byte-identical but for the wall-clock `<updated>` lines,
+stderr identical on all six, file counts 8 / 8 / 83 / 242 / 1828 / 1829,
+unmoved since IR1. The warning inventory could not move and the reason is a
+fact rather than a hope: every corpus theme has a `theme.scss` (so none is
+tokens-only) and no corpus `root.html` has a `<head>` at all (so none imports
+from one) — checked, and the six stderr streams carry no tokens line before
+or after. `cargo test` green (19 result lines); `cargo fmt --check` clean
+under the pin; clippy 49 warnings, the count unchanged against the worktree;
+zero re-blessing.
+
+*For batch review I-C.* Two small things. (i) The surviving warning still
+says "add `@import \"tokens\";` to theme.scss" — correct now, since the only
+shape that reaches it has a `theme.scss`, but a theme whose CSS lives mostly
+in its root head would be told to edit the other file. Left alone: changing
+it would move stderr text for no live site, and the advice is right for the
+shape that triggers it. (ii) `css_warnings` is a test-only channel by
+convention, not by construction — nothing stops a later caller from reading
+it the way `build` reads `css_errors`, and if one ever should, the doc
+comment on the field is where that decision has to be written down.
