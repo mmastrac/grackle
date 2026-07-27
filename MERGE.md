@@ -160,7 +160,7 @@ name with conflicting types are a collision error**, not alphabetical order.
 
 ### Phase A — make the current law enforceable
 
-- [ ] **A1. `deny_unknown_fields` sweep.** Add to `Rule` (config.rs:726 —
+- [x] **A1. `deny_unknown_fields` sweep.** Add to `Rule` (config.rs:726 —
   the worst: `[[collections.rules]] theme = "x"` is silently ignored),
   `Site` (config.rs:604), `I18nCfg` (config.rs:353), `LinksCfg`
   (config.rs:535), `ShellDef` (config.rs:343). Make `.schema.toml` field
@@ -337,6 +337,28 @@ name with conflicting types are a collision error**, not alphabetical order.
 
 *Batch reviews (Fable) append findings here; follow-up items get added to §5
 with a `R` prefix (R1, R2, …). Executed items note deviations here.*
+
+**2026-07-26 — A1.** Landed as specced, with one deviation and one finding.
+
+*Deviation:* the `.schema.toml` expected-error fixture declares its bad field
+in `[schema]` rather than in a positional `.schema.toml`, because a broken
+`.schema.toml` committed **anywhere in this repo** fails grack.com's own load
+(see the finding). Same table, same `parse_fields`, so the error path is the
+same one; the positional-file entry point (`Schemas::add`, which is what names
+the file) is covered by a mutation-checked unit test in `schema.rs` instead.
+
+*Finding, for the queue:* the `.schema.toml` / `.section` walk (`load.rs`
+~873-903) is **root-wide and does not consult the tree collection's
+`exclude`**. grack.com excludes `grackle/**`, yet `cover` — declared only in
+`grackle/examples/field-notes/books/.schema.toml` — type-checks in a grack.com
+`where`. So field-notes' and theme-preview's declarations are silently part of
+grack.com's site vocabulary, at the same rung as its own. A4 will meet this:
+its same-rung collision check would start firing across sites that have nothing
+to do with each other. Not touched here.
+
+Also confirmed: `[site] noindex` is now a parse error (it is `#[serde(skip)]`),
+which matches what its doc comment already promised; `apply_profile` sets it in
+Rust and is unaffected. Both halves are asserted.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
