@@ -831,3 +831,13 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     the base's `{ noindex = true }` would get one key under the table's law
     and both under the type's. Which is the law — and if it is the table's,
     should the payload become a named struct so the types say so?
+
+    **Provisional disposition (B2 proceeds on it; veto at the wrap-up):**
+    the payload is a **definition**. DESIGN.md §4d already lists `[markers]`
+    among the registries that "shadow by name, whole entry", and the
+    registry rule's argument applies with full force — a marker's *meaning*
+    should never be composed of two files ("what does `.archive` mean"
+    answers from one place). The type under-describes the semantics, so B2
+    newtypes the payload (a `MarkerDef` wrapper deriving `Atom`), which
+    empties `KNOWN_EXCEPTIONS` and keeps "derivable from types" honest —
+    the same move Law 2 already makes for `LocalizedStr` (enum = atom).
