@@ -566,7 +566,7 @@ stderr line. Two laws are proposed-and-flagged for Matt's veto at review
 I-C: **most-specific-source ordering** and **a scope owns its source**
 (both verified to reproduce today's behavior on all corpus sites).
 
-- [ ] **I7a. Extension selection becomes rules.** `[[collections]]
+- [x] **I7a. Extension selection becomes rules.** `[[collections]]
   extensions` retires (hard cutoff; four configs migrate in-commit) for
   glob rules in the objects scope; `is_obj`'s pre-rule scan becomes "did
   an objects-scope rule claim this path". Defers: the walk merge, the
@@ -1917,3 +1917,149 @@ rule**, which is the reading §4's law gives and not the only defensible one: "t
 rule that routes the row names its extractor" would also be coherent, and would
 differ exactly when a defaults-only rule sits above a routing rule — grack.com's
 `hidden/**` is that shape, and declares no format.
+
+**2026-07-27 — I7a.** Landed as one commit. A mechanism swap with no bytes in
+it, and the two things worth vetoing are both about *scope*: how wide the case
+ruling goes, and what a site can no longer say.
+
+*The translation, per config — and the brief undercounted by one.* Five configs
+declared `extensions`, not four: **theme-preview declares the same six at
+`grackle.toml:171`** (the brief's "theme-preview's objects scope declares none"
+is false against the tree — what it declares none of is a `source`, which is
+true of every objects scope). Each list became the rule's own glob, verbatim
+and in order:
+
+| config | was | now |
+|---|---|---|
+| `base.toml` | six + `match = "**"` | `match = "**/*.{png,jpg,jpeg,gif,webp,svg}"` |
+| `grackle.toml` (grack.com) | six + `ico`, three rules (`resource/**`, `{code,demos,writing}/**`, `**` on-demand) | each rule's glob gains `/*.{png,jpg,jpeg,gif,webp,svg,ico}` |
+| `examples/field-notes` | six + `**` | `**/*.{png,jpg,jpeg,gif,webp,svg}` |
+| `examples/raw` (`extends = "none"`) | six + `**` | same |
+| `theme-preview` (`extends = "none"`) | six + `**` | same |
+| four fixtures | `{png,jpg}` / `{png}` / `{png}` / `{png,jpg,jpeg}` | the same sets, as globs |
+
+Verified against globset before relying on it: a leading `**/` matches zero
+directories (`**/*.png` claims a root-level `x.png`), and a brace group
+composes with `**` in the middle (`{code,demos,writing}/**/*.{png,jpg}` claims
+`code/x.png` and `code/a/b/x.jpg`, and does not claim `codex/x.jpg`).
+
+***[decided]* Case-insensitive, and on EVERY rule glob rather than the objects
+scope's.** The brief flagged the ruling and named `assets/2004/06/after-theme
+-hack.PNG` as the one row that can tell the two compiles apart. It is, and the
+cost of getting it wrong was measured on a real build rather than argued: with
+`case_insensitive(false)`, grack.com's object set drops **838 → 837**, `by_name`
+**812 → 811**, and `/assets/2004/06/after-theme-hack.PNG` **appears in `grackle
+urls`** — the eager tree catch-all claims what the objects scope let go, so a
+published URL is minted that no rule asked for and the file loses its dimensions
+and its index entry. That is a live-site change, and it is the whole argument
+for the flag.
+
+The scope of the ruling is the part a reviewer might narrow. Compiling only the
+objects scope's globs case-insensitively would reproduce today exactly and
+change nothing else; it was refused because it makes a rule mean one thing for
+images and another for pages, decided by which scope declared it — and **I7d
+merges the two lists into one ordered sequence**, where that distinction would
+have to be justified or deleted. The positive case is that a `match` glob names
+a KIND of file and the shift key is not part of the kind; on the
+case-insensitive filesystems these sites are authored on it is not even
+observable. The widening is real and stated rather than hidden: a front-mattered
+`README.MD` would now render as a page where it used to byte-copy. Measured
+inert on the corpus — 24 files repo-wide carry an upper-cased extension
+(`.POV`, `.TGA`, `.EXE`, `.BAS`, `.WP`, …) and exactly one of them is claimed by
+any rule of any site, the `.PNG`. Reversal is one line.
+
+*The mechanism, and the one place it could not be the whole of `apply_rules`.*
+`is_obj` is `obj_rules.iter().any(|r| r.matcher.is_match(rel))` — the GLOB only,
+not the rule cascade. It cannot be the cascade: `apply_rules` consults a rule's
+`front_matter` gate, and whether a file was peeked for front matter is decided
+BY this answer (the peek is skipped for the ~800 binaries). That reproduces
+today rather than approximating it — an objects rule gated `front_matter = true`
+never routed anything before either, because an object's `has_front_matter` is
+always false, so it claimed a row it could not route and the load failed on "no
+rule supplies a route". The matchers are collected as a `Vec<&GlobMatcher>`
+rather than read off `obj_rules`, because the closure runs inside the parallel
+peek and a `CompiledRule` carries the `Cell<bool>` `dead_rules` writes.
+
+***[declared]* A site can no longer NARROW the base's object extensions.**
+`extensions` was an array and arrays are atoms (MERGE.md table A), so a site
+writing `extensions = ["png"]` replaced the base's six. Rules **prepend**, so a
+site's globs now ADD to the base's inherited `**/*.{png,jpg,jpeg,gif,webp,svg}`
+and there is no spelling that takes one away short of `extends = "none"`. Every
+corpus site declares a superset (grack.com's seven ⊇ the six; the other four
+declare exactly the six, two of them with `extends = "none"` anyway), so the
+merged membership set is identical everywhere and parity is the proof. It is a
+real capability loss and it is Matt's to veto: the only fix is a rule-removal
+mechanism, which I7d re-opens the whole ordering question for anyway. MERGE.md
+table A's `[[collections]]` row was amended — `filename_formats` is its array
+example now, with the retirement noted.
+
+*What the shape guards did, which is what they are for.* Deleting the field
+broke the build at `every_collection_key_has_a_law`'s destructure (A2) and then
+failed `the_shape_covers_the_config_surface` until the `Shape::Struct` entry
+went with it — both designed to fail on exactly this and both did.
+`describe_collection` was the one message that had to be re-thought rather than
+edited: it identified a sourceless collection by its extension list, and that
+list is gone, so it names the rules instead (`"images" (no `source`; rules
+"**/*.png")`). Listed rather than counted, because two objects collections in
+one config differ in what their globs claim and that is the difference the
+reader needs to tell them apart. This is the item's **one re-blessed fixture**
+(`collection-two-objects/expected-error`).
+
+*Three tests, four mutations plus a control, each red and each restored*
+(`crates/grackle/tests/io_objects.rs` — built sites, not loaded ones, because
+what membership BUYS is a header read, an index entry and on-demand routing,
+and a test that asked the loader "is this an object" would pass against an
+engine that published the file anyway). (1) the `.PNG` pin, on grack.com's shape
+minimised — an on-demand objects scope over an eager tree catch-all — asserting
+both halves: the upper-cased file is in the objects scope with its 2×3
+dimensions, and its literal path is NOT published. Mutation: `case_insensitive
+(false)` → both halves red, and the corpus measurement above. (2) the control,
+which is what a narrowing item owes: case-insensitivity widens the case and
+nothing else — `notes.TXT` is still not an object and still ships at its own
+path (mutation: widen the rule to `**/*` → red). (3) the gallery, which is this
+item's own edit run backwards: delete `jpg` from `gallery/**/*.{png,jpg}` and
+the listing over the objects scope goes from two members to zero **while both
+files still ship, at the same URLs, with the same bytes**, by the tree's
+catch-all. The second half is asserted too, because the quiet is the point — a
+build's file list cannot see this mutation, only a query over the scope can.
+A fourth mutation crosses into the config surface: restore the `extensions`
+field and both `an_unknown_config_key_is_a_parse_error` (the retired key, G1's
+line) and `the_shape_covers_the_config_surface` go red.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in a
+`git worktree` against this one, into separate trees with seeded caches so
+binary and config were the only variables — **byte-identical but for the six
+wall-clock `<updated>` lines** (2 diff lines per feed, 0 of them anything else),
+stderr identical for all six, file counts 8 / 8 / 83 / 242 / 1828 / 1829,
+unmoved since IR1. **The object row SET, not just its size**, exported and
+diffed per site: grack.com 838 rows identical (the `.PNG` present in both),
+field-notes 15, theme-preview 9. Counts as the item asks them: objects /
+`by_name` distinct names = 0/0 (minimal), 0/0 (raw), 15/15 (field-notes), 9/9
+(theme-preview), 838/812 (grack.com, 26 ambiguous), 838/812 (drafts) — every
+one unmoved. `cargo test` green (21 result lines); `cargo fmt --check` clean
+under the pin; **clippy 48, one FEWER than HEAD's 49**, and the one that left is
+the line this item deleted (`obj_exts.iter().any(|e| *e == ext)` →
+"using `contains()` instead of `iter().any()`"); re-blessing limited to the one
+expected-error above.
+
+*Docs.* DESIGN.md §0's tour precedence line, §3's origin table, its objects
+bullet and its three-step disjointness list, §4's example config (plus a new
+paragraph stating the retirement and the case rule), §3's C7a paragraph, §5g's
+"aren't `shell: raw` rows just objects" answer, and §6a's PARKED snippet (which
+taught two dead keys and now says so). MERGE.md table A's `[[collections]]` row.
+`manual/OUTLINE.md` untouched per §4 — it teaches `extensions` nowhere, so this
+is the second key change in the sequence that leaves that file honest.
+
+*For batch review I-C.* Four things. (i) **The case ruling's scope** is the call
+to weigh — all rule globs, not just the objects scope's; the argument and the
+one-line reversal are above. (ii) **The narrowing loss** is declared, not
+solved. (iii) **theme-preview's objects scope declares `exclude = ["themes/**"]`
+and that key is DEAD** — `NotContent` is built from the TREE collection alone
+(`load.rs`, one `tree_c.map_or`), and `Collection::exclude` has no other reader,
+so an objects collection's `exclude`/`include` configure nothing. Proven by
+deleting the line and rebuilding theme-preview: byte-identical. Untouched here
+(out of scope, and the site's tree collection excludes `themes/**` too, which is
+what is actually doing the work) — proposed as an item, and it belongs beside
+**I7b**, which is about that exact directory. (iv) **The extractor still reaches
+objects rules** (I6's flag ii), and now those rules are extension-shaped globs;
+nothing changed, but the two capabilities now sit on the same line of config.
