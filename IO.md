@@ -322,7 +322,13 @@ teaching errors until Matt says otherwise — no site ships); corpus
 migrates in-commit under byte-parity gates). IO-specific additions:
 every item updates DESIGN.md where it makes a section false (this
 document must not create the doc-rot it was born from), and every item
-notes its **[open]** resolutions in §11's log. Fable batch reviews at the
+notes its **[open]** resolutions in §11's log. **Migration sweeps grep
+`[profiles.*]` overlay bodies too** — E2's atom law duplicated view
+definitions into profile overlays (grack.com's drafts profile carries
+`kind ==` twice and `from = "*"` three times), and while E2's every-load
+dry run catches *syntactic* misses there (retired keys), a semantically
+valid unmigrated copy will not fail — the grep is the guard (batch
+review 4). Fable batch reviews at the
 marked points; findings append to §11 and may file R-items.
 
 ### Phase I-A — facts beside the fossil
@@ -344,7 +350,12 @@ marked points; findings append to §11 and may file R-items.
 - [ ] **I3. `from = "*"` retires.** A fold shell with no `from` reads all
   outputs (at this stage: the route set — the facts half already exists);
   the star spelling is removed (hard cutoff); a fold's `from` naming a set
-  selects those inputs' outputs through the join. Parity.
+  selects those inputs' outputs through the join. **Sequenced after
+  MERGE R6, and states its rung-0 side explicitly**: fold selection —
+  whether over the output pool or through an inputs-set join — sees
+  forced fields per R6's unified law, so a forcing profile legitimately
+  changes fold membership (the robots_txt design depends on exactly
+  this). Parity.
 
 *→ Batch review I-A.*
 

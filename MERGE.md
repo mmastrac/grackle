@@ -1,7 +1,8 @@
 # MERGE.md — one precedence law, one atomicity law
 
-**Status: phases A–F DONE** (F3 landed the two strictness closures,
-2026-07-27); **G remains**, then batch review 4 over E1–G2.
+**Status: phases A–G DONE; batch review 4 complete (2026-07-27) — verdict:
+the MERGE pipeline is complete and sound.** Two closing R-items (R6, R7)
+remain from review 4; then this ledger hands off to IO.md's.
 The final review (2026-07-27, §6) verified the whole effort end to end: no
 surviving hand dispatch beyond the two annotations, every table row matches
 shipped behavior, five randomly-chosen guards still fail under mutation, the
@@ -596,6 +597,34 @@ don't add new ones.)
   glob-over-files sense. Parity: byte-identical everywhere; both halves
   mutation-checked; the collection-relative vs root-relative footgun
   should now be impossible to write. *[parity]*
+
+- [ ] **R6. The rung-0 seam, unified.** *(Batch review 4, finding 1 —
+  gates IO I3.)* Row-pool selection sees forced fields (a `where =
+  "!noindex"` set selects differently under a forcing profile — proven by
+  probe); route/star pools do not (`force_route_fields` runs after
+  `build_star_views`, so a star view's `where` reading a forced field
+  misses it). The split is undocumented and E1's §6 "SAYS not SELECTS"
+  sentence is false for row pools. Unify toward VISIBILITY: move the
+  route-fields force before star materialization so both pools see
+  rung 0 — §4a's own law says a profile changes "which rows the views
+  admit", and IO's robots_txt design explicitly wants folds seeing forced
+  facts. Document the unified law in DESIGN §4a's force paragraph and
+  correct E1's §6 sentence. Mutation-check with a star view filtering a
+  forced field (selects under the profile; delete the move → misses).
+  Parity holds (no corpus filter reads a forced field — verify).
+  If a genuine blocker surfaces, fall back to documenting the asymmetry
+  as law instead, propose-and-flag. *[parity]*
+
+- [ ] **R7. The deserialize-fallback must not mask real errors.** *(Batch
+  review 4, finding 2.)* `from_toml_profile`'s fallback re-parses the
+  site's text without the base merge to get spanned errors; on a site
+  that doesn't restate base-supplied `[site]` keys, the re-parse fails
+  first with a spurious `missing field` and the `?` swallows the real
+  error (probe: a retired-spelling error in a profile overlay reported as
+  `missing field author`). Post-hard-cutoff, `deny_unknown_fields` is the
+  only teaching surface for three retired spellings — it must not be
+  masked. Fix: return the re-parse error only when it reproduces the
+  original failure; otherwise the original. Mutation-check both paths.
 
 *→ Batch review 4 after G2, covering E1, E2, F1, F2, F3, G1, G2 (the fmt
 commit reviewed by confirming `git diff -w` emptiness, not by reading
@@ -2866,7 +2895,8 @@ about it.* C5's queue note (i), batch review 3 finding 6 and q14 all say the
 field is `Serialize`d and therefore visible in the export, so removing it is
 an observable data-model change. `RowAxis` does derive `Serialize` — which is
 presumably what was read — but its only holder is `Row::axis`, and that field
-has been `#[serde(skip)]` since it was introduced (421a659, back when it was
+has been `#[serde(skip)]` since it was introduced (0610452 — corrected by
+batch review 4; 421a659 only re-shaped the field — back when it was
 an `Option<RowAxis>`). Measured rather than reasoned: `grackle export
 --pretty` on theme-preview, the corpus's one live axis site, contains **zero**
 occurrences of `"template"` before this commit as well as after, and the two
@@ -3168,6 +3198,34 @@ glob**" is a bullet heading there), all untouched per §4. Its other `match`es
 that file, after `bucket` (F1) and relations' `over` (G1); the wrap-up line
 about it now covers three. (ii) `IO.md` §10 was not read or touched — it is a
 queued future ledger, per the brief.
+
+**2026-07-27 — Batch review 4 (Fable), covering E1, E2, F1, F2, F3, G1,
+G2 — the final MERGE batch.** Verdict: **complete and sound; the IO ledger
+is clear to start** once R6 lands (or is written down) ahead of I3. Seven
+mutation claims re-executed and held; E1's 552 drafts-robots metas and
+E2's provenance output verified live; F2's purity independently
+re-established (proc-macro2 token streams — 5 files token-identical, every
+remaining hunk a comma/brace/use-reorder, zero comment changes); F3's
+disproof confirmed from history (with a one-commit citation correction:
+`Row::axis` carried serde(skip) from 0610452, not 421a659); G1 left zero
+fix-it remnants; G2's surviving `match` keys all sit in rules. Findings:
+
+1. *should-fix → R6 (filed):* the rung-0 seam is asymmetric — row pools
+   see forced fields, star pools don't — and the §6 claim is false for
+   row pools. Corpus-inert; gates IO I3.
+2. *should-fix → R7 (filed):* the deserialize fallback masks teaching
+   errors on base-leaning sites — pre-existing, but E2 funnels every
+   overlay error through it.
+3. *notes:* the fence's `project()` call site is guarded only via
+   `check_profiles` (defense in depth, recorded); G2's `||`-parenthesis
+   footgun left theoretical (no guard warranted); §4's amended rules read
+   true against the tree.
+4. *IO §10 amendments (applied):* I3 states its rung-0 side and sequences
+   after R6; migration sweeps must grep `[profiles.*]` overlay bodies
+   (E2's atom law duplicated view definitions into grack.com's drafts
+   profile — `kind ==` ×2, `from = "*"` ×3 there); E2's dry run named as
+   the ally that catches *syntactic* misses in overlays while semantic
+   ones need the grep.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
