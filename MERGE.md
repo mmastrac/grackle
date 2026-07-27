@@ -321,7 +321,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   is checked (config.rs:1416-1425). Validate `trail` names a grouped,
   routed view; mutation-check both.
 
-- [ ] **C4. Silent-name sweep: `[i18n.names]`, `.slots/` stems, `axes`
+- [x] **C4. Silent-name sweep: `[i18n.names]`, `.slots/` stems, `axes`
   identity collision.** (a) `[i18n.names]` keys validate against declared
   locales (config.rs:361-363 — the one localized string outside the net).
   (b) A `.slots/` file whose stem names no known slot warns, naming the
@@ -1415,6 +1415,95 @@ matched rows but never WON a route and set no defaults, which is a rule doing
 nothing by a different route; distinguishing the two needs the cascade to
 record which rule won, and the message would have to explain a subtlety the
 author probably did not intend. Left as one warning with one meaning.
+
+**2026-07-27 — C4.** Landed as one commit: three names, one sentence
+("something read this and dropped it"), and (c) is what makes (b) able to
+say `axes` is not a slot.
+
+*(c) answers the identity-set question by DELETING from the hand list rather
+than adding to it.* The item asked for engine stream slots to leave the set by
+their part type; the type answers more than that. A `.slots/` fill is HTML by
+construction — `Fill::render` produces markup and `page` sets it as
+`Part::Html` — so the identity set is exactly the shell's `html`-typed slots
+minus the ones the engine fills. `site_title` (`text`) and `axes`
+(`stream:axis`) both fall out of the type, which leaves `main` as the single
+hand-written name, because no type can say "the engine renders into this".
+The list went from two names to one while gaining a case it never had. The
+part schema is reachable — `from_sources` already called `schemas.get("shell")`
+to leak the name; it now takes the type from the same tuple.
+
+*How bad `axes` was, measured rather than asserted:* with the fill present and
+the exclusion missing, the build panics on `parts.rs`'s own type assertion
+(`part 'axes' on 'shell' does not match its declared type`) — in a debug
+build. In release those assertions are off, so the shell part map would carry
+the switcher's `Stream` and the fill's `Html` under one name, with `get`
+answering the first. So the failure mode was "panics in test, silently
+double-writes in production", which is the worst of the three and the reason
+the fixture (rather than a unit test) is what guards it.
+
+*(b) the union, and the one line that is a judgement call.* `known` is the
+union of every loaded theme's identity slots, because shells differ and a
+site that switches themes keeps both sets of words. The base theme joins the
+union on exactly the condition `Themes::get` reaches it — there is no
+`themes/default` for it to stand behind. That makes the rule "every theme that
+can render", not "every theme plus the floor", and it has a consequence worth
+stating: a site whose `themes/default/shell.html` drops `copyright`, with no
+other theme, now WARNS about its own `.slots/copyright.md`. That is the hazard
+`no_theme_shell_drops_an_identity_slot` calls live, reported rather than
+merely linted, and it is the assertion that mutation-checks the condition.
+
+*Where it is said, and why not in `load`.* The knowledge is in the `grackle`
+crate: slot names come from the themes, which do not exist until
+`Themes::load_all` has run inside `render_site`. So the check sits beside C2's
+`check_theme_names`, appends to `SiteDb::warnings` and prints C3's `grackle: `
+line itself. Every `render_site` caller loads a fresh `SiteDb` (`serve`
+re-reads the world on every change), so nothing accumulates.
+
+*`SiteDb::warnings` stayed a `Vec<String>` — C3's note (i), weighed and
+declined.* The second warning class is here and the shape a typed channel
+would want is not yet legible: C3's is `(collection, rule)` and this one is
+`(file, stem)`, and D1's planned `bucket` warning is `(config key)`. Three
+warnings with three different subjects would type as a three-variant enum
+whose only common operation is `Display` — which is what `String` already is.
+The line to watch is a consumer that wants to FILTER (a `--quiet=dead-rules`,
+or `serve` surfacing warnings in the debug payload); the day one exists, the
+variant carries something. Filed rather than built.
+
+*Locale suffixes, since they are most of the corpus.* `nav.fr` is the stem
+`nav.fr` (§6f: the dotted stem simply IS the localized slot name), so the
+check strips a trailing segment only when it names the default locale or one
+of `[i18n] locales`. `nav.frr` is therefore its own dead name and is reported,
+which is a small free extra — an undeclared locale suffix was as silent as a
+misspelt slot.
+
+*Corpus: nothing tripped, and the honest report the item asked for.* Three
+`.slots/` directories outside the fixtures — the site root (`copyright.md`,
+`nav.md`), field-notes (those two plus `.fr` twins), theme-preview
+(`copyright.md`) — and every stem is live under its site's themes. Both
+`[i18n.names]` tables in the repo (field-notes, the `locale-listing` fixture)
+name `en` and `fr` only, which is the default plus the declared locale. So
+there is no dead name anywhere in the corpus to report, and both checks are
+inert on today's five sites. Verified live, not merely by the suite: dropping
+`Nav.md` and `axes.md` into theme-preview's `.slots/` produces both messages,
+including the did-you-mean.
+
+*Parity:* all five sites built before and after into separate trees and diffed
+— byte-identical but for each feed's wall-clock `<updated>`. Zero re-blessing;
+no new fixture (the `locale-axis` fixture gained a `.slots/axes.md` whose
+whole assertion is that its output does NOT change); clippy's warning multiset
+identical. Formatted by hand (§4): `rustfmt` still wants two hunks in
+`config.rs` at lines 2010 and 2553 that this work never touched.
+
+*For the queue (small).* (i) `Themes::fills()` returns the null theme's
+`SlotFills`, because every `Theme` scans the same tree at load and keeps its
+own copy — N identical walks per build, N identical maps in memory. Noted, not
+optimised: hoisting the scan out of `Theme` is a constructor change across
+`load`/`null`/`from_sources` and belongs with whoever next touches theme
+loading. (ii) `slots.rs`'s hard-coded `SKIP` list is untouched, so A6's
+isolation note still stands unchanged. (iii) The warning fires per BUILD, not
+per theme, so a fill dead for the theme a row actually wears — but live for
+some other loaded theme — is still silent. That is the union's deliberate
+cost, and narrowing it would mean warning about a theme nobody rendered.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
