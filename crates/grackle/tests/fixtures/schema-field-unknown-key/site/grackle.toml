@@ -4,10 +4,11 @@
 # than the engine ever treated it.
 #
 # Declared here rather than in a `.schema.toml` beside the rows, which is the
-# case this is really about: the `.schema.toml` walk (load.rs) is root-wide and
-# does not consult the tree collection's `exclude`, so a deliberately-broken
-# declaration anywhere in this repo fails grack.com's own load. Same table,
-# same `parse_fields`; schema.rs's unit test covers the positional file.
+# case this is really about: when this fixture was written the `.schema.toml`
+# walk was root-wide, so a deliberately-broken declaration anywhere in this
+# repo failed grack.com's own load. R1 closed that — see the `excluded-schema`
+# fixture, whose broken declaration is committed and inert. Same table, same
+# `parse_fields`; schema.rs's unit test covers the positional file.
 extends = "none"
 
 [site]

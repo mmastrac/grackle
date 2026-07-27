@@ -203,19 +203,73 @@ fn is_git_dir(e: &ignore::DirEntry) -> bool {
     e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"
 }
 
+/// The *declared* not-content layer of DESIGN.md §4c — a collection's
+/// `exclude`, with `include` re-adding ahead of it — compiled once and read
+/// by every walk of the site root.
+///
+/// It is one value rather than two globsets passed around because the walks
+/// must reach the same verdict: the vocabulary walk carrying its own idea of
+/// what lies outside the site is how `cover`, declared under grack.com's
+/// excluded `grackle/**`, became part of grack.com's field vocabulary
+/// (MERGE.md R1 — q34's disease, one rung up).
+#[derive(Clone)]
+pub struct NotContent {
+    exclude: globset::GlobSet,
+    include: globset::GlobSet,
+}
+
+impl NotContent {
+    pub fn new(exclude: globset::GlobSet, include: globset::GlobSet) -> NotContent {
+        NotContent { exclude, include }
+    }
+
+    /// Is `rel` (root-relative) still inside the site?
+    fn keeps(&self, rel: &Path) -> bool {
+        rel.as_os_str().is_empty() || self.include.is_match(rel) || !self.exclude.is_match(rel)
+    }
+}
+
+/// A walk of the site root for files that are not content but *declare*
+/// things about it: marker files (§4b) and the `.schema.toml` / `.section`
+/// vocabulary walk (§5b, §6e).
+///
+/// It honours `.gitignore` and the declared `exclude`, but NOT the
+/// dot/underscore skip — these walks are looking for dotfiles, and markers
+/// live under `_posts`, so that skip would hide the very thing being sought.
+///
+/// `exclude` is applied to **directories only**, which makes the reachable
+/// directory set a superset of the tree walk's. Pruning the subtree is what
+/// these walks need from it: an embedded site under an excluded directory
+/// (grack.com's `grackle/**`) must not put its declarations into its host's
+/// vocabulary. A file-shaped pattern is a statement about *content* —
+/// grack.com's `exclude` lists `*.toml` — and must not silently unspeak a
+/// declaration, which is the same silent loss in the other direction.
+pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ignore::WalkBuilder {
+    let root_owned = root.to_path_buf();
+    let not = not.clone();
+    let mut b = walker(root, gitignore);
+    b.filter_entry(move |e| {
+        if is_git_dir(e) {
+            return false;
+        }
+        if !e.file_type().is_some_and(|t| t.is_dir()) {
+            return true;
+        }
+        match e.path().strip_prefix(&root_owned) {
+            Ok(rel) => not.keeps(rel),
+            Err(_) => true,
+        }
+    });
+    b
+}
+
 /// Walk the site root the way Jekyll does: skip dot- and underscore-prefixed
 /// entries and anything matching `exclude`, unless `include` re-adds it.
 /// `.gitignore` is honoured underneath (see `walker`).
-pub fn walk_tree(
-    root: &Path,
-    exclude: &globset::GlobSet,
-    include: &globset::GlobSet,
-    gitignore: bool,
-) -> Result<Vec<TreeFile>> {
+pub fn walk_tree(root: &Path, not: &NotContent, gitignore: bool) -> Result<Vec<TreeFile>> {
     let mut out = Vec::new();
     let root_owned = root.to_path_buf();
-    let inc = include.clone();
-    let exc = exclude.clone();
+    let owned = not.clone();
 
     let mut b = walker(root, gitignore);
     b.filter_entry(move |e| {
@@ -225,17 +279,14 @@ pub fn walk_tree(
         let Ok(rel) = e.path().strip_prefix(&root_owned) else {
             return true;
         };
-        if rel.as_os_str().is_empty() {
-            return true;
-        }
-        if inc.is_match(rel) {
+        if rel.as_os_str().is_empty() || owned.include.is_match(rel) {
             return true;
         }
         let name = e.file_name().to_string_lossy();
         if name.starts_with('.') || name.starts_with('_') {
             return false;
         }
-        !exc.is_match(rel)
+        owned.keeps(rel)
     });
 
     for entry in b.build() {
@@ -248,8 +299,10 @@ pub fn walk_tree(
             Err(_) => continue,
         };
         // filter_entry prunes directories; re-check files that slipped through
-        // via an ancestor being allowed.
-        if !include.is_match(&rel) && exclude.is_match(&rel) {
+        // via an ancestor being allowed. Unlike the declaration walk, a file
+        // pattern does exclude a file here: this walk is the one deciding what
+        // is content.
+        if !not.keeps(&rel) {
             continue;
         }
         let meta = entry.metadata()?;

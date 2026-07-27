@@ -25,11 +25,18 @@ impl Markers {
     ///
     /// Deliberately does not honour the dotfile/underscore skip: markers *are*
     /// dotfiles, and they live under `_posts`, so that skip would hide the very
-    /// thing we're looking for. That leaves `.gitignore` (via `store::walker`)
-    /// as what keeps this walk out of `_site*`, `vendor` and `target` — without
-    /// some form of pruning it costs ~80ms instead of ~6ms. Only names are
-    /// inspected; no file is read.
-    pub fn scan(root: &Path, cfg: &BTreeMap<String, Defaults>, gitignore: bool) -> Result<Self> {
+    /// thing we're looking for. The other two §4c layers do apply —
+    /// `.gitignore` is what keeps this walk out of `_site*`, `vendor` and
+    /// `target` (without some form of pruning it costs ~80ms instead of ~6ms),
+    /// and `exclude` keeps it out of an embedded site that is not this one.
+    /// `store::walker_declarations` owns both. Only names are inspected; no
+    /// file is read.
+    pub fn scan(
+        root: &Path,
+        cfg: &BTreeMap<String, Defaults>,
+        gitignore: bool,
+        not: &crate::store::NotContent,
+    ) -> Result<Self> {
         let mut m = Markers {
             names: cfg.keys().cloned().collect(),
             ..Default::default()
@@ -37,8 +44,7 @@ impl Markers {
         if cfg.is_empty() {
             return Ok(m);
         }
-        let mut b = crate::store::walker(root, gitignore);
-        b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
+        let b = crate::store::walker_declarations(root, not, gitignore);
         for entry in b.build().filter_map(|e| e.ok()) {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;

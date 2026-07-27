@@ -558,14 +558,15 @@ fn build_tree_and_objects(
     obj_c: Option<&Collection>,
     markers: &Markers,
     schemas: &Schemas,
+    // Compiled by `load` from this very collection, and shared with the marker
+    // and vocabulary walks so all three agree on what is not content (§4c).
+    not_content: &store::NotContent,
 ) -> Result<(Vec<Row>, Vec<Row>)> {
     let Some(tree_c) = tree_c else {
         return Ok((Vec::new(), Vec::new()));
     };
     let root = cfg.root();
-    let exclude = build_globset(&tree_c.exclude)?;
-    let include = build_globset(&tree_c.include)?;
-    let files = store::walk_tree(&root, &exclude, &include, cfg.gitignore)?;
+    let files = store::walk_tree(&root, not_content, cfg.gitignore)?;
 
     // A file claimed as a view's template is not independently routable: the
     // view owns its routes. (`blog/index.html` is rendered once per paginated
@@ -863,16 +864,47 @@ fn resolve_image_fields(db: &SiteDb, schemas: &Schemas) -> Result<()> {
 
 pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut db = SiteDb::default();
-    let t_m = std::time::Instant::now();
     let root = cfg.root();
-    let markers = Markers::scan(&root, &cfg.markers, cfg.gitignore)?;
+
+    // Which collection owns the tree is decided FIRST, because its `exclude` /
+    // `include` are the site's declaration of what is not content (§4c) and
+    // every walk of the root reads them from here: the tree walk, the marker
+    // scan, and the vocabulary walk below. One list, one reader — a walk with
+    // a private copy of "what to skip" is q34's disease, and it is how an
+    // embedded site's `.schema.toml` (`cover`, under `grackle/examples/`)
+    // joined grack.com's own field vocabulary at the same rung.
+    let mut tree_c = None;
+    let mut tree_name = String::new();
+    let mut obj_c = None;
+    let mut obj_name = String::new();
+    for (name, c) in &cfg.collections {
+        match c.kind {
+            Kind::Tree => {
+                tree_c = Some(c);
+                tree_name = name.clone();
+            }
+            Kind::Objects => {
+                obj_c = Some(c);
+                obj_name = name.clone();
+            }
+            Kind::Posts => {}
+        }
+    }
+    let empty: &[String] = &[];
+    let not_content = store::NotContent::new(
+        build_globset(tree_c.map_or(empty, |c| &c.exclude))?,
+        build_globset(tree_c.map_or(empty, |c| &c.include))?,
+    );
+
+    let t_m = std::time::Instant::now();
+    let markers = Markers::scan(&root, &cfg.markers, cfg.gitignore, &not_content)?;
     db.stats.markers_ms = t_m.elapsed().as_secs_f64() * 1000.0;
     db.stats.markers = markers.found;
 
     // The engine-vocabulary walk: `.section` scope markers (§6e) and
     // `.schema.toml` field declarations (§5b) — positional names like
     // `.slots/`, no config entries. One name-only pass with the same
-    // .gitignore defence as the marker scan.
+    // .gitignore and `exclude` defences as the marker scan.
     let mut schemas = Schemas::new(grackle_model::row_schema());
     // The config axes first, so a positional `.schema.toml` is the NEAREST
     // declaration and wins per name (§5b).
@@ -884,8 +916,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             &format!("grackle.toml [collections.{cname}.schema]"),
         )?;
     }
-    let mut b = store::walker(&root, cfg.gitignore);
-    b.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"));
+    let b = store::walker_declarations(&root, &not_content, cfg.gitignore);
     for entry in b.build().filter_map(|e| e.ok()) {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
@@ -905,35 +936,21 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     db.sections.sort();
     // The site vocabulary travels with the database (§4e).
     db.declared = schemas.declared_schema();
-    let mut tree_c = None;
-    let mut obj_c = None;
-    let mut obj_name = String::new();
 
     // Several collections may feed the posts table — `_posts` and
     // `_drafts` are two sources of one corpus — so rows are gathered
     // first and indexed once, over all of them.
     let mut post_rows: Vec<Row> = Vec::new();
-    let mut tree_name = String::new();
     for (name, c) in &cfg.collections {
-        match c.kind {
-            Kind::Posts => {
-                let (rows, read_ms) = read_posts(cfg, name, c, &markers, &schemas)?;
-                post_rows.extend(rows);
-                db.stats.read_ms += read_ms;
-            }
-            Kind::Tree => {
-                tree_c = Some(c);
-                tree_name = name.clone();
-            }
-            Kind::Objects => {
-                obj_c = Some(c);
-                obj_name = name.clone();
-            }
+        if c.kind == Kind::Posts {
+            let (rows, read_ms) = read_posts(cfg, name, c, &markers, &schemas)?;
+            post_rows.extend(rows);
+            db.stats.read_ms += read_ms;
         }
     }
     let t = std::time::Instant::now();
     let (page_rows, objects) = build_tree_and_objects(
-        cfg, &tree_name, tree_c, &obj_name, obj_c, &markers, &schemas,
+        cfg, &tree_name, tree_c, &obj_name, obj_c, &markers, &schemas, &not_content,
     )?;
     db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
 

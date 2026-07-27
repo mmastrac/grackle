@@ -1,0 +1,40 @@
+# An embedded site's field declarations are not this site's vocabulary.
+#
+# `embedded/` is excluded (§4c) exactly the way grack.com excludes
+# `grackle/**` — a whole other site checked out inside this one. Its
+# `.schema.toml` declares `cover`, and the `.schema.toml`/`.section` walk used
+# to scan the root without consulting `exclude`, so `cover` type-checked in
+# THIS site's `where` clauses: two unrelated sites sharing one vocabulary at
+# one rung (MERGE.md R1, q34).
+#
+# So the route below is a typo now, and the load says so. Delete the walk's
+# exclude consultation and `cover` becomes known again — this fixture renders
+# instead of failing.
+#
+# `embedded/broken/.schema.toml` is not valid TOML. It is here for the other
+# half: a walk that reads it fails the load outright, which is why a broken
+# declaration committed anywhere in a repo used to be unsafe (MERGE.md §6,
+# A1's deviation). Under an excluded directory it is now inert.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Excluded"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+exclude = ["embedded/**"]
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+[routes.covered]
+path = "/covered/"
+from = "*"
+where = 'cover != ""'
+layout = "listing"
+title = "Covered"
