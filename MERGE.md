@@ -1,8 +1,9 @@
 # MERGE.md — one precedence law, one atomicity law
 
 **Status: phases A–G DONE; batch review 4 complete (2026-07-27) — verdict:
-the MERGE pipeline is complete and sound.** Two closing R-items (R6, R7)
-remain from review 4; then this ledger hands off to IO.md's.
+the MERGE pipeline is complete and sound.** Two closing R-items were filed by
+review 4; **R6 has landed** (it moved no code — see §6), so **R7** is the last
+one; then this ledger hands off to IO.md's.
 The final review (2026-07-27, §6) verified the whole effort end to end: no
 surviving hand dispatch beyond the two annotations, every table row matches
 shipped behavior, five randomly-chosen guards still fail under mutation, the
@@ -598,7 +599,7 @@ don't add new ones.)
   mutation-checked; the collection-relative vs root-relative footgun
   should now be impossible to write. *[parity]*
 
-- [ ] **R6. The rung-0 seam, unified.** *(Batch review 4, finding 1 —
+- [x] **R6. The rung-0 seam, unified.** *(Batch review 4, finding 1 —
   gates IO I3.)* Row-pool selection sees forced fields (a `where =
   "!noindex"` set selects differently under a forcing profile — proven by
   probe); route/star pools do not (`force_route_fields` runs after
@@ -3223,7 +3224,11 @@ fix-it remnants; G2's surviving `match` keys all sit in rules. Findings:
 
 1. *should-fix → R6 (filed):* the rung-0 seam is asymmetric — row pools
    see forced fields, star pools don't — and the §6 claim is false for
-   row pools. Corpus-inert; gates IO I3.
+   row pools. Corpus-inert; gates IO I3. **[Half-corrected 2026-07-27 by
+   R6: the §6 claim is false for BOTH pools, and the asymmetry does not
+   exist — the star half of this finding was inferred from
+   `build_star_views`, which mints the star route and filters nothing. See
+   R6's entry below.]**
 2. *should-fix → R7 (filed):* the deserialize fallback masks teaching
    errors on base-leaning sites — pre-existing, but E2 funnels every
    overlay error through it.
@@ -3237,6 +3242,72 @@ fix-it remnants; G2's surviving `match` keys all sit in rules. Findings:
    profile — `kind ==` ×2, `from = "*"` ×3 there); E2's dry run named as
    the ally that catches *syntactic* misses in overlays while semantic
    ones need the grep.
+
+**2026-07-27 — R6.** Landed as one commit, and it moved no code: **the seam
+was already unified; the sentence describing it was not.** The item's own
+falsification clause is what fired — not the fallback (no blocker), but the
+better outcome: measure first, and the measurement said the wanted behavior
+ships.
+
+*The finding's row half is true and its star half was inferred.* Batch review
+4 proved the row pool by probe (its site is still in the scratchpad: a
+`[sets.visible] where = "!noindex"` and nothing star-shaped) and reasoned the
+star half from `force_route_fields` sitting one line *after*
+`build_star_views` in `load`. But `build_star_views` **mints** the star
+route — it evaluates no filter. The engine has exactly one `db.routes.select`
+in it (`views.rs:838`, `resolve_star_views`), and `load` calls it at the very
+end, ~280 lines below the force. Nothing between the two calls reads a route
+field, and no pass in that window mints a route either. So the force has
+always landed on a complete route pool, before the only thing that filters
+one.
+
+*Probed rather than argued, because that is the trap this item is made of.*
+A temp site with `[profiles.p.force] noindex = true` and a star route
+`where = '!noindex && (dir || ext == "html")'`: under the profile the sitemap
+comes out **empty**; without it, three URLs. Rung 0 decides what a query
+SELECTS on both pools, and always has.
+
+*What changed, then.* The two tests that pin it (`profile_force.rs`, beside
+E1's — one site, a row-pool route and a star route asking the same `!noindex`,
+plus the control that keeps them from passing against an engine that selects
+nothing). Mutation-checked in both directions, each restored: move the
+`force_route_fields` call below `resolve_star_views` and the star pool lists
+all four URLs under the profile (row-backed routes keep the value regardless —
+they copy `p.fields` — so the ones that fail are the view routes, which is
+exactly the sitemap-leak shape); delete the two `schema::force` calls and the
+row pool links the post. Before R6 nothing guarded this ordering at all,
+which is how a reviewer came to read it backwards from the call sequence.
+
+*The three false claims, corrected where each lived.* `force_route_fields`'s
+doc comment asserted the SAYS/SELECTS split as a deliberate design and is
+rewritten to state the real constraint (after every route exists, before
+anything filters routes) with the call site marking where a new minting pass
+and a new filtering pass each belong; DESIGN.md §4a's force paragraph gains
+the unified law — and it is not a new law, since §4a's fence already put
+"which rows the views admit" inside profile territory; E1's §6 sentence is
+struck in place with a dated bracketed correction rather than rewritten, per
+§4.
+
+*Parity, and the grep it rests on.* `noindex` is the only forced field in the
+repo, and no `where` anywhere reads it — checked across every config
+including grack.com's `[profiles.drafts]` overlay body, whose restated
+`sets.published` and `routes.search` read `hidden` and `kind`. All six trees
+(five sites + grack.com `--profile drafts`) built before and after from a
+`git worktree` of HEAD with its own binary: byte-identical but for each
+feed's wall-clock `<updated>`, no stderr difference. `cargo test` green;
+`cargo fmt --check` clean under the pin; zero re-blessing.
+
+*For the record (E1 stated it; R6 restates it with the reason).* On-demand
+rows published by `build::materialize_referenced` mint their routes after
+`load` has returned, so rung 0 never reaches them. Inert by construction
+rather than by luck: they are `RouteKind::Object` byte publishes with no head
+to evaluate, and the star pool resolved before they existed — so no reader of
+theirs is a reader of rung 0. The day an on-demand route grows a head, or a
+filter runs after the render pass, that becomes live.
+
+*For IO I3.* Its rung-0 side is unblocked and needs no code: a fold reading a
+forced fact already sees it, on rows and on routes, and `profile_force.rs`
+now fails if that stops being true.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
