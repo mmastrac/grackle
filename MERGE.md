@@ -381,23 +381,42 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   collection at source `_posts`". `View::inherited` already records what's
   needed.
 
-*→ Batch review 3 after C7.*
+*→ Batch review 3 after C7.* ✓ done — findings in §6; verdict: sound to
+proceed to Phase D and the final review. One new item:
+
+- [ ] **R5. Every declared profile validates at load.** *(Batch review 3, from
+  C6's queue note 1.)* Placement (sets/routes) and view-name checks currently
+  run at `apply_profile`, so a typo in a profile you are not building
+  surfaces the day you build it — the promised-check disease. Move
+  placement + name validation into `validate()` for every `[profiles.*]`
+  entry (pure config facts, trivial cost); filter checks stay at apply
+  (they need the patched views). Mutation-check.
 
 ### Phase D — vestigial keys and doc rot
 
 - [ ] **D1. Declared-and-ignored config cleanup.** Remove
   `defaults = { layout = "post" }` from grackle.toml (×2) and field-notes
-  (×1) — a no-op since "absent means document" (build.rs:739). Remove
+  (×1) — a no-op since "absent means document", and post-C1 a typed field
+  whose absence falls to the engine default; the *[parity]* tag is the proof
+  obligation. Remove
   field-notes' dead `template = "atom.xml"` (names a file that doesn't
-  exist; redundant beside `shell = "atom"`). Leave `bucket` in place but add
-  a load-time **warning** that it is parsed and unimplemented (§6a specced,
+  exist; redundant beside `shell = "atom"`). Remove grack.com's dead
+  `**/*.{scss,sass}` entries rule and its stale `css/main.scss` comment
+  (C3's live find; the rule matches nothing — every `.scss` is excluded).
+  Leave `hidden/**` (a policy declaration, Matt's call) and raw's
+  inherited-shape rule (base fidelity) alone. Leave `bucket` in place but
+  add a load-time **warning** (via `SiteDb::warnings` + the `grackle: `
+  stderr convention) that it is parsed and unimplemented (§6a specced,
   not built) — removal vs. implementation is a §7 question for Matt.
   *[parity]*
 
 - [ ] **D2. Doc-rot batch (code comments and configs only; never
-  `manual/OUTLINE.md`).** (a) `Axis` doc example (config.rs:768-777) shows
+  `manual/OUTLINE.md`).** Re-verify each target against the tree you find —
+  several were reported against an earlier tree state and later items may
+  have mooted them; skip and note anything already fixed. (a) `Axis` doc
+  example (config.rs ~768-777) shows
   `prefix`/`match` keys that `deny_unknown_fields` rejects — fix to
-  `values`/`field`. (b) `[links] policy` doc (config.rs:116) says "`loose`
+  `values`/`field`. (b) `[links] policy` doc (config.rs ~116) says "`loose`
   (default)" over a `#[default] Strict` — fix. (c) themes/DESIGN.md says
   `theme.toml` is "not yet live" at line ~30 and "now real" at line ~64,
   and zero `theme.toml` files exist — reconcile to unbuilt. (d)
@@ -406,8 +425,14 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   fix the comment. (e) theme-preview/index.md calls itself "the vanilla
   member" and, two lines later, "not one of them" — fix. (f) DESIGN.md
   §5a's stated theme cascade omits the marker rung (markers beat rules) —
-  add it. (g) theme.rs module doc (lines ~5-8) names a `head` part that
-  doesn't exist in parts.toml — fix.
+  add it. (g) ~~theme.rs module doc names a `head` part~~ — **done by C4**;
+  verify and strike. (h) Tree-collection `source` is decorative — merge
+  identity only, the walk ignores it, yet it reads like scoping
+  (C7/batch review 3 finding 10): say so on `Collection::source`'s doc and
+  in DESIGN.md §4's collection table. (i) Harden R4's serde-default
+  extractor: a one-line `#[serde(default = "…", rename = "…")]` evades the
+  rename assert — set `renamed` when the default line itself contains
+  `rename` (batch review 3, finding 7).
 
 *→ Final review after D2.*
 
@@ -1853,6 +1878,42 @@ whether a second tree is a second WALK or a second rule set over one walk.
 collection) is reachable but has no test — it needs an objects collection
 declaring no `extensions`, which no site would write.
 
+**2026-07-27 — Batch review 3 (Fable), covering R3+R4 and C1–C7.** Verdict:
+**sound to proceed to Phase D and the final review.** Six mutation claims
+re-executed across five commits — all held exactly as recorded; the three
+dead-rule warnings, the slot did-you-mean, and the near-miss axis-selector
+warning all reproduced live; no new silent path found — the batch's one-way
+errors all point toward load-time noise, which is the law. Findings,
+condensed:
+
+1. *endorsed, all nine judgment calls:* C1's Cascaded-survives +
+   values-stay-in-fields (export growth is the honest surface of "declared
+   fields now"); C3's dead-rule scope (minimal false-positive line, proven
+   by minimal, and it caught three real ones); C4's warning-not-error and
+   the type-derived identity set ("deleted from the hand list while gaining
+   the case the list missed — the right shape of fix"); C6's
+   dispatch-not-union premise correction and override-with-warning; C7's
+   two-of-a-kind error line.
+2. *should-fix → D2(i) (filed):* R4's extractor misses a one-line
+   `default+rename` serde attribute — silent-direction brittleness.
+3. *notes, no action:* C5's canonical-tuple restriction is correct by
+   construction (a miss errors, never silently resolves); C6's
+   "unknown field" string-match deferral cannot let an error escape (worst
+   case: it fires later) — its typed-error-kind fix stays queued; C3's
+   `governed` is per-file-consulted, an overcount in the lenient
+   direction; C4's union scope doubly lenient, right direction for a
+   warning.
+4. *warning channels coherent* across C3/C4/C5/C6 — same prefix, same
+   phrasing law; the one asymmetry (C6's robots warning is stderr-only, no
+   SiteDb exists at apply time) is principled and pinned by a pure test.
+5. *→ R5 (filed):* profiles validate only when applied — placement and
+   name checks belong in `validate()` for every declared profile.
+6. *→ §7 q13, q14 (filed):* subtheme-token validation needs themes to
+   declare tokens (data-model); `RowAxis::template` is written, never
+   read, and `Serialize`d — retiring it changes `grackle export`.
+7. *D1/D2 briefs amended* per the phase's finds (dead scss rule; source-is-
+   decorative; C4 already fixed old (g); re-verify-against-tree caution).
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -1928,3 +1989,12 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     `rust-toolchain.toml` pin would stop format drift across agents and
     humans, but changes your own build — your call. (§4 now carries the
     interim "no repo-wide cargo fmt" rule.)
+13. **Subtheme tokens are unvalidated, and closing it is data-model.**
+    *(C2 / batch review 3.)* `theme: ledger:drak` stamps
+    `data-subtheme="drak"` silently — tokens name nothing the engine knows.
+    Validation needs a theme to *declare* its tokens (theme.toml territory,
+    themes/DESIGN.md §3), which is a design decision, not a guard.
+14. **`RowAxis::template` is written and never read** *(C5 / batch
+    review 3)* — but it is `Serialize`d, so `grackle export` shows it;
+    retiring it is an observable data-model change. Drop it, keep it, or
+    document it?
