@@ -279,3 +279,43 @@ fn the_uninheriting_sites_effective_config_is_entirely_its_own() {
         );
     }
 }
+
+/// MERGE.md C6e: the preamble asserted a projection without ever checking
+/// there was one, so `--effective --profile nosuch` explained the effect of a
+/// profile that does not exist — while `build --profile nosuch` refuses the
+/// same name outright. One lookup against the merged `[profiles]` table.
+///
+/// It keeps printing, deliberately: the merge below is what was asked for and
+/// is unaffected by a profile either way (a profile is applied in Rust, after
+/// deserialization, and `--effective` stops before it).
+///
+/// Mutation check: drop the `known.contains` test and the unknown name reads
+/// as a PROJECTION again, which is the whole finding.
+#[test]
+fn an_unknown_profile_is_named_in_the_effective_preamble() {
+    // grack.com is the only site in the repo that declares a profile.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../grackle.toml");
+    let printed = grackle_source::config::Config::effective(&path, Some("nosuch")).unwrap();
+    assert!(
+        printed.contains("\"nosuch\" names no profile"),
+        "{}",
+        &printed[..600.min(printed.len())]
+    );
+    assert!(
+        printed.contains("knowns: dev, drafts"),
+        "the knowns include the implicit `dev`: {}",
+        &printed[..600.min(printed.len())]
+    );
+    assert!(
+        !printed.contains("is a PROJECTION applied"),
+        "it must not also claim a projection"
+    );
+    // And it printed the config anyway.
+    let back: toml::Value = toml::from_str(&printed).expect("still TOML");
+    assert!(back.as_table().expect("a table").contains_key("site"));
+
+    // The declared one is unchanged.
+    let ok = grackle_source::config::Config::effective(&path, Some("drafts")).unwrap();
+    assert!(ok.contains("profile \"drafts\" is a PROJECTION applied after this merge"));
+    assert!(!ok.contains("names no profile"));
+}

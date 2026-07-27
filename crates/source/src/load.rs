@@ -1846,3 +1846,113 @@ source = "."
         assert_eq!(warnings(&dir), Vec::<String>::new());
     }
 }
+
+/// A profile's `where` is accepted exactly where the `where` it replaces is
+/// (§4a, MERGE.md C6a) — which can only be shown on a real tree, because the
+/// half `Config` alone cannot see is the positional `.schema.toml` vocabulary.
+#[cfg(test)]
+mod profile_filter_tests {
+    use super::*;
+
+    fn site(who: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("grackle-profile-{who}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (rel, body) in files {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
+            std::fs::write(&p, body).unwrap();
+        }
+        dir
+    }
+
+    /// A site whose vocabulary is declared POSITIONALLY, with one set and a
+    /// profile that patches it. `{filter}` is the profile's `where`.
+    fn files(filter: &str) -> Vec<(String, String)> {
+        vec![
+            (
+                "grackle.toml".to_string(),
+                format!(
+                    r#"
+[site]
+url = "https://example.com"
+title = "T"
+author = "A"
+
+[[collections]]
+kind = "tree"
+name = "entries"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{{stem}}/"
+
+[sets.published]
+from = "entries"
+
+[profiles.p.sets.published]
+where = "{filter}"
+"#
+                ),
+            ),
+            (
+                "notes/.schema.toml".to_string(),
+                "cover = { type = \"bool\" }\n".to_string(),
+            ),
+            (
+                "notes/one.md".to_string(),
+                "---\ntitle: One\ncover: true\n---\n\nProse.\n".to_string(),
+            ),
+        ]
+    }
+
+    fn load_with_profile(who: &str, filter: &str) -> Result<()> {
+        let owned = files(filter);
+        let refs: Vec<(&str, &str)> = owned
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+        let dir = site(who, &refs);
+        let cfg = Config::load_profile(&dir.join("grackle.toml"), Some("p"))?;
+        load(&cfg)?;
+        Ok(())
+    }
+
+    /// The bug, at its own scale: `cover` is declared by a `.schema.toml`, so
+    /// a VIEW's `where` may name it — and a profile patching that view could
+    /// not, because `apply_profile` runs before the tree walk and refused
+    /// every name it had not read yet. The site's own `where` and the
+    /// profile's replacement are the same words; only one of them was legal.
+    ///
+    /// Mutation check: restore the `?` on the two-shot parse in
+    /// `apply_profile` and this site fails to load with `unknown field
+    /// \`cover\``, naming a field it declares.
+    #[test]
+    fn a_profile_where_may_name_a_positional_declaration() {
+        load_with_profile("positional", "!cover")
+            .expect("`cover` is declared by notes/.schema.toml");
+    }
+
+    /// The other direction: deferring is not accepting. A name nothing
+    /// declares still fails the load — at the pass that evaluates the filter,
+    /// which is where a view's own typo has always failed — and the message
+    /// names the profile, because the text in it is not in any `[sets]` entry
+    /// the reader can go and look at.
+    ///
+    /// Mutation check: delete the `q.patched` note in `scoped_filter` and the
+    /// error becomes `view published: filter "!cvoer"` — true, and no help at
+    /// all to someone reading a `[sets.published]` that says nothing of the
+    /// kind.
+    #[test]
+    fn a_profile_where_naming_nothing_still_fails_the_load() {
+        let e = load_with_profile("typo", "!cvoer").expect_err("`cvoer` is nobody's field");
+        let e = format!("{e:#}");
+        assert!(e.contains("unknown field `cvoer`"), "{e}");
+        assert!(e.contains("did you mean `cover`?"), "{e}");
+        assert!(
+            e.contains("profile p replaced view published's `where`"),
+            "names the profile: {e}"
+        );
+    }
+}

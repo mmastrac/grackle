@@ -131,6 +131,14 @@ pub struct Config {
     /// to know the trap exists.
     #[serde(skip)]
     pub config_file: PathBuf,
+    /// Whether the SITE's own file wrote `[html.head.meta] robots` (§4a,
+    /// MERGE.md C6d). A profile's `noindex = true` overrides that expression,
+    /// and overriding the BASE's is the whole point — but overriding one the
+    /// author wrote is a loss, so this is what lets the override say so.
+    /// Read off the raw TOML before the merge, which is the cheapest place
+    /// the question has an answer at all.
+    #[serde(skip)]
+    pub site_robots: bool,
 }
 
 /// One profile's overrides. Closed vocabulary, checked at load: an unknown
@@ -227,6 +235,7 @@ fn every_config_key_has_a_law(c: Config) {
         profile: _,
         dir: _,
         config_file: _,
+        site_robots: _,
     } = c;
 }
 
@@ -1451,6 +1460,24 @@ pub struct View {
     /// materializes empty — it asked.
     #[serde(skip)]
     pub inherited: bool,
+    /// Which section declared this view: `true` for a `[sets]` entry, `false`
+    /// for a `[routes]` one. `merge_queries` folds the two into one map and
+    /// the namespace really is one — but the split is the config's own
+    /// statement about what an entry IS (a query that never lands vs. a
+    /// landing), and a profile is held to it (§4a, MERGE.md C6c).
+    ///
+    /// Recorded rather than derived from `route`, because
+    /// `resolve_default_content` takes a declined offer's path away: that
+    /// leaves a `[routes]` entry with no path, which is not a set.
+    #[serde(skip)]
+    pub declared_set: bool,
+    /// The profile that wrote this view's `filter`, if one did (§4a). Carried
+    /// so the re-validation after `apply_profile` (MERGE.md C6b) can name it:
+    /// the filter is checked by the same pass every other one is, and an
+    /// error that did not say which profile wrote it would send the reader to
+    /// a `[sets]` entry whose text is not the text in the message.
+    #[serde(skip)]
+    pub filter_profile: Option<String>,
     /// Computed fields (§6d): columns this view adds to its rows, each
     /// defined by a deriver. Views composed `over` this one inherit them —
     /// fields flow with rows through query composition the way filters do —
@@ -1517,6 +1544,12 @@ pub struct Query {
     /// The nearest `order_by` along the chain — nearest wins, like `fields`.
     /// Re-sorting a parent's rows is ordinary; there is nothing to conjoin.
     pub order_by: Option<String>,
+    /// A sentence per view along the chain whose `where` a profile replaced.
+    /// A profile's filter is type-checked by the pass that
+    /// evaluates it (§4a, MERGE.md C6a) — and that pass sees a conjunction of
+    /// the whole chain, so without this its error would name whichever
+    /// descendant happened to be built first and no text the author wrote.
+    pub patched: Vec<String>,
 }
 
 impl Query {
@@ -1642,10 +1675,31 @@ impl Config {
              # whole config, and every key below is its own (DESIGN.md §4d).\n"
         });
         if let Some(name) = profile {
-            preamble.push_str(&format!(
-                "#\n# NOTE: profile {name:?} is a PROJECTION applied after this merge\n\
-                 # (§4a), in Rust rather than in TOML, and is not shown here.\n"
-            ));
+            // MERGE.md C6e: the note asserts a projection, so it has to check
+            // that there is one. `dev` needs no declaration and changes
+            // nothing, which is what makes it the safe default for `serve`.
+            let mut known: Vec<&str> = merged
+                .get("profiles")
+                .and_then(|p| p.as_table())
+                .map(|t| t.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            known.push("dev");
+            known.sort_unstable();
+            preamble.push_str(&match known.contains(&name) {
+                true => format!(
+                    "#\n# NOTE: profile {name:?} is a PROJECTION applied after this merge\n\
+                     # (§4a), in Rust rather than in TOML, and is not shown here.\n"
+                ),
+                // Keep printing: the merge below is what the reader asked for
+                // and is unaffected — the profile is the part that would not
+                // have happened, and the build would have refused outright.
+                false => format!(
+                    "#\n# NOTE: {name:?} names no profile (knowns: {}), so nothing\n\
+                     # would be projected — `build --profile {name}` is a load error.\n\
+                     # The merged config below is unaffected and is printed anyway.\n",
+                    known.join(", ")
+                ),
+            });
         }
         Ok(crate::effective::render(&merged, &trace, &preamble))
     }
@@ -1681,6 +1735,15 @@ impl Config {
                     .collect()
             })
             .unwrap_or_default();
+        // And whose `robots` expression is whose (MERGE.md C6d). One key, asked
+        // of the site's own text before the base is folded in — the merge would
+        // answer "there is one" either way.
+        let site_robots = value
+            .get("html")
+            .and_then(|v| v.get("head"))
+            .and_then(|v| v.get("meta"))
+            .and_then(|v| v.get("robots"))
+            .is_some();
         let value = match inherits_base {
             false => value,
             true => merge_base(value)?,
@@ -1696,6 +1759,7 @@ impl Config {
                 return Err(anyhow::Error::new(e));
             }
         };
+        cfg.site_robots = site_robots;
         cfg.merge_collections()?;
         cfg.merge_queries()?;
         for (name, v) in cfg.views.iter_mut() {
@@ -1837,7 +1901,14 @@ impl Config {
                 );
             }
         }
-        for (name, v) in sets.into_iter().chain(routes) {
+        let owned = sets
+            .into_iter()
+            .map(|(n, v)| (n, v, true))
+            .chain(routes.into_iter().map(|(n, v)| (n, v, false)));
+        for (name, mut v, declared_set) in owned {
+            // Which section declared it, kept because the fold below is what
+            // loses it and a profile is held to the same split (§4a).
+            v.declared_set = declared_set;
             if self.collections.contains_key(&name) {
                 anyhow::bail!(
                     "{name:?} names both a collection and a set/route. `from` \
@@ -1873,8 +1944,123 @@ impl Config {
         s
     }
 
+    /// The vocabulary a view's own `where` type-checks against — one function,
+    /// so a profile patching that `where` is held to exactly the same words.
+    ///
+    /// It is the same three-way dispatch the build makes: a star view ranges
+    /// over ROUTES (`resolve_star_views`), an objects view over objects, and
+    /// everything else over rows with every declared field beside the
+    /// built-ins (`Base::resolve` → `Schemas::row_filter_schema`). Which
+    /// matters because the three vocabularies genuinely differ — `kind` is a
+    /// route column, `title` is a row column, and `dir` is a `Str` on a row
+    /// and a `Bool` on a route — so "the union of all three" is not a schema
+    /// anything could type-check against.
+    ///
+    /// **One narrowing, and it is why this is a pre-check rather than the
+    /// check.** `.schema.toml` declarations are read during the tree walk,
+    /// which has not run wherever a `Config` method can be called, so
+    /// `config_declared_schema()` stands in for `Schemas::declared()`. A name
+    /// only a positional file declares is invisible here — and is deferred,
+    /// not rejected: see [`Config::check_profile_filters`].
+    fn view_filter_schema(&self, name: &str) -> grackle_db::filter::Schema {
+        let declared = self.config_declared_schema();
+        let Some(v) = self.views.get(name) else {
+            return grackle_model::row_schema();
+        };
+        if v.over.is_star() {
+            return grackle_model::route_schema(&declared);
+        }
+        // Dispatch on the base collection's kind, exactly as `build_views`
+        // does. An unresolvable chain is not this function's error to report —
+        // `Config::query` is called again, and reported on, at build.
+        let kind = self.query(name).ok().and_then(|q| {
+            q.base
+                .first()
+                .and_then(|n| self.collections.get(n))
+                .map(|c| c.kind)
+        });
+        if kind == Some(Kind::Objects) {
+            return grackle_model::object_schema();
+        }
+        let mut s = grackle_model::row_schema();
+        for (k, t) in &declared {
+            s.insert(k, *t);
+        }
+        s
+    }
+
+    /// Type-check every `where` a profile wrote (§4a, MERGE.md C6a/C6b).
+    ///
+    /// Run from [`Config::validate`], which [`Config::apply_profile`] re-runs
+    /// once the projection is in place — so a profile's filter is checked by
+    /// the same pass as everything else the config says, rather than at the
+    /// moment it happened to be written.
+    ///
+    /// **Unknown names are deferred, not accepted.** The vocabulary reachable
+    /// from a `Config` is short of the positional `.schema.toml` declarations
+    /// by exactly one tree walk (see [`Config::view_filter_schema`]), so an
+    /// unknown field here may be a typo or may be a perfectly good name this
+    /// early. Rejecting it would make a profile's `where` STRICTER than the
+    /// `where` it replaces, which is the one thing §4a says a profile is not
+    /// allowed to be; and it cannot escape, because `build_views` and
+    /// `resolve_star_views` parse the filter they find with the full schema
+    /// and error naming the view. What is caught here is everything that is
+    /// wrong however the tree walk turns out: syntax, arity, and types.
+    fn check_profile_filters(&self) -> Result<()> {
+        for (vname, v) in &self.views {
+            let (Some(p), Some(f)) = (v.filter_profile.as_deref(), v.filter.as_deref()) else {
+                continue;
+            };
+            let schema = self.view_filter_schema(vname);
+            if let Err(e) = grackle_db::filter::Filter::parse(f, &schema) {
+                let msg = format!("{e:#}");
+                if msg.contains("unknown field") {
+                    continue;
+                }
+                return Err(e).with_context(|| format!("profile {p}: view {vname}: filter {f:?}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// What a profile's `noindex = true` has to say about the `robots`
+    /// expression it is about to replace (§4a, MERGE.md C6d) — `None` when
+    /// there is nothing to say.
+    ///
+    /// **The decision: the profile still wins, and it stops being silent.**
+    /// Replacing the BASE's expression is the whole point of the key —
+    /// DESIGN.md §4e says so in as many words ("now overrides the `robots`
+    /// declaration instead of setting a bool the head pass read by name"), and
+    /// every site that inherits gets exactly that, with nothing reported.
+    /// Replacing an expression the SITE wrote is a different act: an editorial
+    /// policy its author spelled out is swapped for the engine's blunt string
+    /// on every page in the projection, and a profile has no vocabulary to say
+    /// "keep mine" — its keys are `url`, `noindex`, `sets`, `routes`, and
+    /// widening them is the config-merge §4a exists to refuse. So an error
+    /// would be an ultimatum with no third option, and silence is how the
+    /// expression disappears. It warns. MERGE.md §7 q7 is where the promise
+    /// gets confirmed or reversed.
+    ///
+    /// A pure function because the choice has to be assertable: both branches
+    /// leave the same string in `html.head.meta`, so the only difference
+    /// between them is this sentence, and stderr is not a value.
+    fn robots_override_note(&self, profile: &str) -> Option<String> {
+        if !self.site_robots {
+            return None;
+        }
+        let old = self.html.head.meta.get("robots").map_or("", String::as_str);
+        Some(format!(
+            "profile {profile}: `noindex = true` replaces this site's own \
+             [html.head.meta] robots expression ({old}) with \"noindex,follow\" \
+             on every page of the projection (§4a). A profile can only ask \
+             search engines away site-wide; if the expression is what you \
+             want, drop `noindex` from the profile and let the rows carry it."
+        ))
+    }
+
+    /// Project this config through a profile (§4a): the one thing in the
+    /// system that rewrites a resolved config, which is why it re-validates.
     fn apply_profile(&mut self, name: &str) -> Result<()> {
-        let self_declared = self.config_declared_schema();
         let Some(p) = self.profiles.remove(name) else {
             if name == "dev" {
                 self.profile = Some(name.to_string());
@@ -1893,38 +2079,85 @@ impl Config {
             // site-wide. It used to set a bool the head pass read by name;
             // now it overrides the declaration, which is the same thing said
             // in the site's own vocabulary (§4e).
+            //
+            // MERGE.md C6d, and the note is the whole of the decision — see
+            // `robots_override_note`.
+            let note = self.robots_override_note(name);
             self.html
                 .head
                 .meta
                 .insert("robots".to_string(), "\"noindex,follow\"".to_string());
+            if let Some(note) = note {
+                // `load`'s convention (C3, C4); there is no `SiteDb` to put a
+                // warning on this early, and a projection's head is decided
+                // here or nowhere.
+                eprintln!("grackle: {note}");
+            }
         }
         self.site.noindex = p.noindex;
-        for (vname, over) in p.sets.into_iter().chain(p.routes) {
+        // The `sets`/`routes` split exists to be read: relaxing a set patches
+        // a QUERY, relaxing a route patches a LANDING. Chaining them into one
+        // lookup made it decorative — either word reached either entry, and a
+        // view named under both was patched twice in map order (MERGE.md C6c).
+        if let Some((both, v)) = p
+            .sets
+            .keys()
+            .find(|k| p.routes.contains_key(*k))
+            // A name in both that names NO view is the loop's error to report,
+            // and the more useful one — there is no right section for it.
+            .and_then(|k| Some((k, self.views.get(k)?)))
+        {
+            let section = match v.declared_set {
+                true => "sets",
+                false => "routes",
+            };
+            anyhow::bail!(
+                "profile {name}: {both:?} is patched under both \
+                 [profiles.{name}.sets] and [profiles.{name}.routes] — one \
+                 entry patches one view, and both were applied. It is a \
+                 {}, so keep the [profiles.{name}.{section}] one.",
+                match section {
+                    "sets" => "set",
+                    _ => "route",
+                }
+            );
+        }
+        let patches = p
+            .sets
+            .into_iter()
+            .map(|(k, v)| (k, v, true))
+            .chain(p.routes.into_iter().map(|(k, v)| (k, v, false)));
+        for (vname, over, under_sets) in patches {
             let v = self
                 .views
                 .get_mut(&vname)
                 .with_context(|| format!("profile {name}: no view named {vname:?}"))?;
+            if v.declared_set != under_sets {
+                let (wrote, is, belongs) = match under_sets {
+                    true => ("sets", "route", "routes"),
+                    false => ("routes", "set", "sets"),
+                };
+                anyhow::bail!(
+                    "profile {name}: [profiles.{name}.{wrote}.{vname}] patches a \
+                     {is} — {vname:?} is declared under [{belongs}], so write it \
+                     as [profiles.{name}.{belongs}.{vname}]. The split says which \
+                     of the two a profile means (§4a): a set is a query, a route \
+                     is a landing."
+                );
+            }
             if let Some(f) = over.filter {
-                // Parsed here so a bad profile filter fails at load like any
-                // other, rather than at the pass that first evaluates it.
-                //
-                // The vocabulary is the built-ins plus whatever CONFIG
-                // declares (§4e) — this runs before the tree walk, so a
-                // profile filter naming a positional `.schema.toml` field
-                // still parses at the pass that evaluates it, just not here.
-                grackle_db::filter::Filter::parse(&f, &grackle_model::row_schema())
-                    .or_else(|_| {
-                        grackle_db::filter::Filter::parse(
-                            &f,
-                            &grackle_model::route_schema(&self_declared),
-                        )
-                    })
-                    .with_context(|| format!("profile {name}: view {vname}: filter {f:?}"))?;
                 v.filter = Some(f);
+                v.filter_profile = Some(name.to_string());
             }
         }
         self.profile = Some(name.to_string());
-        Ok(())
+        // MERGE.md C6b: everything above rewrote a config `validate` had
+        // already passed, so it passes again — including
+        // `check_profile_filters`, which is vacuous until the loop above
+        // writes a filter and is the reason a bad profile `where` is caught
+        // at load at all. `validate` is pure and reads no filesystem, so
+        // running it twice costs a second walk of the views and nothing else.
+        self.validate().with_context(|| format!("profile {name}"))
     }
 
     /// Every load-time config check (split from `load` so tests can run
@@ -2293,6 +2526,7 @@ impl Config {
                 }
             }
         }
+        cfg.check_profile_filters()?;
         Ok(())
     }
 
@@ -2309,6 +2543,7 @@ impl Config {
     pub fn query(&self, name: &str) -> Result<Query> {
         let mut filters = Vec::new();
         let mut scopes = Vec::new();
+        let mut patched = Vec::new();
         // Nearest wins, and we walk outermost-first, so the first one seen.
         let mut order_by: Option<String> = None;
         let mut seen: Vec<&str> = Vec::new();
@@ -2323,6 +2558,9 @@ impl Config {
             }
             seen.push(cur);
             if let Some(f) = &v.filter {
+                if let Some(p) = &v.filter_profile {
+                    patched.push(format!("profile {p} replaced view {cur}'s `where`"));
+                }
                 filters.push(f.clone());
             }
             if let Some(s) = &v.scope {
@@ -2337,11 +2575,13 @@ impl Config {
                 self.check_base(name, &v.over)?;
                 filters.reverse();
                 scopes.reverse();
+                patched.reverse();
                 return Ok(Query {
                     base: v.over.names().to_vec(),
                     filters,
                     scopes,
                     order_by,
+                    patched,
                 });
             };
             if !next.is_query_only() {
@@ -3611,6 +3851,245 @@ mod tests {
         .expect_err("[site] noindex is the profile's to set")
         .to_string();
         assert!(e.contains("unknown field `noindex`"), "{e}");
+    }
+
+    /// The two views every profile test below patches: a set that never
+    /// lands, and a route that does.
+    const PROFILE_VIEWS: &str = "[schema]\nhidden = { type = \"bool\" }\n\
+         [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
+         [routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"listing\"\n";
+
+    /// MERGE.md C6a: a profile's `where` is accepted exactly where the `where`
+    /// it replaces is — the row built-ins AND every declared field, one
+    /// schema, because that is what `Schemas::row_filter_schema` hands
+    /// `Base::resolve`.
+    ///
+    /// The two-shot try this replaces (`row_schema()`, then
+    /// `route_schema(declared)`, with `?`) could not MIX them: `title` is in
+    /// the first and not the second, `hidden` — a declared field since §4e —
+    /// is in the second and not the first, so a filter naming both failed
+    /// both parses and the profile was refused. Mutation-checked by restoring
+    /// the two-shot, which fails on `unknown field \\`title\\``.
+    #[test]
+    fn a_profile_filter_may_mix_builtins_and_declared_fields() {
+        let mut c = cfg_raw(&format!(
+            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = 'title != \"\" && !hidden'\n"
+        ));
+        c.apply_profile("p").expect("one vocabulary, not two");
+        assert_eq!(
+            c.views["published"].filter.as_deref(),
+            Some("title != \"\" && !hidden")
+        );
+        assert_eq!(c.views["published"].filter_profile.as_deref(), Some("p"));
+    }
+
+    /// The other half of C6a: WHICH vocabulary is the patched view's own, and
+    /// the three genuinely differ. `kind` is a route column no row has;
+    /// `title` is a row column no route has; and `dir` is a `Str` on a row and
+    /// a `Bool` on a route — so "the union of all three", which is what a
+    /// two-shot try is reaching for, is not a schema anything could
+    /// type-check against. The dispatch is `build_views`'s, restated nowhere:
+    /// star → routes, objects → objects, otherwise rows plus every declared
+    /// field.
+    #[test]
+    fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
+        let c = cfg_raw(&format!(
+            "{PROFILE_VIEWS}\
+             [[collections]]\nkind = \"objects\"\nname = \"pics\"\nextensions = [\"jpg\"]\n\
+             [sets.gallery]\nfrom = \"pics\"\n\
+             [routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
+        ));
+        let rows = c.view_filter_schema("published");
+        assert!(rows.contains_key("title") && rows.contains_key("hidden"));
+        assert!(!rows.contains_key("kind"), "a row has no route kind");
+
+        let routes = c.view_filter_schema("sitemap");
+        assert!(routes.contains_key("kind") && routes.contains_key("hidden"));
+        assert!(!routes.contains_key("title"), "a route has no title");
+
+        let objects = c.view_filter_schema("gallery");
+        assert!(objects.contains_key("width"), "an object has dimensions");
+        assert!(!objects.contains_key("hidden"), "and no declared fields");
+
+        // The collision that rules the union out, stated rather than implied.
+        use grackle_db::filter::Type;
+        assert_eq!(rows.get("dir"), Some(&Type::Str));
+        assert_eq!(routes.get("dir"), Some(&Type::Bool));
+
+        // And the star view's own patch applies, against route words.
+        let mut c = cfg_raw(&format!(
+            "{PROFILE_VIEWS}[routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\n\
+             shell = \"sitemap\"\n\
+             [profiles.p.routes.sitemap]\nwhere = 'kind == \"post\" && !hidden'\n"
+        ));
+        c.apply_profile("p").expect("a star view reads routes");
+    }
+
+    /// The deferral C6a's fix rests on, at the unit level: a name this early
+    /// vocabulary does not have is NOT rejected here, because a positional
+    /// `.schema.toml` declares fields the tree walk has not read yet and
+    /// refusing them would make a profile's `where` stricter than the `where`
+    /// it replaces. What is caught is everything that is wrong however the
+    /// walk turns out — `a_profile_filter_that_does_not_type_check_is_caught_at_load`
+    /// is that half. The tree-driven proof of both directions lives in
+    /// `load::profile_filter_tests`.
+    #[test]
+    fn an_unknown_name_in_a_profile_filter_is_deferred_not_rejected() {
+        let mut c = cfg_raw(&format!(
+            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!cover\"\n"
+        ));
+        c.apply_profile("p")
+            .expect("`cover` may yet be a positional declaration");
+        assert_eq!(c.views["published"].filter.as_deref(), Some("!cover"));
+    }
+
+    /// MERGE.md C6b: `apply_profile` runs AFTER `validate`, so nothing a
+    /// profile wrote was ever re-checked. It re-runs `validate` now, and
+    /// `check_profile_filters` is what makes that load-bearing.
+    ///
+    /// Mutation-checked by deleting the `self.validate()` call at the end of
+    /// `apply_profile`, after which this config applies its profile happily
+    /// and the type error surfaces at the pass that evaluates the filter.
+    #[test]
+    fn a_profile_filter_that_does_not_type_check_is_caught_at_load() {
+        let e = format!(
+            "{:#}",
+            cfg_raw(&format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = 'title > 3'\n"
+            ))
+            .apply_profile("p")
+            .expect_err("a string is not an int")
+        );
+        assert!(e.contains("profile p"), "names the profile: {e}");
+        assert!(e.contains("view published"), "names the view: {e}");
+    }
+
+    /// MERGE.md C6c: `[profiles.*.sets]` and `[profiles.*.routes]` were
+    /// chained into one lookup, so either word reached either entry — the
+    /// split, whose entire purpose is to say which of the two a profile means
+    /// (relaxing a set patches a QUERY, relaxing a route patches a LANDING),
+    /// was decorative. Mutation-checked by restoring the chain, which makes
+    /// all three errors below apply silently.
+    #[test]
+    fn a_profile_is_held_to_the_sets_routes_split() {
+        // The control: both entries where they belong, both applied.
+        let mut ok = cfg_raw(&format!(
+            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
+             [profiles.p.routes.blog_index]\nwhere = 'title != \"\"'\n"
+        ));
+        ok.apply_profile("p").expect("both are where they belong");
+        assert_eq!(ok.views["published"].filter.as_deref(), Some("!hidden"));
+        assert_eq!(
+            ok.views["blog_index"].filter.as_deref(),
+            Some("title != \"\"")
+        );
+
+        let e = format!(
+            "{:#}",
+            cfg_raw(&format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\nwhere = \"!hidden\"\n"
+            ))
+            .apply_profile("p")
+            .expect_err("blog_index is a route")
+        );
+        assert!(e.contains("patches a route"), "{e}");
+        assert!(e.contains("[profiles.p.routes.blog_index]"), "{e}");
+
+        let e = format!(
+            "{:#}",
+            cfg_raw(&format!(
+                "{PROFILE_VIEWS}[profiles.p.routes.published]\nwhere = \"!hidden\"\n"
+            ))
+            .apply_profile("p")
+            .expect_err("published is a set")
+        );
+        assert!(e.contains("patches a set"), "{e}");
+        assert!(e.contains("[profiles.p.sets.published]"), "{e}");
+
+        // The same view under both: two entries, one view, and the second
+        // silently won by map order.
+        let e = format!(
+            "{:#}",
+            cfg_raw(&format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
+                 [profiles.p.routes.published]\nwhere = 'title != \"\"'\n"
+            ))
+            .apply_profile("p")
+            .expect_err("one entry patches one view")
+        );
+        assert!(e.contains("patched under both"), "{e}");
+        assert!(e.contains("keep the [profiles.p.sets] one"), "{e}");
+    }
+
+    /// A `[routes]` entry whose `default_content` offer was DECLINED loses its
+    /// path — and what that leaves is not a set. The section an entry was
+    /// declared under is recorded rather than re-derived for exactly this
+    /// case; `is_materialized()` would call this view a set and send the
+    /// author to `[profiles.p.sets]`, where it does not live.
+    #[test]
+    fn a_declined_default_content_route_is_still_a_route() {
+        let decline = |profile: &str| {
+            let mut c = cfg_raw(&format!(
+                "[routes.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"listing\"\n\
+                 default_content = \"index.md\"\n{profile}"
+            ));
+            // What `resolve_default_content` does to a route whose offered row
+            // exists and does not place `{{% view home %}}`: the row wants the
+            // URL to itself, so the route stands down.
+            let v = c.views.get_mut("home").expect("declared");
+            v.route = None;
+            v.routes.clear();
+            assert!(!v.is_materialized());
+            c
+        };
+        decline("[profiles.p.routes.home]\nwhere = 'title != \"\"'\n")
+            .apply_profile("p")
+            .expect("a route with no path left is still a route");
+        let e = format!(
+            "{:#}",
+            decline("[profiles.p.sets.home]\nwhere = 'title != \"\"'\n")
+                .apply_profile("p")
+                .expect_err("and is not a set")
+        );
+        assert!(e.contains("patches a route"), "{e}");
+    }
+
+    /// MERGE.md C6d, both directions. The override stands either way —
+    /// DESIGN.md §4e promises it — and the only thing that changes is whether
+    /// anything is said. Mutation-checked both ways: dropping the
+    /// `self.site_robots` test reports on every base-inheriting site (the
+    /// first half fails), and returning `None` unconditionally loses the
+    /// site's expression in silence (the second half fails).
+    #[test]
+    fn a_profile_noindex_reports_only_when_it_replaces_the_sites_own_robots() {
+        let site = "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n";
+        // The base wrote the expression: replacing it IS the key's meaning.
+        let mut inherited = Config::from_toml(&format!(
+            "root = \".\"\n{site}[profiles.drafts]\nnoindex = true\n"
+        ))
+        .expect("a base-inheriting config");
+        assert!(!inherited.site_robots);
+        assert!(inherited.robots_override_note("drafts").is_none());
+        assert!(inherited.html.head.meta.contains_key("robots"));
+        inherited
+            .apply_profile("drafts")
+            .expect("the profile applies");
+        assert_eq!(inherited.html.head.meta["robots"], "\"noindex,follow\"");
+
+        // The site wrote it: overridden all the same, and reported.
+        let mut own = Config::from_toml(&format!(
+            "root = \".\"\n{site}[profiles.drafts]\nnoindex = true\n\
+             [html.head.meta]\nrobots = 'noindex ? \"noindex,nofollow\" : \"index,follow\"'\n"
+        ))
+        .expect("a site may write its own robots expression");
+        assert!(own.site_robots);
+        let note = own
+            .robots_override_note("drafts")
+            .expect("the site's own expression is a loss");
+        assert!(note.contains("noindex,nofollow"), "quotes it: {note}");
+        assert!(note.contains("profile drafts"), "names the profile: {note}");
+        own.apply_profile("drafts").expect("the profile applies");
+        assert_eq!(own.html.head.meta["robots"], "\"noindex,follow\"");
     }
 
     #[test]

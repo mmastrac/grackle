@@ -772,8 +772,19 @@ fn build_view(
 /// one type-checker, applied wherever the filter is.
 fn scoped_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
     let mut f = match q.predicate() {
-        Some(src) => filter::Filter::parse(&src, schema)
-            .with_context(|| format!("view {name}: filter {src:?}"))?,
+        // A profile's `where` is type-checked HERE, by the pass that evaluates
+        // it — `Config` alone cannot see the positional `.schema.toml`
+        // vocabulary, so refusing an unknown name at profile-apply time would
+        // make a profile's filter stricter than the one it replaces (§4a,
+        // MERGE.md C6a). The conjunction below is the whole `over` chain, so
+        // the note is what keeps the profile in the message.
+        Some(src) => filter::Filter::parse(&src, schema).with_context(|| {
+            let note = match q.patched.is_empty() {
+                true => String::new(),
+                false => format!(" ({})", q.patched.join("; ")),
+            };
+            format!("view {name}: filter {src:?}{note}")
+        })?,
         None => filter::Filter::always(),
     };
     for g in &q.scopes {
@@ -824,7 +835,14 @@ pub(crate) fn resolve_star_views(cfg: &Config, db: &mut SiteDb, schemas: &Schema
         }
         let pred = match &v.filter {
             Some(src) => filter::Filter::parse(src, &route_schema(&schemas.declared_schema()))
-                .with_context(|| format!("view {name}: filter {src:?}"))?,
+                .with_context(|| match &v.filter_profile {
+                    // As in `scoped_filter`: a star view's `where` may have
+                    // been replaced by a profile, and the message says so.
+                    Some(p) => {
+                        format!("view {name}: filter {src:?} (profile {p} replaced its `where`)")
+                    }
+                    None => format!("view {name}: filter {src:?}"),
+                })?,
             None => filter::Filter::always(),
         };
         let members = db.routes.select(&pred);

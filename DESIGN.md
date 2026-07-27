@@ -285,6 +285,12 @@ what exists.
 **Selection is the view's job.** Relaxing `published`'s filter carries
 every listing, archive and feed with it.
 
+**The `sets`/`routes` split is checked, not decorative.** A name under
+`sets` must be a `[sets]` entry and a name under `routes` a `[routes]` one;
+either misplaced, or the same view under both, is a load error naming where
+the entry actually lives. And a profile's `where` is accepted exactly where
+the `where` it replaces is — same vocabulary, same pass, same error.
+
 **Presentation costs no engine code.** The root shell stamps `data-profile`,
 so a dev banner is a theme CSS rule on `[data-profile="dev"]`.
 
@@ -704,6 +710,11 @@ Three notes on the shape:
   noindex = true` now overrides the `robots` declaration instead of setting a
   bool the head pass read by name. Same behaviour, said in the site's
   vocabulary. `Site.noindex` survives as the profile's own record of it.
+  Overriding the *base's* expression is the point of the key and is silent;
+  overriding one the **site itself** wrote replaces an editorial policy its
+  author spelled out, so it warns and still overrides (MERGE.md C6d — a
+  profile has no vocabulary to say "keep mine", so an error would be an
+  ultimatum with no third option).
 
 Verified by mutation: deleting `[html.head.meta]` from `base.toml` drops every
 `<meta name="robots">` on grack.com from its usual set to zero, and the site is

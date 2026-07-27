@@ -205,11 +205,18 @@ callout = """
 # exist rather than porting it.
 
 [profiles.drafts]
+# This OVERRIDES `[html.head.meta] robots` for every page in the projection
+# (§4a) — here the base's `noindex ? "noindex,follow" : ""`, which is what
+# the key is for. A site that writes its own robots expression loses it to
+# this and is told so at load, because a profile has no way to say "keep
+# mine" (MERGE.md C6d).
 noindex = true
 
   # Selection is the query's job: relax the one `where` that hides drafts and
   # every listing, archive and feed downstream follows, because they all
-  # read `published`. Patching a SET patches a query...
+  # read `published`. The section is checked: a name under `sets` must be a
+  # [sets] entry and a name under `routes` a [routes] one. Patching a SET
+  # patches a query...
   [profiles.drafts.sets.published]
   where = "!hidden"
 
