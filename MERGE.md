@@ -384,7 +384,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
 *→ Batch review 3 after C7.* ✓ done — findings in §6; verdict: sound to
 proceed to Phase D and the final review. One new item:
 
-- [ ] **R5. Every declared profile validates at load.** *(Batch review 3, from
+- [x] **R5. Every declared profile validates at load.** *(Batch review 3, from
   C6's queue note 1.)* Placement (sets/routes) and view-name checks currently
   run at `apply_profile`, so a typo in a profile you are not building
   surfaces the day you build it — the promised-check disease. Move
@@ -1913,6 +1913,101 @@ condensed:
    read, and `Serialize`d — retiring it changes `grackle export`.
 7. *D1/D2 briefs amended* per the phase's finds (dead scss rule; source-is-
    decorative; C4 already fixed old (g); re-verify-against-tree caution).
+
+**2026-07-27 — R5.** Landed. `Config::check_profiles` runs from `validate()`
+over every `[profiles.*]` entry; `apply_profile` no longer asks either
+question. The move is one sentence — *a profile is part of the config, not a
+second one* — and the flag that selects a projection is not the moment its
+declaration becomes checkable.
+
+*The apply-time copies are DELETED, not kept as defence in depth, and C7's
+line is why.* Both checks read only the merged config: `View::declared_set`
+is recorded at `merge_queries` (inside `from_toml`) and no projection touches
+it, so the verdict is identical before and after applying. `apply_profile` is
+private and reached only through `load_profile`, which validates first — so
+this is C7's "putting the guard in `Config` makes the loop safe **by
+construction** rather than by a second check", transplanted whole. The
+counter-argument the item raised (the copies carry the applied-profile
+context) turned out to be empty: the profile name is the map KEY, so the
+load-time messages name it exactly as the apply-time ones did, and the
+placement sentence is unchanged word for word. What remains at apply is the
+`views.get_mut` the patch loop has to make anyway, whose `with_context` beats
+an `unwrap` on an invariant held one function away; with placement no longer
+its business the two sections chain again and the third tuple element goes,
+which is the deletion the item is measured by (`apply_profile` is 40 lines
+shorter and asks nothing it does not need).
+
+*Filter expressions stay at apply, and C6's shape survives untouched.*
+`check_profile_filters` is also inside `validate()`, keyed off
+`View::filter_profile` — a field only `apply_profile` writes — so it is
+vacuous on the load-time pass and speaks on the re-validation C6b added. The
+two therefore compose without either knowing about the other: one pass reads
+`self.profiles` (what the config SAYS), the other reads the views (what a
+projection DID). C6's seven mutation checks are all still green, and its
+`load::profile_filter_tests` pair is unmoved.
+
+*The `dev` answer: implicit and untouchable by this check.* §4a's `dev` needs
+no declaration and `apply_profile` short-circuits on it (`name == "dev"` with
+an empty `self.profiles` lookup); `main.rs` supplies it only for `Cmd::Serve`.
+`check_profiles` iterates the profiles a config **declares**, so an implicit
+one has nothing to iterate — there is no code path by which this item could
+invent a `[profiles.dev]` requirement, and
+`checking_every_profile_leaves_the_correct_ones_alone` asserts the whole
+sentence (undeclared `dev` applies, changes nothing, and a config carrying an
+unrelated profile still loads under it). A site that DOES declare
+`[profiles.dev]` is checked like any other, which is the same rule.
+
+*One error is new rather than moved.* "Names no view" was a `with_context` on
+a failed lookup; at load it lists the knowns **by section** (`sets:
+published; routes: blog_index, feed, home, sitemap`), because "which of the
+two does this name live in" is half of what a profile has to get right and
+the other half of the message is about exactly that split.
+
+*Test shape:* C6's three placement assertions now read through `cfg_err`
+(`cfg_raw` + `validate`, no profile applied), which is the item's claim
+stated as the test harness rather than as a comment; the name half and the
+three controls are new. `profile-unknown-view` is the site-level statement —
+the fixture harness builds every site with `Config::load` and passes no
+profile anywhere, so a fixture that fails IS the sentence "without
+`--profile`". Its typo is `publised` for the base's `[sets.published]`, the
+query a drafts-shaped profile actually relaxes.
+
+*Corpus:* grack.com remains the only site with a `[profiles]` table, and
+`drafts`' two entries are correctly placed — so the new pass is inert on all
+five sites, which is what parity measures. Verified live as well as by the
+suite: misplacing `published` under `[profiles.drafts.routes]` fails
+`grackle build` with no `--profile` at all, and the same config under
+`--profile drafts` fails identically.
+
+*Mutation-checked four ways, each restored:* the `declared_set` comparison
+never firing (fails the split test AND
+`a_declined_default_content_route_is_still_a_route`, which is C6c's
+`declared_set`-is-recorded-not-derived claim re-guarded one pass earlier);
+the doubly-named loop emptied (fails the split test's third arm); the
+`cfg.check_profiles()?` call deleted from `validate` (the fixture BUILDS and
+two unit tests fail — the disease, reproduced as a test run); and the
+doubly-named loop made to report a name that names no view (fails the name
+test's second half, which pins C6's ordering decision).
+
+*Parity:* all five sites plus grack.com under `--profile drafts` built before
+and after into separate trees and diffed — byte-identical but for each feed's
+wall-clock `<updated>`, with no stderr difference. Zero re-blessing; one new
+fixture; clippy's warning multiset identical to HEAD's, compared by building
+HEAD in a scratch worktree. Formatted by hand (§4): `rustfmt` still wants the
+same two hunks in `config.rs` this work never touched. DESIGN.md §4a's split
+paragraph said "is a load error" and now says which load.
+
+*For the queue (small).* (i) `check_profiles` runs again inside
+`apply_profile`'s re-validation, on every profile except the one being
+applied (it was `remove`d) — a walk of a table with one entry on the only
+site that has one, noted rather than avoided, since suppressing it would mean
+`validate` taking a parameter for the benefit of nothing. (ii) The knowns
+list is built per error, and `check_profile_filters`, C7's `whose_from` and
+this pass now each assemble their own "declared views" sentence; if a fourth
+appears, a `Config::view_knowns()` is the shape. (iii) A profile whose every
+entry is correct but which patches a view no route ever materializes is still
+silent — that is C3's dead-rule question in profile space, and nobody has
+asked it.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
