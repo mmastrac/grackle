@@ -431,7 +431,7 @@ message is the exemplar; don't stretch it). One follow-up item:
 
 ### Phase I-B — themes
 
-- [ ] **I4. `root.html`.** The binder accepts a document-shaped theme root
+- [x] **I4. `root.html`.** The binder accepts a document-shaped theme root
   (head + body); the head fence (style-only, load errors naming the
   element); `shell.html` migrates to body-only `root.html` across the
   base theme and gallery (mechanical); the chrome part kind renames
@@ -1091,3 +1091,134 @@ every row that has one — once as a named line, once from the field dump, becau
 (MERGE.md C1). Noise rather than untruth, and the same shape `shell` would have
 grown here, so it is filed rather than folded in: the `shell` skip is keyed on
 the one name this item is about.
+
+**2026-07-27 — I4.** Landed as one commit. The item's whole shape turned on one
+decision — that the `<body>` wrapper is OPTIONAL — and everything cheap about
+the migration follows from it.
+
+*The migration was `git mv`, nine times, because the wrapper is optional.* A
+`root.html` with no `<head>` and no `<body>` at its top level **is** the body
+chrome, which is exactly what a `shell.html` always was. The alternative —
+requiring `<body>` — would have made every theme in the repository write a tag
+none of them means anything by, and would have made this item a nine-file edit
+under a byte-parity gate for no gain. `binder::split_root` states the three
+accepted shapes: a **fragment** (the body), a **document** (`<head>` and/or
+`<body>` at the top level and nothing beside them), and **head-only** (a
+`<head>` with no `<body>`). `the_body_wrapper_is_optional_and_inert` builds the
+same chrome both ways and asserts the two pages are equal character for
+character, which is the small statement of what the corpus parity run says at
+scale.
+
+*Head-only needed no rule, and that is the argument for splitting at the source
+rather than after the merge.* A theme contributing no `root` BODY simply drops
+out of `own` in `Theme::from_sources`, and the by-name fragment merge then keeps
+the base's chrome — so "adds styles, inherits the chrome" is the cheapest real
+theme the design allows and costs one `own.remove(i)`. Mutating it to keep an
+empty body fragment instead publishes `<body>\n\n</body>`: the chrome and the
+page's own content, both gone. The split runs on the SOURCE (the parser gained
+one field, `Element::inner`, the span of an element's children) so the body half
+arrives at `Fragments::load` as an ordinary fragment source and the head half
+never enters the part vocabulary at all — it is presentation, not an arrangement
+of parts.
+
+*The fence, and the measurement that changed what the test claims.* A theme
+root's `<head>` may hold `<style>` and nothing else; every other element is a
+load error naming the file, the line and the element. The brief predicted the
+mutation would show silent DROPPING. It does not: with `check_head_fence`'s call
+deleted, the tag is **published** — `<meta name="theme-color" content="#123456">`
+came out in the head of all three pages of the probe site, because `Theme::page`
+emits the head half verbatim. That is worse than dropping and is the whole
+argument: a theme `<title>` would give every page two, a theme
+`<link rel="canonical">` would compete with the engine's, a theme stylesheet
+`<link>` would break the one-artifact rule — all valid HTML that no build would
+ever complain about. Measured with the real binary on the mutant, not reasoned.
+
+***[decided]* The head-style interim: emit it, don't shelve it.** The brief
+allowed either "carry and ignore with a recorded note" or "emit inline verbatim
+after the computed head". Emitting is the least-surprising reading by the
+project's own standard — a declared thing that is parsed, validated, and then
+silently discarded is the disease every guard in this ledger exists to refuse,
+and it would have been odd to build the fence and then commit the sin the fence
+is against. Placement is after the engine's facts and last in the head, which is
+what a `<style>` at the end of a head means anywhere else: the computed head is
+never displaced, and the theme's rules outrank the one stylesheet link above
+them. **I5 moves it into the CSS assembly**, and this is the byte that will
+move — for fixtures only, since no theme in the corpus has a head style.
+
+*The stale file: a real error, and not the one the brief expected.* The amended
+brief called silence "the disease" here. There was no silence available: the
+part kind renamed, so a leftover `shell.html` reaches `Fragments::load` as a
+fragment naming no layout kind and the load already fails. Deleting the new
+check proves it — *"fragment names no layout kind `shell` — kinds are: root,
+document, …"*. True, and useless: it sends its reader hunting for a kind when
+the fix is a rename. So the targeted sentence stands, on §10's precedent (one
+targeted sentence only where the generic diagnosis misleads) rather than as a
+guard against silent chrome loss. Keyed on `shell.html && !root.html`, per the
+brief; a theme carrying both still gets the generic message, which is accurate
+there.
+
+*The kind rename, and the one word that kept its spelling.* `parts.toml`'s
+`[[kind]] name = "shell"` → `"root"`, and with it `base.rs`'s manifest,
+`theme.rs`'s three reads (identity-slot derivation reads the kind's schema and
+the root fragment's slots — a `.slots/copyright.md` in the new tests is the
+cheapest proof both followed), `parts.rs`'s vocabulary pin, and `slots.rs`'s
+dead-fill warning text (which no corpus site emits and no fixture asserts —
+checked before touching it). **`render::root_shell` keeps its name**: §6 bans
+*shell* from theme vocabulary, and that function is the engine's own skeleton,
+named in DESIGN.md §5g as "the root shell". Renaming it would have been a diff
+across five call sites to satisfy a rule about what a THEME may say.
+
+*The stamp, and how the parity claim was made mechanical.* `data-kind="shell"`
+→ `data-kind="root"` on the `<html>` of every page — 1365 pages across the six
+build trees, 84 fixture files. Both halves were proven by SUBSTITUTION rather
+than by inspection: the fixture expectations were sed-ed by that one rule and
+the suite run green (never `UPDATE_EXPECT`), and the six BEFORE trees were
+normalized by the same rule and then `diff -rq`'d against the AFTER trees. What
+remains after normalizing is six wall-clock `<updated>` lines and nothing else.
+Verified ahead, as the brief asked, and re-verified with a grep: no stylesheet
+or script anywhere in the repository keys on `data-kind` with the value `shell`
+(the base's page geometry moved to `[data-frame]` long ago — GRAVEYARD.md
+records the move).
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in a
+`git worktree` against this one, into separate trees, caches seeded so binary
+and theme files were the only variables — byte-identical modulo the declared
+substitution but for the six wall-clock `<updated>` lines; stdout/stderr
+identical for all six modulo timings; file counts 8 / 8 / 83 / 242 / 1828 /
+1829, unmoved through I2, I3, IR1, IR2 and this. `cargo test` green; `cargo fmt
+--check` clean under the pin; clippy 49 warnings, the warning SET byte-identical
+to HEAD's rebuilt in the worktree (one nit of my own was fixed to keep it so);
+re-blessing limited to the declared attribute on 84 fixture files.
+
+*Six tests, each mutation-checked and each restored*
+(`crates/grackle/tests/io_root.rs`): (1) the optional wrapper — require it and
+the bare site fails as `<header>` beside no `<head>`/`<body>`; (2) the fence, in
+four spellings (`<meta>`, `<title>`, `<link>`, `<script>`), the mutation above;
+(3) the head style's presence and placement — delete the block in `Theme::page`
+and it vanishes while the theme still loads clean; (4) head-only inheritance —
+the `own.remove` mutation above; (5) nothing may sit beside a root's head and
+body; (6) the stale `shell.html`.
+
+*Docs.* DESIGN.md §5g rewritten (the three shapes, the fence, the interim, the
+stamp, the `root_shell` naming call), plus its theme-directory listing (§5e) and
+"ship a root, own the frame". themes/DESIGN.md §0 gains the platform fact, and
+§3's chain paragraph, back-tested edge 2 and §6's rule follow. **Left alone
+deliberately**: GRAVEYARD.md's and MERGE.md §6's `shell.html` sentences are log
+rows recording what was decided when, per G2's precedent. `manual/OUTLINE.md`
+untouched per §4 — it teaches `shell.html` nowhere, so this is the first engine
+spelling in the sequence that does NOT outlive that file.
+
+*For batch review I-B (after I5).* Three things to weigh. (i) **The interim
+emission** is the call a reviewer might reverse, and I5 is where it gets
+settled either way — if the reviewer prefers the head `<style>` to be inert
+until I5 extracts it, the change is deleting four lines in `Theme::page` and one
+test. (ii) **`split_root` runs on themes only, not on the base**, whose
+`root.html` is body-only by construction; a base that ever grew a head would
+need the call added, and nothing would tell it so. Not guarded, because the base
+is a compiled-in engine asset with a manifest and a load test rather than a
+theme someone edits. (iii) **A theme root's head is not part of the fragment
+CHAIN** — themes/DESIGN.md §3's `extends` is unbuilt, but when it lands, "child
+shadows parent's head `<style>`" is a decision nobody has made; the doc now says
+the two halves shadow independently, which is the reading `split_root`'s
+per-theme placement gives for free, and I5's multi-theme scoping paragraph is
+where it wants restating.
