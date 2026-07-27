@@ -39,6 +39,13 @@
 //!    Refusing it is what makes claims 1 and 2 hold together rather than each
 //!    holding on its own. Authored words beside the two halves are the same
 //!    bargain one size down: silently dropped before, named now.
+//! 6. **A theme's CSS is one thing to the orphaned-tokens check** (IR5).
+//!    Giving the head style its own compile pass (claim 3) gave it its own
+//!    import list, and the "`_tokens.scss` that nothing imports" warning was
+//!    reading only `theme.scss`'s — so a theme whose head imported the
+//!    tokens was told nothing did. The three-way test below is that shape,
+//!    the older tokens-only shape it shares a cause with, and the one real
+//!    case the warning was written for.
 //!
 //! A site rather than a unit test, for `io_shell.rs`'s reason: what these
 //! assert is what a PAGE comes out as, and the head half in particular is
@@ -344,6 +351,90 @@ fn a_head_style_is_scss_and_a_broken_one_refuses_to_publish() {
     assert!(
         !page(&out, "/css/mine.css").contains("@layer theme {"),
         "nothing half-compiled reached the layer"
+    );
+}
+
+/// **The orphaned-tokens warning is about the theme, not about one file**
+/// (IR5). Three shapes, and the warning must fire for exactly one of them.
+///
+/// It fired for all three before this item, and both false ones are the same
+/// mistake — asking a single compile pass's import list a question about
+/// every source the theme has:
+///
+/// - **Tokens-only** (`_tokens.scss`, no `theme.scss`): the partial IS the
+///   compiled sheet, so nothing imports it and nothing can. The advice was
+///   unfollowable too — it names a `theme.scss` the theme does not have.
+///   Pre-existing, and as old as the warning.
+/// - **The head imports them** (I5's shape): `root.html`'s `<style>` says
+///   `@import "tokens";` and `theme.scss` does not. The tokens are read, on
+///   every page, and the check looked at the wrong list.
+/// - **The real one**: a `theme.scss` beside a `_tokens.scss` that nothing in
+///   the theme pulls in — a dead palette, which is what the warning is for.
+///
+/// Mutation, one per false shape, each red on its own: pool only
+/// `theme.scss`'s imports (drop the head pass's `imported.append`) and the
+/// head-style case warns again; drop the `!tokens_only` term and the
+/// tokens-only case warns again. The third assertion is the control — a
+/// warning deleted rather than narrowed passes the first two and fails this.
+#[test]
+fn the_orphaned_tokens_warning_asks_the_whole_theme() {
+    const TOKENS: (&str, &str) = ("themes/mine/_tokens.scss", ":root { --edge: peru; }\n");
+    // No `@import "tokens"` — in the two silent cases something else reads
+    // them, and in the loud case nothing does.
+    const SHEET: (&str, &str) = ("themes/mine/theme.scss", "main { color: teal; }\n");
+
+    // (1) Tokens-only: the theme has no `theme.scss`, so the partial is
+    // compiled as the sheet itself. Proven by the bytes, not just the
+    // silence — the tokens really are live.
+    let (out, stats) = render_stats(&site_with("tokens-only", CHROME, &[TOKENS]));
+    assert!(
+        stats.css_warnings.is_empty(),
+        "the tokens ARE the sheet: {:?}",
+        stats.css_warnings
+    );
+    assert!(
+        page(&out, "/css/mine.css").contains("--edge: peru"),
+        "and they reach it"
+    );
+
+    // (2) The head style imports them and `theme.scss` does not.
+    let (out, stats) = render_stats(&site_with(
+        "tokens-in-head",
+        &format!(
+            "<head><style>@import \"tokens\";\n\
+             main {{ color: var(--edge); }}</style></head><body>{CHROME}</body>"
+        ),
+        &[TOKENS, SHEET],
+    ));
+    assert!(
+        stats.css_warnings.is_empty(),
+        "the root's head imports them: {:?}",
+        stats.css_warnings
+    );
+    assert!(
+        page(&out, "/css/mine.css").contains("--edge: peru"),
+        "and they reach the sheet through it"
+    );
+
+    // (3) The case it exists for: a sheet, a palette, and no line joining
+    // them.
+    let (out, stats) = render_stats(&site_with("tokens-orphan", CHROME, &[TOKENS, SHEET]));
+    assert_eq!(stats.css_warnings.len(), 1, "{:?}", stats.css_warnings);
+    assert!(
+        stats.css_warnings[0].contains("themes/mine"),
+        "it names the theme: {:?}",
+        stats.css_warnings
+    );
+    assert!(
+        stats.css_warnings[0].contains("_tokens.scss that nothing imports"),
+        "{:?}",
+        stats.css_warnings
+    );
+    // The symptom the warning is describing, on the record: the palette is
+    // absent from the sheet the theme publishes.
+    assert!(
+        !page(&out, "/css/mine.css").contains("--edge"),
+        "the palette really is dead weight"
     );
 }
 

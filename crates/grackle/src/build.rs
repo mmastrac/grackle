@@ -48,6 +48,12 @@ pub struct Stats {
     /// looks deployable and is wrong, which is the one outcome worth
     /// failing a build over.
     pub css_errors: Vec<String>,
+    /// CSS complaints that are not failures — today, the one about a
+    /// `_tokens.scss` nothing imports. Printed as they happen (`serve` shows
+    /// them on every rebuild); collected here only so a test can assert on
+    /// SILENCE, which is what a warning that lies is fixed into. Nothing
+    /// reads this to decide anything.
+    pub css_warnings: Vec<String>,
 }
 
 /// A URL ending in `/` is served as that directory's index.html.
@@ -2164,26 +2170,22 @@ fn css_pass(
     // something reached it — a theme with neither writes no `@layer theme`
     // at all, exactly as before this item.
     let mut theme_layer: Vec<String> = Vec::new();
+    // Every partial ANY of the theme's CSS sources pulled in, both passes
+    // pooled. The orphaned-tokens question below is about the theme as a
+    // whole — "does anything the theme compiles read this file?" — and a
+    // per-pass list can only answer it for one file (IR5).
+    let mut imported: Vec<String> = Vec::new();
+    // A tokens-only theme (`_tokens.scss`, no `theme.scss`) reads its tokens
+    // by BEING them: `own` is the partial itself, so no `@import` names it
+    // and none could. It is the one shape where the file is fully alive and
+    // the import list is empty.
+    let tokens_only = own.as_deref() == Some(tokens.as_path());
     if let Some(src) = own {
         let text = std::fs::read_to_string(&src)?;
         let (_, body) = split_front_matter(&text);
         let mut seen = Vec::new();
         let flat = inline_imports(body, theme_dir, &mut seen)?;
-
-        // A `_tokens.scss` nobody imports is the dead-file trap again, one
-        // arm along: the sheet compiles, the tokens are simply never read,
-        // and the only symptom is a theme that ignores its own palette.
-        // Same class of bug as the tokens-only theme that shipped a sheet
-        // it never opened — worth a word, not a failure, because a theme
-        // may legitimately keep a partial it does not use yet.
-        if tokens.exists() && !seen.iter().any(|s| s == "tokens") {
-            eprintln!(
-                "grackle: {} has a _tokens.scss that nothing imports — add \
-                 `@import \"tokens\";` to theme.scss, or the palette is dead \
-                 weight",
-                theme_dir.display()
-            );
-        }
+        imported.append(&mut seen);
 
         let opts = grass::Options::default().load_path(theme_dir);
         match grass::from_string(flat, &opts) {
@@ -2218,6 +2220,7 @@ fn css_pass(
         let root_html = theme_dir.join("root.html");
         let mut seen = Vec::new();
         let flat = inline_imports(head_style, theme_dir, &mut seen)?;
+        imported.append(&mut seen);
         let opts = grass::Options::default().load_path(theme_dir);
         match grass::from_string(flat, &opts) {
             Ok(head_css) => theme_layer.push(strip_charset(&head_css).to_string()),
@@ -2228,6 +2231,29 @@ fn css_pass(
                     .push(format!("{}: {e}", root_html.display()));
             }
         }
+    }
+    // A `_tokens.scss` nobody imports is the dead-file trap again, one arm
+    // along: the sheet compiles, the tokens are simply never read, and the
+    // only symptom is a theme that ignores its own palette. Worth a word, not
+    // a failure, because a theme may legitimately keep a partial it does not
+    // use yet.
+    //
+    // **Asked here, of the whole theme** (IR5). It used to be asked inside the
+    // `theme.scss` pass, of that pass's imports alone, and was therefore false
+    // in the two shapes where the tokens are read by something else: a
+    // tokens-only theme (they ARE the sheet — a wart of this warning's own
+    // vintage), and a theme whose `root.html` head imports them while
+    // `theme.scss` does not (I5 gave the head its own pass and its own list).
+    // What survives is the case the warning was written for: a `theme.scss`
+    // beside a `_tokens.scss` that nothing in the theme pulls in.
+    if tokens.exists() && !tokens_only && !imported.iter().any(|s| s == "tokens") {
+        let w = format!(
+            "{} has a _tokens.scss that nothing imports — add `@import \
+             \"tokens\";` to theme.scss, or the palette is dead weight",
+            theme_dir.display()
+        );
+        eprintln!("grackle: {w}");
+        stats.css_warnings.push(w);
     }
     if !theme_layer.is_empty() {
         css.push_str(&format!(

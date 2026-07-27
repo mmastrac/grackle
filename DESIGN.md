@@ -1947,6 +1947,8 @@ This retired **Swiftype**: the header search used to be `javascript:document.get
 
 ## 6c. Per-post `<style>` (SCSS)
 
+> Pre-IO prose, and unbuilt: where this says a row's `<style>` is hoisted into `<head>` as an inline block, "not a `<link>`", IO.md §6's one-artifact rule and the `post` layer `css_pass` already declares govern instead — everything else here, the scoping default above all, stays undecided and belongs to whoever builds per-post CSS *(IO.md item IR5)*.
+
 **This formalises a pattern the posts already use.** Posts containing `<style>` blocks are already written in SCSS shape — nested rules and `&` parent selectors — but Jekyll passes them through raw, so today they only render because native CSS nesting happens to work in current browsers. They are unvalidated and broken on anything older.
 
 ```scss
