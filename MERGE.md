@@ -186,7 +186,7 @@ name with conflicting types are a collision error**, not alphabetical order.
   tests for both: a base-declared axis must survive a site declaring a
   different axis, and deleting the registry arm must fail the test.
 
-- [ ] **R1. The `.schema.toml`/`.section` walk respects the not-content
+- [x] **R1. The `.schema.toml`/`.section` walk respects the not-content
   layers.** *(From A1's review queue, prerequisite for A4.)* The walk at
   load.rs ~873-903 scans the whole root without consulting the tree
   collection's `exclude` — verified: `cover`, declared only in
@@ -421,6 +421,43 @@ key, so nothing can be left behind. The test states the law with a
 hypothetical second key and says so. When B1 derives depth from structure
 this becomes a statement about `LinksCfg` being a struct under an
 engine-chosen name, and the hypothetical goes away.
+
+**2026-07-26 — R1.** Landed. The vocabulary walk and the marker scan now
+share one `store::walker_declarations`, and the §4c declared layer is one
+compiled value (`store::NotContent`) built once by `load` from the tree
+collection and read by all three walks — `walk_tree` included, which used to
+compile its own globsets inside `build_tree_and_objects`. Byte-identical
+output for grack.com and all four example sites (only the feed's wall-clock
+`<updated>` moves), zero fixture re-blessing.
+
+*The markers walk had the same blindness, and it is inert today.* A marker
+under an excluded directory can only govern rows in or below that directory,
+and those rows are excluded too — so nothing observable changes and there is
+no behavioural test to write for that half. The parity claim is the test.
+What the shared filter does buy is the reachability invariant: the
+declaration walks now reach a **superset** of the tree walk's directories
+(the dot/underscore skip is theirs alone), so no marker governing a loaded
+row can be missed.
+
+*Deliberate narrowing, for the reviewer:* `exclude` is applied to
+**directories only** in the declaration walks. Pruning the embedded subtree
+is the whole of the disease, whereas a file-shaped pattern is a statement
+about *content* — grack.com's `exclude` lists `*.toml`, which would
+otherwise silently unspeak a root-level `.schema.toml` the day one is
+written. That is the same class of silent loss in the other direction. Both
+readings are byte-identical on today's corpus.
+
+*Deviation:* one fixture comment edited, not re-blessed —
+`schema-field-unknown-key/site/grackle.toml` justified A1's deviation by
+describing this leak as live. It now points at the new `excluded-schema`
+fixture, whose deliberately-broken `.schema.toml` is **committed and inert**
+under an excluded directory. That file is itself the demonstration: check out
+the parent commit with it in place and grack.com's own build fails on it.
+
+*For the queue (q34's remainder):* DESIGN.md's "three definitions of *not
+content*" bullet names `slots.rs` and `serve.rs` as still carrying private
+skip lists. This item did not touch them; the `NotContent` value now exists
+for them to adopt.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
