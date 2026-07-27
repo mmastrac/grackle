@@ -261,7 +261,10 @@ link). A theme that ships no `root.html` inherits the base's; a body-only
 `root.html` is exactly today's chrome fragment, so migration is mechanical.
 
 **The head fence**: a theme's head may contain `<style>` and nothing else —
-and even that is extracted into the site CSS at build. Everything else
+and even that is extracted into the site CSS at build (**built, I5**: it lands
+in the theme layer of the theme's sheet, after `theme.scss`, compiled as SCSS
+like every other file a theme writes; the head carries no theme styles and a
+page keeps one stylesheet link). Everything else
 (`<title>`, `<meta>`, semantic `<link>`, `<script>`) is a load error naming
 the file and the element. The fence widens only when a real theme hits the
 wall (`<meta name="theme-color">` is the known first candidate — the
@@ -271,11 +274,62 @@ one).
 **One CSS artifact.** All CSS — engine base, theme(s), site overlay,
 extracted `root.html` styles, eventually per-post styles — is munged into
 one engine-owned output; pages carry exactly one stylesheet link. Remote
-fonts ride `@import` inside CSS. Today's per-theme sheets become tomorrow's
-*chunking*, a pure perf optimization the model never mentions. **[open]**:
-the multi-theme scoping paragraph — with several themes live (the theme
-axis), theme rules must scope under the stamped root attribute /
-per-theme sub-layers; design detail, no new mechanism.
+fonts ride `@import` inside CSS. **The per-theme sheets ARE that chunking**
+*(declared at I5)*: `/css/main.css` and `/css/<name>.css` are the one
+artifact, chunked — a pure perf optimization the model never mentions, and
+the reason the declaration cost no code. A page links one sheet and that
+sheet is the whole cascade for that page, which is what "one artifact" means
+from where a page stands.
+
+**Multi-theme scoping** *(written at I5; the [open] it closes)*. A site with
+several themes live — the theme axis publishes the same row under each — has
+one artifact and many themes' rules inside it, so something has to keep
+`ledger`'s `.title` off `terminal`'s pages. Three ingredients exist and the
+answer uses two of them:
+
+- **Chunking already scopes, and it is not the argument.** A page links its
+  own theme's chunk, so today no page ever *receives* another theme's rules.
+  That is an optimization doing a correctness job, which is exactly the shape
+  this document exists to refuse — the model says one artifact, and the model
+  must be sound when the chunking is turned off.
+- **Per-theme sub-layers are the mechanism**: `@layer theme.ledger,
+  theme.terminal, …`, declared once in chunk order, each theme's CSS in its
+  own sub-layer. This is themes/DESIGN.md §3's nested-layer plan pointed
+  sideways instead of down the `extends` chain — the same construct, ordered
+  by theme rather than by ancestry — and it costs the emitter one declaration
+  line. It settles *precedence* between themes deterministically without
+  touching a selector.
+- **The stamped root attribute is the scope**: `<html data-theme="…">`
+  beside the existing `data-subtheme`, with each theme's CSS emitted under
+  it. Layers order rules; they do not stop a rule from matching, so a
+  merged artifact still needs the selector to say which pages it is about.
+  The stamp is the one fact a page always carries about its theme, and
+  `[data-subtheme~="…"]` already proves the technique. **The cost is
+  honest and worth stating**: prefixing every theme rule with an attribute
+  selector is a transform on theme CSS the engine does not do today, and it
+  raises every theme rule's specificity uniformly — which is survivable
+  precisely *because* the sub-layers, not specificity, decide the
+  cross-theme case.
+
+**No new mechanism, and no new authoring surface**: a theme writes what it
+writes now. Both ingredients are emitter-side, land when merging is actually
+built, and are inert until then — which is why I5 declared the chunking
+rather than implementing the merge.
+
+**What this implies for the `extends` chain** *(restating I4's flag 3)*: a
+theme root's head `<style>` is not part of the fragment chain — `split_root`
+runs per theme, before the merge, so a child may shadow the chrome, the head
+style, or both, independently. The scoping model above says the same thing
+one level up and settles what "independently" means for CSS: a chain member's
+CSS — `theme.scss` and root-head style alike, in that order — occupies **one**
+sub-layer, `theme.<member>`, ordered root-first. So a child's head style
+outranks its parent's `theme.scss` by layer rather than by specificity, and
+`revert-layer` walks the chain one step at a time; the two halves of one
+member's CSS are ordered against each other by source position inside that
+member's sub-layer, which is the ordering I5 landed. Shadowing (fragments,
+by name) and ranking (CSS, by layer) stay separate questions with separate
+answers, which is what makes "the two halves shadow independently" safe to
+say.
 
 **Vocabulary**: "shell" does not appear in a theme. The chrome part
 contract (nav, site_title, axes, main, copyright) renames `shell` → `root`;
@@ -323,7 +377,10 @@ one thing in the whole system: the serialization a route leaves through.
 2. **[scope]** `output.inputs`: member rows only, or full row-level closure
    (lean: closure).
 3. **[spec]** `robots_txt` emission details.
-4. **[design detail]** multi-theme CSS scoping in the one artifact.
+4. ~~**[design detail]** multi-theme CSS scoping in the one artifact~~ —
+   answered at I5: §6's multi-theme scoping paragraph (per-theme sub-layers
+   for precedence, the stamped root attribute for scope; both emitter-side,
+   both inert until merging is built).
 5. ~~this document's name~~ — settled by use: `IO.md`.
 7. **[shape]** renditions in the shell axis: a transform-bearing output
    (resize, re-encode) is map-shell-shaped but parameterized — whether

@@ -1219,8 +1219,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         db.warnings.push(w);
     }
     let overlay = site_overlay(&root, &mut stats);
+    // Each theme's sheet carries that theme's own `root.html` head styles
+    // (I5) — the head fence's whole purpose, and the reason no page needs an
+    // inline `<style>`. `get(None)` is the `default` directory or the base,
+    // matching `css_of`'s `/css/main.css`.
     css_pass(
         &theme_dir,
+        themes.get(None)?.head_style(),
         "/css/main.css",
         overlay.as_deref(),
         &mut out_map,
@@ -1229,6 +1234,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     for name in themes.names().filter(|n| *n != "default") {
         css_pass(
             &root.join("themes").join(name),
+            themes.get(Some(name))?.head_style(),
             &format!("/css/{name}.css"),
             overlay.as_deref(),
             &mut out_map,
@@ -1683,7 +1689,7 @@ mod css_pass_tests {
         }
         let mut out = SiteOutput::new();
         let mut stats = Stats::default();
-        css_pass(&dir, "/css/t.css", None, &mut out, &mut stats).unwrap();
+        css_pass(&dir, "", "/css/t.css", None, &mut out, &mut stats).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         String::from_utf8(out.remove("/css/t.css").expect("a sheet is always emitted")).unwrap()
     }
@@ -2098,8 +2104,28 @@ fn strip_charset(css: &str) -> &str {
 /// That buys what plain concatenation cannot: a theme's rule wins over the
 /// base's whatever the selectors say, so a theme writing `.crumb` is never
 /// outranked by the base's `[data-kind="crumb"] + [data-kind="crumb"]`.
+///
+/// **These per-theme sheets ARE the megacss** (IO.md §6, item I5). The model
+/// is one CSS artifact — engine base, theme, site overlay, extracted
+/// `root.html` styles, eventually per-post styles — and chunking it per theme
+/// is an optimization of that one artifact, not a competing design: a page
+/// links exactly one sheet, and the sheet it links is the whole cascade for
+/// that page. Nothing about the URLs or the assembly changed when the model
+/// said so; what changed is that "the megacss" now names something that
+/// exists.
+///
+/// `head_style` is the theme root's `<head>` CSS (`Theme::head_style`), and
+/// it lands in the THEME layer **after** `theme.scss`. Two reasons, and the
+/// second is why it is not merely arbitrary: a theme's files are read top to
+/// bottom by whoever maintains it, and `root.html` is the file that states
+/// the theme's own frame — so a rule it writes about its own chrome should
+/// win against the general sheet, not lose to it. It is also the reading that
+/// preserves I4's inline emission: a `<style>` last in a `<head>` outranked
+/// the stylesheet link above it, and staying last keeps the same rule
+/// winning after the move.
 fn css_pass(
     theme_dir: &Path,
+    head_style: &str,
     url: &str,
     overlay: Option<&str>,
     out_map: &mut SiteOutput,
@@ -2132,6 +2158,12 @@ fn css_pass(
          @layer base {{\n{}\n}}\n",
         strip_charset(crate::base::css(wants_skin))
     );
+    // The theme layer's contents, in order: the theme's own sheet, then the
+    // CSS its `root.html` head declared. Collected rather than appended
+    // straight to `css` so the layer block is emitted once, and only when
+    // something reached it — a theme with neither writes no `@layer theme`
+    // at all, exactly as before this item.
+    let mut theme_layer: Vec<String> = Vec::new();
     if let Some(src) = own {
         let text = std::fs::read_to_string(&src)?;
         let (_, body) = split_front_matter(&text);
@@ -2155,10 +2187,7 @@ fn css_pass(
 
         let opts = grass::Options::default().load_path(theme_dir);
         match grass::from_string(flat, &opts) {
-            Ok(theme_css) => css.push_str(&format!(
-                "@layer theme {{\n{}\n}}\n",
-                strip_charset(&theme_css)
-            )),
+            Ok(theme_css) => theme_layer.push(strip_charset(&theme_css).to_string()),
             // Reported here so `serve` shows it immediately, and RECORDED so
             // `build` can refuse: the binder treats a malformed fragment as
             // a build error with file:line, and the CSS half of the same
@@ -2170,6 +2199,41 @@ fn css_pass(
                 stats.css_errors.push(format!("{}: {e}", src.display()));
             }
         }
+    }
+    // The theme root's head styles (IO.md §6), through the SAME pipeline as
+    // `theme.scss`: `@import` inlining, then grass, with the theme directory
+    // on the load path.
+    //
+    // **Compiled, not passed through** — decided at I5. A `root.html` head is
+    // authored as CSS in an HTML file, and plain CSS is valid SCSS, so
+    // compiling costs a pass over a few lines and buys the author the two
+    // things the rest of the theme already has: nesting, and
+    // `@import "tokens";` reaching the theme's own partial or the engine
+    // base's. The alternative — verbatim — would have made one file in a
+    // theme the file where the theme's own vocabulary does not work, which is
+    // the kind of exception that is only ever discovered by hitting it.
+    // A style that does not compile is the same event as a `theme.scss` that
+    // does not: reported, recorded, and a publishing build refuses.
+    if !head_style.is_empty() {
+        let root_html = theme_dir.join("root.html");
+        let mut seen = Vec::new();
+        let flat = inline_imports(head_style, theme_dir, &mut seen)?;
+        let opts = grass::Options::default().load_path(theme_dir);
+        match grass::from_string(flat, &opts) {
+            Ok(head_css) => theme_layer.push(strip_charset(&head_css).to_string()),
+            Err(e) => {
+                eprintln!("scss: {}: {e}", root_html.display());
+                stats
+                    .css_errors
+                    .push(format!("{}: {e}", root_html.display()));
+            }
+        }
+    }
+    if !theme_layer.is_empty() {
+        css.push_str(&format!(
+            "@layer theme {{\n{}\n}}\n",
+            theme_layer.join("\n")
+        ));
     }
     // §5b rung 1: the site's own sheet, above every theme's. Appended to each
     // theme's stylesheet rather than served separately, because it must apply

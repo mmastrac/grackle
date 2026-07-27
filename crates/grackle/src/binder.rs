@@ -115,12 +115,15 @@ pub fn dir_sources(dir: &Path) -> Result<Vec<(String, String, String)>> {
     Ok(sources)
 }
 
-/// A theme root's two halves (IO.md §6). `head` is the theme's own `<head>`
-/// content, fenced to `<style>`; `body` is the chrome the binder loads as the
-/// `root` kind. Either may be absent — `None` on both is not reachable, since
-/// a file with neither wrapper IS the body.
+/// A theme root's two halves (IO.md §6). `style` is the CSS the theme's
+/// `<head>` declared — the *contents* of its `<style>` elements, not the
+/// head markup, because the head is fenced to `<style>` and the one thing
+/// downstream does with it (I5) is compile it into the site's CSS. `body` is
+/// the chrome the binder loads as the `root` kind. Either may be absent —
+/// `None` on both is not reachable, since a file with neither wrapper IS the
+/// body.
 pub struct Root {
-    pub head: Option<String>,
+    pub style: Option<String>,
     pub body: Option<String>,
 }
 
@@ -149,24 +152,28 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
         .any(|n| matches!(n, Node::Element(el) if el.tag == "head" || el.tag == "body"));
     if !wrapped {
         return Ok(Root {
-            head: None,
+            style: None,
             body: Some(src.to_string()),
         });
     }
     let mut root = Root {
-        head: None,
+        style: None,
         body: None,
     };
     for n in &nodes {
         // Whitespace and comments between the halves; a document's top level
         // has nowhere to put text and nothing to do with it.
         let Node::Element(el) = n else { continue };
-        let slot = match el.tag.as_str() {
+        let (slot, take) = match el.tag.as_str() {
             "head" => {
                 check_head_fence(el, file)?;
-                &mut root.head
+                // The head half leaves as CSS, not as markup: the fence has
+                // just proved there is nothing else in it, so carrying the
+                // `<style>` tags on would only mean stripping them at the
+                // other end (`build::css_pass`).
+                (&mut root.style, head_styles(el, src))
             }
-            "body" => &mut root.body,
+            "body" => (&mut root.body, src[el.inner.clone()].to_string()),
             _ => bail!(
                 "{file}:{}: <{}> beside a theme root's <head>/<body> — a \
                  document-shaped root holds those two and nothing else, and \
@@ -179,9 +186,38 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
         if slot.is_some() {
             bail!("{file}:{}: a second <{}>", el.line, el.tag);
         }
-        *slot = Some(src[el.inner.clone()].to_string());
+        *slot = Some(take);
     }
     Ok(root)
+}
+
+/// The CSS a theme root's `<head>` declares: every `<style>` element's
+/// contents, in source order, newline-joined. Everything else in the head —
+/// comments, stray text, and (unreachably, because `check_head_fence` ran
+/// first) any other element — is dropped: the head is a declaration of
+/// styles, and its markup is the engine's.
+///
+/// The `style` test is deliberately *stated* rather than left to the fence.
+/// This function's contract is "the CSS", and a function whose correctness
+/// depends on a check made by its caller two frames up is one refactor from
+/// being wrong.
+fn head_styles(head: &Element, src: &str) -> String {
+    let mut out = String::new();
+    for n in &head.children {
+        let Node::Element(el) = n else { continue };
+        if el.tag != "style" {
+            continue;
+        }
+        let text = src[el.inner.clone()].trim();
+        if text.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(text);
+    }
+    out
 }
 
 /// The head fence (IO.md §6): a theme root's `<head>` may hold `<style>` and

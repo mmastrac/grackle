@@ -24,7 +24,10 @@ mechanical path back down (`theme derive`, §4).
   bare fragment, which is the body chrome and what every theme here writes;
   or document-shaped, with a `<head>` **fenced to `<style>`** and a `<body>`;
   or head-only, inheriting the base's chrome. The engine writes `<html>` and
-  computes the head in every case.
+  computes the head in every case. A fenced `<style>` **leaves through the
+  CSS** (IO.md I5, landed 2026-07-27): compiled as SCSS into the theme layer
+  of the theme's sheet, after `theme.scss`. No page carries an inline
+  `<style>`; every page carries one stylesheet link.
 - **Variant misses degrade**: a row asking for `listing--cards` without that
   fragment falls back to `listing`, then canonical. Row variants are requests.
 - **Subthemes**: `theme: "ledger:dark:wide"` renders through `ledger` with
@@ -95,7 +98,16 @@ across directories would lie. Instead:
 css(theme) = css(parent)                                  # empty for a root
            + compile(theme.scss)                          # if present
            | compile(_tokens.scss as :root block)         # else, if present
+           + compile(root.html's head <style>)            # if present
 ```
+
+The last line is built (IO.md I5); the chain above it is not. **A member's
+own CSS is two files in a fixed order** — the general sheet, then what
+`root.html` says about the theme's own frame — and that order is the same
+reason the chain is ordered child-last: the more specific statement of intent
+comes later. Both halves compile through grass with the theme directory on
+the load path, so a head `<style>` may nest and may `@import "tokens";` like
+any other file the theme writes.
 
 Custom properties are last-wins, so a child `_tokens.scss` listing only the
 two vars it changes is *complete*, stays correct when the parent adds tokens,
@@ -131,6 +143,23 @@ from any chain member may select `[data-subtheme~="…"]`).
 > so the emitter states the chain once and each member's CSS goes in
 > `@layer theme.<member>`. Worth building this way from the first commit: the
 > failure it prevents is silent and only shows up in someone else's theme.
+>
+> **A member's CSS is one sub-layer, both halves of it** (IO.md §6's
+> multi-theme scoping paragraph, written at I5). `theme.scss` and the root
+> head `<style>` are ordered against each other by source position *inside*
+> `theme.<member>`, not by layers of their own — so a child shadows its
+> parent by layer and states its own two files in order, and the two
+> questions never interfere. That is what makes §0's "the root's two halves
+> shadow independently" safe: shadowing is by file name, ranking is by layer,
+> and neither is doing the other's job.
+>
+> **The same construct points sideways.** With several themes live (the theme
+> axis), one artifact holds many themes' rules, and `@layer theme.<name>` in
+> chunk order settles precedence between *themes* exactly as it settles it
+> between chain members. Layers order rules but do not stop them matching, so
+> the merged case also wants the stamped root attribute (`data-theme`, beside
+> `data-subtheme`) as the scope. Both are emitter-side and inert while the
+> sheets stay chunked per theme — IO.md §6 has the argument.
 
 ### Back-tested edges
 

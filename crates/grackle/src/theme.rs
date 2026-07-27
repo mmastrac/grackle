@@ -7,7 +7,8 @@
 //! §6). It may be a bare fragment — which is the body chrome, and what every
 //! theme here writes — or document-shaped, with a `<head>` fenced to `<style>`
 //! and a `<body>`; `binder::split_root` is that split, and the engine keeps
-//! owning `<html>` and the computed head either way.
+//! owning `<html>` and the computed head either way. The head half leaves as
+//! CSS: `head_style()` is read by the CSS assembly, never by a page (I5).
 //!
 //! The root's engine-provided parts are `site_title` (config), `axes` (the
 //! language/theme switcher) and `main` (the rendered kind). **Every other
@@ -33,10 +34,11 @@ pub struct Theme {
     /// Leaked: a slot name is decided at load and lives as long as the
     /// process, and `PartMap` keys are `&'static str`.
     identity: Vec<(&'static str, bool)>,
-    /// The theme's own `<head>` content from a document-shaped `root.html`
-    /// — `<style>` and nothing else, fenced at load (IO.md §6). Empty for a
-    /// body-only root, which is every theme in the repository today.
-    head: String,
+    /// The CSS a document-shaped `root.html` declared in its `<head>` —
+    /// `<style>` and nothing else, fenced at load (IO.md §6), and handed to
+    /// the CSS assembly rather than to any page (I5). Empty for a body-only
+    /// root, which is every theme in the repository today.
+    style: String,
 }
 
 /// Split a row's theme spec: the directory name before the first `:`,
@@ -249,11 +251,11 @@ impl Theme {
         // A head-only root drops OUT of `own` here, which is the whole of
         // "and inherits the base's chrome": the merge below is by name, so a
         // theme that contributes no `root` body keeps the base's.
-        let mut head = String::new();
+        let mut style = String::new();
         if let Some(i) = own.iter().position(|(n, _, _)| n == "root") {
             let split = binder::split_root(&own[i].1, &own[i].2)?;
-            if let Some(h) = split.head {
-                head = h.trim().to_string();
+            if let Some(s) = split.style {
+                style = s.trim().to_string();
             }
             match split.body {
                 Some(body) => own[i].1 = body,
@@ -305,7 +307,7 @@ impl Theme {
             fills,
             root: site_root.to_path_buf(),
             identity,
-            head,
+            style,
         })
     }
 
@@ -313,6 +315,18 @@ impl Theme {
     /// `.slots/` file may be named for this theme (§5e).
     pub fn identity_slots(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.identity.iter().map(|(n, _)| *n)
+    }
+
+    /// The CSS this theme's `root.html` declared in its `<head>` (IO.md §6),
+    /// empty for the body-only roots every theme in the repository writes.
+    ///
+    /// Its one reader is `build::css_pass`, which compiles it into the
+    /// theme's sheet (I5). **No page ever sees it**: the head fence exists so
+    /// that a theme's presentation can join the one CSS artifact, and a page
+    /// carrying an inline `<style>` as well as the stylesheet link would be
+    /// the second artifact the model says does not exist.
+    pub fn head_style(&self) -> &str {
+        &self.style
     }
 
     /// Render one full page: `main` is the already-rendered layout kind;
@@ -324,7 +338,7 @@ impl Theme {
     /// with `view:` links serves every locale: resolution runs per page.
     pub fn page(
         &self,
-        mut head_html: String,
+        head_html: String,
         site_title: &str,
         main: String,
         source_dir: &Path,
@@ -352,22 +366,13 @@ impl Theme {
             }
         }
         m.set("main", Part::Html(main));
-        // A document-shaped root's `<style>` (IO.md §6), verbatim, AFTER the
-        // computed head — so the engine's own facts are never displaced and
-        // the theme's rules are last, which is what a `<style>` at the end of
-        // a head means anywhere else.
+        // A document-shaped root's `<style>` does NOT appear here (I5). It is
+        // CSS, so it goes where the site's CSS goes — the theme layer of the
+        // theme's own sheet, which `build::css_pass` assembles from
+        // `head_style()`. I4 emitted it inline in the computed head as a
+        // declared interim; the head now carries no theme styles at all, and
+        // a page keeps exactly one stylesheet link.
         //
-        // INTERIM: I5 extracts this into the CSS assembly, where it belongs
-        // (one artifact, one link). Emitting it inline until then is the
-        // least-surprising of the two allowed readings: the declared style
-        // takes effect, rather than being parsed, fenced, and then silently
-        // dropped. No theme in the corpus has a head style, so the choice
-        // moves no bytes — it decides what a fixture, and I5's diff, look at.
-        if !self.head.is_empty() {
-            head_html.push('\t');
-            head_html.push_str(&self.head);
-            head_html.push('\n');
-        }
         // The theme renders BODY chrome; the engine's root shell (§5g)
         // supplies doctype/<html>/<head>/<body> around it — so even a
         // theme with no root fragment yields a valid document.
