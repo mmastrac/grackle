@@ -120,6 +120,9 @@ icon = 'site.icon'
 [[collections]]
 kind = "posts"
 source = "_posts"
+# The extractor's default for this collection's rules (§4, IO.md I6): a rule
+# may name its own `filename_formats`, and a rule routing by path tokens alone
+# (`/{dir}/{stem}/`) needs none at all.
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]

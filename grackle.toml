@@ -68,13 +68,16 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
 
 # Drafts are a SECOND SOURCE for the one posts table, not a second table:
 # same row shape, same schema, same views — flagged `draft`, which every
-# view's `!draft` filter already excludes. Undated by Jekyll convention
-# (`_drafts` filenames carry no date), so no `filename_formats` here.
+# view's `!draft` filter already excludes. Undated by Jekyll convention:
+# `_drafts` filenames carry no date, so the base's dated format is not what
+# this source wants and the line below replaces it.
 [[collections]]
 kind = "posts"
 source = "_drafts"
 # The whole stem is the slug: a draft has no date until it is published, so
 # `{slug}` is the honest format rather than a date the file does not carry.
+# It is the DEFAULT for this collection's rules (§4, IO.md I6) — a rule of its
+# own may name another, and none here does.
 filename_formats = ["{slug}"]
 
   [[collections.rules]]

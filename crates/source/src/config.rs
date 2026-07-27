@@ -1326,6 +1326,11 @@ pub struct Collection {
     // stayed as configuration that configures nothing. `deny_unknown_fields`
     // above is what makes a leftover declaration say so. The design is
     // unchanged and comes back with page bundles (§5b).
+    /// The extractor's **default for this collection's rules** (§4, IO.md I6).
+    /// The key that reads a file's stem lives on a [`Rule`] now, because the
+    /// other half of route-token supply — the path tokens — always did; this
+    /// is the bag key that feeds the rules, exactly as `[site]` feeds a page.
+    /// A rule declaring its own list overrides this for the rows it governs.
     #[serde(default)]
     pub filename_formats: Vec<String>,
     #[serde(default)]
@@ -1442,6 +1447,22 @@ pub struct Rule {
     /// sit above an on-demand `**/*` catch-all.
     #[serde(default)]
     pub on_demand: Option<bool>,
+    /// Key extraction from a file's stem, for the rows this rule governs
+    /// (IO.md I6). Tried in order; the first format that describes the stem
+    /// supplies its tokens (`{year}`, `{month}`, `{day}`, `{slug}`) to this
+    /// rule's `route`, and the row's `date` and `slug` with it.
+    ///
+    /// It is a rule's key because routing is: path tokens have always come
+    /// from the rule's own template, and an extractor is the second supplier
+    /// of the same table. Absent, the collection's
+    /// [`Collection::filename_formats`] is the default — first writer wins per
+    /// key across the matching rules, like `defaults`, then the collection.
+    ///
+    /// A rule needs none: a route spending only path tokens (`/{dir}/{stem}/`)
+    /// works in a posts scope exactly as it does in the tree, which is the
+    /// whole of what one supplier means.
+    #[serde(default)]
+    pub filename_formats: Vec<String>,
     #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
     /// True when this rule came from the base config rather than the site's

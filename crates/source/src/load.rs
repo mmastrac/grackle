@@ -15,7 +15,7 @@ use grackle_db::template;
 use grackle_model::{AxisMember, Kind, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
-use crate::filename::FilenameFormat;
+use crate::filename::{self, FileKey, FilenameFormat};
 use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
 use crate::store::{self, RawRow};
@@ -40,6 +40,10 @@ struct CompiledRule<'a> {
     front_matter: Option<bool>,
     on_demand: bool,
     pattern: &'a str,
+    /// This rule's own extractors, compiled. Empty means "the collection's",
+    /// which [`apply_rules`] resolves — the rule holds what it DECLARED, so
+    /// first-writer-wins can tell silence from a list.
+    formats: Vec<FilenameFormat>,
     defaults: &'a BTreeMap<String, toml::Value>,
     /// From the base config rather than the site's own file (§4d).
     inherited: bool,
@@ -62,12 +66,19 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
                 front_matter: r.front_matter,
                 on_demand: r.on_demand.unwrap_or(false),
                 pattern: r.pattern.as_str(),
+                formats: compile_formats(&r.filename_formats)?,
                 defaults: &r.defaults,
                 inherited: r.inherited,
                 governed: Cell::new(false),
             })
         })
         .collect()
+}
+
+/// One declared `filename_formats` list, compiled. Once per rule (and once
+/// per collection, for the default), never per row.
+fn compile_formats(formats: &[String]) -> Result<Vec<FilenameFormat>> {
+    formats.iter().map(|f| FilenameFormat::compile(f)).collect()
 }
 
 /// The site's own rules that governed no row — DESIGN.md §4's promised
@@ -123,6 +134,13 @@ fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<Str
 /// What the rule cascade decided for one row.
 struct Routing<'a> {
     templates: &'a [String],
+    /// The glob of the rule that supplied `templates` — carried so a routing
+    /// error can name the rule the reader has to edit, not just the template
+    /// text (IO.md I6). Empty when no rule supplied a route.
+    pattern: &'a str,
+    /// The extractors in force for this row: the first matching rule that
+    /// declared any, else the collection's own list.
+    formats: &'a [FilenameFormat],
     /// The winning route rule was on-demand: compute the URL, emit no route
     /// until something references it.
     on_demand: bool,
@@ -138,10 +156,15 @@ struct Routing<'a> {
 /// First-writer-wins per key (DESIGN.md §4).
 fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
+    // The collection's own `filename_formats`: the default its rules inherit,
+    // read only where no matching rule declared a list of its own (§4).
+    collection_formats: &'a [FilenameFormat],
     rel: &Path,
     has_front_matter: bool,
 ) -> Routing<'a> {
     let mut templates: &[String] = &[];
+    let mut pattern: &str = "";
+    let mut formats: Option<&[FilenameFormat]> = None;
     let mut on_demand = false;
     let mut on_demand_cover: Vec<&str> = Vec::new();
     let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
@@ -163,7 +186,15 @@ fn apply_rules<'a>(
         }
         if templates.is_empty() && !rule.route.is_empty() {
             templates = rule.route;
+            pattern = rule.pattern;
             on_demand = rule.on_demand;
+        }
+        // First writer wins here too, and deliberately independent of which
+        // rule won the ROUTE: `filename_formats` is a key like any other, so a
+        // rule that names the extractor for a subtree governs it whether or
+        // not it is also the rule that says where those rows land.
+        if formats.is_none() && !rule.formats.is_empty() {
+            formats = Some(&rule.formats);
         }
         for (k, v) in rule.defaults {
             defaults.entry(k.as_str()).or_insert(v);
@@ -171,6 +202,8 @@ fn apply_rules<'a>(
     }
     Routing {
         templates,
+        pattern,
+        formats: formats.unwrap_or(collection_formats),
         on_demand,
         on_demand_cover,
         defaults,
@@ -416,7 +449,8 @@ fn build_globset(pats: &[String]) -> Result<GlobSet> {
     Ok(b.build()?)
 }
 
-/// `{dir}`, `{stem}`, `{name}`, `{path}`, `{ext}` for a tree/object row.
+/// `{dir}`, `{stem}`, `{name}`, `{path}`, `{ext}` — the tokens a path carries
+/// on its own. Every row has them, whichever collection read it.
 fn path_tokens(rel: &Path, k: &str) -> Option<String> {
     let path = rel.to_string_lossy().to_string();
     match k {
@@ -430,6 +464,153 @@ fn path_tokens(rel: &Path, k: &str) -> Option<String> {
         "name" => rel.file_name().map(|s| s.to_string_lossy().to_string()),
         "ext" => rel.extension().map(|s| s.to_string_lossy().to_string()),
         _ => None,
+    }
+}
+
+/// The names the path always supplies, for the error that lists them.
+const PATH_TOKENS: &[&str] = &["path", "dir", "stem", "name", "ext"];
+
+/// **One route-token supplier** (IO.md I6, DESIGN.md q51): everything a rule's
+/// route template may spend for one row.
+///
+/// Three sources, and the point of the type is that they are one table:
+///
+/// - **the path**, always — `{path}`, `{dir}`, `{stem}`, `{name}`, `{ext}`,
+///   relative to what the rule's own glob matches (collection-relative, so
+///   `match = "rust/**"` and `route = "/{dir}/{stem}/"` read the same words
+///   in `_posts` as they do in the tree);
+/// - **the extractor**, where a `filename_formats` entry described the stem —
+///   `{year}`, `{month}`, `{day}`, `{slug}`, or whichever of them the format
+///   named;
+/// - **the axes**, which are not filled here at all: a declared axis (and
+///   `locale`) is handed back as its own placeholder, for `select_path` and
+///   the materializer to spend per member (q53).
+///
+/// Before this type there were two suppliers with no overlap: the tree offered
+/// path tokens and the posts loader offered date/slug inline, so a file in a
+/// posts scope could not route by its directory and a tree page could not
+/// route by a date in its name. Both halves now reach every rule.
+struct RouteTokens<'a> {
+    cfg: &'a Config,
+    /// The path the rule matched — see the doc above on why it is that one.
+    rel: &'a Path,
+    /// The row's resolved date: front matter first where the loader has read
+    /// it, else the extractor's. `None` is a row with no date at all, and the
+    /// three date tokens are then unfillable — which is the error below.
+    date: Option<NaiveDate>,
+    /// What the extractor yielded, for the tokens a date does not cover.
+    key: Option<&'a FileKey>,
+    /// The row's slug: the extractor's where a format named one, else the
+    /// stem. Always fillable, on every row — which is the pre-I6 posts
+    /// behaviour made general rather than a new promise.
+    slug: &'a str,
+}
+
+impl RouteTokens<'_> {
+    /// Resolve one token, or `None` if this row cannot fill it.
+    fn get(&self, k: &str) -> Option<String> {
+        if let Some(v) = path_tokens(self.rel, k) {
+            return Some(v);
+        }
+        match k {
+            // The resolved date first: front matter beats the filename (§4b),
+            // so `{year}` must read what the row wears rather than what its
+            // name said. The extractor is the fallback for a format that named
+            // a part without naming a whole date.
+            "year" => self
+                .date
+                .map(|d| d.format("%Y").to_string())
+                .or_else(|| self.key?.year.map(|y| y.to_string())),
+            "month" => self
+                .date
+                .map(|d| d.format("%-m").to_string())
+                .or_else(|| self.key?.month.map(|m| m.to_string())),
+            "day" => self
+                .date
+                .map(|d| d.format("%-d").to_string())
+                .or_else(|| self.key?.day.map(|d| d.to_string())),
+            "slug" => Some(self.slug.to_string()),
+            // An axis placeholder is spent per member, not here (q53).
+            k => {
+                let (_, bare) = template::classify(k);
+                (self.cfg.axes.contains_key(bare) || (bare == "locale" && self.cfg.i18n.enabled()))
+                    .then(|| format!("{{{k}}}"))
+            }
+        }
+    }
+
+    /// Render one rule's route templates for one row, refusing any template
+    /// that spends a token this row cannot fill.
+    ///
+    /// The refusal is DESIGN.md §4's constraint, generalized off the one shape
+    /// it used to have (a dateless post under a dated template): the supplier
+    /// knows what it can fill, so "this row cannot go there" is one question
+    /// asked in one place, for tree rows and posts alike.
+    fn render_all(&self, tmpls: &[String], pattern: &str, path: &Path) -> Result<Vec<String>> {
+        tmpls
+            .iter()
+            .map(|tmpl| {
+                self.check(tmpl, pattern, path)?;
+                template::render(tmpl, |k| self.get(k))
+                    .map(tidy)
+                    .with_context(|| format!("routing {}", path.display()))
+            })
+            .collect()
+    }
+
+    fn check(&self, tmpl: &str, pattern: &str, path: &Path) -> Result<()> {
+        let named =
+            template::tokens(tmpl).with_context(|| format!("routing {}", path.display()))?;
+        let unfillable: Vec<String> = named
+            .iter()
+            .filter(|t| self.get(t).is_none())
+            .map(|t| t.to_string())
+            .collect();
+        if unfillable.is_empty() {
+            return Ok(());
+        }
+        let dated: Vec<&String> = unfillable
+            .iter()
+            .filter(|t| matches!(t.as_str(), "year" | "month" | "day"))
+            .collect();
+        // The date case keeps its own sentence, because "unfillable" is the
+        // mechanism and "this file carries no date" is the diagnosis.
+        if dated.len() == unfillable.len() {
+            bail!(
+                "{} has no date (its filename matches none of the \
+                 filename_formats in force, and it declares no `date:`), but the \
+                 rule `match = {pattern:?}` routes it to {tmpl:?}, which requires \
+                 {{{}}}",
+                path.display(),
+                dated
+                    .iter()
+                    .map(|t| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join("}, {")
+            );
+        }
+        let axes: String = match self.cfg.axes.is_empty() {
+            true => String::new(),
+            false => format!(
+                ", and the declared axes ({})",
+                self.cfg
+                    .axes
+                    .keys()
+                    .map(|a| a.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        bail!(
+            "{}: the rule `match = {pattern:?}` routes it to {tmpl:?}, which \
+             spends {{{}}} — nothing supplies that token. A route may spend the \
+             path tokens ({}), the row's {{slug}}, the date tokens (year, month, \
+             day) wherever `filename_formats` or a `date:` gives the row a \
+             date{axes}.",
+            path.display(),
+            unfillable.join("}, {"),
+            PATH_TOKENS.join(", ")
+        )
     }
 }
 
@@ -482,14 +663,14 @@ fn read_posts(
     let raws: Vec<RawRow> = store::load_dir(&source, &["md", "markdown"])?;
     let read_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    let formats: Vec<FilenameFormat> = c
-        .filename_formats
-        .iter()
-        .map(|f| FilenameFormat::compile(f))
-        .collect::<Result<_>>()?;
-    if formats.is_empty() {
-        bail!("collection {name} has kind=posts but no filename_formats");
-    }
+    // The collection's list is the DEFAULT its rules inherit (§4, IO.md I6),
+    // not a requirement: a posts scope whose rules route by path tokens
+    // (`/{dir}/{stem}/`) needs no extractor at all, and the pre-I6 refusal —
+    // "kind=posts but no filename_formats" — would have refused exactly the
+    // config q51 exists to make possible. What replaces it is per row and per
+    // template: a route that spends a date the row does not have is the error,
+    // wherever that route came from (`RouteTokens::check`).
+    let collection_formats = compile_formats(&c.filename_formats)?;
     let rules = compile_rules(c)?;
 
     let mut rows: Vec<Row> = Vec::with_capacity(raws.len());
@@ -509,16 +690,24 @@ fn read_posts(
         // ROOT-relative too, like `rel`: collection-relative would collide a
         // post at `2020/x.md` with a tree page at `2020/x.md`.
         let logical = source_rel.join(&logical_rel).to_string_lossy().to_string();
-        let key = formats.iter().find_map(|f| f.parse(&stem));
-        let from_name = match &key {
-            Some(k) => Some(
-                NaiveDate::from_ymd_opt(k.year, k.month, k.day).with_context(|| {
-                    format!(
-                        "{} has an impossible date in its filename",
-                        raw.path.display()
-                    )
-                })?,
-            ),
+
+        // `true`, not `raw.has_front_matter`: every post is a rendered row
+        // (`rendered` below says the same), so a `front_matter = false` rule
+        // describes a static file and cannot describe a post.
+        //
+        // The rules run before the extractor because they are what says which
+        // extractor this row has (IO.md I6).
+        let routing = apply_rules(&rules, &collection_formats, &logical_rel, true);
+        check_on_demand_cover(&logical_rel, &routing)?;
+        let (route_tmpls, rule_defaults) = (routing.templates, routing.defaults);
+        let key = filename::extract(routing.formats, &stem);
+        let from_name = match key.as_ref().and_then(|k| k.ymd()) {
+            Some((y, m, d)) => Some(NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
+                format!(
+                    "{} has an impossible date in its filename",
+                    raw.path.display()
+                )
+            })?),
             None => None,
         };
         // Front matter beats the filename, the same precedence every other
@@ -529,15 +718,8 @@ fn read_posts(
         };
         let slug = key
             .as_ref()
-            .map(|k| k.slug.clone())
+            .and_then(|k| k.slug.clone())
             .unwrap_or_else(|| stem.clone());
-
-        // `true`, not `raw.has_front_matter`: every post is a rendered row
-        // (`rendered` below says the same), so a `front_matter = false` rule
-        // describes a static file and cannot describe a post.
-        let routing = apply_rules(&rules, &logical_rel, true);
-        check_on_demand_cover(&logical_rel, &routing)?;
-        let (route_tmpls, rule_defaults) = (routing.templates, routing.defaults);
         let root_rel = raw
             .path
             .strip_prefix(&root)
@@ -577,49 +759,23 @@ fn read_posts(
         let worn = cascade(&checked, &raw.path)?;
 
         // A `permalink` is a literal URL, spending no axis; otherwise each of
-        // the rule's template(s) is rendered with the post's date/slug tokens,
-        // axis and locale placeholders preserved for per-member selection.
+        // the rule's template(s) is rendered by the one supplier — path tokens,
+        // the extractor's, axis and locale placeholders preserved for
+        // per-member selection.
         let route_templates: Vec<String> = if let Some(p) = &raw.front.permalink {
             vec![p.clone()]
         } else {
             if route_tmpls.is_empty() {
                 bail!("no rule supplies a route for {}", raw.path.display());
             }
-            route_tmpls
-                .iter()
-                .map(|tmpl| {
-                    if date.is_none() {
-                        let needs: Vec<String> = template::tokens(tmpl)?
-                            .into_iter()
-                            .filter(|t| matches!(t.as_str(), "year" | "month" | "day"))
-                            .collect();
-                        if !needs.is_empty() {
-                            bail!(
-                                "{} has no date (filename doesn't match any \
-                                 filename_formats), but its route {:?} requires {{{}}}",
-                                raw.path.display(),
-                                tmpl,
-                                needs.join("}, {")
-                            );
-                        }
-                    }
-                    template::render(tmpl, |k| match k {
-                        "year" => date.map(|d| d.format("%Y").to_string()),
-                        "month" => date.map(|d| d.format("%-m").to_string()),
-                        "day" => date.map(|d| d.format("%-d").to_string()),
-                        "slug" => Some(slug.clone()),
-                        // An axis placeholder is spent per member, not here (q53).
-                        k => {
-                            let (_, bare) = template::classify(k);
-                            (cfg.axes.contains_key(bare)
-                                || (bare == "locale" && cfg.i18n.enabled()))
-                            .then(|| format!("{{{k}}}"))
-                        }
-                    })
-                    .map(tidy)
-                    .with_context(|| format!("routing {}", raw.path.display()))
-                })
-                .collect::<Result<_>>()?
+            RouteTokens {
+                cfg,
+                rel: &logical_rel,
+                date,
+                key: key.as_ref(),
+                slug: &slug,
+            }
+            .render_all(route_tmpls, routing.pattern, &raw.path)?
         };
         let row_axis = row_axes(cfg, &route_templates);
         // `Row.url` is the canonical address (every axis at canonical, the row's
@@ -755,6 +911,14 @@ fn build_tree_and_objects(
         .unwrap_or_default();
     let tree_rules = compile_rules(tree_c)?;
     let obj_rules = obj_c.map(compile_rules).transpose()?.unwrap_or_default();
+    // The collection-level default, on this side too (IO.md I6): the tree and
+    // the objects collection may name an extractor for their rules exactly as
+    // a posts collection does — one key, one meaning, three kinds.
+    let tree_formats = compile_formats(&tree_c.filename_formats)?;
+    let obj_formats = obj_c
+        .map(|c| compile_formats(&c.filename_formats))
+        .transpose()?
+        .unwrap_or_default();
 
     let is_obj = |rel: &Path| {
         let ext = rel
@@ -789,7 +953,12 @@ fn build_tree_and_objects(
         };
 
         let rules = if is_object { &obj_rules } else { &tree_rules };
-        let routing = apply_rules(rules, &logical_rel, f.has_front_matter);
+        let collection_formats = if is_object {
+            &obj_formats
+        } else {
+            &tree_formats
+        };
+        let routing = apply_rules(rules, collection_formats, &logical_rel, f.has_front_matter);
         check_on_demand_cover(&logical_rel, &routing)?;
         let on_demand = routing.on_demand;
         let (tmpls, rule_defaults) = (routing.templates, routing.defaults);
@@ -798,24 +967,53 @@ fn build_tree_and_objects(
         if tmpls.is_empty() {
             bail!("no rule supplies a route for {}", f.path.display());
         }
-        // Render each of the rule's route template(s): path tokens filled, axis
-        // and locale placeholders preserved for the materializer to spend per
-        // member. A single template is the ordinary case; a list is the
-        // default-axis case (§6f), where a canonical member drops its segment.
-        let route_templates: Vec<String> = tmpls
-            .iter()
-            .map(|t| {
-                template::render(t, |k| {
-                    path_tokens(&logical_rel, k).or_else(|| {
-                        let (_, bare) = template::classify(k);
-                        (cfg.axes.contains_key(bare) || (bare == "locale" && cfg.i18n.enabled()))
-                            .then(|| format!("{{{k}}}"))
-                    })
-                })
-                .map(tidy)
-                .with_context(|| format!("routing {}", f.path.display()))
-            })
-            .collect::<Result<_>>()?;
+        // `stem` is computed here, above the object/page split, because both
+        // halves want it and the extractor wants it before either: it is what
+        // a `filename_formats` entry describes.
+        //
+        // STORED rather than re-derived later: recomputing it from `logical`
+        // via `file_stem()` returns `v1` for `v1.2-release.md`.
+        let stem = logical_rel
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // The extractor, wherever a rule (or this collection) named one. No
+        // corpus tree or objects collection does today, so `key` is `None` and
+        // every token below comes from the path — which is exactly what this
+        // side has always supplied.
+        let key = filename::extract(routing.formats, &stem);
+        let from_name = match key.as_ref().and_then(|k| k.ymd()) {
+            Some((y, m, d)) => Some(NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
+                format!(
+                    "{} has an impossible date in its filename",
+                    f.path.display()
+                )
+            })?),
+            None => None,
+        };
+        let slug = key
+            .as_ref()
+            .and_then(|k| k.slug.clone())
+            .unwrap_or_else(|| stem.clone());
+        // Render each of the rule's route template(s) through the one supplier:
+        // path tokens and extractor results filled, axis and locale
+        // placeholders preserved for the materializer to spend per member. A
+        // single template is the ordinary case; a list is the default-axis case
+        // (§6f), where a canonical member drops its segment.
+        //
+        // The date offered here is the FILENAME's, not front matter's: this
+        // loader reads a page's front matter below, after routing, so a tree
+        // route cannot spend a `date:` the way a post's can. That seam is the
+        // remaining half of "one supplier" and belongs to I7, which dissolves
+        // the two loaders into one walk; nothing here depends on it.
+        let route_templates: Vec<String> = RouteTokens {
+            cfg,
+            rel: &logical_rel,
+            date: from_name,
+            key: key.as_ref(),
+            slug: &slug,
+        }
+        .render_all(tmpls, routing.pattern, &f.path)?;
         let row_axis = row_axes(cfg, &route_templates);
         // `Row.url` is the CANONICAL address: every axis at its canonical value,
         // the row's own locale. `select_path` drops a canonical segment where a
@@ -839,13 +1037,10 @@ fn build_tree_and_objects(
 
         if is_object {
             // An object is a row that was never rendered. Everything else it
-            // could carry — front matter, a date, a locale axis — a binary
-            // file does not have, so the defaults are the honest values.
-            let stem = f
-                .rel
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
+            // could carry — front matter, a locale axis — a binary file does
+            // not have, so the defaults are the honest values. Its `slug` is
+            // its stem unless a rule's extractor said otherwise, which is the
+            // same sentence every other row now gets.
             objects.push(Row {
                 key: grackle_db::Key::new(f.rel.to_string_lossy()),
                 collection: obj_name.to_string(),
@@ -854,8 +1049,9 @@ fn build_tree_and_objects(
                 version: f.version,
                 url,
                 size: f.size,
-                slug: stem.clone(),
+                slug,
                 stem,
+                date: from_name,
                 locale,
                 rendered: false,
                 on_demand,
@@ -887,9 +1083,12 @@ fn build_tree_and_objects(
             // says the same thing at the same seam.
             schema::force(&cfg.forced, &schema, &mut checked, &f.path)?;
             let worn = cascade(&checked, &f.rel)?;
+            // Front matter beats the filename, exactly as it does for a post
+            // (§4b) — and the filename half is `None` on every corpus row,
+            // since no tree rule names an extractor.
             let date = match &fm.date {
                 Some(s) => Some(front_matter_date(s, &f.path)?),
-                None => None,
+                None => from_name,
             };
             let logical = logical_rel.to_string_lossy().to_string();
             // q45: a row named by some view's `content` is claimed — every
@@ -902,12 +1101,6 @@ fn build_tree_and_objects(
                     claims[logical.as_str()]
                 );
             }
-            // `stem` is STORED, not derived: recomputing it from `logical`
-            // via `file_stem()` returns `v1` for `v1.2-release.md`.
-            let stem = logical_rel
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
             pages.push(Row {
                 axis: row_axis.clone(),
                 route_templates,
@@ -916,7 +1109,7 @@ fn build_tree_and_objects(
                 key: Default::default(),
                 on_demand,
                 collection: tree_name.to_string(),
-                slug: stem.clone(),
+                slug,
                 stem,
                 body_bytes,
                 path: f.path,

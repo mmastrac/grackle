@@ -217,6 +217,43 @@ extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
   route = "/{path}"
 ```
 
+### Route tokens: one supplier *(q51's remainder; built 2026-07-27, IO.md I6)*
+
+A rule's `route` spends tokens, and **every rule offers the same table** —
+one supplier, not one per collection kind:
+
+| token | comes from | available |
+|---|---|---|
+| `{path}` `{dir}` `{stem}` `{name}` `{ext}` | the file's path, relative to whatever the rule's own `match` glob matches (collection-relative in `_posts`, root-relative in the tree) | always |
+| `{slug}` | the extractor's capture, else the stem | always |
+| `{year}` `{month}` `{day}` | the row's date — front matter first, then the extractor | where the row has a date |
+| a declared axis (`{theme}`, `{axis:locale}`, …) | nothing here: it is handed back as a placeholder for the member materializer to spend (q53, §6f) | where the axis is declared |
+
+**The extractor is `filename_formats`, and it is a RULE's key.** Formats are
+tried in order; the first that describes the stem supplies whatever it names —
+a format need not name all four tokens, and `{slug}` alone is a legal one.
+A collection's own `filename_formats` survives as the **default its rules
+inherit** (a bag key feeding rule defaults, the shape `[site]` already has);
+a rule declaring its own list overrides it for the rows it governs, first
+writer wins per key like every other rule key.
+
+```toml
+  [[collections.rules]]
+  match            = "legacy/**"
+  filename_formats = ["{month}-{day}-{year}-{slug}"]   # this subtree only
+  route            = "/blog/{year}/{month:02}/{slug}/"
+```
+
+Until IO.md I6 the two halves lived in different loaders and neither knew the
+other's words: the tree offered path tokens, the posts loader offered
+date/slug inline. So `_posts/rust/hello.md` could not route to `/rust/hello/`
+(*"template `/{dir}/{stem}/` references unknown token {dir}"*), and a tree
+page whose filename carried a date could not spend it. Both halves reach
+every rule now — which is also what makes an extractor **optional** in a posts
+scope: a rule routing `/{dir}/{stem}/` needs no format at all, and the old
+refusal (*"kind=posts but no filename_formats"*) is gone with the premise that
+a posts scope routes by dates.
+
 ### Named object routes
 
 Objects are routed by ordered rules. The default `**` → `/{path}` keeps every
@@ -247,7 +284,7 @@ an explicit `permalink:` in the file wins outright.
 
 - **Route collisions** → error, naming both rows. *Two rows may not share a URL.*
 - **One row, two routes** → error, naming the file and both URLs. *The dual, and the stronger statement:* **a row renders at exactly one route.** The legal counts are 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand and unreferenced), 1 (everything else), and **N only along an axis** (q53). An axis is the sole mechanism permitted to break it; anything else producing a second route onto one row is a bug, and now says so at load.
-- **Undated row routed by a dated template**: error naming the file and rule.
+- **Undated row routed by a dated template**: error naming the file and rule. **Generalized** *(IO.md I6)*: a template spending ANY token the supplier cannot fill for that row is the error, in whatever collection the rule lives — the dated case keeps a sentence of its own, because "unfillable" is the mechanism and "this file carries no date" is the diagnosis. The refusal is the only reason the check exists: an unfilled token already fails the render, by a sentence about a template rather than about a row.
 - **Dead rule** (matches zero rows) → warning, naming the collection and the glob. Scoped to rules the **site declared**, in a collection that produced rows: the base's rules go dead for ordinary reasons (no `_posts/`, no `index.md`) and are nobody's to fix, and a collection with no rows at all says nothing about any one glob.
 - **URL-set parity** with reference builds — maintained via `grackle urls`.
 
@@ -2528,7 +2565,7 @@ Three merges unified distinctions that were never real: two row flows became one
 ### Still owed
 
 - **The objects dispatch.** `build_object_view` stays separate by design (§5b), and object rows are `rendered: false`. Folding it in would require three parameters; what was stale has been deleted; `group_by`/`paginate` still bail there.
-- **The single tree** (§3's endgame: one table, views as partitions). Measured obstacles: `store.rs` skips `.`/`_` names by convention; six underscore directories need explicit excludes; `filename_formats` is per-collection where it would be per-rule.
+- **The single tree** (§3's endgame: one table, views as partitions). Measured obstacles: `store.rs` skips `.`/`_` names by convention; six underscore directories need explicit excludes. *(The third — `filename_formats` per-collection where it wants to be per-rule — is gone: IO.md I6 moved it, §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)*
 
 ## 10. Phasing (each phase has a checkable exit)
 
@@ -2571,7 +2608,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
 50. **Transplanting an imported page** *(Matt's case)*. Import raw HTML page, lift *meat* out and render through theme. No mechanism: front matter on full document nests it inside second `<html>`. Two operations, must not fuse: **extraction** (body children or selector-scoped region — scheduled at q49/§6d stage B) and **chrome** (row `shell:`, §5g). Left open: `light` may be honest destination for imports; theme wanting *less* furniture can only omit a part-hole (binder doesn't flag it). Deliberate omission byte-identical to forgotten one. **How does a theme say "I deliberately don't place this part"?** Must settle first.
 
-51. **One row type: route-token supply** *(built; remainder)*. **Built 2026-07:** one `Row` type, one `SiteDb.rows` store with membership lists, `date`/`tags`/`theme`/`fields` on every row. **Remains:** two route-token suppliers still disjoint — path tokens (path/dir/stem/name/ext) for tree; inline `match` for posts (year/month/day/slug) — so `_posts/rust/hello.md` can't route to `/rust/hello/`. Fix: one supplier offering path tokens always plus extractor results. Validation exists (posts-path-only), move it. Also: most-specific-source rule for `_posts` inside `.`.
+51. **One row type: route-token supply** *(built; one rider remains)*. **Built 2026-07:** one `Row` type, one `SiteDb.rows` store with membership lists, `date`/`tags`/`theme`/`fields` on every row. **Built 2026-07-27 (IO.md I6):** the two suppliers merged — §4's *Route tokens: one supplier* carries the design (path tokens always, extractor results where a format matched, `filename_formats` per rule with the collection's list as the default its rules inherit), and the posts-path-only validation moved with it and generalized to any unfillable token. `_posts/rust/hello.md` routes to `/rust/hello/`. **Remains:** the **most-specific-source rule** for `_posts` inside `.` — the tree's source contains the posts scope's, and today nothing has to rule on it because walk-level membership precedence (§3) keeps posts files out of tree rules entirely. Stating it as a rule is IO.md **I7**'s, which retires that precedence machinery in favour of first-rule-wins over one walk; until then the containment is handled, not decided.
     
     Three rules merge bought (each from silent failure): `.schema.toml` may not redeclare base field (load error); ordering belongs to SET, not table; for additive capability, byte-identical proves nothing.
 
