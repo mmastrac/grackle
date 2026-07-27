@@ -28,7 +28,7 @@ use std::sync::OnceLock;
 /// `(fragment name, source)`. Explicit rather than a directory walk: the list
 /// is the manifest, and a file that goes missing is a compile error.
 const FRAGMENTS: &[(&str, &str)] = &[
-    ("shell", include_str!("../assets/base/shell.html")),
+    ("root", include_str!("../assets/base/root.html")),
     ("document", include_str!("../assets/base/document.html")),
     ("listing", include_str!("../assets/base/listing.html")),
     ("summary", include_str!("../assets/base/summary.html")),

@@ -269,10 +269,11 @@ impl Theme {
 }
 
 /// §5g: the engine-owned ROOT HTML SHELL every theme inherits — doctype,
-/// `<html>` stamped with the shell kind and any subtheme tokens, `<head>`
-/// from the computed facts, `<body>` from the theme's body chrome. Themes
-/// never write the skeleton, and a fragmentless (null) theme still
-/// produces a valid document.
+/// `<html>` stamped with the root kind and any subtheme tokens, `<head>`
+/// from the computed facts, `<body>` from the theme's body chrome. A theme
+/// may ship a document-shaped `root.html` (IO.md §6), but what it ships is
+/// chrome and `<style>`: the skeleton is the engine's, and a fragmentless
+/// (null) theme still produces a valid document.
 pub fn root_shell(
     head: &str,
     locale: &str,
@@ -338,7 +339,7 @@ pub fn root_shell(
     // a site without translations is unaffected.
     let lang = esc(locale);
     format!(
-        "<!doctype html>\n<html lang=\"{lang}\" data-kind=\"shell\"{sub}{prof}{ax}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{lang}\" data-kind=\"root\"{sub}{prof}{ax}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
         body.trim_end()
     )
 }

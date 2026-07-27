@@ -58,6 +58,12 @@ struct Element {
     children: Vec<Node>,
     void: bool,
     line: usize,
+    /// Source span of this element's CHILDREN — the bytes between its open
+    /// and close tags. Only `split_root` reads it: a document-shaped theme
+    /// root hands its two halves on as *sources*, and slicing them out is
+    /// how the head fence and the chrome fragment can be checked by the
+    /// same parser that already read the file.
+    inner: std::ops::Range<usize>,
 }
 
 #[derive(Debug)]
@@ -107,6 +113,102 @@ pub fn dir_sources(dir: &Path) -> Result<Vec<(String, String, String)>> {
         }
     }
     Ok(sources)
+}
+
+/// A theme root's two halves (IO.md §6). `head` is the theme's own `<head>`
+/// content, fenced to `<style>`; `body` is the chrome the binder loads as the
+/// `root` kind. Either may be absent — `None` on both is not reachable, since
+/// a file with neither wrapper IS the body.
+pub struct Root {
+    pub head: Option<String>,
+    pub body: Option<String>,
+}
+
+/// Split a theme's `root.html` into its head and body halves.
+///
+/// Three shapes are accepted, and the first is the one every theme in the
+/// repository writes:
+///
+/// - **a fragment** — no `<head>` and no `<body>` anywhere at the top level:
+///   the file IS the body chrome. This is what makes the `shell.html` →
+///   `root.html` migration a rename and nothing else, and it is why the
+///   `<body>` element is optional rather than required — the wrapper would
+///   be a tag every theme writes and no theme means anything by.
+/// - **a document** — `<head>` and/or `<body>` at the top level, with nothing
+///   else beside them.
+/// - **head-only** — a `<head>` and no `<body>`: the theme adds presentation
+///   and inherits the base's chrome, which falls out of the fragment merge
+///   (`theme.rs`) rather than needing a rule of its own.
+///
+/// The engine keeps owning `<html>` and the computed head either way; the
+/// fence below is what makes that a checked claim rather than a convention.
+pub fn split_root(src: &str, file: &str) -> Result<Root> {
+    let nodes = Parser::new(src, file).parse_all()?;
+    let wrapped = nodes
+        .iter()
+        .any(|n| matches!(n, Node::Element(el) if el.tag == "head" || el.tag == "body"));
+    if !wrapped {
+        return Ok(Root {
+            head: None,
+            body: Some(src.to_string()),
+        });
+    }
+    let mut root = Root {
+        head: None,
+        body: None,
+    };
+    for n in &nodes {
+        // Whitespace and comments between the halves; a document's top level
+        // has nowhere to put text and nothing to do with it.
+        let Node::Element(el) = n else { continue };
+        let slot = match el.tag.as_str() {
+            "head" => {
+                check_head_fence(el, file)?;
+                &mut root.head
+            }
+            "body" => &mut root.body,
+            _ => bail!(
+                "{file}:{}: <{}> beside a theme root's <head>/<body> — a \
+                 document-shaped root holds those two and nothing else, and \
+                 the engine writes <html> itself (IO.md §6). Move it inside \
+                 <body>.",
+                el.line,
+                el.tag
+            ),
+        };
+        if slot.is_some() {
+            bail!("{file}:{}: a second <{}>", el.line, el.tag);
+        }
+        *slot = Some(src[el.inner.clone()].to_string());
+    }
+    Ok(root)
+}
+
+/// The head fence (IO.md §6): a theme root's `<head>` may hold `<style>` and
+/// nothing else. Every other element is a load error naming the file and the
+/// element, because the engine computes the head — a theme writing its own
+/// `<title>` or `canonical` link would be shadowed by the engine's on every
+/// page, silently, and a theme writing a second stylesheet `<link>` would
+/// break the one-artifact rule the CSS assembly is built on.
+///
+/// The allowlist principle is "presentational head elements", and it starts
+/// at one; `<meta name="theme-color">` is the known first candidate to widen
+/// it, when a real theme hits the wall.
+fn check_head_fence(head: &Element, file: &str) -> Result<()> {
+    for n in &head.children {
+        let Node::Element(el) = n else { continue };
+        if el.tag != "style" {
+            bail!(
+                "{file}:{}: <{}> in a theme root's <head> — a theme head may hold \
+                 <style> and nothing else (IO.md §6). The engine computes the head: \
+                 the title, the charset, the canonical link, the [html.head.*] \
+                 tables, hreflang, and the one stylesheet link.",
+                el.line,
+                el.tag
+            );
+        }
+    }
+    Ok(())
 }
 
 impl Fragments {
@@ -543,6 +645,7 @@ impl<'a> Parser<'a> {
             children: Vec::new(),
             void: VOID.contains(&tag.as_str()),
             line,
+            inner: 0..0,
         };
         // attributes
         loop {
@@ -594,6 +697,7 @@ impl<'a> Parser<'a> {
         if el.void {
             return Ok(el);
         }
+        el.inner.start = self.pos;
         // Raw-text elements: the content is opaque up to the literal close tag.
         if el.tag == "script" || el.tag == "style" {
             let close = format!("</{}>", el.tag);
@@ -602,10 +706,12 @@ impl<'a> Parser<'a> {
                 .find(&close)
                 .ok_or_else(|| self.err(&format!("unterminated <{}>", el.tag)))?;
             el.children.push(Node::Text(self.rest()[..end].to_string()));
+            el.inner.end = self.pos + end;
             self.pos += end + close.len();
             return Ok(el);
         }
         el.children = self.parse_nodes()?;
+        el.inner.end = self.pos;
         if !self.eat("</") {
             return Err(self.err(&format!("<{}> is never closed", el.tag)));
         }

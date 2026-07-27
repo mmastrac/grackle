@@ -11,8 +11,10 @@
 # Pairs, not a table: a TOML table has no stable order, so it could not carry a
 # canonical one and would make diffs unreadable between builds.
 
+# The chrome a theme arranges around a page: what `root.html` places (IO.md
+# §6). The engine owns `<html>` and the computed head; this kind is the body.
 [[kind]]
-name = "shell"
+name = "root"
 parts = [
   ["nav", "html"],
   ["site_title", "text"],

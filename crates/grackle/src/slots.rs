@@ -138,7 +138,7 @@ impl SlotFills {
 }
 
 /// Fills nothing will ever read (MERGE.md C4b): a `.slots/` file whose stem
-/// names no identity slot of any loaded theme's shell — `.slots/copyrite.md`
+/// names no identity slot of any loaded theme's root — `.slots/copyrite.md`
 /// is walked, read, keyed, and then looked at by nothing.
 ///
 /// `known` is the UNION over loaded themes (`Themes::identity_slots`) —
@@ -178,7 +178,7 @@ pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec
             })
             .unwrap_or_default();
         out.push(format!(
-            "{}: fills slot {slot:?}, which no loaded theme's shell places{hint} — \
+            "{}: fills slot {slot:?}, which no loaded theme's root places{hint} — \
              slots the tree may fill: {}",
             file.display(),
             if known.is_empty() {

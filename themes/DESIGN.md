@@ -19,6 +19,12 @@ mechanical path back down (`theme derive`, §4).
 - **Themes are partial**: any kind a theme declines to arrange falls through to
   canonical (generic semantic markup: `data-kind`, `data-slot`, flags as
   `data-<fact>` attributes). Already an inheritance mechanism with one parent.
+- **The chrome file is `root.html`**, binding the part kind `root` (IO.md §6,
+  landed 2026-07-27 — it was `shell.html`/`shell` until then). It may be a
+  bare fragment, which is the body chrome and what every theme here writes;
+  or document-shaped, with a `<head>` **fenced to `<style>`** and a `<body>`;
+  or head-only, inheriting the base's chrome. The engine writes `<html>` and
+  computes the head in every case.
 - **Variant misses degrade**: a row asking for `listing--cards` without that
   fragment falls back to `listing`, then canonical. Row variants are requests.
 - **Subthemes**: `theme: "ledger:dark:wide"` renders through `ledger` with
@@ -75,9 +81,11 @@ chain, child wins. Implemented at load, not render: `Themes::load_all`
 resolves chains (cycles and unknown parents are load errors naming the
 chain), then builds each theme's `Fragments` as the merged map. Everything
 downstream — render fallback, identity-slot derivation, variant resolution —
-already works on a `Fragments` value and needs no change. The shell fragment
+already works on a `Fragments` value and needs no change. The root fragment
 resolves the same way: nearest in chain; identity slots derive from the
-merged result.
+merged result. Its two halves are independent — a chain member may shadow
+the chrome, the head `<style>`, or both, because `split_root` runs per
+theme before the merge.
 
 **CSS: concatenation, tokens cascade by the platform's own rule.** No Sass
 load-path tricks — Sass resolves imports file-relative, so partial shadowing
@@ -140,8 +148,8 @@ update two years later. Each gets a test in §10 step 1 and a lint in
    consequence: a child restyling a kind heavily should shadow its variants
    too. `theme check` warns when a chain splits a `kind`/`kind--variant`
    pair across themes.
-2. **Identity-slot drift.** Identity slots derive from the merged shell's
-   slot set. A child shell that *drops* a slot the parent had (`copyright`,
+2. **Identity-slot drift.** Identity slots derive from the merged root's
+   slot set. A child root that *drops* a slot the parent had (`copyright`,
    say) silently disconnects the site's `.slots/copyright.md` — a file the
    site author owns goes dark with no signal. Correct behavior, wrong
    silence: `theme check` (and `theme list`'s chain view) names identity
@@ -212,8 +220,8 @@ light dark`; type = `system-ui` / `ui-monospace`. The engine base fragments
 fuse labels and links (semantic element choices); CSS carries only
 platform-delegated visuals. Two working rules: **a rule belongs in the base if
 a theme would have to re-derive it; it does not if a theme would have to undo
-it.** **Ship a shell, own the frame** — a theme's own shell inherits none of
-the base's page geometry, because a sticky header or sidebar would need to
+it.** **Ship a root, own the frame** — a theme's own `root.html` inherits none
+of the base's page geometry, because a sticky header or sidebar would need to
 undo a centred measure.
 
 ## 7. The floor: base as a compiled-in theme

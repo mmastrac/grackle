@@ -1224,7 +1224,7 @@ mod schema_asset_tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            names("shell"),
+            names("root"),
             ["nav", "site_title", "axes", "main", "copyright"]
         );
         assert_eq!(names("item"), ["label"], "the shape a list field fills");

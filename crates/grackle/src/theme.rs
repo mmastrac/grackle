@@ -1,10 +1,17 @@
 //! A theme is a directory of data (§5e): binder fragments + CSS. This module
 //! loads one and renders full pages: the layout kind's part map through its
-//! fragment, the result into the shell, identity slots filled from the tree.
+//! fragment, the result into the root chrome, identity slots filled from the
+//! tree.
 //!
-//! The shell's engine-provided parts are `site_title` (config), `axes` (the
+//! The chrome file is **`root.html`** and the kind it binds is `root` (IO.md
+//! §6). It may be a bare fragment — which is the body chrome, and what every
+//! theme here writes — or document-shaped, with a `<head>` fenced to `<style>`
+//! and a `<body>`; `binder::split_root` is that split, and the engine keeps
+//! owning `<html>` and the computed head either way.
+//!
+//! The root's engine-provided parts are `site_title` (config), `axes` (the
 //! language/theme switcher) and `main` (the rendered kind). **Every other
-//! `html`-typed shell slot is an identity slot**, resolved from `.slots/` up
+//! `html`-typed root slot is an identity slot**, resolved from `.slots/` up
 //! the source path — the theme places `<p data-slot="copyright">`; the tree
 //! owns the words. A fill is markup, so the part type is what decides
 //! (`from_sources`); a fill naming no identity slot of any loaded theme is a
@@ -22,15 +29,19 @@ pub struct Theme {
     pub fragments: Fragments,
     fills: SlotFills,
     root: PathBuf,
-    /// Shell identity slots: (schema name, element is phrasing-only).
+    /// Root identity slots: (schema name, element is phrasing-only).
     /// Leaked: a slot name is decided at load and lives as long as the
     /// process, and `PartMap` keys are `&'static str`.
     identity: Vec<(&'static str, bool)>,
+    /// The theme's own `<head>` content from a document-shaped `root.html`
+    /// — `<style>` and nothing else, fenced at load (IO.md §6). Empty for a
+    /// body-only root, which is every theme in the repository today.
+    head: String,
 }
 
 /// Split a row's theme spec: the directory name before the first `:`,
 /// subtheme tokens after it, space-joined — `"recipes:spicy"` renders
-/// through the `recipes` theme with `subtheme = "spicy"` on the shell,
+/// through the `recipes` theme with `subtheme = "spicy"` on the root,
 /// which CSS subselects via `[data-subtheme~="spicy"]` (the same
 /// whitespace-token trick as §5b's data-scope).
 pub fn split_spec(spec: &str) -> (&str, Option<String>) {
@@ -158,7 +169,7 @@ impl Themes {
     /// Every slot the tree may fill, over every theme that can RENDER —
     /// sorted and deduped.
     ///
-    /// The union is the point (C4b). Themes ship their own shells and may
+    /// The union is the point (C4b). Themes ship their own roots and may
     /// place different identity slots, so a fill is dead only when NO theme
     /// would read it — a site that switches between two themes keeps both
     /// sets of words, and neither is a typo. The base theme joins the union
@@ -197,6 +208,19 @@ impl Theme {
         site_root: &Path,
         schemas: &crate::parts::Schemas,
     ) -> Result<Theme> {
+        // IO.md §6: the chrome file is `root.html`, and the part kind it
+        // binds renamed with it. A theme still carrying `shell.html` would
+        // otherwise fail with the generic "fragment names no layout kind
+        // `shell`", which sends its reader hunting for a kind when the fix is
+        // a rename — the one case §10's precedent allows a targeted sentence.
+        if theme_dir.join("shell.html").exists() && !theme_dir.join("root.html").exists() {
+            anyhow::bail!(
+                "{}: `shell.html` is `root.html` now (IO.md §6) — the chrome part kind \
+                 renamed shell → root, and a theme root may carry a <head> as well as \
+                 a body. Rename the file; its contents are the body chrome, unchanged.",
+                theme_dir.display()
+            );
+        }
         let own = binder::dir_sources(theme_dir)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;
         let what = theme_dir.display().to_string();
@@ -212,11 +236,32 @@ impl Theme {
     /// parses the whole set and only then validates, so a theme's
     /// `document.html` may name a stream child that lives in the base.
     fn from_sources(
-        own: Vec<(String, String, String)>,
+        mut own: Vec<(String, String, String)>,
         site_root: &Path,
         schemas: &crate::parts::Schemas,
         what: &str,
     ) -> Result<Theme> {
+        // IO.md §6: `root.html` may be document-shaped. Split it before the
+        // merge, so the body half is an ordinary fragment source and the head
+        // half never reaches the binder's part vocabulary at all — it is
+        // presentation, not an arrangement of parts.
+        //
+        // A head-only root drops OUT of `own` here, which is the whole of
+        // "and inherits the base's chrome": the merge below is by name, so a
+        // theme that contributes no `root` body keeps the base's.
+        let mut head = String::new();
+        if let Some(i) = own.iter().position(|(n, _, _)| n == "root") {
+            let split = binder::split_root(&own[i].1, &own[i].2)?;
+            if let Some(h) = split.head {
+                head = h.trim().to_string();
+            }
+            match split.body {
+                Some(body) => own[i].1 = body,
+                None => {
+                    own.remove(i);
+                }
+            }
+        }
         let mut sources: Vec<(String, String, String)> = base::fragments()
             .iter()
             .filter(|(n, _)| !own.iter().any(|(o, _, _)| o == n))
@@ -226,13 +271,13 @@ impl Theme {
         let fragments =
             Fragments::load(sources, schemas).with_context(|| format!("loading theme {what}"))?;
         let fills = SlotFills::load(site_root)?;
-        // Identity slots = shell slots the TREE fills, matched back to the
+        // Identity slots = root slots the TREE fills, matched back to the
         // schema so the names stay 'static and checked.
         //
         // Which ones those are is read off the declared PART TYPE rather than
         // off a list of names (MERGE.md C4c). A `.slots/` fill is HTML by
         // construction — `Fill::render` produces markup and `page` sets it as
-        // `Part::Html` — so a shell slot declared as anything else can never
+        // `Part::Html` — so a root slot declared as anything else can never
         // take one. That answers `site_title` (`text`) and, the case this was
         // written for, `axes` (`stream:axis`, the engine's own language/theme
         // switcher): without the type test, `.slots/axes.md` lands in a slot
@@ -242,14 +287,14 @@ impl Theme {
         // the engine renders into itself.
         let engine = ["main"];
         let mut identity = Vec::new();
-        for (slot, tag) in fragments.slot_tags("shell") {
+        for (slot, tag) in fragments.slot_tags("root") {
             if engine.contains(&slot.as_str()) {
                 continue;
             }
             let (name, ty) = schemas
-                .get("shell")
+                .get("root")
                 .and_then(|s| s.iter().find(|(n, _)| **n == *slot).copied())
-                .with_context(|| format!("shell fragment slots unknown part `{slot}`"))?;
+                .with_context(|| format!("root fragment slots unknown part `{slot}`"))?;
             if ty != PartType::Html {
                 continue;
             }
@@ -260,10 +305,11 @@ impl Theme {
             fills,
             root: site_root.to_path_buf(),
             identity,
+            head,
         })
     }
 
-    /// The shell slots this theme leaves for the tree to fill — what a
+    /// The root slots this theme leaves for the tree to fill — what a
     /// `.slots/` file may be named for this theme (§5e).
     pub fn identity_slots(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.identity.iter().map(|(n, _)| *n)
@@ -278,7 +324,7 @@ impl Theme {
     /// with `view:` links serves every locale: resolution runs per page.
     pub fn page(
         &self,
-        head_html: String,
+        mut head_html: String,
         site_title: &str,
         main: String,
         source_dir: &Path,
@@ -289,7 +335,7 @@ impl Theme {
         axis: &[grackle_model::AxisMember],
         axes: Vec<PartMap>,
     ) -> Result<String> {
-        let mut m = PartMap::new("shell");
+        let mut m = PartMap::new("root");
         m.set("site_title", Part::Text(site_title.to_string()));
         if !axes.is_empty() {
             m.set("axes", Part::Stream(axes));
@@ -306,9 +352,25 @@ impl Theme {
             }
         }
         m.set("main", Part::Html(main));
+        // A document-shaped root's `<style>` (IO.md §6), verbatim, AFTER the
+        // computed head — so the engine's own facts are never displaced and
+        // the theme's rules are last, which is what a `<style>` at the end of
+        // a head means anywhere else.
+        //
+        // INTERIM: I5 extracts this into the CSS assembly, where it belongs
+        // (one artifact, one link). Emitting it inline until then is the
+        // least-surprising of the two allowed readings: the declared style
+        // takes effect, rather than being parsed, fenced, and then silently
+        // dropped. No theme in the corpus has a head style, so the choice
+        // moves no bytes — it decides what a fixture, and I5's diff, look at.
+        if !self.head.is_empty() {
+            head_html.push('\t');
+            head_html.push_str(&self.head);
+            head_html.push('\n');
+        }
         // The theme renders BODY chrome; the engine's root shell (§5g)
         // supplies doctype/<html>/<head>/<body> around it — so even a
-        // theme with no shell fragment yields a valid document.
+        // theme with no root fragment yields a valid document.
         let body = self.fragments.render_body(&m);
         Ok(crate::render::root_shell(
             &head_html, locale, subtheme, profile, axis, &body,
@@ -563,8 +625,8 @@ mod tests {
         let schemas = Schemas::engine_only();
         let thm = Theme::null(&crate::workspace_root(), &schemas).expect("base loads");
         for kind in schemas.kind_names() {
-            // `shell` is filled by `Theme::page`, not by a kind renderer.
-            if kind == "shell" {
+            // `root` is filled by `Theme::page`, not by a kind renderer.
+            if kind == "root" {
                 continue;
             }
             let full = populate(&schemas, kind, 2);
@@ -603,7 +665,7 @@ mod tests {
         for name in &names {
             let thm = themes.get(Some(name)).unwrap();
             for kind in schemas.kind_names() {
-                if kind == "shell" {
+                if kind == "root" {
                     continue;
                 }
                 let m = populate(&schemas, kind, 2);
@@ -649,30 +711,30 @@ mod tests {
             ["nav", "copyright"],
             "canonical order, from the schema"
         );
-        // Stated as the thing the base's shell DOES place, so this test fails
+        // Stated as the thing the base's root DOES place, so this test fails
         // if someone reads the exclusion off a name list again.
         let placed: Vec<String> = base
             .fragments
-            .slot_tags("shell")
+            .slot_tags("root")
             .into_iter()
             .map(|(s, _)| s)
             .collect();
         for engine in ["axes", "main", "site_title"] {
-            assert!(placed.contains(&engine.to_string()), "the shell places it");
+            assert!(placed.contains(&engine.to_string()), "the root places it");
             assert!(!slots.contains(&engine), "but the tree does not fill it");
         }
     }
 
-    /// The union, and why it is one (C4b): themes ship their own shells and
+    /// The union, and why it is one (C4b): themes ship their own roots and
     /// may place different identity slots, so a fill is dead only when NO
     /// loaded theme would read it.
     ///
     /// Two claims in one tree. `nav` is placed by `other` alone and is live
     /// anyway — that is the union. `copyright` is placed by neither, and is
-    /// dead **even though the base's shell places it**, because a site with
-    /// a `themes/default` can never reach the base's shell: the union takes
+    /// dead **even though the base's root places it**, because a site with
+    /// a `themes/default` can never reach the base's root: the union takes
     /// the base on exactly the condition `get` does. This is the case
-    /// `no_theme_shell_drops_an_identity_slot` calls a live hazard, reported
+    /// `no_theme_root_drops_an_identity_slot` calls a live hazard, reported
     /// rather than merely linted.
     #[test]
     fn a_stem_one_loaded_theme_places_is_not_dead() {
@@ -682,7 +744,7 @@ mod tests {
             let d = dir.join("themes").join(theme);
             std::fs::create_dir_all(&d).unwrap();
             std::fs::write(
-                d.join("shell.html"),
+                d.join("root.html"),
                 format!(
                     "<header><a data-slot=\"site_title\"></a>{places}</header>\
                      <main data-slot=\"main\"></main>"
@@ -696,7 +758,7 @@ mod tests {
         }
         let schemas = Schemas::engine_only();
         let themes =
-            Themes::load_all(&dir.join("themes"), &dir, &schemas, None).expect("two shells load");
+            Themes::load_all(&dir.join("themes"), &dir, &schemas, None).expect("two roots load");
         assert_eq!(
             themes.identity_slots(),
             ["nav"],
@@ -710,36 +772,36 @@ mod tests {
     }
 
     /// Edge 2 of §3's back-tested list, as a lint rather than a hope: a
-    /// theme that writes its own `shell.html` takes over the shell's slots
+    /// theme that writes its own `root.html` takes over the root's slots
     /// too, and dropping one puts a site file — its copyright, its nav —
-    /// silently dark (or, for `main`, the page itself). Five gallery themes
-    /// ship their own shell, so this is a live hazard rather than a
+    /// silently dark (or, for `main`, the page itself). Seven gallery themes
+    /// ship their own root, so this is a live hazard rather than a
     /// hypothetical one. Until `theme check` exists, the gallery is the
     /// corpus and this is the check.
     #[test]
-    fn no_theme_shell_drops_an_identity_slot() {
+    fn no_theme_root_drops_an_identity_slot() {
         let base: std::collections::HashSet<String> = slots_of(
             crate::base::fragments()
                 .iter()
-                .find(|(n, _)| *n == "shell")
+                .find(|(n, _)| *n == "root")
                 .map(|(_, s)| *s)
-                .expect("the base ships a shell"),
+                .expect("the base ships a root"),
         );
         assert!(base.contains("copyright"), "sanity: the base places it");
 
         for dir in std::fs::read_dir(gallery()).unwrap().flatten() {
-            let shell = dir.path().join("shell.html");
-            if !shell.exists() {
+            let root = dir.path().join("root.html");
+            if !root.exists() {
                 continue; // inherits the base's, nothing to drop
             }
-            let own = slots_of(&std::fs::read_to_string(&shell).unwrap());
+            let own = slots_of(&std::fs::read_to_string(&root).unwrap());
             let missing: Vec<&String> = base.difference(&own).collect();
             assert!(
                 missing.is_empty(),
-                "{}: its shell drops {missing:?} — every slot the base's shell \
+                "{}: its root drops {missing:?} — every slot the base's root \
                  places is a place the TREE fills, so dropping one loses the \
                  site's own words with no error anywhere",
-                shell.display()
+                root.display()
             );
         }
     }

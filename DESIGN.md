@@ -1342,7 +1342,8 @@ Layout kinds emit a part map — named, typed parts, each a flat piece of semant
 ```
 themes/default/
   theme.toml
-  shell.html        # the outer skeleton: holes for header/main/footer
+  root.html         # the chrome: holes for header/main/footer, and an
+                    # optional <head> fenced to <style> (IO.md §6)
   document.html     # optional: per-kind arrangement fragments
   summary.html      # optional: how one listing item is arranged
   theme.scss
@@ -1442,7 +1443,7 @@ The base moved into the engine — embedded with `include_str!`, and inherited b
 Three lines had to be drawn:
 
 - **The base is structure, never decoration.** A rule belongs there if a theme would have to re-derive it (the measure, a nav that is a row not a bulleted list, the reset). It does not if a theme would have to *undo* it.
-- **Ship a shell, own the frame.** The base's page geometry keys on `[data-frame]`, stamped by its own `shell.html`, so a theme writing its own shell inherits none of it. A fixed rail or full-bleed bar must be its own frame.
+- **Ship a root, own the frame.** The base's page geometry keys on `[data-frame]`, stamped by its own `root.html`, so a theme writing its own root inherits none of it. A fixed rail or full-bleed bar must be its own frame.
 - **An arrangement may decline a part; `canonical()` may not.** Completeness is the *parts layer's* obligation, not the theme's — `terminal` drops tags from its summary on purpose. The base's own exemptions are declared with reasons.
 
 ### Tripwires
@@ -1580,9 +1581,17 @@ two families" at the end of this section for the merge and what it bought.)*
 
 ### The root HTML shell: themes inherit, never write, the skeleton
 
-The engine owns `root_shell`: doctype, `<html lang data-kind="shell" [data-subtheme]>`, `<head>` from computed facts, `<body>` around theme chrome. A theme's `shell.html` is now **body chrome only** — no theme writes a skeleton. A fragmentless theme yields a valid document; the light tier (`light_html` since IO.md I2) dissolved into a minimal head option inside the same root shell as everything else; `subtheme` moved to the engine root (no per-theme opt-in).
+The engine owns `root_shell`: doctype, `<html lang data-kind="root" [data-subtheme]>`, `<head>` from computed facts, `<body>` around theme chrome. A fragmentless theme yields a valid document; the light tier (`light_html` since IO.md I2) dissolved into a minimal head option inside the same root shell as everything else; `subtheme` moved to the engine root (no per-theme opt-in).
 
-Pending: a theme wanting to add head content (fonts) needs an optional `head.html` theme fragment appended after computed facts.
+**The theme file is `root.html`, and it may be document-shaped** *(IO.md §6, item I4)*. Three shapes load, and the first is what every theme in the repository writes:
+
+- **a fragment** — no wrapper at all: the file IS the body chrome, which is what `shell.html` always was. So the migration was a rename, and the `<body>` element is optional rather than required: a tag every theme would write and none would mean anything by.
+- **a document** — `<head>` and/or `<body>` at the top level, nothing beside them. The engine still writes `<html>` itself (lang, subtheme, profile, axis stamps) and still computes the head.
+- **head-only** — a `<head>` and no `<body>`: the theme adds presentation and inherits the base's chrome, which falls out of the by-name fragment merge rather than needing a rule.
+
+**The head fence**: a theme root's `<head>` may hold `<style>` and nothing else. Every other element — `<title>`, `<meta>`, `<link>`, `<script>` — is a load error naming the file and the element, because the head is *computed*: a theme `<title>` would give every page two, a theme `<link rel="canonical">` would compete with the engine's, and a theme stylesheet `<link>` would break the one-artifact rule. The allowlist principle is "presentational head elements" and it starts at one; `<meta name="theme-color">` is the known first candidate to widen it. **Interim, until IO.md I5**: a fenced `<style>` is emitted verbatim inside the computed head, after the engine's own facts. I5 extracts it into the CSS assembly instead.
+
+The chrome part kind is `root` (`parts.toml`), and the `<html>` stamp is `data-kind="root"`. A theme directory still carrying `shell.html` and no `root.html` is a load error naming the new file: the generic diagnosis ("fragment names no layout kind `shell`") is true but sends its reader hunting for a kind when the fix is a rename. The word *shell* now means exactly one thing in the system — the serialization a route leaves through (§4 of IO.md) — with `render::root_shell` keeping the name for the engine's own skeleton, which is not theme vocabulary.
 
 ### The search shell: the searchable set is a query *(Matt's framing, built 2026-07)*
 
