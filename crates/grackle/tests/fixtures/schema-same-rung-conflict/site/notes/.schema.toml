@@ -1,0 +1,3 @@
+# The notebooks name theirs, so here `series` is a string. Nothing in the
+# tree ranks this declaration against `books/.schema.toml`'s.
+series = { type = "string" }

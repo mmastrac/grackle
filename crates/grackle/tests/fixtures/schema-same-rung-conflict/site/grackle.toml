@@ -1,0 +1,28 @@
+# Two subtrees, one field name, two types (MERGE.md A4).
+#
+# `books/.schema.toml` says `series` is an int; `notes/.schema.toml` says it
+# is a string. Neither directory is inside the other, so §5b's nearest-wins
+# has nothing to rank them by — yet `Schemas::declared()` must flatten both
+# into ONE site-wide filter vocabulary, and it used to do that with
+# `or_insert` over a `BTreeMap<PathBuf>`: alphabetical directory order,
+# silently. `books` sorted first, so the whole site's `where`/`order_by`/
+# `group_by` saw `series` as an int, while every row under `notes/` carried a
+# string.
+#
+# Delete the collision check in `Schemas::add` and this site loads again —
+# with exactly that lie in place.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Two Subtrees"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"

@@ -61,13 +61,18 @@ impl FieldType {
     }
 }
 
+/// One rung's worth of declarations: the fields, and who wrote them — the
+/// file for a `.schema.toml`, the table name for a `[collections.*.schema]`.
+/// The writer is kept so a collision can name both sides.
+type Declared = (String, BTreeMap<String, FieldType>);
+
 /// Every `.schema.toml` in the tree, keyed by its directory.
 #[derive(Debug)]
 pub struct Schemas {
-    by_dir: BTreeMap<PathBuf, BTreeMap<String, FieldType>>,
+    by_dir: BTreeMap<PathBuf, Declared>,
     /// `[collections.<name>.schema]` — the axis a positional file cannot
     /// express, because a collection may have several sources.
-    by_collection: BTreeMap<String, BTreeMap<String, FieldType>>,
+    by_collection: BTreeMap<String, Declared>,
     /// `[schema]` — fields every row of the site has.
     site: BTreeMap<String, FieldType>,
     /// Names the row type already owns. `Row::field` matches these FIRST and
@@ -86,6 +91,21 @@ pub struct Schemas {
     /// no `Default` — a `Schemas` with no reserved names would accept every
     /// shadowing declaration in silence, which is the bug this rejects.
     reserved: Schema,
+}
+
+/// "a/.schema.toml says string, b/.schema.toml says int" — the two writers of
+/// a colliding name, ordered by writer so the message reads the same however
+/// the walk happened to find the files (the declaration walk is unsorted).
+fn conflict(a: &str, a_ty: FieldType, b: &str, b_ty: FieldType) -> String {
+    let mut both = [(a, a_ty), (b, b_ty)];
+    both.sort_by(|x, y| x.0.cmp(y.0));
+    format!(
+        "{} says {}, {} says {}",
+        both[0].0,
+        both[0].1.name(),
+        both[1].0,
+        both[1].1.name()
+    )
 }
 
 /// A page's validated extra fields: typed values plus the image-typed
@@ -113,8 +133,55 @@ impl Schemas {
         let table: toml::Table = text
             .parse()
             .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
-        let fields = self.parse_fields(table, &file.display().to_string())?;
-        self.by_dir.insert(dir.to_path_buf(), fields);
+        let whose = file.display().to_string();
+        let fields = self.parse_fields(table, &whose)?;
+        self.check_positional_collision(dir, &whose, &fields)?;
+        self.by_dir.insert(dir.to_path_buf(), (whose, fields));
+        Ok(())
+    }
+
+    /// Two `.schema.toml` files may declare one name — `series = { type =
+    /// "string" }` under two subtrees is ordinary — but only if they AGREE.
+    ///
+    /// The tree axis orders declarations by nearness, so an ancestor and a
+    /// descendant disagreeing is the §5b law working (`books/.schema.toml`
+    /// says `author` is a string, `books/special/.schema.toml` says int, and
+    /// a row picks the nearer). Two directories with **neither inside the
+    /// other** have no such order. Nothing ranks them, yet `declared()` must
+    /// flatten them into ONE site-wide filter vocabulary — the environment
+    /// `where`, `order_by`, `group_by` and a route's schema parse against —
+    /// and it did so with `or_insert` over a `BTreeMap<PathBuf>`, i.e. by
+    /// **alphabetical directory order**. The winner was silent, arbitrary,
+    /// and free to disagree with what `resolve()` hands the rows themselves.
+    ///
+    /// So the disagreement is the error, at the point of declaration, naming
+    /// both files (MERGE.md A4).
+    fn check_positional_collision(
+        &self,
+        dir: &Path,
+        whose: &str,
+        fields: &BTreeMap<String, FieldType>,
+    ) -> Result<()> {
+        for (name, ty) in fields {
+            for (other_dir, (other_whose, other_fields)) in &self.by_dir {
+                let Some(other) = other_fields.get(name) else {
+                    continue;
+                };
+                // Agreement is legal; nearness is an order, and an order is
+                // an answer.
+                if other == ty || dir.starts_with(other_dir) || other_dir.starts_with(dir) {
+                    continue;
+                }
+                bail!(
+                    "{} — two .schema.toml files declare field {name:?} with \
+                     different types and neither directory contains the other, \
+                     so nothing orders them. The site's filter vocabulary \
+                     (`where`, `order_by`, `group_by`) has one entry per name: \
+                     give them the same type, or rename one.",
+                    conflict(whose, *ty, other_whose, *other)
+                );
+            }
+        }
         Ok(())
     }
 
@@ -138,7 +205,33 @@ impl Schemas {
     /// cure, one layer down.
     pub fn add_collection(&mut self, name: &str, table: toml::Table, whose: &str) -> Result<()> {
         let fields = self.parse_fields(table, whose)?;
-        self.by_collection.insert(name.to_string(), fields);
+        // The same law one rung down, and here there is no nearness at all to
+        // fall back on: collections are siblings by construction. Two of them
+        // declaring one name differently is `declared()` picking by
+        // alphabetical COLLECTION order — and when they share a kind they
+        // even feed one table, so the rows disagree too.
+        for (other_name, (other_whose, other_fields)) in &self.by_collection {
+            if other_name == name {
+                continue;
+            }
+            for (field, ty) in &fields {
+                let Some(other) = other_fields.get(field) else {
+                    continue;
+                };
+                if other == ty {
+                    continue;
+                }
+                bail!(
+                    "{} — two collections declare field {field:?} with different \
+                     types. The site's filter vocabulary has one entry per name, \
+                     and collections have no nearness to rank them by: give them \
+                     the same type, or rename one.",
+                    conflict(whose, *ty, other_whose, *other)
+                );
+            }
+        }
+        self.by_collection
+            .insert(name.to_string(), (whose.to_string(), fields));
         Ok(())
     }
 
@@ -203,7 +296,7 @@ impl Schemas {
         let mut out: BTreeMap<&str, FieldType> = BTreeMap::new();
         let mut cur = Some(dir);
         while let Some(d) = cur {
-            if let Some(fields) = self.by_dir.get(d) {
+            if let Some((_, fields)) = self.by_dir.get(d) {
                 for (k, t) in fields {
                     out.entry(k.as_str()).or_insert(*t);
                 }
@@ -213,7 +306,10 @@ impl Schemas {
             }
             cur = d.parent();
         }
-        for src in [self.by_collection.get(collection), Some(&self.site)] {
+        for src in [
+            self.by_collection.get(collection).map(|(_, f)| f),
+            Some(&self.site),
+        ] {
             let Some(fields) = src else { continue };
             for (k, t) in fields {
                 out.entry(k.as_str()).or_insert(*t);
@@ -224,12 +320,21 @@ impl Schemas {
 
     /// Every declared field name and type, across all schemas — what a view's
     /// `where` and `order_by` validate against when the set spans the tree.
+    ///
+    /// Flattening rungs is what makes this a *site* vocabulary, and the rungs
+    /// are ordered (positional, then collection, then site — nearest first,
+    /// §5b), so a cross-rung disagreement resolves by law. Within a rung the
+    /// only disagreements that survive to here are between an ancestor
+    /// directory and its descendant, where the ancestor — the broader claim —
+    /// takes the global name; every other same-rung disagreement was refused
+    /// at declaration time.
     pub fn declared(&self) -> BTreeMap<&str, FieldType> {
         let mut out = BTreeMap::new();
         for fields in self
             .by_dir
             .values()
-            .chain(self.by_collection.values())
+            .map(|(_, f)| f)
+            .chain(self.by_collection.values().map(|(_, f)| f))
             .chain(std::iter::once(&self.site))
         {
             for (k, t) in fields {
@@ -622,6 +727,149 @@ mod tests {
         assert!(e.contains("books/.schema.toml"), "{e}");
         assert!(e.contains("unknown key(s) default, required"), "{e}");
         assert!(e.contains("takes: type"), "{e}");
+    }
+
+    /// MERGE.md A4. Two `.schema.toml` files in unrelated subtrees are the
+    /// same rung with no nearness between them, so a type disagreement had no
+    /// answer — `declared()` picked one by alphabetical directory order and
+    /// said nothing.
+    #[test]
+    fn a_same_rung_type_disagreement_is_a_load_error() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.add(
+            Path::new("recipes"),
+            "series = { type = \"string\" }\n",
+            Path::new("recipes/.schema.toml"),
+        )
+        .unwrap();
+        let e = s
+            .add(
+                Path::new("books"),
+                "series = { type = \"int\" }\n",
+                Path::new("books/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("books/.schema.toml says int"), "{e}");
+        assert!(e.contains("recipes/.schema.toml says string"), "{e}");
+        assert!(e.contains("\"series\""), "it names the field: {e}");
+
+        // The pair reads in path order whichever way the walk found them —
+        // the declaration walk is not sorted.
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.add(
+            Path::new("books"),
+            "series = { type = \"int\" }\n",
+            Path::new("books/.schema.toml"),
+        )
+        .unwrap();
+        let flipped = s
+            .add(
+                Path::new("recipes"),
+                "series = { type = \"string\" }\n",
+                Path::new("recipes/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert_eq!(e, flipped);
+    }
+
+    /// The control, and the common case: agreement is not a collision. Two
+    /// subtrees both declaring `series = { type = "string" }` is ordinary —
+    /// and a descendant retyping its ancestor's field stays legal, because
+    /// the tree ORDERS those two and §5b's nearest-wins is the answer.
+    #[test]
+    fn agreeing_and_nested_redeclarations_stay_legal() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        for dir in ["books", "recipes"] {
+            s.add(
+                Path::new(dir),
+                "series = { type = \"string\" }\n",
+                &Path::new(dir).join(".schema.toml"),
+            )
+            .unwrap();
+        }
+        assert_eq!(s.declared()["series"], FieldType::Str);
+
+        // Ancestor and descendant: `schemas()` above already disagrees about
+        // `author`, on purpose, and resolves nearest-wins.
+        let nested = schemas();
+        assert_eq!(
+            nested.resolve("entries", Path::new("books/special"))["author"],
+            FieldType::Int
+        );
+        assert_eq!(
+            nested.declared()["author"],
+            FieldType::Str,
+            "the broader claim takes the global name"
+        );
+    }
+
+    /// The same rung one level down. Collections are siblings by
+    /// construction — there is no nearness to appeal to at all — and when
+    /// they share a kind they feed one table.
+    #[test]
+    fn two_collections_may_not_disagree_about_a_field() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.add_collection(
+            "notes",
+            "series = { type = \"string\" }\n".parse().unwrap(),
+            "grackle.toml [collections.notes.schema]",
+        )
+        .unwrap();
+        // Agreement is fine.
+        s.add_collection(
+            "essays",
+            "series = { type = \"string\" }\n".parse().unwrap(),
+            "grackle.toml [collections.essays.schema]",
+        )
+        .unwrap();
+        let e = s
+            .add_collection(
+                "drafts",
+                "series = { type = \"int\" }\n".parse().unwrap(),
+                "grackle.toml [collections.drafts.schema]",
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("[collections.drafts.schema] says int"), "{e}");
+        assert!(e.contains("says string"), "{e}");
+        assert!(e.contains("two collections declare"), "{e}");
+    }
+
+    /// Cross-rung is NOT this error: a positional file outranks the
+    /// collection table outranks `[schema]`, and nearest-wins is the law
+    /// (MERGE.md table B). Only the built-in row schema is closed to
+    /// redeclaration, which is a different guard with a different reason —
+    /// a built-in cannot be shadowed at ANY rung, because `Row::field`
+    /// answers first and the declaration would never be read.
+    #[test]
+    fn cross_rung_redeclaration_is_nearest_wins_not_a_collision() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.set_site(
+            "series = { type = \"int\" }\n".parse().unwrap(),
+            "[schema]",
+        )
+        .unwrap();
+        s.add_collection(
+            "notes",
+            "series = { type = \"bool\" }\n".parse().unwrap(),
+            "grackle.toml [collections.notes.schema]",
+        )
+        .unwrap();
+        s.add(
+            Path::new("books"),
+            "series = { type = \"string\" }\n",
+            Path::new("books/.schema.toml"),
+        )
+        .unwrap();
+        assert_eq!(
+            s.resolve("notes", Path::new("books"))["series"],
+            FieldType::Str,
+            "positional beats collection beats site"
+        );
+        assert_eq!(s.resolve("notes", Path::new("x"))["series"], FieldType::Bool);
+        assert_eq!(s.resolve("other", Path::new("x"))["series"], FieldType::Int);
     }
 
     #[test]

@@ -1,0 +1,2 @@
+# The shelf numbers its series, so here `series` is an int.
+series = { type = "int" }

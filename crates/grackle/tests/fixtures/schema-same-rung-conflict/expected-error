@@ -1,0 +1,1 @@
+books/.schema.toml says int, notes/.schema.toml says string — two .schema.toml files declare field "series" with different types
