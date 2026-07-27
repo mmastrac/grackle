@@ -333,7 +333,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   `.slots/axes.md` would silently replace the switcher with prose in a
   slot bound as `stream:axis`).
 
-- [ ] **C5. Axis spelling and linking coherence.** (a) The "axis declared but
+- [x] **C5. Axis spelling and linking coherence.** (a) The "axis declared but
   never spent" check (views.rs:473) accepts only `{name}` while
   `spends()`/`select_path` (load.rs:218-222, :259-263) accept `{name}` and
   `{axis:name}` — a route written the namespaced way fails falsely. Unify on
@@ -1504,6 +1504,123 @@ isolation note still stands unchanged. (iii) The warning fires per BUILD, not
 per theme, so a fill dead for the theme a row actually wears — but live for
 some other loaded theme — is still silent. That is the union's deliberate
 cost, and narrowing it would mean warning about a theme nobody rendered.
+
+**2026-07-27 — C5.** Landed as one commit. The four parts are one sentence —
+*the axis had three private copies of "does this template spend `{name}`" and
+two of "fill it in"* — and (b)'s and (c)'s fixes are what delete the copies.
+
+*The two functions, and why both are `pub`.* `load::spends` was already the
+predicate the materializer used; `load::fill_axis` is new, extracted from
+`select_path`'s two `.replace` calls. They are a **dual pair** — a template
+that passes `spends` must come back from `fill_axis` with no placeholder left
+— and the whole bug was that three callers had a private half of one and none
+of the other. Their doc comments say so, which is the only guard against a
+fourth copy that a `pub fn` can offer.
+
+*One search result worth recording:* the `format!("{{{k}}}")` pattern still
+appears in `load.rs` (×2) and `views.rs` (×2), and it is **not** a spend test.
+Those sites PRESERVE a token in the spelling its author wrote, so `{axis:look}`
+survives the group-key render and reaches `select_path` intact — the opposite
+operation, and correct as written. `{n}` is not an axis. There is no other copy.
+
+*(c) is a lookup, and the shape decided itself.* `LinkSpace` indexes
+`(source, axis, value) → url` off the materialized routes, restricted to
+tuples whose OTHER axes sit at their canonical — which is exactly what a
+one-axis selector means, and the restriction is a guard in its own right (with
+two axes, four routes claim the key `("page.md", "look", "fancy")` and the last
+writer would win). `Route` already carried `row` and the member tuple, so this
+is one `HashMap` built in a loop that was already running. Nothing computes a
+member's URL any more; `RowAxis::template` now has **no reader**, and its doc
+comment says so.
+
+*The canonical fallback, stated because it is the one non-lookup answer.* A row
+with no `Route` of its own — on demand until something cites it, or claimed by
+a landing view — is absent from the index entirely. For its CANONICAL member
+the row's own `url` is the honest answer: `Row.url` **is** `select_path` run
+with every coord at canonical, and a plain link to that row already returns it
+and already materializes it. Non-canonical members of such a row error, which
+is what they did before.
+
+*The error split.* "The rule does not spend that axis" and "that member did not
+materialize" were one message that always said the former. They are two now,
+and the second names neither the rule nor a segment.
+
+*(b) grew past its brief, deliberately, and closes batch review 2's flag.*
+`view_link` did not merely substitute the bare form: it rendered group keys
+into `v.route` or `routes.first()` and built the URL textually. Both halves are
+the same mistake, so both are fixed by the same move — read the path list the
+way `build_view` reads it (`paths` when present, else `path`, minus the `{n}`
+ones), render the group keys while PRESERVING axis and locale tokens, then hand
+the candidates to `select_path`. So a view link now goes through the
+materializer's own selection: `view:hub?look=plain` on
+`paths = ["/{look}/all/", "/all/"]` answers `/all/`, where it used to name
+`/plain/all/` and fail as unmaterialized. **Nothing is left broken here; no
+R-item is proposed.** Three latent defects went with it: a grouped view
+declaring `paths` had no route at all in `view_link` (it read `v.route` only);
+a view declaring both `path` and `paths` disagreed with `build_view` about
+which wins (now `paths`, as `build_view` says); and a `paths` list whose
+paginating template came first was read as page one's.
+
+*Locale composes rather than being appended.* The post-hoc `/{locale}{url}`
+prefix is now a `Coord` like any other, so a view path that spends
+`{axis:locale}` positions its own segment. The fallback ("a locale whose
+variant did not materialize links to the default one") is unchanged, expressed
+as a second `select_path` call.
+
+*(d)'s three arms, and the one it does not have.* Case, then the axis's FIELD
+in place of the axis, then edit distance at `filter.rs`'s threshold of two.
+There is deliberately **no** substring or prefix arm: `?theme_dark=` is not a
+misspelling of `theme`, it is a query key. The distance arm additionally
+requires the edit to be smaller than the shorter word, or `?id=` matches a
+two-letter axis while sharing nothing with it — asserted as a test rather than
+left as a comment, since it is the one threshold here that is not borrowed.
+
+*Where the warning lives.* `resolve` runs inside two rayon render passes with
+nothing mutable in reach, so `LinkSpace` carries a `Mutex<BTreeSet<String>>`
+and `render_site` drains it after `search_pass` — the first point where
+`bodies` has released its borrow of `db`. The `BTreeSet` is not tidiness: one
+bad link in a shared fragment would otherwise report once per page.
+`filter::levenshtein` became `pub` so the engine's did-you-mean stays one
+function (it was already registered as a CEL function; now the Rust callers
+share it too).
+
+*Corpus: nothing tripped, and (d) is inert on all five sites* — no site has a
+query-string link that looks like an axis. Verified live rather than only by
+the suite: appending `[a typo](_posts/2026-07-04-four.md?thmee=ledger)` to
+theme-preview's `index.md` prints
+`"thmee" names no axis, so it ships as a literal query string (did you mean
+`?theme=`?)` and ships
+`href="/vanilla/notes/four/?thmee=ledger"` — the row's canonical URL with the
+suffix untouched, which is what it did before and what it must keep doing.
+
+*Parity:* all five sites built before and after into separate trees and diffed
+— byte-identical but for each feed's wall-clock `<updated>`, and no stderr
+difference either. theme-preview is the live axis site and its fourteen-member
+switcher is unmoved. Zero re-blessing; one new fixture (`axis-spelling`),
+which is the namespaced spelling on a row rule AND a view, a default-axis path
+list on both, and six links whose rendered hrefs are the assertion. Clippy's
+warning multiset is unchanged; `rustfmt` wants nothing in the lines this item
+wrote (it wanted six hunks in `links.rs` before and wants four now — the
+rewrite happened to absorb two).
+
+*Mutation-checked nine ways, each restored:* `views.rs`'s bare string (the
+false "no path spends it", on a fixture that must load); `fill_axis` without
+its namespaced arm (builds `/{axis:look}/note/` — 13 fixture failures); the old
+`axes[0].template` reconstruction (fails the fixture on the fancy member);
+`page1.take(1)` (sends the canonical view member to `/plain/all/`); the spent
+check; the canonical fallback; the other-axes-canonical filter in `member_url`;
+the `warn` call; and each of (d)'s three arms plus its length floor.
+
+*For the queue (small).* (i) `RowAxis::template` is now written and never read.
+It is `Serialize`d, so `grackle export` shows it and removing it is an
+observable change — flagged rather than taken, since it is a data-model
+question and not a link one. (ii) `view_link` now restates `build_view`'s
+"which templates does this view land on" (the `paths`/`path`/`{n}` split) —
+two copies of a three-line rule, where before it was two copies of a much
+bigger disagreement. A `View::page1_templates()` on the config type would
+retire it; not done here because `build_view` also needs the paged half.
+(iii) C2's note (i) still stands: the view-theme rung has no expected-error
+fixture. This item did not add one.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
