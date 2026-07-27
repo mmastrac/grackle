@@ -575,7 +575,7 @@ don't add new ones.)
   byte-identical everywhere; a parse-error case for the old spelling;
   mutation-check. *[parity]*
 
-- [ ] **G2. `match` survives only in rules.** (a) Sets/routes: the `match`
+- [x] **G2. `match` survives only in rules.** (a) Sets/routes: the `match`
   key dissolves into the expression surface — register a `glob(field,
   pattern) -> bool` function in the filter registry (§5f: registered in
   Rust, typed, knowns-listed), then migrate every `[sets.*]`/`[routes.*]`
@@ -3065,6 +3065,109 @@ predates this item. (iii) G2's (b) renames relations' `match` → `scope`; the
 struct field is *already* named `scope` with a `#[serde(rename = "match")]`,
 which is the exact shape this item just deleted one field up — so G2's tidy
 half is one line, and this note is the precedent for it.
+
+**2026-07-27 — G2.** Landed as one commit. The item reads as "add a function,
+migrate to it, delete a key", and the first third was already done: **`glob`
+has been a registered §5f function since commit 65633c9 (“`match` scopes are
+filters now, and `glob` is a function”)**, and `View.scope` compiled to
+`format!("glob(path, {g:?})")` and conjoined with the filter. So the key was
+never a second mechanism — it was one clause of the predicate with its own
+spelling, and this item is the deletion of the spelling. Nothing was added to
+the language; what went away is `Query::scopes`, the second parse pass in
+`scoped_filter` (now `declared_filter`, since there is one conjunction left)
+and the key itself.
+
+*The two verify-first answers, measured rather than assumed.* **(i) Object
+views:** `path` is a column of `object_schema()` (`grackle-model`, `Str`),
+`glob` is `(Str, Str) -> Bool`, and the function table is global — so a
+gallery's `where = 'glob(path, "photos/**")'` type-checks against the narrow
+vocabulary. Strictness is untouched in the other direction: the pre-existing
+`object_filters_typecheck_against_the_object_schema` (a gallery's `where =
+"draft"` → `unknown field \`draft\``) still passes, and it now has a positive
+twin, `an_object_view_scopes_itself_with_a_path_glob`. The live proof is the
+`object-gallery` fixture, which is an object view scoped by the old key and
+re-renders byte-identical under the new one. **(ii) Composition:** the scope
+moves from `Query::scopes` into the same view's `Query::filters`, and both
+lists were already conjoined outermost-first — `predicate()` joins filters as
+`(a) && (b)`, and `scoped_filter` ANDed the globs onto that — over `Expr::And`,
+which is `eval(a) && eval(b)` on pure booleans. So the clause set is identical
+and the order is irrelevant. **One footgun for the reviewer: precedence.** A
+`where` containing a top-level `||` would need parentheses when a glob is
+conjoined in front of it; no corpus `where` that took a scope had one (all were
+`!draft && !hidden`), so no parenthesisation was needed and none was invented.
+
+*Glob flavor preserved exactly, because it is the same code path.* The pattern
+still reaches `globset::Glob::new(pat).compile_matcher()` and still matches
+against the row's root-relative `path` column — the argument is now written by
+the author instead of interpolated by `scoped_filter`, and the patterns
+migrated verbatim.
+
+*Corpus, and one stale expectation in the brief.* Six declarations moved:
+field-notes' `sets.recipes`, `sets.books`, `routes.gallery` and
+`relations.same_course`; theme-preview's `sets.shelf` and `routes.wall_index`;
+plus the `object-gallery` fixture. **theme-preview's "six per-theme sets" no
+longer exist** — q53's theme axis collapsed eighteen landings to three, so the
+site has one scoped set and one scoped object route. grack.com declares no view
+scope at all (its `match`es are all rules), and the four engine default
+relations are Rust literals with `scope: None`. No other fixture config
+declares either key.
+
+*Both retired spellings are one line each in one test.* `[sets.s] match` and
+`[collections.relations.related] match` joined
+`an_unknown_config_key_is_a_parse_error` beside G1's `over` — same test, same
+sentence from serde. Mutation-checked in both directions: restoring
+`#[serde(rename = "match")]` on `RelationCfg::scope` (G1 predicted this half
+would be one line, and it was) or re-adding a `View` field wearing it makes
+that test the only red one in the suite.
+
+*The guard worth having is the function registration.* Deleting the `glob`
+entry from `FUNCS` fails every migrated config at load —
+`view book_of_the_month: filter "glob(path, \"books/**\") && !draft && !hidden"`
+/ ``unknown function `glob` `` / `known functions: under,
+embedding_similarity, year_gap, levenshtein` — which is §5f's contract doing
+exactly what the item asked it to prove. Two more: breaking the call's
+argument-type check fails the new `glob_is_typed_like_any_other_function`
+(which asserts both shapes of error — `` `glob` argument 1 is string, but
+`year` is int``, and an unknown field naming the knowns with a did-you-mean),
+and keeping only the nearest filter in `query()` fails the rewritten
+`a_path_scope_conjoins_along_the_chain`.
+
+*Parity:* five sites plus grack.com `--profile drafts`, built before and after
+from separate release binaries (HEAD in a `git worktree`) into separate trees —
+byte-identical but for each feed's wall-clock `<updated>` (six files, nothing
+else in any diff), file counts 1828 / 1829 / 242 / 83 / 8 / 8 (G1's numbers
+exactly), no stderr difference on any site. **theme-preview's 242 did not
+move**, which is the one that mattered: its shelf set feeds a landing and its
+wall route is an object view, so both halves of the migration are rendered
+there. `cargo test` green (14 result lines, 0 failures); zero fixture
+re-blessing; `cargo fmt --check` clean under the pin; clippy's warning count
+identical to HEAD's (49, compared by building HEAD in the worktree).
+
+*Docs.* DESIGN.md §5's audit example (`[routes.mindstorms]`) takes a `where`,
+with a paragraph recording the dissolution and the object-vocabulary fact; §5c's
+theme-preview paragraph and the 23-query key measurement get parentheticals
+rather than rewrites (both are measurements of a past tree, and rewriting them
+would be lying about what was measured); §6g's `same_course` example, its
+"also:" key list and the "`match` is why relations carry a glob" paragraph take
+`scope`, with the reason the two halves went opposite ways — a view's scope
+could dissolve into an expression, a relation's could not, because it selects
+the *schema* before any expression is parsed. Settled-ledger rows (q51, q53)
+and every rule example stay as they are.
+
+*Two G1 residuals swept while adjacent (one word each, in files this item was
+already editing):* `views.rs`'s "the whole `over` chain" comment and
+`grackle-model`'s `Relation` doc pipeline `over → where → rank` both named the
+retired relations key; both now say `from`.
+
+*For the queue (small).* (i) `manual/OUTLINE.md` teaches the view `match` key
+in three places (200, 217, 1183 — the last says it is "a *separate*
+source-path glob", which is precisely what stopped being true) and the
+relations one in three (974, 1014, 1173 — "**`match` is why relations carry a
+glob**" is a bullet heading there), all untouched per §4. Its other `match`es
+(385, 695) are rules and stay correct. That is the third key to outlive the engine's spelling in
+that file, after `bucket` (F1) and relations' `over` (G1); the wrap-up line
+about it now covers three. (ii) `IO.md` §10 was not read or touched — it is a
+queued future ledger, per the brief.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
