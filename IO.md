@@ -157,14 +157,34 @@ An image is an input row like any other (identity optional, via sidecar);
 what is special about images is only that one input routinely fans to many
 outputs — and the model already has the law for that (a form is an output):
 
-- **The embed policy**: by default, a cited-but-unrouted asset
-  materializes under **`/static/`, content-hashed** — no config, the base
-  ships the policy; immutable cache headers fall out of the URL shape.
-  Disabled, a cited-but-unrouted asset is a load error naming the asset
-  and the fix ("route it, or re-enable the policy"); subset, the policy
-  carries a match/extension filter. **[open]**: the table's name
-  (`[embeds]` vs `[static]`), and whether *linked* (not embedded)
-  citations share the policy or demand explicit routes.
+- **The embed policy**: by default, an *embedded* citation (`<img>`,
+  `<iframe>`, video — and generated affordances like a lightbox
+  expansion) resolves to a **content-hashed address under `/static/`** —
+  no config, the base ships the policy; immutable cache headers fall out
+  of the URL shape, and identical bytes dedupe to one address by
+  construction. Disabled, an embedded-but-unrouted asset is a load error
+  naming the asset and the fix; subset, the policy carries a
+  match/extension filter. **[open]**: the table's name (`[embeds]` vs
+  `[static]`).
+- **Authored links demand a route.** A markdown/`<a>` link to an asset
+  resolves to its canonical routed URL, and an unrouted target is a load
+  error with the fix spelled: "add a rule routing it (e.g.
+  `route = "/{path}"`), or embed it instead." Bookmarkable addresses
+  exist on purpose, every one declared.
+- **Two address slots, not two routes**: an output's `url` is its
+  canonical routed address; its **`strong_url`** is the hash address,
+  present when the policy published it. When an untransformed embed
+  shares bytes with a routed output, the hash address *is* that output's
+  strong URL — embeds and affordances use it, authored links and
+  `rel=canonical` use the canonical. A transformed embed's hash is the
+  rendition's own (inputs + parameters), related to the original only
+  through the graph. The "exactly one route" law is untouched: strong
+  addresses are the content store made public, not routes.
+- **The worked example** (the reason the cut is right): a page shows the
+  thumbnail (hashed rendition) → expanding full-size in a lightbox uses
+  the original's strong URL (no route needed) → the download link uses
+  the canonical route, which the link checker demands — three URLs,
+  three jobs, each citation form knowing its address kind.
 - **The original, when it needs an address**: a declared route — the
   existing machinery, unchanged. A named rule pins one asset
   (`route = "/logo.png"`); a catch-all `/{path}` rule gives a whole corpus
