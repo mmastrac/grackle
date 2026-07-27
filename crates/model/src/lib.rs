@@ -552,8 +552,10 @@ pub struct SiteDb {
     ///
     /// NOTE: §6a's bubble+bucket bare-name resolution is **specced, not
     /// built** — nothing reads this except `query stats`, and `[objects]
-    /// bucket` is parsed and never read. `{% image %}` joins its literal
-    /// argument to the root, so a bare name errors rather than resolving.
+    /// bucket` is read only by the load-time warning that reports it as
+    /// unimplemented (`load::declared_and_unread`). `{% image %}` joins its
+    /// literal argument to the root, so a bare name errors rather than
+    /// resolving.
     #[serde(skip)]
     pub by_name: BTreeMap<String, Vec<Key>>,
     pub routes: Table<Route>,

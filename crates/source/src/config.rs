@@ -1127,7 +1127,11 @@ pub struct Collection {
     pub extensions: Vec<String>,
     /// §6a bubble+bucket asset resolution names this directory; declared
     /// ahead of the code that consumes it (deferred with the q26 pass).
-    #[allow(dead_code)]
+    ///
+    /// Still ahead of it. Nothing resolves a bare name, so the only reader of
+    /// this field is the load-time warning that says so
+    /// (`load::declared_and_unread`, MERGE.md D1 — the key stays because
+    /// build-it-or-drop-it is §7's question, not the loader's).
     pub bucket: Option<String>,
     #[serde(default)]
     pub filename_formats: Vec<String>,

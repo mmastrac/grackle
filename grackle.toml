@@ -48,7 +48,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
 
   [[collections.rules]]
   match = "**"
-  defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
   # Related posts (§6g). Embedding cosine, minus a small recency penalty —
@@ -80,7 +79,7 @@ filename_formats = ["{slug}"]
 
   [[collections.rules]]
   match = "**"
-  defaults = { layout = "post", draft = true }
+  defaults = { draft = true }
   route = "/drafts/{slug}/"
 
 # ---------------------------------------------------------------- objects
@@ -148,12 +147,11 @@ include = [".well-known/**", ".htaccess"]
   match = "**/index.{html,md}"
   route = "/{dir}/"
 
-  # Sass with front matter is compiled, so the output extension changes.
-  # css/main.scss -> /css/main.css, which the layout hardcodes.
-  [[collections.rules]]
-  match = "**/*.{scss,sass}"
-  front_matter = true
-  route = "/{dir}/{stem}.css"
+  # No sass rule. Jekyll's compiled `css/main.scss` did not survive the port:
+  # the theme owns the stylesheet now (§5e), `css/` holds only `fonts/`, and
+  # every remaining .scss in the tree is under `themes/` or `grackle/` —
+  # both excluded above. The rule this replaces was a faithful transcription
+  # that governed zero rows from the day it was written (MERGE.md C3/D1).
 
   # Front matter is what makes a file a *page* in Jekyll; those get pretty
   # URLs. Measured: index.html and blog/index.html have front matter, while

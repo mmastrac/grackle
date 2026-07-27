@@ -1663,7 +1663,7 @@ Worked examples against the real tree:
 
 **Ambiguity is per-step.** 2+ hits within one level → error listing candidates. Across levels there is no ambiguity by construction: nearer wins.
 
-⚠️ **Specced, not built** *(measured 2026-07-21)*. This describes a design; the code does not implement name bubbling. `thumbs::one` joins the filename to the site root; a bare name resolves to `root/burrs.jpg`, misses, and fails with `{% image %} source not found`. `[objects] bucket` is parsed but read by nothing; `by_name` is built every load but read only by `query stats`. All 194 corpus invocations pass a path, so the unbuilt branch has never been reached.
+⚠️ **Specced, not built** *(measured 2026-07-21)*. This describes a design; the code does not implement name bubbling. `thumbs::one` joins the filename to the site root; a bare name resolves to `root/burrs.jpg`, misses, and fails with `{% image %} source not found`. `[objects] bucket` is parsed and read by nothing but the load-time warning that says so (MERGE.md D1 — every build of a site declaring it now prints one line); `by_name` is built every load but read only by `query stats`. All 194 corpus invocations pass a path, so the unbuilt branch has never been reached.
 
 An earlier version of this section claimed "bare names work for posts today, with no restructuring and no bucket configuration at all". They do not. This is the same class of drift as §9b Round 3's *declared-and-ignored* `layout` names — a third instance found in one week, after `grackle diff`'s URL-parity claim and the heading anchors story. The tour's own worked example (§0 step 4, `burrs.jpg` resolving to a sibling) is aspirational for the same reason.
 

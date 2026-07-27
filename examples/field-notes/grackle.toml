@@ -32,7 +32,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
   match = "**"
-  defaults = { layout = "post" }
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
   # Related notes (§6g). No recency penalty here (a small corpus), just the
@@ -244,7 +243,10 @@ crumb = "{key}"
 path = "/atom.xml"
 from = "published"
 limit = 20
-template = "atom.xml"
+# `shell` is the serialization, declared rather than inferred from a
+# filename (q44). No `template`: that key names a SOURCE file a view claims
+# so the tree walk leaves it unrouted, and this feed is rendered from the
+# rows — there is no atom.xml here to claim (MERGE.md D1).
 shell = "atom"
 
 # A script shell (§5g — the pun is the point): a registered shell type
