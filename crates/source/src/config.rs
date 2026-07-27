@@ -218,11 +218,18 @@ const CONFIG_LAWS: &[(&str, Law)] = &[
     ("gitignore", Law::Atom),
     // The annotation.
     ("collections", Law::Collections),
-    // The bag: each scalar is the unit.
+    // Bags: each key is the unit. `[links]` has exactly one key today
+    // (`policy`), which is the only reason merging it whole was invisible.
     ("site", Law::Descend(1)),
+    ("links", Law::Descend(1)),
     // Registries: the named definition is the unit.
     ("sets", Law::Descend(1)),
     ("routes", Law::Descend(1)),
+    // An axis is a definition, so the whole `[axes.<name>]` table is the atom:
+    // redeclaring `theme` replaces the base's entire, and declaring `locale`
+    // leaves the base's `theme` standing. Nothing descends into an axis —
+    // `values` and `field` are one thought, and half of one is not an axis.
+    ("axes", Law::Descend(1)),
     ("markers", Law::Descend(1)),
     ("widgets", Law::Descend(1)),
     ("shells", Law::Descend(1)),
@@ -234,12 +241,6 @@ const CONFIG_LAWS: &[(&str, Law)] = &[
     ("i18n", Law::Descend(2)),
     // `[html.head.meta.<name>]` puts the unit two levels down.
     ("html", Law::Descend(3)),
-    // Wholesale today, and wrong on both counts: an axis is a definition and
-    // belongs with the registries, a link policy is a bag key. Left as-is so
-    // this table is a restatement of current behaviour and nothing more;
-    // MERGE.md's A3 moves them.
-    ("axes", Law::Atom),
-    ("links", Law::Atom),
 ];
 
 /// The compiler's half of [`CONFIG_LAWS`]. The merge runs on `toml::Value`,
@@ -357,18 +358,26 @@ fn prepend(base: toml::Value, site: toml::Value) -> toml::Value {
 fn merge_base(site: toml::Value) -> Result<toml::Value> {
     let base: toml::Value =
         toml::from_str(BASE).context("parsing the built-in base config (this is an engine bug)")?;
+    Ok(merge_table(base, site, CONFIG_LAWS))
+}
+
+/// One table merged over another, each key by its law. The shared body of the
+/// two merges — the config's and one collection's — so that a law means the
+/// same thing at either level, and a test can drive the dispatch with a base
+/// of its own rather than restating the loop.
+fn merge_table(base: toml::Value, site: toml::Value, laws: &[(&str, Law)]) -> toml::Value {
     let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
-        return Ok(site);
+        return site;
     };
     let mut out = bt.clone();
     for (k, sv) in st.clone() {
         let merged = match out.remove(&k) {
-            Some(bv) => merge_by(law_of(CONFIG_LAWS, &k), bv, sv),
+            Some(bv) => merge_by(law_of(laws, &k), bv, sv),
             None => sv,
         };
         out.insert(k, merged);
     }
-    Ok(toml::Value::Table(out))
+    toml::Value::Table(out)
 }
 
 /// Per-key merge down `depth` levels of tables; below that the site's value
@@ -422,18 +431,7 @@ fn merge_collection_list(base: toml::Value, site: toml::Value) -> toml::Value {
 }
 
 fn merge_collection(base: toml::Value, site: toml::Value) -> toml::Value {
-    let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
-        return site;
-    };
-    let mut out = bt.clone();
-    for (k, sv) in st.clone() {
-        let merged = match out.remove(&k) {
-            Some(bv) => merge_by(law_of(COLLECTION_LAWS, &k), bv, sv),
-            None => sv,
-        };
-        out.insert(k, merged);
-    }
-    toml::Value::Table(out)
+    merge_table(base, site, COLLECTION_LAWS)
 }
 
 /// `index.{md,html}` -> `["index.md", "index.html"]`. One group, which is all
@@ -2429,6 +2427,81 @@ mod tests {
         let c = Config::from_toml("[site]\ntitle = \"Mine\"\n").unwrap();
         assert_eq!(c.site.title, "Mine");
         assert_eq!(c.site.url, "http://localhost:8080", "inherited");
+    }
+
+    /// The law dispatch with a base of the test's own. `base.toml` declares
+    /// no `[axes]` and no `[links]`, so `Config::from_toml` cannot reach the
+    /// arms below — a key the base never wrote is the site's whole under
+    /// every law. This is the same `merge_table` the §4d merge runs, so the
+    /// law read here is the law that ships.
+    fn merged(base: &str, site: &str) -> toml::Table {
+        let b = toml::from_str(base).expect("test base should parse");
+        let s = toml::from_str(site).expect("test site should parse");
+        match merge_table(b, s, CONFIG_LAWS) {
+            toml::Value::Table(t) => t,
+            v => panic!("merging two tables should give a table: {v:?}"),
+        }
+    }
+
+    /// A registry, not an atom: declaring an axis of your own must not take
+    /// the inherited ones down with it. This is the bug Law 2 was derived
+    /// from — `[axes]` fell through to wholesale replace.
+    #[test]
+    fn a_base_declared_axis_survives_a_site_declaring_a_different_one() {
+        let m = merged(
+            "[axes.theme]\nvalues = [\"ledger\", \"atlas\"]\nfield = \"theme\"\n",
+            "[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
+        );
+        let axes = m["axes"].as_table().expect("axes is a table");
+        assert!(
+            axes.contains_key("theme"),
+            "the inherited axis was swept away: {axes:?}"
+        );
+        assert!(axes.contains_key("locale"), "{axes:?}");
+    }
+
+    /// And the other half of the registry law: a definition is the unit, so
+    /// redeclaring one replaces it entire. `values` and `field` are one
+    /// thought — an axis assembled half from each side is nobody's axis.
+    #[test]
+    fn a_redeclared_axis_shadows_the_inherited_one_entire() {
+        let m = merged(
+            "[axes.theme]\nvalues = [\"ledger\", \"atlas\"]\nfield = \"theme\"\n",
+            "[axes.theme]\nvalues = [\"ledger\"]\n",
+        );
+        let theme = m["axes"]["theme"].as_table().expect("the axis is a table");
+        assert_eq!(
+            theme["values"].as_array().map(Vec::len),
+            Some(1),
+            "the site's values: {theme:?}"
+        );
+        assert!(
+            !theme.contains_key("field"),
+            "the base's `field` leaked into the site's axis: {theme:?}"
+        );
+    }
+
+    /// `[links]` is a bag like `[site]`: setting one key keeps the others.
+    /// `policy` is its only key today, so `reach` here is hypothetical — the
+    /// point is that the law is already the bag's, and the next key added
+    /// merges beside its neighbour instead of erasing it.
+    #[test]
+    fn links_keys_merge_one_at_a_time() {
+        let m = merged(
+            "[links]\npolicy = \"loose\"\nreach = \"site\"\n",
+            "[links]\npolicy = \"strict\"\n",
+        );
+        let links = m["links"].as_table().expect("links is a table");
+        assert_eq!(
+            links.get("policy").and_then(toml::Value::as_str),
+            Some("strict"),
+            "the nearer writer wins the key: {links:?}"
+        );
+        assert_eq!(
+            links.get("reach").and_then(toml::Value::as_str),
+            Some("site"),
+            "a key the site never wrote was dropped: {links:?}"
+        );
     }
 
     /// Which views the SITE declared, recorded before the merge blurs it —
