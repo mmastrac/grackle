@@ -1,9 +1,12 @@
 # MERGE.md — one precedence law, one atomicity law
 
-**Status: work in progress.** This file is both the spec for the unified merge
-model and the work ledger for landing it. Each work item below is executed by a
-fresh agent, one at a time, committing directly to master. Review feedback from
-batch reviews is appended to §6 and folded back into the plan.
+**Status: DONE — all twenty work items landed; only §7's questions remain.**
+The final review (2026-07-27, §6) verified the whole effort end to end: no
+surviving hand dispatch beyond the two annotations, every table row matches
+shipped behavior, five randomly-chosen guards still fail under mutation, the
+corpus builds with the documented warning inventory, and no process rule was
+violated across 47 commits. This file remains the spec for the unified merge
+model; §7 is the open-questions list for the wrap-up.
 
 This came out of a full review of the config system (2026-07-26): the system
 documented one precedence law ("nearest wins; first writer per key", DESIGN.md
@@ -2225,13 +2228,32 @@ effort) made false — one posts collection, fourteen axis members. Out of this
 item's brief (nothing here made it stale) and left, but it is the kind of thing
 the final review may want to sweep for on its own terms.
 
+**2026-07-27 — Final review (Fable), covering R5, D1, D2 and the whole
+effort.** Verdict: **the ledger is DONE.** The tail verified at full depth
+(five mutations re-executed, D1's parity independently reproduced, D2's
+restore-moved-zero-bytes claim confirmed live). Whole-effort audit: no
+surviving hand dispatch (the two `annotated()` calls are §1's annotation,
+pinned by count; `law_of`'s unknown-key Atom fallback is the one stated,
+benign residue); nine table rows spot-checked against shipped behavior
+including both "changed" rows; five guards across all phases still fail
+under mutation — no guard rot; corpus warning inventory matches D1's table
+row for row; provenance pair holds live (minimal entirely `# base`, raw
+entirely `# site`); the R5/C6 seam is closed; `manual/OUTLINE.md` untouched
+by all 47 commits and every commit's file list scoped to its item.
+Applied from its findings: §7 q1/q6 amendments, the stale six-collections
+paragraph in DESIGN.md §4d (finding 2), status header flipped. Left as
+notes: the doubly-named error's post-R5 wording nit; an optional equality
+test for theme-preview's copied head block.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
 
 1. **`bucket` / §6a bare-name resolution** — build it or delete it. The tour
    (§0) and base.toml comments imply it works; it is specced, unbuilt, and
-   unexercised (all 194 corpus refs are paths).
+   unexercised (all 194 corpus refs are paths). Since D1 every build of a
+   site declaring it prints a warning saying so — three sites do — so
+   either answer is now a visible change rather than a silent one.
 2. **`variant` validation policy** — "silent variant degradation is the
    design" for row requests across themes, but a view's `variant` naming a
    fragment *no loaded theme provides* is probably a typo. Warning? Error?
@@ -2246,7 +2268,12 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    host page's theme; a view-declared theme silently doesn't apply. Correct?
 6. **The vocabulary pass** — `shell` ×4, `kind` ×3, `match` ×3 (two path
    bases), `from`/`over`, `layout` ×2, `[[parts]]` vs `parts.toml` `[[kind]]`
-   spelling. Every rename touches documented surface; decide before 1.0.
+   spelling. Two keys this effort measured belong here too: `template`
+   (parsed and implemented — the tree-walk exclusion is real — but declared
+   by no site since D1, and the name is not what it does; DESIGN.md q33d),
+   and a tree collection's `source` (decorative — merge identity only, the
+   walk ignores it; C7/D2 documented it, renaming it is this pass's call).
+   Every rename touches documented surface; decide before 1.0.
 7. **Profile `noindex` vs site `robots`** — C6(d) made the call: the profile
    still OVERRIDES (DESIGN.md §4e promises it, and overriding the base's
    expression is the key's purpose), and warns when the expression it

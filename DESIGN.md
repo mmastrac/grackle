@@ -566,16 +566,14 @@ Two live users, which is what keeps the escape hatch real:
   so the printed copy cannot drift from the compiled one without going red.
   It is also the answer to "what am I inheriting" that a person can read and
   argue with; `grackle config --effective` is the exact one.
-- **`theme-preview/`**, whose shape the base did not anticipate: six posts
-  collections, one per theme, and no site-level blog. Every `kind = "posts"`
-  collection feeds the one posts table (§4), so the base's `published` swept
-  all six into one `/blog/`. One line instead of shadowing five routes.
-
-That second case also explained something this document had read as
-redundancy: theme-preview's sets restate `collection == "…"` beside
-`from = "<that collection>"` because **`from` a posts collection does not scope
-to it** — it ranges over the whole posts table. Not a merge problem; a
-composition wart the merge made visible.
+- **`theme-preview/`**, whose shape the base did not anticipate: one posts
+  collection published across a fourteen-member theme axis (q53), and no
+  site-level blog. Every `kind = "posts"` collection feeds the one posts
+  table (§4), so the base's `published` would sweep its notes into a
+  `/blog/` the site never asked for. One line instead of shadowing routes.
+  *(Historical note: before the axis rewrite this site was six posts
+  collections, one per theme — the shape that first argued for the escape
+  hatch. The argument survives the rewrite; the shape did not.)*
 
 ### What it cost
 
