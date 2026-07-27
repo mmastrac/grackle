@@ -186,6 +186,19 @@ name with conflicting types are a collision error**, not alphabetical order.
   tests for both: a base-declared axis must survive a site declaring a
   different axis, and deleting the registry arm must fail the test.
 
+- [ ] **R1. The `.schema.toml`/`.section` walk respects the not-content
+  layers.** *(From A1's review queue, prerequisite for A4.)* The walk at
+  load.rs ~873-903 scans the whole root without consulting the tree
+  collection's `exclude` — verified: `cover`, declared only in
+  `grackle/examples/field-notes/books/.schema.toml`, type-checks in a
+  grack.com `where` clause, because grack.com's `exclude = ["grackle/**"]`
+  is ignored by this walk. Embedded sites' declarations become part of the
+  host's vocabulary at the same rung, which would make A4's collision check
+  fire across unrelated sites. Make the walk consult the same §4c
+  not-content layers as the tree walk (this is also q34's disease — cite it
+  in the commit). Verify the `cover` leak is gone with a test; byte-parity
+  otherwise. *[parity]*
+
 - [ ] **A4. Same-rung schema collisions are errors.** `Schemas::declared()`
   (schema.rs:207-220) flattens every subtree schema with `or_insert`, so two
   `.schema.toml` files declaring one name with **different types** resolve by
