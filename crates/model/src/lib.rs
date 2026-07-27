@@ -105,6 +105,19 @@ pub struct Row {
     /// verbatim. Always true for a row that came from a posts collection —
     /// a post with no front matter is still parsed.
     pub rendered: bool,
+    /// IO.md §3: this row's file carried a front-matter block.
+    ///
+    /// Not the same bit as `rendered`, and the difference is the whole reason
+    /// it is a separate one: `rendered` says the pipeline parsed this row,
+    /// which a posts scope grants unconditionally, while this says the author
+    /// wrote identity into the file. They agree everywhere except a `.md` in
+    /// a posts scope with no block — grack.com has exactly one — where
+    /// `rendered` is true and this is false.
+    ///
+    /// Sidecars (IO.md I8) widen the fact rather than change it: identity
+    /// will come from a block **or** a sidecar file, and this is the column
+    /// that answers "either".
+    pub front_mattered: bool,
     /// §4: this row's route rule was `on_demand`, so it publishes only when
     /// something references it. The URL is computed either way — what is
     /// deferred is whether a `Route` exists — which is what lets a link
@@ -253,6 +266,16 @@ impl RouteKind {
             RouteKind::View => "view",
         }
     }
+
+    /// Every value the `kind` column can hold — the closed domain a `where`
+    /// comparing against it is checked against (IO.md §3, item I1), so that
+    /// `kind == "posts"` is a load error rather than a filter that matches
+    /// nothing for as long as the config lives.
+    ///
+    /// A second spelling of the enum, held to it by the
+    /// `every_variant_is_in_the_kind_domain` test below — whose `match` stops
+    /// compiling the day a variant is added.
+    pub const NAMES: &'static [&'static str] = &["post", "page", "static", "object", "view"];
 }
 
 /// The axis a ROW's route rule spends (q53 step 2) — the rule's template writes
@@ -299,6 +322,17 @@ pub struct Route {
     pub id: Key,
     pub url: String,
     pub kind: RouteKind,
+    /// IO.md §3: the input this output came from carried a front-matter block.
+    ///
+    /// Copied from the row rather than derived from `kind`, because the two
+    /// genuinely disagree: a `.md` in a posts scope with no front matter is a
+    /// `Post` route all the same (the scope grants it a date, a slug and a
+    /// URL), and grack.com has one. `kind == "post"` is scope membership;
+    /// this is identity.
+    ///
+    /// `false` for a view route — it has no source file, so there was nothing
+    /// to carry.
+    pub front_mattered: bool,
     /// The row this route renders, for the routes that render one (`Post`,
     /// `Page`, `Static`, `Object`). `None` for a view's routes, which render a
     /// query rather than a row.
@@ -380,6 +414,7 @@ impl Route {
             id: Key::new(&url),
             url,
             kind,
+            front_mattered: false,
             row: None,
             axis: Vec::new(),
             content: None,
@@ -428,7 +463,17 @@ impl Route {
 pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
-    s.insert("kind", Str);
+    // Closed domain (IO.md I1): the column is a `Str` backed by an enum, so
+    // the engine knows every value it can hold and a comparison against
+    // anything else is a load error naming the knowns. The fossil is safe
+    // while it dies.
+    s.insert("kind", Enum(RouteKind::NAMES));
+    // IO.md §3: did the input this output came from carry a front-matter
+    // block? **False, not Null, for a view route** — a view has no source
+    // file, so it carried nothing, and a fold over the route pool needs a
+    // predicate that is total rather than one that answers "not applicable"
+    // to a third of the table.
+    s.insert("front_mattered", Bool);
     s.insert("view", Str);
     s.insert("url", Str);
     s.insert("ext", Str);
@@ -459,6 +504,7 @@ impl filter::Row for Route {
         use filter::Value as V;
         match name {
             "kind" => V::Str(self.kind.as_str().to_string()),
+            "front_mattered" => V::Bool(self.front_mattered),
             "view" => match &self.view {
                 Some(v) => V::Str(v.clone()),
                 None => V::Null,
@@ -746,6 +792,10 @@ pub fn row_schema() -> filter::Schema {
     s.insert("toc", Bool);
     s.insert("tags", List);
     s.insert("rendered", Bool);
+    // IO.md §3: has identity — the row's file carried a front-matter block
+    // (and, from I8, a sidecar counts). Distinct from `rendered`, which says
+    // the pipeline parsed it; see `Row::front_mattered`.
+    s.insert("front_mattered", Bool);
     s.insert("path", Str);
     s.insert("dir", Str);
     // §6f: the row's locale, always set (the default when no selector fired).
@@ -789,6 +839,7 @@ impl filter::Row for Row {
             "order" => self.order.map_or(V::Null, V::Int),
             "toc" => V::Bool(self.toc),
             "rendered" => V::Bool(self.rendered),
+            "front_mattered" => V::Bool(self.front_mattered),
             // `rel` is root-relative for every row, whatever its origin.
             "path" => V::Str(self.rel.to_string_lossy().to_string()),
             "dir" => V::Str(
@@ -1047,6 +1098,58 @@ mod route_stem_tests {
         assert!(!f.eval(&index_page));
         assert!(f.eval(&content_page));
         assert!(f.eval(&view_route));
+    }
+
+    /// `RouteKind::NAMES` is the `kind` column's value domain (IO.md I1), and
+    /// it is a second spelling of the enum — so something has to hold the two
+    /// together.
+    ///
+    /// The `match` is that something: add a variant and this test stops
+    /// COMPILING, and the fix is one line in each place. Without it a new
+    /// kind would be a value the domain rejects, which turns a working filter
+    /// into a load error — the failure mode of a checker that is wrong rather
+    /// than absent.
+    #[test]
+    fn every_variant_is_in_the_kind_domain() {
+        let all = [
+            RouteKind::Post,
+            RouteKind::Page,
+            RouteKind::Static,
+            RouteKind::Object,
+            RouteKind::View,
+        ];
+        for k in all {
+            match k {
+                RouteKind::Post
+                | RouteKind::Page
+                | RouteKind::Static
+                | RouteKind::Object
+                | RouteKind::View => {}
+            }
+            assert!(
+                RouteKind::NAMES.contains(&k.as_str()),
+                "{} is a kind the domain does not know",
+                k.as_str()
+            );
+        }
+        assert_eq!(RouteKind::NAMES.len(), all.len(), "and nothing extra");
+    }
+
+    /// IO.md §3, the output side: a view route has no source file, so it
+    /// carried no front matter — `false`, not Null, because a fold over the
+    /// route pool needs a total predicate (`!front_mattered` must mean
+    /// something on every row of the table).
+    #[test]
+    fn a_view_route_is_not_front_mattered() {
+        let f = Filter::parse("front_mattered", &route_schema(&filter::Schema::new())).unwrap();
+        let doc = Route {
+            front_mattered: true,
+            ..Route::new("/recipes/carbonara/".into(), RouteKind::Page)
+        };
+        assert!(f.eval(&doc));
+        assert!(!f.eval(&Route::new("/blog/".into(), RouteKind::View)));
+        // And a byte copy, which is the other half of the item's question.
+        assert!(!f.eval(&Route::new("/logo.png".into(), RouteKind::Object)));
     }
 }
 

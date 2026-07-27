@@ -234,6 +234,11 @@ callout = """
 
   # The searchable set too, or the projection would ship a search index that
   # disagrees with the pages beside it.
+  #
+  # `kind == "post"` here for the same reason it survives below, and with the
+  # same expiry: it means SCOPE MEMBERSHIP, and this profile is the projection
+  # where that shows — `_drafts/caret/…` is a post with no front-matter block,
+  # so `front_mattered` would drop it from this index while `kind` keeps it.
   [profiles.drafts.routes.search]
   path = "/search.bin"
   from = "*"
@@ -312,6 +317,15 @@ shell = "atom"
 # serialized as the postcard index /search.js consumes. Posts only for now —
 # adding `|| kind == "page"` would make /code/ and /writing/ searchable, but
 # that's a deliberate index change, not a mechanism default.
+#
+# The `kind ==` this corpus kept (IO.md I1), and deliberately: unlike the
+# example sites, this filter does not mean "the documents" — it means "the
+# blog corpus", which is SCOPE membership, and the output side has no column
+# for that until the join lands (I9). `front_mattered` is the wrong migration
+# twice over: it would admit every page under /code/ and /writing/, and it
+# would drop `_drafts/caret/…`, a post whose file carries no block. The
+# column is domain-checked now, so the plural typo that used to match nothing
+# forever is a load error while this waits.
 [routes.search]
 path = "/search.bin"
 from = "*"

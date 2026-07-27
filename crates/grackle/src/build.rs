@@ -1529,6 +1529,7 @@ fn materialize_referenced(
                 continue;
             };
             let (path, url) = (row.path.clone(), row.url.clone());
+            let front_mattered = row.front_mattered;
             let bytes = std::fs::read(&path)
                 .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
             // A materialized text file can cite more.
@@ -1537,6 +1538,7 @@ fn materialize_referenced(
             }
             db.routes.push(Route {
                 source: Some(path),
+                front_mattered,
                 ..Route::new(url.clone(), RouteKind::Object)
             });
             out_map.insert(url, bytes);

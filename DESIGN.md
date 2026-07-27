@@ -747,6 +747,24 @@ a declaration is simply how their cascade gets typed. Their types are the
 engine's — declaring one at another type is a load error, since the value would
 be typed one way and read the other.
 
+**And they became filterable in the same move, `shell` included** *(measured
+for IO.md I1, which set out to expose it and found it exposed)*. A declared
+field is a column, the four are declared, and their values live in `fields` as
+well as on the row's named field — so `where = 'shell == "light"'` selects on a
+row and, through `Route.fields`, on a star view's routes. Two questions it does
+**not** yet answer, both waiting on IO.md I2:
+
+- the row column holds the *tier* vocabulary (`none`/`light`/`html`) and holds
+  it **only when someone wrote it** — absent means html by engine default, so
+  `shell == "html"` matches the rows that said so and no others. IO.md's target
+  spellings (the sitemap and search as `shell == "html"`) need I2's explicit
+  rule defaults materializing the field on every row before they mean what they
+  read like;
+- a *view* route's serialization (`shell = "atom"`) is not in the column at
+  all — it is the route's declaration, not a row field, so `shell == "atom"`
+  selects nothing. Merging the two vocabularies into one column is exactly what
+  I2 is.
+
 ### The head is config: `[html.head.meta]`
 
 `noindex` is not a
@@ -887,7 +905,19 @@ Everything Jekyll plugins generated becomes a declared, incrementally maintained
 
 ### Route fields
 
-`kind` `view` `url` `ext` `key` (string); `dir` (bool); `page` `rows` (int).
+`kind` `view` `url` `ext` `key` (string); `dir` `front_mattered` (bool); `page` `rows` (int).
+
+**`kind` carries a closed value domain** *(IO.md I1)*. It is a string column backed by a Rust enum, so the engine knows every value it can ever hold, and a comparison against anything else is a load error naming the knowns:
+
+```
+view search: filter "kind == \"posts\""
+  `kind` is never "posts" (did you mean `post`?) — the comparison can only ever be false
+    kind is one of: post, page, static, object, view
+```
+
+The plural is not a hypothetical: `[[collections]] kind = "posts"` is the spelling one line of config away, and the route column typed that way used to type-check perfectly and then match nothing for as long as the config lived. A domain is what a schema column declares when the engine can enumerate its values; `Type::Enum` is the mechanism and `kind` is its one user today.
+
+**`front_mattered` is identity, and it is not `rendered`** *(IO.md §3)*. It answers "did the file this output came from carry a front-matter block", which is what `kind == "post" || kind == "page"` was always a flattened spelling of. It is `false` for a byte copy and `false` for a view route (which has no source file at all — the predicate is total over the route pool by design, so `!front_mattered` means something on every row). It differs from `rendered` on exactly one shape: a `.md` in a posts scope with no block is parsed all the same — the scope hands it a date and a route — so it is `rendered` without being `front_mattered`. grack.com has one. That difference is why `kind == "post"` means **scope membership**, not identity, and why grack.com's search route did not migrate with the example sites'.
 
 **`noindex` is deliberately absent.** Computing it needs the layout chain (phase 2), and a field we cannot populate correctly is worse than no field: omitted, referencing it is a load-time error; present-but-wrong, it silently lies. It also turns out not to be needed.
 
@@ -910,7 +940,9 @@ OP      := "==" | "!=" | "<" | "<=" | ">" | ">="
 
 A bare field is a **truthiness** test, which is what makes `!draft` read naturally and gives `description` the useful meaning "has one": bool → itself, string → non-empty, list → non-empty, int → non-zero, absent → false.
 
-Post fields: `draft` `hidden` (bool); `title` `slug` `stem` `layout` `description` `url` `date` (string); `year` `month` `day` `body_bytes` (int); `tags` (list). `date` is ISO-8601, so string ordering *is* date ordering and `date >= "2020-01-01"` works without a date type.
+Post fields: `draft` `hidden` `rendered` `front_mattered` (bool); `title` `slug` `stem` `layout` `description` `url` `date` (string); `year` `month` `day` `body_bytes` (int); `tags` (list). `date` is ISO-8601, so string ordering *is* date ordering and `date >= "2020-01-01"` works without a date type.
+
+`rendered` and `front_mattered` are two questions, not one written twice — see *Route fields* above.
 
 ```toml
 where = '!draft && !hidden'
@@ -1543,12 +1575,14 @@ sitemap's star shape:
 from  = "*"
 path  = "/search.bin"
 shell = "search"
-where = '(kind == "post" || kind == "page") && !draft && !hidden'
+where = 'front_mattered && !draft && !hidden'
 ```
 
 The rows that pass the route-schema filter are the searchable set,
 serialized as the postcard index. Posts contribute date and tags; pages
 contribute their rendered body. Other route kinds are silently unsearchable. The example searches notes AND recipes/books/manual (18 docs, 5 KB); the main site declares `kind == "post"` and its index is **byte-identical** through the view path. The js/wasm consumers are emitted only when a search view exists; a site without one ships zero search bytes.
+
+*(IO.md I1, 2026-07-27.)* That `where` read `(kind == "post" || kind == "page")` until the fact it meant had a name. Two table tags OR'd together were one question — "is this a document" — asked in the vocabulary of the tables the question outlived; the example sites and `theme-preview` say `front_mattered` now, and their indexes are byte-identical. **grack.com's did not move**: on that site the clause means "the blog corpus", which is scope membership rather than identity, and the output side has no column for scope until the join lands (IO.md I9).
 
 ### Script shells: the experimental bench *(Matt, 2026-07 — yes, the pun; built)*
 

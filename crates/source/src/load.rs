@@ -678,6 +678,11 @@ fn read_posts(
             body_bytes: raw.body.len(),
             // A post is always parsed; the tree distinction does not apply.
             rendered: true,
+            // Identity, which is a different question (IO.md §3): a `.md` in a
+            // posts scope with no `---` block is parsed all the same — the
+            // scope hands it a date, a slug and a route — but it carries no
+            // front matter, and this column says so.
+            front_mattered: raw.front_mattered,
             size: raw.size,
             claimed: false,
         });
@@ -919,6 +924,10 @@ fn build_tree_and_objects(
                 version: f.version,
                 url,
                 rendered: f.has_front_matter,
+                // The two agree on the tree side, and that is not an accident
+                // to be tidied away: the tree's page/static gate IS the
+                // front-matter fact (IO.md I7 makes that the only gate).
+                front_mattered: f.has_front_matter,
                 size: f.size,
                 title: fm.title,
                 layout: worn.layout,
@@ -1170,6 +1179,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             source: Some(p.path.clone()),
             locale: route_locale(&p.locale),
             fields: p.fields.clone(),
+            // The row's identity fact, carried to the output side (IO.md §3)
+            // for the same reason `fields` is: a fold over the route pool can
+            // only filter on what the route answers.
+            front_mattered: p.front_mattered,
             ..Route::new(url, kind)
         };
         // The row's own rule decided this (q53 step 2): a route template that

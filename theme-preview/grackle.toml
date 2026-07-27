@@ -249,11 +249,13 @@ axis = "theme"
 content = "wall/index.md"
 title = "Wall"
 
+# `front_mattered` is what `kind == "post" || kind == "page"` always meant
+# (IO.md §3): the documents, as opposed to byte copies and minted listings.
 [routes.search]
 path = "/search.bin"
 from = "*"
 shell = "search"
-where = '(kind == "post" || kind == "page") && !draft && !hidden && stem != "index"'
+where = 'front_mattered && !draft && !hidden && stem != "index"'
 
 [routes.sitemap]
 path = "/sitemap.xml"

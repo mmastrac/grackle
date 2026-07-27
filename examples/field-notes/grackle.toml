@@ -267,12 +267,16 @@ shell = "llms"
 # hardcoded projection of the posts table. `stem != "index"` keeps
 # listing-shaped pages (the homepage, section indexes) out: they would
 # match every term their link titles mention.
+#
+# `front_mattered` is what `kind == "post" || kind == "page"` always meant
+# (IO.md §3): a document the author gave identity to, as opposed to bytes
+# copied verbatim or a listing the engine minted.
 
 [routes.search]
 path = "/search.bin"
 from = "*"
 shell = "search"
-where = '(kind == "post" || kind == "page") && !draft && !hidden && stem != "index"'
+where = 'front_mattered && !draft && !hidden && stem != "index"'
 
 # The gallery (§5 audit, built): a view over the objects table. `where`
 # scopes by path glob — `path` is a column of the OBJECT vocabulary, which is

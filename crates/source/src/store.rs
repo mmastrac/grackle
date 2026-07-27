@@ -77,6 +77,10 @@ pub struct RawRow {
     pub version: u64,
     pub size: u64,
     pub front: FrontMatter,
+    /// IO.md §3: the file opened with a `---` fence. Distinct from "`front`
+    /// is non-default" — a file may carry an empty block, and a file may
+    /// carry none and still become a parsed post.
+    pub front_mattered: bool,
     pub body: String,
 }
 
@@ -140,6 +144,7 @@ fn load_one(path: &Path, source: &Path) -> Result<RawRow> {
         version: version_of(&meta),
         size: meta.len(),
         front,
+        front_mattered: opens_front_matter(&text),
         body: body.to_string(),
     })
 }
@@ -156,9 +161,19 @@ pub fn peek_front_matter(path: &Path) -> bool {
     };
     let mut buf = [0u8; 4];
     match f.read(&mut buf) {
-        Ok(n) if n >= 4 => &buf[..3] == b"---" && (buf[3] == b'\n' || buf[3] == b'\r'),
+        Ok(n) if n >= 4 => opens_front_matter(buf),
         _ => false,
     }
+}
+
+/// The same question asked of text already in hand — the posts loader reads
+/// whole files, so it never peeks (IO.md §3's `front_mattered`).
+///
+/// ONE definition, deliberately: two spellings of "does this file carry front
+/// matter" would be two answers the day one of them learned about `\r\n` and
+/// the other did not.
+fn opens_front_matter(text: impl AsRef<[u8]>) -> bool {
+    matches!(text.as_ref(), [b'-', b'-', b'-', b'\n' | b'\r', ..])
 }
 
 /// One file found by the tree walk. `has_front_matter` is filled in by the
