@@ -1,0 +1,25 @@
+// recipes — the knob panel. Every literal this theme owns lives here: no
+// colour appears anywhere below it, so retuning the recipe card (or its `spicy`
+// subtheme) is editing this file and nothing else. recipes keeps its own short
+// palette (a dark header over a cream card) rather than the full gallery
+// vocabulary — the names still say what they paint.
+
+:root {
+	--bg: #f4efe6;
+	--panel: #ffffff;
+	--ink: #22252a;
+	--accent: #b3382e;
+	--muted: #8a8378;
+
+	// White type on the accent fill (a recipe tab on hover). A token so the
+	// rule holds no literal.
+	--on-accent: #fff;
+}
+
+// Subtheme subselection (§5a): `theme: "recipes:spicy"` stamps
+// data-subtheme="spicy" on <html>, and the only thing spicy repaints is the
+// accent — so its one literal lives here with the rest. The 🌶 flourish that
+// rides along is a rule, and stays in theme.scss.
+html[data-subtheme~="spicy"] {
+	--accent: #e04a00;
+}

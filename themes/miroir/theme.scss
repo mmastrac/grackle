@@ -96,6 +96,13 @@
 			border-color: var(--rail-muted);
 		}
 	}
+
+	// The rail hugs the viewport's left edge, so the picker must open to the
+	// RIGHT: the base right-aligns the dropdown, which would carry a wide menu
+	// (`marginalia:wide`, `recipes:spicy`) off the left edge and out of reach.
+	[data-kind="axis"] > [data-slot="items"] {
+		inset-inline: 0 auto;
+	}
 }
 
 // ---------------------------------------------------------- content pane

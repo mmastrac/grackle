@@ -5,14 +5,10 @@
 // kind renders through the canonical fallback, styled here via
 // data-kind/data-slot. Same .slots/ identity (nav, copyright) — no theme
 // owns the site's words.
+//
+// Every literal lives in `_tokens.scss`; nothing below names a colour.
 
-:root {
-	--bg: #f4efe6;
-	--panel: #ffffff;
-	--ink: #22252a;
-	--accent: #b3382e;
-	--muted: #8a8378;
-}
+@import "tokens";
 
 html {
 	background: var(--bg);
@@ -215,16 +211,15 @@ main {
 
 	.recipe a:hover {
 		background: var(--accent);
-		color: #fff;
+		color: var(--on-accent);
 	}
 }
 
 // Subtheme subselection (§5a): `theme: "recipes:spicy"` stamps
-// data-subtheme="spicy" on <html> via the shell's attribute hole; the
-// theme's CSS takes it from there — no engine branching, no new theme.
+// data-subtheme="spicy" on <html> via the shell's attribute hole; the theme's
+// CSS takes it from there — no engine branching, no new theme. The accent it
+// repaints is a token (_tokens.scss); the 🌶 it adds is this rule.
 html[data-subtheme~="spicy"] {
-	--accent: #e04a00;
-
 	[data-kind="document"] > [data-slot="title"]::after {
 		content: " 🌶";
 	}

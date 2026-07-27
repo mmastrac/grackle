@@ -1,6 +1,6 @@
 # The theme gallery
 
-Six themes. Each is a complete grackle theme — fragments plus a stylesheet, no
+Eight themes. Each is a complete grackle theme — fragments plus a stylesheet, no
 code — and each is *only its differences* over the base, now compiled into the
 engine.
 
@@ -12,6 +12,8 @@ engine.
 | [`terminal`](terminal/) | 5 | monospace, dark-first, nothing rounded | a total repaint is a token block, not a rewrite |
 | [`atlas`](atlas/) | 8 | sticky section tree, cards, gallery | one theme covers docs, a card index and a photo wall |
 | [`miroir`](miroir/) | 8 | fixed sidebar rail, card feed, accent chrome | a strongly art-directed look is still tokens + geometry |
+| [`almanac`](almanac/) | 17 | warm cream column, serif, full fragment set | the whole slot vocabulary dressed at once — field-notes' house theme |
+| [`recipes`](recipes/) | 9 | dark centered header, sans-serif, recipe cards | a subtree can look nothing like the rest of its site (§5b) |
 
 ## View them
 

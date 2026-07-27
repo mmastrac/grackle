@@ -1,15 +1,11 @@
-// The example theme: a shell and a stylesheet, nothing else. Every layout
-// kind renders through the canonical (null-theme) fallback — this theme is
-// the living proof that themes are partial by construction (§5e step 4).
+// almanac: a warm cream reading column, serif, brown links. The gallery's most
+// complete theme — it dresses the full fragment set (breadcrumbs, section tree,
+// page outline, hero figure, relations, tags, summaries), which is why it is
+// field-notes' house style: the kitchen-sink site's house theme.
+//
+// Every literal lives in `_tokens.scss`; nothing below names a colour.
 
-:root {
-	--bg: #fffdf8;
-	--fg: #2c2a26;
-	--muted: #7a746a;
-	--line: #e6e0d4;
-	--link: #9a5b2b;
-	--link-hover: #c07a3f;
-}
+@import "tokens";
 
 html {
 	background: var(--bg);
@@ -433,7 +429,7 @@ $cover-height-pct: $cover-ratio * 1cqw;
 		font-size: 10 * $cover-height-pct;
 		line-height: 1.15;
 		text-align: center;
-		color: #fff;
+		color: var(--on-cover);
 		// Covers are arbitrary artwork, so legibility can't rest on any one
 		// of them: a band fading out at both edges carries the type over
 		// whatever is underneath, and the shadow covers the light-cover case.

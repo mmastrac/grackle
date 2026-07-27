@@ -1,0 +1,18 @@
+// almanac — the knob panel. Every literal this theme owns lives here: no
+// colour appears anywhere below it, so retuning the theme is editing this file
+// and nothing else. almanac keeps its own short palette (a warm cream reading
+// column) rather than the full gallery vocabulary — the names still say what
+// they paint.
+
+:root {
+	--bg: #fffdf8;
+	--fg: #2c2a26;
+	--muted: #7a746a;
+	--line: #e6e0d4;
+	--link: #9a5b2b;
+	--link-hover: #c07a3f;
+
+	// White type over cover artwork, carried by a dark gradient band (§ the
+	// cover caption below). A token so the rule holds no literal.
+	--on-cover: #fff;
+}

@@ -13,6 +13,12 @@ url = "https://example.grack.com"
 baseurl = ""
 title = "Field Notes"
 author = "Example Author"
+# `themes/` is a symlink to the shared gallery (../../themes), so the house
+# style is named rather than picked up from an implicit `default` directory:
+# `almanac` is this site's serif reading theme, and `recipes/**` restyles to
+# `recipes` per rule below. Both live in the gallery now, previewed alongside
+# the other six under theme-preview.
+theme = "almanac"
 
 # ---------------------------------------------------------------- posts
 

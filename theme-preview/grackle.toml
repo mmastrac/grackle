@@ -1,23 +1,24 @@
 # The theme gallery's preview site.
 #
-# One server, six themes, no restart — and since 2026-07-25, ONE content tree.
-# The themes are an axis (q53): a post, a guide page or a shelf entry is a
-# single row published at six routes, each rendering through a different theme.
-# `/notes/one/` and `/ledger/notes/one/` are the same row, so "the same content
-# in six looks" is now true by construction rather than by six copies kept in
-# step by hand. 102 content files became 36.
+# One server, eight themes and their subthemes, no restart — and since
+# 2026-07-25, ONE content tree. The themes are an axis (q53): a post, a guide
+# page or a shelf entry is a single row published at a route per look — the
+# eight themes plus the showcase subthemes (`ledger:dark`, `miroir:rose`, …) —
+# each rendering differently. `/notes/one/` and `/ledger/notes/one/` are the
+# same row, so "the same content in every look" is true by construction rather
+# than by a copy per theme kept in step by hand. Sixteen content files serve
+# every look.
 #
 # Every member wears its `{theme}` segment, canonical included: the axis says
 # WHICH forms exist and the route template says where they land. `vanilla` is
 # canonical, so every member points `rel="canonical"` at the vanilla URL and
-# only it reaches the sitemap — six renderings of one document are not six
+# only it reaches the sitemap — the many looks of one document are not many
 # documents.
 #
-# What did NOT merge, and why: a landing CLAIMS a content row, and a row serves
-# one landing (the engine says so at load), so the three landings per theme keep
-# their own claim rows — 18 files, the only per-theme content left. Each names
-# its own `theme`, which is the half of this that needed no axis. Per-group
-# `content` would collapse those too.
+# The three landings (notes, shelf, wall) merged too: a landing CLAIMS a
+# content row, and the claim is keyed on the VIEW, so one view materialized
+# across the axis claims one row. `notes/index.md` is written once and every
+# theme's `/…/notes/` renders it — three landing files, not three per theme.
 #
 # `themes` is a symlink to ../themes, the gallery itself, and `serve` watches
 # through it — editing a token file re-renders every page here.
@@ -73,19 +74,35 @@ author = "grackle"
 
 # ------------------------------------------------------------------ pages
 #
-# ONE content tree. The six themes are an AXIS (q53) over it: one row, six
-# routes, each rendering through a different theme. Before axes this site kept
-# six byte-identical copies of every post, guide page and shelf entry, because
-# the only way to vary a row's theme was to vary the row.
+# ONE content tree. The eight themes (and their subthemes) are an AXIS (q53)
+# over it: one row, a route per look, each rendering differently. Before axes
+# this site kept one byte-identical copy of every post, guide page and shelf
+# entry per theme, because the only way to vary a row's theme was to vary the row.
 #
 # `vanilla` is the canonical member and wears the bare URLs (`/notes/one/`);
-# the other five are alternates and wear their prefix (`/ledger/notes/one/`) —
-# the same shape the default locale has in wearing no `/fr/`. Every member
-# canonicalizes to the vanilla URL, and only it is in the sitemap: six
-# renderings of one document are not six documents.
+# every other look is an alternate and wears its prefix (`/ledger/notes/one/`,
+# `/miroir:rose/notes/one/`) — the same shape the default locale has in wearing
+# no `/fr/`. Every member canonicalizes to the vanilla URL, and only it is in
+# the sitemap: the many looks of one document are not many documents.
 
+# The axis carries the eight themes AND their subthemes (§5a subselection): a
+# value of `ledger:dark` renders `ledger` with `data-subtheme="dark"` stamped on
+# <html>, so a subtheme is just another look on the same axis — no new theme, no
+# new mechanism. The showcase set below adds a dark palette-swap, a geometry
+# variant (marginalia:wide), miroir's three accent repaints and recipes:spicy;
+# each lands at its own `/ledger:dark/…` route and joins the picker. The colon
+# only ever appears in root-absolute URLs, so it is never read as a URL scheme.
 [axes.theme]
-values = ['vanilla', 'ledger', 'marginalia', 'terminal', 'atlas', 'miroir']
+values = [
+  'vanilla',
+  'ledger', 'ledger:dark',
+  'marginalia', 'marginalia:wide',
+  'terminal',
+  'atlas',
+  'miroir', 'miroir:rose', 'miroir:forest', 'miroir:slate',
+  'almanac',
+  'recipes', 'recipes:spicy',
+]
 field = "theme"
 
 [[collections]]
@@ -94,14 +111,14 @@ source = "."
 exclude = ["themes/**"]
 
   # The gallery's own landing publishes ONCE, at the root: it is the index of
-  # the six, not one of them. A rule that does not spend the axis opts its rows
-  # out, which is the whole opt-in mechanism (q53 step 2).
+  # the eight, not one of them. A rule that does not spend the axis opts its
+  # rows out, which is the whole opt-in mechanism (q53 step 2).
   [[collections.rules]]
   match = "index.md"
   front_matter = true
   route = "/"
 
-  # Everything else spends `{theme}`, so every row below lands six times.
+  # Everything else spends `{theme}`, so every row below lands eight times.
   [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{theme}/{dir}/"
@@ -180,8 +197,9 @@ order_by = "-date"
 # is decided too.
 #
 # A landing CLAIMS a content row, and a row serves one landing — but that is
-# keyed on the VIEW, so one view materialized six times claims one row. The six
-# copies of each landing's prose are gone with the six declarations.
+# keyed on the VIEW, so one view materialized across the axis claims one row.
+# The per-theme copies of each landing's prose are gone with the per-theme
+# declarations.
 
 [routes.notes_index]
 paths = ["/{theme}/notes/", "/{theme}/notes/page/{n}/"]
