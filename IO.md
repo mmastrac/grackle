@@ -507,7 +507,39 @@ message is the exemplar; don't stretch it). One follow-up item:
   changed, the bytes did not). The multi-theme scoping paragraph gets
   written as part of this item's doc updates. Parity.
 
-*→ Batch review I-B.*
+*→ Batch review I-B.* ✓ done — findings in §11; verdict: sound, I-C clear.
+Two follow-up items (small; run before I6):
+
+- [ ] **IR4. `split_root` closes the wrapper hole.** *(Review I-B findings
+  1-2 — holes in I4's new guarantee, both probed live.)* (a) A top-level
+  `<html>` (or doctype) in a theme `root.html` makes `wrapped` false, so
+  the WHOLE document becomes body chrome — `<title>My Theme</title>` and
+  metas ship inside `<body>` of every page, silently defeating both I4
+  invariants; the most natural authoring mistake (pasting a full
+  skeleton). Load error: "the engine writes `<html>` itself; unwrap to
+  `<head>`/`<body>`". (b) Non-whitespace top-level TEXT beside
+  head/body is silently dropped (the `else continue` is right for
+  whitespace/comments, wrong for authored words) — error like the
+  element case. (c) Rider: the top-level-`<style>` sibling error says
+  "move it inside `<body>`" — for a style the right advice is the head.
+  Mutation-check each; parity (all nine corpus themes are bare
+  fragments — verified unaffected).
+
+- [ ] **IR5. The tokens warning stops lying twice, and §6c stops
+  contradicting.** *(Review I-B findings 4+9.)* (a) `css_pass`'s
+  "`_tokens.scss` that nothing imports" warning is false in two shapes:
+  a tokens-only theme (the tokens ARE the sheet — pre-existing, GRAVEYARD
+  ~138 era), and post-I5, a theme whose `root.html` head style imports
+  tokens while `theme.scss` doesn't (the check reads only the
+  theme.scss pass's `seen`; the head-style pass uses a fresh vec). One
+  fix: consult both passes' `seen`, treat tokens-only as self-importing.
+  Both shapes verified live; mutation-check. (b) DESIGN.md §6c (per-post
+  styles, unbuilt) still says a row's `<style>` is "hoisted into
+  `<head>` inline" — the opposite of the one-artifact rule and the
+  `post` layer both CSS docs declare. One supersession sentence
+  ("pre-IO prose; IO.md §6's one-artifact rule and the declared `post`
+  layer govern; the decision belongs to the per-post-CSS builder") — do
+  not decide the substance.
 
 ### Phase I-C — the single walk
 
@@ -530,7 +562,16 @@ message is the exemplar; don't stretch it). One follow-up item:
   (same string → the parity exception is vacuous; any different
   de-hyphenation moves bytes on surfaces beyond the row's own pages);
   the new degeneracy WARNING changes stderr on grack.com builds — declare
-  it to the parity method. **Split on arrival** — the
+  it to the parity method. **Two additions from review I-B**: (a) the
+  single walk currently admits a site-root `themes/` directory as byte
+  rows (probed: a minimal site publishes `/themes/mine/root.html`
+  verbatim; corpus sites dodge it only via `exclude`/.gitignore) —
+  decide explicitly whether theme sources are content; (b) dissolving
+  objects makes rule defaults land on former-object rows, collapsing the
+  842-row `shell` Null shape (I2's log) — the deferred sitemap/search
+  filter migration becomes POSSIBLE here; per §3's marker the sitemap's
+  honest spelling is Matt's call, so state whether I7 takes the
+  migration or leaves it flagged. **Split on arrival** — the
   executing agent proposes the split as sub-items before starting, and
   the orchestrator sequences them. Parity throughout.
 
@@ -1492,3 +1533,28 @@ the `post` layer both CSS docs declare. Not touched: I5 did not make it false
 where they disagree), and rewriting it would decide a question that belongs to
 whoever builds per-post CSS. Proposed as a doc item, or as a note on that
 item.
+
+**2026-07-27 — Batch review I-B (Fable), covering IR1, IR2, I4, IR3, I5.**
+Verdict: **sound; I-C clear.** Six mutations re-executed, each red as
+logged; both grack.com parity claims independently reproduced (the I4
+substitution is genuinely the only byte moved — three diverse pages
+raw-diffed; sitemap and search.bin byte-identical; I5 moved nothing);
+explain probed on all three row shapes — coherent, every line
+where-addressable, no doubled key. Findings: (1,2) *should-fix → IR4*:
+the head fence is bypassable by an `<html>` wrapper (whole document
+becomes body chrome, title and metas shipping in `<body>` — probed live),
+and non-whitespace top-level text silently drops. (3) I5's re-measurement
+adjudicated CORRECT: unfenced head elements now silently drop (the
+mechanism: head_styles takes only style contents); the fence test still
+guards. (4,9 → IR5): the tokens warning is false in two shapes (one
+I5-created); DESIGN §6c gets a supersession sentence, substance undecided.
+(5) the I5 ordering call endorsed — last-in-layer is the only placement
+where I5 is a relocation, not a behavior change. (6) the grass path
+behaves (imports resolve theme-then-base; errors name root.html).
+(7) no IR3×I5 interaction; CASCADE is closed at four. (8) the scoping
+paragraph is internally consistent; one unworked corner recorded (a
+SHARED chain ancestor's sub-layer needs per-consuming-theme scope
+emission — one sentence owed when the merge emitter is built).
+(10) commit-message heredoc artifacts in IR2/I5 — history, cosmetic.
+I7 brief amended: the themes/-as-content decision and the Null-collapse
+pointer. I6/I8 unamended.
