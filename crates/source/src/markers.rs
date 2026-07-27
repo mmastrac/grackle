@@ -6,10 +6,27 @@
 //! Resolution is the same shape as bucket lookup (§6a): walk up, nearest wins.
 
 use anyhow::{bail, Result};
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 pub type Defaults = BTreeMap<String, toml::Value>;
+
+/// What one marker MEANS: the defaults `[markers] ".draft" = { … }` declares
+/// for the marker of that filename.
+///
+/// A newtype over the payload, `#[serde(transparent)]` so the TOML is
+/// unchanged, because the wrapper is a statement about the MERGE (MERGE.md §7
+/// q10): a marker's meaning is a *definition* under a user-chosen name — the
+/// filename — and Law 2 stops at definitions, so a site redeclaring `.draft`
+/// says what `.draft` means, whole. The bare `BTreeMap<String, toml::Value>`
+/// said the opposite by structure (a map of maps descends twice, composing a
+/// meaning out of two files); DESIGN.md §4d has always listed `[markers]`
+/// among the registries that shadow by name, entry whole. The type says it
+/// now, so `config::merge_base` can read the law off it rather than be told.
+#[derive(Debug, Deserialize)]
+#[serde(transparent)]
+pub struct MarkerDef(pub Defaults);
 
 /// Which marker file set each key, per directory. Lives only as long as a
 /// scan: nothing downstream needs a key's provenance, only the collision
@@ -50,7 +67,7 @@ impl Markers {
     /// file is read.
     pub fn scan(
         root: &Path,
-        cfg: &BTreeMap<String, Defaults>,
+        cfg: &BTreeMap<String, MarkerDef>,
         gitignore: bool,
         not: &crate::store::NotContent,
     ) -> Result<Self> {
@@ -68,7 +85,7 @@ impl Markers {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
-            let Some(defaults) = cfg.get(&name) else {
+            let Some(MarkerDef(defaults)) = cfg.get(&name) else {
                 continue;
             };
             let Ok(rel) = entry.path().strip_prefix(root) else {

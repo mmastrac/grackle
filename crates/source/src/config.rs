@@ -1,3 +1,4 @@
+use crate::markers::MarkerDef;
 use crate::shape::{field, Shape, Shaped};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -51,15 +52,19 @@ pub struct Config {
     /// Queries that land: every URL the site emits from a query.
     #[serde(default)]
     routes: BTreeMap<String, View>,
-    /// Marker filename -> defaults it applies to its directory and below.
-    /// The config says what a marker means; the tree says where (DESIGN.md §4b).
     /// Axes: alternative FORMS of a row (q53). Each one publishes its rows at
     /// several URLs, one per value, and is the only mechanism permitted to do
     /// so — §4's "one row, one route" names this as its sole exception.
     #[serde(default)]
     pub axes: BTreeMap<String, Axis>,
+    /// Marker filename -> what that marker MEANS: the defaults it applies to
+    /// its directory and below. The config says what a marker means; the tree
+    /// says where (DESIGN.md §4b). The payload is a [`MarkerDef`] rather than
+    /// a bare table because it is a definition under a user-chosen name, and
+    /// definitions are atoms — see the newtype for why the merge needs the
+    /// type to say so.
     #[serde(default)]
-    pub markers: BTreeMap<String, BTreeMap<String, toml::Value>>,
+    pub markers: BTreeMap<String, MarkerDef>,
     /// `[html]` (§4e): what the engine puts in the document's head, declared
     /// rather than compiled in. Today one table — `[html.head.meta]`.
     #[serde(default)]
@@ -496,7 +501,15 @@ macro_rules! definitions {
     })* };
 }
 
-definitions![View, Axis, ShellDef, ProfileCfg, RecordCfg, RelationCfg];
+definitions![
+    View,
+    Axis,
+    ShellDef,
+    ProfileCfg,
+    RecordCfg,
+    RelationCfg,
+    MarkerDef,
+];
 
 /// The law for `key`. A key no field claims is a typo on its way to
 /// `deny_unknown_fields`; until it gets there it merges as it always has.
@@ -2657,6 +2670,33 @@ mod tests {
         );
     }
 
+    /// A marker is a definition under its filename, so redeclaring one says
+    /// what it means WHOLE — MERGE.md §7 q10, and the reason `MarkerDef`
+    /// exists. The base declares `".noindex" = { noindex = true }`; a site
+    /// that repurposes the name gets its own payload and nothing else.
+    ///
+    /// This is the live path, not a stand-in: `base.toml` really does declare
+    /// the three markers, so `from_toml` reaches the arm.
+    #[test]
+    fn a_redeclared_marker_replaces_the_payload_whole() {
+        let c = Config::from_toml(
+            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [markers]\n\".noindex\" = { hidden = true }\n",
+        )
+        .unwrap();
+        let payload = &c.markers[".noindex"].0;
+        let keys: Vec<&str> = payload.keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            ["hidden"],
+            "the base's `noindex = true` composed itself into the site's \
+             marker: {payload:?}"
+        );
+        // The markers the site left alone are untouched — a definition is the
+        // unit, and `[markers]` itself is the namespace.
+        assert!(c.markers.contains_key(".draft"), "{:?}", c.markers.keys());
+    }
+
     /// `[links]` is a bag like `[site]`: setting one key keeps the others.
     ///
     /// A3 could only state that with a hypothetical — `policy` is `LinksCfg`'s
@@ -2892,14 +2932,14 @@ mod tests {
     }
 
     /// Where the structure and the hand table disagree, with the DERIVED law
-    /// and nothing hidden. Recorded in MERGE.md §6 (B1) and flagged for §7:
-    /// `markers` is `BTreeMap<String, BTreeMap<String, toml::Value>>`, a map
-    /// of maps, so Law 2 reads it as `Descend(2)` — the marker FILENAME, then
-    /// each default it sets. Table A and `CONFIG_LAWS` say `Descend(1)`: the
-    /// payload table is one atom. Both readings agree on today's corpus
-    /// (every site restates the base's three payloads verbatim), so nothing
-    /// here decides it; B2 must not port `markers` until someone does.
-    const KNOWN_EXCEPTIONS: &[(&str, Law)] = &[("markers", Law::Descend(2))];
+    /// and nothing hidden. **Empty, and that is the point**: B1 found one
+    /// (`[markers]`, a map of maps, which the structure read as `Descend(2)`
+    /// against table A's `Descend(1)`), §7 q10 answered it — the payload is a
+    /// definition — and `MarkerDef` made the types say so. What is left is
+    /// the tripwire: a key added with a law the structure does not imply has
+    /// to be written down here, in front of a reviewer, rather than passing
+    /// as a table entry nobody reads.
+    const KNOWN_EXCEPTIONS: &[(&str, Law)] = &[];
 
     /// Table A's depth column, executable. `CONFIG_LAWS` assigns a law per
     /// key by hand; `derived_laws` reads one off each field's TYPE. That they
@@ -2941,14 +2981,21 @@ mod tests {
         }
     }
 
-    /// The one disagreement, stated on its own so it cannot pass as a typo in
-    /// the exception list. See [`KNOWN_EXCEPTIONS`].
+    /// There are none, and adding one is a deliberate act. B1's single
+    /// exception was `[markers]`; §7 q10 settled it as a definition and
+    /// [`MarkerDef`] is where that answer lives, so the structure and table A
+    /// now agree on every key of the surface. See [`KNOWN_EXCEPTIONS`].
+    ///
+    /// Mutation-check: unwrap `MarkerDef` back to a bare
+    /// `BTreeMap<String, toml::Value>` and `markers` derives `Descend(2)`
+    /// again — `the_derived_laws_agree_with_the_hand_tables` fails naming the
+    /// key, and this test fails with it unless the exception is restored.
     #[test]
-    fn the_marker_payload_is_the_one_disagreement() {
-        assert_eq!(
-            KNOWN_EXCEPTIONS,
-            [("markers", Law::Descend(2))],
-            "a new exception needs a §6 entry, not just this list"
+    fn the_structure_and_the_tables_have_no_exceptions_left() {
+        assert!(
+            KNOWN_EXCEPTIONS.is_empty(),
+            "a law the structure does not imply needs a §6 entry and a §7 \
+             question, not just a list entry: {KNOWN_EXCEPTIONS:?}"
         );
         assert_eq!(
             law_of(CONFIG_LAWS, "markers"),
@@ -2963,8 +3010,9 @@ mod tests {
             .expect("the shape describes markers");
         assert_eq!(
             markers.depth(),
-            2,
-            "the type is a map of maps: filename, then the defaults it sets"
+            1,
+            "a marker's meaning is one definition under its filename, not a \
+             bag of defaults two files can compose"
         );
     }
 
