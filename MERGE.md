@@ -179,7 +179,7 @@ name with conflicting types are a collision error**, not alphabetical order.
   omits `schema` from the registry list the code includes. Behavior-neutral
   except as prepared by A3. *[parity]*
 
-- [ ] **A3. `[axes]` becomes a registry; `[links]` merges per-key.** Axes:
+- [x] **A3. `[axes]` becomes a registry; `[links]` merges per-key.** Axes:
   merge by axis name, whole-definition atom (today it falls through to
   wholesale replace — the bug that motivated Law 2's derivation). Links:
   per-key bag (invisible today; `policy` is its only key). Mutation-checked
@@ -394,6 +394,33 @@ replaces the base's whole — but table A describes a vocabulary ladder where
 "engine part wins collisions". Nothing in this item changed it, and the base
 config declares no `[[parts]]`, so the two never meet today. Worth confirming
 the intended law before B2 makes it structural.
+
+**2026-07-26 — A3.** Landed. `axes` and `links` are both `Law::Descend(1)`
+now; table A's two **changed** rows are true of the code. Zero fixture churn,
+as predicted — `base.toml` declares neither table, so no site's merge reaches
+either arm.
+
+*Deviation (small):* `merge_base` and `merge_collection` had the same loop
+body twice, differing only in the law table. Extracted as `merge_table(base,
+site, laws)`; both now call it. Behaviour-identical, and it is what gives the
+tests an honest entry point — with no `[axes]` in `base.toml`, a
+`Config::from_toml` test cannot reach the arm at all (a key the base never
+wrote is the site's whole under every law), so the tests drive the real
+dispatch with a base of their own rather than restating the loop.
+
+*Note on the second axes test:* "redeclaring an axis replaces it entire" is
+asserted at the TOML level, on a site axis that declares `values` and not
+`field`. That config would not deserialize into an `Axis` — which is the
+point: the assertion is that the base's `field` does **not** arrive to
+complete it. A typed test could not express the difference between
+`Descend(1)` and `Descend(2)` here, because `Axis`'s two fields are both
+required.
+
+*For B1:* `[links]`'s bag law is untestable from a real config today — one
+key, so nothing can be left behind. The test states the law with a
+hypothetical second key and says so. When B1 derives depth from structure
+this becomes a statement about `LinksCfg` being a struct under an
+engine-chosen name, and the hypothetical goes away.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
