@@ -1,3 +1,4 @@
+use crate::shape::{field, Shape, Shaped};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -176,7 +177,11 @@ const BASE: &str = include_str!("../assets/base.toml");
 
 /// How one key of a config table merges over the base's: atomicity stated per
 /// key, because the merge runs on raw TOML and cannot read it off the types.
-#[derive(Clone, Copy)]
+///
+/// Stated per key *here*, that is. The same laws are DERIVED from the types
+/// below (`derived_laws`, and `shape.rs` for the law itself); B2 ports the
+/// merge onto the derivation and deletes this table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Law {
     /// One authored value, taken whole from the nearer writer — scalars,
     /// arrays, and the tables nothing descends. Half-inheriting a list is
@@ -321,6 +326,177 @@ fn every_collection_key_has_a_law(c: Collection) {
         schema: _,
     } = c;
 }
+
+// ------------------------------------------------- the same laws, derived
+//
+// Everything above assigns a law by hand. Everything below reads one off the
+// config's TYPE STRUCTURE — Law 2 is a statement about the types (MERGE.md
+// §1), so the depth a table merges to is a fact about `Config`, not a
+// decision to be remembered. `shape.rs` holds the law; this holds the shape
+// of this config; `the_derived_laws_agree_with_the_hand_tables` holds the two
+// halves to each other, key by key, with `[markers]` documented as the one
+// disagreement.
+//
+// The merge still dispatches through the tables above. B2 turns that around
+// and deletes them; until then this is a claim under test, and costs nothing
+// at runtime.
+
+/// §1's one exception, which lands in two places. Both keys are arrays —
+/// atoms by structure — so nothing derives them: a `[[collections]]` entry is
+/// paired by `source` because identity is physical, and `rules` interleave by
+/// nearness, which is Law 1 expressed in list order.
+#[allow(dead_code)] // Read by the agreement test; B2 makes the merge read it.
+const CONFIG_ANNOTATIONS: &[(&str, Law)] = &[("collections", Law::Collections)];
+
+/// [`CONFIG_ANNOTATIONS`], one level down.
+#[allow(dead_code)]
+const COLLECTION_ANNOTATIONS: &[(&str, Law)] = &[("rules", Law::Prepend)];
+
+/// Law 2 for every key of `shape`: descend to where the first atom sits, or
+/// take the value whole when that is the value itself. `annotations` names
+/// the keys the law does not reach.
+#[allow(dead_code)] // Read by the agreement test; B2 makes the merge read it.
+fn derived_laws(shape: &Shape, annotations: &[(&str, Law)]) -> Vec<(&'static str, Law)> {
+    shape
+        .fields()
+        .iter()
+        .map(|(name, value)| {
+            let law = match annotations.iter().find(|(k, _)| k == name) {
+                Some((_, annotated)) => *annotated,
+                None => match value.depth() {
+                    0 => Law::Atom,
+                    n => Law::Descend(n),
+                },
+            };
+            (*name, law)
+        })
+        .collect()
+}
+
+/// The site config's shape. Read it beside [`CONFIG_LAWS`]: every depth in
+/// that table is a fact about a type here, and the fields are in declaration
+/// order so the two lists can be diffed against `Config` itself.
+impl Shaped for Config {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            field("parts", |c: &Config| &c.parts),
+            field("extends", |c: &Config| &c.extends),
+            field("root", |c: &Config| &c.root),
+            field("gitignore", |c: &Config| &c.gitignore),
+            field("site", |c: &Config| &c.site),
+            // The one serde rename on the surface. The merge keys on TOML
+            // names, so this list is in TOML's name space, not Rust's.
+            field("collections", |c: &Config| &c.declared_collections),
+            field("sets", |c: &Config| &c.sets),
+            field("routes", |c: &Config| &c.routes),
+            field("axes", |c: &Config| &c.axes),
+            field("markers", |c: &Config| &c.markers),
+            field("html", |c: &Config| &c.html),
+            field("schema", |c: &Config| &c.schema),
+            field("widgets", |c: &Config| &c.widgets),
+            field("shells", |c: &Config| &c.shells),
+            field("i18n", |c: &Config| &c.i18n),
+            field("records", |c: &Config| &c.records),
+            field("profiles", |c: &Config| &c.profiles),
+            field("links", |c: &Config| &c.links),
+            // The `#[serde(skip)]` fields have no TOML name and so no shape:
+            // `collections`, `views`, `profile`, `dir`, `config_file`.
+        ])
+    }
+}
+
+impl Shaped for Collection {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            field("kind", |c: &Collection| &c.kind),
+            field("name", |c: &Collection| &c.name),
+            field("source", |c: &Collection| &c.source),
+            field("extensions", |c: &Collection| &c.extensions),
+            field("bucket", |c: &Collection| &c.bucket),
+            field("filename_formats", |c: &Collection| &c.filename_formats),
+            field("exclude", |c: &Collection| &c.exclude),
+            field("include", |c: &Collection| &c.include),
+            field("rules", |c: &Collection| &c.rules),
+            field("trail", |c: &Collection| &c.trail),
+            field("tags", |c: &Collection| &c.tags),
+            field("relations", |c: &Collection| &c.relations),
+            field("schema", |c: &Collection| &c.schema),
+        ])
+    }
+}
+
+impl Shaped for Site {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            field("url", |s: &Site| &s.url),
+            field("baseurl", |s: &Site| &s.baseurl),
+            field("title", |s: &Site| &s.title),
+            field("author", |s: &Site| &s.author),
+            field("email", |s: &Site| &s.email),
+            field("theme", |s: &Site| &s.theme),
+            // `noindex` is `#[serde(skip)]`: a profile's to set, never the
+            // site's to write, so it is not on the merge surface.
+        ])
+    }
+}
+
+impl Shaped for HtmlCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![field("head", |h: &HtmlCfg| &h.head)])
+    }
+}
+
+impl Shaped for HeadCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            field("meta", |h: &HeadCfg| &h.meta),
+            field("property", |h: &HeadCfg| &h.property),
+            field("link", |h: &HeadCfg| &h.link),
+        ])
+    }
+}
+
+impl Shaped for I18nCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            field("default", |i: &I18nCfg| &i.default),
+            field("locales", |i: &I18nCfg| &i.locales),
+            field("selector", |i: &I18nCfg| &i.selector),
+            field("names", |i: &I18nCfg| &i.names),
+            field("strings", |i: &I18nCfg| &i.strings),
+        ])
+    }
+}
+
+impl Shaped for LinksCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![field("policy", |l: &LinksCfg| &l.policy)])
+    }
+}
+
+/// Enums: atoms wherever they sit, including the ones that deserialize from a
+/// TABLE. A `LocalizedStr` written `{ en = "Home", fr = "Accueil" }` is one
+/// value with one authority — §3 table D's "the atom is the `LocalizedStr`" —
+/// and merging two of them per locale would build a string nobody wrote.
+macro_rules! enums_are_atoms {
+    ($($t:ty),* $(,)?) => { $(impl Shaped for $t {
+        fn shape() -> Shape { Shape::Atom }
+    })* };
+}
+
+enums_are_atoms![Kind, Selector, LinkPolicy, LocalizedStr];
+
+/// The definitions: structs that only ever appear under a USER-chosen name,
+/// where Law 2 stops. Their fields are left undescribed on purpose — see
+/// [`Shape::definition`]; `a_definition_never_sits_under_an_engine_name`
+/// is what keeps that honest.
+macro_rules! definitions {
+    ($($t:ty),* $(,)?) => { $(impl Shaped for $t {
+        fn shape() -> Shape { Shape::definition() }
+    })* };
+}
+
+definitions![View, Axis, ShellDef, ProfileCfg, RecordCfg, RelationCfg];
 
 /// The law for `key`. A key no field claims is a typo on its way to
 /// `deny_unknown_fields`; until it gets there it merges as it always has.
@@ -2482,9 +2658,15 @@ mod tests {
     }
 
     /// `[links]` is a bag like `[site]`: setting one key keeps the others.
-    /// `policy` is its only key today, so `reach` here is hypothetical — the
-    /// point is that the law is already the bag's, and the next key added
-    /// merges beside its neighbour instead of erasing it.
+    ///
+    /// A3 could only state that with a hypothetical — `policy` is `LinksCfg`'s
+    /// only key, so nothing can be left behind and no real config can tell the
+    /// bag law from wholesale replace. It is a hypothetical no longer:
+    /// `table_as_depths_fall_out_of_the_types` reads the law off the type
+    /// (`LinksCfg` is a struct under an ENGINE-chosen name, so it descends per
+    /// field), which is a statement about every key it will ever have. What is
+    /// left here is the demonstration — `merge_to_depth` is what actually runs
+    /// — and `reach` is a stand-in for the key that has not been added yet.
     #[test]
     fn links_keys_merge_one_at_a_time() {
         let m = merged(
@@ -2628,13 +2810,18 @@ mod tests {
     /// The field names serde accepts for `T`, read out of its own
     /// `deny_unknown_fields` complaint — renames applied, skipped fields
     /// absent. This is the list the merge actually keys on.
+    ///
+    /// Two shapes to read: "expected one of `a`, `b`" for a struct with
+    /// several fields, and plain "expected `head`" for one with a single
+    /// field (`HtmlCfg`, `LinksCfg`). Splitting on the shorter prefix takes
+    /// both, and the invented key sits before it either way.
     fn serde_keys<T: serde::de::DeserializeOwned>() -> Vec<String> {
         let e = toml::from_str::<T>("no_such_key = 1")
             .err()
             .expect("deny_unknown_fields should reject an invented key")
             .to_string();
         let listed = e
-            .split_once("expected one of ")
+            .split_once("expected ")
             .expect("the error names the fields it knows")
             .1
             .lines()
@@ -2674,6 +2861,237 @@ mod tests {
             serde_keys::<Collection>(),
             "COLLECTION_LAWS and the [Collection] fields serde accepts have drifted"
         );
+    }
+
+    /// And the same check for the shape, struct by struct. The description is
+    /// in TOML's name space, so `collections` (renamed from
+    /// `declared_collections`) must appear and `noindex`, `dir`, `views` —
+    /// `#[serde(skip)]` every one — must not. Only the structs the merge
+    /// DESCENDS are listed: a definition's fields are nobody's business
+    /// (see [`Shape::definition`]).
+    #[test]
+    fn the_shape_covers_the_config_surface() {
+        for (what, shape, serde) in [
+            ("Config", Config::shape(), serde_keys::<Config>()),
+            (
+                "Collection",
+                Collection::shape(),
+                serde_keys::<Collection>(),
+            ),
+            ("Site", Site::shape(), serde_keys::<Site>()),
+            ("HtmlCfg", HtmlCfg::shape(), serde_keys::<HtmlCfg>()),
+            ("HeadCfg", HeadCfg::shape(), serde_keys::<HeadCfg>()),
+            ("I18nCfg", I18nCfg::shape(), serde_keys::<I18nCfg>()),
+            ("LinksCfg", LinksCfg::shape(), serde_keys::<LinksCfg>()),
+        ] {
+            let mut named: Vec<String> =
+                shape.fields().iter().map(|(k, _)| k.to_string()).collect();
+            named.sort();
+            assert_eq!(named, serde, "{what}'s shape and its serde keys drifted");
+        }
+    }
+
+    /// Where the structure and the hand table disagree, with the DERIVED law
+    /// and nothing hidden. Recorded in MERGE.md §6 (B1) and flagged for §7:
+    /// `markers` is `BTreeMap<String, BTreeMap<String, toml::Value>>`, a map
+    /// of maps, so Law 2 reads it as `Descend(2)` — the marker FILENAME, then
+    /// each default it sets. Table A and `CONFIG_LAWS` say `Descend(1)`: the
+    /// payload table is one atom. Both readings agree on today's corpus
+    /// (every site restates the base's three payloads verbatim), so nothing
+    /// here decides it; B2 must not port `markers` until someone does.
+    const KNOWN_EXCEPTIONS: &[(&str, Law)] = &[("markers", Law::Descend(2))];
+
+    /// Table A's depth column, executable. `CONFIG_LAWS` assigns a law per
+    /// key by hand; `derived_laws` reads one off each field's TYPE. That they
+    /// agree, key for key, is the whole of B1 — it makes every depth in the
+    /// table a fact about `Config` rather than a decision someone has to
+    /// remember, and it is what lets B2 delete the tables.
+    ///
+    /// Mutation-check: flip any law above (`widgets` to `Law::Atom`, `html`
+    /// to `Descend(2)`) and this fails naming the key.
+    #[test]
+    fn the_derived_laws_agree_with_the_hand_tables() {
+        for (what, derived, hand) in [
+            (
+                "CONFIG_LAWS",
+                derived_laws(&Config::shape(), CONFIG_ANNOTATIONS),
+                CONFIG_LAWS,
+            ),
+            (
+                "COLLECTION_LAWS",
+                derived_laws(&Collection::shape(), COLLECTION_ANNOTATIONS),
+                COLLECTION_LAWS,
+            ),
+        ] {
+            let mut derived = derived;
+            derived.sort_by_key(|(k, _)| *k);
+            let mut expected: Vec<(&str, Law)> = hand
+                .iter()
+                .map(|(k, law)| {
+                    let exception = KNOWN_EXCEPTIONS.iter().find(|(e, _)| e == k);
+                    (*k, exception.map_or(*law, |(_, derived)| *derived))
+                })
+                .collect();
+            expected.sort_by_key(|(k, _)| *k);
+            assert_eq!(
+                derived, expected,
+                "{what}: the hand-assigned laws and the ones the types imply \
+                 have drifted (exceptions: {KNOWN_EXCEPTIONS:?})"
+            );
+        }
+    }
+
+    /// The one disagreement, stated on its own so it cannot pass as a typo in
+    /// the exception list. See [`KNOWN_EXCEPTIONS`].
+    #[test]
+    fn the_marker_payload_is_the_one_disagreement() {
+        assert_eq!(
+            KNOWN_EXCEPTIONS,
+            [("markers", Law::Descend(2))],
+            "a new exception needs a §6 entry, not just this list"
+        );
+        assert_eq!(
+            law_of(CONFIG_LAWS, "markers"),
+            Law::Descend(1),
+            "table A: `[markers]` descends the filename, the payload is the atom"
+        );
+        let config = Config::shape();
+        let markers = config
+            .fields()
+            .iter()
+            .find_map(|(k, shape)| (*k == "markers").then_some(shape))
+            .expect("the shape describes markers");
+        assert_eq!(
+            markers.depth(),
+            2,
+            "the type is a map of maps: filename, then the defaults it sets"
+        );
+    }
+
+    /// The depths §3 table A calls out, each traced back to the type it falls
+    /// out of. These are the rows the table describes as "falls out" — this
+    /// is where that stops being a claim.
+    #[test]
+    fn table_as_depths_fall_out_of_the_types() {
+        let law = |key: &str| {
+            derived_laws(&Config::shape(), CONFIG_ANNOTATIONS)
+                .into_iter()
+                .find(|(k, _)| *k == key)
+                .unwrap_or_else(|| panic!("no derived law for {key}"))
+                .1
+        };
+        // `[site]`: a struct under an engine-chosen name, all scalars.
+        assert_eq!(law("site"), Law::Descend(1));
+        // `[axes.*]`: a map whose value is a definition — `Axis` is a struct
+        // under the axis's own name, so the descent stops above it. A3 fixed
+        // this by hand; here it is a consequence of `BTreeMap<String, Axis>`.
+        assert_eq!(law("axes"), Law::Descend(1));
+        // `[links]`: `LinksCfg` is a struct under an ENGINE-chosen name, so
+        // it descends per field however many fields it grows. A3 could only
+        // state this with a hypothetical second key; now the type states it.
+        assert_eq!(law("links"), Law::Descend(1));
+        // `[schema]`: `toml::Table` — a map of values the merge does not type.
+        assert_eq!(law("schema"), Law::Descend(1));
+        // `[records.<field>.<id>]`: map → map → `RecordCfg`, a definition.
+        assert_eq!(law("records"), Law::Descend(2));
+        // `[i18n]`: the bag, then `names`/`strings` by key. Two of `I18nCfg`'s
+        // five fields are maps and the deepest governs; the scalars beside
+        // them are unharmed, since no descent can split a string.
+        assert_eq!(law("i18n"), Law::Descend(2));
+        // `[html.head.meta.<name>]`: struct → struct → map → the expression.
+        assert_eq!(law("html"), Law::Descend(3));
+        // Arrays and scalars are atoms whatever they hold.
+        assert_eq!(law("parts"), Law::Atom);
+        assert_eq!(law("extends"), Law::Atom);
+        // And the annotation is the annotation: structurally `[[collections]]`
+        // is an array like `[[parts]]`, and nothing but §1's exception tells
+        // the two apart.
+        assert_eq!(law("collections"), Law::Collections);
+        let rules = derived_laws(&Collection::shape(), COLLECTION_ANNOTATIONS)
+            .into_iter()
+            .find(|(k, _)| *k == "rules")
+            .expect("a collection has rules")
+            .1;
+        assert_eq!(rules, Law::Prepend);
+        assert_eq!(
+            derived_laws(&Collection::shape(), COLLECTION_ANNOTATIONS)
+                .into_iter()
+                .find(|(k, _)| *k == "relations")
+                .expect("a collection has relations")
+                .1,
+            Law::Descend(1),
+            "a named relation is a definition"
+        );
+    }
+
+    /// Every struct in `shape`, with whether it sits under an ENGINE-chosen
+    /// name (a field) or a user-chosen one (a map value).
+    fn each_struct(shape: &Shape, engine_named: bool, seen: &mut Vec<(Vec<(&str, usize)>, bool)>) {
+        match shape {
+            Shape::Atom => {}
+            Shape::Struct(fields) => {
+                seen.push((
+                    fields.iter().map(|(k, s)| (*k, s.depth())).collect(),
+                    engine_named,
+                ));
+                for (_, s) in fields {
+                    each_struct(s, true, seen);
+                }
+            }
+            Shape::Map(value) => each_struct(value, false, seen),
+        }
+    }
+
+    fn config_structs() -> Vec<(Vec<(&'static str, usize)>, bool)> {
+        let mut seen = Vec::new();
+        each_struct(&Config::shape(), true, &mut seen);
+        each_struct(&Collection::shape(), true, &mut seen);
+        seen
+    }
+
+    /// [`Shape::definition`] leaves a definition's fields undescribed because
+    /// nothing descends into one. That holds only while every undescribed
+    /// struct sits under a user-chosen name: a `View`-shaped field of `Site`
+    /// would be a namespace whose fields this file claims not to have, and
+    /// would merge as if it had none.
+    #[test]
+    fn a_definition_never_sits_under_an_engine_name() {
+        for (fields, engine_named) in config_structs() {
+            assert!(
+                !engine_named || !fields.is_empty(),
+                "an undescribed struct sits under an engine-chosen name: {fields:?}"
+            );
+        }
+    }
+
+    /// Why one `Descend(n)` can govern a whole table. A struct takes the
+    /// deepest of its fields, so a shallower field is descended past — which
+    /// is safe exactly while that field's atom is a scalar or an array, as
+    /// `merge_to_depth` hands back anything that is not a table. The shape to
+    /// watch is a field that is BOTH an atom and a TOML table (a
+    /// `LocalizedStr`, a definition) sitting beside a deeper sibling: the
+    /// merge would split it. `[i18n]`'s `LocalizedStr`s are at the bottom of
+    /// the deepest path, not beside it, so the config has none — and this
+    /// says so for the next field anyone adds.
+    #[test]
+    fn a_nested_struct_ends_at_one_depth() {
+        let mut nested = Vec::new();
+        for (_, s) in Config::shape().fields() {
+            each_struct(s, true, &mut nested);
+        }
+        for (_, s) in Collection::shape().fields() {
+            each_struct(s, true, &mut nested);
+        }
+        for (fields, _) in nested {
+            let deepest = fields.iter().map(|(_, d)| *d).max().unwrap_or(0);
+            for (name, depth) in &fields {
+                assert!(
+                    *depth == 0 || *depth == deepest,
+                    "`{name}` sits at depth {depth} beside a field at {deepest}: \
+                     one `Descend(n)` cannot serve both"
+                );
+            }
+        }
     }
 
     /// Retired spellings must not be silently ignored: `deny_unknown_fields`

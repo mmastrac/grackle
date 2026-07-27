@@ -11,6 +11,7 @@ pub mod load;
 pub mod markers;
 pub mod relations;
 pub mod schema;
+mod shape;
 pub mod store;
 pub mod views;
 
