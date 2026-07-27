@@ -1193,6 +1193,16 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     }
 
     search_pass(cfg, db, &bodies, &page_bodies, &mut out_map, &mut stats)?;
+
+    // C5(d): a link query key that looks like an axis selector but names no
+    // declared axis. Drained here, after every body has been resolved and once
+    // `bodies` has released its borrow of `db` — the resolver runs inside two
+    // parallel render passes and has nowhere to write until now. Same channel
+    // as C3/C4: a `grackle: ` line on stderr, and `db.warnings` for the tests.
+    for w in linkspace.take_warnings() {
+        eprintln!("grackle: {w}");
+        db.warnings.push(w);
+    }
     let overlay = site_overlay(&root, &mut stats);
     css_pass(
         &theme_dir,

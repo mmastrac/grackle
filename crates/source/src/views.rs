@@ -470,16 +470,21 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
         // on one URL and all but one are lost. Checked here because this is
         // where the two halves — the axis and the path that allocates it — are
         // both in hand, and per axis because a product must spend every one.
-        let placeholder = format!("{{{axis_name}}}");
+        //
+        // Asked through `load::spends`, the same predicate `select_path` fills
+        // by: this check used to carry its own `{name}` string, so a path
+        // written the namespaced way (`{axis:theme}`) failed here while the
+        // materializer would have spent it happily (MERGE.md C5).
         if !v
             .route
             .iter()
             .chain(v.routes.iter())
-            .any(|t| t.contains(&placeholder))
+            .any(|t| crate::load::spends(t, axis_name))
         {
             bail!(
                 "view {name}: axis = {axis_name:?} but no path spends it — give the \
-                 path a {placeholder} segment, or the members would collide on one URL"
+                 path a {{{axis_name}}} (or {{axis:{axis_name}}}) segment, or the \
+                 members would collide on one URL"
             );
         }
         combos = combos

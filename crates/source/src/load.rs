@@ -274,15 +274,30 @@ fn row_axes(cfg: &Config, templates: &[String]) -> Vec<grackle_model::RowAxis> {
 
 /// Whether a template spends an axis: `{name}` or the namespaced `{axis:name}`.
 /// Locale also answers to bare `{locale}`.
-fn spends(tmpl: &str, axis: &str) -> bool {
+///
+/// **The one spend test.** Every reader of a route template asks this question —
+/// the materializer, the view loader's declared-but-never-spent check, the link
+/// resolver — and each used to ask it with a `format!("{{{name}}}")` of its own,
+/// which is how a route written `{axis:theme}` came to load in one place and
+/// fail in another (MERGE.md C5). `pub` for that reason: a second spelling of
+/// this predicate is the bug, not the convenience.
+pub fn spends(tmpl: &str, axis: &str) -> bool {
     tmpl.contains(&format!("{{{axis}}}"))
         || tmpl.contains(&format!("{{axis:{axis}}}"))
         || (axis == "locale" && tmpl.contains("{locale}"))
 }
 
+/// Spend one axis's segment: the dual of `spends`, and it must accept exactly
+/// the spellings `spends` recognizes or a template that passes the check comes
+/// back with a placeholder still in it.
+pub fn fill_axis(tmpl: &str, axis: &str, value: &str) -> String {
+    tmpl.replace(&format!("{{{axis}}}"), value)
+        .replace(&format!("{{axis:{axis}}}"), value)
+}
+
 /// One axis coordinate of a materialized route: the axis, its value, and whether
 /// that value is canonical — which is what a shorter template may omit.
-pub(crate) struct Coord<'a> {
+pub struct Coord<'a> {
     pub axis: &'a str,
     pub value: &'a str,
     pub canonical: bool,
@@ -295,7 +310,7 @@ pub(crate) struct Coord<'a> {
 /// falls back to a prefix, which is the behavior a config without `{axis:locale}`
 /// has always had. Errors only if no template covers a required set, which the
 /// fullest template always does unless the templates are pathologically split.
-pub(crate) fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
+pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
     let loc_spendable = templates.iter().any(|t| spends(t, "locale"));
     let required: Vec<&str> = coords
         .iter()
@@ -316,9 +331,7 @@ pub(crate) fn select_path(templates: &[String], coords: &[Coord]) -> Result<Stri
         })?;
     let mut url = tmpl.clone();
     for c in coords.iter().filter(|c| spends(tmpl, c.axis)) {
-        url = url
-            .replace(&format!("{{{}}}", c.axis), c.value)
-            .replace(&format!("{{axis:{}}}", c.axis), c.value);
+        url = fill_axis(&url, c.axis, c.value);
     }
     if let Some(loc) = coords.iter().find(|c| c.axis == "locale") {
         if !loc.canonical && !spends(tmpl, "locale") {

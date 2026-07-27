@@ -266,6 +266,14 @@ impl RouteKind {
 #[derive(Debug, Clone, Serialize)]
 pub struct RowAxis {
     pub name: String,
+    /// The rule's FIRST template, which is an arbitrary pick when the rule
+    /// declares a list (§6f, the default-axis case) — `select_path` may well
+    /// have chosen another one for any given member.
+    ///
+    /// **Nothing computes a URL from this.** It did, in the link resolver, and
+    /// that was MERGE.md C5's bug: a member's address is looked up in the routes
+    /// the build issued. Kept because `grackle export` serializes it; retiring
+    /// it is a §6-queue question, not a link question.
     pub template: String,
 }
 

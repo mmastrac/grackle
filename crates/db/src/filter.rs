@@ -801,7 +801,11 @@ impl Parser {
     }
 }
 
-fn levenshtein(a: &str, b: &str) -> usize {
+/// Edit distance. Registered as a CEL function (`-levenshtein(a, b)` ranks
+/// relations, §6g) and used by every "did you mean" this engine offers —
+/// unknown field, unknown function, and now an unknown link query key that
+/// looks like an axis (MERGE.md C5d). `pub` so that stays ONE implementation.
+pub fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let mut prev: Vec<usize> = (0..=b.len()).collect();
     let mut cur = vec![0; b.len() + 1];

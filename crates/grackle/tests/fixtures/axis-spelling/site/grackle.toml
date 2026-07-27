@@ -1,0 +1,54 @@
+# MERGE.md C5: the namespaced `{axis:name}` spelling, and the two ways a link
+# names a member of a path list.
+#
+# The axis is spent the namespaced way EVERYWHERE — a row rule's list and a
+# view's — because that is the spelling the engine used to accept in one place
+# and reject in another: `spends()` read both, while the view loader's
+# declared-but-never-spent check and the link resolver each carried a bare
+# `{look}` string of their own.
+#
+#   look=plain (canonical)  ->  /note/        and  /all/
+#   look=fancy              ->  /fancy/note/  and  /fancy/all/
+#
+# The canonical member drops its segment to the shorter template, which is what
+# makes this fixture the one that catches a reconstructed URL: rebuilding a
+# member's address from the rule's FIRST template answers `/{axis:look}/note/`,
+# a URL the build never issued. `index.md` links every member both ways, so its
+# rendered hrefs are the assertion.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Axis spelling"
+author = "Tester"
+
+[axes.look]
+values = ["plain", "fancy"]
+field = "look"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  # A path LIST (§6f, the default-axis case): the shortest template that still
+  # spends every non-canonical axis wins, so `plain` lands at `/note/`.
+  [[collections.rules]]
+  match = "note.md"
+  front_matter = true
+  route = ["/{axis:look}/note/", "/note/"]
+
+  [[collections.rules]]
+  match = "index.md"
+  front_matter = true
+  route = "/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+
+[routes.hub]
+from = "entries"
+layout = "listing"
+axis = "look"
+paths = ["/{axis:look}/all/", "/all/"]
+title = "All"

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-kind="shell" data-axis-look="fancy" style="--axis-look:&quot;fancy&quot;">
+<head>
+	<title>Note</title>
+	<link rel="alternate" href="https://example.com/note/">
+	<meta charset="utf-8">
+	<link href='/css/main.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<header data-frame>
+	<a href="/" data-slot="site_title">Axis spelling</a>
+	
+	<nav aria-label="Other versions" data-slot="axes"><details data-axis="look" aria-label="look" data-kind="axis">
+	<summary data-slot="current">fancy</summary>
+	<div data-slot="items"><a href="/note/" data-kind="axis_member">
+	<span data-slot="label">plain</span>
+</a>
+<a href="/fancy/note/" data-current="true" data-kind="axis_member">
+	<span data-slot="label">fancy</span>
+</a>
+</div>
+</details>
+</nav>
+</header>
+<main data-frame data-slot="main"><article data-kind="document" data-tree>
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Note</a></span>
+</nav>
+	<header>
+		<h1 data-slot="title">Note</h1>
+		
+	</header>
+	
+	
+	
+	<div data-slot="content"><p>One row, two looks.</p>
+</div>
+	
+</article>
+</main>
+<footer data-frame>
+	
+</footer>
+</body>
+</html>

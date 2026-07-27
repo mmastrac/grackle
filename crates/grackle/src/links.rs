@@ -14,11 +14,16 @@
 //! External schemes, fragments and mailto pass through untouched.
 
 use anyhow::{bail, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::config::{Config, LinkPolicy};
 use crate::db::{RouteKind, SiteDb};
+// The materializer's own path selection (§6f, the default-axis case). Shared
+// rather than restated: a link that builds a URL by a rule of its own is a link
+// that can name a URL the build never issued.
+use grackle_source::load::{select_path, Coord};
 
 /// Everything link resolution needs, computed once per build.
 pub struct LinkSpace {
@@ -28,11 +33,31 @@ pub struct LinkSpace {
     routes: HashSet<String>,
     /// URL → the form a strict-mode error suggests instead.
     url_form: HashMap<String, String>,
-    /// q53: source path → the axes the row's rule spends. A member's URL is the
-    /// shared template with each axis substituted — the selected one by the
-    /// link's value, the rest by their canonical — while `source_to_url` holds
-    /// the all-canonical form, which is what a plain link wants.
+    /// q53: source path → the axes the row's rule spends. Read for one question
+    /// only — *does this row's rule spend that axis at all* — which is what
+    /// separates "you selected a member of an axis this row is not on" from
+    /// "that member did not materialize". The member's URL comes from
+    /// `member_url`, never from `RowAxis::template`.
     source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>>,
+    /// q53: (source path, axis, value) → the URL that route ACTUALLY landed at,
+    /// for the routes whose every other axis sits at its canonical — which is
+    /// what a one-axis selector means.
+    ///
+    /// A lookup rather than a reconstruction, and that is the whole point
+    /// (MERGE.md C5c). Rebuilding the URL meant picking a template — `axes[0].
+    /// template`, an arbitrary one of the rule's list — and then blaming the
+    /// rule when the guess missed, while `select_path` had chosen a different
+    /// template for that very member. DESIGN.md q32's law is that producers take
+    /// URLs from the owning view rather than construct them; the materialized
+    /// route is the owner here, and it cannot lie.
+    member_url: HashMap<(String, String, String), String>,
+    /// C5(d): links whose query key looks like an axis selector but names no
+    /// declared axis. Collected rather than raised: unknown keys stay literal by
+    /// design (`?utm=x`), so this is a warning, and `resolve` runs inside rayon's
+    /// render passes with nothing mutable in reach. Sorted and deduped, because
+    /// one bad link in a template-shared fragment would otherwise say it once
+    /// per page.
+    warnings: Mutex<BTreeSet<String>>,
     /// q53 locale axis: source path → the row's logical identity, and
     /// (logical, locale) → URL. A `?locale=` selector picks a SIBLING row — a
     /// different file, not a restyle of the same one — so it resolves through
@@ -47,6 +72,18 @@ impl LinkSpace {
     /// B) asks, because it meets engine-derived URLs it must not police.
     pub fn is_route(&self, url: &str) -> bool {
         self.routes.contains(url)
+    }
+
+    /// Drain the C5(d) warnings the render passes accumulated. Called once, by
+    /// `render_site`, after every body is resolved.
+    pub fn take_warnings(&self) -> Vec<String> {
+        std::mem::take(&mut *self.warnings.lock().unwrap())
+            .into_iter()
+            .collect()
+    }
+
+    fn warn(&self, w: String) {
+        self.warnings.lock().unwrap().insert(w);
     }
 
     pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
@@ -75,6 +112,7 @@ impl LinkSpace {
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
+        let mut member_url: HashMap<(String, String, String), String> = HashMap::new();
         // §4: `route || row.on_demand`. An on-demand row has no Route yet, so
         // taking the route set alone would call every asset link dangling —
         // and the link is precisely what will materialize it.
@@ -97,14 +135,40 @@ impl LinkSpace {
             if let Some(f) = form {
                 url_form.insert(r.url.clone(), f);
             }
+            // q53: index this route under each axis it is a non-default member
+            // of, but only while every OTHER axis of the tuple sits at its
+            // canonical — a `?theme=ledger` link names one member along one axis
+            // and leaves the rest alone, so that is the only tuple it can mean.
+            if r.axis.is_empty() {
+                continue;
+            }
+            let Some(rel) = r
+                .row
+                .as_ref()
+                .and_then(|k| db.rows.get(k))
+                .map(|p| p.rel.to_string_lossy().to_string())
+            else {
+                continue;
+            };
+            for m in &r.axis {
+                if r.axis.iter().any(|o| o.axis != m.axis && !o.canonical) {
+                    continue;
+                }
+                member_url.insert(
+                    (rel.clone(), m.axis.clone(), m.value.clone()),
+                    r.url.clone(),
+                );
+            }
         }
         LinkSpace {
             source_to_url,
             routes,
             url_form,
             source_to_axis,
+            member_url,
             source_to_logical,
             sibling,
+            warnings: Mutex::new(BTreeSet::new()),
         }
     }
 }
@@ -135,6 +199,72 @@ fn closest_source<'a>(space: &'a LinkSpace, wanted: &str) -> Option<&'a str> {
         .find(|k| Path::new(k).file_name().is_some_and(|f| *f == *name))
         .or_else(|| space.source_to_url.keys().find(|k| k.contains(&stem)))
         .map(String::as_str)
+}
+
+/// C5(d): does an unrecognized link query key *look like* an axis selector?
+///
+/// A warning and never an error, deliberately. Only a declared axis name is read
+/// as a selector (q53), so `?utm=x` must keep meaning what it has always meant —
+/// which is exactly what makes a typo silent, since a misspelled axis is
+/// indistinguishable from an ordinary query string except by intent. The three
+/// legible intents: the right name in the wrong case (`?Theme=`), a name one or
+/// two edits away (`?thmee=`), and the axis's FIELD in place of the axis
+/// (`[axes.look] field = "theme"` selected as `?theme=`). Nothing else warns.
+///
+/// A pure function, so the sentence is testable without a site — `slots.rs`'s
+/// `unknown_stems` is the precedent.
+pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Option<String> {
+    // `locale` is an axis only where i18n is on; elsewhere it is an ordinary
+    // query key and must not be suggested.
+    let names: Vec<&str> = cfg
+        .axes
+        .keys()
+        .map(String::as_str)
+        .chain(cfg.i18n.enabled().then_some("locale"))
+        .collect();
+    if names.contains(&key) {
+        return None; // a selector, not a miss — the caller already handled it
+    }
+    let say = |hint: String| {
+        format!(
+            "{source}: link {href:?} — {key:?} names no axis, so it ships as a literal \
+             query string{hint}\n  declared axes: {}",
+            if names.is_empty() {
+                "(none)".to_string()
+            } else {
+                names.join(", ")
+            }
+        )
+    };
+    // Case first: an exact match but for case is the one wrong spelling an
+    // author is staring at, the way `.slots/Nav.md` is (C4b).
+    let lowered = key.to_ascii_lowercase();
+    if let Some(n) = names.iter().find(|n| n.to_ascii_lowercase() == lowered) {
+        return Some(say(format!(
+            " (did you mean `?{n}=`? axis names are matched exactly, so case counts)"
+        )));
+    }
+    // Then the field: an axis sets a named row field, and the two are commonly
+    // the same word (`[axes.theme] field = "theme"`), which makes selecting by
+    // the field a natural mistake when they differ.
+    if let Some((n, _)) = cfg
+        .axes
+        .iter()
+        .find(|(_, a)| a.field.eq_ignore_ascii_case(key))
+    {
+        return Some(say(format!(
+            " ({key:?} is the FIELD the {n:?} axis sets — select the axis: `?{n}=`)"
+        )));
+    }
+    // Then distance, at `filter.rs`'s threshold — and the edit must be SMALLER
+    // than the shorter of the two words, or a short deliberate key (`?id=`)
+    // matches a short axis name while sharing nothing with it.
+    names
+        .iter()
+        .map(|n| (crate::filter::levenshtein(key, n), *n))
+        .filter(|(d, n)| *d <= 2 && *d < key.len().min(n.len()))
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, n)| say(format!(" (did you mean `?{n}=`?)")))
 }
 
 /// Resolve one markdown link destination. `Ok(None)` = leave untouched.
@@ -219,6 +349,19 @@ pub fn resolve(
             );
         }
     }
+    // C5(d): `page.md?thmee=ledger` is not an axis selector — only a DECLARED
+    // name is read as one — so it ships as the literal query string it always
+    // was, which is right and silent. Say something when the intent is legible:
+    // a key that is a declared axis's name in the wrong case, a typo one or two
+    // edits away from one, or the axis's FIELD rather than the axis. Behaviour
+    // is unchanged; the link still ships literally, and `?utm=x` says nothing.
+    if axis_sel.is_none() && locale_sel.is_none() {
+        if let Some(k) = suffix.strip_prefix('?').and_then(|q| q.split_once('=')) {
+            if let Some(w) = misspelled_axis(cfg, source, href, k.0) {
+                space.warn(w);
+            }
+        }
+    }
 
     // Source-path resolution: relative to the linking file, then
     // root-relative. A hit that is ALSO a route URL (passthrough files)
@@ -289,44 +432,52 @@ pub fn resolve(
                     ),
                 }
             }
-            // q53: the selector picks a member of the row's axis. Checked
-            // against the route set, so a selector on a row the axis does not
-            // cover is a load error rather than a link to nothing — the same
-            // standard every other link here is held to.
+            // q53: the selector picks a member of the row's axis, and the answer
+            // is LOOKED UP in the materialized routes rather than rebuilt from a
+            // template (MERGE.md C5c). The reconstruction that used to live here
+            // chose `axes[0].template` — an arbitrary member of the rule's path
+            // list — so a rule written `route = ["/{look}/{axis:locale}/",
+            // "/{look}/", "/"]` produced a URL `select_path` never issued, and
+            // then blamed the rule for not spending a segment it plainly spent.
             if let Some((_axis, value)) = axis_sel {
                 let sel_name = suffix
                     .strip_prefix('?')
                     .and_then(|q| q.split_once('='))
                     .map(|(k, _)| k)
                     .unwrap_or_default();
-                // The row's own template is what a member's URL is made of, so
-                // a selector on a row whose rule never spent that axis has
-                // nothing to substitute into — which is the error below. A link
-                // picks one member along one axis; any OTHER axis the row spends
-                // stays at its canonical, so the result is a route that exists.
-                let member = match space.source_to_axis.get(c) {
-                    Some(axes) if axes.iter().any(|a| a.name == sel_name) => {
-                        let mut url = axes[0].template.clone();
-                        for a in axes {
-                            let fill = if a.name == sel_name {
-                                value
-                            } else {
-                                cfg.axes.get(&a.name).and_then(|x| x.canonical()).unwrap_or("")
-                            };
-                            url = url.replace(&format!("{{{}}}", a.name), fill);
-                        }
-                        url
-                    }
-                    _ => String::new(),
-                };
-                if member.is_empty() || !space.routes.contains(&member) {
+                // Two failures, two sentences. Whether the row's RULE spends the
+                // axis is the row's own property and the honest thing to blame;
+                // whether that member MATERIALIZED is a different question, and
+                // conflating them is what made the old error misleading.
+                let spent = space
+                    .source_to_axis
+                    .get(c)
+                    .is_some_and(|axes| axes.iter().any(|a| a.name == sel_name));
+                if !spent {
                     bail!(
                         "{source}: link {href:?} selects an axis member that does not \
                          exist — {url:?} is not on that axis, because the rule that routed \
                          it does not spend a {{{sel_name}}} segment"
                     );
                 }
-                return Ok(Some(member));
+                let key = (c.clone(), sel_name.to_string(), value.to_string());
+                if let Some(u) = space.member_url.get(&key) {
+                    return Ok(Some(u.clone()));
+                }
+                // The canonical member's address IS the row's own URL — that is
+                // what `Row.url` is, `select_path` run with every coord at its
+                // canonical. Rows with no Route of their own (on demand until
+                // something cites them, or claimed by a landing view) are absent
+                // from `member_url` entirely, and this is the one member of
+                // theirs that still has an honest answer.
+                if cfg.axes.get(sel_name).and_then(|a| a.canonical()) == Some(value) {
+                    return Ok(Some(url.clone()));
+                }
+                bail!(
+                    "{source}: link {href:?} selects {sel_name}={value:?}, which is not \
+                     materialized — {c:?} spends the {sel_name:?} axis but publishes no \
+                     route for that member"
+                );
             }
             // §6f, same invariant as view links: a translated row's source
             // link lands in its own locale's variant when that variant
@@ -400,7 +551,7 @@ fn view_link(
     let selectors: Vec<(&str, &str)> = query
         .map(|q| q.split('&').filter_map(|s| s.split_once('=')).collect())
         .unwrap_or_default();
-    let mut axis_subs: Vec<(String, String)> = Vec::new();
+    let mut pinned: Vec<(String, String, bool)> = Vec::new(); // (axis, value, canonical)
     for (k, val) in &selectors {
         let Some(axis) = cfg.axes.get(*k) else {
             let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
@@ -418,7 +569,11 @@ fn view_link(
                 axis.values.join(", ")
             );
         }
-        axis_subs.push((format!("{{{k}}}"), val.to_string()));
+        pinned.push((
+            (*k).to_string(),
+            (*val).to_string(),
+            axis.canonical() == Some(val),
+        ));
     }
     // Every axis the view lands on must be named; an unpinned one leaves several
     // URLs and no honest default among them.
@@ -435,15 +590,30 @@ fn view_link(
             );
         }
     }
-    let sub = |t: &str| {
-        let mut t = t.to_string();
-        for (ph, val) in &axis_subs {
-            t = t.replace(ph.as_str(), val);
-        }
-        t
+    // Every template this view lands on, read exactly as `build_view` reads
+    // them: `paths` when it has them, else `path`, minus the paginating ones —
+    // a link names page one. Reading only the FIRST was the second half of
+    // C5's bug (batch review 2): with a default-axis list the canonical member
+    // drops its segment to a SHORTER template, so `view:hub?look=plain` rendered
+    // `/plain/all/` while the route it names is `/all/`.
+    let tmpls: Vec<String> = if v.routes.is_empty() {
+        v.route.iter().cloned().collect()
+    } else {
+        v.routes.clone()
     };
+    let page1: Vec<String> = tmpls.into_iter().filter(|t| !t.contains("{n}")).collect();
+    if page1.is_empty() {
+        bail!("{source}: view {name} has no route (is it embed-only?)");
+    }
     let chain = cfg.group_specs(name);
-    let url = if !chain.is_empty() {
+    // The same params grouped_routes exposes: each level's field name, `key` =
+    // the leaf, tag slugs on the URL (§6f).
+    let mut params: Vec<(String, String)> = Vec::new();
+    if chain.is_empty() {
+        if !keys.is_empty() {
+            bail!("{source}: view:{rest} — {name} is not grouped; drop the key");
+        }
+    } else {
         if keys.len() != chain.len() {
             bail!(
                 "{source}: view:{rest} — {name} groups by {} and needs {} key(s)",
@@ -451,13 +621,6 @@ fn view_link(
                 chain.len()
             );
         }
-        let tmpl = v
-            .route
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("{source}: view {name} has no route"))?;
-        // The same params grouped_routes exposes: each level's field name,
-        // `key` = the leaf, tag slugs on the URL (§6f).
-        let mut params: Vec<(String, String)> = Vec::new();
         for (spec, key) in chain.iter().zip(&keys) {
             let field = crate::db::spec_field(spec);
             // §6f enum records: the URL wears any grouped field's slug.
@@ -465,33 +628,48 @@ fn view_link(
             params.push((field.to_string(), value.clone()));
             params.push(("key".to_string(), value));
         }
-        crate::template::render(&sub(tmpl), |tok| {
-            // Bare or `group:`-qualified name the same group param.
-            match crate::template::classify(tok) {
-                (None | Some("group"), k) => crate::template::param(&params, k),
-                _ => None,
-            }
-        })?
-    } else {
-        if !keys.is_empty() {
-            bail!("{source}: view:{rest} — {name} is not grouped; drop the key");
-        }
-        sub(v.route
-            .as_deref()
-            .or_else(|| v.routes.first().map(String::as_str))
-            .ok_or_else(|| {
-                anyhow::anyhow!("{source}: view {name} has no route (is it embed-only?)")
-            })?)
+    }
+    // Fill the group keys and PRESERVE the axis and locale tokens, then let
+    // `select_path` spend those — `build_view`'s own two stages, in its order,
+    // so the two halves of a `/{look}/{key}/` path are filled by the two things
+    // that own them and a link cannot pick a template the materializer did not.
+    let rendered: Vec<String> = page1
+        .iter()
+        .map(|t| {
+            crate::template::render(t, |tok| {
+                let (ns, k) = crate::template::classify(tok);
+                match ns {
+                    Some("axis") => Some(format!("{{{tok}}}")),
+                    None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
+                    None if k == "locale" && cfg.i18n.enabled() => Some("{locale}".to_string()),
+                    None | Some("group") => crate::template::param(&params, k),
+                    _ => None,
+                }
+            })
+        })
+        .collect::<Result<_>>()?;
+    let pick = |loc: &str| -> Result<String> {
+        let coords: Vec<Coord> = pinned
+            .iter()
+            .map(|(axis, value, canonical)| Coord {
+                axis,
+                value,
+                canonical: *canonical,
+            })
+            .chain(std::iter::once(Coord {
+                axis: "locale",
+                value: loc,
+                canonical: loc == cfg.i18n.default,
+            }))
+            .collect();
+        select_path(&rendered, &coords)
     };
     // Locale-parallel views (§6f): a translated row links into its own
-    // locale's archive when that variant materialized.
-    let url = if locale != cfg.i18n.default {
-        let prefixed = format!("/{locale}{url}");
-        if space.routes.contains(&prefixed) {
-            prefixed
-        } else {
-            url
-        }
+    // locale's archive when that variant materialized, and falls back to the
+    // default one when it did not.
+    let url = pick(locale)?;
+    let url = if locale != cfg.i18n.default && !space.routes.contains(&url) {
+        pick(&cfg.i18n.default)?
     } else {
         url
     };
@@ -643,5 +821,340 @@ mod tests {
         // A key that exists in NO locale errors, listing what does.
         let err = format!("{:#}", go("en", "view:tag_index/nope").unwrap_err());
         assert!(err.contains("not materialized"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod axis_tests {
+    use super::*;
+    use crate::db::{Route, RouteKind};
+    use grackle_model::AxisMember;
+
+    /// A site with one axis, `look = [plain, fancy]`, and a `hub` view on a
+    /// default-axis path list — the canonical member drops its segment. `spell`
+    /// is how the axis token is written; the two spellings must mean one thing.
+    fn cfg_with(spell: &str) -> Config {
+        Config::from_toml(&format!(
+            "root = \".\"\nextends = \"none\"\n\
+             [site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [axes.look]\nvalues = [\"plain\", \"fancy\"]\nfield = \"look\"\n\
+             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [sets.published]\nfrom = \"blog\"\n\
+             [routes.hub]\nfrom = \"published\"\nlayout = \"listing\"\naxis = \"look\"\n\
+             paths = [\"/{{{spell}}}/all/\", \"/all/\"]\n"
+        ))
+        .unwrap()
+    }
+
+    /// C5(b): a `view:` link must read `{axis:look}` as the same segment
+    /// `{look}` names, and must pick the template the MATERIALIZER picked —
+    /// the shortest one covering the non-canonical members. Reading the first
+    /// path and substituting the bare form only sent the canonical member to
+    /// `/plain/all/`, a URL the build never issued.
+    #[test]
+    fn a_view_link_reads_both_axis_spellings_and_the_whole_path_list() {
+        for spell in ["look", "axis:look"] {
+            let cfg = cfg_with(spell);
+            let mut db = SiteDb::default();
+            for url in ["/all/", "/fancy/all/"] {
+                db.routes.push(Route::new(url.to_string(), RouteKind::View));
+            }
+            let space = LinkSpace::new(&cfg, &db, Path::new("."));
+            let go = |href: &str| {
+                resolve(&cfg, &space, Path::new(""), "/", "en", "test.md", href)
+                    .unwrap()
+                    .unwrap()
+            };
+            assert_eq!(go("view:hub?look=plain"), "/all/", "spelled {{{spell}}}");
+            assert_eq!(
+                go("view:hub?look=fancy"),
+                "/fancy/all/",
+                "spelled {{{spell}}}"
+            );
+        }
+    }
+
+    /// One row, published at two looks by a rule with a path list. The row's
+    /// `RowAxis::template` here is DELIBERATELY a template no route used — it
+    /// is `templates.first()`, an arbitrary pick, and the whole point of C5(c)
+    /// is that a member's URL no longer comes from it.
+    fn axis_db() -> SiteDb {
+        let mut db = SiteDb::seed(Vec::new(), false);
+        let key = grackle_db::Key::new("note.md");
+        db.page_ix.push(key.clone());
+        db.rows.push(crate::db::Row {
+            key: key.clone(),
+            path: PathBuf::from("note.md"),
+            rel: PathBuf::from("note.md"),
+            url: "/note/".into(),
+            rendered: true,
+            locale: "en".into(),
+            logical: "note".into(),
+            axis: vec![grackle_model::RowAxis {
+                name: "look".into(),
+                template: "/{axis:look}/note/".into(),
+            }],
+            ..Default::default()
+        });
+        let member = |value: &str, canonical: bool, url: &str| Route {
+            row: Some(key.clone()),
+            source: Some(PathBuf::from("note.md")),
+            axis: vec![AxisMember {
+                axis: "look".into(),
+                value: value.into(),
+                field: "look".into(),
+                canonical,
+            }],
+            ..Route::new(url.to_string(), RouteKind::Page)
+        };
+        db.routes.push(member("plain", true, "/note/"));
+        db.routes.push(member("fancy", false, "/fancy/note/"));
+
+        // A row the axis does not cover: its rule spends no `{look}` segment,
+        // so it has one form and a selector on it names nothing.
+        let flat = grackle_db::Key::new("flat.md");
+        db.page_ix.push(flat.clone());
+        db.rows.push(crate::db::Row {
+            key: flat.clone(),
+            path: PathBuf::from("flat.md"),
+            rel: PathBuf::from("flat.md"),
+            url: "/flat/".into(),
+            rendered: true,
+            locale: "en".into(),
+            logical: "flat".into(),
+            ..Default::default()
+        });
+        db.routes.push(Route {
+            row: Some(flat),
+            source: Some(PathBuf::from("flat.md")),
+            ..Route::new("/flat/".to_string(), RouteKind::Page)
+        });
+
+        // §4 on demand: the axis IS spent, but nothing has materialized a
+        // route yet — the row knows its canonical URL and nothing else.
+        let later = grackle_db::Key::new("later.md");
+        db.page_ix.push(later.clone());
+        db.rows.push(crate::db::Row {
+            key: later,
+            path: PathBuf::from("later.md"),
+            rel: PathBuf::from("later.md"),
+            url: "/later/".into(),
+            rendered: true,
+            on_demand: true,
+            locale: "en".into(),
+            logical: "later".into(),
+            axis: vec![grackle_model::RowAxis {
+                name: "look".into(),
+                template: "/{axis:look}/later/".into(),
+            }],
+            ..Default::default()
+        });
+        db
+    }
+
+    /// The two failures the lookup keeps apart. Whether the row's RULE spends
+    /// the axis is the row's own property; whether a member MATERIALIZED is a
+    /// different question, and the old single message blamed the rule for both.
+    #[test]
+    fn the_two_axis_link_failures_say_different_things() {
+        let cfg = cfg_with("axis:look");
+        let db = axis_db();
+        let space = LinkSpace::new(&cfg, &db, Path::new("."));
+        let err = |href: &str| {
+            format!(
+                "{:#}",
+                resolve(&cfg, &space, Path::new(""), "/", "en", "index.md", href).unwrap_err()
+            )
+        };
+
+        let e = err("flat.md?look=fancy");
+        assert!(e.contains("does not spend a {look} segment"), "{e}");
+        let e = err("later.md?look=fancy");
+        assert!(e.contains("is not materialized"), "{e}");
+        assert!(!e.contains("does not spend"), "{e}");
+
+        // …but the CANONICAL member of an on-demand row has an honest answer:
+        // the row's own URL is `select_path` with every coord at canonical,
+        // which is exactly what a reference will materialize.
+        let got = resolve(
+            &cfg,
+            &space,
+            Path::new(""),
+            "/",
+            "en",
+            "index.md",
+            "later.md?look=plain",
+        )
+        .unwrap();
+        assert_eq!(got.as_deref(), Some("/later/"));
+    }
+
+    /// C5(c): the member's address is LOOKED UP in the routes the build issued,
+    /// not rebuilt. Rebuilding it from the row's template would answer
+    /// `/{axis:look}/note/` for one member and `/plain/note/` for the other —
+    /// neither of which exists — and then blame the rule for not spending a
+    /// segment it spends.
+    #[test]
+    fn a_row_link_takes_the_members_url_from_the_route_it_landed_at() {
+        let cfg = cfg_with("axis:look");
+        let db = axis_db();
+        let space = LinkSpace::new(&cfg, &db, Path::new("."));
+        let go = |href: &str| resolve(&cfg, &space, Path::new(""), "/", "en", "index.md", href);
+
+        assert_eq!(go("note.md?look=plain").unwrap().as_deref(), Some("/note/"));
+        assert_eq!(
+            go("note.md?look=fancy").unwrap().as_deref(),
+            Some("/fancy/note/")
+        );
+        // A self-pivot from the row itself resolves the same way.
+        let self_pivot = resolve(
+            &cfg,
+            &space,
+            Path::new(""),
+            "/note/",
+            "en",
+            "note.md",
+            ".?look=fancy",
+        )
+        .unwrap();
+        assert_eq!(self_pivot.as_deref(), Some("/fancy/note/"));
+    }
+
+    /// A link picks ONE member along ONE axis; every other axis the row spends
+    /// stays at its canonical (q53's composition). With two axes the row has
+    /// four routes and `?look=fancy` names exactly one of them — the index must
+    /// not answer with whichever of the two the route list happened to end on.
+    #[test]
+    fn a_one_axis_selector_leaves_the_other_axes_canonical() {
+        let cfg = Config::from_toml(
+            "root = \".\"\nextends = \"none\"\n\
+             [site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [axes.look]\nvalues = [\"plain\", \"fancy\"]\nfield = \"look\"\n\
+             [axes.flavor]\nvalues = [\"sweet\", \"salty\"]\nfield = \"flavor\"\n",
+        )
+        .unwrap();
+        let mut db = SiteDb::seed(Vec::new(), false);
+        let key = grackle_db::Key::new("page.md");
+        db.page_ix.push(key.clone());
+        db.rows.push(crate::db::Row {
+            key: key.clone(),
+            path: PathBuf::from("page.md"),
+            rel: PathBuf::from("page.md"),
+            url: "/plain/sweet/page/".into(),
+            rendered: true,
+            locale: "en".into(),
+            logical: "page".into(),
+            axis: ["look", "flavor"]
+                .into_iter()
+                .map(|n| grackle_model::RowAxis {
+                    name: n.into(),
+                    template: "/{look}/{flavor}/page/".into(),
+                })
+                .collect(),
+            ..Default::default()
+        });
+        for look in ["plain", "fancy"] {
+            for flavor in ["sweet", "salty"] {
+                db.routes.push(Route {
+                    row: Some(key.clone()),
+                    source: Some(PathBuf::from("page.md")),
+                    axis: vec![
+                        AxisMember {
+                            axis: "look".into(),
+                            value: look.into(),
+                            field: "look".into(),
+                            canonical: look == "plain",
+                        },
+                        AxisMember {
+                            axis: "flavor".into(),
+                            value: flavor.into(),
+                            field: "flavor".into(),
+                            canonical: flavor == "sweet",
+                        },
+                    ],
+                    ..Route::new(format!("/{look}/{flavor}/page/"), RouteKind::Page)
+                });
+            }
+        }
+        let space = LinkSpace::new(&cfg, &db, Path::new("."));
+        let go = |href: &str| {
+            resolve(&cfg, &space, Path::new(""), "/", "en", "index.md", href)
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(go("page.md?look=fancy"), "/fancy/sweet/page/");
+        assert_eq!(go("page.md?flavor=salty"), "/plain/salty/page/");
+    }
+
+    /// C5(d): an unknown query key stays literal — that is the design, since
+    /// only a declared name is a selector — and says so once, naming the file.
+    #[test]
+    fn a_misspelled_axis_ships_literally_and_warns() {
+        let cfg = cfg_with("axis:look");
+        let db = axis_db();
+        let space = LinkSpace::new(&cfg, &db, Path::new("."));
+        let go =
+            |href: &str| resolve(&cfg, &space, Path::new(""), "/", "en", "index.md", href).unwrap();
+
+        // The href is UNCHANGED in meaning: the suffix rides along verbatim.
+        assert_eq!(go("note.md?lok=fancy").as_deref(), Some("/note/?lok=fancy"));
+        assert_eq!(go("note.md?utm=x").as_deref(), Some("/note/?utm=x"));
+
+        let w = space.take_warnings();
+        assert_eq!(w.len(), 1, "{w:?}"); // `utm` says nothing
+        assert!(
+            w[0].starts_with("index.md: link \"note.md?lok=fancy\""),
+            "{}",
+            w[0]
+        );
+        assert!(w[0].contains("did you mean `?look=`"), "{}", w[0]);
+        // Drained, so `serve`'s next rebuild starts clean.
+        assert!(space.take_warnings().is_empty());
+    }
+
+    /// The shapes that warn and the ones that must not. A pure function, so the
+    /// sentence is testable without a site (`slots::unknown_stems`'s precedent).
+    #[test]
+    fn only_a_legible_axis_typo_warns() {
+        let cfg = Config::from_toml(
+            "root = \".\"\nextends = \"none\"\n\
+             [site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [axes.palette]\nvalues = [\"plain\"]\nfield = \"theme\"\n\
+             [axes.ab]\nvalues = [\"x\"]\nfield = \"ab\"\n",
+        )
+        .unwrap();
+        let say = |k: &str| misspelled_axis(&cfg, "p.md", "x.md?k=v", k);
+
+        // Case: the one spelling an author is looking at while it does nothing.
+        assert!(say("Palette").unwrap().contains("case counts"));
+        // Distance, at filter.rs's threshold of two.
+        assert!(say("palete").unwrap().contains("did you mean `?palette=`"));
+        // The FIELD an axis sets, in place of the axis.
+        assert!(say("theme").unwrap().contains("is the FIELD"));
+        // A declared name is a selector and was handled by the caller.
+        assert_eq!(say("palette"), None);
+        // An ordinary query string keeps meaning what it always meant.
+        assert_eq!(say("utm"), None);
+        assert_eq!(say("page"), None);
+        // Short keys do not match by accident: `id` is two edits from the `ab`
+        // axis, which is the whole of both words — a distance that says nothing.
+        assert_eq!(say("id"), None);
+        // One edit out of two still says something.
+        assert!(say("ib").unwrap().contains("did you mean `?ab=`"));
+    }
+
+    /// `locale` is an axis only where i18n is on; elsewhere it is an ordinary
+    /// query key and suggesting it would be a lie.
+    #[test]
+    fn locale_is_only_suggested_where_it_is_declared() {
+        let head = "root = \".\"\nextends = \"none\"\n\
+                    [site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n";
+        let mono = Config::from_toml(head).unwrap();
+        assert_eq!(misspelled_axis(&mono, "p.md", "x?locle=fr", "locle"), None);
+
+        let multi = Config::from_toml(&format!("{head}[i18n]\nlocales = [\"fr\"]\n")).unwrap();
+        assert!(misspelled_axis(&multi, "p.md", "x?locle=fr", "locle")
+            .unwrap()
+            .contains("did you mean `?locale=`"));
     }
 }

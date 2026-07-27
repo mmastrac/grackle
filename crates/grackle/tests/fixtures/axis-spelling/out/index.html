@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-kind="shell">
+<head>
+	<title>Home</title>
+	<meta charset="utf-8">
+	<link href='/css/main.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<header data-frame>
+	<a href="/" data-slot="site_title">Axis spelling</a>
+	
+	
+</header>
+<main data-frame data-slot="main"><article data-kind="document" data-tree>
+	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+<span data-kind="crumb"><a data-slot="label">Home</a></span>
+</nav>
+	<header>
+		<h1 data-slot="title">Home</h1>
+		
+	</header>
+	
+	
+	
+	<div data-slot="content"><p>Row links, naming a member of a path list:</p>
+<ul>
+<li><a href="/note/">the canonical note</a></li>
+<li><a href="/fancy/note/">the fancy note</a></li>
+</ul>
+<p>View links, the same spelling:</p>
+<ul>
+<li><a href="/all/">all, canonical</a></li>
+<li><a href="/fancy/all/">all, fancy</a></li>
+</ul>
+<p>Only a declared axis name is a selector, so these stay literal:</p>
+<ul>
+<li><a href="/note/?utm=x">an ordinary query</a></li>
+<li><a href="/note/?lok=fancy">a misspelled axis</a></li>
+</ul>
+</div>
+	
+</article>
+</main>
+<footer data-frame>
+	
+</footer>
+</body>
+</html>
