@@ -19,7 +19,14 @@ hand.** Everything else here is consequences.
 matter — a literal block, or a sidecar file — and identity is a fact, not a
 sorting hat: a file with identity is a governed row (schema-validated
 fields, a place in the link graph); a file without is a row whose content is
-its bytes. There is one walk. There is no tree machinery, no objects table,
+its bytes. **One softening (Matt, 2026-07-27): an identity-less file that
+rules send through a rendering shell becomes a *degenerate row* — a
+warning, never an error — with a title implied from its slug** (the
+engine-fallback rung: any rule default or front matter beats it). It
+renders, it lists, it has a name everywhere a title is read; the warning
+nudges toward a block without breaking a build. An identity-less file
+routed `raw` is just an ordinary byte row — no warning, that's the normal
+case. There is one walk. There is no tree machinery, no objects table,
 no posts table — collections survive only as **named scopes**: a source
 subtree plus its rules, extractors, schema and relations. "Posts" means "the
 scope whose rules carry a date extractor."
@@ -125,10 +132,12 @@ Rules of the axis:
   passthrough, and object bytes are all this one shell.
 - **`light_html` is the html shell with no theme root merged** — not a
   tier, not a null theme; one clause.
-- **Identity is an input contract**: `html`/`light_html` require it (a head
-  is computed from identity — the old law, now a typed check); `raw` does
-  not care; fold shells sit on views only. A row wearing `shell = atom` is
-  a load error naming what atom eats.
+- **Identity is an input contract — softened to degeneracy** (Matt,
+  2026-07-27): `html`/`light_html` *want* identity; an identity-less file
+  they receive becomes a degenerate row (§1 — warn, slug-implied title)
+  rather than an error. `raw` does not care; fold shells sit on views
+  only. A row wearing `shell = atom` is still a load error naming what
+  atom eats — arity is a hard contract, identity a soft one.
 - **Defaults are declared, not built in**: the base config's rules carry
   `defaults = { shell = "html" }` on the front-mattered-page rule and
   `shell = "raw"` on the catch-all. The engine ships no shell opinion;
@@ -386,7 +395,14 @@ marked points; findings append to §11 and may file R-items.
 - [ ] **I7. The front-matter gate becomes the fact; tree and objects
   dissolve into rules over one walk.** Extension selection becomes rules;
   collections become named scopes; the membership-precedence machinery
-  retires in favor of first-rule-wins. **Split on arrival** — the
+  retires in favor of first-rule-wins. **Degenerate rows land here**
+  (Matt's ruling, 2026-07-27, answering I1's flag): an identity-less file
+  under a rendering shell renders as a degenerate row — warn, title
+  implied from its slug at the engine-fallback rung (de-hyphenation
+  details propose-and-flag). The live case is the blockless caret draft
+  in `_drafts/` — today it renders with NO title, so gaining the implied
+  one is a **declared parity exception** (that row's pages change bytes;
+  everything else holds). **Split on arrival** — the
   executing agent proposes the split as sub-items before starting, and
   the orchestrator sequences them. Parity throughout.
 
