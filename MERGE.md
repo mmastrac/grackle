@@ -235,7 +235,7 @@ to build Phase B on. Two follow-up items:
   must reach the same verdict" is currently false at this boundary).
   Mutation-check; parity otherwise. *[parity]*
 
-- [ ] **A6. `.slots/` same-stem fills are unordered peers — error.** *(Batch
+- [x] **A6. `.slots/` same-stem fills are unordered peers — error.** *(Batch
   review 1, finding 2.)* `slots.rs::load_dir` (~184): `.slots/nav.md` and
   `.slots/nav.html` in one `.slots/` directory both insert under stem `nav`,
   and unsorted `read_dir` order decides which fills the slot, silently —
@@ -658,6 +658,59 @@ No site in the repo has an `include` that points inside an excluded directory
 *Parity:* grack.com and all four examples byte-identical except the feeds'
 wall-clock `<updated>`; zero re-blessing; the only fixture change is the new
 first-level file and the comment pointing at it.
+
+**2026-07-26 — A6.** Landed. `load_dir` asks the map before it inserts;
+`conflict()` is the third sorted two-element message in the family, differing
+from A4's and A5's only in what each writer *says* — here the pipeline its
+extension picks, not a type or a value.
+
+*The cross-extension decision: A5's exemption does not transplant, and it
+cannot.* A5 let two markers agree because the walk's arbitrariness was then
+unobservable. Here there is nothing to observe *with*: two files sharing a stem
+in one directory can differ only by extension (the filesystem forbids the
+same name twice), and extension is the pipeline — `.md` through comrak,
+`.html` verbatim with links resolved (§5e, and `Fill::render`'s two arms).
+Byte-identical files are still two different fills, so the error fires
+regardless of content and there is no equality check to write. The
+same-stem/same-extension case the item asked about is not merely legal, it is
+**unreachable**; the guard's comment says so, so a later reader does not go
+looking for the missing `!=`.
+
+*One behaviour-neutral reorder, worth naming.* The unknown-extension `bail!`
+now runs **before** the file is read. Beyond not reading a file it will reject,
+this makes the two errors independent: a `.slots/nav.txt` beside `.slots/nav.md`
+is always the extension error, never a collision that depends on which of the
+two `read_dir` reached first.
+
+*Test shape.* The message is asserted by unit tests in `slots.rs` (temp-dir
+trees, the `build.rs` css-pass precedent) rather than by the fixture, because
+`conflict()` prints absolute paths and `expected-error` matches one contiguous
+substring — no substring can span both filenames. So the fixture asserts the
+site-level fact ("this site does not build") and the unit tests assert the
+sentence, including that sorting removes walk order from it (`conflict(md,
+html) == conflict(html, md)`, asserted directly — `read_dir`'s order is not
+ours to permute). Both controls are unit tests too: `nav.md` beside
+`nav.fr.md`, and the same stem two levels apart resolving nearest-first.
+
+*Corpus:* three `.slots/` directories in the repo — the site root
+(`copyright.md`, `nav.md`), field-notes (those two plus `.fr` twins) and
+theme-preview (`copyright.md`). No stem repeats in any of them, and
+field-notes is the live proof that the locale convention is the common shape.
+
+*Why this fixture needs none of R1/R2's pruning:* the `.slots/` walk carries
+its own hard-coded `SKIP` list, and `grackle` is on it — so grack.com's build
+never descends into the workspace at all, and the fixture's deliberate
+collision cannot leak into it the way `excluded-schema` could. That skip list
+is one of the two private "not content" definitions DESIGN.md still complains
+about (R1's §6 note names `slots.rs` and `serve.rs`); adopting `NotContent`
+here would *cost* this isolation unless the site's `exclude` is consulted, so
+whoever picks that up should read this line first.
+
+*Parity:* grack.com and all four examples byte-identical but for the feeds'
+wall-clock `<updated>`; zero re-blessing; one new fixture
+(`slot-same-stem-conflict`). Mutation-checked in both directions — with the
+`bail!` deleted the fixture builds and its footer carries
+`© 1998 the markdown pipeline`, chosen by nothing but `read_dir`.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
