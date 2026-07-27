@@ -1,6 +1,7 @@
 # MERGE.md — one precedence law, one atomicity law
 
-**Status: DONE — all twenty work items landed; only §7's questions remain.**
+**Status: Phase E in flight (profiles as projection — from the wrap-up
+conversation); phases A–D DONE.**
 The final review (2026-07-27, §6) verified the whole effort end to end: no
 surviving hand dispatch beyond the two annotations, every table row matches
 shipped behavior, five randomly-chosen guards still fail under mutation, the
@@ -49,6 +50,7 @@ referenced throughout.
 
 | rung | source | examples |
 |---|---|---|
+| **0** | the selected profile's veto | `[profiles.*.force]` — fields only, row and route environments (Phase E) |
 | **1** | the row itself | front matter |
 | **2** | directory ancestry, deepest first | markers, `.schema.toml`, `.slots/`, `.style.scss`, buckets |
 | **3** | the collection | rules (in file order), `[collections.*.schema]`, relations |
@@ -141,7 +143,7 @@ name — see §7.)*
 | `unanimous_theme`, group-hero | inference ranking: derived never outranks declared |
 | `theme.scss` presence declining skins | a gate — presence flips a bit |
 | rule `front_matter = true` | a gate on rule eligibility |
-| profile application | a projection: shadows named entries (registry law) after the spine resolves, then **re-validates** |
+| profile application | a projection: a fenced config OVERLAY merged over the effective config by the same two laws (bags per-key, definitions whole), then re-validated; plus a `force` block of field vetoes at rung 0. Never changes what loads — §4a's iron law, checked by the fence. *(Redesigned in Phase E, from the wrap-up conversation.)* |
 | `fields` flowing through `from` composition | Law 1 in query space, at materialization |
 
 ## 4. Process (how this ledger is executed)
@@ -437,7 +439,70 @@ proceed to Phase D and the final review. One new item:
   rename assert — set `renamed` when the default line itself contains
   `rename` (batch review 3, finding 7).
 
-*→ Final review after D2.*
+*→ Final review after D2.* ✓ done — ledger declared DONE; §7 remained.
+
+### Phase E — profiles as projection *(from the wrap-up conversation, 2026-07-27)*
+
+Matt's design, settled in conversation: a profile is a **config overlay plus a
+veto block**. `[profiles.NAME.<path>]` is a partial config merged over the
+effective config by the same two laws — `[site]` is a bag so it patches
+per-key; a `[sets.*]` entry is a definition so it replaces whole; no
+annotations, the shape decides. `[profiles.NAME.force]` is rung 0: schema-
+declared fields forced above front matter, on row AND route environments.
+The fence is §4a's iron law made checkable: a profile may touch output and
+selection (`site`, `html`, `sets`, `routes`, `i18n`, `records`, `widgets`,
+`shells`, `axes`) and never what loads (`collections`, `schema`, `markers`,
+`root`, `gitignore`, `extends`, `parts`, `links`, `profiles`) — the
+projectable set is declared in the shape description beside the two
+annotations. This dissolves the closed profile vocabulary (`url` becomes
+`[profiles.x.site] url`), the robots clobber and C6(d)'s warning (force
+writes the FIELD; the site's own `robots` expression evaluates), and most of
+q11's preamble caveat (`--effective --profile` gains a `# profile NAME`
+provenance class). Closes §7 q7.
+
+- [ ] **E1. The `force` block.** `[profiles.NAME.force]` — a map of
+  schema-declared field names to typed values, validated like a marker
+  payload (C1's machinery) for every declared profile (R5's pass extends).
+  When the profile is applied, forced fields win over front matter, markers
+  and rules (rung 0) and are written into every route's fields, so listing
+  surfaces see them too — the sitemap-leak protection; a force that missed
+  routes would leak `/blog/` into indexes under drafts. Delete the
+  `html.head.meta` robots clobber and C6(d)'s site-robots warning (`Config::
+  site_robots` and the override note) — the base/site expression now
+  evaluates the forced field. `Site.noindex` survives as the profile's
+  record of itself (`data-profile` styling). Migrate grack.com:
+  `[profiles.drafts] noindex = true` → `[profiles.drafts.force] noindex =
+  true`; the old top-level `noindex` key becomes an error naming the new
+  spelling. Parity gate: grack.com default AND `--profile drafts`
+  byte-identical — the robots tags must come out identical through the
+  expression path, on posts and listings both. Mutation-check the rung
+  (force loses to nothing; deleting the route-fields half must fail a
+  listing-surface test). *[parity]*
+
+- [ ] **E2. The overlay.** `[profiles.NAME]` becomes a fenced config
+  overlay: at load, for every declared profile, fence-check its top-level
+  keys (projectable set above; `force` reserved to E1; `profiles`
+  non-recursive; violations error citing §4a's iron law). Application:
+  the selected profile's table (minus `force`) merges over the merged
+  config at the `toml::Value` level through the existing `merge_table` +
+  `Config::shape()` (the profile is the nearer writer), then re-deserializes
+  (`deny_unknown_fields` = free path validation) and re-validates (C6(b)'s
+  pass). R5's check becomes: dry-run merge + deserialize + validate for
+  EVERY declared profile at every load. Retires `ProfileCfg`'s special
+  `url`/`sets`/`routes` fields and C6(c)'s placement checks — both subsumed
+  by general validation of the projection (a where-only set entry now fails
+  as "a set with no `from`", which is the right error). Old spellings error
+  naming the new form. Migrate grack.com's drafts profile: `url` →
+  `[profiles.drafts.site] url`; the `sets.published` where-patch → a full
+  restatement (from, where, order_by, the `fields.summary` deriver) —
+  the `--profile drafts` parity gate proves the restatement faithful.
+  `--effective --profile NAME` prints the projected config with a
+  `# profile NAME` provenance class and drops the "applied after this
+  merge" caveat. Mutation-check the fence, the whole-shadow (a restated
+  set missing `order_by` must change output — that's the atom law
+  observable), and the dry-run. *[parity]*
+
+*→ Batch review 4 after E2.*
 
 ## 6. Review log
 
@@ -2274,7 +2339,11 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    and a tree collection's `source` (decorative — merge identity only, the
    walk ignores it; C7/D2 documented it, renaming it is this pass's call).
    Every rename touches documented surface; decide before 1.0.
-7. **Profile `noindex` vs site `robots`** — C6(d) made the call: the profile
+7. **RESOLVED (Phase E, 2026-07-27)** — Matt's design: `[profiles.*.force]`
+   forces the *field* at rung 0 instead of clobbering the meta, so the
+   site's own `robots` expression evaluates and the override/warning
+   machinery dissolves. E1 implements. Original question kept below for
+   the record: — C6(d) made the call: the profile
    still OVERRIDES (DESIGN.md §4e promises it, and overriding the base's
    expression is the key's purpose), and warns when the expression it
    replaces was the SITE's own. The error shape was declined because a
