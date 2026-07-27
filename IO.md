@@ -409,7 +409,7 @@ message is the exemplar; don't stretch it). One follow-up item:
   test or fixture asserts on the line first. MERGE.md §4 rules bind;
   test any guard added.
 
-- [ ] **IR3. Fix explain's doubled `layout` line** *(Matt, absorbing the
+- [x] **IR3. Fix explain's doubled `layout` line** *(Matt, absorbing the
   IR2 agent's chip — runs after I4)*. `grackle explain <url>` prints the
   `layout` line twice for every row that has one. Cause: the
   `Query::Explain` row branch prints `layout` as a named line
@@ -1222,3 +1222,69 @@ shadows parent's head `<style>`" is a decision nobody has made; the doc now says
 the two halves shadow independently, which is the reading `split_root`'s
 per-theme placement gives for free, and I5's multi-theme scoping paragraph is
 where it wants restating.
+
+**2026-07-27 — IR3.** Landed as one commit. The item named `layout` and asked
+me to check `theme`; the answer is that **all four cascade keys had the same
+defect in two different spellings**, and fixing one name at a time would have
+left the surface saying nothing about half of them.
+
+*What the check found, against the item's guess.* `theme` is not "printed by
+neither path" — it is printed by the DUMP, and only there: `explain
+/recipes/red-lentil-dal/` said `theme recipes:spicy` at HEAD. That is exactly
+`shell`'s pre-IR2 shape, so IR2's argument applies unchanged (the dump prints a
+field only where a value landed, so its silence cannot be told from "no such
+key"). `toc` is the same shape and one degree worse: `Row.toc` is a `bool`, not
+an `Option`, so "never set" and "set false" are one row-level answer, and the
+dump collapsed both into no line at all. Two of the four were doubled
+(`layout`, and `shell` until IR2); the other two were silent. One family, two
+symptoms, one cause — C1 declaring the four in the base `[schema]` made each of
+them a named field on `Row` *and* a declared column in `Row.fields`.
+
+*So the skip is keyed on the family, not on a name.* `schema::CASCADE` becomes
+`pub` and `debug::row_fields` reads it, rather than growing a fourth
+`if name == "…"`. The list is the reason the defect exists; a printer that
+restates it by hand is one edit away from re-growing it when a fifth key lands.
+
+    title       Anatomy of a Failed…      title       Red lentil dal
+    layout      post                      layout      page
+    theme       -                         theme       recipes:spicy
+    toc         false                     toc         false
+    tags        security                  course      dinner
+
+*The formatter moved for a testable reason, not a tidy one.* A test cannot see
+a doubled line unless the named line and the dump are in one string, so the
+whole block below `title` is now `debug::row_fields` beside IR2's `row_facts`.
+`shell` stays up in `row_facts` — it is there because it is one of the three
+facts that replaced `kind`, and moving it would churn IR2's block and its test
+to no end — but the skip covers all four, which the mutation run shows: delete
+it and the post grows `layout`, `shell`, `theme` and `toc` a second time.
+
+*Guard.* `io_explain.rs` gains a second test over the same fixture, extended so
+the post resolves all three named keys plus one declared field that is NOT a
+cascade key (`minutes`) — that field is what pins the skip as "skip these four
+names" rather than "skip the dump". The `.txt` resolves none of them and is the
+half the dump could never answer. Three mutations, each red and each restored:
+the `CASCADE` skip deleted (doubled lines), the `theme`/`toc` named lines
+deleted (the `.txt` loses them entirely), the unresolved sentinel changed. The
+fixture also gained a per-test directory: two tests sharing one temp tree that
+each `remove_dir_all` at both ends is a race, and they run in parallel.
+
+*The grep was re-run and still finds nothing.* No test, fixture, script or doc
+reproduces `explain`'s lines — DESIGN.md §0 invokes the command and never shows
+its output, and DESIGN.md §4e's "the inspector and `explain` printing three
+named bools → deleted" is about `draft`/`hidden`/`noindex`, which stay deleted;
+the same table's next row already names the four cascade keys as "what the
+engine still READS by name", which is what now gets four lines. Nothing in
+DESIGN.md became false, so nothing needed amending.
+
+*Parity.* All six trees (five sites + grack.com `--profile drafts`) built from a
+`git worktree` of HEAD with its own release binary and from this one, against
+the same content — byte-identical but for two feeds' wall-clock `<updated>`,
+stderr identical for all six, counts 8 / 8 / 83 / 242 / 1828 / 1829, unmoved
+since IR1. `cargo test` green (14 binaries); `cargo fmt --check` clean under the
+pin; clippy 49 warnings, HEAD's number; zero re-blessing.
+
+*Nothing found in passing.* The row branch of `Query::Explain` now prints every
+`Row` field it has a use for except `description` and `order`, both `Option`s
+that no site in the repo sets; whether they deserve lines is a question about
+what `explain` is for rather than a defect, and I did not answer it.
