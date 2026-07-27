@@ -313,7 +313,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   registry before rendering, with the file named. Same for the marker/rule
   rung (may partly fall out of C1).
 
-- [ ] **C3. Promised checks that don't exist.** (a) "Dead rule (matches zero
+- [x] **C3. Promised checks that don't exist.** (a) "Dead rule (matches zero
   rows) → warning" — DESIGN.md §4 line ~249 promises it; no code provides
   it. (b) `trail` is never validated: a typo'd `trail = "montly_archive"`
   silently produces no trail (config.rs:1774 `chain` stops on unknown,
@@ -1292,6 +1292,129 @@ only rows that NAME a theme reach a `BTreeMap` lookup — which on grack.com is
 zero of them (its only themed rows live under `grackle/`, which it excludes;
 field-notes' two `recipes:spicy` recipes are the corpus's front-matter rung).
 Deduping the lookup would cost more lines than it saves.
+
+**2026-07-27 — C3.** Landed. Both halves are one commit: they are one
+sentence about the same disease (a config reference nothing answers, and
+nobody told), and (b) is thirty lines in `validate()`.
+
+*(a) The scope decision, which is the whole of this half.* The warning fires
+for a rule the **site declared**, in a collection that **produced rows**. The
+first half needs provenance, and the ledger's hint was right — `View::
+inherited`'s trick transplants exactly, and cheaper: the site's rules PREPEND
+(§1's annotation), so a COUNT per collection, read off the site's own TOML
+before the merge, says whose every rule is. `Rule::inherited` is that count
+applied. B3's `Trace` was the wrong tool — it is `off()` on the load path by
+design (`the_load_path_records_nothing`), and turning it on to answer this
+would have made the load pay for a `--effective` feature.
+
+*Why the base is exempt, stated as evidence rather than as taste:*
+`examples/minimal` — a site with an empty `grackle.toml`, which is what that
+example measures — has no `index.md` and no `_posts/`. The base's
+`**/index.{html,md}` and its `match = "**"` over `_posts` therefore match
+nothing there, on a site whose author wrote no rules at all. The alternative
+the item offered ("any rule in a collection that has at least one row") warns
+on the first of those, which is how I know it is the wrong line: minimal's
+tree HAS rows (`about.md`). A warning the author cannot act on, on every
+base-inheriting site, forever.
+
+*Why an empty collection is silent too.* The same argument one rung up: a
+rule is dead relative to a CORPUS, and an absent `_posts/` (or a site with no
+images) is a statement about the source, not about any one glob. Without this
+`examples/raw` reported three object rules for one absent class of file.
+**The cost, stated:** a site that typos a collection's `source` gets no
+dead-rule warning at all — every rule under it is silenced together. That is
+a collection-identity question (C7's neighbourhood), not a glob question, and
+reporting it here would say the wrong thing three times.
+
+*Eligibility, not glob match.* A rule is marked governing when the walk gets
+past BOTH gates — the glob and `front_matter` — so `front_matter = true` in a
+tree of static files is dead however well its glob reads. And a rule shadowed
+for the ROUTE is live: `apply_rules` walks every eligible rule for its
+defaults and only the first with a route wins, so reporting a shadowed rule
+would be reporting the engine's own precedence as a fault
+(`a_rule_shadowed_for_the_route_is_not_dead`).
+
+*Where the answer lives.* `SiteDb::warnings` (`#[serde(skip)]`, so `export`'s
+JSON is unmoved), printed by `load` as `grackle: …` on stderr — `build.rs`'s
+and `base.rs`'s convention, which is the only warning convention this
+codebase has. Keeping the list is what makes the tests possible at all: the
+subject is a corpus answering a glob, and nothing smaller than a tree can be
+that, so the four tests write real sites under the temp dir (`slots.rs`'s
+precedent) and read `db.warnings` back.
+
+*Three live dead rules, reported and not fixed (they are the item's "live
+find", and each is a judgment call that is not an agent's):*
+
+1. **grack.com, `posts`: `match = "hidden/**"`** with `defaults = { hidden =
+   true }`. There is no `_posts/hidden/`. Deleting it is a policy change (it
+   is the declaration of what that directory would MEAN), so it stands.
+2. **grack.com, `entries`: `match = "**/*.{scss,sass}"`, `front_matter =
+   true`**, routed to `/{dir}/{stem}.css`. A faithful transcription of the
+   Jekyll config, and dead on arrival here: every `.scss` in the repo is
+   under `themes/` or `grackle/`, both in the tree collection's `exclude`.
+   The comment above it still names `css/main.scss`, which does not exist —
+   `css/` holds only `fonts/`. Candidate for D1's vestigial sweep.
+3. **`examples/raw`, `entries`: `**/index.{html,md}`.** raw is the base
+   printed out under `extends = "none"` and has only `about.md`, so this is
+   the SAME rule that is dead-but-inherited in `examples/minimal` — the two
+   examples are the same site, and the asymmetry between them is exactly the
+   ownership line this item drew. Left alone: deleting it would break raw's
+   fidelity to `base.toml`, which is the example's entire purpose.
+
+*(b) What `trail` is validated against.* `tags`'s three checks do not
+transplant verbatim, because the trail machinery walks a CHAIN: `post_trail`
+renders every grouped view along the `over` chain from the row's own group
+keys, so the named view need not itself be grouped (a listing composed over a
+year archive is a legal trail), and requiring it would forbid a working
+shape. The checks are therefore: the name is a declared view; its
+`grouped_chain` is non-empty; and every level of that chain lands at a single
+`path` and carries a `crumb` or a `title`. The last two are the same
+sentence as the first, one rung in — `post_trail` SKIPS a level missing
+either, so the trail comes out with a hole in the middle rather than not at
+all, which is the harder failure to notice.
+
+*One deliberate non-check:* `trail` on a non-posts collection is inert
+(`post_trail` filters on `Kind::Posts`) and is not an error here. That is
+C4's silent-name shape, not a bad reference, and no site does it.
+
+*The globality is unchanged and still true:* `post_trail` takes the first
+posts collection declaring a trail and applies it to every post row, so
+`_drafts` rows wear `_posts`'s trail. DESIGN.md line ~2281 already records it
+("`post_trail` is still single-posts-table"), and the `crumb-trails` fixture
+PINS it — its `/notes/…` rows get the year crumb their own collection never
+asked for. Not touched, per the item.
+
+*Corpus:* nothing else tripped. grack.com's `monthly_archive` over
+`yearly_archive` is the live subject and passes every arm; `crumb-trails` is
+the fixture control and is unmoved.
+
+*Mutation-checked five ways, each restored:* the tree `dead_rules` call
+deleted (the site-declared test reports nothing); `governed.set(true)`
+deleted (every rule reports dead, including the live ones — three tests);
+`!inherited` dropped (the base's rules start reporting on a site with no
+rules of its own); the `found == 0` gate dropped (three warnings for one
+absent collection); and the `trail` block deleted, which builds
+`trail-unknown-view` silently — the rendered post carries `Home > Blog > 16
+December 2022`, with the `2022 > December` chain simply absent. That build
+is the item's description of the bug, reproduced as a test run.
+
+*Parity:* all five sites built before and after into separate trees and
+diffed — every file byte-identical except grack.com's feed wall-clock
+`<updated>`. Zero fixture re-blessing; one new fixture
+(`trail-unknown-view`); no fixture emits a dead-rule warning. DESIGN.md §4's
+dead-rule bullet gained the scope it now has, since this commit is what made
+the promise true. `build_tree_and_objects` already tripped clippy's
+`too_many_arguments` at 8 before this item and is now at 9; no new warning
+site. Formatted by hand (§4).
+
+*For the queue (small).* (i) `SiteDb::warnings` is a list of STRINGS. If a
+second warning class lands (D1's `bucket` warning is already planned), a
+typed shape — or at least a `(where, what)` pair — would be worth more than
+four more format calls. (ii) `dead_rules` says nothing about a rule that
+matched rows but never WON a route and set no defaults, which is a rule doing
+nothing by a different route; distinguishing the two needs the cascade to
+record which rule won, and the message would have to explain a subtlety the
+author probably did not intend. Left as one warning with one meaning.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
