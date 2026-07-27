@@ -207,7 +207,7 @@ name with conflicting types are a collision error**, not alphabetical order.
   conflicting-type redeclaration at the same rung a load error naming both
   files and both types; same-type redeclaration stays legal. Mutation-check.
 
-- [ ] **A5. Marker determinism.** Two different marker files in one directory
+- [x] **A5. Marker determinism.** Two different marker files in one directory
   setting the same key resolve by walk order (markers.rs:54-57
   `slot.insert`). Same-directory conflict on a key = load error naming both
   marker files; different keys stay legal. (Nearest-wins across *levels* is
@@ -503,6 +503,45 @@ and all four examples build. Zero fixture re-blessing; one new fixture
 (`schema-same-rung-conflict`), mutation-checked both ways (deleting the check
 in `add` makes it build silently; deleting the loop in `add_collection` fails
 the unit test).
+
+**2026-07-26 — A5.** Landed. The per-file fold moves out of `scan` into
+`Markers::fold`, which carries scan-lifetime provenance (directory → key →
+marker filename) and bails on a same-directory disagreement, naming both files
+sorted and the key. A4's `conflict()` shape is reused verbatim in spirit — a
+two-element sort — because the marker walk is as unsorted as the declaration
+walk it shares (`walker_declarations`, R1).
+
+*Same key, same value in one directory is legal — the decision.* A4's line was
+"the error is the unrankable disagreement, not the second writer", and that
+reading transplants exactly. Nondeterminism is the disease; two markers writing
+the same value leave the directory with the same defaults whichever the walk
+saw last, so there is nothing to rank and nothing to observe. Erroring anyway
+would be a rule about *tidiness* (don't say a thing twice), not about merge
+order, and it would fire on a real and harmless shape: a config where `.archive
+= { noindex = true, hidden = true }` and `.noindex = { noindex = true }` both
+exist, and someone drops both files in one directory. The value equality check
+that buys this is one `!=` on `toml::Value` — the cost the item flagged is
+nil, and paying it keeps the two same-rung guards saying the same sentence.
+It is mutation-checked in the other direction too: forcing the error regardless
+of value fails `two_markers_agreeing_on_a_key_is_legal`.
+
+*Scope, stated for the reviewer:* the guard is per directory only. Two markers
+at **different** levels claiming one key never reach it — rung 2 carries an
+internal order, `defaults_for`'s walk is that order, and
+`the_same_key_at_two_levels_is_still_nearest_wins` pins it. Identical to A4's
+ancestor/descendant carve-out, minus the residual: markers have no `declared()`
+equivalent flattening the tree into a global vocabulary, so there is no second
+consumer to disagree with `defaults_for`.
+
+*Corpus:* nothing tripped, and nothing could have — **there is not a single
+marker file anywhere in the repo**, tracked or untracked. All five sites
+declare `[markers]` (`.draft`/`.hidden`/`.noindex`, disjoint keys in every
+config), and zero directories carry one. `markers.found` is 0 for grack.com and
+all four examples; the whole feature is configured and unexercised by content
+today. Worth knowing before D1's vestigial-key sweep, and worth knowing when
+reading `db.stats.markers_ms`. All five sites build; zero fixture re-blessing;
+one new fixture (`marker-same-dir-conflict`), which is also the only place in
+the repo where a marker file exists at all.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
