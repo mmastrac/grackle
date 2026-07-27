@@ -1,5 +1,5 @@
 use crate::markers::MarkerDef;
-use crate::shape::{field, Shape, Shaped};
+use crate::shape::{annotated, field, Law, Shape, Shaped};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -180,84 +180,24 @@ fn default_extends() -> String {
 /// cannot forget the binary.
 const BASE: &str = include_str!("../assets/base.toml");
 
-/// How one key of a config table merges over the base's: atomicity stated per
-/// key, because the merge runs on raw TOML and cannot read it off the types.
-///
-/// Stated per key *here*, that is. The same laws are DERIVED from the types
-/// below (`derived_laws`, and `shape.rs` for the law itself); B2 ports the
-/// merge onto the derivation and deletes this table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Law {
-    /// One authored value, taken whole from the nearer writer — scalars,
-    /// arrays, and the tables nothing descends. Half-inheriting a list is
-    /// never what was meant.
-    Atom,
-    /// Merge per key down `n` levels of tables; below that the site's value
-    /// replaces the base's whole.
-    ///
-    /// Depth 1 is a bag (`[site]`: the key is the unit, child wins — the same
-    /// rule as front matter over rule defaults) and equally a registry
-    /// (`[sets.*]`: the named definition is the unit; you never diff into one,
-    /// the same rule as a theme fragment shadowing the base's file of that
-    /// name). Which of the two a table is describes its contents, not its
-    /// merge: one law, read at different depths.
-    Descend(usize),
-    /// The annotation: `[[collections]]` pair by SOURCE, then merge key by key
-    /// under [`COLLECTION_LAWS`]. Source is the key rather than `name` because
-    /// source is the physical thing and `name` is a label — a site renaming
-    /// its posts collection to `notes` is still talking about `_posts/`, and
-    /// must not end up reading it twice.
-    Collections,
-    /// The site's list goes FIRST, which is all "specific rules before the
-    /// catch-all" ever meant. §4's "first writer wins, per key" then resolves
-    /// them with no extra machinery: a site's rule is nearer, so it writes the
-    /// route, and the base's `**` catch-all fills whatever is left.
-    Prepend,
-}
+// ------------------------------------------------------- the merge surface
+//
+// What follows is the description the merge dispatches on. `shape.rs` holds
+// Law 2 and the vocabulary of laws; this holds the shape of THIS config, and
+// `merge_table` reads each key's law off it — there is no law table, and a
+// depth is nowhere written down. The two functions below are the compiler's
+// half of that: they never run, and a field added to `Config` or `Collection`
+// stops the build in one of them until the description names it.
 
-/// Every key of the site config surface and the law it merges by.
+/// The compiler's half of the merge surface. The merge runs on `toml::Value`,
+/// before there is a [`Config`] to descend, so nothing else holds the
+/// description to the struct: this pattern does. A new field stops the build
+/// here until [`Config::shape`] names it, rather than falling through to
+/// wholesale replace — which is how `[axes]` came to be merged by a law
+/// nobody chose.
 ///
-/// `merge_base` dispatches through this table alone, so a key that is not
-/// here does not quietly acquire a law — and `every_config_key_has_a_law`
-/// below makes the compiler say so.
-const CONFIG_LAWS: &[(&str, Law)] = &[
-    // Scalars and arrays: atoms.
-    ("parts", Law::Atom),
-    ("extends", Law::Atom),
-    ("root", Law::Atom),
-    ("gitignore", Law::Atom),
-    // The annotation.
-    ("collections", Law::Collections),
-    // Bags: each key is the unit. `[links]` has exactly one key today
-    // (`policy`), which is the only reason merging it whole was invisible.
-    ("site", Law::Descend(1)),
-    ("links", Law::Descend(1)),
-    // Registries: the named definition is the unit.
-    ("sets", Law::Descend(1)),
-    ("routes", Law::Descend(1)),
-    // An axis is a definition, so the whole `[axes.<name>]` table is the atom:
-    // redeclaring `theme` replaces the base's entire, and declaring `locale`
-    // leaves the base's `theme` standing. Nothing descends into an axis —
-    // `values` and `field` are one thought, and half of one is not an axis.
-    ("axes", Law::Descend(1)),
-    ("markers", Law::Descend(1)),
-    ("widgets", Law::Descend(1)),
-    ("shells", Law::Descend(1)),
-    ("profiles", Law::Descend(1)),
-    ("schema", Law::Descend(1)),
-    // `[records.<field>.<id>]` and `[i18n.strings.<key>]` put the unit one
-    // level further down.
-    ("records", Law::Descend(2)),
-    ("i18n", Law::Descend(2)),
-    // `[html.head.meta.<name>]` puts the unit two levels down.
-    ("html", Law::Descend(3)),
-];
-
-/// The compiler's half of [`CONFIG_LAWS`]. The merge runs on `toml::Value`,
-/// before there is a [`Config`] to descend, so nothing else holds the table to
-/// the struct: this pattern does. A new field stops the build here until the
-/// table judges it, rather than falling through to wholesale replace — which
-/// is how `[axes]` came to be merged by a law nobody chose.
+/// It pins the FIELDS; `the_shape_covers_the_config_surface` pins their TOML
+/// SPELLINGS, which is what the merge dispatches on.
 #[allow(dead_code)]
 fn every_config_key_has_a_law(c: Config) {
     let Config {
@@ -289,29 +229,7 @@ fn every_config_key_has_a_law(c: Config) {
     } = c;
 }
 
-/// Every key of one `[[collections]]` entry and the law it merges by. Same
-/// shape as [`CONFIG_LAWS`], one level down.
-const COLLECTION_LAWS: &[(&str, Law)] = &[
-    // Identity, globs and scalars: atoms. `extensions` replaces wholesale by
-    // law rather than by omission — an array has no keys to merge by.
-    ("kind", Law::Atom),
-    ("name", Law::Atom),
-    ("source", Law::Atom),
-    ("extensions", Law::Atom),
-    ("bucket", Law::Atom),
-    ("filename_formats", Law::Atom),
-    ("exclude", Law::Atom),
-    ("include", Law::Atom),
-    ("trail", Law::Atom),
-    ("tags", Law::Atom),
-    // The one place order carries meaning.
-    ("rules", Law::Prepend),
-    // Registries: the named relation, the named field declaration.
-    ("relations", Law::Descend(1)),
-    ("schema", Law::Descend(1)),
-];
-
-/// The compiler's half of [`COLLECTION_LAWS`]; see
+/// The compiler's half of one `[[collections]]` entry; see
 /// `every_config_key_has_a_law`.
 #[allow(dead_code)]
 fn every_collection_key_has_a_law(c: Collection) {
@@ -332,55 +250,10 @@ fn every_collection_key_has_a_law(c: Collection) {
     } = c;
 }
 
-// ------------------------------------------------- the same laws, derived
-//
-// Everything above assigns a law by hand. Everything below reads one off the
-// config's TYPE STRUCTURE — Law 2 is a statement about the types (MERGE.md
-// §1), so the depth a table merges to is a fact about `Config`, not a
-// decision to be remembered. `shape.rs` holds the law; this holds the shape
-// of this config; `the_derived_laws_agree_with_the_hand_tables` holds the two
-// halves to each other, key by key, with `[markers]` documented as the one
-// disagreement.
-//
-// The merge still dispatches through the tables above. B2 turns that around
-// and deletes them; until then this is a claim under test, and costs nothing
-// at runtime.
-
-/// §1's one exception, which lands in two places. Both keys are arrays —
-/// atoms by structure — so nothing derives them: a `[[collections]]` entry is
-/// paired by `source` because identity is physical, and `rules` interleave by
-/// nearness, which is Law 1 expressed in list order.
-#[allow(dead_code)] // Read by the agreement test; B2 makes the merge read it.
-const CONFIG_ANNOTATIONS: &[(&str, Law)] = &[("collections", Law::Collections)];
-
-/// [`CONFIG_ANNOTATIONS`], one level down.
-#[allow(dead_code)]
-const COLLECTION_ANNOTATIONS: &[(&str, Law)] = &[("rules", Law::Prepend)];
-
-/// Law 2 for every key of `shape`: descend to where the first atom sits, or
-/// take the value whole when that is the value itself. `annotations` names
-/// the keys the law does not reach.
-#[allow(dead_code)] // Read by the agreement test; B2 makes the merge read it.
-fn derived_laws(shape: &Shape, annotations: &[(&str, Law)]) -> Vec<(&'static str, Law)> {
-    shape
-        .fields()
-        .iter()
-        .map(|(name, value)| {
-            let law = match annotations.iter().find(|(k, _)| k == name) {
-                Some((_, annotated)) => *annotated,
-                None => match value.depth() {
-                    0 => Law::Atom,
-                    n => Law::Descend(n),
-                },
-            };
-            (*name, law)
-        })
-        .collect()
-}
-
-/// The site config's shape. Read it beside [`CONFIG_LAWS`]: every depth in
-/// that table is a fact about a type here, and the fields are in declaration
-/// order so the two lists can be diffed against `Config` itself.
+/// The site config's shape — the merge surface itself, since `merge_base`
+/// reads every key's law off this list (`law_of`). Every depth in §3 table A
+/// is a fact about a type named here; the fields are in declaration order so
+/// the list can be diffed against `Config` above.
 impl Shaped for Config {
     fn shape() -> Shape {
         Shape::Struct(vec![
@@ -391,7 +264,17 @@ impl Shaped for Config {
             field("site", |c: &Config| &c.site),
             // The one serde rename on the surface. The merge keys on TOML
             // names, so this list is in TOML's name space, not Rust's.
-            field("collections", |c: &Config| &c.declared_collections),
+            //
+            // And §1's annotation, half of it: identity is physical, so two
+            // configs writing `_posts` are writing one collection however
+            // each of them names it. Structurally this is a `Vec` — an atom,
+            // like `[[parts]]` two lines up — and nothing but the annotation
+            // tells the two apart.
+            annotated(
+                "collections",
+                |c: &Config| &c.declared_collections,
+                Law::Collections,
+            ),
             field("sets", |c: &Config| &c.sets),
             field("routes", |c: &Config| &c.routes),
             field("axes", |c: &Config| &c.axes),
@@ -421,7 +304,10 @@ impl Shaped for Collection {
             field("filename_formats", |c: &Collection| &c.filename_formats),
             field("exclude", |c: &Collection| &c.exclude),
             field("include", |c: &Collection| &c.include),
-            field("rules", |c: &Collection| &c.rules),
+            // The other half of §1's annotation: the site's rules go FIRST,
+            // which is Law 1 expressed in list order — nearer writer, earlier
+            // in the file, first to claim a key.
+            annotated("rules", |c: &Collection| &c.rules, Law::Prepend),
             field("trail", |c: &Collection| &c.trail),
             field("tags", |c: &Collection| &c.tags),
             field("relations", |c: &Collection| &c.relations),
@@ -511,12 +397,18 @@ definitions![
     MarkerDef,
 ];
 
-/// The law for `key`. A key no field claims is a typo on its way to
-/// `deny_unknown_fields`; until it gets there it merges as it always has.
-fn law_of(laws: &[(&str, Law)], key: &str) -> Law {
-    laws.iter()
+/// The law for `key`, read off the shape of the field that owns it — Law 2
+/// applied to a type (`Shape::law`), or §1's annotation where the field
+/// carries one. Nothing is assigned here; retype a field and its law follows.
+///
+/// A key no field claims is a typo on its way to `deny_unknown_fields`; until
+/// it gets there it merges as it always has, whole.
+fn law_of(shape: &Shape, key: &str) -> Law {
+    shape
+        .fields()
+        .iter()
         .find(|(k, _)| *k == key)
-        .map_or(Law::Atom, |(_, law)| *law)
+        .map_or(Law::Atom, |(_, s)| s.law())
 }
 
 /// One key's merge, its law now known. A key the base never wrote is the
@@ -543,25 +435,30 @@ fn prepend(base: toml::Value, site: toml::Value) -> toml::Value {
 
 /// Merge the base config underneath a site's own (§4d). Every rule this
 /// applies already existed somewhere in the system, which is the evidence that
-/// config inheritance needed no new law; [`CONFIG_LAWS`] is the whole of it.
+/// config inheritance needed no new law; [`Config::shape`] is the whole of it.
 fn merge_base(site: toml::Value) -> Result<toml::Value> {
     let base: toml::Value =
         toml::from_str(BASE).context("parsing the built-in base config (this is an engine bug)")?;
-    Ok(merge_table(base, site, CONFIG_LAWS))
+    Ok(merge_table(base, site, &Config::shape()))
 }
 
 /// One table merged over another, each key by its law. The shared body of the
 /// two merges — the config's and one collection's — so that a law means the
 /// same thing at either level, and a test can drive the dispatch with a base
 /// of its own rather than restating the loop.
-fn merge_table(base: toml::Value, site: toml::Value, laws: &[(&str, Law)]) -> toml::Value {
+///
+/// `shape` is the type structure of the struct this table deserializes into,
+/// and it is the ONLY thing consulted: a key's law is a fact about its
+/// field's type (MERGE.md B2), so there is no table here to keep in step with
+/// `Config` and no depth for anyone to assign.
+fn merge_table(base: toml::Value, site: toml::Value, shape: &Shape) -> toml::Value {
     let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
         return site;
     };
     let mut out = bt.clone();
     for (k, sv) in st.clone() {
         let merged = match out.remove(&k) {
-            Some(bv) => merge_by(law_of(laws, &k), bv, sv),
+            Some(bv) => merge_by(law_of(shape, &k), bv, sv),
             None => sv,
         };
         out.insert(k, merged);
@@ -620,7 +517,7 @@ fn merge_collection_list(base: toml::Value, site: toml::Value) -> toml::Value {
 }
 
 fn merge_collection(base: toml::Value, site: toml::Value) -> toml::Value {
-    merge_table(base, site, COLLECTION_LAWS)
+    merge_table(base, site, &Collection::shape())
 }
 
 /// `index.{md,html}` -> `["index.md", "index.html"]`. One group, which is all
@@ -2626,7 +2523,7 @@ mod tests {
     fn merged(base: &str, site: &str) -> toml::Table {
         let b = toml::from_str(base).expect("test base should parse");
         let s = toml::from_str(site).expect("test site should parse");
-        match merge_table(b, s, CONFIG_LAWS) {
+        match merge_table(b, s, &Config::shape()) {
             toml::Value::Table(t) => t,
             v => panic!("merging two tables should give a table: {v:?}"),
         }
@@ -2878,33 +2775,16 @@ mod tests {
         keys
     }
 
-    fn law_keys(laws: &[(&str, Law)]) -> Vec<String> {
-        let mut keys: Vec<String> = laws.iter().map(|(k, _)| k.to_string()).collect();
-        keys.sort();
-        keys
-    }
-
-    /// The other half of the completeness check. `every_config_key_has_a_law`
-    /// pins the FIELDS at compile time; this pins their TOML SPELLINGS, which
-    /// is what the merge dispatches on — a renamed or skipped field would
-    /// otherwise merge by a law that names nothing, silently, and the key it
-    /// governs would fall back to wholesale replace.
-    #[test]
-    fn the_law_tables_cover_the_config_surface() {
-        assert_eq!(
-            law_keys(CONFIG_LAWS),
-            serde_keys::<Config>(),
-            "CONFIG_LAWS and the [Config] fields serde accepts have drifted"
-        );
-        assert_eq!(
-            law_keys(COLLECTION_LAWS),
-            serde_keys::<Collection>(),
-            "COLLECTION_LAWS and the [Collection] fields serde accepts have drifted"
-        );
-    }
-
-    /// And the same check for the shape, struct by struct. The description is
-    /// in TOML's name space, so `collections` (renamed from
+    /// The other half of the completeness check, struct by struct.
+    /// `every_config_key_has_a_law` pins the FIELDS at compile time; this pins
+    /// their TOML SPELLINGS, which is what the merge dispatches on — a renamed
+    /// or skipped field would otherwise leave a key no shape claims, silently,
+    /// and `law_of` would hand it back whole.
+    ///
+    /// (A2 wrote this against the law table; B2 points it at the description,
+    /// which is now the only place a key can be named.)
+    ///
+    /// The description is in TOML's name space, so `collections` (renamed from
     /// `declared_collections`) must appear and `noindex`, `dir`, `views` —
     /// `#[serde(skip)]` every one — must not. Only the structs the merge
     /// DESCENDS are listed: a definition's fields are nobody's business
@@ -2931,88 +2811,36 @@ mod tests {
         }
     }
 
-    /// Where the structure and the hand table disagree, with the DERIVED law
-    /// and nothing hidden. **Empty, and that is the point**: B1 found one
-    /// (`[markers]`, a map of maps, which the structure read as `Descend(2)`
-    /// against table A's `Descend(1)`), §7 q10 answered it — the payload is a
-    /// definition — and `MarkerDef` made the types say so. What is left is
-    /// the tripwire: a key added with a law the structure does not imply has
-    /// to be written down here, in front of a reviewer, rather than passing
-    /// as a table entry nobody reads.
-    const KNOWN_EXCEPTIONS: &[(&str, Law)] = &[];
-
-    /// Table A's depth column, executable. `CONFIG_LAWS` assigns a law per
-    /// key by hand; `derived_laws` reads one off each field's TYPE. That they
-    /// agree, key for key, is the whole of B1 — it makes every depth in the
-    /// table a fact about `Config` rather than a decision someone has to
-    /// remember, and it is what lets B2 delete the tables.
+    /// §1's annotation is the one thing here that is not derived, and there
+    /// are exactly two of it. B1 shipped a `KNOWN_EXCEPTIONS` list beside the
+    /// hand tables — one entry, `[markers]`, which §7 q10 settled and
+    /// `MarkerDef` retired — and this is what replaces it now that the tables
+    /// are gone: with the law read off the shape, the only way to write a law
+    /// by hand is `annotated(…)`, so counting those IS counting the
+    /// exceptions.
     ///
-    /// Mutation-check: flip any law above (`widgets` to `Law::Atom`, `html`
-    /// to `Descend(2)`) and this fails naming the key.
+    /// A third one means someone decided a key does not merge the way its
+    /// type says. That deserves a §6 entry and probably a §7 question, not a
+    /// quiet line in a field list — and this fails until it gets one.
     #[test]
-    fn the_derived_laws_agree_with_the_hand_tables() {
-        for (what, derived, hand) in [
-            (
-                "CONFIG_LAWS",
-                derived_laws(&Config::shape(), CONFIG_ANNOTATIONS),
-                CONFIG_LAWS,
-            ),
-            (
-                "COLLECTION_LAWS",
-                derived_laws(&Collection::shape(), COLLECTION_ANNOTATIONS),
-                COLLECTION_LAWS,
-            ),
-        ] {
-            let mut derived = derived;
-            derived.sort_by_key(|(k, _)| *k);
-            let mut expected: Vec<(&str, Law)> = hand
+    fn only_the_annotated_keys_have_a_hand_written_law() {
+        let hand_written = |shape: &Shape| -> Vec<(String, Law)> {
+            shape
+                .fields()
                 .iter()
-                .map(|(k, law)| {
-                    let exception = KNOWN_EXCEPTIONS.iter().find(|(e, _)| e == k);
-                    (*k, exception.map_or(*law, |(_, derived)| *derived))
-                })
-                .collect();
-            expected.sort_by_key(|(k, _)| *k);
-            assert_eq!(
-                derived, expected,
-                "{what}: the hand-assigned laws and the ones the types imply \
-                 have drifted (exceptions: {KNOWN_EXCEPTIONS:?})"
-            );
-        }
-    }
-
-    /// There are none, and adding one is a deliberate act. B1's single
-    /// exception was `[markers]`; §7 q10 settled it as a definition and
-    /// [`MarkerDef`] is where that answer lives, so the structure and table A
-    /// now agree on every key of the surface. See [`KNOWN_EXCEPTIONS`].
-    ///
-    /// Mutation-check: unwrap `MarkerDef` back to a bare
-    /// `BTreeMap<String, toml::Value>` and `markers` derives `Descend(2)`
-    /// again — `the_derived_laws_agree_with_the_hand_tables` fails naming the
-    /// key, and this test fails with it unless the exception is restored.
-    #[test]
-    fn the_structure_and_the_tables_have_no_exceptions_left() {
-        assert!(
-            KNOWN_EXCEPTIONS.is_empty(),
-            "a law the structure does not imply needs a §6 entry and a §7 \
-             question, not just a list entry: {KNOWN_EXCEPTIONS:?}"
+                .filter(|(_, s)| matches!(s, Shape::Annotated(..)))
+                .map(|(k, s)| (k.to_string(), s.law()))
+                .collect()
+        };
+        assert_eq!(
+            hand_written(&Config::shape()),
+            [("collections".to_string(), Law::Collections)],
+            "a config key merges by a hand-written law"
         );
         assert_eq!(
-            law_of(CONFIG_LAWS, "markers"),
-            Law::Descend(1),
-            "table A: `[markers]` descends the filename, the payload is the atom"
-        );
-        let config = Config::shape();
-        let markers = config
-            .fields()
-            .iter()
-            .find_map(|(k, shape)| (*k == "markers").then_some(shape))
-            .expect("the shape describes markers");
-        assert_eq!(
-            markers.depth(),
-            1,
-            "a marker's meaning is one definition under its filename, not a \
-             bag of defaults two files can compose"
+            hand_written(&Collection::shape()),
+            [("rules".to_string(), Law::Prepend)],
+            "a collection key merges by a hand-written law"
         );
     }
 
@@ -3021,13 +2849,10 @@ mod tests {
     /// is where that stops being a claim.
     #[test]
     fn table_as_depths_fall_out_of_the_types() {
-        let law = |key: &str| {
-            derived_laws(&Config::shape(), CONFIG_ANNOTATIONS)
-                .into_iter()
-                .find(|(k, _)| *k == key)
-                .unwrap_or_else(|| panic!("no derived law for {key}"))
-                .1
-        };
+        // `law_of` is the merge's own lookup, not a test-side restatement:
+        // this reads the laws that ship.
+        let law = |key: &str| law_of(&Config::shape(), key);
+        let collection_law = |key: &str| law_of(&Collection::shape(), key);
         // `[site]`: a struct under an engine-chosen name, all scalars.
         assert_eq!(law("site"), Law::Descend(1));
         // `[axes.*]`: a map whose value is a definition — `Axis` is a struct
@@ -3048,6 +2873,11 @@ mod tests {
         assert_eq!(law("i18n"), Law::Descend(2));
         // `[html.head.meta.<name>]`: struct → struct → map → the expression.
         assert_eq!(law("html"), Law::Descend(3));
+        // `[markers.<filename>]`: a map whose value is a `MarkerDef` — a
+        // definition under the marker's own filename, so what a marker MEANS
+        // is taken whole (§7 q10). Unwrap that newtype back to a bare table
+        // and this is the assertion that fails.
+        assert_eq!(law("markers"), Law::Descend(1));
         // Arrays and scalars are atoms whatever they hold.
         assert_eq!(law("parts"), Law::Atom);
         assert_eq!(law("extends"), Law::Atom);
@@ -3055,18 +2885,9 @@ mod tests {
         // is an array like `[[parts]]`, and nothing but §1's exception tells
         // the two apart.
         assert_eq!(law("collections"), Law::Collections);
-        let rules = derived_laws(&Collection::shape(), COLLECTION_ANNOTATIONS)
-            .into_iter()
-            .find(|(k, _)| *k == "rules")
-            .expect("a collection has rules")
-            .1;
-        assert_eq!(rules, Law::Prepend);
+        assert_eq!(collection_law("rules"), Law::Prepend);
         assert_eq!(
-            derived_laws(&Collection::shape(), COLLECTION_ANNOTATIONS)
-                .into_iter()
-                .find(|(k, _)| *k == "relations")
-                .expect("a collection has relations")
-                .1,
+            collection_law("relations"),
             Law::Descend(1),
             "a named relation is a definition"
         );
@@ -3077,6 +2898,10 @@ mod tests {
     fn each_struct(shape: &Shape, engine_named: bool, seen: &mut Vec<(Vec<(&str, usize)>, bool)>) {
         match shape {
             Shape::Atom => {}
+            // The annotation overrides the law, not the description: walk
+            // what it wraps, so an annotated field is held to the same
+            // invariants as any other.
+            Shape::Annotated(_, inner) => each_struct(inner, engine_named, seen),
             Shape::Struct(fields) => {
                 seen.push((
                     fields.iter().map(|(k, s)| (*k, s.depth())).collect(),
