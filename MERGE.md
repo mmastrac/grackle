@@ -2391,11 +2391,13 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     invisible when neither base nor site writes the table. An omission, not
     a lie — does `--effective` grow struct-level defaults, or is that a
     future `config --projected`'s job along with profiles?
-12. **Pin the toolchain?** *(Batch review 2, finding 3.)* rustfmt 1.9.0
-    wants to reformat 13 files the merge work never touched. A
-    `rust-toolchain.toml` pin would stop format drift across agents and
-    humans, but changes your own build — your call. (§4 now carries the
-    interim "no repo-wide cargo fmt" rule.)
+12. **RESOLVED (2026-07-27): pinned.** `rust-toolchain.toml` at the repo
+    root pins `1.96.0` (the active toolchain — no build change today).
+    Remaining half: the one-commit repo-wide fmt resync that makes
+    `cargo fmt` clean under the pin — deferred until Phase E lands so it
+    doesn't collide with the in-flight agent's files; then §4's
+    "no repo-wide cargo fmt" rule can be retired for a "fmt must be clean"
+    rule instead.
 13. **Subtheme tokens are unvalidated, and closing it is data-model.**
     *(C2 / batch review 3.)* `theme: ledger:drak` stamps
     `data-subtheme="drak"` silently — tokens name nothing the engine knows.
