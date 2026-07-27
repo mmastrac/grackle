@@ -174,29 +174,186 @@ fn default_extends() -> String {
 /// cannot forget the binary.
 const BASE: &str = include_str!("../assets/base.toml");
 
-/// Merge the base config underneath a site's own.
+/// How one key of a config table merges over the base's: atomicity stated per
+/// key, because the merge runs on raw TOML and cannot read it off the types.
+#[derive(Clone, Copy)]
+enum Law {
+    /// One authored value, taken whole from the nearer writer — scalars,
+    /// arrays, and the tables nothing descends. Half-inheriting a list is
+    /// never what was meant.
+    Atom,
+    /// Merge per key down `n` levels of tables; below that the site's value
+    /// replaces the base's whole.
+    ///
+    /// Depth 1 is a bag (`[site]`: the key is the unit, child wins — the same
+    /// rule as front matter over rule defaults) and equally a registry
+    /// (`[sets.*]`: the named definition is the unit; you never diff into one,
+    /// the same rule as a theme fragment shadowing the base's file of that
+    /// name). Which of the two a table is describes its contents, not its
+    /// merge: one law, read at different depths.
+    Descend(usize),
+    /// The annotation: `[[collections]]` pair by SOURCE, then merge key by key
+    /// under [`COLLECTION_LAWS`]. Source is the key rather than `name` because
+    /// source is the physical thing and `name` is a label — a site renaming
+    /// its posts collection to `notes` is still talking about `_posts/`, and
+    /// must not end up reading it twice.
+    Collections,
+    /// The site's list goes FIRST, which is all "specific rules before the
+    /// catch-all" ever meant. §4's "first writer wins, per key" then resolves
+    /// them with no extra machinery: a site's rule is nearer, so it writes the
+    /// route, and the base's `**` catch-all fills whatever is left.
+    Prepend,
+}
+
+/// Every key of the site config surface and the law it merges by.
 ///
-/// Three shapes, three rules — and every one of them already existed, which is
-/// the evidence that config inheritance needed no new law:
-///
-/// * **`[[collections]]` merge by SOURCE**, and the site's rules **prepend**
-///   to the inherited ones. §4's "first writer wins, per key" then resolves
-///   them with no extra machinery: a site's rule is nearer, so it writes the
-///   route, and the base's `**` catch-all fills whatever is left. Source is
-///   the key rather than `name` because source is the physical thing and
-///   `name` is a label — a site renaming its posts collection to `notes` is
-///   still talking about `_posts/`, and must not end up reading it twice.
-/// * **Registries of definitions shadow by name** — `[sets.*]`, `[routes.*]`,
-///   `[markers]`, `[widgets]`, `[shells]`, `[profiles]`, `[records.*.*]`,
-///   `[i18n.strings.*]`. Your table replaces the base's of that name entire;
-///   you never diff into one. Same rule as a theme fragment shadowing the
-///   base's file of the same name, and it means you never have to know what
-///   the base put in a table to predict what overriding it does.
-/// * **Everything else merges per key, child wins** — `[site]`, `[i18n]`,
-///   scalars. Same rule as front matter over rule defaults.
-///
-/// Arrays other than `collections`/`rules` replace wholesale: a list is one
-/// authored value, and half-inheriting one is never what was meant.
+/// `merge_base` dispatches through this table alone, so a key that is not
+/// here does not quietly acquire a law — and `every_config_key_has_a_law`
+/// below makes the compiler say so.
+const CONFIG_LAWS: &[(&str, Law)] = &[
+    // Scalars and arrays: atoms.
+    ("parts", Law::Atom),
+    ("extends", Law::Atom),
+    ("root", Law::Atom),
+    ("gitignore", Law::Atom),
+    // The annotation.
+    ("collections", Law::Collections),
+    // The bag: each scalar is the unit.
+    ("site", Law::Descend(1)),
+    // Registries: the named definition is the unit.
+    ("sets", Law::Descend(1)),
+    ("routes", Law::Descend(1)),
+    ("markers", Law::Descend(1)),
+    ("widgets", Law::Descend(1)),
+    ("shells", Law::Descend(1)),
+    ("profiles", Law::Descend(1)),
+    ("schema", Law::Descend(1)),
+    // `[records.<field>.<id>]` and `[i18n.strings.<key>]` put the unit one
+    // level further down.
+    ("records", Law::Descend(2)),
+    ("i18n", Law::Descend(2)),
+    // `[html.head.meta.<name>]` puts the unit two levels down.
+    ("html", Law::Descend(3)),
+    // Wholesale today, and wrong on both counts: an axis is a definition and
+    // belongs with the registries, a link policy is a bag key. Left as-is so
+    // this table is a restatement of current behaviour and nothing more;
+    // MERGE.md's A3 moves them.
+    ("axes", Law::Atom),
+    ("links", Law::Atom),
+];
+
+/// The compiler's half of [`CONFIG_LAWS`]. The merge runs on `toml::Value`,
+/// before there is a [`Config`] to descend, so nothing else holds the table to
+/// the struct: this pattern does. A new field stops the build here until the
+/// table judges it, rather than falling through to wholesale replace — which
+/// is how `[axes]` came to be merged by a law nobody chose.
+#[allow(dead_code)]
+fn every_config_key_has_a_law(c: Config) {
+    let Config {
+        parts: _,
+        extends: _,
+        root: _,
+        gitignore: _,
+        site: _,
+        declared_collections: _,
+        sets: _,
+        routes: _,
+        axes: _,
+        markers: _,
+        html: _,
+        schema: _,
+        widgets: _,
+        shells: _,
+        i18n: _,
+        records: _,
+        profiles: _,
+        links: _,
+        // Not config surface: `#[serde(skip)]`, derived at load from the keys
+        // above, so no TOML key of a site's ever reaches them.
+        collections: _,
+        views: _,
+        profile: _,
+        dir: _,
+        config_file: _,
+    } = c;
+}
+
+/// Every key of one `[[collections]]` entry and the law it merges by. Same
+/// shape as [`CONFIG_LAWS`], one level down.
+const COLLECTION_LAWS: &[(&str, Law)] = &[
+    // Identity, globs and scalars: atoms. `extensions` replaces wholesale by
+    // law rather than by omission — an array has no keys to merge by.
+    ("kind", Law::Atom),
+    ("name", Law::Atom),
+    ("source", Law::Atom),
+    ("extensions", Law::Atom),
+    ("bucket", Law::Atom),
+    ("filename_formats", Law::Atom),
+    ("exclude", Law::Atom),
+    ("include", Law::Atom),
+    ("trail", Law::Atom),
+    ("tags", Law::Atom),
+    // The one place order carries meaning.
+    ("rules", Law::Prepend),
+    // Registries: the named relation, the named field declaration.
+    ("relations", Law::Descend(1)),
+    ("schema", Law::Descend(1)),
+];
+
+/// The compiler's half of [`COLLECTION_LAWS`]; see
+/// `every_config_key_has_a_law`.
+#[allow(dead_code)]
+fn every_collection_key_has_a_law(c: Collection) {
+    let Collection {
+        kind: _,
+        name: _,
+        source: _,
+        extensions: _,
+        bucket: _,
+        filename_formats: _,
+        exclude: _,
+        include: _,
+        rules: _,
+        trail: _,
+        tags: _,
+        relations: _,
+        schema: _,
+    } = c;
+}
+
+/// The law for `key`. A key no field claims is a typo on its way to
+/// `deny_unknown_fields`; until it gets there it merges as it always has.
+fn law_of(laws: &[(&str, Law)], key: &str) -> Law {
+    laws.iter()
+        .find(|(k, _)| *k == key)
+        .map_or(Law::Atom, |(_, law)| *law)
+}
+
+/// One key's merge, its law now known. A key the base never wrote is the
+/// site's whole under every law, so `base` is always a value both sides hold.
+fn merge_by(law: Law, base: toml::Value, site: toml::Value) -> toml::Value {
+    match law {
+        Law::Atom => site,
+        Law::Descend(n) => merge_to_depth(base, site, n),
+        Law::Collections => merge_collection_list(base, site),
+        Law::Prepend => prepend(base, site),
+    }
+}
+
+/// The site's array in front of the base's. Either side not an array leaves
+/// the site's value whole — there is nothing to interleave.
+fn prepend(base: toml::Value, site: toml::Value) -> toml::Value {
+    let (Some(b), Some(s)) = (base.as_array(), site.as_array()) else {
+        return site;
+    };
+    let mut out = s.clone();
+    out.extend(b.iter().cloned());
+    toml::Value::Array(out)
+}
+
+/// Merge the base config underneath a site's own (§4d). Every rule this
+/// applies already existed somewhere in the system, which is the evidence that
+/// config inheritance needed no new law; [`CONFIG_LAWS`] is the whole of it.
 fn merge_base(site: toml::Value) -> Result<toml::Value> {
     let base: toml::Value =
         toml::from_str(BASE).context("parsing the built-in base config (this is an engine bug)")?;
@@ -205,20 +362,9 @@ fn merge_base(site: toml::Value) -> Result<toml::Value> {
     };
     let mut out = bt.clone();
     for (k, sv) in st.clone() {
-        let merged = match (k.as_str(), out.remove(&k)) {
-            ("collections", Some(bv)) => merge_collection_list(bv, sv),
-            // Registries: one level deep, so the named entry is the unit.
-            (
-                "sets" | "routes" | "markers" | "widgets" | "shells" | "profiles" | "schema",
-                Some(bv),
-            ) => merge_to_depth(bv, sv, 1),
-            // `[records.<field>.<id>]` and `[i18n.strings.<key>]` put the unit
-            // one level further down.
-            ("records" | "i18n", Some(bv)) => merge_to_depth(bv, sv, 2),
-            // `[html.head.meta.<name>]` puts the unit two levels down.
-            ("html", Some(bv)) => merge_to_depth(bv, sv, 3),
-            ("site", Some(bv)) => merge_to_depth(bv, sv, 1),
-            (_, _) => sv,
+        let merged = match out.remove(&k) {
+            Some(bv) => merge_by(law_of(CONFIG_LAWS, &k), bv, sv),
+            None => sv,
         };
         out.insert(k, merged);
     }
@@ -281,19 +427,9 @@ fn merge_collection(base: toml::Value, site: toml::Value) -> toml::Value {
     };
     let mut out = bt.clone();
     for (k, sv) in st.clone() {
-        let merged = match (k.as_str(), out.remove(&k)) {
-            // The one place order carries meaning: the site's rules go FIRST,
-            // which is all "specific rules before the catch-all" ever meant.
-            ("rules", Some(bv)) => match (bv.as_array(), sv.as_array()) {
-                (Some(b), Some(s)) => {
-                    let mut r = s.clone();
-                    r.extend(b.iter().cloned());
-                    toml::Value::Array(r)
-                }
-                _ => sv,
-            },
-            ("relations" | "schema", Some(bv)) => merge_to_depth(bv, sv, 1),
-            (_, _) => sv,
+        let merged = match out.remove(&k) {
+            Some(bv) => merge_by(law_of(COLLECTION_LAWS, &k), bv, sv),
+            None => sv,
         };
         out.insert(k, merged);
     }
@@ -2414,6 +2550,57 @@ mod tests {
         let e =
             merge_err("[sets.x]\nfrom = \"blog\"\n[routes.x]\nfrom = \"blog\"\npath = \"/x/\"\n");
         assert!(e.contains("both a set and a route"), "{e}");
+    }
+
+    /// The field names serde accepts for `T`, read out of its own
+    /// `deny_unknown_fields` complaint — renames applied, skipped fields
+    /// absent. This is the list the merge actually keys on.
+    fn serde_keys<T: serde::de::DeserializeOwned>() -> Vec<String> {
+        let e = toml::from_str::<T>("no_such_key = 1")
+            .err()
+            .expect("deny_unknown_fields should reject an invented key")
+            .to_string();
+        let listed = e
+            .split_once("expected one of ")
+            .expect("the error names the fields it knows")
+            .1
+            .lines()
+            .next()
+            .expect("the list is on one line");
+        let mut keys: Vec<String> = listed
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect();
+        keys.sort();
+        assert!(!keys.is_empty(), "no fields parsed out of: {e}");
+        keys
+    }
+
+    fn law_keys(laws: &[(&str, Law)]) -> Vec<String> {
+        let mut keys: Vec<String> = laws.iter().map(|(k, _)| k.to_string()).collect();
+        keys.sort();
+        keys
+    }
+
+    /// The other half of the completeness check. `every_config_key_has_a_law`
+    /// pins the FIELDS at compile time; this pins their TOML SPELLINGS, which
+    /// is what the merge dispatches on — a renamed or skipped field would
+    /// otherwise merge by a law that names nothing, silently, and the key it
+    /// governs would fall back to wholesale replace.
+    #[test]
+    fn the_law_tables_cover_the_config_surface() {
+        assert_eq!(
+            law_keys(CONFIG_LAWS),
+            serde_keys::<Config>(),
+            "CONFIG_LAWS and the [Config] fields serde accepts have drifted"
+        );
+        assert_eq!(
+            law_keys(COLLECTION_LAWS),
+            serde_keys::<Collection>(),
+            "COLLECTION_LAWS and the [Collection] fields serde accepts have drifted"
+        );
     }
 
     /// Retired spellings must not be silently ignored: `deny_unknown_fields`
