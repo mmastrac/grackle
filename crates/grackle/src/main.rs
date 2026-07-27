@@ -483,7 +483,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         Query::Explain { url } => {
             if let Some(r) = db.by_url.get(&url).and_then(|k| db.rows.get(k)) {
                 println!("url         {}", r.url);
-                println!("kind        post");
+                print!("{}", debug::row_facts(r));
                 println!("source      {}", r.path.display());
                 println!("version     {:016x}", r.version);
                 println!("date        {}", fmt_date(r));
@@ -493,6 +493,11 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("title       {}", r.title.as_deref().unwrap_or("-"));
                 println!("layout      {}", r.layout.as_deref().unwrap_or("-"));
                 for (name, value) in &r.fields {
+                    // `shell` is printed above, off the row's own field, so the
+                    // dump would repeat it for every row that resolved one.
+                    if name == "shell" {
+                        continue;
+                    }
                     println!("{name:<11} {}", debug::value_text(value));
                 }
                 println!(

@@ -354,3 +354,28 @@ pub fn value_text(v: &crate::filter::Value) -> String {
         other => serde_json::to_string(other).unwrap_or_default(),
     }
 }
+
+/// What `grackle explain` says a row IS, in the vocabulary a `where` is
+/// written in (IO.md §3).
+///
+/// These three lines stand where `println!("kind        post")` used to — a
+/// literal, printed for every row the arm reached, so `explain /humans.txt`
+/// answered `kind post` (IO.md IR2). A row has no kind to print instead:
+/// `kind` is a column on the ROUTE, and §3 deletes it there too. What
+/// replaces it is the facts it was a flattened product of, each of them a
+/// column a filter can name — **scope membership** (which is what
+/// `kind == "post"` always actually meant), the **shell** the row leaves
+/// through, and **identity**.
+///
+/// `shell` is printed here rather than left to `explain`'s generic field
+/// dump because the dump prints a field only where the row resolved one:
+/// 842 of grack.com's 1396 rows resolve no shell, and a line that is simply
+/// absent is not an answer to "which shell".
+pub fn row_facts(r: &crate::db::Row) -> String {
+    format!(
+        "collection  {}\nshell       {}\nfront_mattered {}\n",
+        r.collection,
+        r.shell.as_deref().unwrap_or("-"),
+        r.front_mattered,
+    )
+}
