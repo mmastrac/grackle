@@ -560,10 +560,11 @@ spelling, migrate every local config/example/fixture in the same commit
 under the byte-parity gate. (E1/E2's existing fix-it errors stay as built;
 don't add new ones.)
 
-- [ ] **G1. One word for the candidate pool: `from`.** Views already spell
+- [x] **G1. One word for the candidate pool: `from`.** Views already spell
   `from` — the Rust field is named `over` with `#[serde(rename = "from")]`,
   which is the confession. (a) Relations: the `over` key becomes `from`;
-  old `over` errors naming the new spelling. Migrate the corpus: grack.com's
+  old `over` is a parse error (~~naming the new spelling~~ — the hard-cutoff
+  amendment above landed mid-item). Migrate the corpus: grack.com's
   `[collections.relations.related]`, field-notes' relations (incl.
   `same_course`), and the engine's four default relations (relate/config —
   wherever the defaults are built); DESIGN.md §6g's examples updated
@@ -571,7 +572,7 @@ don't add new ones.)
   the Rust field to `from`, drop the serde rename; internal type names
   (`Over`, `is_star`, …) may follow where the diff stays proportionate —
   judgment call, note it. Config surface for views is unchanged. Parity:
-  byte-identical everywhere; expected-error fixture for the old spelling;
+  byte-identical everywhere; a parse-error case for the old spelling;
   mutation-check. *[parity]*
 
 - [ ] **G2. `match` survives only in rules.** (a) Sets/routes: the `match`
@@ -2946,6 +2947,124 @@ record. (iii) C2's `check_theme_names` still walks `cfg.views` rather than the
 routed ones — after this item that loop can only meet a route's theme, so the
 generality is now free rather than misleading, but it is one more place that
 would notice if sets ever grew a theme of their own.
+
+**2026-07-27 — G1.** Landed as one commit. One word for the candidate pool,
+and the item's own headline is the evidence: a view's `from` was a Rust field
+named `over` wearing `#[serde(rename = "from")]`, so the two spellings were
+already one idea with a translation layer between them.
+
+*The migration pattern changed mid-item, and the note records both halves.*
+The brief asked for the house fix-it (E1/E2: an old spelling is a load error
+naming the new one), so the fix-it was built and measured first: a tombstone
+`retired_over` field plus a `check_relations` pass in `validate()`, with a
+test asserting the sentence. Matt then amended Phase G to a **hard cutoff** —
+no site ships grackle, so a retired spelling needs no teaching error — and it
+was ripped out before the commit. What ships is the key's absence.
+`deny_unknown_fields` answers `unknown field \`over\`, expected one of
+\`from\`, \`where\`, \`match\`, \`rank\`, \`min_rank\`, \`limit\`,
+\`label\``, **with the line and column of the offending key** — measured on
+a probe config, not assumed — and `from` is first in the list, which is as
+close to teaching as a knowns list gets. F1's `bucket` precedent is the one
+this follows.
+
+*The defaults were Rust all along, which the item asked to verify either
+way.* `relations.rs::default_relations` builds the four (`linked_from` for
+every kind; `earlier`/`later`/`related` for posts) as `RelationCfg` struct
+literals through a `rel(…)` closure — **no TOML to migrate**, only the
+closure's parameter name. So the corpus migration is exactly two lines in two
+files: grack.com's `[collections.relations.related] over = "published"` and
+field-notes' `same_course over = "recipes"`. **No fixture config declares a
+relation at all** — every `relations` hit under `tests/fixtures/` is in
+blessed OUTPUT (`data-slot="relations"`), which is the defaults rendering.
+So zero fixture configs moved, and the four defaults are exercised end to end
+by the suite regardless.
+
+*The `[profiles.*]` scan the item asked for, answered twice.* Structurally:
+`collections` is in E2's `NOT_PROJECTABLE`, so a profile can never write a
+collection and therefore never a relation — the fence refuses it before the
+overlay merges. Empirically: grack.com's `drafts` is the only `[profiles]`
+table in the non-fixture corpus and writes `force`, `sets.published` and
+`routes.search`; of the two fixture profiles, `profile-dry-run` writes
+`force` and a `sets` entry, and `profile-projects-collections` writes
+`[[profiles.drafts.collections]]` — whose whole assertion is that the fence
+refuses it. Nothing to migrate, and nothing could have been.
+
+*The internal-rename judgment calls, stated as the item asked.*
+
+| name | disposition |
+|---|---|
+| `View.over: From` → `View.from` | **renamed**, serde rename dropped. The item's (b) |
+| `Over` (the type) | **does not exist** — the enum has been `From` since it was written, which is why the field's name was the only lie left |
+| `is_star`, `single`, `names`, `display` | **kept.** `is_star` is about the VALUE `from = "*"`, not about the word `over`; the other three are `From`'s vocabulary and were never `over`-flavoured |
+| `check_base(… over: &From)` | **renamed** to `from` — a parameter that shadows nothing and reads as the key |
+| `` `over` names unknown view ``, `` `over` chain is cyclic `` | **renamed** to `from`. These are user-facing and named a key the config never spelled |
+| `` composes `over` it `` (C7b's `whose_from` note) | **de-backticked** to plain English "composes over it" — the preposition is right, the backticks made it a key. One test assertion moved with it |
+| doc comments: "the `over` chain", "the only thing `over` may name", "Views composed `over` this one", `resolve_pool`'s three | **renamed** to `from` throughout `config.rs` and `relations.rs` |
+| `unknown_over_is_an_error` (test) | **renamed** `unknown_from_is_an_error`. The only test name touched — `composing_over_a_materialized_view_is_an_error` and `grouped_over_grouped_is_subdivision` keep theirs, because those "over"s are English |
+| `debug::View.over` + `debug.js`'s column | **renamed** to `from` (below) |
+| `resolve_pool`'s `over` param and its error `over = {name}` | **renamed**. The error is the relations pool's own, and it quoted the dead key |
+
+*The inspector rename is an observable surface, and the reason it is safe is
+one line of `debug.rs`.* `/__debug/`'s assets are **serve-only — "a build
+never emits these"** (`debug::asset`), so the JSON field and `debug.js`'s
+column header sit outside every parity gate; nothing in `_site-*` changes.
+Taken rather than left because the inspector's views table labelled a column
+`over` for a key spelled `from`, which is the confession this item exists to
+delete, and the whole change is one struct field, one construction site and
+three `debug.js` references.
+
+*Test shape: a parse case, not a fixture, and not a unit test of its own.*
+The retired spelling joined `an_unknown_config_key_is_a_parse_error`'s list
+in `config.rs`, beside `[sets.s] over = "blog"` — the view side's retired
+spelling, asserted there since before the crate split. Same sentence, same
+test, one line. **Mutation-checked**: putting
+`#[serde(rename = "over")]` back on the renamed field makes that test the
+only red one in the suite, and its failure prints
+`RelationCfg { from: Some("published") }` — the config parsing, which is what
+a silent alias would have looked like. The controls are the existing
+relations suite in `relations.rs` — four of its eight tests wrote `over=`
+and now write `from=` (`a_reference_cycle_is_a_load_error`,
+`an_unknown_two_row_field_is_caught_at_load`, `a_non_numeric_rank_is_caught_
+at_load`, `a_declared_relation_overrides_its_default_by_name`); the other
+four never named the pool and are untouched. All eight green, and the
+fixture suite renders the defaults on every post it blesses.
+
+*Parity:* five sites plus grack.com under `--profile drafts` built before and
+after into separate trees with their own binaries (HEAD from a `git
+worktree`) and diffed — byte-identical but for each feed's wall-clock
+`<updated>` (six files, nothing else in any diff), identical file counts
+(1828 / 1829 / 242 / 83 / 8 / 8), no stderr difference on any site. That is
+the claim worth having here: relations feed the Related/Earlier/Later
+sections on every post, so a reordering would have shown up as hundreds of
+changed files rather than one. `cargo test` green (14 result lines, 0
+failures); zero fixture changes, zero re-blessing; `cargo fmt --check` clean
+under the pin including the lines this item wrote; clippy's warning multiset
+identical to HEAD's, compared by building HEAD in that worktree.
+
+*Docs.* DESIGN.md §6g's four config examples, its pipeline line, the
+derived-pool sentence, the "an explicit `over` is taken verbatim" line and
+q52's ledger row all take `from`, plus one paragraph under the first example
+recording the unification and the cutoff. Two `over` spellings **outside**
+§6g were the same confession in prose about the VIEW key — §5's
+`over = "*"` and §5c's "the tempting shape is `over = "/blog"`" — and took
+`from` too; they taught a spelling the view side stopped accepting when
+`from` became the composition keyword (`manual/OUTLINE.md` line 1353 records
+that migration).
+
+*For the queue (small).* (i) `manual/OUTLINE.md` teaches relations `over` in
+five places (lines 969, 1006, 1044, 1047, 1172) and is untouched per §4. It
+is the second key in that file to outlive the engine's spelling — F1 left
+`bucket` there for the same reason — and it is worth one line in the wrap-up.
+Note that its lines 214 and 1353 already record `over`→`from` for the VIEW
+key, so the file is half-migrated by its own account. (ii) `RelationCfg` and `View` now
+both carry a field named `from`, and `From` is also the name of the enum the
+view's field holds (shadowing `std::convert::From` inside `config.rs`, as it
+has since it was written). Nothing broke, and no import needed adjusting, but
+a reader meeting `pub from: From` should know the shadow is deliberate and
+predates this item. (iii) G2's (b) renames relations' `match` → `scope`; the
+struct field is *already* named `scope` with a `#[serde(rename = "match")]`,
+which is the exact shape this item just deleted one field up — so G2's tidy
+half is one line, and this note is the precedent for it.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
