@@ -330,6 +330,24 @@ fn view_fields(v: &View) -> BTreeMap<String, filter::Value> {
     if v.noindex {
         f.insert("noindex".to_string(), filter::Value::Bool(true));
     }
+    // IO.md §3: `shell` is "the serialization it left through", a fact about
+    // the OUTPUT — so a view route answers the same column a row route does,
+    // out of the same map. Before I2 the declaration was a route property the
+    // column could not see, and `shell == "atom"` selected nothing on a site
+    // with a feed.
+    //
+    // Absent means the HTML listing, and it is written here rather than left
+    // Null for the reason I1 refused to write it on rows and I2 does: a fold
+    // over the route pool needs a total predicate, and "the shell it left
+    // through" is answerable for every route in the table.
+    f.insert(
+        "shell".to_string(),
+        filter::Value::Str(
+            v.shell
+                .clone()
+                .unwrap_or_else(|| crate::shell::VIEW_DEFAULT.to_string()),
+        ),
+    );
     f
 }
 
@@ -800,6 +818,12 @@ pub(crate) fn build_star_views(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
         db.routes.push(Route {
             view: Some(name.clone()),
+            // A star view is a fold like any other, and it answers the `shell`
+            // column like any other (I2): `shell == "sitemap"` selects the
+            // route the sitemap leaves through. This route carried no fields
+            // at all before — `noindex` included, which is why it rides along
+            // rather than being added on its own.
+            fields: view_fields(v),
             ..Route::new(tmpl.to_string(), RouteKind::View)
         });
     }

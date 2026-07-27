@@ -1,0 +1,9 @@
+# Arity is a hard contract (IO.md §4, item I2): a row is ONE output, so it
+# takes a map shell. A fold shell eats a COLLECTION of outputs and emits one
+# artifact, so a row wearing one is a load error that says what atom eats
+# rather than "unknown word" — the two vocabularies are one axis now, and the
+# error can tell the two families apart.
+[site]
+url = "https://example.com"
+title = "A Fixture"
+author = "Tester"

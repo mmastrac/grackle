@@ -102,6 +102,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   [[collections.rules]]
   match = "**"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+  defaults = { shell = "html" }
 
 [[collections]]
 name = "objects"
@@ -112,6 +113,11 @@ extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
   match = "**"
   route = "/{path}"
 
+# The shell each row leaves through is declared here, not decided in the
+# renderer (IO.md §4). Rule defaults apply wherever a rule MATCHES rather than
+# only where it wins the route, so the index rule needs none of its own: a
+# front-mattered `index.md` takes `html` from the second rule, a static
+# `index.html` takes `raw` from the third.
 [[collections]]
 kind = "tree"
 source = "."
@@ -124,10 +130,12 @@ source = "."
   match = "**/*.{html,md}"
   front_matter = true
   route = "/{dir}/{stem}/"
+  defaults = { shell = "html" }
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
 [sets.published]
 from = "posts"

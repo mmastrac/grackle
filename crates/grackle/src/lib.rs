@@ -18,7 +18,7 @@
 // `pub use` here for the same reason everything else is.
 pub use grackle_db::{filter, template};
 pub use grackle_model as db;
-pub use grackle_source::{config, store, views};
+pub use grackle_source::{config, shell, store, views};
 
 /// The workspace root — grack.com's own directory. The engine's manifest is
 /// two levels down (`grackle/crates/grackle`), and the site it was written

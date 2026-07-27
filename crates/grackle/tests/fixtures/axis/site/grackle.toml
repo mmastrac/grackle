@@ -65,7 +65,7 @@ field = "theme"
 # q44's md twin, as an axis rather than a mechanism of its own: `shell` is a
 # row field like `theme`, so the same machinery serializes one row two ways.
 [axes.serialization]
-values = ["html", "light"]
+values = ["html", "light_html"]
 field = "shell"
 
 # `*` views see canonical members only — the alternates are absent from this

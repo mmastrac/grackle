@@ -17,5 +17,5 @@ can be linked to by source path from a note like this one. Previously those
 two properties were mutually exclusive: a file with front matter got wrapped
 in a second document, and a file without one was not a row at all.
 
-The shell is the seam. A row says `shell: none` and the body becomes the
+The shell is the seam. A row says `shell: raw` and the body becomes the
 whole output; say nothing and it wears the theme like everything else.

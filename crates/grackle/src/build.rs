@@ -1087,23 +1087,30 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     Some(p) => render::eval_metas(&metas, p, &site, &title, &p.url),
                     None => render::eval_metas(&metas, r, &site, &title, &r.url),
                 };
-                // §5g/q44: the row picks its shell. `none` is the whole
-                // point of the field — the body IS the output, so an
-                // imported document can carry front matter (title, tags,
-                // hidden) without being nested inside a second `<html>`.
-                // Absent, the legacy `layout:` still chooses (q33(f)).
+                // IO.md §4: the output picks its map shell. `raw` is the
+                // transparent one — the body IS the output, so an imported
+                // document can carry front matter (title, tags, hidden)
+                // without being nested inside a second `<html>`.
                 // q53: an axis member over `shell` is the md twin's shape — the
                 // same row serialized two ways, at two URLs. The member's value
                 // beats the row's own for the same reason a member's theme
                 // does: the member IS the alternative form.
+                //
+                // The `_` arm is the row that named no shell at all, and after
+                // I2 that is a row no RULE named one for either — the base's
+                // front-mattered-page rule declares `html`, so on a site that
+                // inherits it this arm is reached only by the index rule's rows
+                // and by `extends = "none"` sites. It still ends at the legacy
+                // `layout:` (q33(f)), which is the one place `layout: light`
+                // is still read.
                 let shell = axis_field(r, "shell").or(row.and_then(|p| p.shell.as_deref()));
-                if shell == Some("none") {
+                if shell == Some("raw") {
                     out_map.insert(r.url.clone(), frag.clone().into_bytes());
                     stats.pages += 1;
                     continue;
                 }
                 let tier = match shell {
-                    Some("light") => Theme::Light,
+                    Some("light_html") => Theme::Light,
                     Some("html") => Theme::Default,
                     _ => Theme::parse(layout),
                 };

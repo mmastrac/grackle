@@ -750,20 +750,26 @@ be typed one way and read the other.
 **And they became filterable in the same move, `shell` included** *(measured
 for IO.md I1, which set out to expose it and found it exposed)*. A declared
 field is a column, the four are declared, and their values live in `fields` as
-well as on the row's named field — so `where = 'shell == "light"'` selects on a
-row and, through `Route.fields`, on a star view's routes. Two questions it does
-**not** yet answer, both waiting on IO.md I2:
+well as on the row's named field — so `where = 'shell == "light_html"'` selects
+on a row and, through `Route.fields`, on a star view's routes.
 
-- the row column holds the *tier* vocabulary (`none`/`light`/`html`) and holds
-  it **only when someone wrote it** — absent means html by engine default, so
-  `shell == "html"` matches the rows that said so and no others. IO.md's target
-  spellings (the sitemap and search as `shell == "html"`) need I2's explicit
-  rule defaults materializing the field on every row before they mean what they
-  read like;
-- a *view* route's serialization (`shell = "atom"`) is not in the column at
-  all — it is the route's declaration, not a row field, so `shell == "atom"`
-  selects nothing. Merging the two vocabularies into one column is exactly what
-  I2 is.
+I1 recorded two things the column did not yet answer, and **IO.md I2 closed
+both** *(2026-07-27)*:
+
+- the row column held a value **only where someone wrote it** — absent meant
+  html by an engine default, so `shell == "html"` matched the rows that said
+  so and no others. The base's rules now declare the field (§5g), so it
+  materializes through this same typed cascade and the answer is total for
+  every row a rule governs. Two shapes still answer Null, deliberately: an
+  objects-collection row (which never takes a rule default — the loader builds
+  it from `Default::default()`), and a row whose only governing rule declares
+  no shell. That is why the sitemap's `dir || ext == "html"` did **not** become
+  `shell == "html"` in I2: the sets are not the same set;
+- a *view* route's serialization (`shell = "atom"`) was not in the column at
+  all — it was the route's declaration, not a row field. A view route now mints
+  the column when it is created, so a feed answers `atom`, a sitemap answers
+  `sitemap`, and a listing that declared nothing answers `html`: the
+  serialization it left through, which is what IO.md §3 says the fact is.
 
 ### The head is config: `[html.head.meta]`
 
@@ -880,7 +886,7 @@ no `/favicon.ico` at the root to fall back to. They come back when a link entry
 may be a table (`{ href = '…', sizes = "180x180" }`) rather than a bare
 expression, which is the one piece of head machinery still owed.
 
-**The `light` tier keeps `[html.head.meta]` and drops the rest.** The line is
+**The `light_html` tier keeps `[html.head.meta]` and drops the rest.** The line is
 the element, not a list of blessed names: a `<meta name>` is a fact about the
 document, while Open Graph and a canonical link are apparatus for describing it
 to other systems. Cost: the tier's head grew by two tags (`author`, `viewport`).
@@ -1558,9 +1564,14 @@ shell. Views declare `shell = "atom" | "sitemap" | "search"` (built —
 this retired q33's template-filename match), and the HTML shell got the
 treatment the idea deserved:
 
+*(**One axis, singular** — IO.md I2, 2026-07-27. Rows and views share this
+one, split by arity into map and fold families rather than by who declares
+them; the row-side vocabulary is `raw`/`html`/`light_html`. See "One axis,
+two families" at the end of this section for the merge and what it bought.)*
+
 ### The root HTML shell: themes inherit, never write, the skeleton
 
-The engine owns `root_shell`: doctype, `<html lang data-kind="shell" [data-subtheme]>`, `<head>` from computed facts, `<body>` around theme chrome. A theme's `shell.html` is now **body chrome only** — no theme writes a skeleton. A fragmentless theme yields a valid document; `light` dissolved into a minimal head option inside the same root shell as everything else; `subtheme` moved to the engine root (no per-theme opt-in).
+The engine owns `root_shell`: doctype, `<html lang data-kind="shell" [data-subtheme]>`, `<head>` from computed facts, `<body>` around theme chrome. A theme's `shell.html` is now **body chrome only** — no theme writes a skeleton. A fragmentless theme yields a valid document; the light tier (`light_html` since IO.md I2) dissolved into a minimal head option inside the same root shell as everything else; `subtheme` moved to the engine root (no per-theme opt-in).
 
 Pending: a theme wanting to add head content (fonts) needs an optional `head.html` theme fragment appended after computed facts.
 
@@ -1614,27 +1625,35 @@ tree, so it will be routed and *published* unless excluded. Add `shells/**` to `
 
 Specced; not yet built. A markdown serialization of part maps; forcing consumer is `/llms.txt` (titles, URLs, summaries as markdown listing).
 
-### Row shells: a row picks its own wrapper *(q44, built 2026-07-19)*
+### Row shells: a row picks its own wrapper *(q44, built 2026-07-19; folded into one axis by IO.md I2, 2026-07-27)*
 
-A row declares `shell:` and picks its own wrapper: **`none`** (body IS output — no skeleton, no theme), **`light`** (engine skeleton, canonical parts, no theme chrome) or **`html`** (the theme). Closed vocabulary, checked at load.
+A row declares `shell:` and picks its own wrapper: **`raw`** (body IS output — no skeleton, no theme), **`light_html`** (engine skeleton, canonical parts, no theme chrome) or **`html`** (the theme). Closed vocabulary, checked at load.
 
-`none` adds a capability: an imported artifact can now carry front matter *and* emit itself verbatim. Before, front matter nested the whole document inside a second `<html>`. The example's `demos/pane.html` is the occupant — 521 bytes of its own document with a `title` the database sees. Pair with `hidden: true` to keep it linkable but out of the sitemap.
+**The spellings changed with the axis**, and the old ones are hard cutoffs: `none` → **`raw`**, `light` → **`light_html`**. They were never a vocabulary of their own — see "One axis, two families" below — and they are the *map* family of the one shell axis, which is why they now read like the other members of it. The corpus migrated in the same commit (`demos/pane.html`; grack.com's `demos/mindstorms/index.html`, which reached the light tier through the legacy `layout: light` and now says `shell: light_html`).
 
-### Row tiers: where a row leaves the pipeline *(settled 2026-07-19)*
+`raw` adds a capability: an imported artifact can now carry front matter *and* emit itself verbatim. Before, front matter nested the whole document inside a second `<html>`. The example's `demos/pane.html` is the occupant — 521 bytes of its own document with a `title` the database sees. Pair with `hidden: true` to keep it linkable but out of the sitemap.
+
+**Which shell a row wears is declared, not defaulted in Rust** *(IO.md I2)*. The base config's rules carry it: the posts rule and the front-matter page rule declare `defaults = { shell = "html" }`, the tree catch-all declares `shell = "raw"`, and front matter still beats both. The index rule (`**/index.{html,md}`) declares nothing on purpose — it routes rendered pages and byte copies alike, and a rule's defaults apply wherever it MATCHES rather than only where it wins the route, so a front-mattered `index.md` takes `html` from the rule beside it and a static `index.html` takes `raw` from the catch-all. Each by the same front-matter gate that decides everything else about it.
+
+The engine keeps one fallback under all of that — a row no rule named a shell for renders through the legacy `layout:` (`layout: light` → the light tier, else the theme). On a site inheriting the base it is reached only by the index rule's rows and by `extends = "none"` sites.
+
+### Row tiers: where a row leaves the pipeline *(settled 2026-07-19; renamed 2026-07-27)*
 
 The tiers are not alternatives to something else — they are **exit points on
-one pipeline**.
+one pipeline**. As of IO.md I2 they are also not a ladder of their own: they
+are the **map family** of the one shell axis, and the word "tier" survives here
+only as the name for where a row leaves.
 
-| tier | head | body | skeleton |
+| exit | head | body | skeleton |
 |---|---|---|---|
 | object | — | bytes off disk | none |
-| `none` | — | rendered parts, emitted verbatim | none |
-| `light` | minimal — 85 B | canonical parts, no theme | engine |
+| `raw` | — | rendered parts, emitted verbatim | none |
+| `light_html` | minimal — 85 B | canonical parts, no theme | engine |
 | `html` | full — 739 B | theme fragments | engine |
 
-**"Aren't `shell: none` rows just objects?"** They emit verbatim (last step only they share), but enter the full pipeline: tag expansion, object resolution, thumbnailing, content-addressed assets — all run with load-time enforcement. Objects never enter; their bytes come off disk by extension. **"Isn't `shell: light` just `theme: light`?"** No: a theme chooses body chrome; the head is computed from schema and no theme may write it. The root shell enforces this separation. `theme: none` fails because **the null theme still emits a valid document**, so `shell: none` (promising the body already is one) cannot be silent about the head.
+**"Aren't `shell: raw` rows just objects?"** They emit verbatim (last step only they share), but enter the full pipeline: tag expansion, object resolution, thumbnailing, content-addressed assets — all run with load-time enforcement. Objects never enter; their bytes come off disk by extension. **"Isn't `shell: light_html` just `theme: light`?"** No: a theme chooses body chrome; the head is computed from schema and no theme may write it. The root shell enforces this separation. `theme: none` fails because **the null theme still emits a valid document**, so `shell: raw` (promising the body already is one) cannot be silent about the head.
 
-**One correction:** `light` is not "the null theme" — it is a **tier** bypassing the theme registry; there is no `themes/light/` directory.
+**One correction:** `light_html` is not "the null theme" — it bypasses the theme registry; there is no `themes/light/` directory. (This is why the rename is `light_html` rather than `light`: the name now says what it *is*, the html shell with no theme root merged, instead of naming a rung.)
 
 ### Why exactly these tiers *(2026-07-19)*
 
@@ -1648,29 +1667,57 @@ There would be nothing to wrap. It is also mechanically unreachable. So the
 2×2 collapses to a three-state chain, and the chain is a **result rather than a
 modelling choice**: identity is a *precondition* for the other bit.
 
-**The guarantee ladder**: each tier is what the engine *promises* about bytes — **object** (nothing, yours); **`none`** (content rules ran, validity is your promise); **`light`** (valid document, minimal facts); **`html`** (valid document, full computed head, theme). A theme cannot lower a guarantee it did not make.
+*(The incoherent-corner argument above is **history as of 2026-07-27**, and IO.md records the amendment: Matt softened identity from a precondition to a preference. An identity-less file a rule sends through a rendering shell becomes a **degenerate row** — a warning and a slug-implied title, not an error — which lands in IO.md I7. Arity stayed hard; identity did not. The 2×2's fourth corner is reachable after all, and what makes it coherent is that a title can be implied where a `<head>` cannot be invented.)*
+
+**The guarantee ladder**: each tier is what the engine *promises* about bytes — **object** (nothing, yours); **`raw`** (content rules ran, validity is your promise); **`light_html`** (valid document, minimal facts); **`html`** (valid document, full computed head, theme). A theme cannot lower a guarantee it did not make.
 
 **The escape hatch, and its tripwire.** q16 established the discipline: an
 escape hatch per layer, with a tripwire on how often it is taken. grackle has
 one per layer — raw HTML through markdown, the null theme under the binder,
 `{% %}` widgets under the no-template-language rule, `render.unsafe_` under the
-AST — and **`shell: none` is the shell layer's**. So: *if a meaningful share of
-rows need `none`, the tier vocabulary is wrong and the engine is failing to
-build documents people actually want.* Today it is 1 row of the example's 21
-and 0 of the main site's 227. Re-read that ratio each time an imported artifact
-lands, not the tier list.
+AST — and **`shell: raw` is the shell layer's**. So: *if a meaningful share of
+rows need `raw` for authored documents, the vocabulary is wrong and the engine
+is failing to build documents people actually want.* Measured 2026-07-19: 1 row
+of the example's 21 and 0 of the main site's 227. Re-read that ratio each time
+an imported artifact lands, not the shell list. (Since IO.md I2 the base's
+catch-all declares `raw` for every byte copy on the site, so a *count* of `raw`
+rows is now dominated by static files and no longer measures the escape hatch —
+the number to re-read is `raw` on rows that carry front matter.)
 
-### One word, two axes *(named 2026-07-19)*
+### One axis, two families *(was "one word, two axes", named 2026-07-19; the wall came down in IO.md I2, 2026-07-27)*
 
-`shell` names two unrelated things: **row `shell:`** (`none | light | html` —
-the wrapper tier above) and **view `shell =`** (`atom | sitemap | search` plus
-`[shells]` script shells — the outermost serialization). The value domains are
-disjoint, neither validator accepts the other's words, and they are read in
-disjoint passes, so **no row ever meets a view's shell as a shell**. A naming
-collision, not a design flaw — nothing can drift because the two never meet.
-What it costs is the sentence a reader spends deciding which is meant. If ever
-renamed, the row-level one is the **tier** and the view-level one keeps
-`shell` — but that touches a documented config surface for one row's benefit.
+**The finding, as it stood:** `shell` named two unrelated things — row `shell:`
+(`none | light | html`, the wrapper tier) and view `shell =` (`atom | sitemap |
+search` plus `[shells]` script shells, the outermost serialization). The value
+domains were disjoint, neither validator accepted the other's words, and they
+were read in disjoint passes, so no row ever met a view's shell as a shell. It
+was filed as a naming collision that could not drift, costing only the sentence
+a reader spends deciding which is meant.
+
+**The correction:** they were never two axes. A shell is a function from
+content to final bytes, and what separates the two lists is **arity**, not
+subject matter:
+
+| family | consumes | members | emits |
+|---|---|---|---|
+| **map shells** | one output | `raw`, `html`, `light_html` | one file per output |
+| **fold shells** | a collection of outputs | `atom`, `sitemap`, `search`, script shells | one artifact |
+
+So the "tier ladder" was the document-shaped family of the one axis, and the
+wall between the two vocabularies was artificial. One vocabulary now, one
+validator (`shell.rs`), and the arity is a **checked contract in both
+directions**: a row (or a per-member route — one row serialized several ways is
+still one output each) takes a map shell, and `shell: atom` on a row is a load
+error naming what atom eats; a view takes a fold, and `shell = "html"` on a
+view is an *arity* error rather than an unknown word, which is a sentence the
+old pair of checkers could not say. A `[shells.*]` script shell may not take a
+built-in's name — it would be a command nothing could reach.
+
+What the merge bought beyond tidiness: `shell` is one **column**. A row answers
+which wrapper it left through and a view route answers which serialization it
+left through, in the same word, so `shell == "atom"` finds the feed and
+`shell == "html"` finds the documents and the listings together (§4e). That is
+IO.md §3's "facts replace `kind`" arriving one fact at a time.
 
 ## 5h. Landings: a view owns the URL, a row may own the words *(q45, Matt's shape; built 2026-07)*
 
@@ -2566,7 +2613,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     **Linking to a member: `path.md?axis=value`** *(built 2026-07-25)*. A link resolves to a ROW and a row answers with its canonical URL, so a member had no spelling and the merged gallery could not name one — the first build of it failed on exactly that. The selector reads as a query string and resolves to a PATH, which is the point: a member's address is derived like every other URL here. Held to the same standard as every other link — an undeclared value is a load error naming the members, and a selector on a row the axis does not cover is one too. Only a *declared* axis name is read this way, so `?utm=x` stays the literal suffix it always was. A view route wears the same spelling — `view:notes_index?theme=ledger` — and naming an axis-materialized view without one is an error, because it lands at several URLs and there is no honest default among them.
 
-    **Axis members now emit `rel="alternate"`** *(built 2026-07)*. `Head.alternates` grew from a hreflang-shaped `(lang, url)` pair to an `Alternate { href, hreflang?, media_type? }` — the "variable-length head entries" shape (§4e), a list that can repeat `rel` and carry a second attribute. Each member lists its OTHER forms: the locale axis carries `hreflang` (as before), a different-FORMAT form (the md twin) carries `type`, and a same-format restyle — a theme member — carries neither, because it is the same representation at another URL and `rel="canonical"` already names the one that counts. Whether a form is a different representation is read off the member URL's extension. The `light` tier still carries no canonical and, by the same minimal head, no alternates — an alternate at that tier would advertise nothing.
+    **Axis members now emit `rel="alternate"`** *(built 2026-07)*. `Head.alternates` grew from a hreflang-shaped `(lang, url)` pair to an `Alternate { href, hreflang?, media_type? }` — the "variable-length head entries" shape (§4e), a list that can repeat `rel` and carry a second attribute. Each member lists its OTHER forms: the locale axis carries `hreflang` (as before), a different-FORMAT form (the md twin) carries `type`, and a same-format restyle — a theme member — carries neither, because it is the same representation at another URL and `rel="canonical"` already names the one that counts. Whether a form is a different representation is read off the member URL's extension. The `light_html` tier still carries no canonical and, by the same minimal head, no alternates — an alternate at that tier would advertise nothing.
 
     A cost paid earlier stands: `data-axis` was renamed `data-relation` for relations, with `data-axis` kept for translations.
 

@@ -2888,15 +2888,28 @@ impl Config {
                     );
                 }
             }
+            // One vocabulary, one validator (IO.md §4, I2). A view is a query,
+            // so its declared shell is a FOLD — and a map shell here is an
+            // arity error rather than an unknown word, because `html` is a
+            // perfectly good shell that simply wraps one output.
             if let Some(s) = v.shell.as_deref() {
-                if !matches!(s, "atom" | "sitemap" | "search") && !cfg.shells.contains_key(s) {
-                    let registered: Vec<&str> = cfg.shells.keys().map(|k| k.as_str()).collect();
-                    anyhow::bail!(
-                        "view {vname}: unknown shell {s:?} (built-in shells: atom, sitemap, search; registered script shells: [{}])",
-                        registered.join(", ")
-                    );
+                let registered: Vec<&str> = cfg.shells.keys().map(|k| k.as_str()).collect();
+                crate::shell::check_view(s, vname, &registered)?;
+            }
+        }
+        // A per-member route is one output, so an axis spending `shell`
+        // declares MAP shells. Checked here because the values never pass
+        // through a row's cascade: `build.rs` reads the member's value
+        // directly, and an unchecked one renders the wrong tier in silence.
+        for (aname, a) in &cfg.axes {
+            if a.field == "shell" {
+                for value in &a.values {
+                    crate::shell::check_axis_value(value, aname)?;
                 }
             }
+        }
+        for name in cfg.shells.keys() {
+            crate::shell::check_registered_name(name)?;
         }
         cfg.check_profiles()?;
         cfg.check_profile_filters()?;
@@ -5454,6 +5467,96 @@ mod tests {
         assert!(out.contains("[markers.\".archive\"]"), "{out}");
         toml::from_str::<toml::Value>(&Config::effective_toml(site, "t", None).unwrap())
             .expect("a quoted header must parse");
+    }
+
+    /// The family check, on the view side (IO.md §4, I2). A view is a query,
+    /// so its declared shell folds the collection the query selects — and a
+    /// MAP shell here is an arity error, not an unknown word: `html` is a
+    /// perfectly good shell that happens to wrap one output, which is the
+    /// distinction the old "unknown shell" message could not make because the
+    /// two vocabularies never met.
+    ///
+    /// Mutation check: replace `shell::check_view`'s body with the pre-I2
+    /// membership test (`is_fold(name) || registered.contains(&name)` alone,
+    /// erroring with "unknown shell") and the map half fails on the message
+    /// while the control still passes.
+    #[test]
+    fn a_map_shell_on_a_view_is_an_arity_error() {
+        for map in crate::shell::MAP {
+            let e = cfg_err(&format!(
+                "[routes.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{map}\"\n"
+            ));
+            assert!(e.contains("is a map shell"), "{map}: {e}");
+            assert!(e.contains("wraps ONE output"), "{map}: {e}");
+            assert!(e.contains("atom, sitemap, search"), "{map}: {e}");
+        }
+        // The controls: every fold, and a registered script shell beside them.
+        for fold in crate::shell::FOLD {
+            cfg_raw(&format!(
+                "[routes.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{fold}\"\n"
+            ))
+            .validate()
+            .unwrap_or_else(|e| panic!("{fold} is a fold shell: {e:#}"));
+        }
+        cfg_raw(
+            "[shells.llms]\ncommand = \"c\"\n\
+             [routes.feed]\npath = \"/f.txt\"\nfrom = \"blog\"\nshell = \"llms\"\n",
+        )
+        .validate()
+        .expect("a registered script shell is a fold");
+        // And the retired spellings are hard cutoffs on this side too.
+        for stale in ["none", "light"] {
+            let e = cfg_err(&format!(
+                "[routes.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{stale}\"\n"
+            ));
+            assert!(e.contains("unknown shell"), "{stale}: {e}");
+        }
+    }
+
+    /// The per-member half of the arity check. An `[axes.*]` over `shell`
+    /// declares the serializations its members leave through, and a member is
+    /// ONE output — so the values are map shells.
+    ///
+    /// This is the one path a shell reaches `build.rs` on without passing
+    /// through a row's cascade, which is why it needs a check of its own:
+    /// before I2 the axis fixture's `light` was never validated anywhere, and
+    /// a value outside the vocabulary rendered the fallback tier in silence.
+    ///
+    /// Mutation check: delete the `a.field == "shell"` loop in `check` and both
+    /// halves here pass an unchecked value straight through.
+    #[test]
+    fn an_axis_over_shell_takes_map_shells_only() {
+        let e = cfg_err("[axes.serialization]\nvalues = [\"html\", \"atom\"]\nfield = \"shell\"\n");
+        assert!(e.contains("spends the `shell` field"), "{e}");
+        assert!(e.contains("fold shell"), "{e}");
+        let e = cfg_err("[axes.s]\nvalues = [\"html\", \"light\"]\nfield = \"shell\"\n");
+        assert!(e.contains("not a map shell"), "{e}");
+        // Controls: the map family passes, and an axis over another field is
+        // none of this check's business (a theme value carries subtheme
+        // tokens and would fail every shell test there is).
+        cfg_raw("[axes.s]\nvalues = [\"html\", \"light_html\"]\nfield = \"shell\"\n")
+            .validate()
+            .expect("map shells are what a member leaves through");
+        cfg_raw("[axes.t]\nvalues = [\"default\", \"ledger:dark\"]\nfield = \"theme\"\n")
+            .validate()
+            .expect("a theme axis is not a shell axis");
+    }
+
+    /// A script shell may not take a built-in's name — it would be a command
+    /// nobody could reach, because `check_view` answers from the built-in
+    /// vocabulary first.
+    ///
+    /// Mutation check: delete the `check_registered_name` loop and
+    /// `[shells.atom]` registers a command the atom shell shadows, silently.
+    #[test]
+    fn a_script_shell_may_not_take_a_builtins_name() {
+        for taken in ["atom", "sitemap", "search", "raw", "html", "light_html"] {
+            let e = cfg_err(&format!("[shells.{taken}]\ncommand = \"c\"\n"));
+            assert!(e.contains("is a built-in shell"), "{taken}: {e}");
+        }
+        cfg_raw("[shells.llms]\ncommand = \"c\"\n")
+            .validate()
+            .expect("a name of its own is fine");
     }
 
     /// The cost argument, asserted rather than claimed: the load path merges

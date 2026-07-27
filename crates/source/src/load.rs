@@ -240,14 +240,13 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
     };
     // A typo'd shell would silently render the wrong tier — the failure mode
     // this codebase keeps finding. Closed vocabulary, checked at load.
+    //
+    // The vocabulary is now the WHOLE axis (IO.md §4, I2), not a tier ladder of
+    // its own: one row's worth of it is the map family, and a fold name here is
+    // an arity error naming what that fold eats rather than an unknown word.
     let shell = worn("shell");
     if let Some(sh) = shell.as_deref() {
-        if !matches!(sh, "none" | "light" | "html") {
-            bail!(
-                "{}: shell = \"{sh}\" is not a shell — expected none, light or html (§5g)",
-                whose.display()
-            );
-        }
+        crate::shell::check_row(sh, whose)?;
     }
     Ok(Cascaded {
         // Theme is chosen per row (§5a): a marker or a rule can restyle a
@@ -1175,10 +1174,22 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         };
         let one = |url: String, axis: Vec<AxisMember>| Route {
             row: Some(p.key.clone()),
-            axis,
             source: Some(p.path.clone()),
             locale: route_locale(&p.locale),
-            fields: p.fields.clone(),
+            // The row's fields, with one correction: a member of an axis over
+            // `shell` IS a different serialization of the same row (q53's md
+            // twin), so THIS output left through the member's shell, not the
+            // row's. Only `shell` is corrected — it is the column IO.md §3
+            // puts on the output side, and the axis's other field (`theme`) has
+            // no reader on the route pool to lie to.
+            fields: {
+                let mut f = p.fields.clone();
+                for m in axis.iter().filter(|m| m.field == "shell") {
+                    f.insert("shell".to_string(), grackle_db::Value::Str(m.value.clone()));
+                }
+                f
+            },
+            axis,
             // The row's identity fact, carried to the output side (IO.md §3)
             // for the same reason `fields` is: a fold over the route pool can
             // only filter on what the route answers.
@@ -1586,13 +1597,13 @@ mod cascade_tests {
     fn a_silent_row_inherits_every_cascading_field() {
         let d = [
             ("theme", text("t")),
-            ("shell", text("light")),
+            ("shell", text("light_html")),
             ("layout", text("l")),
             ("toc", yes()),
         ];
         let c = worn(&governed(), "{}", &d).unwrap();
         assert_eq!(c.theme.as_deref(), Some("t"));
-        assert_eq!(c.shell.as_deref(), Some("light"));
+        assert_eq!(c.shell.as_deref(), Some("light_html"));
         assert_eq!(c.layout.as_deref(), Some("l"));
         assert!(c.toc);
     }
@@ -1607,16 +1618,52 @@ mod cascade_tests {
 
     /// A shell outside the vocabulary must fail loudly — unchecked, a typo
     /// renders the wrong tier in silence.
+    ///
+    /// The controls are the whole MAP family (IO.md §4, I2), and the two
+    /// retired spellings sit in the reject list beside the typo: they are hard
+    /// cutoffs (MERGE.md §4), so `none` and `light` get the same error a
+    /// misspelling gets and no teaching sentence of their own.
+    ///
+    /// Mutation check: delete the `check_row` call in `cascade` and this fails
+    /// on every rejected value at once.
     #[test]
     fn a_shell_outside_the_vocabulary_is_a_load_error() {
-        let e = worn(&governed(), "shell: htlm\n", &[])
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("is not a shell"), "{e}");
-        assert!(e.contains("p.md"), "{e}");
-        for ok in ["none", "light", "html"] {
+        for bad in ["htlm", "none", "light"] {
+            let e = worn(&governed(), &format!("shell: {bad}\n"), &[])
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("is not a shell"), "{bad}: {e}");
+            assert!(e.contains("p.md"), "{bad}: {e}");
+        }
+        for ok in crate::shell::MAP {
             assert!(worn(&governed(), &format!("shell: {ok}\n"), &[]).is_ok());
         }
+    }
+
+    /// The family check, on the row side (IO.md §4): a fold shell eats a
+    /// COLLECTION, so a row wearing one is an arity error that says what atom
+    /// eats rather than "unknown word" — the row is one output and there is
+    /// nothing for the fold to fold.
+    ///
+    /// Mutation check: drop the `is_fold` arm from `shell::check_row` and this
+    /// fails on the message (the value is still rejected, but by the wrong
+    /// sentence — which is exactly the diagnosis this item is for).
+    #[test]
+    fn a_fold_shell_on_a_row_names_what_it_eats() {
+        for fold in crate::shell::FOLD {
+            let e = worn(&governed(), &format!("shell: {fold}\n"), &[])
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("is a fold shell"), "{fold}: {e}");
+            assert!(e.contains("belongs on a view"), "{fold}: {e}");
+            assert!(e.contains("raw, html, light_html"), "{fold}: {e}");
+        }
+        // The one the design document names, spelled out: `shell = atom` on a
+        // row says what atom eats.
+        let e = worn(&governed(), "shell: atom\n", &[])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("a feed's worth of entries"), "{e}");
     }
 
     /// An inherited shell is checked too — a rule can typo it as easily as

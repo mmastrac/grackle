@@ -125,6 +125,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   [[collections.rules]]
   match = "**"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+  defaults = { shell = "html" }
 
 # ---------------------------------------------------------------- objects
 #
@@ -146,6 +147,15 @@ extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 #
 # Front matter decides whether a file is a row at all: with it, a page at a
 # pretty URL; without it, bytes at the literal path, invisible to every query.
+#
+# It also decides the SHELL, and the two rules below say so rather than leaving
+# it to a fallback in the renderer (IO.md §4, I2: "defaults are declared, not
+# built in"). A rule's defaults apply wherever the rule MATCHES, not only where
+# it wins the route — so the index rule needs no shell of its own: a
+# front-mattered `index.md` takes `html` from the second rule and a static
+# `index.html` takes `raw` from the third, each by the same front-matter gate
+# that decides everything else about it. That is also why the index rule may
+# not simply declare `html`: half the files it routes are byte copies.
 
 [[collections]]
 kind = "tree"
@@ -159,10 +169,12 @@ source = "."
   match = "**/*.{html,md}"
   front_matter = true
   route = "/{dir}/{stem}/"
+  defaults = { shell = "html" }
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
 # ------------------------------------------------------------------ sets
 

@@ -13,6 +13,7 @@ pub mod markers;
 pub mod relations;
 pub mod schema;
 mod shape;
+pub mod shell;
 pub mod store;
 pub mod views;
 
