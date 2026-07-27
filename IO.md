@@ -378,7 +378,7 @@ Precedent written into law per its finding 5: **a retired value gets one
 targeted sentence only where the generic diagnosis misleads** (I3's star
 message is the exemplar; don't stretch it). One follow-up item:
 
-- [ ] **IR1. Three small strictness closures from review I-A.** (a) A
+- [x] **IR1. Three small strictness closures from review I-A.** (a) A
   registered `[shells.*]` script shell with no `from` is fed `rows: []`,
   not the route pool — the silent-empty disease one family over (proven
   live: `[shells.echo]` + a from-less route publishes an empty payload).
@@ -910,3 +910,95 @@ rule could carry `shell = "html"` today, byte-inert, shrinks a Null
 shape). (10) *clean*: no half-built identity code from the mid-flight
 degeneracy amendment; doc spot-checks pass; `grackle explain`'s
 hardcoded `kind post` lie still waits for I13 as filed.
+
+**2026-07-27 — IR1.** Landed as one commit. Three closures, no bytes: five
+sites plus grack.com `--profile drafts` came out byte-identical but for each
+feed's wall-clock `<updated>`, file counts 8 / 8 / 83 / 242 / 1828 / 1829
+unmoved through I2, I3 and this.
+
+*(a) The narrowing, and why arity was the right reading of the wrong
+question.* I3's flag (ii) argued that a registered `[shells.*]` name is a fold
+by arity, so `check_absent_from` should accept it — and it is, and that is not
+the question the check asks. The question is **which pool**, and the two
+families answer it in different code: the engine's folds fill
+`route_members` in `resolve_pool_folds` and read it back in `build.rs`, while
+the script pass reads `r.members`, the ROW projection, which a pool fold never
+fills. So the permissive reading fed a from-less script shell `rows: []` and
+said nothing. Re-measured here in both directions rather than taken from the
+review: with the arm restored, `[shells.echo] command = "cat"` plus a from-less
+`[routes.probe]` builds and publishes
+`{"route":"/probe.json","rows":[],"schema":"grackle-shell/0",…}`; with the
+narrowing, it is a load error naming the view, the shell and the fix. **One
+message got worse-shaped and had to be fixed with it**: the listing error
+offered "or declare a fold shell: atom, sitemap, search; registered script
+shells: …" as the alternative to naming a pool, and half of that list is no
+longer an alternative to anything. The registered clause is gone from that
+sentence and stays in `check_view`'s, where it is still true.
+
+*(b) The tail names a constant, so it has to name the right one.* `!=` against
+an out-of-domain literal is the same authoring mistake as `==` — an exclusion
+that excludes nothing — with the opposite value, and "false" sent its reader
+to hunt a predicate that never fires when theirs always does. Three arms
+rather than two: an ORDERING comparison against an out-of-domain literal is
+not constant at all (`kind > "pages"` splits the domain), so inventing a
+constant for it would have been the same error one step subtler. It says what
+is true instead — the literal is a value the column never holds — and it stays
+an error, because that is what the domain check is for. The levenshtein hint
+is untouched: it is a fact about the literal, not about the comparison.
+
+*(c) The verification came first, and it is the item's actual output.* The
+question was whether any legitimate routeless-fold shape exists — embedded
+folds, say. **There is no such thing, and the reason is structural**: all four
+fold passes in `build.rs` (atom, sitemap, search, script shells) iterate
+`db.routes` and reach the view through the route carrying it, so a fold with
+no route is unreachable by construction; a routeless view reaches only
+`db.views`, via `insert_routeless`, and its one consumer — `{% view %}`
+embedding — dispatches on `layout` and renders through `variant`. **Nothing
+anywhere reads `shell` off a routeless view.** Measured against the HEAD
+binary, the two live outcomes were bad in different ways: `[sets.x] shell =
+"sitemap"` died mid-build with "view x needs a route", while `[sets.x] from =
+"posts" shell = "atom"` built clean, reported its two base artifacts, and
+published nothing for `x` at all — the silent half, and the one worth the
+check. Both are config-time now, beside F3's set-theme error and keyed on
+`declared_set` the same way. **Fires on FOLD shells only, deliberately**: a map
+shell on a set is an arity mistake and `check_view` owns that sentence, so the
+new check steps around it rather than stealing it (a test holds both).
+
+*One residual, recorded rather than closed.* `declared_set` is the key the
+brief named and the right one, but it is not quite the whole class:
+`resolve_default_content` can take a *declined* `[routes.*]` entry's path away
+before `validate` runs, which leaves a routeless view that never declared
+itself a set. Keying on `!is_materialized()` would have caught that too. Not
+taken — the shape requires a fold shell on a view that also offers
+`default_content`, which is incoherent config in two directions at once, and
+widening the key would have made a message that says `[sets.…]` fire on
+something written under `[routes.…]`. If it ever shows up, this is the note.
+
+*Mutations, each red and each restored.* (a) restore the
+`registered.contains` arm in `check_absent_from` — `a_script_shell_with_no_
+from_is_a_load_error` fails, and the probe site builds and publishes the empty
+payload (both halves checked, because the test alone would not prove the
+disease); (b) collapse `check_domain`'s `match op` to the single "false" arm —
+the `!=` and ordering assertions fail; (c) delete the `declared_set` fold
+check — `a_set_may_not_wear_a_fold_shell` fails on the first of its three
+shapes.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in
+a `git worktree` (caches seeded) against this one, over the same content trees
+so binary and nothing else varied — byte-identical but for the six wall-clock
+`<updated>` lines, stderr identical for all six. `examples/field-notes`'
+`/llms.txt` — the corpus's only script shell, and the only live user of the
+rule (a) narrows — is byte-identical, as it must be: it has a `from`.
+`cargo test` green; `cargo fmt --check` clean under the pin; clippy 49
+warnings, HEAD's number; **zero re-blessing** — no fixture's expected error
+moved, `profile-dry-run`'s included, because the clause that left the listing
+message only ever appeared on a site that registers a script shell and no
+fixture does.
+
+*Docs.* DESIGN.md §5c gains two paragraphs beside I3's (the script-shell
+exception, and "a fold lands at a route"), and its I3 paragraph loses the now
+false "plus registered script shells"; §5g's script-shell section says the
+view must name a `from`; §5b's `kind`-domain example records that the tail
+follows the operator; the sets-vs-routes key census notes that two of its ten
+route-only keys (`theme` by F3, `shell` by this) are now checked rather than
+observed. `manual/OUTLINE.md` untouched per §4.
