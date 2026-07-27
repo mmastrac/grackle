@@ -491,15 +491,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("stem        {}", r.stem);
                 println!("source      {}  (embedding cache key)", r.rel.display());
                 println!("title       {}", r.title.as_deref().unwrap_or("-"));
-                println!("layout      {}", r.layout.as_deref().unwrap_or("-"));
-                for (name, value) in &r.fields {
-                    // `shell` is printed above, off the row's own field, so the
-                    // dump would repeat it for every row that resolved one.
-                    if name == "shell" {
-                        continue;
-                    }
-                    println!("{name:<11} {}", debug::value_text(value));
-                }
+                print!("{}", debug::row_fields(r));
                 println!(
                     "tags        {}",
                     if r.tags.is_empty() {

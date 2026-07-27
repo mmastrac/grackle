@@ -78,7 +78,13 @@ impl FieldType {
 /// below, and declaring one of these names at another type is a load error
 /// (`parse_fields`) — the value would be typed one way and read the other,
 /// which is the silence this item closed.
-pub(crate) const CASCADE: &[(&str, FieldType)] = &[
+///
+/// Public because a surface that prints a row's named fields AND its declared
+/// columns has to know which names are both, or it prints them twice — which
+/// `grackle explain` did, for `layout`, until IO.md IR3. `debug::row_fields`
+/// reads this list rather than restating it, so a fifth cascade key lands in
+/// one place.
+pub const CASCADE: &[(&str, FieldType)] = &[
     ("theme", FieldType::Str),
     ("shell", FieldType::Str),
     ("layout", FieldType::Str),

@@ -1,4 +1,4 @@
-//! What `grackle explain` says a row IS (IO.md §3, IR2).
+//! What `grackle explain` says a row IS (IO.md §3, IR2 and IR3).
 //!
 //! The line under test used to be `println!("kind        post")` — a literal,
 //! printed for every row, so a `.txt` copied verbatim reported itself a post.
@@ -10,23 +10,37 @@
 //! a unit test over a hand-built `Row` would prove only that `format!`
 //! interpolates — it would pass against an engine that never gave a byte copy
 //! the `raw` shell.
+//!
+//! The second test covers the block below it, `row_fields` (IR3): the cascade
+//! keys are named fields on `Row` *and* declared columns in `Row.fields`, so
+//! `explain` printed `layout` twice for every row that resolved one. The
+//! loader earns its place there for the same reason — whether a value reaches
+//! both places is a fact about the load, not about the printer.
 
 use std::path::PathBuf;
 
 /// Two rows, chosen because every fact differs across them: a dated post the
 /// posts scope claims (identity in the file, the html shell) and a `.txt` the
 /// tree rule copies verbatim (no identity, the raw shell).
-fn site() -> PathBuf {
-    let dir = std::env::temp_dir().join("grackle-io-explain");
+///
+/// The post carries all three of the cascade keys `row_fields` names, and one
+/// declared field that is not a cascade key (`minutes`), so IR3's skip is
+/// pinned as "skip these four names" rather than "skip the dump".
+///
+/// `whose` keeps the two tests off each other's tree: they run in parallel and
+/// each deletes its directory at both ends.
+fn site(whose: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("grackle-io-explain-{whose}"));
     let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
-            "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n",
+            "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\
+             \n[schema]\nminutes = { type = \"int\" }\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
-            "---\ntitle: Hello\n---\n\nProse.\n",
+            "---\ntitle: Hello\nlayout: post\ntheme: ledger\ntoc: true\nminutes: 4\n---\n\nProse.\n",
         ),
         ("notes.txt", "Bytes, verbatim.\n"),
     ];
@@ -43,7 +57,7 @@ fn site() -> PathBuf {
 /// original lie, `kind post` for everything, is the `collection` case.)
 #[test]
 fn explain_reads_the_row_rather_than_a_literal() {
-    let dir = site();
+    let dir = site("facts");
     let cfg = grackle::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
     let db = grackle_source::load(&cfg).expect("the site loads");
     let facts = |url: &str| {
@@ -65,6 +79,44 @@ fn explain_reads_the_row_rather_than_a_literal() {
         "collection  entries\nshell       raw\nfront_mattered false\n",
         "a byte copy disagrees with the post in all three — and used to report \
          itself a post in the one fact printed"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// IO.md IR3: a cascade key is a named field on `Row` AND a declared column in
+/// `Row.fields`, so `explain` printed `layout` twice for every row that had
+/// one. Each of the three lives on exactly one line here.
+///
+/// Mutations, each red: drop the `CASCADE` skip in `row_fields` and the post
+/// grows a second `layout`/`theme`/`toc` from the dump; drop any named line
+/// and the `.txt` — which resolves none of the three — loses its answer
+/// entirely, which is the failure the dump alone cannot see.
+#[test]
+fn explain_prints_each_cascade_key_exactly_once() {
+    let dir = site("cascade");
+    let cfg = grackle::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
+    let db = grackle_source::load(&cfg).expect("the site loads");
+    let fields = |url: &str| {
+        let r = db
+            .by_url
+            .get(url)
+            .and_then(|k| db.rows.get(k))
+            .unwrap_or_else(|| panic!("no row at {url}"));
+        grackle::debug::row_fields(r)
+    };
+
+    assert_eq!(
+        fields("/blog/2020/01/01/hello/"),
+        "layout      post\ntheme       ledger\ntoc         true\nminutes     4\n",
+        "a row that resolved all three: one line each, and the dump still \
+         carries the field that is not a cascade key"
+    );
+    assert_eq!(
+        fields("/notes.txt"),
+        "layout      -\ntheme       -\ntoc         false\n",
+        "a row that resolved none: the dump would have printed nothing at all, \
+         so the named lines are the only answer"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

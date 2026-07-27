@@ -379,3 +379,44 @@ pub fn row_facts(r: &crate::db::Row) -> String {
         r.front_mattered,
     )
 }
+
+/// The rest of `explain`'s row block: the cascade keys the engine reads off
+/// the row by name, then every other declared field.
+///
+/// **A cascade key is two things at once**, and that is the whole bug this
+/// closes (IO.md IR3). MERGE.md C1 declared `theme`/`shell`/`layout`/`toc` in
+/// the base `[schema]` so a marker's or a rule's value for one of them travels
+/// the same typed cascade as any other field — which makes each of them a
+/// named field on `Row` *and* a column in `Row.fields`. A surface that prints
+/// the named field and then dumps the columns prints it twice: `explain` did,
+/// for every row that resolved a `layout`.
+///
+/// **The named line wins and the dump skips the name**, following IR2's
+/// resolution for `shell`, because only the named line can answer for a row
+/// that resolved nothing — the dump prints a field only where a value landed,
+/// so its silence is indistinguishable from "no such key". Hence `-` for an
+/// unresolved `theme` or `layout`, and `toc` printed for every row: it is a
+/// `bool` on the row, so "never set" and "set false" are one answer, and the
+/// dump's absence was reporting that answer as nothing at all.
+///
+/// `shell` is the fourth and is printed one block up, by `row_facts` — it is
+/// there because it is one of the three facts that replaced `kind` (IR2), not
+/// because it belongs to a different family. The skip below covers all four.
+pub fn row_fields(r: &crate::db::Row) -> String {
+    let mut out = format!(
+        "layout      {}\ntheme       {}\ntoc         {}\n",
+        r.layout.as_deref().unwrap_or("-"),
+        r.theme.as_deref().unwrap_or("-"),
+        r.toc,
+    );
+    for (name, value) in &r.fields {
+        if grackle_source::schema::CASCADE
+            .iter()
+            .any(|(n, _)| n == name)
+        {
+            continue;
+        }
+        out.push_str(&format!("{name:<11} {}\n", value_text(value)));
+    }
+    out
+}
