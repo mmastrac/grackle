@@ -75,7 +75,7 @@ first atom sits.
 | `[i18n]` | the bag, then `names`/`strings` by key | scalars; each name; each `LocalizedStr` (enum = atom) | same |
 | `[html.head.*]` | `html` → `head` → element table → entry | the expression string | same (depth 3 falls out) |
 | `[links]` | the bag | `policy` | **changed** (invisibly) — today wholesale |
-| `[[parts]]` | — | the array | same (arrays are atoms); vocabulary ladder: site `[[parts]]` under engine `parts.toml`, engine part wins collisions |
+| `[[parts]]` | — | the array | same (arrays are atoms). The *vocabulary* ladder is separate machinery (`parts.rs::Schemas::load`), not this merge: a site re-declaring an engine part at the same type is a no-op (engine kept); a retype is a load error. *(Amended per batch review 1.)* |
 | `[[collections]]` | **by `source`** (annotation) | scalars & arrays whole; `relations.*` and `schema.*` as name-keyed atoms | same; `extensions` replaces wholesale *by law* — arrays have no keys |
 | `[[collections.rules]]` | — | see table B | same — site rules **prepend** (Law 1 in list form) |
 | `extends`, `root`, `gitignore` | — | scalar atoms | same |
@@ -100,8 +100,13 @@ Atomicity notes that today are folklore and become law:
 
 Field *declarations* run the spine one level up: positional `.schema.toml`
 (rung 2) → `[collections.*.schema]` (3) → site `[schema]` (4) → base `[schema]`
-(6). Atom = the field definition. **New: two same-rung declarations of one
-name with conflicting types are a collision error**, not alphabetical order.
+(6). Atom = the field definition. **New: two *unordered* declarations of one
+name with conflicting types are a collision error** — two positional files
+where neither directory contains the other, or any two collections. An
+ancestor/descendant pair is *ordered* (rung 2's internal nearness) and stays
+nearest-wins per §5b. *(Amended per batch review 1: the line is nearness, not
+rung membership. Residual: the ancestor still takes the global `declared()`
+name — see §7.)*
 
 ### C. Presentation
 
@@ -213,7 +218,32 @@ name with conflicting types are a collision error**, not alphabetical order.
   marker files; different keys stay legal. (Nearest-wins across *levels* is
   the law and stays.) Mutation-check.
 
-*→ Batch review 1 after A5.*
+*→ Batch review 1 after A5.* ✓ done — findings appended to §6; verdict: sound
+to build Phase B on. Two follow-up items:
+
+- [ ] **R2. Close R1's hole at the excluded subtree's root.** *(Batch review 1,
+  finding 1 — land before Phase C.)* `NotContent::keeps` is consulted for
+  directories only, and globset's `embedded/**` does not match the directory
+  `embedded` itself — so `walker_declarations` descends one level into every
+  excluded subtree, and a declaration file sitting *directly* there still
+  leaks (proven: `exclude = ["embedded/**"]` + a broken `embedded/.schema.toml`
+  fails the host's load; a valid one type-checks `leakfield` in the host's
+  `where`). For grack.com this means a future `grackle/.schema.toml` would
+  poison its vocabulary. Treat a directory `d` as pruned when `exclude`
+  matches `d` or anything under it; extend the `excluded-schema` fixture with
+  a first-level `.schema.toml`; fix `NotContent`'s doc comment ("the walks
+  must reach the same verdict" is currently false at this boundary).
+  Mutation-check; parity otherwise. *[parity]*
+
+- [ ] **A6. `.slots/` same-stem fills are unordered peers — error.** *(Batch
+  review 1, finding 2.)* `slots.rs::load_dir` (~184): `.slots/nav.md` and
+  `.slots/nav.html` in one `.slots/` directory both insert under stem `nav`,
+  and unsorted `read_dir` order decides which fills the slot, silently —
+  byte-for-byte the A4/A5 disease. Localized stems widen it (`nav.fr.md` vs
+  `nav.fr.html`). Same-directory same-stem (per locale) = load error naming
+  both files, A4/A5's sorted `conflict()` discipline. Different stems, and
+  the same stem at different tree levels (nearest wins), stay legal.
+  Mutation-check both directions; corpus check for live collisions first.
 
 ### Phase B — derive the merge from structure
 
@@ -543,6 +573,48 @@ reading `db.stats.markers_ms`. All five sites build; zero fixture re-blessing;
 one new fixture (`marker-same-dir-conflict`), which is also the only place in
 the repo where a marker file exists at all.
 
+**2026-07-26 — Batch review 1 (Fable), covering A1, A2, A3, R1, A4, A5.**
+Verdict: **sound to build Phase B on.** All mutation claims spot-checked held
+(A5's `bail!`, A4's collision check, A3's law flips both directions, A2's law
+table); no undeclared behavior change found; A4/A5's shared "unordered peers"
+discipline rhymes as intended. Findings, condensed — full text in the session
+transcript:
+
+1. *should-fix → R2 (filed above):* R1's directory-only pruning misses a
+   declaration file at the excluded subtree's **first** level — `embedded/**`
+   never matches the directory `embedded` itself. Proven empirically; the
+   `excluded-schema` fixture nests too deep to catch it; falsifies
+   `NotContent`'s doc comment at that boundary. The judgment call itself
+   (file-shaped patterns like `*.toml` must not unspeak declarations) is
+   endorsed.
+2. *should-fix → A6 (filed above):* `.slots/` same-stem fills in one
+   directory resolve by unsorted `read_dir` order — the batch's own disease,
+   one directory over. C4(b) covers unknown stems only.
+3. *spec amendment (applied):* table B now says **unordered**, not
+   "same-rung" — A4's nearness line is the better statement of the law, and
+   §5b's tested ancestor/descendant behavior confirms it.
+4. *kept visible (§7):* A4's residual — the ancestor takes the global
+   `declared()` name while descendant rows carry the other type. Deterministic
+   but observable skew; deferred to B3's legibility, parked below so it isn't
+   lost.
+5. *spec amendment (applied):* `[[parts]]` — A2's `Law::Atom` is correct; the
+   "engine part wins collisions" prose was imprecise (same-type re-declaration
+   is a no-op, a retype is a load error, and that ladder is `parts.rs`
+   machinery, not this merge). A2's flag is resolved.
+6. *endorsed:* A5's same-key-same-value-is-legal decision — the error is the
+   unrankable disagreement, not the second writer.
+7. *cosmetic, no action:* with three conflicting writers, which *pair* an
+   error names still depends on walk order (each pair is internally sorted).
+8. *test-honesty notes:* A1's `rule-unknown-key` expected-error substring is
+   loose (matches any unknown-`theme` error); A2's `serde_keys` parses serde's
+   error format (version-fragile but fails loudly). Neither can pass silently.
+9. *ledger correction:* A4's §6 corpus note — the non-fixture corpus has
+   **three** `.schema.toml` files (field-notes/books, field-notes/recipes,
+   theme-preview/shelf), and books/shelf share `author` too (agreeing, so
+   harmless).
+10. *§7 addition (filed below):* markers are configured in all five sites and
+    used by zero directories.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -567,3 +639,14 @@ Not work items. Each needs Matt's call; agents must not attempt them.
    spelling. Every rename touches documented surface; decide before 1.0.
 7. **Profile `noindex` vs site `robots`** — C6(d) makes a provisional call;
    confirm it.
+8. **The ancestor takes the global `declared()` name** *(A4 residual, batch
+   review 1 finding 4)* — an ancestor and descendant `.schema.toml` may
+   legally disagree on a field's type (nearest wins per row), but the global
+   filter vocabulary flattens to the ancestor's type, so a `where` can
+   type-check against one type while some rows carry the other.
+   Deterministic, documented on `declared()`, deferred to B3's legibility —
+   is that the end state, or should a cross-type ancestor/descendant pair be
+   an error too?
+9. **Markers: configured ×5, used ×0** *(A5 + batch review 1 finding 10)* —
+   every site declares `[markers]`, no directory carries a marker file.
+   Keep as documented convention, trim from the base, or leave as-is?
