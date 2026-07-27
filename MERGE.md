@@ -158,6 +158,11 @@ name — see §7.)*
   commit message).
 - **Mutation-check every new guard** (repo law): a new error path or merge rule
   gets a test that fails when the guard is deleted.
+- **Never use bare `git stash`** (push or pop). The user's stashes live in
+  this repo (`stash@{0}` holds their in-flight OUTLINE.md edit) and a
+  mis-paired pop nearly conflicted onto one during C5. Need a scratch
+  baseline? `git worktree add` to the scratchpad, or diff against
+  `git show HEAD:<file>`. *(Added after C5's near-miss.)*
 - **Never run repo-wide `cargo fmt`.** The installed rustfmt (1.9.0) wants to
   reformat 13 files this work never touched; pathspec discipline does not
   protect against same-file churn, so format only the lines you wrote (or
