@@ -277,7 +277,7 @@ to build Phase B on. Two follow-up items:
 *→ Batch review 2 after B3.* ✓ done — findings in §6; verdict: sound to build
 Phase C on. Two follow-up items (land before the final review; sequenced next):
 
-- [ ] **R3. Table-capable atoms must trip the depth invariant.** *(Batch
+- [x] **R3. Table-capable atoms must trip the depth invariant.** *(Batch
   review 2, finding 1.)* `a_nested_struct_ends_at_one_depth` whitelists
   depth 0, but `LocalizedStr` is an Atom that *deserializes from a table* —
   a future `LocalizedStr`-typed field on `I18nCfg` beside the deeper
@@ -288,7 +288,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   that fights the design, narrow the test's doc claim honestly.
   Mutation-check with a test-local shape carrying such a field.
 
-- [ ] **R4. `engine_defaults()`'s promised guard.** *(Batch review 2,
+- [x] **R4. `engine_defaults()`'s promised guard.** *(Batch review 2,
   finding 2.)* Its doc comment cites `every_defaulted_scalar_is_printed`;
   no such test exists, and deleting `("extends", …)` from the list passes
   the whole suite. Write the test (every top-level `#[serde(default)]`
@@ -1053,6 +1053,89 @@ path, asserted); no law silently changed in the port beyond the intended
    uniform depth rather than recursing over `Shape`; B1's two invariants
    are the load-bearing proof of that equivalence post-B2 (not leftovers),
    with finding 1 the one soft plank.
+
+**2026-07-27 — R3 + R4.** Landed together in one commit — they share
+`config.rs`, and splitting a file across two pathspec commits needs index
+games this ledger's own rule is there to avoid.
+
+*R3: the variant, and why it is a fourth one.* `Shape::TableAtom` sits beside
+`Shape::Atom` with the same depth (0) and the same law (`Law::Atom`) — a
+`LocalizedStr` merges exactly as `Kind` does, and §3 table D is unchanged.
+Growing `Atom` a flag was the alternative; a separate variant reads better
+because the three structural variants are named for what a type IS, and "an
+atom spelled as a table" is a kind of thing rather than a property of one.
+The module doc now says the law reads three questions off a type and this
+variant answers a fourth that only a DESCENT asks.
+
+*The invariant became a function.* `an_atom_a_deeper_sibling_would_split`
+takes the walked shapes and returns the sentence, so
+`a_nested_struct_ends_at_one_depth` asserts `None` over the real config and
+`a_localized_string_beside_a_map_would_be_split` fires it at a `[i18n]` the
+config does not have — which is the only way to mutation-check a tripwire
+whose whole point is that nothing trips it. That second test also asserts
+what the invariant BUYS, since a shape alone does not say: it runs
+`merge_to_depth(base, site, 2, …)` on the hypothetical and shows the base's
+`en` and the site's `fr` coming back as one localized string, written by two
+files and by no author. The whitelist is now "depth 0 **and not** table-
+spelled"; a scalar or an array at depth 0 is still descended past, which is
+what made the old rule right in the first place.
+
+*The merge-refusal decision: NO, and the reasoning.* The item asked whether
+`merge_to_depth` should refuse to descend into a table-capable atom. It
+cannot, cheaply: the merge carries a single `n` and no shape, so refusing
+means threading a narrowed `Shape` through `merge_by`/`merge_to_depth` and a
+per-level lookup — at which point the depth scalar is redundant and the
+honest version is the merge RECURSING over `Shape`, which is batch review 2
+finding 9's scope note answered rather than a guard bolted on. It would also
+have to be mirrored in `note_depth`/`note_table`, or `--effective` would
+claim a granularity the merge did not use — and B3's whole design is that
+those two are one code path. The half-version (an `Option<&Shape>` consulted
+only to stop) buys nothing the invariant does not already buy and leaves the
+recorder disagreeing. So: enforcement stays in the description, where it is
+TOTAL — the walk visits every struct in both shape trees, so there is no
+field it can miss — and `Shape::is_table_atom` is `#[cfg(test)]` to say that
+out loud rather than leave a method the merge looks like it might call. *For
+the queue, if anyone wants the structural version: it is one item — "the
+merge recurses over `Shape`" — and it retires `Descend(n)`'s number, not just
+this hole.*
+
+*R4: mechanical, and where it lives.* The defaulted set is read off `Config`'s
+own text (`include_str!` of `config.rs` from `tests/base_config.rs`), keying
+on `#[serde(default = "…")]` — the attribute that names a function returning
+a value — as against plain `#[serde(default)]`, which is an empty container
+with nothing to print. Extraction beat enumeration: the list would have been
+three names and a comment asking to be updated, which is the disease R4 was
+filed for, one level up. It yields exactly `extends`, `root`, `gitignore`
+today, asserts loudly if a defaulted field is ever `rename`d (the extraction
+reads Rust names), and fails if the struct moves.
+
+*The assertion is PRESENCE, not `# default`.* A key `base.toml` writes needs
+no entry in `engine_defaults()` — the value prints as `# base` and nothing is
+lost — so requiring the `default` provenance would fail the day the base
+grew a `gitignore = true` line, for no fault. Presence in the empty site's
+output is exactly the promise the doc comment makes.
+
+*It lives in `tests/base_config.rs`*, beside the two `--effective` tests it
+completes, rather than in `config.rs` where `engine_defaults()` is: it is a
+claim about `examples/minimal`, and that section already carries the argument
+for why no golden file exists. The doc comment now names the file as well as
+the test, since the name alone was what went stale.
+
+*Mutation-checked four ways*, each restored: the depth-0 whitelist put back
+(fails the hypothetical test), `LocalizedStr` flipped to `Shape::Atom`
+(same), the hypothetical field added to the REAL `I18nCfg` shape (fails
+`a_nested_struct_ends_at_one_depth` and, as a real field addition would,
+`the_shape_covers_the_config_surface`), and `("extends", …)` deleted from
+`engine_defaults` (fails `every_defaulted_scalar_is_printed` and nothing
+else — it was the sole guard, which is the finding restated as a test run).
+
+*Parity:* no production behaviour touched — `TableAtom` has `Atom`'s depth and
+`Atom`'s law, and the only other edits are tests and comments. grack.com,
+field-notes and theme-preview print byte-identical effective configs across
+the change; zero fixture changes, zero re-blessing; clippy's warning multiset
+identical before and after. Formatted by hand (§4): `rustfmt` on `config.rs`
+still wants two hunks at lines 1962 and 2424 that this work never touched,
+which is finding 3 seen from the inside.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
