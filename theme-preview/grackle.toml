@@ -74,6 +74,11 @@ robots = 'noindex ? "noindex,follow" : ""'
 
 [html.head.link]
 canonical = 'site.url + url'
+# `site.icon` is the first `/favicon.{svg,png,ico,webp,gif}` the tree fills.
+# This site has none, so both expressions are empty and emit no tag — which is
+# what makes copying them free, and is why the base can ship them for everyone.
+icon = 'site.icon'
+"shortcut icon" = 'site.icon'
 
 [site]
 url = "http://localhost:8083"
@@ -88,11 +93,12 @@ author = "grackle"
 # this site kept one byte-identical copy of every post, guide page and shelf
 # entry per theme, because the only way to vary a row's theme was to vary the row.
 #
-# `vanilla` is the canonical member and wears the bare URLs (`/notes/one/`);
-# every other look is an alternate and wears its prefix (`/ledger/notes/one/`,
-# `/miroir:rose/notes/one/`) — the same shape the default locale has in wearing
-# no `/fr/`. Every member canonicalizes to the vanilla URL, and only it is in
-# the sitemap: the many looks of one document are not many documents.
+# Every member wears its `{theme}` segment, canonical included
+# (`/vanilla/notes/one/`, `/ledger/notes/one/`, `/miroir:rose/notes/one/`): the
+# axis says WHICH forms exist and the route template below says where they
+# land. `vanilla` is canonical, so every member points `rel="canonical"` at the
+# vanilla URL and only it is in the sitemap: the many looks of one document are
+# not many documents.
 
 # The axis carries the eight themes AND their subthemes (§5a subselection): a
 # value of `ledger:dark` renders `ledger` with `data-subtheme="dark"` stamped on

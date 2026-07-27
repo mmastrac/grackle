@@ -117,8 +117,8 @@ pub struct Config {
     /// Internal-link policy (§6a, Matt's rule): links reference what the
     /// database owns — rows by SOURCE PATH, views by `view:` reference —
     /// because final URLs are derived values (locales, slugs, templates).
-    /// `strict` errors on raw internal URLs with the correct form as the
-    /// suggestion; `loose` (default) resolves the new forms but leaves raw
+    /// `strict` (the default) errors on raw internal URLs with the correct
+    /// form as the suggestion; `loose` resolves the new forms but leaves raw
     /// URLs alone — the migration posture for a legacy corpus.
     #[serde(default)]
     pub links: LinksCfg,
@@ -1122,6 +1122,15 @@ pub struct Collection {
     /// (`_posts` holding a table called `notes`). Absent, the directory
     /// names the table — one place, not two.
     pub name: Option<String>,
+    /// The directory this collection reads — **for `posts` only**. A `tree`
+    /// collection's `source` is decorative: it names the collection
+    /// (`table_name`) and identifies it across the merge (§1's annotation,
+    /// `collection_key`), and the walk ignores it — `build_tree_and_objects`
+    /// walks `cfg.root()`, always. So `source = "pages"` on a tree collection
+    /// means "call me `pages`", not "read `pages/`", and since it changes the
+    /// merge key it inherits the base's tree beside its own, which
+    /// `check_collection_kinds` refuses (MERGE.md C7a). Objects have no source
+    /// at all: they are picked out of that same walk by extension.
     pub source: Option<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
@@ -1257,13 +1266,6 @@ pub struct Rule {
     pub inherited: bool,
 }
 
-/// A view is a *query* plus, optionally, a *materialization*.
-///
-/// The split gives three shapes (DESIGN.md §5c):
-///
-///   * query only (no route, no layout) — a named set, e.g. `published`
-///   * query + layout, no route         — embeddable, e.g. `latest`
-///   * query + layout + route(s)        — materialized, e.g. `blog_index`
 /// An axis: alternative forms of one row (q53).
 ///
 /// A relation points at *other rows* and needs a reach; an axis points at
@@ -1274,13 +1276,18 @@ pub struct Rule {
 /// [axes.theme]
 /// values = ["ledger", "atlas"]   # the members; order fixes the canonical one
 /// field  = "theme"               # the row field each member sets
-/// prefix = "/{value}"            # what its URL wears
-/// match  = "notes/**"            # which rows multiply (all of them, absent)
 /// ```
 ///
-/// The one thing an axis may not be is implicit: every value, the field it
-/// sets and the URL shape are declared, because an axis multiplies the URL
-/// space and §4's constraint exists to make that deliberate.
+/// Those two keys are the whole table (`deny_unknown_fields`). Where the
+/// members land is not said here: a route template spends `{theme}` (or
+/// `{axis:theme}`) — a rule's for rows, a view's for landings — and one that
+/// does not spend it opts its rows out, which is why WHICH rows multiply
+/// needs no key either.
+///
+/// The one thing an axis may not be is implicit: every value and the field it
+/// sets are declared, and a route has to spend the axis by name, because an
+/// axis multiplies the URL space and §4's constraint exists to make that
+/// deliberate.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Axis {
@@ -1372,6 +1379,13 @@ where
     })
 }
 
+/// A view is a *query* plus, optionally, a *materialization*.
+///
+/// The split gives three shapes (DESIGN.md §5c):
+///
+///   * query only (no route, no layout) — a named set, e.g. `published`
+///   * query + layout, no route         — embeddable, e.g. `latest`
+///   * query + layout + route(s)        — materialized, e.g. `blog_index`
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct View {

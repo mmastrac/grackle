@@ -186,7 +186,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
 
   [[collections.rules]]
   match    = "**"
-  defaults = { layout = "post" }
   route    = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
 [[collections]]
@@ -260,15 +259,20 @@ the first with no warning.
 **Posts only, and the other two kinds now say so** *(MERGE.md C7a,
 2026-07-27)*. A tree collection has no source to read that is not the site
 root, and an objects collection has none at all — objects are picked out of
-that same one walk by extension. So there is nothing for a second collection
-of either kind to contribute, and until C7a the loader still took whichever
-came last in name order, dropping the other's rules, `exclude`, `include` and
-`schema` in silence — the same disease this section records as fixed for
-posts, still live at the two kinds that never got multi-source support. A
-second `kind = "tree"` or `kind = "objects"` collection is now a load error
-naming both entries, and saying which of them came from the base: since
-collections key on `source` (MERGE.md §1), a site that declares its tree
-anywhere but `.` inherits the base's beside its own rather than replacing it.
+that same one walk by extension. **A tree collection's `source` is therefore
+decorative**: it names the collection (`_pages` → the table `pages`) and
+identifies it across the merge, and the walk ignores it — `walk_tree` takes
+the site root, always. `source = "pages"` there means "call me `pages`", not
+"read `pages/`", which is not what it reads like. So there is nothing for a
+second collection of either kind to contribute, and until C7a the loader
+still took whichever came last in name order, dropping the other's rules,
+`exclude`, `include` and `schema` in silence — the same disease this section
+records as fixed for posts, still live at the two kinds that never got
+multi-source support. A second `kind = "tree"` or `kind = "objects"` collection
+is now a load error naming both entries, and saying which of them came from the
+base: since collections key on `source` (MERGE.md §1), a site that declares its
+tree anywhere but `.` inherits the base's beside its own rather than replacing
+it.
 
 Drafts ride this: `_drafts` is a source whose rule sets `draft = true`,
 and the `!draft` filters the views already carry keep them out of feeds and
@@ -427,8 +431,16 @@ fourth.
 | shape | rule | already the law for |
 |---|---|---|
 | `[[collections]]` | merge by **source**; the site's rules **prepend** | §4 first-writer-wins — the site's rule is nearer, so it writes the route and the base's `**` fills the rest |
-| registries of definitions — `[sets.*]`, `[routes.*]`, `[markers]`, `[widgets]`, `[shells]`, `[profiles]`, `[records.*.*]`, `[i18n.strings.*]` | **shadow by name**, whole entry | a theme fragment shadowing the base's file of the same name (§5e) |
-| settings bags — `[site]`, `[i18n]`, scalars | **per key, child wins** | front matter over rule defaults (§4) |
+| registries of definitions — `[sets.*]`, `[routes.*]`, `[axes.*]`, `[markers]`, `[widgets]`, `[shells]`, `[profiles]`, `[records.*.*]`, `[i18n.strings.*]` | **shadow by name**, whole entry | a theme fragment shadowing the base's file of the same name (§5e) |
+| settings bags — `[site]`, `[i18n]`, `[links]`, scalars | **per key, child wins** | front matter over rule defaults (§4) |
+
+The two lists are descriptions, not a table the code consults: MERGE.md's Law 2
+reads each key's law off the config's own *types*
+(`crates/source/src/shape.rs`), so a definition under a user-chosen name is a
+registry entry and a struct under an engine-chosen name is a bag, by
+construction. `[axes.*]` joined the first row that way — until MERGE.md A3 it
+fell through to wholesale replace, which is the bug that made the law
+structural.
 
 The registry rule is the one worth stating aloud: **your `[routes.feed]`
 replaces the base's entire**, so you never have to know what the base put in a
@@ -439,7 +451,10 @@ Collections key on **source, not name**, and that was found by walking
 field-notes through the merge: it names its posts collection `notes` over
 `_posts`, and a name-keyed merge would have left the base's `posts` collection
 in place beside it — two collections reading one directory, every post twice.
-Source is the physical thing; `name` is a label.
+Source is the physical thing; `name` is a label. (For a *posts* collection.
+On a tree collection nothing reads the directory — §4's "posts only" — so
+`source` there is pure merge identity, which is exactly the trap C7a turned
+into an error.)
 
 ### What may live in the base
 
@@ -910,7 +925,7 @@ The schema yields typed **head facts** — `title`, `description`, `canonical`, 
 
 ### Theme is per row; layout kind is inferred
 
-**Theme is chosen per row** (unusual, but it is what this site does): `theme:` in front matter or a rule default (§5b), rather than a site-wide setting. Per-row is the *mechanism*; it was never the whole answer. `[site] theme = "name[:tokens]"` is the bottom of the same cascade — front matter → rule default → site → the `default` directory → the base theme — so it adds a rung rather than a mechanism. A site-wide dark mode is one config line; a row that names its own theme states its own tokens. (The residue of that word on both rows and views is q33.)
+**Theme is chosen per row** (unusual, but it is what this site does): `theme:` in front matter or a rule default (§5b), rather than a site-wide setting. Per-row is the *mechanism*; it was never the whole answer. `[site] theme = "name[:tokens]"` is the bottom of the same cascade — front matter → nearest marker (§4b) → rule default → site → the `default` directory → the base theme — so it adds a rung rather than a mechanism. A site-wide dark mode is one config line; a row that names its own theme states its own tokens. (The residue of that word on both rows and views is q33.)
 
 **A view may name one too** *(built 2026-07-25)*. A route over a query had no way to say what it wore: an unclaimed listing took the theme its members *agreed* on (`unanimous_theme`), a claimed landing took its claimed row's, and both make the look a property of the CONTENT. The consequence is only visible when you want one query under two looks — the only way to get it was two copies of the rows, which is exactly what `theme-preview/` was doing with six.
 
@@ -2301,7 +2316,7 @@ The predictor of this health: **everything declared is load-checked** (filters, 
 
 §5c named it: *the config declared what the renderer ignored*. Three more pockets have closed — producers hardcoding routes config owns, the feed pass selecting its view by string match, and the sitemap predicate evaluated three times. One remains:
 
-- **Three definitions of "not content"** (→ q34). §4c's three layers govern the tree walk, but `slots.rs` and `serve.rs` carry private skip lists that can silently drift from `exclude`. Both walks should derive from the §4c layers.
+- **Three definitions of "not content"** (→ q34), now two. §4c's three layers are one compiled value (`store::NotContent`, MERGE.md R1/R2) that the tree walk, the `.schema.toml`/`.section` walk and the marker walk all read, so the vocabulary leak that gave a host site an embedded site's field declarations is closed. `slots.rs` and `serve.rs` still carry private skip lists that can silently drift from `exclude`, and adopting the shared value costs `slots.rs` an isolation it currently gets for free (MERGE.md A6) — so the remainder is a decision, not a port.
 
 ### Accepted asymmetries, named so they don't read as leaks
 
@@ -2359,7 +2374,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure.
 30. **Pagination × subdivision (§5c).** A grouped view can subdivide; paginated one cannot yet. Year archive could paginate while months subdivide — row-set semantics cohere but namespace shares. Collision (hard error today) vs pattern-space overlap (should warn or declare).
 33. **View-name policy in `build.rs` (§9b).** Settled: (a) listing `noindex` is a view declaration; (c) dead layout names renamed to `listing`; (f) row `layout:` dissolved. Remains: (b) `"blog_index"` fallback dies when view declares layout; (d) `template` no longer templates — it claims a legacy file; (e) sitemap filter's second evaluation.
-34. **Three "not content" lists (§9b).** §4c's layers govern tree walk only; `slots.rs` and `serve.rs` carry private skips. Both should derive from §4c. Serve's `_cache/` stays its own (rebuild *writes* it).
+34. **Three "not content" lists (§9b).** §4c's layers are now one shared `store::NotContent`, read by the tree, declaration and marker walks (MERGE.md R1/R2). Remaining: `slots.rs` and `serve.rs` carry private skips — and `slots.rs`'s hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host build (MERGE.md A6), so adopting the shared value means consulting the site's `exclude` too. Serve's `_cache/` stays its own (rebuild *writes* it).
 37. **The `board` kind (§5c-adjacent, specced, deliberately pending).** A board is a query over queries. Would retire last hand-written arrangement on either homepage. Pending: (a) member declaration; (b) labels — per-member vs inherited; (c) routable or embed-only; (d) boards-in-boards; (e) board items vs opaque.
 38. **Transclusion (§7b).** Render row X inline by reference. Backlinks half built; waits on real consumer, with §5d's no-control-flow rule.
 39. **Set-scoped computed fields (§7b).** Fields derive from ONE row; survey wants aggregates — `count()`, `sum(minutes)`, date spans. Natural §5f extension but changes inheritance story.

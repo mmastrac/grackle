@@ -27,8 +27,8 @@ mechanical path back down (`theme derive`, §4).
 - **Identity slots** come from `.slots/` files, not theme files.
 - **Token contract**: shared `--bg`, `--size`, `--space`, etc.; all gallery
   themes written entirely in `var(--…)`.
-- **`theme.toml`** is the new per-theme config (not yet live; this design
-  document makes it real in §3).
+- **`theme.toml`** is the per-theme config §3 specs. **Specced here, unbuilt**:
+  `theme.rs` reads no such file, and no theme in the repo carries one.
 
 ## 1. The two guarantees
 
@@ -61,7 +61,7 @@ state that as a guarantee; `theme check`'s token lint is what keeps it true.
 
 ## 3. Inheritance: `extends`
 
-`theme.toml` (now real) gains:
+`theme.toml` — specced here, unbuilt, and this section is the spec — carries:
 
 ```toml
 name        = "mytheme"          # optional; directory name is identity

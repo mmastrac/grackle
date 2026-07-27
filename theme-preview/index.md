@@ -4,10 +4,11 @@ title: Theme gallery
 Eight themes, **one content tree, and one declaration per page type**. The
 themes are an axis (q53): every post, guide page and shelf entry below is a
 single row published at a route per look, and each landing is a single *view*
-materialized across the axis. You are reading the `vanilla` member of this page.
+materialized across the axis. This page is not on it.
 
 This page is the index of the looks rather than one of them, so its rule does
-not spend the axis and it publishes once — which is how a row opts out.
+not spend the axis and it publishes once, at `/`, wearing the base theme
+rather than any of the eight — which is how a row opts out.
 
 | | notes | shelf | wall |
 |---|---|---|---|

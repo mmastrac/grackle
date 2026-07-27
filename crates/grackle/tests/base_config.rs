@@ -226,7 +226,12 @@ fn every_defaulted_scalar_is_printed() {
 /// an empty container (`[sets]`, `[markers]`, …), which has no value to print
 /// and is absent from an effective config on purpose.
 fn defaulted_scalars() -> Vec<String> {
-    let src = include_str!("../../source/src/config.rs");
+    defaulted_scalars_in(include_str!("../../source/src/config.rs"))
+}
+
+/// The extraction itself, over any source text — which is what lets the
+/// spellings it must refuse be exhibited rather than described.
+fn defaulted_scalars_in(src: &str) -> Vec<String> {
     let body = src
         .split_once("pub struct Config {")
         .expect("`Config` is declared in crates/source/src/config.rs")
@@ -238,6 +243,10 @@ fn defaulted_scalars() -> Vec<String> {
     for line in body.lines().map(str::trim) {
         if line.starts_with("#[serde(default = \"") {
             armed = true;
+            // The one-line spelling, `#[serde(default = "…", rename = "…")]`,
+            // arms the extraction here, so it must arm the refusal here too —
+            // the `else if` below never sees it (batch review 3, finding 7).
+            renamed |= line.contains("rename");
         } else if line.starts_with("#[serde(") && line.contains("rename") {
             renamed = true;
         } else if line.is_empty() || line.starts_with("//") || line.starts_with('#') {
@@ -256,6 +265,49 @@ fn defaulted_scalars() -> Vec<String> {
         }
     }
     out
+}
+
+/// A synthetic `Config`, so the extractor's own arms can be exercised without
+/// waiting for someone to write these lines in the real one. `{ATTRS}` is the
+/// attribute block under test.
+fn synthetic(attrs: &str) -> String {
+    format!("pub struct Config {{\n    {attrs}\n    pub extends: String,\n}}\n")
+}
+
+/// What the extraction is FOR: a default that names a function is collected at
+/// its Rust name; a bare `#[serde(default)]` is an empty container with no
+/// value to print; a rename with no default is nobody's business here.
+#[test]
+fn the_extractor_collects_defaults_that_name_a_function() {
+    assert_eq!(
+        defaulted_scalars_in(&synthetic("#[serde(default = \"default_extends\")]")),
+        vec!["extends".to_string()]
+    );
+    assert!(defaulted_scalars_in(&synthetic("#[serde(default)]")).is_empty());
+    assert!(defaulted_scalars_in(&synthetic("#[serde(rename = \"inherits\")]")).is_empty());
+}
+
+/// The refusal, in the spelling that used to evade it (MERGE.md D2i, batch
+/// review 3 finding 7): one attribute carrying both keys armed the extraction
+/// on the `if` arm, so the `else if` that watches for `rename` never ran and a
+/// renamed field would have been collected — and then reported missing from an
+/// effective config that prints it under its TOML name.
+#[test]
+#[should_panic(expected = "a defaulted field is renamed")]
+fn a_default_and_a_rename_on_one_line_is_refused() {
+    defaulted_scalars_in(&synthetic(
+        "#[serde(default = \"default_extends\", rename = \"inherits\")]",
+    ));
+}
+
+/// Its two-line twin, which the assert already caught — kept beside it so the
+/// pair says the refusal is about the FIELD, not about a line.
+#[test]
+#[should_panic(expected = "a defaulted field is renamed")]
+fn a_default_and_a_rename_on_two_lines_is_refused() {
+    defaulted_scalars_in(&synthetic(
+        "#[serde(default = \"default_extends\")]\n    #[serde(rename = \"inherits\")]",
+    ));
 }
 
 /// And its mirror: `examples/raw` inherits nothing, so nothing may be
