@@ -338,11 +338,11 @@ fn the_uninheriting_sites_effective_config_is_entirely_its_own() {
 /// same name outright. One lookup against the merged `[profiles]` table.
 ///
 /// It keeps printing, deliberately: the merge below is what was asked for and
-/// is unaffected by a profile either way (a profile is applied in Rust, after
-/// deserialization, and `--effective` stops before it).
+/// is unaffected by a name that names nothing — the projection is the part
+/// that would not have happened.
 ///
 /// Mutation check: drop the `known.contains` test and the unknown name reads
-/// as a PROJECTION again, which is the whole finding.
+/// as a projection again, which is the whole finding.
 #[test]
 fn an_unknown_profile_is_named_in_the_effective_preamble() {
     // grack.com is the only site in the repo that declares a profile.
@@ -359,15 +359,89 @@ fn an_unknown_profile_is_named_in_the_effective_preamble() {
         &printed[..600.min(printed.len())]
     );
     assert!(
-        !printed.contains("is a PROJECTION applied"),
+        !printed.contains("Projected through"),
         "it must not also claim a projection"
     );
     // And it printed the config anyway.
     let back: toml::Value = toml::from_str(&printed).expect("still TOML");
     assert!(back.as_table().expect("a table").contains_key("site"));
 
-    // The declared one is unchanged.
+    // The declared one is projected, and says so.
     let ok = grackle_source::config::Config::effective(&path, Some("drafts")).unwrap();
-    assert!(ok.contains("profile \"drafts\" is a PROJECTION applied after this merge"));
+    assert!(ok.contains("Projected through profile \"drafts\""));
     assert!(!ok.contains("names no profile"));
+}
+
+/// MERGE.md E2: `--effective --profile NAME` prints the PROJECTED config, and
+/// the overlay is one more writer in the same traced merge — so a key the
+/// profile wrote reads `# profile NAME` exactly as a key the site wrote reads
+/// `# site`. B3's design, carried to a fourth rung: there is no second
+/// traversal and no after-the-fact diff, so the provenance cannot disagree with
+/// the projection the build ran.
+///
+/// It also shows the LAW. `[sets.published]` is a definition, so the comment
+/// sits on the header and none of its keys carry one — you never inherit half
+/// of one, which is why grack.com's drafts profile restates the set in full.
+///
+/// Mutation check: delete the `project` call in `effective_toml` and the
+/// profile's `where` is missing from the output entirely; give the overlay pass
+/// a `far` provenance (`Trace::layer` keeping `Some(Prov::Base)`) and every key
+/// the profile did not write is re-labelled `base`, erasing the merge below.
+#[test]
+fn the_effective_config_shows_the_projection() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../grackle.toml");
+    let plain = grackle_source::config::Config::effective(&path, None).unwrap();
+    let drafts = grackle_source::config::Config::effective(&path, Some("drafts")).unwrap();
+    assert!(!plain.contains("# profile"), "no profile, no such class");
+
+    // The value the projection actually runs on, not a note about one.
+    assert!(plain.contains(r#"where = "!draft && !hidden""#));
+    assert!(drafts.contains(r#"where = "!hidden""#));
+    // Whole definition, one comment, on the header.
+    let line = drafts
+        .lines()
+        .find(|l| l.starts_with("[sets.published]"))
+        .expect("the projected set");
+    assert!(line.contains("# profile drafts, whole"), "{line}");
+    for key in ["from = ", "order_by = "] {
+        let line = drafts
+            .lines()
+            .find(|l| l.trim_start().starts_with(key))
+            .expect(key);
+        assert!(
+            !line.contains('#'),
+            "a definition's keys say nothing: {line}"
+        );
+    }
+    // Everything the profile did not write keeps what the merge UNDERNEATH
+    // decided — the overlay has no farther writer to attribute, because that
+    // question was already answered one layer down.
+    let untouched = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter(|l| l.starts_with("url = ") || l.starts_with("[markers."))
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(
+        untouched(&plain),
+        untouched(&drafts),
+        "the overlay wrote none of these, so their provenance is unmoved"
+    );
+    assert!(untouched(&plain)
+        .iter()
+        .any(|l| l.contains("# site over base")));
+    assert!(
+        drafts.contains("# base"),
+        "the base rung survives the overlay"
+    );
+    let legend = "#   # profile drafts  the profile's overlay";
+    assert!(drafts.contains(legend), "the legend names the class");
+    assert!(!plain.contains(legend), "and only when there is one");
+
+    // Rung 0 is not overlay: it prints under `[profiles]`, where it is written.
+    assert!(drafts.contains("[profiles.drafts.force]"));
+    assert!(drafts.contains("[profiles.drafts.force] is NOT part of that overlay"));
+
+    // Still TOML, still round-trips.
+    toml::from_str::<toml::Value>(&drafts).expect("the projected config parses back");
 }

@@ -1,0 +1,39 @@
+# A broken overlay in a profile nobody is building (MERGE.md E2, R5).
+#
+# The point of this fixture is the FLAG THAT IS NOT PASSED. The suite builds
+# every site with `Config::load` — no `--profile` anywhere — and this one
+# still fails, because `[profiles.staging]` is part of this config rather
+# than a second one: every declared profile is projected, deserialized and
+# validated at every load. Under C6 the checks lived inside `apply_profile`,
+# so this site built happily and the mistake below first spoke on the day
+# someone ran `--profile staging`.
+#
+# `publised` is the misspelling: the base's `[sets.published]` is the query
+# every listing, archive and feed reads, and relaxing it is what a drafts-
+# shaped profile is for. What makes it an error is no longer a name check —
+# a profile is a config OVERLAY, so naming an unknown view simply ADDS a
+# definition, which is what a registry does. The addition is then held to the
+# rules every other entry is held to, and a set with no `from` is not a set.
+#
+# That is the whole-shadow law showing its teeth, too: had the name been
+# right, this entry would still have REPLACED `[sets.published]` entire
+# rather than patching its `where`, which is why a profile that relaxes one
+# clause restates the definition (see grack.com's `drafts`).
+
+[site]
+url = "https://example.com"
+title = "Profile Typo"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+[profiles.staging]
+
+  [profiles.staging.force]
+  noindex = true
+
+  [profiles.staging.sets.publised]
+  where = "!hidden"

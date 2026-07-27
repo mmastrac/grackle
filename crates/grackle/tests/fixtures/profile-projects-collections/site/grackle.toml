@@ -1,0 +1,35 @@
+# The fence: a profile may never change what LOADS (§4a, MERGE.md E2).
+#
+# `[profiles.drafts.collections]` is the whole of this fixture. It is a
+# perfectly good config table — that is the danger — and merged over the
+# config it would give this projection a SECOND DATABASE: different rows,
+# different filename parsing, a different answer to "what is content". Two
+# projections would then not be comparable, one resident db could not answer
+# for several, and `--profile` would have become a second config file, which
+# is the accretion (five Jekyll configs with three opinions about `exclude`)
+# this whole design exists to refuse.
+#
+# So the fence is checked at load, for every declared profile, with no
+# `--profile` anywhere: the error below is what this site does instead of
+# building.
+#
+# Mutation check: delete the `fence` call in `check_profiles` (and in
+# `project`) and this site BUILDS — silently, having loaded `_notes` under
+# the `drafts` projection and nothing under the default one.
+
+[site]
+url = "https://example.com"
+title = "Fenced"
+author = "Tester"
+
+[[collections]]
+kind = "posts"
+source = "_posts"
+filename_formats = ["{year}-{month}-{day}-{slug}"]
+
+[profiles.drafts]
+
+  [[profiles.drafts.collections]]
+  kind = "posts"
+  source = "_notes"
+  filename_formats = ["{year}-{month}-{day}-{slug}"]

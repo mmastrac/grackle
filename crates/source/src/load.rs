@@ -2044,7 +2044,11 @@ mod profile_filter_tests {
     }
 
     /// A site whose vocabulary is declared POSITIONALLY, with one set and a
-    /// profile that patches it. `{filter}` is the profile's `where`.
+    /// profile that restates it. `{filter}` is the profile's `where`.
+    ///
+    /// The restatement is the overlay law (MERGE.md E2): a view is a
+    /// definition, so the profile's entry replaces the site's whole, `from`
+    /// and all.
     fn files(filter: &str) -> Vec<(String, String)> {
         vec![
             (
@@ -2070,6 +2074,7 @@ source = "."
 from = "entries"
 
 [profiles.p.sets.published]
+from = "entries"
 where = "{filter}"
 "#
                 ),

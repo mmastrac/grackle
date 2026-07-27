@@ -141,67 +141,60 @@ pub struct Config {
     pub forced: BTreeMap<String, toml::Value>,
 }
 
-/// One profile's overrides. Closed vocabulary, checked at load: an unknown
-/// key is a parse error rather than a silently ignored intention.
+/// One profile: a fenced config **overlay** plus rung 0's veto block
+/// (§4a, MERGE.md E2).
+///
+/// The body is a PARTIAL CONFIG and is kept here as TOML because that is what
+/// it is merged as. `[profiles.NAME.<path>]` merges over the merged base+site
+/// config through the same `merge_table` + [`Config::shape`] every other table
+/// goes through, with the profile as the NEARER writer; the result is
+/// deserialized into a `Config` again, so `deny_unknown_fields` type-checks
+/// every path a profile can write and nothing here restates the config
+/// surface. The bag/definition distinction falls out of the shape rather than
+/// out of an annotation: `[profiles.p.site] title` patches one key of a bag,
+/// while `[profiles.p.sets.published]` replaces the whole definition — you
+/// never inherit half of one (Law 2).
+///
+/// Two keys are the engine's rather than the overlay's. `force` is reserved to
+/// rung 0 (MERGE.md E1) and is lifted out before the merge; and [`PROJECTABLE`]
+/// fences the rest, because a profile never changes what LOADS.
 #[derive(Debug, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
+#[serde(transparent)]
 pub struct ProfileCfg {
-    /// Address: the absolute URL this projection is published under, which
-    /// canonical links, the feed and the sitemap all read.
-    ///
-    /// `baseurl` is deliberately NOT here in v1. Today it prefixes assets
-    /// and nothing else — routes are generated without it — so a profile
-    /// setting it would claim to relocate a projection while leaving every
-    /// canonical URL pointing at the real site. Making it a true route
-    /// prefix is the punted half of this axis.
-    pub url: Option<String>,
-    /// **Rung 0** (§2, MERGE.md E1): schema-declared fields the projection
-    /// forces, above front matter, markers and rules — on the ROW and on every
-    /// ROUTE, so a listing surface answers the same expression a document does.
-    ///
-    /// It is the projection's veto, and the only rung that outranks the row
-    /// itself. A profile publishing to its own URL space says
-    /// `force = { noindex = true }` and the site's own
-    /// `robots = 'noindex ? …'` expression evaluates it — which is why this
-    /// replaced a key that reached into `[html.head.meta]` and overwrote the
-    /// declaration with a constant: forcing the FIELD says the same thing in
-    /// the site's own vocabulary, and a site that wrote a different expression
-    /// keeps it.
-    ///
-    /// Names come from the site's `[schema]` and are type-checked at load, for
-    /// every declared profile — see [`Config::check_profiles`].
-    #[serde(default)]
-    pub force: BTreeMap<String, toml::Value>,
-    /// **The removed spelling**, kept only so it can say what it became
-    /// (MERGE.md E1). `[profiles.NAME] noindex = true` used to overwrite
-    /// `[html.head.meta] robots` with the constant `"noindex,follow"`,
-    /// clobbering a site's own expression on every page of the projection.
-    /// Deleting the field outright would leave serde's "unknown field
-    /// `noindex`" — true, and silent about the one-line migration — so the
-    /// spelling survives as a load error naming the new one. One meaning per
-    /// spelling: `noindex = false` is refused too, since it never meant
-    /// anything either.
-    #[serde(default)]
-    pub noindex: Option<bool>,
-    /// Selection: per-query `where` replacements. Queries are the only
-    /// selection mechanism, so a profile never changes what LOADS — the
-    /// database is identical under every profile, which is what makes two
-    /// projections comparable and lets one resident db answer for several.
-    ///
-    /// Split to match the config surface: relaxing a set patches a QUERY,
-    /// relaxing a route patches a LANDING, and which one a profile means is
-    /// worth seeing. Merged at load, since the namespace is one.
-    #[serde(default)]
-    pub sets: BTreeMap<String, ProfileView>,
-    #[serde(default)]
-    pub routes: BTreeMap<String, ProfileView>,
+    body: toml::Table,
 }
 
-#[derive(Debug, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-pub struct ProfileView {
-    #[serde(rename = "where")]
-    pub filter: Option<String>,
+/// `[profiles.NAME.force]` — rung 0's veto block (MERGE.md E1), reserved and
+/// never part of the overlay. Named once because the fence, the split and the
+/// error messages all have to agree about the spelling.
+const FORCE: &str = "force";
+
+impl ProfileCfg {
+    /// The profile's body as written: the overlay plus `force`.
+    pub(crate) fn body(&self) -> &toml::Table {
+        &self.body
+    }
+}
+
+/// A profile's body split into the two things it is: the config OVERLAY, and
+/// rung 0's forced fields.
+///
+/// One function because the split happens twice and must not drift — once at
+/// load for every declared profile (typing the forced values, [`Config::
+/// check_profiles`]) and once for the selected one, on the raw TOML, before
+/// there is a `Config` for the overlay to be merged into.
+fn split_profile(pname: &str, body: &toml::Table) -> Result<(toml::Table, toml::Table)> {
+    let mut overlay = body.clone();
+    let force = match overlay.remove(FORCE) {
+        None => toml::Table::new(),
+        Some(toml::Value::Table(t)) => t,
+        Some(other) => anyhow::bail!(
+            "profile {pname}: [profiles.{pname}.{FORCE}] is a table of \
+             schema-declared field names to values (rung 0, §2), not {}",
+            other.type_str()
+        ),
+    };
+    Ok((overlay, force))
 }
 
 fn default_extends() -> String {
@@ -329,6 +322,97 @@ impl Shaped for Config {
             // `forced`.
         ])
     }
+}
+
+// ------------------------------------------------------------------ the fence
+//
+// §4a's iron law, made checkable (MERGE.md E2). It lives here, beside the field
+// list, for the reason the two annotations do: it is a DECISION no structure
+// can imply — nothing about the type of `[collections]` says a profile may not
+// write it — and a decision about a key belongs where a reader meets the key.
+//
+// The two lists are exhaustive over the config surface, and
+// `the_fence_classifies_every_top_level_key` holds them to it: a key added to
+// `Config` has to be put on one side or the other, which is the same
+// compile-then-test discipline `every_config_key_has_a_law` applies one
+// paragraph up. Being exhaustive is also what lets the error tell "you may not
+// project this" apart from "this is not a config key at all".
+
+/// What a profile MAY write: the surfaces that decide what a projection says
+/// and which rows its queries admit.
+const PROJECTABLE: &[&str] = &[
+    "site", "html", "sets", "routes", "i18n", "records", "widgets", "shells", "axes",
+];
+
+/// What a profile may NEVER write: everything that decides what LOADS.
+///
+/// The database is identical under every profile — that is what makes two
+/// projections comparable, and what lets one resident db answer for several
+/// (§4a). `profiles` is here for a second reason: a profile does not contain
+/// profiles, so the overlay is one layer and not a ladder.
+const NOT_PROJECTABLE: &[&str] = &[
+    "collections",
+    "schema",
+    "markers",
+    "root",
+    "gitignore",
+    "extends",
+    "parts",
+    "links",
+    "profiles",
+];
+
+/// The fence, applied to one top-level key of one profile's body.
+///
+/// `force` passes because it is not overlay at all — it is rung 0, lifted out
+/// by [`split_profile`] before the merge ever sees the table.
+fn fence(pname: &str, key: &str) -> Result<()> {
+    if key == FORCE || PROJECTABLE.contains(&key) {
+        return Ok(());
+    }
+    let projectable = PROJECTABLE.join(", ");
+    // The two spellings the closed profile vocabulary used to have. Both are
+    // live in shipped configs and in DESIGN.md, and the fence's own sentence
+    // would leave a reader to guess the new form, so each names it.
+    if key == "noindex" {
+        anyhow::bail!(
+            "profile {pname}: `noindex` is no longer a profile key — it \
+             overwrote [html.head.meta] robots with a constant, which \
+             silently replaced a site's own expression. Force the FIELD \
+             instead, and the expression evaluates it:\n  \
+             [profiles.{pname}.{FORCE}]\n  noindex = true"
+        );
+    }
+    if key == "url" {
+        anyhow::bail!(
+            "profile {pname}: `url` is no longer a profile key of its own — a \
+             profile is a config OVERLAY now (§4a), so it writes the site's own \
+             key at the site's own path:\n  \
+             [profiles.{pname}.site]\n  url = \"https://drafts.example.com\""
+        );
+    }
+    if key == "profiles" {
+        anyhow::bail!(
+            "profile {pname}: [profiles.{pname}.profiles] — a profile never \
+             contains profiles. A projection is one overlay over the config, \
+             not a ladder of them (§4a). A profile may write: {projectable}."
+        );
+    }
+    if NOT_PROJECTABLE.contains(&key) {
+        anyhow::bail!(
+            "profile {pname}: [profiles.{pname}.{key}] — a profile never changes \
+             what loads; the database is identical under every profile (§4a). \
+             {key:?} decides what the engine reads and how it is typed, so it is \
+             site config: every projection of this site sees the same rows, and \
+             a profile chooses among them.\n  \
+             A profile may write: {projectable}."
+        );
+    }
+    anyhow::bail!(
+        "profile {pname}: [profiles.{pname}.{key}] names no config key — a \
+         profile's body is a partial config (§4a), so its top-level keys are \
+         the config's own.\n  A profile may write: {projectable}."
+    )
 }
 
 impl Shaped for Collection {
@@ -478,7 +562,7 @@ fn merge_by(
 ) -> toml::Value {
     match law {
         Law::Atom => {
-            t.record(path, Prov::SiteOverBase);
+            t.record(path, t.near_over());
             site
         }
         Law::Descend(n) => merge_to_depth(base, site, n, path, t),
@@ -496,7 +580,7 @@ fn prepend(
     t: &mut Trace,
 ) -> toml::Value {
     let (Some(b), Some(s)) = (base.as_array(), site.as_array()) else {
-        t.record(path, Prov::SiteOverBase);
+        t.record(path, t.near_over());
         return site;
     };
     let mut out = s.clone();
@@ -506,7 +590,11 @@ fn prepend(
     if t.on() {
         for i in 0..out.len() {
             path.push(index_seg(i));
-            t.record(path, if i < s.len() { Prov::Site } else { Prov::Base });
+            match (i < s.len(), t.far()) {
+                (true, _) => t.record(path, t.near()),
+                (false, Some(far)) => t.record(path, far),
+                (false, None) => {}
+            }
             path.pop();
         }
     }
@@ -552,6 +640,72 @@ fn merge_base_traced(site: toml::Value, t: &mut Trace) -> Result<toml::Value> {
         &mut Vec::new(),
         t,
     ))
+}
+
+/// Project a merged config through one profile (§4a, MERGE.md E2): the
+/// profile's body, minus rung 0, merged over the config with the profile as the
+/// NEARER writer.
+///
+/// It is the same `merge_table` the base merge runs, on the same shape, so
+/// nothing here decides how a key merges: `[site]` is a bag and patches per
+/// key, a `[sets.*]` entry is a definition and replaces whole, and a profile
+/// that means to relax one clause of a set restates the set. The projected
+/// table is then deserialized like any other, which is where a profile's paths
+/// are validated — `deny_unknown_fields`, for free.
+///
+/// Returns the projected table, rung 0's block, and the view names the overlay
+/// wrote — the last so that a `where` a profile supplied can be attributed to
+/// it downstream (MERGE.md C6a).
+fn project(
+    merged: toml::Value,
+    name: &str,
+    t: &mut Trace,
+) -> Result<(toml::Value, toml::Table, Vec<String>)> {
+    let declared = merged.get("profiles").and_then(|p| p.as_table());
+    let body = match declared.and_then(|p| p.get(name)) {
+        Some(b) => b.clone(),
+        // `dev` is implicit (§4a): it needs no declaration, and undeclared it
+        // changes nothing — which is what makes it safe for `serve` to default
+        // to. Any other name must be declared, so a typo is a load error naming
+        // what exists rather than a build that ships the wrong projection.
+        None if name == "dev" => return Ok((merged, toml::Table::new(), Vec::new())),
+        None => {
+            let mut known: Vec<&str> = declared
+                .map(|p| p.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            known.push("dev");
+            known.sort_unstable();
+            anyhow::bail!("unknown profile {name:?} — declared: {}", known.join(", "));
+        }
+    };
+    let Some(body) = body.as_table() else {
+        anyhow::bail!(
+            "profile {name}: [profiles.{name}] is a partial config — a table of \
+             the config's own keys (§4a) — not {}",
+            body.type_str()
+        );
+    };
+    for key in body.keys() {
+        fence(name, key)?;
+    }
+    let (overlay, force) = split_profile(name, body)?;
+    // Which views the overlay wrote. `sets` and `routes` are two sections of
+    // one namespace (`merge_queries`), and this is read before that fold, so
+    // both are asked.
+    let patched: Vec<String> = ["sets", "routes"]
+        .iter()
+        .filter_map(|k| overlay.get(*k)?.as_table())
+        .flat_map(|tbl| tbl.keys().cloned())
+        .collect();
+    t.layer(Prov::Profile);
+    let projected = merge_table(
+        merged,
+        toml::Value::Table(overlay),
+        &Config::shape(),
+        &mut Vec::new(),
+        t,
+    );
+    Ok((projected, force, patched))
 }
 
 // ------------------------------------------------------------- the recorder
@@ -645,7 +799,7 @@ fn merge_table(
     t: &mut Trace,
 ) -> toml::Value {
     let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
-        t.record(path, Prov::SiteOverBase);
+        t.record(path, t.near_over());
         return site;
     };
     let mut out = bt.clone();
@@ -655,17 +809,17 @@ fn merge_table(
         let merged = match out.remove(&k) {
             Some(bv) => merge_by(law, bv, sv, path, t),
             None => {
-                note_key(t, path, law, &sv, Prov::Site);
+                note_key(t, path, law, &sv, t.near());
                 sv
             }
         };
         path.pop();
         out.insert(k, merged);
     }
-    if t.on() {
+    if let Some(far) = t.far().filter(|_| t.on()) {
         for (k, bv) in bt.iter().filter(|(k, _)| !st.contains_key(*k)) {
             path.push(k.clone());
-            note_key(t, path, law_of(shape, k), bv, Prov::Base);
+            note_key(t, path, law_of(shape, k), bv, far);
             path.pop();
         }
     }
@@ -682,11 +836,11 @@ fn merge_to_depth(
     t: &mut Trace,
 ) -> toml::Value {
     let (Some(bt), Some(st)) = (base.as_table(), site.as_table()) else {
-        t.record(path, Prov::SiteOverBase);
+        t.record(path, t.near_over());
         return site;
     };
     if depth == 0 {
-        t.record(path, Prov::SiteOverBase);
+        t.record(path, t.near_over());
         return site;
     }
     let mut out = bt.clone();
@@ -695,17 +849,17 @@ fn merge_to_depth(
         let merged = match out.remove(&k) {
             Some(bv) => merge_to_depth(bv, sv, depth - 1, path, t),
             None => {
-                note_depth(t, path, depth - 1, &sv, Prov::Site);
+                note_depth(t, path, depth - 1, &sv, t.near());
                 sv
             }
         };
         path.pop();
         out.insert(k, merged);
     }
-    if t.on() {
+    if let Some(far) = t.far().filter(|_| t.on()) {
         for (k, bv) in bt.iter().filter(|(k, _)| !st.contains_key(*k)) {
             path.push(k.clone());
-            note_depth(t, path, depth - 1, bv, Prov::Base);
+            note_depth(t, path, depth - 1, bv, far);
             path.pop();
         }
     }
@@ -754,7 +908,7 @@ fn merge_collection_list(
     t: &mut Trace,
 ) -> toml::Value {
     let (Some(ba), Some(sa)) = (base.as_array(), site.as_array()) else {
-        t.record(path, Prov::SiteOverBase);
+        t.record(path, t.near_over());
         return site;
     };
     let mut out = ba.clone();
@@ -772,16 +926,16 @@ fn merge_collection_list(
                 out[i] = merge_collection(out[i].clone(), sc.clone(), path, t);
             }
             None => {
-                note_table(t, path, &Collection::shape(), sc, Prov::Site);
+                note_table(t, path, &Collection::shape(), sc, t.near());
                 out.push(sc.clone());
             }
         }
         path.pop();
     }
-    if t.on() {
+    if let Some(far) = t.far().filter(|_| t.on()) {
         for bc in ba.iter().zip(&paired).filter(|(_, m)| !**m).map(|(c, _)| c) {
             path.push(collection_seg(bc));
-            note_table(t, path, &Collection::shape(), bc, Prov::Base);
+            note_table(t, path, &Collection::shape(), bc, far);
             path.pop();
         }
     }
@@ -1665,15 +1819,18 @@ impl Config {
     pub fn load_profile(path: &Path, profile: Option<&str>) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        let mut cfg = Config::from_toml(&text)
+        // The projection happens inside `from_toml`, on the merged TOML, and
+        // not to the `Config` afterwards (MERGE.md E2): a profile is an
+        // OVERLAY, so what it produces is an ordinary config that has been
+        // through the same merge, the same deserializer and — below — the same
+        // `validate` as the default projection. There is nothing left here that
+        // knows a profile from a site.
+        let mut cfg = Config::from_toml_profile(&text, profile)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         cfg.config_file = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         cfg.resolve_default_content();
         cfg.validate()?;
-        if let Some(name) = profile {
-            cfg.apply_profile(name)?;
-        }
         Ok(cfg)
     }
 
@@ -1760,30 +1917,58 @@ impl Config {
             // MERGE.md C6e: the note asserts a projection, so it has to check
             // that there is one. `dev` needs no declaration and changes
             // nothing, which is what makes it the safe default for `serve`.
-            let mut known: Vec<&str> = merged
-                .get("profiles")
-                .and_then(|p| p.as_table())
+            let declared = merged.get("profiles").and_then(|p| p.as_table());
+            let mut known: Vec<&str> = declared
                 .map(|t| t.keys().map(String::as_str).collect())
                 .unwrap_or_default();
             known.push("dev");
             known.sort_unstable();
-            preamble.push_str(&match known.contains(&name) {
-                true => format!(
-                    "#\n# NOTE: profile {name:?} is a PROJECTION applied after this merge\n\
-                     # (§4a), in Rust rather than in TOML, and is not shown here.\n"
+            let real = declared.is_some_and(|t| t.contains_key(name));
+            preamble.push_str(&match (known.contains(&name), real) {
+                // The projection is IN the table below (MERGE.md E2), which is
+                // what retired this note's old caveat: the overlay went through
+                // the same `merge_table` as the base merge, one layer nearer,
+                // so a `# profile` line is the profile writing a key exactly
+                // the way a `# site` line is the site writing one.
+                (_, true) => format!(
+                    "#\n# Projected through profile {name:?} (§4a): the profile's own body,\n\
+                     # minus `force`, merged over the table above as the NEAREST writer.\n\
+                     # Every `# profile {name}` line below is a key it wrote.\n\
+                     #\n\
+                     # [profiles.{name}.force] is NOT part of that overlay: it is rung 0\n\
+                     # (§2), applied per row and per route at load rather than to the\n\
+                     # config, and it is printed below under [profiles] like any other\n\
+                     # config value.\n"
+                ),
+                // `dev`, undeclared: a real projection that writes nothing.
+                (true, false) => format!(
+                    "#\n# NOTE: profile {name:?} is implicit (§4a) — this config declares no\n\
+                     # [profiles.{name}], and an undeclared profile projects nothing. The\n\
+                     # table below is what it would build.\n"
                 ),
                 // Keep printing: the merge below is what the reader asked for
                 // and is unaffected — the profile is the part that would not
                 // have happened, and the build would have refused outright.
-                false => format!(
+                (false, _) => format!(
                     "#\n# NOTE: {name:?} names no profile (knowns: {}), so nothing\n\
                      # would be projected — `build --profile {name}` is a load error.\n\
                      # The merged config below is unaffected and is printed anyway.\n",
                     known.join(", ")
                 ),
             });
+            if real {
+                // The same `project` the load path runs, with the recorder
+                // turned on — so what is printed is what the build did, which
+                // is B3's whole design carried to one more writer.
+                (merged, _, _) = project(merged, name, &mut trace)?;
+            }
         }
-        Ok(crate::effective::render(&merged, &trace, &preamble))
+        Ok(crate::effective::render(
+            &merged,
+            &trace,
+            &preamble,
+            profile.unwrap_or_default(),
+        ))
     }
 
     /// Parse and fold the query sections. The one parse path, so a config
@@ -1791,10 +1976,29 @@ impl Config {
     /// the §4d base merge, which is why a test wanting isolation says
     /// `extends = "none"` rather than reaching for a second entry point.
     pub fn from_toml(text: &str) -> Result<Config> {
+        Config::from_toml_profile(text, None)
+    }
+
+    /// [`Config::from_toml`], as projected through `profile` (§4a, MERGE.md
+    /// E2).
+    ///
+    /// The projection sits between the base merge and the deserializer, which
+    /// is the whole of the design: the profile is one more writer over the
+    /// merged table, and everything below this line — deserialization,
+    /// `merge_collections`, `merge_queries`, `validate` — runs on the result
+    /// without knowing a projection happened.
+    ///
+    /// **Every declared profile is dry-run here** when none is selected
+    /// (MERGE.md R5's principle, E2's shape): the same merge, the same
+    /// deserializer and the same `validate`, for each `[profiles.*]` entry, so
+    /// a broken overlay is a load error with no `--profile` anywhere.
+    pub fn from_toml_profile(text: &str, profile: Option<&str>) -> Result<Config> {
         let value: toml::Value = toml::from_str(text)?;
         let inherits_base = Config::extends_of(&value)?;
-        // Whose view is whose, recorded before the merge blurs the two.
-        let declared: Vec<String> = ["sets", "routes"]
+        // Whose view is whose, recorded before the merge blurs the two. A view
+        // the PROFILE declared is the author's too — it is in the file they are
+        // reading — so the overlay's names join the list below.
+        let mut declared: Vec<String> = ["sets", "routes"]
             .iter()
             .filter_map(|k| value.get(k)?.as_table())
             .flat_map(|t| t.keys().cloned())
@@ -1821,6 +2025,14 @@ impl Config {
             false => value,
             true => merge_base(value)?,
         };
+        // The projection (MERGE.md E2). `Trace::off()` here for the same reason
+        // the base merge passes it: `--effective` is the only recorder, and it
+        // runs this same function through `project` with one turned on.
+        let (value, forced, patched) = match profile {
+            None => (value, toml::Table::new(), Vec::new()),
+            Some(name) => project(value, name, &mut Trace::off())?,
+        };
+        declared.extend(patched.iter().cloned());
         let mut cfg: Config = match value.try_into() {
             Ok(c) => c,
             Err(e) => {
@@ -1851,6 +2063,49 @@ impl Config {
             }
         }
         cfg.check_collection_kinds()?;
+        if let Some(name) = profile {
+            // Rung 0, lifted out of the profile so the loader can reach it
+            // without knowing about profiles (§2, MERGE.md E1).
+            cfg.forced = forced.into_iter().collect();
+            // The profile's record of ITSELF, distinct from what it forces:
+            // "this projection asks search engines away", carried on `Site` for
+            // a theme or a future surface to read. `data-profile` is the other
+            // half and comes off `cfg.profile`.
+            cfg.site.noindex =
+                matches!(cfg.forced.get("noindex"), Some(toml::Value::Boolean(true)));
+            cfg.profile = Some(name.to_string());
+            // Who wrote the `where` a view carries. The overlay replaced the
+            // whole definition, so the config no longer remembers on its own —
+            // and an error about a filter must not send a reader to a `[sets]`
+            // entry whose text is not the text in the message (MERGE.md C6a).
+            for vname in &patched {
+                if let Some(v) = cfg.views.get_mut(vname) {
+                    v.filter_profile = Some(name.to_string());
+                }
+            }
+        } else {
+            // Every declared profile, projected and validated, at every load —
+            // so a typo in a projection nobody is building today is a load
+            // error today (MERGE.md R5). It is the same three passes the
+            // selected profile gets: fence, merge + deserialize, validate.
+            //
+            // `resolve_default_content` is deliberately NOT re-run per profile:
+            // it reads the filesystem, `from_toml` has no directory, and every
+            // difference it makes is one that ADDS an error (a claimed row, a
+            // route stood down) — so the dry run is strictly the more lenient
+            // of the two and cannot invent a failure the real load would not
+            // have. See MERGE.md §6, E2.
+            for name in cfg.profiles.keys() {
+                Config::from_toml_profile(text, Some(name))
+                    .and_then(|p| p.validate())
+                    .with_context(|| {
+                        format!(
+                            "profile {name} (checked at every load — a projection \
+                             is part of this config, §4a)"
+                        )
+                    })?;
+            }
+        }
         Ok(cfg)
     }
 
@@ -2138,30 +2393,28 @@ impl Config {
         s
     }
 
-    /// Placement and view names for EVERY declared profile, at load (§4a,
-    /// MERGE.md R5).
+    /// The fence and rung 0, for EVERY declared profile, at load (§4a,
+    /// MERGE.md E2 and E1).
     ///
-    /// Both questions are facts about this config alone — which section a
-    /// view was declared under, and whether a name is a view at all — so
-    /// both are answerable for every `[profiles.*]` entry rather than only
-    /// for the one being applied. C6c built them inside `apply_profile`,
-    /// where they were reachable only under the flag that selects the
-    /// profile: `[profiles.staging.sets] serach = { … }` was a config error
-    /// that first spoke the day someone built `--profile staging`. A profile
-    /// is part of the config, not a second one, and `--profile` is a flag
-    /// that picks a projection, not the moment its declaration becomes
-    /// checkable.
+    /// Both are facts about this config alone — which top-level keys a profile
+    /// writes, and whether a forced name is declared and typed — so both are
+    /// answerable for every `[profiles.*]` entry rather than only for the one
+    /// being applied (MERGE.md R5): `--profile` is a flag that picks a
+    /// projection, not the moment its declaration becomes checkable.
     ///
-    /// The `force` block joins them (MERGE.md E1) for the same reason and with
-    /// no caveat at all: rung 0 names fields the site's `[schema]` declares and
-    /// types them against that declaration, which is a fact about this config
-    /// with no tree and no projection in it.
+    /// It is deliberately the CHEAP half. The expensive half — merge the
+    /// overlay, deserialize it, validate the result — is the dry run in
+    /// [`Config::from_toml_profile`], which needs the config's own TOML and so
+    /// cannot live on a `&self`. The two do not overlap: nothing below reaches
+    /// past a profile's top-level keys.
     ///
-    /// Filter EXPRESSIONS deliberately stay at apply time — see
-    /// [`Config::check_profile_filters`], which this pass does NOT subsume:
-    /// a profile's `where` type-checks against the vocabulary of the view it
-    /// REPLACES, and there is no patched view to attribute it to until the
-    /// projection is in place.
+    /// Placement (`sets` vs `routes`) and view names were checked here until
+    /// E2 and are not any more, because the overlay subsumes both: a profile
+    /// naming an unknown view now ADDS a definition, which is what a registry
+    /// does, and the addition is held to the same rules as any other — a set
+    /// with no `from` is `missing field \`from\``, and a name declared under
+    /// both sections collides in the one namespace `merge_queries` folds them
+    /// into.
     fn check_profiles(&self) -> Result<()> {
         // The vocabulary rung 0 may name: the site's own `[schema]`, parsed by
         // the parser `Schemas::set_site` uses, so the two cannot come to
@@ -2176,43 +2429,21 @@ impl Config {
                 false => names.join(", "),
             }
         };
-        // "sets: a, b; routes: c" — a profile patches views by name, and the
-        // section is half of the answer, so the knowns are listed by section.
-        let knowns = || {
-            let by = |want: bool| {
-                let names: Vec<&str> = self
-                    .views
-                    .iter()
-                    .filter(|(_, v)| v.declared_set == want)
-                    .map(|(n, _)| n.as_str())
-                    .collect();
-                match names.is_empty() {
-                    true => "none".to_string(),
-                    false => names.join(", "),
-                }
-            };
-            format!("sets: {}; routes: {}", by(true), by(false))
-        };
         for (pname, p) in &self.profiles {
-            // The spelling that became `force` (MERGE.md E1). It is checked
-            // before anything else this profile says, because everything else
-            // it says is beside the point until the key is rewritten.
-            if p.noindex.is_some() {
-                anyhow::bail!(
-                    "profile {pname}: `noindex` is no longer a profile key — it \
-                     overwrote [html.head.meta] robots with a constant, which \
-                     silently replaced a site's own expression. Force the FIELD \
-                     instead, and the expression evaluates it:\n  \
-                     [profiles.{pname}.force]\n  noindex = true"
-                );
+            // The fence: §4a's iron law, and the two retired spellings, which
+            // are checked before anything else this profile says because
+            // everything else it says is beside the point until the key moves.
+            for key in p.body().keys() {
+                fence(pname, key)?;
             }
             // Rung 0: every forced name is declared, and every forced value
             // fits its declaration. Both are checked for a profile nobody is
             // building, which is R5's whole sentence one table over.
-            for (field, v) in &p.force {
+            let (_, force) = split_profile(pname, p.body())?;
+            for (field, v) in &force {
                 let Some(ty) = declared.get(field) else {
                     anyhow::bail!(
-                        "profile {pname}: [profiles.{pname}.force] {field} — a \
+                        "profile {pname}: [profiles.{pname}.{FORCE}] {field} — a \
                          forced field is written onto every row and every route, \
                          so it must be declared in the site's own [schema]\n  \
                          declared fields: {}",
@@ -2223,69 +2454,8 @@ impl Config {
                     *ty,
                     field,
                     v,
-                    &format!("profile {pname}: [profiles.{pname}.force]"),
+                    &format!("profile {pname}: [profiles.{pname}.{FORCE}]"),
                 )?;
-            }
-            // The `sets`/`routes` split exists to be read: relaxing a set
-            // patches a QUERY, relaxing a route patches a LANDING. Chaining
-            // them into one lookup made it decorative — either word reached
-            // either entry, and a view named under both was patched twice in
-            // map order (MERGE.md C6c).
-            //
-            // A name in both that names NO view is skipped here: there is no
-            // right section for it, and the loop below says the more useful
-            // thing.
-            for both in p.sets.keys().filter(|k| p.routes.contains_key(*k)) {
-                let Some(v) = self.views.get(both) else {
-                    continue;
-                };
-                let section = match v.declared_set {
-                    true => "sets",
-                    false => "routes",
-                };
-                anyhow::bail!(
-                    "profile {pname}: {both:?} is patched under both \
-                     [profiles.{pname}.sets] and [profiles.{pname}.routes] — one \
-                     entry patches one view, and the second would win by map \
-                     order. It is a {}, so keep the [profiles.{pname}.{section}] \
-                     one.",
-                    match section {
-                        "sets" => "set",
-                        _ => "route",
-                    }
-                );
-            }
-            let entries = p
-                .sets
-                .keys()
-                .map(|k| (k, true))
-                .chain(p.routes.keys().map(|k| (k, false)));
-            for (vname, under_sets) in entries {
-                let wrote = match under_sets {
-                    true => "sets",
-                    false => "routes",
-                };
-                let Some(v) = self.views.get(vname) else {
-                    anyhow::bail!(
-                        "profile {pname}: [profiles.{pname}.{wrote}.{vname}] names \
-                         no view — a profile replaces the `where` of a query this \
-                         config declares ({}).",
-                        knowns()
-                    );
-                };
-                if v.declared_set != under_sets {
-                    let (is, belongs) = match under_sets {
-                        true => ("route", "routes"),
-                        false => ("set", "sets"),
-                    };
-                    anyhow::bail!(
-                        "profile {pname}: [profiles.{pname}.{wrote}.{vname}] patches a \
-                         {is} — {vname:?} is declared under [{belongs}], so write it \
-                         as [profiles.{pname}.{belongs}.{vname}]. The split says which \
-                         of the two a profile means (§4a): a set is a query, a route \
-                         is a landing."
-                    );
-                }
             }
         }
         Ok(())
@@ -2293,10 +2463,11 @@ impl Config {
 
     /// Type-check every `where` a profile wrote (§4a, MERGE.md C6a/C6b).
     ///
-    /// Run from [`Config::validate`], which [`Config::apply_profile`] re-runs
-    /// once the projection is in place — so a profile's filter is checked by
-    /// the same pass as everything else the config says, rather than at the
-    /// moment it happened to be written.
+    /// Run from [`Config::validate`], which the projection goes through like
+    /// any other config (MERGE.md C6b, E2) — so a profile's `where` is checked
+    /// by the same pass as everything else the config says, rather than at the
+    /// moment it happened to be written. It is keyed off `View::filter_profile`
+    /// and is therefore vacuous on a config no profile wrote to.
     ///
     /// **Unknown names are deferred, not accepted.** The vocabulary reachable
     /// from a `Config` is short of the positional `.schema.toml` declarations
@@ -2323,64 +2494,6 @@ impl Config {
             }
         }
         Ok(())
-    }
-
-    /// Project this config through a profile (§4a): the one thing in the
-    /// system that rewrites a resolved config, which is why it re-validates.
-    fn apply_profile(&mut self, name: &str) -> Result<()> {
-        let Some(p) = self.profiles.remove(name) else {
-            if name == "dev" {
-                self.profile = Some(name.to_string());
-                return Ok(());
-            }
-            let mut known: Vec<&str> = self.profiles.keys().map(String::as_str).collect();
-            known.push("dev");
-            known.sort_unstable();
-            anyhow::bail!("unknown profile {name:?} — declared: {}", known.join(", "));
-        };
-        if let Some(u) = p.url {
-            self.site.url = u;
-        }
-        // Rung 0 (§2, MERGE.md E1). The fields are lifted out whole — already
-        // named and typed by `check_profiles`, which `validate` ran over every
-        // declared profile before this method was reachable — and the loader
-        // writes them onto each row and each route. Nothing is done to
-        // `[html.head.meta]` here: the site's own `robots` expression reads the
-        // forced field like any other, on documents and listings alike, which
-        // is what retired a key that overwrote the declaration with a constant.
-        self.forced = p.force;
-        // The profile's record of ITSELF, distinct from what it forces: q10's
-        // "this projection asks search engines away", carried on `Site` for a
-        // theme or a future surface to read. `data-profile` is the other half
-        // and comes off `self.profile` below.
-        self.site.noindex = matches!(self.forced.get("noindex"), Some(toml::Value::Boolean(true)));
-        // Placement — the `sets`/`routes` split, and whether these names are
-        // views at all — belongs to `check_profiles`, which `validate` runs
-        // over EVERY declared profile before this method is ever reached
-        // (MERGE.md R5). Which is why the two sections may be chained here
-        // again: the split is a law about what a profile SAYS, and by the
-        // time one is applied it has been read.
-        for (vname, over) in p.sets.into_iter().chain(p.routes) {
-            // The lookup cannot fail for the same reason, but it still has to
-            // answer something, and an error beats an `unwrap` on an
-            // invariant held one function away.
-            let v = self
-                .views
-                .get_mut(&vname)
-                .with_context(|| format!("profile {name}: no view named {vname:?}"))?;
-            if let Some(f) = over.filter {
-                v.filter = Some(f);
-                v.filter_profile = Some(name.to_string());
-            }
-        }
-        self.profile = Some(name.to_string());
-        // MERGE.md C6b: everything above rewrote a config `validate` had
-        // already passed, so it passes again — including
-        // `check_profile_filters`, which is vacuous until the loop above
-        // writes a filter and is the reason a bad profile `where` is caught
-        // at load at all. `validate` is pure and reads no filesystem, so
-        // running it twice costs a second walk of the views and nothing else.
-        self.validate().with_context(|| format!("profile {name}"))
     }
 
     /// Every load-time config check (split from `load` so tests can run
@@ -3112,13 +3225,30 @@ mod tests {
         c
     }
 
+    /// The text every helper here parses: one posts collection, no base.
+    fn cfg_source(views: &str) -> String {
+        format!(
+            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
+        )
+    }
+
+    /// The same site as [`cfg`], PROJECTED through `profile` (MERGE.md E2).
+    ///
+    /// A projection is a config built through the ordinary entry point — the
+    /// overlay merges into the merged table, the deserializer sees the result,
+    /// and `validate` runs on it — so the test drives exactly what
+    /// `Config::load_profile` drives, minus the filesystem.
+    fn projected(views: &str, profile: &str) -> Result<Config> {
+        let c = Config::from_toml_profile(&cfg_source(views), Some(profile))?;
+        c.validate()?;
+        Ok(c)
+    }
+
     /// Parsed, with collections keyed — but queries not yet folded, which is
     /// what the `merge_queries` checks below are about.
     fn cfg_unmerged(views: &str) -> Config {
-        let src = format!(
-            "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
-        );
+        let src = cfg_source(views);
         let mut c: Config = toml::from_str(&src).expect("test config should parse");
         c.merge_collections()
             .expect("test collections should resolve");
@@ -4211,17 +4341,19 @@ mod tests {
     /// `Site.noindex` is `#[serde(skip)]`, so `deny_unknown_fields` rejects
     /// it in `[site]` — which is what the doc comment there already claims
     /// ("set by a profile, never by the site"). The profile still sets it,
-    /// because it does so in Rust, not through a second deserialization —
-    /// off the forced field now (MERGE.md E1), which is the profile's record
-    /// of itself rather than the mechanism.
+    /// because it does so in Rust, off the forced field (MERGE.md E1), which
+    /// is the profile's record of itself rather than the mechanism.
     #[test]
     fn a_profile_still_sets_the_skipped_noindex() {
-        let mut c = cfg_raw(
-            "[schema]\nnoindex = { type = \"bool\" }\n[profiles.p.force]\nnoindex = true\n",
+        const S: &str =
+            "[schema]\nnoindex = { type = \"bool\" }\n[profiles.p.force]\nnoindex = true\n";
+        assert!(
+            !Config::from_toml(&cfg_source(S))
+                .expect("the default projection")
+                .site
+                .noindex
         );
-        assert!(!c.site.noindex);
-        c.apply_profile("p").expect("the profile applies");
-        assert!(c.site.noindex);
+        assert!(projected(S, "p").expect("the profile applies").site.noindex);
 
         let e = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
@@ -4232,11 +4364,155 @@ mod tests {
         assert!(e.contains("unknown field `noindex`"), "{e}");
     }
 
-    /// The two views every profile test below patches: a set that never
+    /// The two views every profile test below writes over: a set that never
     /// lands, and a route that does.
     const PROFILE_VIEWS: &str = "[schema]\nhidden = { type = \"bool\" }\n\
          [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
          [routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"listing\"\n";
+
+    /// MERGE.md E2, the fence — §4a's iron law made checkable. A profile may
+    /// touch what a projection SAYS and SELECTS and never what LOADS, and the
+    /// two lists beside `Config::shape` are exhaustive over the config surface,
+    /// so the error can tell "you may not project this" apart from "this is not
+    /// a config key at all".
+    ///
+    /// Mutation check: delete `"axes"` from `PROJECTABLE` and the first arm
+    /// below fails (an axis overlay is refused); delete the `fence` call from
+    /// `check_profiles` and the `[profiles.p.collections]` half loads in
+    /// silence — the fixture `profile-projects-collections` is the same
+    /// sentence at site scale, where the overlay would really have applied.
+    #[test]
+    fn the_fence_refuses_what_a_profile_may_not_write() {
+        // The control: every projectable key, written by a profile that also
+        // forces a field, on a config that loads.
+        let ok = format!(
+            "{PROFILE_VIEWS}[profiles.p.site]\nurl = \"https://drafts.example.com\"\n\
+             [profiles.p.axes.look]\nfield = \"look\"\nvalues = [\"plain\"]\n\
+             [profiles.p.widgets]\nnote = \"<aside>{{body}}</aside>\"\n"
+        );
+        let c = projected(&ok, "p").expect("site, axes and widgets are projectable");
+        assert_eq!(c.site.url, "https://drafts.example.com");
+        assert!(c.axes.contains_key("look") && c.widgets.contains_key("note"));
+
+        // What loads is not a profile's to change, and the error says so.
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[[profiles.p.collections]]\nkind = \"objects\"\nname = \"x\"\n"
+        ));
+        assert!(e.contains("[profiles.p.collections]"), "{e}");
+        assert!(e.contains("never changes what loads"), "{e}");
+        assert!(e.contains("identical under every profile"), "{e}");
+        assert!(e.contains("site, html, sets, routes"), "the knowns: {e}");
+        // Every non-projectable key says it, not just the interesting one.
+        for key in ["schema", "markers", "extends", "root", "parts", "links"] {
+            let e = cfg_err(&format!("{PROFILE_VIEWS}[profiles.p]\n{key} = \"x\"\n"));
+            assert!(e.contains("never changes what loads"), "{key}: {e}");
+        }
+
+        // No recursion: an overlay is one layer, not a ladder.
+        let e = cfg_err(&format!(
+            "{PROFILE_VIEWS}[profiles.p.profiles.q.site]\nurl = \"u\"\n"
+        ));
+        assert!(e.contains("never contains profiles"), "{e}");
+
+        // And a key that is no config key at all is told that instead.
+        let e = cfg_err(&format!("{PROFILE_VIEWS}[profiles.p]\nnosuch = 1\n"));
+        assert!(e.contains("names no config key"), "{e}");
+    }
+
+    /// The fence is a decision, so it must be TOTAL over the config surface —
+    /// which is what makes "names no config key" a true sentence rather than a
+    /// guess. A field added to `Config` has to be put on one side or the other
+    /// here, the same discipline `every_config_key_has_a_law` applies to the
+    /// merge itself.
+    ///
+    /// Mutation check: delete any key from either list and this fails naming
+    /// it; move one to the other list and the disjointness assert fires.
+    #[test]
+    fn the_fence_classifies_every_top_level_key() {
+        let shape = Config::shape();
+        let keys: Vec<&str> = shape.fields().iter().map(|(k, _)| *k).collect();
+        for k in &keys {
+            let projectable = PROJECTABLE.contains(k);
+            assert!(
+                projectable != NOT_PROJECTABLE.contains(k),
+                "{k} is on both sides of the fence, or on neither"
+            );
+        }
+        for k in PROJECTABLE.iter().chain(NOT_PROJECTABLE) {
+            assert!(
+                keys.contains(k),
+                "the fence names {k}, which is no config key"
+            );
+        }
+        // `force` is reserved rather than projectable: it is rung 0, lifted out
+        // before the overlay is merged, and it is deliberately NOT a config key.
+        assert!(!keys.contains(&FORCE));
+    }
+
+    /// MERGE.md E2's law, and the reason grack.com's drafts profile restates
+    /// `[sets.published]` in full: the shape decides. `[site]` is a bag, so a
+    /// profile patches one key of it and the rest survive; a `[sets.*]` entry
+    /// is a DEFINITION, and a definition is an atom — the profile's entry
+    /// replaces the site's entire, `order_by` and all.
+    ///
+    /// Mutation check: give `sets` `Law::Atom`'s depth-0 shape and the bag half
+    /// fails; annotate `site` as an atom and the definition half stops being
+    /// the distinction this test is about. The site-scale version of the second
+    /// half is the parity gate: drop `order_by` from grack.com's restatement
+    /// and `--profile drafts` lists by path.
+    #[test]
+    fn a_bag_patches_per_key_and_a_definition_replaces_whole() {
+        let views = "[schema]\nhidden = { type = \"bool\" }\n\
+             [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\norder_by = \"-date\"\n";
+        let c = projected(
+            &format!("{views}[profiles.p.site]\nurl = \"https://drafts.example.com\"\n"),
+            "p",
+        )
+        .expect("a bag patches");
+        assert_eq!(c.site.url, "https://drafts.example.com");
+        assert_eq!(c.site.title, "t", "the rest of the bag stands");
+
+        let c = projected(
+            &format!("{views}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"true\"\n"),
+            "p",
+        )
+        .expect("a restatement is a whole definition");
+        assert_eq!(c.views["published"].filter.as_deref(), Some("true"));
+        assert_eq!(
+            c.views["published"].order_by, None,
+            "the site's `order_by` is not half-inherited — the definition is the atom"
+        );
+    }
+
+    /// The migrations, both of them: the closed profile vocabulary's two typed
+    /// keys are ordinary config paths now, and each old spelling names its new
+    /// one rather than leaving the fence to say "not a config key".
+    ///
+    /// Mutation check: delete either arm of `fence` and the spelling gets the
+    /// generic sentence, which is true and says nothing about the fix.
+    #[test]
+    fn the_old_profile_spellings_name_the_new_ones() {
+        // MERGE.md E1's tombstone. `[profiles.NAME] noindex = true` meant
+        // something materially different — it overwrote the head declaration
+        // with a constant — so `noindex = false` is refused too, since it never
+        // meant anything either.
+        for old in ["noindex = true", "noindex = false"] {
+            let e = cfg_err(&format!(
+                "[schema]\nnoindex = {{ type = \"bool\" }}\n[profiles.drafts]\n{old}\n"
+            ));
+            assert!(e.contains("no longer a profile key"), "{e}");
+            assert!(e.contains("[profiles.drafts.force]"), "{e}");
+            assert!(e.contains("noindex = true"), "the new spelling: {e}");
+        }
+        // E2's: `url` was the profile's own key and is the site's key now.
+        // Serde says nothing here — the body is a partial config, so an
+        // unknown top-level key is the fence's to explain, and `url` is live
+        // in DESIGN.md §4a's example.
+        let e = cfg_err("[profiles.drafts]\nurl = \"https://drafts.example.com\"\n");
+        assert!(e.contains("no longer a profile key of its own"), "{e}");
+        assert!(e.contains("[profiles.drafts.site]"), "{e}");
+        assert!(e.contains("url = "), "the new spelling: {e}");
+    }
 
     /// MERGE.md C6a: a profile's `where` is accepted exactly where the `where`
     /// it replaces is — the row built-ins AND every declared field, one
@@ -4248,17 +4524,25 @@ mod tests {
     /// the first and not the second, `hidden` — a declared field since §4e —
     /// is in the second and not the first, so a filter naming both failed
     /// both parses and the profile was refused. Mutation-checked by restoring
-    /// the two-shot, which fails on `unknown field \\`title\\``.
+    /// the two-shot, which fails on `unknown field \`title\``.
     #[test]
     fn a_profile_filter_may_mix_builtins_and_declared_fields() {
-        let mut c = cfg_raw(&format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = 'title != \"\" && !hidden'\n"
-        ));
-        c.apply_profile("p").expect("one vocabulary, not two");
+        let c = projected(
+            &format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\n\
+                 where = 'title != \"\" && !hidden'\n"
+            ),
+            "p",
+        )
+        .expect("one vocabulary, not two");
         assert_eq!(
             c.views["published"].filter.as_deref(),
             Some("title != \"\" && !hidden")
         );
+        // Who wrote it. The overlay replaced the whole definition, so the
+        // config cannot recover this from the text — it is recorded as the
+        // projection is built (MERGE.md E2), and it is what keeps the profile
+        // in an error about a filter the reader cannot find in `[sets]`.
         assert_eq!(c.views["published"].filter_profile.as_deref(), Some("p"));
     }
 
@@ -4295,13 +4579,17 @@ mod tests {
         assert_eq!(rows.get("dir"), Some(&Type::Str));
         assert_eq!(routes.get("dir"), Some(&Type::Bool));
 
-        // And the star view's own patch applies, against route words.
-        let mut c = cfg_raw(&format!(
-            "{PROFILE_VIEWS}[routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\n\
-             shell = \"sitemap\"\n\
-             [profiles.p.routes.sitemap]\nwhere = 'kind == \"post\" && !hidden'\n"
-        ));
-        c.apply_profile("p").expect("a star view reads routes");
+        // And the star view's own overlay applies, against route words.
+        projected(
+            &format!(
+                "{PROFILE_VIEWS}[routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\n\
+                 shell = \"sitemap\"\n\
+                 [profiles.p.routes.sitemap]\nfrom = \"*\"\npath = \"/sitemap.xml\"\n\
+                 shell = \"sitemap\"\nwhere = 'kind == \"post\" && !hidden'\n"
+            ),
+            "p",
+        )
+        .expect("a star view reads routes");
     }
 
     /// The deferral C6a's fix rests on, at the unit level: a name this early
@@ -4314,117 +4602,128 @@ mod tests {
     /// `load::profile_filter_tests`.
     #[test]
     fn an_unknown_name_in_a_profile_filter_is_deferred_not_rejected() {
-        let mut c = cfg_raw(&format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!cover\"\n"
-        ));
-        c.apply_profile("p")
-            .expect("`cover` may yet be a positional declaration");
+        let c = projected(
+            &format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"!cover\"\n"
+            ),
+            "p",
+        )
+        .expect("`cover` may yet be a positional declaration");
         assert_eq!(c.views["published"].filter.as_deref(), Some("!cover"));
     }
 
-    /// MERGE.md C6b: `apply_profile` runs AFTER `validate`, so nothing a
-    /// profile wrote was ever re-checked. It re-runs `validate` now, and
-    /// `check_profile_filters` is what makes that load-bearing.
+    /// MERGE.md C6b: the projection is a config that `validate` has never seen,
+    /// so it is validated — and `check_profile_filters` is what makes that
+    /// load-bearing, since it is keyed off the provenance E2 records as the
+    /// overlay is merged.
     ///
-    /// Mutation-checked by deleting the `self.validate()` call at the end of
-    /// `apply_profile`, after which this config applies its profile happily
-    /// and the type error surfaces at the pass that evaluates the filter.
+    /// Mutation-checked by deleting the `filter_profile` loop in
+    /// `from_toml_profile`, after which this config projects happily and the
+    /// type error surfaces at the pass that evaluates the filter, naming no
+    /// profile.
     #[test]
     fn a_profile_filter_that_does_not_type_check_is_caught_at_load() {
         let e = format!(
             "{:#}",
-            cfg_raw(&format!(
-                "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = 'title > 3'\n"
-            ))
-            .apply_profile("p")
+            projected(
+                &format!(
+                    "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\n\
+                     where = 'title > 3'\n"
+                ),
+                "p",
+            )
             .expect_err("a string is not an int")
         );
         assert!(e.contains("profile p"), "names the profile: {e}");
         assert!(e.contains("view published"), "names the view: {e}");
     }
 
-    /// MERGE.md C6c: `[profiles.*.sets]` and `[profiles.*.routes]` were
-    /// chained into one lookup, so either word reached either entry — the
-    /// split, whose entire purpose is to say which of the two a profile means
-    /// (relaxing a set patches a QUERY, relaxing a route patches a LANDING),
-    /// was decorative.
+    /// MERGE.md E2: what the retired placement checks were guarding is now
+    /// said by the ordinary rules, because the overlay produces an ordinary
+    /// config. C6c refused `[profiles.p.sets.blog_index]` because `blog_index`
+    /// is a route; today that entry ADDS a `[sets]` definition of that name,
+    /// which collides in the one namespace `merge_queries` folds the two
+    /// sections into — the same error a site writing it twice would get, and
+    /// the reason no third rule is needed.
     ///
-    /// **R5 moved the question one pass earlier**: every error below is
-    /// `validate`'s, so `cfg_err` reaches it with NO profile applied — the
-    /// section a view was declared under is a fact about the config, and a
-    /// profile nobody is building says it wrong just as loudly.
-    ///
-    /// Mutation-checked three ways: chaining the two sections back into one
-    /// lookup (`v.declared_set != under_sets` never firing) loses the first
-    /// two errors and `a_declined_default_content_route_is_still_a_route`
-    /// with them; emptying the doubly-named loop loses the third; and
-    /// deleting the `cfg.check_profiles()?` call in `validate` makes all
-    /// three configs load, after which they fail only under `--profile p` —
-    /// which is the disease this item is named for.
+    /// Mutation check: delete the `views.insert(...).is_some()` bail in
+    /// `merge_queries` and the misplaced entry loads, its view patched twice
+    /// in map order.
     #[test]
-    fn a_profile_is_held_to_the_sets_routes_split() {
-        // The control: both entries where they belong, both applied.
-        let mut ok = cfg(&format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
-             [profiles.p.routes.blog_index]\nwhere = 'title != \"\"'\n"
-        ));
-        ok.apply_profile("p").expect("both are where they belong");
+    fn a_misplaced_profile_entry_collides_in_the_one_namespace() {
+        // The control: both entries where they belong, both restated whole.
+        let ok = projected(
+            &format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
+                 [profiles.p.routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\n\
+                 layout = \"listing\"\nwhere = 'title != \"\"'\n"
+            ),
+            "p",
+        )
+        .expect("both are where they belong");
         assert_eq!(ok.views["published"].filter.as_deref(), Some("!hidden"));
         assert_eq!(
             ok.views["blog_index"].filter.as_deref(),
             Some("title != \"\"")
         );
 
-        let e = cfg_err(&format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\nwhere = \"!hidden\"\n"
-        ));
-        assert!(e.contains("patches a route"), "{e}");
-        assert!(e.contains("[profiles.p.routes.blog_index]"), "{e}");
-
-        let e = cfg_err(&format!(
-            "{PROFILE_VIEWS}[profiles.p.routes.published]\nwhere = \"!hidden\"\n"
-        ));
-        assert!(e.contains("patches a set"), "{e}");
-        assert!(e.contains("[profiles.p.sets.published]"), "{e}");
-
-        // The same view under both: two entries, one view, and the second
-        // silently winning by map order.
-        let e = cfg_err(&format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nwhere = \"!hidden\"\n\
-             [profiles.p.routes.published]\nwhere = 'title != \"\"'\n"
-        ));
-        assert!(e.contains("patched under both"), "{e}");
-        assert!(e.contains("keep the [profiles.p.sets] one"), "{e}");
+        let e = format!(
+            "{:#}",
+            Config::from_toml(&cfg_source(&format!(
+                "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\npath = \"/blog/\"\n\
+                 from = \"published\"\nlayout = \"listing\"\nwhere = \"!hidden\"\n"
+            )))
+            .expect_err("`blog_index` is already a route")
+        );
+        assert!(e.contains("profile p"), "{e}");
+        assert!(
+            e.contains("declares a path") || e.contains("both a set and a route"),
+            "{e}"
+        );
     }
 
-    /// MERGE.md R5, the name half: a profile naming a view that does not
-    /// exist is a load error at EVERY load, under no profile at all. The
-    /// typo is in `[profiles.staging]` and the config is loaded the way
-    /// `grackle build` loads it — which is the whole item, since under C6
-    /// this site built happily until the day someone passed
-    /// `--profile staging`.
+    /// MERGE.md R5's principle at E2's scale: EVERY declared profile is
+    /// projected, deserialized and validated at every load, so a broken
+    /// overlay in a projection nobody is building is a load error today. The
+    /// config below is loaded the way `grackle build` loads it, with no
+    /// `--profile` anywhere.
     ///
-    /// Mutation check: delete `cfg.check_profiles()?` from `validate` and
-    /// both halves load in silence.
+    /// Its typo is `publised` for `[sets.published]`, the query a drafts-shaped
+    /// profile relaxes — and what makes it an error is no longer a name check.
+    /// A profile naming an unknown view ADDS a definition, which is what a
+    /// registry does; the addition is then held to the same rules as any other
+    /// entry, and a set with no `from` is `missing field \`from\``.
+    ///
+    /// Mutation check: delete the dry-run loop in `from_toml_profile` and both
+    /// halves load in silence, failing only under `--profile staging`. The
+    /// site-scale version is the `profile-unknown-view` fixture.
     #[test]
-    fn a_profile_naming_no_view_fails_a_load_that_never_applies_it() {
-        let e = cfg_err(&format!(
-            "{PROFILE_VIEWS}[profiles.staging.sets.serach]\nwhere = \"!hidden\"\n"
-        ));
-        assert!(e.contains("[profiles.staging.sets.serach]"), "{e}");
-        assert!(e.contains("names no view"), "{e}");
-        // The knowns, by section — half the answer to "where should this
-        // have gone" is which section the name lives in.
-        assert!(e.contains("sets: published"), "{e}");
-        assert!(e.contains("routes: blog_index"), "{e}");
+    fn a_broken_overlay_fails_a_load_that_never_applies_it() {
+        let e = format!(
+            "{:#}",
+            Config::from_toml(&cfg_source(&format!(
+                "{PROFILE_VIEWS}[profiles.staging.sets.publised]\nwhere = \"!hidden\"\n"
+            )))
+            .expect_err("a set with no `from` is not a set")
+        );
+        assert!(e.contains("profile staging"), "names the profile: {e}");
+        assert!(e.contains("checked at every load"), "and why: {e}");
+        assert!(e.contains("missing field `from`"), "{e}");
 
-        // A name in BOTH sections that names nothing gets this error rather
-        // than the placement one: there is no right section for it.
-        let e = cfg_err(&format!(
-            "{PROFILE_VIEWS}[profiles.staging.sets.serach]\nwhere = \"!hidden\"\n\
-             [profiles.staging.routes.serach]\nwhere = \"!hidden\"\n"
-        ));
-        assert!(e.contains("names no view"), "{e}");
+        // The other direction: a profile ADDING a well-formed view is legal —
+        // a registry gains an entry, which is what a registry is for.
+        let c = projected(
+            &format!(
+                "{PROFILE_VIEWS}[profiles.staging.sets.drafts_only]\nfrom = \"blog\"\n\
+                 where = \"hidden\"\n"
+            ),
+            "staging",
+        )
+        .expect("a profile may add a set");
+        assert_eq!(c.views["drafts_only"].filter.as_deref(), Some("hidden"));
+        // …and it is the author's, not the base's: an error about it must not
+        // send them looking in a config they did not write.
+        assert!(!c.views["drafts_only"].inherited);
     }
 
     /// R5's three controls, in one place because they are one sentence: a
@@ -4432,69 +4731,80 @@ mod tests {
     ///
     /// The `dev` one is the load-bearing half. DESIGN.md §4a makes `dev`
     /// implicit — `serve` defaults to it and undeclared it changes nothing —
-    /// so `check_profiles` must never be the thing that invents a
-    /// `[profiles.dev]` requirement. It cannot be: it iterates the profiles a
-    /// config DECLARES, and an implicit one declares nothing.
+    /// so the dry run must never be the thing that invents a `[profiles.dev]`
+    /// requirement. It cannot be: it iterates the profiles a config DECLARES,
+    /// and an implicit one declares nothing.
     #[test]
     fn checking_every_profile_leaves_the_correct_ones_alone() {
-        // A site with no profiles at all — `cfg` is `cfg_raw` + `validate`,
-        // so reaching the next line is the assertion.
-        let plain = cfg(PROFILE_VIEWS);
+        // A site with no profiles at all — reaching the next line is the
+        // assertion, since the dry run runs inside `from_toml`.
+        let plain = Config::from_toml(&cfg_source(PROFILE_VIEWS)).expect("no profiles, no checks");
         assert!(plain.profiles.is_empty());
 
-        // grack.com's shape: one profile, correctly placed, never applied.
-        let mut both = cfg(&format!(
+        // grack.com's shape: one profile, correct, never applied.
+        let declared = format!(
             "{PROFILE_VIEWS}[profiles.drafts.force]\nhidden = false\n\
-             [profiles.drafts.sets.published]\nwhere = \"!hidden\"\n\
-             [profiles.drafts.routes.blog_index]\nwhere = 'title != \"\"'\n"
-        ));
+             [profiles.drafts.sets.published]\nfrom = \"blog\"\nwhere = \"true\"\n"
+        );
+        let both = Config::from_toml(&cfg_source(&declared)).expect("declared, not applied");
+        assert_eq!(
+            both.views["published"].filter.as_deref(),
+            Some("!hidden"),
+            "the default projection is the config exactly as written"
+        );
+        assert!(both.forced.is_empty(), "nothing is forced until applied");
         // And applying it still works, which is the same config one flag on.
-        both.apply_profile("drafts").expect("as declared");
+        let applied = projected(&declared, "drafts").expect("as declared");
+        assert_eq!(applied.views["published"].filter.as_deref(), Some("true"));
+        assert_eq!(applied.forced["hidden"], toml::Value::Boolean(false));
 
-        // `serve`'s default: undeclared `dev` needs no `[profiles.dev]`, and
-        // a config carrying an unrelated profile still loads under it.
-        let mut dev = cfg(&format!(
-            "{PROFILE_VIEWS}[profiles.drafts.sets.published]\nwhere = \"!hidden\"\n"
-        ));
+        // `serve`'s default: undeclared `dev` needs no `[profiles.dev]`, and a
+        // config carrying an unrelated profile still loads under it.
+        let dev = projected(&declared, "dev").expect("dev is implicit (§4a)");
         assert!(!dev.profiles.contains_key("dev"));
-        dev.apply_profile("dev").expect("dev is implicit (§4a)");
         assert_eq!(dev.profile.as_deref(), Some("dev"));
         // …and changes nothing: `drafts` was declared, not applied.
         assert_eq!(dev.views["published"].filter.as_deref(), Some("!hidden"));
         assert!(dev.views["published"].filter_profile.is_none());
+
+        // A name that is neither declared nor implicit is a load error naming
+        // what exists, rather than a build that ships the wrong projection.
+        let e = format!(
+            "{:#}",
+            Config::from_toml_profile(&cfg_source(&declared), Some("stagin"))
+                .expect_err("a typo is not a projection")
+        );
+        assert!(e.contains("unknown profile \"stagin\""), "{e}");
+        assert!(e.contains("declared: dev, drafts"), "{e}");
     }
 
     /// A `[routes]` entry whose `default_content` offer was DECLINED loses its
     /// path — and what that leaves is not a set. The section an entry was
     /// declared under is recorded rather than re-derived for exactly this
-    /// case; `is_materialized()` would call this view a set and send the
-    /// author to `[profiles.p.sets]`, where it does not live.
+    /// case: `is_materialized()` would call this view a set, and C7b's error
+    /// tells the author to "declare your own [sets.home]" over an entry that
+    /// lives under `[routes]`.
+    ///
+    /// (C6c's placement check was the other reader and is retired with E2 —
+    /// `whose_from` is what keeps `declared_set` live. Mutation check: derive
+    /// it from `is_materialized()` in `merge_queries` and this fails.)
     #[test]
     fn a_declined_default_content_route_is_still_a_route() {
-        let decline = |profile: &str| {
-            let mut c = cfg_raw(&format!(
-                "[routes.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"listing\"\n\
-                 default_content = \"index.md\"\n{profile}"
-            ));
-            // What `resolve_default_content` does to a route whose offered row
-            // exists and does not place `{{% view home %}}`: the row wants the
-            // URL to itself, so the route stands down.
-            let v = c.views.get_mut("home").expect("declared");
-            v.route = None;
-            v.routes.clear();
-            assert!(!v.is_materialized());
-            c
-        };
-        decline("[profiles.p.routes.home]\nwhere = 'title != \"\"'\n")
-            .validate()
-            .expect("a route with no path left is still a route");
-        let e = format!(
-            "{:#}",
-            decline("[profiles.p.sets.home]\nwhere = 'title != \"\"'\n")
-                .validate()
-                .expect_err("and is not a set")
+        let mut c = cfg_raw(
+            "[routes.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"listing\"\n\
+             default_content = \"index.md\"\n",
         );
-        assert!(e.contains("patches a route"), "{e}");
+        // What `resolve_default_content` does to a route whose offered row
+        // exists and does not place `{% view home %}`: the row wants the URL to
+        // itself, so the route stands down.
+        let v = c.views.get_mut("home").expect("declared");
+        v.route = None;
+        v.routes.clear();
+        assert!(!v.is_materialized());
+        assert!(
+            !c.views["home"].declared_set,
+            "a route with no path left is still a route"
+        );
     }
 
     /// MERGE.md E1, the whole point of the shape: the profile writes the
@@ -4507,29 +4817,31 @@ mod tests {
     /// about the same forced fact, which is what "the site's vocabulary"
     /// means.
     ///
-    /// Mutation check: have `apply_profile` insert into `html.head.meta` again
-    /// and the second half fails, the site's expression gone.
+    /// Mutation check: leave `force` in the overlay (`split_profile` reading it
+    /// rather than removing it) and the projected table carries a top-level
+    /// `force` key the `Config` deserializer refuses — rung 0 is reserved, not
+    /// config surface, and the fence lets it through for exactly that reason.
     #[test]
     fn a_forced_field_leaves_the_sites_robots_expression_alone() {
         let site = "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n";
-        let mut inherited = Config::from_toml(&format!(
-            "root = \".\"\n{site}[profiles.drafts.force]\nnoindex = true\n"
-        ))
+        let inherited = Config::from_toml_profile(
+            &format!("root = \".\"\n{site}[profiles.drafts.force]\nnoindex = true\n"),
+            Some("drafts"),
+        )
         .expect("a base-inheriting config");
-        inherited
-            .apply_profile("drafts")
-            .expect("the profile applies");
         assert_eq!(
             inherited.html.head.meta["robots"], "noindex ? \"noindex,follow\" : \"\"",
             "the base's expression, untouched — it EVALUATES the forced field"
         );
 
-        let mut own = Config::from_toml(&format!(
-            "root = \".\"\n{site}[profiles.drafts.force]\nnoindex = true\n\
-             [html.head.meta]\nrobots = 'noindex ? \"noindex,nofollow\" : \"index,follow\"'\n"
-        ))
+        let own = Config::from_toml_profile(
+            &format!(
+                "root = \".\"\n{site}[profiles.drafts.force]\nnoindex = true\n\
+                 [html.head.meta]\nrobots = 'noindex ? \"noindex,nofollow\" : \"index,follow\"'\n"
+            ),
+            Some("drafts"),
+        )
         .expect("a site may write its own robots expression");
-        own.apply_profile("drafts").expect("the profile applies");
         assert_eq!(
             own.html.head.meta["robots"], "noindex ? \"noindex,nofollow\" : \"index,follow\"",
             "an editorial policy its author spelled out is not a profile's to \
@@ -4545,7 +4857,7 @@ mod tests {
     /// Mutation-checked three ways: deleting the `declared.get` arm accepts
     /// `nosuchfield` (first half); deleting the `schema::typed` call accepts
     /// `noindex = "yes"` (second half); and deleting the whole block from
-    /// `check_profiles` loses both plus the migration error below.
+    /// `check_profiles` loses both.
     #[test]
     fn a_forced_field_is_declared_and_typed_for_every_profile() {
         const S: &str = "[schema]\nnoindex = { type = \"bool\" }\n";
@@ -4562,34 +4874,14 @@ mod tests {
         assert!(e.contains("[profiles.staging.force]"), "{e}");
         assert!(e.contains("declared bool"), "{e}");
 
+        // Rung 0 is not overlay: `force` is lifted out before the merge, so a
+        // table under it is never a config path.
+        let e = cfg_err(&format!("{S}[profiles.staging]\nforce = 3\n"));
+        assert!(e.contains("[profiles.staging.force] is a table"), "{e}");
+
         // The control: correct, and inert on a load that applies no profile.
         let ok = cfg(&format!("{S}[profiles.staging.force]\nnoindex = true\n"));
         assert!(ok.forced.is_empty(), "nothing is forced until applied");
-    }
-
-    /// MERGE.md E1's migration. `[profiles.NAME] noindex = true` meant
-    /// something materially different — it overwrote the head declaration with
-    /// a constant — so the spelling is a load error naming the new one rather
-    /// than a silent retype.
-    ///
-    /// The judgment recorded: serde's own message for a deleted field is
-    /// "unknown field `noindex`, expected one of `url`, `force`, `sets`,
-    /// `routes`". True, and it names `force` — but it does not say that the
-    /// fix is one indented table, and this key is live in a shipped config and
-    /// in DESIGN.md. So the field survives as a tombstone.
-    ///
-    /// Mutation check: delete the `p.noindex.is_some()` bail and both halves
-    /// load in silence, doing nothing at all.
-    #[test]
-    fn the_old_profile_noindex_spelling_names_the_new_one() {
-        for old in ["noindex = true", "noindex = false"] {
-            let e = cfg_err(&format!(
-                "[schema]\nnoindex = {{ type = \"bool\" }}\n[profiles.drafts]\n{old}\n"
-            ));
-            assert!(e.contains("no longer a profile key"), "{e}");
-            assert!(e.contains("[profiles.drafts.force]"), "{e}");
-            assert!(e.contains("noindex = true"), "the new spelling: {e}");
-        }
     }
 
     #[test]

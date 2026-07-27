@@ -18,11 +18,17 @@ use std::collections::BTreeMap;
 
 /// Which writer supplied a value.
 ///
-/// Four rungs of §2's spine as a site meets them: its own file, the base
-/// config underneath it, and — for a key neither file wrote — the default
-/// compiled into the deserializer.
+/// Five rungs of §2's spine as a site meets them: the selected profile's
+/// overlay, its own file, the base config underneath it, and — for a key
+/// neither file wrote — the default compiled into the deserializer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Prov {
+    /// The selected profile wrote it (MERGE.md E2). A profile is a fenced
+    /// config OVERLAY merged over everything below by the same two laws, so
+    /// it is one more writer rather than a second mechanism — which is the
+    /// whole reason this class exists and the preamble no longer has to
+    /// apologise for a projection it could not show.
+    Profile,
     /// The site wrote it and the base had nothing at that key.
     Site,
     /// The site wrote it over a value the base had: Law 1, visible.
@@ -35,17 +41,22 @@ pub(crate) enum Prov {
 }
 
 impl Prov {
-    fn label(self) -> &'static str {
+    /// The comment text. `profile` names the projection in force, which is
+    /// the one label that is not a constant — a profile's class is *which*
+    /// profile.
+    fn label(self, profile: &str) -> String {
         match self {
-            Prov::Site => "site",
-            Prov::SiteOverBase => "site over base",
-            Prov::Base => "base",
-            Prov::Default => "default",
+            Prov::Profile => format!("profile {profile}"),
+            Prov::Site => "site".to_string(),
+            Prov::SiteOverBase => "site over base".to_string(),
+            Prov::Base => "base".to_string(),
+            Prov::Default => "default".to_string(),
         }
     }
 
     fn gloss(self) -> &'static str {
         match self {
+            Prov::Profile => "the profile's overlay, merged over everything below (§4a)",
             Prov::Site => "the site's file; the base had nothing there",
             Prov::SiteOverBase => "the site's file, shadowing a value the base had",
             Prov::Base => "inherited untouched — the site never wrote it",
@@ -55,7 +66,13 @@ impl Prov {
 }
 
 /// In the order a reader meets them, nearest writer first (§2's spine).
-const PROVENANCES: [Prov; 4] = [Prov::Site, Prov::SiteOverBase, Prov::Base, Prov::Default];
+const PROVENANCES: [Prov; 5] = [
+    Prov::Profile,
+    Prov::Site,
+    Prov::SiteOverBase,
+    Prov::Base,
+    Prov::Default,
+];
 
 /// A comment: who wrote the value, and whether it was taken WHOLE (a table or
 /// an array — the shapes where "half of it was inherited" would be a lie worth
@@ -74,8 +91,17 @@ type Note = (Prov, bool);
 ///
 /// `on` is what keeps this free on the load path: `Trace::off()` is what
 /// `Config::from_toml` merges with, and every record is one bool test.
+///
+/// `near`/`far` are what let ONE merge serve two layers. The base merge runs
+/// with the site as the nearer writer and the base as the farther; the profile
+/// overlay (MERGE.md E2) re-runs the same `merge_table` over the RESULT, with
+/// the profile as the nearer writer and no farther one at all — because a key
+/// the profile did not write was already attributed by the merge underneath,
+/// and re-recording it as `base` would erase what that merge decided.
 pub(crate) struct Trace {
     on: bool,
+    near: Prov,
+    far: Option<Prov>,
     notes: BTreeMap<Vec<String>, Prov>,
 }
 
@@ -84,6 +110,8 @@ impl Trace {
     pub(crate) fn off() -> Trace {
         Trace {
             on: false,
+            near: Prov::Site,
+            far: Some(Prov::Base),
             notes: BTreeMap::new(),
         }
     }
@@ -91,8 +119,40 @@ impl Trace {
     pub(crate) fn recording() -> Trace {
         Trace {
             on: true,
+            near: Prov::Site,
+            far: Some(Prov::Base),
             notes: BTreeMap::new(),
         }
+    }
+
+    /// Re-aim the recorder at a layer merged OVER the one just recorded: `near`
+    /// becomes `prov`, and there is no farther writer to attribute (see the
+    /// type's own doc).
+    pub(crate) fn layer(&mut self, prov: Prov) {
+        self.near = prov;
+        self.far = None;
+    }
+
+    /// What a key the nearer writer wrote — and the farther one did not —
+    /// records as.
+    pub(crate) fn near(&self) -> Prov {
+        self.near
+    }
+
+    /// What a key BOTH writers wrote records as. "Site over base" is Law 1 made
+    /// visible; a profile's class already says the same thing (it is by
+    /// construction over something), so it does not split in two.
+    pub(crate) fn near_over(&self) -> Prov {
+        match self.near {
+            Prov::Site => Prov::SiteOverBase,
+            other => other,
+        }
+    }
+
+    /// What a key only the farther writer wrote records as, or `None` when
+    /// there is nothing to say — see the type's own doc.
+    pub(crate) fn far(&self) -> Option<Prov> {
+        self.far
     }
 
     pub(crate) fn on(&self) -> bool {
@@ -185,11 +245,13 @@ fn key_name(k: &str) -> String {
 
 /// The merged config as commented TOML. `preamble` is the caller's first
 /// lines — which file this is, and which profile is in force — and the legend
-/// below it is this module's.
-pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str) -> String {
+/// below it is this module's. `profile` names the projection, and is what the
+/// [`Prov::Profile`] class prints as.
+pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str, profile: &str) -> String {
     let mut e = Emit {
         out: String::new(),
         trace,
+        profile,
         hdr: Vec::new(),
         path: Vec::new(),
     };
@@ -199,7 +261,7 @@ pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str) -> Str
     // should not be handed a glossary of the merge it did not do.
     for p in PROVENANCES.iter().filter(|p| trace.uses(**p)) {
         e.out
-            .push_str(&format!("#   # {:<15} {}\n", p.label(), p.gloss()));
+            .push_str(&format!("#   # {:<15} {}\n", p.label(profile), p.gloss()));
     }
     e.out.push_str(
         "#\n\
@@ -217,6 +279,8 @@ pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str) -> Str
 struct Emit<'a> {
     out: String,
     trace: &'a Trace,
+    /// The projection in force, for [`Prov::Profile`]'s label.
+    profile: &'a str,
     /// The TOML header path — what goes between the brackets.
     hdr: Vec<String>,
     /// The provenance path — the same walk the merge took, which differs
@@ -236,9 +300,9 @@ impl Emit<'_> {
             return;
         };
         let comment = if whole {
-            format!("# {}, whole", prov.label())
+            format!("# {}, whole", prov.label(self.profile))
         } else {
-            format!("# {}", prov.label())
+            format!("# {}", prov.label(self.profile))
         };
         let pad = COMMENT_COL.saturating_sub(text.chars().count()).max(2);
         self.out

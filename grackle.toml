@@ -215,17 +215,30 @@ callout = """
   noindex = true
 
   # Selection is the query's job: relax the one `where` that hides drafts and
-  # every listing, archive and feed downstream follows, because they all
-  # read `published`. The section is checked: a name under `sets` must be a
-  # [sets] entry and a name under `routes` a [routes] one. Patching a SET
-  # patches a query...
+  # every listing, archive and feed downstream follows, because they all read
+  # `published`.
+  #
+  # Both entries below are FULL RESTATEMENTS of the definitions further down
+  # this file, with one clause changed — that is the overlay law, not a style
+  # (MERGE.md E2). A view is a definition, and a definition is an atom: you
+  # never inherit half of one, here or in `extends`, so the profile's entry
+  # replaces the site's entire. Drop `order_by` below and this projection
+  # silently lists by path; the two blocks have to be read together, which is
+  # the price of one law instead of two.
   [profiles.drafts.sets.published]
+  from = ["posts", "drafts"]
   where = "!hidden"
+  order_by = "-date"
 
-  # ...and patching a ROUTE patches a landing. Its own search index too, or
-  # the projection would ship a searchable set that disagrees with the pages
-  # beside it.
+    [profiles.drafts.sets.published.fields.summary]
+    truncate = { max_blocks = 4, max_chars = 700 }
+
+  # The searchable set too, or the projection would ship a search index that
+  # disagrees with the pages beside it.
   [profiles.drafts.routes.search]
+  path = "/search.bin"
+  from = "*"
+  shell = "search"
   where = 'kind == "post" && !hidden'
 
 # ------------------------------------------------------------------ sets

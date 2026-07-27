@@ -283,9 +283,15 @@ at what profiles (q6, q10) should decide later.
 
 ## 4a. Profiles: a projection, not a different database *(v1 built 2026-07-19)*
 
-A profile changes **three things and no others**: which rows the views admit,
-the absolute URL the output is addressed under, and a marker themes may style on.
-It never changes what *loads* — the database is identical under every profile.
+A profile is a **fenced config overlay plus a veto block**. Its body is a
+partial config — `[profiles.NAME.<path>]` merges over the effective config by
+the same two laws every other table obeys (MERGE.md §1) — and the fence is what
+keeps it a projection: it may write what the output *says* and what the queries
+*select* (`site`, `html`, `sets`, `routes`, `i18n`, `records`, `widgets`,
+`shells`, `axes`), and never what *loads* (`collections`, `schema`, `markers`,
+`root`, `gitignore`, `extends`, `parts`, `links`, and `profiles` — no
+recursion). **The database is identical under every profile**, which is what
+makes two projections comparable and lets one resident db answer for several.
 
 ```toml
 [profiles.drafts]
@@ -293,9 +299,24 @@ It never changes what *loads* — the database is identical under every profile.
   [profiles.drafts.force]
   noindex = true             # rung 0: forced on every row AND every route
 
+  [profiles.drafts.site]
+  url = "https://drafts.example.com"   # a bag: patches one key, keeps the rest
+
+  # A definition: this REPLACES [sets.published] entire, so it restates it.
   [profiles.drafts.sets.published]
-  where = "!hidden"          # relax the filter that hides drafts
+  from = ["posts", "drafts"]
+  where = "!hidden"          # the one clause that changes
+  order_by = "-date"
 ```
+
+**The shape decides how each entry merges, and there is no annotation.**
+`[site]` is a bag, so a profile patches one key of it and the rest stand;
+a `[sets.*]` entry is a *definition*, and a definition is an atom — you never
+inherit half of one (Law 2), here or in `extends`. That is why a profile
+relaxing one clause of a query restates the query. The projected table is then
+deserialized like any other, so every path a profile writes is validated by
+`deny_unknown_fields` — nothing restates the config surface — and the result is
+re-validated as an ordinary config.
 
 `build` uses the default projection. `serve` defaults to `dev`, which changes
 nothing. Any other name must be declared, so a typo is a load error naming
@@ -315,16 +336,19 @@ does not touch `[html.head.meta]`: it forces the FIELD, and a site's own
 `robots` expression answers it in the site's own words. The `[profiles.NAME]
 noindex = true` key this replaced is a load error naming the new spelling.
 
-**The `sets`/`routes` split is checked, not decorative.** A name under
-`sets` must be a `[sets]` entry and a name under `routes` a `[routes]` one;
-either misplaced, or the same view under both, or naming no view at all, is
-a load error naming where the entry actually lives. **Every declared profile
-is checked at every load**, not only the one being built — placement and
-names are facts about the config, so a typo in a profile you are not
-building today does not wait for the day you build it. A profile's `where`
-is the exception, and by necessity: it is type-checked when the projection
-is applied, against the vocabulary of the view it replaces — same
-vocabulary, same pass, same error as that view's own.
+**Every declared profile is projected at every load**, not only the one being
+built: the fence, then the merge, then the deserializer, then `validate`, for
+each `[profiles.*]` entry. A projection is part of this config rather than a
+second one, so a broken overlay in a profile you are not building today does
+not wait for the day you build it. A profile's `where` is type-checked against
+the vocabulary of the view it replaces — same vocabulary, same pass, same error
+as that view's own, with the profile named because the text is not in any
+`[sets]` entry the reader can go and look at.
+
+**A profile adding a view is legal**, because a registry is what it is: an
+entry nothing shadows is a new definition, held to the same rules as any other
+(a set with no `from` is not a set; a name declared under both `sets` and
+`routes` collides in the one namespace). There is no separate placement law.
 
 **Presentation costs no engine code.** The root shell stamps `data-profile`,
 so a dev banner is a theme CSS rule on `[data-profile="dev"]`.
@@ -603,7 +627,9 @@ The base config merge is inert on sites that already declared everything, verifi
   ships (MERGE.md B3). The merge itself records which writer supplied each
   atom, so the output cannot disagree with the load; `examples/raw` stays the
   readable copy beside it. It is `explain`'s "which rule wrote which key" one
-  level up.
+  level up. With `--profile NAME` it prints the PROJECTED config: the overlay
+  is one more writer in the same merge (§4a, MERGE.md E2), so a key the profile
+  wrote reads `# profile NAME` the way a key the site wrote reads `# site`.
 
 ## 4e. The flag family is not engine vocabulary
 
