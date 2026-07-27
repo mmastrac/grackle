@@ -370,7 +370,7 @@ Phase C on. Two follow-up items (land before the final review; sequenced next):
   and say "names no profile (knowns: …)" in the preamble (batch review 2,
   finding 4).
 
-- [ ] **C7. Collection identity errors.** (a) A second `kind = "tree"` or
+- [x] **C7. Collection identity errors.** (a) A second `kind = "tree"` or
   `kind = "objects"` collection is silently discarded (load.rs:917-933,
   last-in-BTreeMap-order wins) — the exact bug §4 documents as fixed for
   posts. Load error naming both collections. (b) When an *inherited* view's
@@ -1741,6 +1741,117 @@ string is `resolve()`'s own and is covered both ways by tests. (iii) The
 `--effective` preamble now knows the profile table; §7 q11's "should
 `--effective` show struct-level defaults" is the neighbouring question about
 that output, and a `config --projected` would subsume both.
+
+**2026-07-27 — C7.** Landed as one commit. The two halves are one sentence —
+*a name in this config can be answered by something the author never wrote,
+and both errors quoted it back at them as if they had*.
+
+*(a) The disease was bigger than "contributes zero rows", and the measurement
+is what drew the line.* A site declaring a tree at `source = "pages"` beside
+the base's inherited one at `.` does not lose that collection's ROWS — the
+tree walk takes `cfg.root()` and never a collection's `source`, so a tree
+collection's `source` is **decorative, serving only merge identity**. What it
+loses is the loser's rules, `exclude`, `include` and `schema`, all of them,
+silently: with the base's three tree rules gone, a plain `robots.txt` becomes
+`no rule supplies a route`. The objects case is worse because it does not fail
+— an objects collection named anything but `objects` BUILDS, with the base's
+six extensions replaced by whatever the site listed. So the two kinds are
+singletons in fact, and the guard says so.
+
+*The line, stated as the item asked.* A site tree collection at a non-`"."`
+source is an error naming both entries and pointing at the base's. That is not
+a new restriction: it is what the shape always meant. Collections key on
+`source` (§1's annotation), so such a declaration never REPLACED the base's —
+it sat beside it, and one of the two was thrown away by `BTreeMap` order.
+`Collection::inherited` (the third of `View::inherited`/`Rule::inherited`,
+recorded from the same pre-merge read — `site_rules`' KEY SET is already
+"the collections the site declared") is what lets the message name which of
+the two is not in the author's file. `extends = "none"` reaches the same guard
+with the provenance sentence correctly absent, which is its own test.
+
+*The guard is in `Config`, not in `load`.* It is a fact about the merged
+config with no filesystem in it, it belongs beside `merge_collections`' "two
+collections resolve to one name" — the other half of collection identity —
+and putting it there makes `load`'s loop safe **by construction** rather than
+by a second check. `load`'s comment now says which function guarantees it.
+`--effective` is unaffected (it stops before deserialization by design, B3),
+and is in fact the tool for this error: it shows the base's tree collection
+sitting beside the site's, which is the thing the author could not see.
+
+*Corpus: nothing tripped, and nothing could have.* Only three sites inherit
+the base. grack.com and field-notes each declare their tree at `source = "."`
+and their objects as `name = "objects"` — both merge into the base's entry, one
+of each kind — and `examples/minimal` declares no collections at all. `raw` and
+`theme-preview` are `extends = "none"` with exactly one of each. Of the 30+
+fixtures, none declares two of a kind. All five sites byte-identical.
+
+*(b) The error was wrong twice, not once.* The ledger predicted it would blame
+`published` — an entry the author never wrote. On the real corpus shape it
+blames **`blog_index`**: `build_views` iterates in name order, `blog_index`
+composes over `published`, and `check_base` was handed the view whose query was
+ASKED FOR rather than the one carrying the `from`. So a site that renamed its
+posts collection to `notes` read `blog_index: from = "posts" is neither a
+collection, a set nor a route` — on a file containing neither `blog_index` nor
+`posts`. `check_base` now takes both (`carrier`, `asked`), and
+`Config::whose_from` adds one line per blurred fact. The knowns are listed too,
+because "collections: entries, notes, objects" is what shows an author their
+own rename.
+
+*The other blind spots, hunted and reported.* Within "an inherited name names
+nothing", **`check_base` is the whole family**, and there is a structural
+reason worth recording: registries shadow by name and never remove, so an
+inherited view's reference to another VIEW can never dangle — a site cannot
+delete the base's `published`, only replace it, at which point the entry is its
+own. Collections are the one registry keyed on something else (`source`), so
+`from` naming a collection is the ONE inherited reference a site can break
+without touching the entry that carries it. All four `check_base` bails and
+`query()`'s two subdivision bails now carry the sentence; two of those six also
+had the wrong-view half and are fixed with it.
+
+Three near neighbours checked and deliberately not touched:
+
+1. `query()`'s `over` names unknown view {cur} (`config.rs` ~2663) blames
+   `name` rather than `cur`'s predecessor. Unreachable by inheritance for the
+   reason above; cosmetic on a site's own typo. Left.
+2. The base's inherited `where` expressions (`published`'s `!draft &&
+   !hidden`, `sitemap`'s) type-check against the site's `[schema]`, which is a
+   registry a site CAN retype. Probed live: `draft = { type = "string" }` and
+   `= "int"` both build — the filter language reads `!draft` as truthiness, so
+   there is no error to attribute. Not a blind spot today; would become one if
+   `where` ever type-checks operators against field types.
+3. `[collections.*] trail` / `tags` name views and are the same shape of
+   reference, but `base.toml` declares neither, so nothing inherited can
+   dangle there. If the base ever grows one, `whose_from`'s sentence is what
+   those errors want.
+
+*Mutation-checked in both directions, each restored.* Deleting
+`check_collection_kinds` makes `collection-two-objects` **build in silence**
+and `collection-two-trees` fail on its `robots.txt` — the two failure modes
+described above, reproduced as test runs — and fails three unit tests; firing
+it at one collection instead of two breaks every fixture and six unit tests.
+Deleting `whose_from` restores `blog_index: from = "posts"` verbatim in the
+fixture's `got` line; making its inherited arm unconditional fails
+`unknown_over_is_an_error`, which is the site-declared control.
+
+*Parity:* all five sites built before and after into separate trees and
+diffed — byte-identical but for each feed's wall-clock `<updated>`, with no
+stderr difference. Zero re-blessing; three new expected-error fixtures
+(`collection-two-trees`, `collection-two-objects`, `inherited-set-dangles`).
+Clippy's warning multiset identical to HEAD's, compared by building HEAD in a
+scratch worktree. Formatted by hand (§4): `rustfmt` still wants two hunks in
+`config.rs` this work never touched.
+
+*For the queue (small).* (i) A tree collection's `source` is read by nothing
+but the merge — it names the collection (`table_name`) and identifies it, and
+the walk ignores it. `source = "pages"` on a tree collection therefore means
+"call me `pages`", which is not what it reads like; D2's doc-rot pass or the
+§7 vocabulary question may want it. (ii) The kind guard's message says one of
+each is "supported today" without saying what multi-source tree would mean —
+deliberate, since nobody has asked; if someone does, the design question is
+whether a second tree is a second WALK or a second rule set over one walk.
+(iii) `describe_collection`'s third arm (a source-less, extension-less
+collection) is reachable but has no test — it needs an objects collection
+declaring no `extensions`, which no site would write.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
