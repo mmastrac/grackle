@@ -553,33 +553,93 @@ Two follow-up items (small; run before I6):
   `filename_formats` per-rule, one route-token supplier offering path
   tokens always plus extractor results. Parity.
 
-- [ ] **I7. The front-matter gate becomes the fact; tree and objects
-  dissolve into rules over one walk.** Extension selection becomes rules;
-  collections become named scopes; the membership-precedence machinery
-  retires in favor of first-rule-wins. **Degenerate rows land here**
-  (Matt's ruling, 2026-07-27, answering I1's flag): an identity-less file
-  under a rendering shell renders as a degenerate row — warn, title
-  implied from its slug at the engine-fallback rung. **Premise corrected
-  by review I-A**: the caret draft ALREADY renders a slug-derived title
-  today (the posts loader's pre-existing fallback, `slug.replace('-',
-  " ")` — load.rs ~548), reaching `<title>`, `og:title`, the doc header,
-  and the drafts-profile `search.bin`. So: re-measure on arrival; pin the
-  engine-fallback rung's derivation AGAINST the existing loader behavior
-  (same string → the parity exception is vacuous; any different
-  de-hyphenation moves bytes on surfaces beyond the row's own pages);
-  the new degeneracy WARNING changes stderr on grack.com builds — declare
-  it to the parity method. **Two additions from review I-B**: (a) the
-  single walk currently admits a site-root `themes/` directory as byte
-  rows (probed: a minimal site publishes `/themes/mine/root.html`
-  verbatim; corpus sites dodge it only via `exclude`/.gitignore) —
-  decide explicitly whether theme sources are content; (b) dissolving
-  objects makes rule defaults land on former-object rows, collapsing the
-  842-row `shell` Null shape (I2's log) — the deferred sitemap/search
-  filter migration becomes POSSIBLE here; per §3's marker the sitemap's
-  honest spelling is Matt's call, so state whether I7 takes the
-  migration or leaves it flagged. **Split on arrival** — the
-  executing agent proposes the split as sub-items before starting, and
-  the orchestrator sequences them. Parity throughout.
+**I7 — SPLIT (2026-07-27, planning agent; full proposal in its report).**
+The original brief follows as I7a-I7e. Brief corrections adopted from the
+planning read: `kind =` does NOT retire in I7 (load-bearing in nine
+non-membership places — dated indexes, adjacency, relation defaults,
+schema dispatch, listing/gallery/script dispatch, RouteKind::Post which
+grack.com filters deliberately; the role survives until I9's join);
+DESIGN §9b's "six underscore excludes" obstacle is amended rather than
+paid (the skip survives; scopes punch through); exactly ONE blockless
+`.md` exists corpus-wide, so the degeneracy warning's blast radius is one
+stderr line. Two laws are proposed-and-flagged for Matt's veto at review
+I-C: **most-specific-source ordering** and **a scope owns its source**
+(both verified to reproduce today's behavior on all corpus sites).
+
+- [ ] **I7a. Extension selection becomes rules.** `[[collections]]
+  extensions` retires (hard cutoff; four configs migrate in-commit) for
+  glob rules in the objects scope; `is_obj`'s pre-rule scan becomes "did
+  an objects-scope rule claim this path". Defers: the walk merge, the
+  ordering law, degeneracy, the object constructor. Propose-and-flag:
+  extension globs compile **case-insensitive** (`is_obj` is; globset
+  isn't; `assets/2004/06/after-theme-hack.PNG` is the one row that tells
+  them apart — on a case-sensitive compile it leaves the object set and
+  gains an eager URL). Parity: identical object row set on all six trees
+  + asserted object count and by_name size; mutation: the .PNG pin, and
+  one deleted glob empties the mindstorms gallery.
+
+- [ ] **I7b. Theme sources are not content.** A site-root `themes/` is
+  engine vocabulary by POSITION (the class `.slots/`/`.section` already
+  occupy; build reads themes from exactly one place). One line beside
+  the config-file identity filter. Defers q34's other two skip lists.
+  Parity byte-identical (every corpus site already excludes it —
+  measured); mutation: the review I-B probe shape returns (a minimal
+  site publishes /themes/mine/root.html). `include` stays the escape
+  hatch. Corpus `exclude` lines stay (byte-inert tidy, unrequested).
+
+- [ ] **I7c. The gate becomes the fact; degenerate rows land.** One law:
+  a row renders iff `front_mattered || shell ∈ {html, light_html}` — the
+  second clause is the degenerate row (warn; slug-title pinned to the
+  existing `slug.replace('-', " ")` derivation, run-not-reasoned against
+  the caret page's title/og:title/search.bin). Loaders keep their shape;
+  only the gate and title fallback move. **Two prerequisite byte-inert
+  config migrations, measured pre-flight**: grack.com's `_drafts` rules
+  gain `shell = "html"` (pairs with nothing in the base; resolves Null
+  today, renders via the legacy layout fallback), and theme-preview
+  (declines the base, declares no shell anywhere) gains declaration +
+  rule defaults. Declared exception: ONE new stderr line (the caret
+  degeneracy warning), named. Mutation: prettier de-hyphenation moves
+  bytes on three surfaces (run it); delete the warning → silence; the
+  control — field-notes' `demos/pane.html` is front-mattered AND
+  `shell: raw`, so a shell-only law byte-copies it front matter and all:
+  the test holds both halves of the disjunction.
+
+- [ ] **I7d. One walk, first rule wins.** The riskiest item, ALONE.
+  `read_posts` + `store::load_dir` die; `walk_tree` is the one walk; the
+  dot/underscore layer SURVIVES and declared scope sources punch through
+  it (`_posts`/`_drafts` admitted because a scope names them; `_tools`/
+  `_hidden` stay out because nothing does — §9b amended, not paid).
+  Membership-by-precedence retires for one ordered rule sequence, with
+  the order from the **most-specific-source law** (source specificity;
+  sourceless extension-gated scopes above the root scope; ties by
+  declaration order, site before base — declaration order ALONE is
+  disqualified: theme-preview declares tree first and would eat its
+  posts). **A scope owns its source**: a file under a scope's source
+  that no rule of that scope claims is not content (reproduces today;
+  keeps `_drafts/caret/`'s 18-file bundle invisible and its 16 relative
+  img citations meaningless-as-today). The ordering must be observable
+  (explain/--effective says which rule of which scope claimed a row).
+  Keep the three-vector `insert_rows` interface (ordering-derived
+  bytes: embeddings, related, tag order). Parity: all six trees byte-
+  identical + a recorded `grackle urls` diff per site; mutations: drop
+  scope-owns-source (the caret bundle enters — measure ON A BUILD),
+  reverse two scopes, delete the punch-through (every post vanishes),
+  minimal-site control.
+
+- [ ] **I7e. Objects dissolve; the Null shape collapses.** One row
+  constructor for every row: former-object rows take rule/marker
+  defaults and schema validation (propose-and-flag: markers DO reach
+  them — refusing would re-mint the origin distinction; measured
+  byte-inert, no corpus markers outside a fixture). The base catch-all's
+  `shell = "raw"` reaches the 842 Null rows — log the new shell census;
+  any row not `raw` is a finding. `by_name`/dimensions/`object_ix`
+  re-key off extension; `RouteKind::Object` derives from the index so
+  route filters don't move. The sitemap/search migrations are NOT taken
+  — stated possible, flagged for Matt (§3's marker). Declared exception:
+  CLI explain moves from `shell -` to `shell raw` for former objects
+  (outside the byte gate). Mutations: by_name re-key (query stats
+  collapses; gallery loses previews), locale selector on former-object
+  rows (byte-inert today, latent — gets a test), marker-reach guard.
 
 - [ ] **I8. Sidecars.** Identity from a sidecar file; governed rows for
   unparseable bytes; the identity/parsed split holds (`front_mattered`
