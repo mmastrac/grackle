@@ -349,7 +349,7 @@ marked points; findings append to §11 and may file R-items.
   comparison against a value outside post/page/static/object/view errors
   naming the knowns) so the fossil is safe while it dies. Parity.
 
-- [ ] **I2. One shell axis.** Merge the row-tier and view-serialization
+- [x] **I2. One shell axis.** Merge the row-tier and view-serialization
   vocabularies into one schema-typed `shell` field with one validator;
   `light` → `light_html` (hard cutoff); the family/arity checks
   (map shells on rows and per-member routes; fold shells on views only;
@@ -554,3 +554,151 @@ front-matter gate becomes the fact"): under §1 a file without a block has no
 identity, so I7 must decide what a blockless `.md` in a posts scope *is* — a
 governed row by scope, or bytes. Today it is a full post, and the answer moves
 grack.com's output.
+
+**2026-07-27 — I2.** Landed as one commit. One vocabulary, one validator, four
+arity checks — and the corpus migration turned up the parity trap the brief
+predicted, on exactly one row of one site.
+
+*The merge, and what made it cheap.* `crates/source/src/shell.rs` holds the
+whole axis: `MAP = [raw, html, light_html]`, `FOLD = [atom, sitemap, search]`,
+plus every `[shells.*]` name, and four entry points (`check_row`,
+`check_axis_value`, `check_view`, `check_registered_name`). The two checkers it
+replaces were 6 lines in `load::cascade` and 8 in `Config::check`, and neither
+knew the other's words — which is why "one axis" cost a module rather than a
+refactor. **Arity is what separates the families**, not subject matter, and
+each direction now says a sentence the old pair could not: a row wearing a fold
+is told what that fold *eats* (§4's own sentence, now `"it eats a feed's worth
+of entries … a row is ONE output"`), and a view wearing a map gets an **arity**
+error rather than "unknown shell" — `html` is a perfectly good shell that
+happens to wrap one output, and the old message could not tell a typo from a
+category mistake.
+
+*Two checks nobody asked for, one of which was load-bearing.* An `[axes.*]`
+whose `field = "shell"` declares the serializations its members leave through —
+and **those values had never been checked anywhere**: they do not pass through
+a row's cascade, `build.rs` reads the member's value directly, and the `axis`
+fixture's `light` would have gone on rendering the *fallback* tier in silence
+the moment the vocabulary moved. That is the exact disease `cascade`'s check has
+always existed to prevent, on the one path that never went through it. The
+other (a script shell may not take a built-in's name) is cheaper: `check_view`
+answers from the built-in vocabulary first, so `[shells.atom]` would be a
+command nothing could ever run.
+
+*The parity trap, sprung.* `demos/mindstorms/index.html` on grack.com carried
+`layout: light` and no shell — so it reached the light tier through
+`build.rs`'s legacy `_ => Theme::parse(layout)` fallback. The base's new
+front-matter-rule default reaches it (rule defaults accumulate from every
+MATCHING rule, not only the one that wins the route — grack.com's own rules
+prepend but declare no shell, so the base's still land), which would have made
+it `shell = "html"` and flipped it to the full theme: a real byte change on a
+published page. Migrated in-commit to `shell: light_html`, which is what
+`layout: light` always meant. It is the only row on any of the six trees that
+sprang the trap, and it was found by grepping the corpus for `layout: light`
+*before* the default was written rather than by the diff afterward.
+
+*The index rule declares no shell, and that is the decision worth vetoing.*
+The brief named three rules; the base has four. `**/index.{html,md}` routes
+front-mattered pages and byte copies alike (grack.com has ~10 blockless
+`index.html` files under `demos/`, `writing/school/` and `code/legacy/`), so
+`html` there would be false for half its rows and `raw` false for the other
+half. It needs neither: **a rule's defaults apply wherever it MATCHES**, and
+`**/*.{html,md}` (front-matter-gated) and `**/*` both match an index file too —
+so a front-mattered `index.md` takes `html` from the second rule and a static
+`index.html` takes `raw` from the third, each by the same front-matter gate
+that decides everything else about it. Probed on a temp site with the HEAD
+binary before relying on it. This is also why I1's refusal generalizes: the
+alternative was to declare `html` on the index rule and let it be true after
+I7 makes those files degenerate rows — a fact that is a fiction until then.
+
+*How a view route answers the column.* `views::view_fields` mints it:
+`v.shell` if declared, else `"html"` — the serialization it left through, which
+is what §3 says the fact is. `build_star_views` gained the same call (a star
+route carried **no fields at all** before, `noindex` included). A per-member
+route corrects it in `load.rs`'s route constructor: a member of an axis over
+`shell` IS a different serialization of the same row, so `/tiers/light_html/`
+answers `light_html` while its row answers `html`. Only `shell` is corrected —
+`theme`, the other axis field, has no reader on the route pool to lie to.
+Storage stayed `Route.fields` rather than becoming a first-class column, on
+purpose: rung 0's `force_route_fields` writes `fields`, so a first-class field
+would have shadowed a forced value and re-opened the seam R6 just closed.
+
+*What `shell == "html"` selects now, and what it does not.* On the io_shell
+probe site: every post, every front-mattered page (`index.md` included), and
+every listing route — with the feed answering `atom` and the sitemap probes
+answering `sitemap`, so each probe is correctly absent from its own result.
+**Two shapes still answer Null**, both recorded rather than papered over:
+
+- an **objects-collection row**, which never takes a rule default at all — the
+  loader builds it from `Default::default()`, no cascade runs, and a `defaults
+  = { shell = "raw" }` on the base's objects rule would be read by nobody. A
+  test asserts this (and the mutation for it is *adding* that default, which
+  moves nothing);
+- a row governed only by a rule that declares no shell — an `extends = "none"`
+  site's, or the caret draft's collection (grack.com's `_drafts` is a
+  `source:_drafts` collection of its own, so it pairs with nothing in the base
+  and inherits no posts rule).
+
+*Which is why the sitemap and search filters did NOT migrate — deferred to I3
+or later, per the brief's instruction to migrate only on proven parity.* The
+sitemap's `dir || ext == "html"` and `shell == "html"` are **not the same set**
+today: the sitemap lists directory URLs whose rows are objects or otherwise
+shell-less, and it excludes nothing on the grounds of a shell. Rewriting it
+would have changed grack.com's `sitemap.xml`, which is a live artifact. The
+honest sequence is: I3 (`from = "*"` retires, folds read the output pool) and
+I7 (objects dissolve into rules over one walk, at which point an image takes a
+rule default like everything else) make the two sets converge, and the
+migration is one line then.
+
+*`theme-preview` needed nothing*, and its config comment stayed true: it
+declines the base, declares no `shell` in `[schema]`, and no row or rule of its
+sets one. `examples/raw` took the three `defaults` lines (it is the base
+printed, and a test holds the two to the same URL set).
+
+*Eleven mutations, each restored, each red.* (1) delete `check_row`'s call in
+`cascade`; (2) drop `check_row`'s fold arm — the value is still rejected, by
+the *wrong sentence*, which is the diagnosis this item exists to fix; (3) drop
+`check_view`'s map arm; (4) delete the axis-over-shell loop; (5) delete the
+registered-name loop; (6) delete the base front-matter rule's default —
+`/about/` and `/guide/` leave the html set **while still rendering as themed
+HTML documents**, the fact going quiet while the bytes do not move; (7) delete
+the catch-all's — the raw set empties; (8) delete the posts rule's — both posts
+leave; (9) `view_fields` stops minting `shell` — every listing leaves; (10) a
+star route carries no fields — the four probes land in the `!shell` set; (11)
+the member correction stops correcting — the light member answers its row's
+`html` while rendering the light tier.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, built from a `git
+worktree` of HEAD with its own release binary and from this one, into separate
+trees, caches seeded so binary and config were the only variables —
+byte-identical but for each feed's wall-clock `<updated>`, stderr identical for
+all six, file counts 8 / 8 / 83 / 242 / 1828 / 1829 (G1's numbers, unmoved).
+**One declared exception**: field-notes' `an-imported-artifact` post quotes the
+retired spelling in its PROSE, and migrating that one word moved three files
+(the page, `search.bin`, and one related-posts reordering — the post's
+embedding changed, so its cosine rank against a neighbour did). Proved to be
+the prose and not the engine by rebuilding that site with the word reverted:
+byte-identical to HEAD's tree but for the two wall-clock feeds. `cargo test`
+green (16 result lines); `cargo fmt --check` clean under the pin; clippy's
+warning count identical to HEAD's (49, rebuilt in the worktree); re-blessing
+limited to the `axis` fixture, whose member segment is the shell name
+(`/tiers/light.html` → `/tiers/light_html.html`, 5 files plus a renamed one),
+and the two wall-clock atom fixtures were reverted rather than re-blessed.
+
+*For batch review I-A.* Three things worth a second opinion. (i) **The index
+rule's silence** is the call a reviewer might reverse; the argument above is the
+whole of it, and `the_raw_shell_is_the_byte_copies_static_indexes_included`
+is the evidence. (ii) **`VIEW_DEFAULT = "html"`** puts a MAP name on a FOLD
+declaration slot, which reads odd until you notice an undeclared view emits one
+file per route — the doc comment says so, but if the axis wants a distinct name
+for "the listing shell" this is where it goes. (iii) A **pre-existing lie found
+in passing**: `grackle explain` prints `kind        post` as a hardcoded
+literal (`main.rs`, `Query::Explain`) for every row — `/humans.txt` reports
+`kind post`. Untouched (CLI-only, and I13 deletes the enum), filed as a task.
+
+*For the queue.* `manual/OUTLINE.md` teaches the retired tier vocabulary in
+eight places (640-641, 651, 851-852, 858, 1072, 1197, 1334, 1341 — including a
+table whose rows are `none` and `light`), untouched per §4. That is the fourth
+engine spelling to outlive that file, after `bucket` (F1), relations' `over`
+(G1) and view `match` (G2). DESIGN.md's settled-ledger row for q44 (§9's
+table) still names `none`; left as a settled row, per G2's precedent that
+ledger rows record what was decided when.
