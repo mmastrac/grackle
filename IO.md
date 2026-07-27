@@ -99,11 +99,18 @@ before the one-store merge. It is deleted. The facts that replace it:
 | scope membership | input | which collection-scope admitted it (already a column) |
 | view provenance | output | which view materialized it (already a column; "is this a view route" = the view column is non-empty) |
 
-The old filters translate to what they always meant: the sitemap's
-`dir || ext == "html"` becomes `shell == "html"` ("the sitemap lists the
-HTML documents"); the search route's `kind == "post" || kind == "page"`
-becomes the same. The silent-empty-query knife (`kind == "posts"`, plural,
-matching nothing forever) becomes unwritable — the column is gone.
+The old filters translate to what they always meant — with a
+shipped/pending honesty marker per batch review I-A: the example sites'
+search filters → `front_mattered` (**shipped**, I1); grack.com's search →
+scope membership (**pending** I9's join); the sitemap → **pending, and
+not a one-liner**: measured, grack.com's sitemap is *not* "the HTML
+documents" and never was — it deliberately lists byte-copy `.html` files,
+PDFs, static directory indexes and the `light_html` page (43 URLs beyond
+`shell == "html"` today), so its honest future spelling is a disjunction
+over shells + ext, or a declared byte change — Matt's call when it
+arrives. The silent-empty-query knife (`kind == "posts"`, plural,
+matching nothing forever) is dead already: I1's domain check (until I13
+deletes the column outright).
 
 Sidecars split identity from parsing, and that is a feature: a `.png` with
 a sidecar is a governed row — schema-validated fields, alt text, a place in
@@ -366,7 +373,22 @@ marked points; findings append to §11 and may file R-items.
   changes fold membership (the robots_txt design depends on exactly
   this). Parity.
 
-*→ Batch review I-A.*
+*→ Batch review I-A.* ✓ done — findings in §11; verdict: sound, I-B clear.
+Precedent written into law per its finding 5: **a retired value gets one
+targeted sentence only where the generic diagnosis misleads** (I3's star
+message is the exemplar; don't stretch it). One follow-up item:
+
+- [ ] **IR1. Three small strictness closures from review I-A.** (a) A
+  registered `[shells.*]` script shell with no `from` is fed `rows: []`,
+  not the route pool — the silent-empty disease one family over (proven
+  live: `[shells.echo]` + a from-less route publishes an empty payload).
+  Until `pulls =` lands (§4), reject absent-`from` on script shells: load
+  error requiring an explicit `from`. (b) `check_domain`'s message tail
+  says "can only ever be false" — wrong for `!=` (only ever *true*); one
+  clause in filter.rs. (c) A routeless fold (`[sets.x] shell = "sitemap"`)
+  dies late with "needs a route" — add the config-time companion check
+  ("a set may not wear a fold shell"), F3's family. Mutation-check all
+  three; parity; fmt clean.
 
 ### Phase I-B — themes
 
@@ -375,7 +397,12 @@ marked points; findings append to §11 and may file R-items.
   element); `shell.html` migrates to body-only `root.html` across the
   base theme and gallery (mechanical); the chrome part kind renames
   `shell` → `root`; the `data-kind` stamp follows. Parity except the
-  stamp rename, declared.
+  stamp rename, declared — **and per review I-A: the stamp rename touches
+  the `<html>` tag of every page of every site**, so parity diffs modulo
+  that one attribute and every HTML fixture re-blesses (verified ahead:
+  no theme CSS/JS selector keys on `data-kind="shell"` today). Decide
+  what a stale `shell.html` gets post-rename — silence would be silent
+  chrome loss; a load error naming `root.html` is the house answer.
 
 - [ ] **I5. Head-style extraction into the existing CSS assembly.** A
   theme root's `<style>` lands in the theme layer of the existing
@@ -398,11 +425,16 @@ marked points; findings append to §11 and may file R-items.
   retires in favor of first-rule-wins. **Degenerate rows land here**
   (Matt's ruling, 2026-07-27, answering I1's flag): an identity-less file
   under a rendering shell renders as a degenerate row — warn, title
-  implied from its slug at the engine-fallback rung (de-hyphenation
-  details propose-and-flag). The live case is the blockless caret draft
-  in `_drafts/` — today it renders with NO title, so gaining the implied
-  one is a **declared parity exception** (that row's pages change bytes;
-  everything else holds). **Split on arrival** — the
+  implied from its slug at the engine-fallback rung. **Premise corrected
+  by review I-A**: the caret draft ALREADY renders a slug-derived title
+  today (the posts loader's pre-existing fallback, `slug.replace('-',
+  " ")` — load.rs ~548), reaching `<title>`, `og:title`, the doc header,
+  and the drafts-profile `search.bin`. So: re-measure on arrival; pin the
+  engine-fallback rung's derivation AGAINST the existing loader behavior
+  (same string → the parity exception is vacuous; any different
+  de-hyphenation moves bytes on surfaces beyond the row's own pages);
+  the new degeneracy WARNING changes stderr on grack.com builds — declare
+  it to the parity method. **Split on arrival** — the
   executing agent proposes the split as sub-items before starting, and
   the orchestrator sequences them. Parity throughout.
 
@@ -834,3 +866,32 @@ routeless fold** (`[sets.x] shell = "sitemap"`, no `path`) passes the new check
 and then dies in `build_pool_folds` with "view x needs a route" — pre-existing
 behaviour, carried forward unchanged, and arguably one of F3's "a set never
 lands" family.
+
+**2026-07-27 — Batch review I-A (Fable), covering I1, I2, I3.** Verdict:
+**sound; I-B clear.** Six mutations re-executed, each red as logged; the
+shell column probed live on grack.com (546 html / 187 raw / 635 Null, the
+Nulls decomposing exactly into I2's two recorded shapes; mindstorms
+answering `light_html`); no latent divergence beyond the documented
+Null-while-themed drafts shape. Findings: (1) *should-fix → IR1(a)*: a
+from-less script shell is fed `rows: []` at render — I3's flag (ii)
+justification was false at the render layer, proven live. (2) *should-fix
+→ I7 brief amended*: the caret draft already renders a slug title today
+(pre-existing loader fallback, blamed to 1651892) — the declared parity
+exception was likely vacuous and possibly under-scoped; re-measure on
+arrival. (3) *model text marked shipped/pending → §3*: grack.com's
+sitemap is not "the HTML documents" and never was (43 URLs beyond
+`shell == "html"`, measured — PDFs, byte-copy html, static indexes, the
+light_html page); the honest future spelling is a disjunction or a
+declared change, Matt's call at its item. (4) *→ IR1(b)*: check_domain's
+message tail wrong for `!=`. (5) *accepted + precedent recorded in §10*:
+I3's targeted star message is an invalid-value error, not a teaching
+error — the rule is "one targeted sentence only where the generic
+diagnosis misleads". (6,7) *accepted, verified*: the index rule's
+silence (first-writer law, deterministic, both halves load-bearing) and
+VIEW_DEFAULT="html" (a route-column value, not a fold declaration).
+(8) *→ IR1(c)*: the routeless fold. (9) *verified*: grack.com's search
+migration honestly waits for I9; cheap adjacent truth noted (`_drafts`
+rule could carry `shell = "html"` today, byte-inert, shrinks a Null
+shape). (10) *clean*: no half-built identity code from the mid-flight
+degeneracy amendment; doc spot-checks pass; `grackle explain`'s
+hardcoded `kind post` lie still waits for I13 as filed.
