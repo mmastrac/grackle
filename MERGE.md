@@ -158,6 +158,11 @@ name — see §7.)*
   commit message).
 - **Mutation-check every new guard** (repo law): a new error path or merge rule
   gets a test that fails when the guard is deleted.
+- **Never run repo-wide `cargo fmt`.** The installed rustfmt (1.9.0) wants to
+  reformat 13 files this work never touched; pathspec discipline does not
+  protect against same-file churn, so format only the lines you wrote (or
+  nothing). A toolchain pin is a §7 question for Matt. *(Added per batch
+  review 2, finding 3.)*
 - Check the box here and note deviations in §6 when an item lands. Do not
   reorder or rescope other items.
 
@@ -269,7 +274,26 @@ to build Phase B on. Two follow-up items:
   output with provenance comments is fine for v1. Include at least one test
   asserting provenance for a shadowed registry entry and a merged bag key.
 
-*→ Batch review 2 after B3.*
+*→ Batch review 2 after B3.* ✓ done — findings in §6; verdict: sound to build
+Phase C on. Two follow-up items (land before the final review; sequenced next):
+
+- [ ] **R3. Table-capable atoms must trip the depth invariant.** *(Batch
+  review 2, finding 1.)* `a_nested_struct_ends_at_one_depth` whitelists
+  depth 0, but `LocalizedStr` is an Atom that *deserializes from a table* —
+  a future `LocalizedStr`-typed field on `I18nCfg` beside the deeper
+  `strings` map would pass every guard while `merge_to_depth(2)` composes a
+  LocalizedStr out of two writers, violating table D. Distinguish
+  table-capable atoms in `Shape` (a marker on enum atoms that read from
+  tables) and tighten the invariant so the case fails the build; or, if
+  that fights the design, narrow the test's doc claim honestly.
+  Mutation-check with a test-local shape carrying such a field.
+
+- [ ] **R4. `engine_defaults()`'s promised guard.** *(Batch review 2,
+  finding 2.)* Its doc comment cites `every_defaulted_scalar_is_printed`;
+  no such test exists, and deleting `("extends", …)` from the list passes
+  the whole suite. Write the test (every top-level `#[serde(default)]`
+  scalar on `Config` appears in minimal's `--effective` output) — or
+  delete the sentence. The comment as it stands is a false guard claim.
 
 ### Phase C — the laws hold at every rung (strictness symmetry)
 
@@ -301,7 +325,9 @@ to build Phase B on. Two follow-up items:
   identity collision.** (a) `[i18n.names]` keys validate against declared
   locales (config.rs:361-363 — the one localized string outside the net).
   (b) A `.slots/` file whose stem names no known slot warns, naming the
-  knowns (slots.rs:167-195 accepts any stem). (c) Exclude engine stream
+  knowns (slots.rs:167-195 accepts any stem); unknown stems include case
+  variants of known slots (`Nav.md` fills nothing — batch review 2,
+  finding 7). (c) Exclude engine stream
   slots (`axes`) from the identity-slot set (theme.rs:200 excludes only
   `main`/`site_title`; parts.toml declares `axes` in the shell, so
   `.slots/axes.md` would silently replace the switcher with prose in a
@@ -334,6 +360,10 @@ to build Phase B on. Two follow-up items:
   clobbers a site's own `robots` expression (:1328-1331) — document the
   override in the profile section of base.toml comments, or preserve a
   site-declared `robots`; decide in-item and record the choice in §6.
+  (e) `config --effective --profile nosuch` asserts a projection that
+  would never run — check the name against the merged `[profiles]` table
+  and say "names no profile (knowns: …)" in the preamble (batch review 2,
+  finding 4).
 
 - [ ] **C7. Collection identity errors.** (a) A second `kind = "tree"` or
   `kind = "objects"` collection is silently discarded (load.rs:917-933,
@@ -988,6 +1018,42 @@ key prints with a provenance like any other, on its way to
 paired them first, so it is unreachable today, but it is the one place a path
 is not unique by construction.
 
+**2026-07-26 — Batch review 2 (Fable), covering R2, A6, B1, ba4369c (q10),
+B2, B3.** Verdict: **sound to build Phase C on.** Five mutation checks
+re-executed and held exactly as recorded; the merge, the derivation and the
+provenance recorder verified to be one code path (`Trace::off()` on the load
+path, asserted); no law silently changed in the port beyond the intended
+`MarkerDef` alignment; byte-parity claims checked out. Findings, condensed:
+
+1. *should-fix → R3 (filed above):* the depth-invariant tripwire whitelists
+   depth 0, so a table-capable atom (`LocalizedStr`) added beside a deeper
+   sibling would be split by `merge_to_depth` with every guard passing —
+   latent, no such field exists today.
+2. *should-fix → R4 (filed above):* `engine_defaults()`'s doc comment cites
+   a test that does not exist; deleting an entry passes the suite. The
+   repo's own "guard without a mutation check" disease, in a comment.
+3. *should-fix → §4 rule (applied) + §7 question (filed):* rustfmt 1.9.0
+   wants to reformat 13 untouched files; repo-wide `cargo fmt` in any agent
+   commit would drag unrelated hunks into a pathspec commit. Rule added;
+   the toolchain pin is Matt's call.
+4. *note → C6(e) (applied):* `--effective --profile nosuch` asserts a
+   projection that would never run.
+5. *note → §7 (filed):* nested struct-level defaults (`links.policy`,
+   `i18n.default`) are invisible in `--effective` — an omission, not a lie.
+6. *endorsed:* R2's empty-child idiom — incidental library behavior, but
+   pinned by direct globset tests, which is the right treatment; the
+   include-inside-exclude residual is correctly hypothetical.
+7. *endorsed (+ C4 note applied):* A6's cross-extension-only argument holds
+   on case-insensitive and normalizing filesystems — variants are different
+   byte stems, which lands them in C4(b)'s unknown-stem territory instead.
+8. *endorsed:* q10's disposition — reasoning and implementation; the
+   counterargument conflates the row ladder with the config ladder. Not
+   fait accompli: revert is small and corpus-inert; §7 annotated.
+9. *scope note:* below the top level the merge collapses subtrees to a
+   uniform depth rather than recursing over `Shape`; B1's two invariants
+   are the load-bearing proof of that equivalence post-B2 (not leftovers),
+   with finding 1 the one soft plank.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -1023,6 +1089,8 @@ Not work items. Each needs Matt's call; agents must not attempt them.
 9. **Markers: configured ×5, used ×0** *(A5 + batch review 1 finding 10)* —
    every site declares `[markers]`, no directory carries a marker file.
    Keep as documented convention, trim from the base, or leave as-is?
+   *(Batch review 2 datum: `--effective` now surfaces the three inherited
+   markers to every site, which slightly strengthens "keep".)*
 10. **Is a marker payload a definition or a bag?** *(B1)* — table A says the
     payload table is the atom (`Descend(1)`); the type is a map of maps, so
     Law 2 derives `Descend(2)`. Inert today (every redeclaration restates the
@@ -1041,3 +1109,18 @@ Not work items. Each needs Matt's call; agents must not attempt them.
     newtypes the payload (a `MarkerDef` wrapper deriving `Atom`), which
     empties `KNOWN_EXCEPTIONS` and keeps "derivable from types" honest —
     the same move Law 2 already makes for `LocalizedStr` (enum = atom).
+    *Batch review 2 endorsed both reasoning and implementation, and
+    confirmed this is NOT fait accompli: the revert is small (unwrap the
+    newtype, flip one test, one table-A row) and corpus-inert — treat as
+    genuinely open with a shipped default.*
+11. **Should `--effective` show struct-level defaults?** *(Batch review 2,
+    finding 5.)* Top-level scalars nobody wrote print as `# default`, but
+    nested defaults (`links.policy = strict`, `i18n.default = "en"`) are
+    invisible when neither base nor site writes the table. An omission, not
+    a lie — does `--effective` grow struct-level defaults, or is that a
+    future `config --projected`'s job along with profiles?
+12. **Pin the toolchain?** *(Batch review 2, finding 3.)* rustfmt 1.9.0
+    wants to reformat 13 files the merge work never touched. A
+    `rust-toolchain.toml` pin would stop format drift across agents and
+    humans, but changes your own build — your call. (§4 now carries the
+    interim "no repo-wide cargo fmt" rule.)
