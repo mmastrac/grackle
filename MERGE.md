@@ -1,9 +1,11 @@
 # MERGE.md — one precedence law, one atomicity law
 
-**Status: phases A–G DONE; batch review 4 complete (2026-07-27) — verdict:
-the MERGE pipeline is complete and sound.** Two closing R-items were filed by
-review 4; **R6 has landed** (it moved no code — see §6), so **R7** is the last
-one; then this ledger hands off to IO.md's.
+**Status: CLOSED (2026-07-27). Phases A–G done, batch review 4 complete —
+verdict: the MERGE pipeline is complete and sound — and both of review 4's
+closing R-items have landed (R6, which moved no code, and R7).** Every box in
+§5 is checked; the work hands off to IO.md's ledger. §7's remaining opens
+(q2, q4, q11, q13 and the rest of q6) are the wrap-up conversation's, not
+this file's.
 The final review (2026-07-27, §6) verified the whole effort end to end: no
 surviving hand dispatch beyond the two annotations, every table row matches
 shipped behavior, five randomly-chosen guards still fail under mutation, the
@@ -616,7 +618,7 @@ don't add new ones.)
   If a genuine blocker surfaces, fall back to documenting the asymmetry
   as law instead, propose-and-flag. *[parity]*
 
-- [ ] **R7. The deserialize-fallback must not mask real errors.** *(Batch
+- [x] **R7. The deserialize-fallback must not mask real errors.** *(Batch
   review 4, finding 2.)* `from_toml_profile`'s fallback re-parses the
   site's text without the base merge to get spanned errors; on a site
   that doesn't restate base-supplied `[site]` keys, the re-parse fails
@@ -3308,6 +3310,88 @@ filter runs after the render pass, that becomes live.
 *For IO I3.* Its rung-0 side is unblocked and needs no code: a fold reading a
 forced fact already sees it, on rows and on routes, and `profile_force.rs`
 now fails if that stops being true.
+
+**2026-07-27 — R7.** Landed as one commit; six lines of code, three tests, and
+the MERGE ledger closes on it.
+
+*The comparison: `toml::de::Error::message()`, string-equal.* The item asked
+for the robust one to be chosen by looking at what the two errors actually
+say, so here they are, printed from a probe on the review's own site
+(`root = "."`, a `[site]` with `url` alone, and
+`[profiles.q.sets.y] match = "recipes/**"`). The merged value's error, in
+full:
+
+```
+unknown field `match`, expected one of `from`, `where`, `order_by`, …, `fields`
+in `sets.y`
+```
+
+and the re-parse of the site's text alone:
+
+```
+TOML parse error at line 2, column 1
+  |
+2 | [site]
+  | ^^^^^^
+missing field `title`
+```
+
+Two Displays with **no common shape**: the merged error ends with a key path
+and has no span (`TomlError { message, raw: None, keys: ["sets","y"], span:
+None }`), the spanned one leads with a span and prints no key path (`keys:
+["site"], span: Some(11..27)`). What they do share is `message()` — serde's
+sentence, which the toml crate stores separately from both decorations and
+exposes publicly (toml 0.8.23, `de::Error::message`). So the guard is
+`spanned.message() == e.message()`, and nothing about spans, line numbers or
+substring sniffing appears in it.
+
+*Why not the field name.* Extracting "`match`" vs "`title`" out of the two
+sentences means parsing serde's prose, which is the version-fragile move
+batch review 1 already flagged (finding 8) — and it would still have to
+compare the error CLASS beside it, or `unknown field \`x\`` would match
+`missing field \`x\``. The whole sentence carries class and name together and
+needs no parsing. Verified equal on the genuine case and unequal on the
+masking one before a line of the fix was written.
+
+*The `missing field` the site never wrote.* Note which key the re-parse
+actually complains about — `title`, not the `author` the review's probe
+reported. Both are base-supplied and serde stops at whichever it reaches
+first; the assertion is therefore `!e.contains("missing field")`, not a
+specific key, since which one surfaces is serde's field order and not a fact
+about the config.
+
+*The three tests, and what each mutation proves.* (a)
+`a_re_parse_that_changes_the_subject_does_not_speak` — the masking case;
+delete the `message()` comparison (restoring the pre-R7 `?`) and it fails on
+`TOML parse error at line 2` / `missing field title`, exactly the review's
+finding. (b) `a_genuine_error_in_the_sites_own_text_keeps_its_span` — B3's
+intent, a `nope = 1` in the site's own `[site]`; delete the fallback whole
+and the SENTENCE survives (the merged error says `unknown field \`nope\``
+too) while `line 4` and the caret do not — so what B3 bought is precisely the
+span, and the test asserts precisely that. (c)
+`a_site_that_leans_on_the_base_for_site_keys_loads` — the control, plain and
+projected, which is what keeps (a) and (b) from passing against an engine
+that has stopped loading base-leaning sites at all. Each mutation restored.
+
+*Scope, stated because the fix is narrower than "no masking ever".* When the
+site's text has BOTH a base-leaning gap and a genuine error of its own, the
+re-parse may reach the `missing field` first; the sentences differ, so the
+merged error is returned — true, actionable, and unspanned. Recovering the
+span in that case would mean re-parsing the site's text against a schema with
+the base's keys pre-filled, which is a second deserializer's worth of
+machinery for a strictly cosmetic gain. The rule as built is: the span is a
+bonus the second opinion may add, never a reason to change the diagnosis.
+
+*Parity.* Error-path only, and the builds say so: all six trees (five sites +
+grack.com `--profile drafts`) built from a `git worktree` of HEAD with its own
+release binary and from this one, against the same content tree — byte-
+identical but for each feed's wall-clock `<updated>` (6 atom.xml files, one
+line each), and stderr identical for all six. `cargo test` green (14 binaries);
+`cargo fmt --check` clean under the pin, having moved only this item's lines;
+zero re-blessing.
+
+*The ledger closes here.* R7 was the last unchecked box in §5; §7's opens are
+questions for Matt, not work.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 

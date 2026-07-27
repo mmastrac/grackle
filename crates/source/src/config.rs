@@ -2041,8 +2041,26 @@ impl Config {
                 // typo in the site's own file is the common failure. So
                 // re-parse the site's text alone: if THAT is what's wrong, its
                 // error carries the line number and is the actionable one.
-                toml::from_str::<Config>(text)?;
-                return Err(anyhow::Error::new(e));
+                //
+                // But the site's text alone is not a valid config on a site
+                // that leans on the base for required `[site]` keys — it fails
+                // with a `missing field` the merged value never had, and
+                // returning THAT would report a fiction and swallow the real
+                // error (MERGE.md R7). So the re-parse is only allowed to
+                // speak when it says the same thing: `message()` is serde's
+                // sentence with the span and the key path stripped off, which
+                // is what makes the two comparable — the merged error carries
+                // a key path and no span, the re-parse a span and (in its
+                // Display) no key path, and only the sentence is common to
+                // both. Same sentence = the same failure, now with a line
+                // number; anything else = the site's text has a *different*
+                // problem (or none), and the merged error is the true one.
+                return match toml::from_str::<Config>(text) {
+                    Err(spanned) if spanned.message() == e.message() => {
+                        Err(anyhow::Error::new(spanned))
+                    }
+                    _ => Err(anyhow::Error::new(e)),
+                };
             }
         };
         cfg.merge_collections()?;
@@ -4567,6 +4585,70 @@ mod tests {
         assert!(e.contains("no longer a profile key of its own"), "{e}");
         assert!(e.contains("[profiles.drafts.site]"), "{e}");
         assert!(e.contains("url = "), "the new spelling: {e}");
+    }
+
+    /// The site every R7 test below leans on: it declares `url` and lets the
+    /// base supply `title` and `author`, which is the ordinary shape (a site
+    /// need not restate what `extends` already said) and the shape that breaks
+    /// a re-parse of the site's text alone.
+    const BASE_LEANING: &str = "root = \".\"\n[site]\nurl = \"u\"\n";
+
+    /// MERGE.md R7. The spanned re-parse is a *second opinion*, and a second
+    /// opinion that changes the subject must not be published: on this site the
+    /// text alone is missing base-supplied `[site]` keys, so the re-parse says
+    /// `missing field` — a fiction, since the merged config had every one of
+    /// them — while the real error is the retired `match` spelling in the
+    /// overlay. Post-hard-cutoff (§5 Phase G) `deny_unknown_fields` is the only
+    /// thing that teaches the three retired spellings, so masking it is the
+    /// whole cost.
+    ///
+    /// Mutation check: drop the `message()` comparison (re-parse's error
+    /// whenever it errors, the pre-R7 `?`) and this reports `missing field
+    /// title` at line 2 instead.
+    #[test]
+    fn a_re_parse_that_changes_the_subject_does_not_speak() {
+        let e = Config::from_toml_profile(
+            &format!("{BASE_LEANING}[profiles.q.sets.y]\nmatch = \"recipes/**\"\n"),
+            Some("q"),
+        )
+        .expect_err("`match` is retired on sets — G2")
+        .to_string();
+        assert!(e.contains("unknown field `match`"), "the real error: {e}");
+        assert!(
+            !e.contains("missing field"),
+            "the site's own text is short of base-supplied keys; that is not an error: {e}"
+        );
+    }
+
+    /// The other half of R7, and B3's original intent: when the re-parse DOES
+    /// reproduce the failure, its error is the one worth having, because it
+    /// carries the line and column that deserializing a merged `toml::Value`
+    /// threw away.
+    ///
+    /// Mutation check: delete the fallback (return the merged error always) and
+    /// the sentence survives while the span does not — no `line 4`, no caret.
+    #[test]
+    fn a_genuine_error_in_the_sites_own_text_keeps_its_span() {
+        let e = Config::from_toml(&format!("{BASE_LEANING}nope = 1\n"))
+            .expect_err("`nope` is not a `[site]` key")
+            .to_string();
+        assert!(e.contains("unknown field `nope`"), "{e}");
+        assert!(e.contains("line 4"), "the span is the point: {e}");
+    }
+
+    /// The control that keeps the two above honest: leaning on the base is not
+    /// itself an error, with a profile or without one. If this ever fails, the
+    /// other two are passing for the wrong reason.
+    #[test]
+    fn a_site_that_leans_on_the_base_for_site_keys_loads() {
+        let text = format!("{BASE_LEANING}[profiles.q.site]\ntitle = \"drafts\"\n");
+        let plain = Config::from_toml(&text).expect("the base supplies title and author");
+        assert_eq!(plain.site.title, "A grackle site");
+        assert_eq!(plain.site.author, "");
+        let projected =
+            Config::from_toml_profile(&text, Some("q")).expect("and the overlay patches one key");
+        assert_eq!(projected.site.title, "drafts");
+        assert_eq!(projected.site.author, "");
     }
 
     /// MERGE.md C6a: a profile's `where` is accepted exactly where the `where`
