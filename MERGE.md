@@ -221,7 +221,7 @@ name — see §7.)*
 *→ Batch review 1 after A5.* ✓ done — findings appended to §6; verdict: sound
 to build Phase B on. Two follow-up items:
 
-- [ ] **R2. Close R1's hole at the excluded subtree's root.** *(Batch review 1,
+- [x] **R2. Close R1's hole at the excluded subtree's root.** *(Batch review 1,
   finding 1 — land before Phase C.)* `NotContent::keeps` is consulted for
   directories only, and globset's `embedded/**` does not match the directory
   `embedded` itself — so `walker_declarations` descends one level into every
@@ -614,6 +614,50 @@ transcript:
    harmless).
 10. *§7 addition (filed below):* markers are configured in all five sites and
     used by zero directories.
+
+**2026-07-26 — R2.** Landed. `NotContent::keeps_dir` is the directory
+question; `walker_declarations` asks it, `walk_tree` still asks `keeps`.
+
+*The idiom: the empty child.* globset has no "matches anything under this
+directory" query, so the second question is `rel.join("")` — the same path with
+a trailing separator, `embedded/`. Verified against globset directly:
+`embedded/**` does not match `embedded` but does match `embedded/`, while
+`*.toml` matches `a/b.toml` and matches neither `a/` nor `a`. That asymmetry is
+exactly the line R1 drew by hand, so the trailing separator *is* R1's narrowing
+rather than an exception carved beside it — no sentinel filename, no pattern
+string surgery, and a file-shaped pattern can never prune a directory.
+`include` is asked both questions before `exclude`, so its precedence holds at
+the same granularity.
+
+*The doc comment is now true, and says which question buys it.* "The walks must
+reach the same verdict" was false at this boundary because sharing one value is
+not the same as asking it one question. The tree walk can prune loosely — it
+post-checks every file it emits, and a file pattern *should* exclude a file
+there — while a walk that decides purely by pruning gets no second chance.
+`NotContent`'s doc now states that split; `walker_declarations`' "directories
+only" paragraph names `keeps_dir`.
+
+*Mutation-checked both directions.* Restoring `keeps` in the walk fails the
+extended fixture on `embedded/.schema.toml: TOML parse error` instead of the
+expected `unknown field cover`; probing with a sentinel that a file pattern can
+match (`rel.join("probe.toml")` instead of `""`) fails
+`a_file_shaped_pattern_still_does_not_prune_a_directory`, which is R1's call
+guarded as a test rather than a comment.
+
+*Residual, for the queue (hypothetical today).* R1's reachability invariant —
+declaration walks reach a superset of the tree walk's directories — now has one
+hole in the other direction: `exclude = ["vendor/**"]` with a **file-shaped**
+`include` beneath it (`include = ["vendor/keep/x.md"]`) lets the tree walk load
+that row while the declaration walk has pruned `vendor` and cannot see a
+`.schema.toml` beside it. Closing it needs the include *patterns*' literal
+prefixes, not their globset, which is more machinery than this item is worth.
+No site in the repo has an `include` that points inside an excluded directory
+(grack.com's is `.well-known/**`, `.htaccess`); a subtree-shaped include
+(`vendor/**`) is handled, since it matches the empty child.
+
+*Parity:* grack.com and all four examples byte-identical except the feeds'
+wall-clock `<updated>`; zero re-blessing; the only fixture change is the new
+first-level file and the comment pointing at it.
 
 ## 7. Serious questions (parked for the wrap-up conversation)
 
