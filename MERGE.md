@@ -247,7 +247,7 @@ to build Phase B on. Two follow-up items:
 
 ### Phase B — derive the merge from structure
 
-- [ ] **B1. A structural `Merge` mechanism.** Introduce the machinery that
+- [x] **B1. A structural `Merge` mechanism.** Introduce the machinery that
   expresses Law 2 in types: maps descend per key (value = atom if a struct
   or enum; descend if a map), structs descend per field, scalars/arrays/enums
   replace whole. Hand-written impls or a small derive — whichever reads
@@ -712,6 +712,82 @@ wall-clock `<updated>`; zero re-blessing; one new fixture
 `bail!` deleted the fixture builds and its footer carries
 `© 1998 the markdown pipeline`, chosen by nothing but `read_dir`.
 
+**2026-07-26 — B1.** Landed. `shape.rs` holds Law 2 (`Shape` — `Atom`,
+`Struct`, `Map` — and `Shape::depth`); `config.rs` holds the shape of this
+config below the law tables; `the_derived_laws_agree_with_the_hand_tables`
+holds the two halves to each other, key by key, across both tables. Every
+depth in table A now derives, `[markers]` excepted (below). No behaviour
+change — `merge_table` still dispatches through the hand tables.
+
+*The mechanism: a small trait, not a derive.* `Shaped::shape()` per struct,
+with each field's shape read off the FIELD'S OWN TYPE through a selector that
+is never called — `field("site", |c: &Config| &c.site)`. That is what makes
+this a derivation rather than the law table spelled twice: retype a field and
+its law changes with nothing to edit. The containers are mechanical (a map
+descends per key, a `Vec` is an atom whatever it holds, `Option` is
+transparent, `toml::Table` is a map of untyped values), which leaves one
+hand-written FIELD LIST per engine-named struct — seven of them — and A2's
+`serde_keys` trick checks each against serde's own `deny_unknown_fields` list,
+so the description cannot drift out of TOML's name space. A proc-macro derive
+would have bought only those seven lists, at the price of a new dependency and
+struct definitions read through a macro.
+
+*Namespace or atom is POSITION, not type* — which is the part that pays.
+`Shape::depth` applies §1's rule (a struct under an engine-chosen name
+descends per field; under a user-chosen one it is a definition, and stops the
+descent), so one description of a type merges correctly wherever it is used,
+and the depths fall out: `[sets]`/`[axes]`/`[shells]`/`[profiles]` 1 (maps of
+structs), `[records]` 2 (map of maps of structs), `[i18n]` 2 (two of
+`I18nCfg`'s five fields are maps, and the scalars beside them are unharmed),
+`[html.head.*]` 3 (`HtmlCfg` → `HeadCfg` → `BTreeMap<String, String>`).
+A3's `[links]` hypothetical is retired as evidence: the law is now a statement
+about `LinksCfg` being a struct under an engine-chosen name, true of every key
+it will ever have. The test keeps the `reach` stand-in only as a demonstration
+of what `merge_to_depth` does, and says so.
+
+*The one disagreement, for the queue (§7 item 10).* `[markers]` is
+`BTreeMap<String, BTreeMap<String, toml::Value>>` — a map of maps — so the
+structure reads **`Descend(2)`**: the marker filename, then each default it
+sets. Table A and `CONFIG_LAWS` say **`Descend(1)`**: the payload table is one
+atom. Nothing here decides it; `KNOWN_EXCEPTIONS` carries the derived value
+and `the_marker_payload_is_the_one_disagreement` states it alone so it cannot
+pass as a typo in a list. **B2 must not port `markers` until this is
+answered.** Reachable but inert today: `base.toml` declares the three markers
+and every site that redeclares them (grack.com, raw — raw is
+`extends = "none"`) restates the payloads verbatim, so both readings are
+byte-identical on the corpus. The question is which one a marker payload is —
+a definition under a user-chosen name (A5's `.archive = { noindex = true,
+hidden = true }` is one thought) or a bag of row defaults, which is how
+defaults merge everywhere else in the system.
+
+*Two invariants asserted rather than assumed.* (a) A definition's fields are
+deliberately undescribed — `Shape::definition()` is an empty field list, which
+is a claim that nothing reads them, not that there are none. That holds only
+while no definition sits under an engine-chosen name, so
+`a_definition_never_sits_under_an_engine_name` walks both shape trees and says
+so. (b) One `Descend(n)` governs a whole table, so a struct takes the DEEPEST
+of its fields; `a_nested_struct_ends_at_one_depth` pins that every nested
+struct's fields bottom out together. Over-descending a scalar or an array is
+harmless (the merge hands back anything that is not a table), but a field that
+is both an ATOM and a TOML TABLE — a `LocalizedStr`, a definition — sitting
+shallower than a map beside it would be split. None exists; that test is the
+tripwire for the next field anyone adds.
+
+*Mutation-checked five ways*, each against the test that owns it: `widgets`
+flipped to `Atom` and `html` to `Descend(2)` (agreement test), the markers
+exception emptied (agreement + disagreement tests), `HeadCfg` described as a
+definition (definition invariant + surface test), and one `HeadCfg` field
+given a level its siblings lack (depth invariant).
+
+*Deviation (small):* `serde_keys` now splits serde's message on `expected `
+rather than `expected one of `. Same list, second message shape — a one-field
+struct (`HtmlCfg`, `LinksCfg`) is told "expected \`head\`". Batch review 1's
+note stands: the helper is version-fragile and fails loudly.
+
+*Parity:* zero fixture changes, zero re-blessing, no non-test code path
+touched — the only edits outside the new module are the `Law` derives
+(`Debug`/`PartialEq`), the additive shape block, and the tests.
+
 ## 7. Serious questions (parked for the wrap-up conversation)
 
 Not work items. Each needs Matt's call; agents must not attempt them.
@@ -747,3 +823,11 @@ Not work items. Each needs Matt's call; agents must not attempt them.
 9. **Markers: configured ×5, used ×0** *(A5 + batch review 1 finding 10)* —
    every site declares `[markers]`, no directory carries a marker file.
    Keep as documented convention, trim from the base, or leave as-is?
+10. **Is a marker payload a definition or a bag?** *(B1)* — table A says the
+    payload table is the atom (`Descend(1)`); the type is a map of maps, so
+    Law 2 derives `Descend(2)`. Inert today (every redeclaration restates the
+    base's payload verbatim), and the only key where structure and the hand
+    table disagree. A site that wrote `".noindex" = { hidden = true }` over
+    the base's `{ noindex = true }` would get one key under the table's law
+    and both under the type's. Which is the law — and if it is the table's,
+    should the payload become a named struct so the types say so?
