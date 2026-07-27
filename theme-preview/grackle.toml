@@ -169,7 +169,6 @@ name = "objects"
 kind = "objects"
 exclude = ["themes/**"]
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
-bucket = "assets"
 
   [[collections.rules]]
   match = "**"

@@ -550,12 +550,13 @@ pub struct SiteDb {
     /// `screenshot5.png` genuinely collides, so resolution is a query that
     /// can fail rather than a map lookup.
     ///
-    /// NOTE: §6a's bubble+bucket bare-name resolution is **specced, not
-    /// built** — nothing reads this except `query stats`, and `[objects]
-    /// bucket` is read only by the load-time warning that reports it as
-    /// unimplemented (`load::declared_and_unread`). `{% image %}` joins its
-    /// literal argument to the root, so a bare name errors rather than
-    /// resolving.
+    /// NOTE: §6a's bubble+bucket bare-name resolution is **specced and
+    /// parked** (MERGE.md F1, 2026-07-27 — the `[objects] bucket` key it
+    /// would have read is deleted). `{% image %}` joins its literal argument
+    /// to the root, so a bare name errors rather than resolving. This index
+    /// stays because it has a live reader of its own: `query stats` reports
+    /// the distinct-name and ambiguous-name counts off it, which is the
+    /// measurement §6a's collision argument rests on.
     #[serde(skip)]
     pub by_name: BTreeMap<String, Vec<Key>>,
     pub routes: Table<Route>,

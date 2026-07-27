@@ -91,7 +91,6 @@ filename_formats = ["{slug}"]
 name = "objects"
 kind = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]
-bucket = "assets"
 
   # Browser-convention assets: a favicon or a touch icon is fetched by URL
   # with nothing on the site linking it, so it cannot be reference-driven.

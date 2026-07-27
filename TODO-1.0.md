@@ -208,9 +208,11 @@ the manual (ch. 35 or the relevant chapter), not a commit. *(from doc prose)*
       theme lacks falls back quietly; a fragment's own `data-fragment=` override
       naming a missing fragment IS a load error. The contrast is the teachable
       part. (§5e)
-- [ ] **Bare-name resolution is unexercised** — all 194 site invocations use
-      paths, so §6a's bubble-and-bucket path has no production coverage, and §0's
-      `burrs.jpg` tour example is specced rather than observed. (§6a)
+- [ ] **Bare-name resolution is parked** — all 194 site invocations use paths,
+      so §6a's bubble-and-bucket branch never had production coverage; it is
+      specced-and-parked and the `bucket` key is deleted (MERGE.md F1). §0's
+      tour now writes the path form. Reintroduction trigger: page bundles
+      (§5b). (§6a)
 - [ ] **Embedding text includes title and tags** — retitling re-embeds, so
       "Related changed" after a refactor does not indicate semantic drift. (§6b)
 - [ ] **Footnote duplicate `id` collision** — theoretical: one post has

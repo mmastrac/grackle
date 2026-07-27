@@ -265,7 +265,6 @@ fn every_collection_key_has_a_law(c: Collection) {
         name: _,
         source: _,
         extensions: _,
-        bucket: _,
         filename_formats: _,
         exclude: _,
         include: _,
@@ -422,7 +421,6 @@ impl Shaped for Collection {
             field("name", |c: &Collection| &c.name),
             field("source", |c: &Collection| &c.source),
             field("extensions", |c: &Collection| &c.extensions),
-            field("bucket", |c: &Collection| &c.bucket),
             field("filename_formats", |c: &Collection| &c.filename_formats),
             field("exclude", |c: &Collection| &c.exclude),
             field("include", |c: &Collection| &c.include),
@@ -1322,14 +1320,12 @@ pub struct Collection {
     pub source: Option<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
-    /// §6a bubble+bucket asset resolution names this directory; declared
-    /// ahead of the code that consumes it (deferred with the q26 pass).
-    ///
-    /// Still ahead of it. Nothing resolves a bare name, so the only reader of
-    /// this field is the load-time warning that says so
-    /// (`load::declared_and_unread`, MERGE.md D1 — the key stays because
-    /// build-it-or-drop-it is §7's question, not the loader's).
-    pub bucket: Option<String>,
+    // No `bucket`. §6a's bubble+bucket bare-name resolution is specced and
+    // PARKED (MERGE.md F1, §7 q1): the key was declared ahead of the code that
+    // would consume it, and nothing ever consumed it, so it went rather than
+    // stayed as configuration that configures nothing. `deny_unknown_fields`
+    // above is what makes a leftover declaration say so. The design is
+    // unchanged and comes back with page bundles (§5b).
     #[serde(default)]
     pub filename_formats: Vec<String>,
     #[serde(default)]

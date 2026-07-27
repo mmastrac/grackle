@@ -1,0 +1,25 @@
+# `bucket` named the directory §6a's bubble-and-bucket bare-name resolution
+# would have scanned. The resolution was never built and is PARKED (DESIGN.md
+# §6a, MERGE.md F1 / §7 q1), so the key that configured nothing is gone and
+# `deny_unknown_fields` says so at the line that wrote it — three sites in this
+# repo carried it, and anyone copying one of those configs meets this error
+# rather than a key that silently does nothing.
+#
+# The reintroduction trigger is page bundles (§5b); until then a reference is
+# a path.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "No buckets"
+author = "Tester"
+
+[[collections]]
+kind = "objects"
+name = "objects"
+extensions = ["png", "jpg", "jpeg"]
+bucket = "assets"
+
+  [[collections.rules]]
+  match = "**"
+  route = "/{path}"

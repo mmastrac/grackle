@@ -130,11 +130,8 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 #
 # Images only. Every other extension stays a tree row and ships verbatim at its
 # own path, which is the same bytes at the same URL — the difference an objects
-# collection makes is `by_name` resolution (§6a) and header-read dimensions, and
-# neither means anything for a `.zip`.
-#
-# No `bucket`: the directory a site keeps its assets in is a site's choice, and
-# bare-name resolution bubbles without one.
+# collection makes is the `by_name` index (§6a, parked) and header-read
+# dimensions, and neither means anything for a `.zip`.
 
 [[collections]]
 name = "objects"

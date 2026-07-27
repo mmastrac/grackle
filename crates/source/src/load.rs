@@ -113,34 +113,12 @@ fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<Str
         .collect()
 }
 
-/// Keys a collection may declare that the engine parses and never reads —
-/// today, `bucket` alone.
-///
-/// §6a's bubble+bucket bare-name resolution is **specced, not built**
-/// (DESIGN.md §6a, measured 2026-07-21): `{% image %}` joins its literal
-/// argument to the site root, so `bucket` names a directory nothing consults.
-/// Three sites in this repo declare it, which is the whole reason it is said
-/// out loud — the key reads like configuration and is decoration, and it is
-/// the one key `base.toml` deliberately omits with a comment explaining why.
-///
-/// A warning rather than a removal (MERGE.md D1): whether §6a gets built or
-/// the key gets dropped is not a decision the loader makes, and a config that
-/// is wrong about nothing must not fail to build over it. It is reported for
-/// the same reason a dead rule is — the author wrote something that does
-/// nothing, and nobody told them.
-fn declared_and_unread(cfg: &Config) -> Vec<String> {
-    cfg.collections
-        .iter()
-        .filter_map(|(name, c)| Some((name, c.bucket.as_ref()?)))
-        .map(|(name, bucket)| {
-            format!(
-                "collection {name}: `bucket = {bucket:?}` is declared and read by \
-                 nothing — §6a's bubble+bucket bare-name resolution is specced, not \
-                 built, so every asset reference still resolves as a literal path."
-            )
-        })
-        .collect()
-}
+// D1's `declared_and_unread` lived here and went with its subject (MERGE.md
+// F1): `bucket` was the only key it reported, and a key that no longer parses
+// needs no warning — `deny_unknown_fields` names it at the line that wrote it,
+// which is strictly the better error. If a second declared-and-ignored key ever
+// turns up, the shape is one `filter_map` over `cfg.collections` and D1's §6
+// note describes it; nothing here is worth keeping warm for it.
 
 /// What the rule cascade decided for one row.
 struct Routing<'a> {
@@ -1028,11 +1006,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut db = SiteDb::default();
     let root = cfg.root();
 
-    // Said before the walk, because it is a fact about the config alone: the
-    // corpus has no say in whether a key is read (`dead_rules`, below, is the
-    // other kind — a glob the corpus answered with nothing).
-    db.warnings.extend(declared_and_unread(cfg));
-
     // Which collection owns the tree is decided FIRST, because its `exclude` /
     // `include` are the site's declaration of what is not content (§4c) and
     // every walk of the root reads them from here: the tree walk, the marker
@@ -1750,12 +1723,13 @@ mod cascade_tests {
 
 /// What the load says and does not fail over, driven through the real `load`
 /// on a real (tiny) site — DESIGN.md §4's promised dead-rule warning (MERGE.md
-/// C3) and the `bucket` key that is parsed and never read (D1).
+/// C3).
 ///
 /// A dead rule's subject is a corpus answering a glob and nothing smaller than
-/// a tree can be that; `bucket`'s subject is the config alone, and it is tested
-/// through `load` anyway because reaching `db.warnings` is half of what the
-/// warning has to do.
+/// a tree can be that, which is why these tests write sites rather than build
+/// a `Config`. (D1's `bucket` warning was tested here too, and went with the
+/// key in F1 — it was the config-only warning this module doc used to contrast
+/// against.)
 #[cfg(test)]
 mod load_warning_tests {
     use super::*;
@@ -1939,83 +1913,6 @@ source = "."
   [[collections.rules]]
   match = "**/*.md"
   defaults = { hidden = true }
-"#,
-                ),
-                ("about.md", PAGE),
-            ],
-        );
-        assert_eq!(warnings(&dir), Vec::<String>::new());
-    }
-
-    /// `bucket` is parsed and read by nothing (§6a is specced, not built), so
-    /// the load says so — for the three sites in this repo that declare it and
-    /// for anyone who copies one of them.
-    ///
-    /// The site here has no images at all, which is the second half of the
-    /// claim: an empty collection silences `dead_rules` and does NOT silence
-    /// this, because a key nothing reads is a fact about the config and the
-    /// corpus is not consulted.
-    ///
-    /// Mutation check: delete the `declared_and_unread` call in `load` (or the
-    /// `bucket` arm inside it) and this site reports nothing.
-    #[test]
-    fn a_declared_bucket_warns_that_nothing_reads_it() {
-        let dir = site(
-            "bucket",
-            &[
-                (
-                    "grackle.toml",
-                    r#"
-[site]
-url = "https://example.com"
-title = "T"
-author = "A"
-
-[[collections]]
-name = "objects"
-kind = "objects"
-extensions = ["png"]
-bucket = "assets"
-
-  [[collections.rules]]
-  match = "**"
-  route = "/{path}"
-"#,
-                ),
-                ("about.md", PAGE),
-            ],
-        );
-        let w = warnings(&dir);
-        assert_eq!(w.len(), 1, "one key, one warning: {w:?}");
-        assert!(w[0].contains("collection objects"), "names it: {w:?}");
-        assert!(w[0].contains(r#"`bucket = "assets"`"#), "quotes it: {w:?}");
-        assert!(w[0].contains("§6a"), "points at the spec: {w:?}");
-    }
-
-    /// The control, and the other direction of the mutation check: the same
-    /// site without the key is silent. (Warning unconditionally — on every
-    /// objects collection, say — would pass the test above and fail this one.)
-    #[test]
-    fn an_undeclared_bucket_says_nothing() {
-        let dir = site(
-            "no-bucket",
-            &[
-                (
-                    "grackle.toml",
-                    r#"
-[site]
-url = "https://example.com"
-title = "T"
-author = "A"
-
-[[collections]]
-name = "objects"
-kind = "objects"
-extensions = ["png"]
-
-  [[collections.rules]]
-  match = "**"
-  route = "/{path}"
 "#,
                 ),
                 ("about.md", PAGE),

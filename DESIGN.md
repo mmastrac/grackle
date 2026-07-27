@@ -15,7 +15,11 @@ file → row → query → doc model → part map → slots → CSS → URL
 ```
 
 **1. You write a file** — `_posts/2026/2026-07-17-espresso-grinder.md`, with
-`title` and `tags` in the front matter, and `![](burrs.jpg)`. Every file belongs
+`title` and `tags` in the front matter, and
+`{% image assets/2026/07/burrs.jpg %}` — an asset reference is a path from the
+site root, which is what all 194 of them are. (A bare `burrs.jpg` resolving to
+a sibling is §6a's bubble-and-bucket design: specced, **parked**, and not what
+this tour is showing.) Every file belongs
 to exactly one table by precedence — posts, then objects (by extension), then tree.
 The post lands in `blog` at `/blog/2026/07/17/espresso-grinder/`.
 
@@ -203,7 +207,6 @@ source = "."
 [[collections]]
 kind       = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
-bucket     = "assets"
 
   [[collections.rules]]
   match = "assets/branding/logo.png"
@@ -1049,7 +1052,7 @@ _posts/2022/coffee-part-1/
   leak.jpeg       <- and its assets resolve as siblings (§6a)
 ```
 
-At which point **§6c's per-post `<style>` and this become the same feature**, with the bundle as the thing that unifies them.
+At which point **§6c's per-post `<style>` and this become the same feature**, with the bundle as the thing that unifies them — and it is the same moment §6a's parked bare-name resolution comes back, because in a bundle a sibling reference is what an author would write anyway (`leak.jpeg` above already spells it).
 
 ### Schema per subtree, and the payoff
 
@@ -1667,6 +1670,19 @@ A **literal** claim is settled at load (the row is marked, its own route withhel
   `stem != "index"` filter survives exactly until they do.
 ## 6a. Object references: paths and names
 
+⚠️ **Bare names are PARKED; the key is deleted** *(2026-07-27, MERGE.md F1 /
+§7 q1)*. What ships is the **path** branch below, which is every reference the
+corpus has ever written. Name bubbling and buckets were never built, and the
+`[[collections]] bucket` key that was declared ahead of them — three sites
+carried it, reading like configuration and configuring nothing — is **gone**:
+declaring it is now a parse error naming the knowns. The design in this section
+is not withdrawn, and none of it was found wrong; it is waiting for the shape
+that makes bare names the natural thing to write. **Reintroduction trigger:
+page bundles** (§5b) — `_posts/2022/coffee-part-1/` holding `index.md`,
+`.style.scss` and `leak.jpeg` together, at which point a sibling reference is
+how an author would spell it anyway and the branch gets built whole, bucket
+included. Until then a reference is a path, and a bare name is an error.
+
 ### The measurements that shape this
 
 - Every existing reference is a **root-relative path**: `{% image assets/2022/12/part-2-disassembly-a.jpeg %}`.
@@ -1691,6 +1707,7 @@ A reference is a **path** if it contains `/` or `://`; otherwise it's a **name**
 Exhaust the root → error.
 
 ```toml
+# PARKED — `bucket` is not a key today; declaring it is a parse error.
 [objects]
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
 bucket     = "assets"              # directory NAME that marks a bucket, not a path
@@ -1718,9 +1735,9 @@ Worked examples against the real tree:
 
 **Ambiguity is per-step.** 2+ hits within one level → error listing candidates. Across levels there is no ambiguity by construction: nearer wins.
 
-⚠️ **Specced, not built** *(measured 2026-07-21)*. This describes a design; the code does not implement name bubbling. `thumbs::one` joins the filename to the site root; a bare name resolves to `root/burrs.jpg`, misses, and fails with `{% image %} source not found`. `[objects] bucket` is parsed and read by nothing but the load-time warning that says so (MERGE.md D1 — every build of a site declaring it now prints one line); `by_name` is built every load but read only by `query stats`. All 194 corpus invocations pass a path, so the unbuilt branch has never been reached.
+⚠️ **Specced, not built** *(measured 2026-07-21; parked and the key deleted 2026-07-27 — see the banner at the top of this section)*. This describes a design; the code does not implement name bubbling. `thumbs::one` joins the filename to the site root; a bare name resolves to `root/burrs.jpg`, misses, and fails with `{% image %} source not found`. `[[collections]] bucket` is gone (MERGE.md F1): it was parsed and read by nothing but D1's load-time warning saying so, and the warning went with it — `deny_unknown_fields` names the offending line instead, which is the better error. `by_name` is **kept**: it is built every load and read by `query stats`, which is where the collision measurements above come from. All 194 corpus invocations pass a path, so the unbuilt branch has never been reached.
 
-An earlier version of this section claimed "bare names work for posts today, with no restructuring and no bucket configuration at all". They do not. This is the same class of drift as §9b Round 3's *declared-and-ignored* `layout` names — a third instance found in one week, after `grackle diff`'s URL-parity claim and the heading anchors story. The tour's own worked example (§0 step 4, `burrs.jpg` resolving to a sibling) is aspirational for the same reason.
+An earlier version of this section claimed "bare names work for posts today, with no restructuring and no bucket configuration at all". They do not. This is the same class of drift as §9b Round 3's *declared-and-ignored* `layout` names — a third instance found in one week, after `grackle diff`'s URL-parity claim and the heading anchors story. The tour's own worked example was aspirational for the same reason, and F1 corrected it: §0 step 1 now writes the path form.
 
 ### `{% image %}` vs `<img>`/`<iframe>` (and `<style>`)
 

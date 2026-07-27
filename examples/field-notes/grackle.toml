@@ -51,7 +51,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 name = "objects"
 kind = "objects"
 extensions = ["png", "jpg", "jpeg", "gif", "webp", "svg"]
-bucket = "assets"
 
   [[collections.rules]]
   match = "**"
