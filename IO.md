@@ -54,11 +54,18 @@ mode: it is an output whose content stage nobody had forced yet.
 
 The two databases join on explicit fields, in both directions:
 
-| side | field | holds | cardinality |
-|---|---|---|---|
-| input | `output` | a record — the row's **canonical** output; `output.url` is its address; bare `output` is truthy iff the row lands anywhere | 0..1 |
-| input | `viewed_by` **[open: name]** | every output that includes this row as a *member* (listings, archives, the feed) | 0..N |
-| output | `inputs` | every input row that fed this output | 1..N |
+| side | field | holds | cardinality | |
+|---|---|---|---|---|
+| input | `output` | a record — the row's **canonical** output; `output.url` is its address; bare `output` is truthy iff the row lands anywhere | 0..1 | **shipped**, I9 |
+| input | `alternates` | its non-canonical outputs — the `rel="alternate"` set | 0..N | **shipped**, I9 |
+| input | `viewed_by` ~~**[open: name]**~~ | every output that includes this row as a *member* (listings, archives, the feed) | 0..N | **shipped**, I9 — name kept |
+| output | `inputs` | every input row that fed this output | 0..N | **shipped**, I9 |
+
+The shipped/pending marking is §3's convention. Two amendments the build made
+to the table itself: `alternates` is a **column beside `output`** rather than a
+derived relation name (the bullet below is amended in place), and `inputs` is
+**0..N, not 1..N** — a fold over the output pool whose selected routes have no
+source rows, and a routed row nothing cites, both legitimately hold none.
 
 Cardinalities, spelled: one input → one own output (a page); one input →
 many outputs *viewing* it (the listings that carry it); one output → many
@@ -79,19 +86,30 @@ Consequences that fall out of the join rather than needing rules:
 - **Axis alternates** are *other outputs of the same input*. The axis
   design's sentence — "points at other forms of THIS row" — becomes
   literally true in the schema: a form is an output. The alternate set is
-  already computed every build (it emits `rel="alternate"`); exposed as a
-  derived name (**`alternates`**, beside `linked_from`/`ancestors`), it
-  gives relation pivots row → alternate forms → `candidate.output.url` with
-  no new syntax.
+  already computed every build (it emits `rel="alternate"`); exposed as
+  **`alternates`**, it gives relation pivots row → alternate forms →
+  `candidate.output.url` with no new syntax. **[amended at I9]**: it landed
+  as a row COLUMN rather than a derived name beside
+  `linked_from`/`ancestors` — a derived name is a per-row *query* over
+  other rows, and this is a planning fact about the row itself, so as a
+  pool it would have been structurally empty (an alternate's URL is not in
+  `by_url`; the row is its own alternate's row, and self is never a
+  candidate). As a column it type-checks, filters, and reaches the
+  two-row environment as `self.alternates`/`candidate.alternates` for
+  free, which is the pivot the sentence wanted.
 - **Arrangement vs citation**, which the backlink scanner learned the hard
   way (membership is not citation), becomes two honest fields: `viewed_by`
   is arrangement; `linked_from` stays citation.
 - **`output.inputs` is the invalidation edge set.** The incremental-rebuild
   machinery's typed keys have been curating exactly these edges by hand;
-  now they are a column. **[open: scope]** — does `inputs` hold member rows
-  only, or the full row-level closure (referenced images, slot fills)?
-  Lean: full row-level closure (it is what invalidation needs); non-row
-  dependencies (theme files, config) remain the existing key types.
+  now they are a column. ~~**[open: scope]**~~ **settled at I9: the full
+  row-level closure** — the row a route renders, a landing's claimed
+  content row, a view's members, the rows behind a pool fold's selected
+  routes, and every row the finished bytes cite. Non-row dependencies
+  (theme files, `.slots/` fills, config) remain the existing key types,
+  and they fall outside by CONSTRUCTION rather than by a filter: a
+  `.slots/` fill is not a row, so "row-level" already excludes it.
+  Wiring invalidation to the column is I10's.
 
 ## 3. Facts replace `kind`
 
@@ -383,10 +401,14 @@ one thing in the whole system: the serialization a route leaves through.
 
 ## 9. Open questions
 
-1. **[naming]** `viewed_by` vs `views` for the input-side membership list
-   (`views` collides with the query vocabulary).
-2. **[scope]** `output.inputs`: member rows only, or full row-level closure
-   (lean: closure).
+1. ~~**[naming]** `viewed_by` vs `views` for the input-side membership list
+   (`views` collides with the query vocabulary).~~ — settled at I9:
+   **`viewed_by`**, the proposed name kept. `views` collides, and the
+   direction-named derived family (`linked_from`, `viewed_by`) reads the
+   way a backlink does.
+2. ~~**[scope]** `output.inputs`: member rows only, or full row-level closure
+   (lean: closure).~~ — settled at I9: the lean taken, §2's bullet carries
+   the list.
 3. **[spec]** `robots_txt` emission details.
 4. ~~**[design detail]** multi-theme CSS scoping in the one artifact~~ —
    answered at I5: §6's multi-theme scoping paragraph (per-theme sub-layers
@@ -711,7 +733,7 @@ Two follow-up items, run before I9:
 
 ### Phase I-D — the join and the graph
 
-- [ ] **I9. The join fields.** `output` (record; canonical), `viewed_by`
+- [x] **I9. The join fields.** `output` (record; canonical), `viewed_by`
   **[open: name — propose-and-flag]**, `inputs`; the `alternates` derived
   name; claimed rows visible as `!output`. Parity. **Amendments from
   review I-C**: (a) §2's `rendered` bullet is STALE (marked in place) —
@@ -3426,3 +3448,258 @@ That shape is legal today and byte-inert; refusing it too is the same argument
 I7e's `favicon.ico` finding made from the other side (a scope owns what its
 globs widen), and the narrower check would have to reason about rule order to
 say anything at all.
+
+**2026-07-27 — I9.** Landed as one commit. Four fields, and the item's whole
+content is the second question rather than the first: not *what does the join
+say* but *when is each half of it true* — because the answer decides which of
+them may be a filter column at all, and two of them may not.
+
+***[decided]* The build sites, and the law that falls out of them.** Each field
+is filled at the earliest point its answer is complete, and the four points are
+not the same point:
+
+| field | built at | why not earlier, why not later |
+|---|---|---|
+| `output`, `alternates` | route minting (`load::join_outputs`) | the routes exist; and `build_views` is the FIRST reader — a `where = "!output"` evaluated before the fact exists selects nothing, silently, forever |
+| `output` (again) | `build::materialize_referenced` | the pull model: an on-demand row lands the moment something references it |
+| `viewed_by`, `inputs` | end of the load (`load::join_arrangement`) | a view's membership is what produces them |
+| `inputs` (again) | after the write pass (`build::join_citations`) | a citation is a fact about content |
+
+Which gives the sentence the item is really about: **selection may not read
+arrangement.** `output` and `alternates` are planning facts, complete before any
+filter runs, so they are filter columns. `viewed_by` and `inputs` are what
+membership *produces*, so at the instant a `where` is evaluated they are empty
+for every row — and the rule for that was already written, in `route_schema`'s
+own doc comment about `noindex`: *a field that cannot be populated correctly is
+worse than no field.* They are columns of the two tables with `grackle explain`
+as their surface and I10's graph as their consumer, and they are absent from
+`row_schema`/`route_schema`, so naming one in a `where` is the ordinary
+unknown-field error rather than a query that quietly matches nothing. No new
+refusal was written; the existing generic one is the right one, because the
+name genuinely is not a column there.
+
+***[decided]* How a record enters the CEL environment: as a pair, not as a
+string.** The language has no record type and this item did not give it one.
+`output` is a **Bool** — "there is a record" — and `output.url` is a **Str**,
+which is `date.year`'s dotted spelling one construct over (the lexer already
+admits `.` inside an identifier, so it cost nothing). The alternative was one
+`Str` column holding the URL, with truthiness falling out of emptiness; it was
+refused because it makes `output == "/x/"` type-check, which reads as comparing
+a record to a string, and because `Null` and `""` are then the same answer.
+`output.url` answers **Null** for a row that lands nowhere — measured as a
+mutation: returning `Str("")` there makes the claimed row read as landing at the
+empty URL. `alternates` is a `List`, the shape `tags` already has.
+
+*The five shapes, each run rather than reasoned* (`io_join.rs`, one site so the
+answers sit beside each other):
+
+| shape | `output` | why |
+|---|---|---|
+| degenerate (blockless `.md`, document shell) | `/notes/plain-note/` | identity is not what mints a URL — the rule is |
+| sidecar'd (identity, no parsed content) | `/assets/badge.png` | its output is its **bytes**; `front_mattered true / rendered false / output <the file>` is the third pair `explain`'s block teaches |
+| claimed (q45) | none | the landing owns the URL |
+| axis member | the CANONICAL member's URL | and the others are `alternates` |
+| on-demand | none at load; **its URL after `materialize_referenced`, iff cited** | the pull model, from the join's side |
+
+**The on-demand answer is the one worth stating as a consequence.** Bare
+`output` is truthy iff the row lands anywhere, at every instant — but every
+filter the engine runs is upstream of `materialize_referenced`, so *a filter
+reading `output` on an on-demand row always sees the unreferenced answer*, and
+so does `grackle explain`, which runs no render pass. That is not a defect to
+fix; it is what "build is pull every output" means from the query side, and the
+test asserts both halves (the cited image lands, the uncited twin does not,
+and only after the render pass does either change).
+
+***[decided]* `alternates` is a COLUMN, not a derived relation name** — the one
+place the brief's shape was not taken, and §2's bullet is amended in place.
+`linked_from`/`ancestors` are per-row *queries over other rows*; an alternate is
+a planning fact about the row itself, and as a `Pool::Derived` it would have
+been **structurally empty**: `pool_rows` resolves a derived name's URLs through
+`db.row_by_url`, an alternate's URL is not in `by_url` (that index holds
+canonical URLs), and even if it were, the row it found would be the row itself,
+which self-exclusion drops. A silent-empty pool is the disease this ledger
+exists to refuse, and refusing it would have meant a targeted error for a name
+nobody can use. As a column it type-checks, filters (`where = "alternates"`
+selects the rows with other forms), prints in `explain`, and reaches the two-row
+environment as `self.alternates`/`candidate.alternates` for free — while
+`candidate.output.url`, which is the pivot §2's sentence actually names, arrives
+by the same free route. Reversal is a `DERIVED_RELATIONS` entry plus a
+`derived_names` arm.
+
+***[decided]* `viewed_by` keeps its name** (§9's question 1). `views` collides
+with the query vocabulary, and the direction-named family reads correctly beside
+`linked_from`. The field is arrangement and `linked_from` stays citation, which
+formalizes the backlink scanner's two clients — and the scanner turns out to
+have **three** now, since `inputs`' citation half reads it too, deliberately
+UNFENCED: §6g's splice fence exists so a listing's arrangement is not "linked
+from", which is a question about citation, while an image a listing arranged is
+an input to the bytes like any other. Measured: the fenced and unfenced scanners
+agree on every shape the corpus and the suite can build (a splice cites its
+members, already inputs by membership, and thumbnail URLs, which are not rows),
+so the choice is recorded rather than pinned by a mutation nothing can make red.
+
+***[decided]* `inputs` is the full row-level closure** (§2's `[open]`, the lean
+taken), and the narrowing that made it cheap is that **non-row dependencies fall
+outside by construction rather than by a filter**: a `.slots/` fill lives under
+a dot-directory and is not a row, a theme file is not a row, config is not a
+row. So "row-level closure" already excludes exactly what §2 said stays a typed
+key, and no exclusion had to be written. What it holds: the row a route renders,
+a landing's claimed content row (the one input a landing has that its member
+list does not name), a view's members, the rows behind a pool fold's selected
+routes, and every row the finished output cites. The output→output half of the
+same graph is `route_members`, untouched. Cardinality is **0..N, not §2's
+1..N** — a fold whose selected routes are all sourceless holds none, and so does
+a byte copy that cites nothing.
+
+*The citation half cost nothing, and that took a seam.* A second scan of the
+finished output measured **+23 ms consistently** on grack.com (708 → 731 ms
+mean over five interleaved runs) — small, but consistent is not variance. So the
+scan moved out of both consumers into `build::citation_map`, which runs once;
+`materialize_referenced` takes it as its frontier and appends an entry for each
+file it publishes, and `join_citations` reads the whole of it. Re-measured after:
+759 vs 731 ms mean, inside variance in both directions.
+
+***[decided]* The three vectors STAY a shape** — I7e's flag, claimed. The join
+supplied the argument rather than the capability, and it goes both ways at once.
+(a) A query needs its predicate in the row's own columns and **neither fact is
+there**: "this scope's role is posts" and "an objects glob claimed this path"
+are statements about CONFIG, and a row carries `collection` — the scope's *name*
+— and nothing that says what kind of scope that was. Adding the two bits to make
+the query expressible would re-mint, as two engine-named row facts, exactly the
+origin distinction I7e deleted. (b) A query returns a set; `insert_rows` hands
+over a **sequence**: `post_ix`'s order is load order after `sort_posts`, and it
+is load-bearing — `embed`'s vectors are parallel to it, `relate` reads them by
+that position, and the multi-indexes take their within-key order from the
+table's. No predicate carries an order. Recorded on `insert_rows` itself, where
+the next reader of the flag will be.
+
+*`explain`, and the two dashes that have a name.* The row block gains `output`
+beneath `rendered` — beside it, never in place of it, per review I-C's amendment,
+and the corpus disagrees about the two in both directions (a byte copy is
+`rendered false` with an output; a claimed row is `rendered true` with none).
+Then a measurement changed the line: `explain /recipes/` on field-notes prints
+`url /recipes/` and, two lines down, `output -`, because q45 rewrote the claimed
+row's `url` to its landing's. That reads as a contradiction to anyone who does
+not already know q45 — I8's argument about `front_mattered true`, one field over
+— so the two dashes that have a name say it: `- (claimed — the landing at that
+URL owns it)` and `- (on demand — nothing has referenced it)`. A bare dash then
+means the third thing and only the third thing: no rule routed this row.
+`alternates` and `viewed_by` print beside `newer`/`older`, capped at eight with
+a count; the ROUTE branch — the one that answers for the outputs no row claims —
+gains `inputs`.
+
+    $ grackle explain /blog/2000/04/02/opendvd-artwork/
+      rendered    true
+      output      /blog/2000/04/02/opendvd-artwork/
+      …
+      alternates  -
+      viewed_by   3
+                  /blog/2000/
+                  /blog/2000/04/
+                  /blog/page/63/
+
+    $ grackle explain /sitemap.xml
+      kind        view sitemap, 589 rows
+      inputs      409
+                  _posts/1998/1998-08-15-new-fuzzy-logic-homepage.md
+                  …
+
+*The census, exported and counted per site.* It is the item's most useful
+output, because three of the five shapes are live somewhere in the corpus:
+
+| site | rows | land | no output | alternates | viewed_by |
+|---|---|---|---|---|---|
+| `examples/minimal` | 3 | 3 | 0 | 0 | 2 |
+| `examples/raw` | 3 | 3 | 0 | 0 | 2 |
+| `theme-preview` | 24 | 21 | **3 claimed** | **11** (13 each) | 13 |
+| `examples/field-notes` | 42 | 40 | **2 claimed** | 0 | 28 |
+| grack.com | 1396 | 1189 | **207 on-demand** | 0 | 327 |
+
+Every no-output row is accounted for by exactly one reason, checked: grack.com's
+207 are all `on_demand` and none is claimed; theme-preview's and field-notes'
+five are all claimed and none is on-demand. theme-preview is the live axis —
+fourteen theme members, canonical `vanilla`, thirteen alternates on each of its
+eleven multiplied rows — so the axis half of the join is exercised by a real
+site and not only by a fixture.
+
+*Five tests, ten mutations plus two controls, each red alone and each restored*
+(`crates/grackle/tests/io_join.rs`). Built sites where the claim needs bytes
+(`render_site` takes `&mut SiteDb`, so a test can ask the database what the
+render pass wrote into it — the only way to see a fact decided after every
+filter has run), loaded sites elsewhere. The mutations: `join_outputs`' call
+after minting deleted (the view selecting on `output` empties); the SECOND call
+deleted, at q45's route retraction (the two templated-claimed rows keep the
+route they lost, while the literal claim stays right — which is what makes the
+two claim shapes worth having in one fixture); `materialize_referenced`'s
+`row.output` assignment deleted (the cited image never lands while the site
+still publishes it — the half a build's file list cannot see); the canonical
+test forced `true` (the last route minted wins, MERGE.md C5's arbitrary pick) and
+`false` (nothing lands at all); `join_arrangement` deleted; `viewed_by` filled
+from `route_members` instead of `members`; `join_citations` deleted (the image
+leaves the closure); `output.url` answering `Str("")` instead of Null; and each
+of the two `explain` reasons hardcoded, which goes red on exactly the other row.
+The controls: `every_other_row_lands` (so `!output` is a filter and not a
+constant), a row published once whose `alternates` is empty, and an external
+link in the citing page that must not become an edge.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one, into separate trees
+from the same content — **byte-identical but for two wall-clock `<updated>`
+lines** (the other four builds landed in the same second; every differing file
+checked line by line to be nothing else), **stderr identical on all six**, file
+counts 8 / 8 / 83 / 242 / 1828 / 1829 and `grackle query urls` set-diffs
+**empty** on all six (7 / 7 / 63 / 222 / 1372 / 1373), both unmoved since IR1.
+`cargo test` green (27 result lines); `cargo fmt --check` clean under the pin;
+**clippy 47**, HEAD's number, with the warning SET byte-identical to HEAD's
+rebuilt in the worktree; re-blessing limited to the six `explain`-block assertions the new line
+moves (four in `io_explain.rs`, two in `io_sidecar.rs`) — no fixture and no
+`expected-error` moved. (The commit message says "two"; it is six, and this is
+the count.)
+`grackle export` gains `output`, and `alternates`/`viewed_by` where non-empty;
+`inputs` is `#[serde(skip)]` beside `members`, per `debug.rs`'s note that the
+export is the database as the database sees it.
+
+*Docs.* DESIGN.md gains **§5i, The join: two databases, three fields** (the
+table, where each field is built and why there, the two-that-are-columns rule,
+what the join makes sayable, the closure's scope); §2's invalidation bullet says
+the row-level half is a column now and that I10 wires it; §5's filter-language
+field list gains the three new names and the record-as-a-pair argument; §5h's
+claimed-row paragraph says the exclusion is sayable; §6g's Problem 2 paragraph
+says `cited_urls` has three clients and that arrangement now has a field of its
+own; §9b's single-tree entry records the join as built and hands the endgame's
+remainder to I10. `manual/OUTLINE.md` untouched per MERGE.md §4, and checked
+rather than assumed — its three hits on these words are the output *directory*
+and `Head.alternates`, and its q53 sentence ("the canonical keeps the row's own
+URL; alternates are templated") is now more true than it was, since there is a
+column of that name saying exactly it. Sixth in the sequence that leaves that
+file honest.
+
+*One thing verified rather than assumed.* `output`, `alternates`, `viewed_by`
+and `inputs` are built-in row names now, so q51's guard refuses a site declaring
+one — probed live: *"field \"output\" is a built-in row field, so declaring it
+would be silently overruled"*. No config anywhere in the repository declares any
+of the four (grepped, sites and fixtures alike), which is why parity was free
+here rather than lucky.
+
+*For batch review I-D.* Five things. (i) **`alternates` as a column rather than
+a derived name** is the deviation from the brief and the call to weigh; the
+argument (an empty pool is not a capability) and the one-arm reversal are above.
+(ii) **`viewed_by` and `inputs` are not filter columns**, which is the item's
+central call — it follows `noindex`'s precedent exactly, but it does mean §2's
+"now they are a column" is true of the data model and not of the query
+vocabulary, and a reviewer may want the arrangement pair exposed to RELATIONS
+(which run at build, after both are complete) even while views cannot see them.
+That is a one-line addition to `two_row_schema` the day something needs it.
+(iii) **`materialize_referenced` now sets `Route.row`** on the routes it mints,
+where it left it `None` before — needed so the on-demand output is a node like
+any other, and safe because that pass runs after every reader of `Route.row`
+(checked one at a time: `load.rs`'s six are in the load, `build.rs`'s eleven and
+`links.rs`' one are in render passes above this line, and `serve` reloads the
+world rather than reusing a database). It is nonetheless a widened invariant on a route nothing
+used to claim. (iv) **The citation closure reads the UNFENCED scanner**, which
+is a decision no mutation can make red today — recorded in the test's doc
+comment with the measurement. (v) **`inputs` on a pool fold is the rows behind
+its selected routes**, which for grack.com's sitemap is 409 rows out of 589
+selected routes; the other 180 are sourceless outputs whose edge is
+`route_members` rather than `inputs`, and whether I10 wants those two read as
+one graph or two is its question, not this one's.
