@@ -276,11 +276,3 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
     out.reverse();
     out
 }
-
-#[cfg(test)]
-// The climb and the declared trail moved to a fixture test (§7d): both
-// faked what a real paginated route stamps. See
-// `crates/grackle/tests/fixtures/crumb-trails`.
-mod tests {
-    use super::*;
-}

@@ -185,17 +185,6 @@ impl Markers {
 mod tests {
     use super::*;
 
-    fn cfg() -> BTreeMap<String, Defaults> {
-        let mut c = BTreeMap::new();
-        let mut hidden = Defaults::new();
-        hidden.insert("hidden".into(), toml::Value::Boolean(true));
-        c.insert(".hidden".into(), hidden);
-        let mut noindex = Defaults::new();
-        noindex.insert("noindex".into(), toml::Value::Boolean(true));
-        c.insert(".noindex".into(), noindex);
-        c
-    }
-
     /// Build a Markers directly, bypassing the filesystem.
     fn markers(dirs: &[(&str, &str, bool)]) -> Markers {
         let mut m = Markers {
