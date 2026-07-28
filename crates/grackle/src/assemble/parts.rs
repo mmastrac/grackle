@@ -912,6 +912,7 @@ pub fn preview(p: Preview) -> PartMap {
 /// member HTML (THEME.md §3).
 pub fn page_row(
     title: &str,
+    url: &str,
     trail: Vec<(String, Option<String>)>,
     intro: Option<String>,
     content: String,
@@ -919,6 +920,7 @@ pub fn page_row(
 ) -> PartMap {
     let mut m = PartMap::new("row");
     m.set("title", Part::Text(title.to_string()));
+    m.set("url", Part::Text(url.to_string()));
     m.set("crumbs", crumb_stream(trail));
     if let Some(i) = intro {
         m.set("intro", Part::Html(i));
@@ -1156,6 +1158,7 @@ mod tests {
                 .collect::<String>();
             let m = page_row(
                 r.key.as_deref().unwrap_or("listing"),
+                &r.url,
                 vec![("Home".to_string(), Some("/".to_string()))],
                 None,
                 content,

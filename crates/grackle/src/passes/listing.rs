@@ -99,7 +99,14 @@ impl Pass for Listing {
             crate::assemble::chain::concat_rows(&row_thm.fragments, face, items, v.featured);
         let main = row_thm
             .fragments
-            .render(&parts::page_row(&title, trail, intro, content, pagination));
+            .render(&parts::page_row(
+                &title,
+                &r.url,
+                trail,
+                intro,
+                content,
+                pagination,
+            ));
         let mut head = render::head_simple(&title, &r.url, ctx.site);
         head.meta = render::eval_metas(ctx.metas, r, ctx.site, &title, &r.url);
         let html = row_thm.page(
