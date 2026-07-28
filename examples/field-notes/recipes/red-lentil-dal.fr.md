@@ -1,6 +1,5 @@
 ---
 title: Dal de lentilles corail
-layout: page
 theme: "recipes:spicy"
 course: dinner
 servings: 4

@@ -1,6 +1,5 @@
 ---
 title: Expressions
-layout: page
 order: 1
 ---
 Filters and computed fields share one expression language — a CEL subset,

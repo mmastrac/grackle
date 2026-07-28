@@ -1,6 +1,5 @@
 ---
 title: Overnight focaccia
-layout: page
 course: baking
 servings: 8
 minutes: 40

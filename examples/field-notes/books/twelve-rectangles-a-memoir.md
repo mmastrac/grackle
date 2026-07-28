@@ -1,6 +1,5 @@
 ---
 title: "Twelve Rectangles: A Memoir"
-layout: page
 author: P. Masonry
 date: 2026-07-01
 cover: books/covers/twelve-rectangles-a-memoir.png

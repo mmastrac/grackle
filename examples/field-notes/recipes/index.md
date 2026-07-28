@@ -1,6 +1,5 @@
 ---
 title: Recipes
-layout: page
 ---
 Recipes are rows: typed fields (servings, minutes, course) declared by
 `.schema.toml`, validated at load, queried by views. Browse by course:

@@ -1,6 +1,5 @@
 ---
 title: Markers
-layout: page
 order: 2
 ---
 A marker file sets defaults for its directory and everything below it.

@@ -1,6 +1,5 @@
 ---
 title: Recettes
-layout: page
 ---
 Les recettes sont des lignes : champs typés (portions, minutes, plat)
 déclarés par `.schema.toml`, validés au chargement, interrogés par les

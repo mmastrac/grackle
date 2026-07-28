@@ -1,6 +1,5 @@
 ---
 title: A Field Guide to Engines
-layout: page
 author: R. Diesel
 date: 2026-05-01
 cover: covers/field-guide.png

@@ -1,6 +1,5 @@
 ---
 title: Brown butter oat cookies
-layout: page
 course: baking
 servings: 18
 minutes: 50

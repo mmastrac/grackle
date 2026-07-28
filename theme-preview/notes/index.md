@@ -1,6 +1,5 @@
 ---
 title: Notes
-layout: page
 date: 2026-07-19
 ---
 Four short notes, two to a page, so the pagination fragment has

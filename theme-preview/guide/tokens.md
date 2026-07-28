@@ -1,6 +1,5 @@
 ---
 title: Tokens
-layout: page
 order: 1
 toc: true
 ---

@@ -1,6 +1,5 @@
 ---
 title: "Douze rectangles : mémoires"
-layout: page
 author: P. Masonry
 date: 2026-07-01
 cover: books/covers/twelve-rectangles-a-memoir.png

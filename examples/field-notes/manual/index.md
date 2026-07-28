@@ -1,6 +1,5 @@
 ---
 title: Manual
-layout: page
 ---
 A small mdbook-style tree. Every page below should eventually render with
 a section tree in a slot — this index, the chapters, and the two pages in

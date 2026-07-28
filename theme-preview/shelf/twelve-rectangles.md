@@ -1,6 +1,5 @@
 ---
 title: Twelve Rectangles
-layout: page
 author: M. Bauhaus
 date: 2026-07-01
 cover: covers/twelve-rectangles.png

@@ -1,6 +1,5 @@
 ---
 title: Themes
-layout: page
 order: 3
 ---
 A theme is a directory of data: a shell, optional per-kind fragments, and

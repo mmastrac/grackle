@@ -1,6 +1,5 @@
 ---
 title: Install
-layout: page
 order: 1
 ---
 Build from source:

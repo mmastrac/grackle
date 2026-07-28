@@ -1,6 +1,5 @@
 ---
 title: Spaghetti carbonara
-layout: page
 course: dinner
 servings: 2
 minutes: 25

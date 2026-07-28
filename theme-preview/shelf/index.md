@@ -1,6 +1,5 @@
 ---
 title: Shelf
-layout: page
 date: 2026-07-17
 ---
 The card face. Only the themes that ship a `summary--card`

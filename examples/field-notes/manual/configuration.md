@@ -1,6 +1,5 @@
 ---
 title: Configuration
-layout: page
 order: 2
 toc: true
 ---

@@ -1,6 +1,5 @@
 ---
 title: Geometry
-layout: page
 order: 2
 ---
 Layout kinds emit parts in canonical semantic order — reading order, the order a screen reader sees. Where those parts *land* is the theme's business, and it is expressed as grid placement rather than as a different fragment.

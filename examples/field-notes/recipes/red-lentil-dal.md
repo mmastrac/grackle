@@ -1,6 +1,5 @@
 ---
 title: Red lentil dal
-layout: page
 theme: "recipes:spicy"
 course: dinner
 servings: 4
