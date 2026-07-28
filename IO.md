@@ -69,7 +69,11 @@ source rows, and a routed row nothing cites, both legitimately hold none.
 
 Cardinalities, spelled: one input → one own output (a page); one input →
 many outputs *viewing* it (the listings that carry it); one output → many
-inputs (a listing's members). A static byte-copy is the degenerate case:
+inputs (a listing's members). *Timing caveat (review I-D, Matt's to
+absorb): every filter the engine runs is upstream of the pull, so a
+filter reading `output` on an on-demand row always sees the unreferenced
+answer — "lands anywhere" is true at every instant, and the instant a
+`where` runs is before anything is referenced.* A static byte-copy is the degenerate case:
 one in, one out, `output` set, no identity.
 
 Consequences that fall out of the join rather than needing rules:
@@ -129,7 +133,12 @@ before the one-store merge. It is deleted. The facts that replace it:
 The old filters translate to what they always meant — with a
 shipped/pending honesty marker per batch review I-A: the example sites'
 search filters → `front_mattered` (**shipped**, I1); grack.com's search →
-scope membership (**pending** I9's join); the sitemap → **pending, and
+scope membership (**pending, re-pointed by review I-D**: I9 shipped
+without making scope membership expressible on the route pool — no
+collection column, no `output.*` there — and `kind == "post"` covers two
+collections, so the replacement needs measurement; it is Matt's call
+with a small expressibility item as its prerequisite, and **I13 cannot
+delete the schema column before it lands**); the sitemap → **pending, and
 not a one-liner**: measured, grack.com's sitemap is *not* "the HTML
 documents" and never was — it deliberately lists byte-copy `.html` files,
 PDFs, static directory indexes and the `light_html` page (43 URLs beyond
@@ -774,7 +783,23 @@ Two follow-up items, run before I9:
 
 ### Phase I-E — assets and the end of `kind`
 
-- [ ] **I11. The embed policy and strong URLs.** `/static/` hashed
+- [ ] **I11. The embed policy and strong URLs.** **Amendments from
+  review I-D**: (i) THE DESIGN CATCH — `join_citations` and the pull
+  resolve citations through `db.by_url`, which holds canonical row URLs
+  only: a hashed `/static/<hash>` citation resolves to NOTHING and is
+  skipped, so an embedding page's `inputs` (and fanout) silently lose
+  the asset edge. I11 must teach citation resolution the
+  strong-address → input mapping, and decide whether a hashed address
+  is an Output node at all ("strong addresses are not routes" — but
+  they must be reachable by invalidation). (ii) The first
+  config-expressible output→output content cycle lands here — the
+  detector needs a LIVE fixture through Config::load, not only
+  from_edges; and check_acyclic's fast path stops short-circuiting the
+  moment such an edge exists, so re-measure I10's +1.5ms figure.
+  (iii) Every new minting seam applies `SiteDb::forced_fields`
+  (build-time) or sits above `force_route_fields` (load-time) — the
+  law is stated at load.rs ~1941-1945; cite it. Original brief:
+  `/static/` hashed
   default for embedded citations (**[open: table name —
   propose-and-flag]**); disable/subset; authored links demand routes with
   the fix-it suggestion; `strong_url` beside `url`; the untransformed
@@ -783,14 +808,28 @@ Two follow-up items, run before I9:
   (inputs + parameters, never output bytes) stated in code. Parity for
   grack.com by its declared rule; minimal/examples adopt the new default.
 
-- [ ] **I12. Renditions formalized as demand-driven outputs** — the
+- [ ] **I12. Renditions formalized as demand-driven outputs** —
+  **amendments from review I-D**: `graph::Edge` carries no parameter
+  slot; demand-carried rendition parameters need a home (extend Edge,
+  or a demands table keyed off the edge) — decide, record. The
+  thumbnail cache (`blake3(bytes + variant)`) already obeys §4a's
+  hashing law — say so and PIN it. Original brief: the
   citing edge carries parameters; the thumbnail machinery becomes the
   first transform; §9's rendition-surface **[open]** settled here by
   propose-and-flag. Parity.
 
-- [ ] **I13. Delete `kind`.** By now unread: out of the schemas, the
-  inspector, the export. The enum survives internally only if something
-  structural still wants it — the item measures and says. Parity.
+- [ ] **I13. Delete `kind`.** ~~By now unread~~ — **review I-D
+  measured otherwise**: structural readers remain in build.rs's render
+  dispatch (Static|Object/Page arms), the feed's RouteKind::Post
+  filter, search's Post/Page doc arms, kind==View tests (mostly
+  replaceable by `r.view.is_some()`), links.rs (6), trails.rs (1),
+  main.rs display arms — PLUS grack.com's two live `kind == "post"`
+  config filters with no replacement spelling yet (§3's re-pointed
+  marker; the expressibility prerequisite + Matt's migration call
+  gate this item). Expect "survives internally" for the render/search
+  dispatch unless the shell/facts respelling lands first; the SCHEMA
+  column cannot go before the config migration does. The item measures,
+  says, and takes what is honestly takeable. Parity.
 
 *→ Final IO review, whole-ledger, MERGE.md-final-review style.*
 
@@ -3908,3 +3947,28 @@ for it. (v) **The graph is rebuilt from scratch at every load and thrown
 away** (+1.5 ms); the day something reads it more than once it should live on
 the database beside the join it reads, which is a change of ownership rather
 than of code.
+
+**2026-07-27/28 — Batch review I-D (Fable), covering IR8, IR9, I9, I10.**
+Verdict: **sound; I-E clear** once I11 takes its amendments. Nine
+mutations re-executed red as logged (including the two required: the
+Facts→Content mislabel dies on the named self-cycle; the on-demand
+output deletion); parity re-run against the stricter pre-batch baseline;
+censuses exact; timing methodology reproduced (+2ms vs claimed +1.5ms,
+same magnitude). Highlights: (a) selection-may-not-read-arrangement is
+airtight — both vocabularies refuse loudly, relations correctly deferred
+(they evaluate post-arrangement, pre-pull; exposure is one line when
+wanted); (c) no cycle-masking facts edge exists — every fold consumer
+audited, content dependencies all carried by inputs; (e) IR8's
+unreachable-root-half re-derived and CONFIRMED via three code facts.
+**Veto digest: all seven calls endorsed/confirmed**, including
+`viewed_by` as the landed name. The one real drift (should-fix,
+applied): §3's search marker pointed "pending" at shipped I9 —
+re-pointed with the expressibility prerequisite named, and I13's
+"by now unread" premise corrected in its brief (the reader enumeration
+is in the entry above). §2 gained the on-demand timing caveat as a
+rider for Matt. Census additions: theme-preview's claimed
+`notes/index.md` exports `url: ""` (q45 wrinkle, more visible now);
+the serve inspector tables remain; DISK — the host hit 100% during
+review (cleaned to ~5.5GiB free; parity worktrees ~1GB each, target/
+13GB — headroom before the remaining parity items is Matt's hygiene
+call).
