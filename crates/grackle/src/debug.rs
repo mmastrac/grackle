@@ -391,21 +391,33 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// `shell raw / rendered true` — it renders, and the `raw` shell then emits
 /// the result verbatim.
 ///
-/// **The line prints the STORED bit, not a re-derivation**, and the two are
-/// the same answer by construction: `load.rs` builds every row by calling
-/// `shell::renders` on exactly these two fields and keeps the result. Calling
-/// the law again here would read like a second opinion while being the same
-/// one — and would print what the law *would* say rather than what this row
-/// was actually built as, which is the diagnosis a reader of `explain` came
-/// for. If the two ever disagreed, the stored bit is the one that decided
-/// whether this file was parsed.
+/// **The line prints the STORED bit, not a re-derivation**, and IR7 recorded
+/// that they were then the same answer by construction: `load.rs` built every
+/// row by calling `shell::renders` on exactly these two fields. **IO.md I8 is
+/// where that stopped being true**, exactly as IR7 predicted it would — a
+/// sidecar'd row reads `front_mattered true / rendered false`, because the law
+/// reads the *block* while the fact reads identity. The stored bit is what
+/// actually decided whether this file was parsed, which is why it is the one
+/// printed; the provenance below is what keeps the pair readable.
+///
+/// **`front_mattered` carries its provenance** (IO.md I8), and the reason is
+/// this block: once a sidecar can set the fact, `front_mattered true /
+/// rendered false` is unreadable without knowing WHERE identity came from —
+/// a reader would take it for a contradiction. So the line says `true (block)`
+/// or `true (sidecar)`, and the law becomes re-derivable from what is printed.
+/// Both are spelled rather than only the exception: a `true` whose meaning
+/// depends on the absence of a word is the shape this project keeps refusing.
 pub fn row_facts(r: &crate::db::Row) -> String {
+    let identity = match (r.front_mattered, r.sidecar) {
+        (false, _) => "false".to_string(),
+        (true, false) => "true (block)".to_string(),
+        (true, true) => "true (sidecar)".to_string(),
+    };
     format!(
-        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {}\nrendered    {}\n",
+        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {identity}\nrendered    {}\n",
         r.collection,
         r.rule.as_deref().unwrap_or("-"),
         r.shell.as_deref().unwrap_or("-"),
-        r.front_mattered,
         r.rendered,
     )
 }

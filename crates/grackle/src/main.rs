@@ -374,6 +374,14 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 "markers         {}  files found ({:.1}ms scan)",
                 db.stats.markers, db.stats.markers_ms
             );
+            // Beside the marker census and for its reason (IO.md I8): a
+            // declaration family whose whole effect lands on OTHER files
+            // leaves no trace in a build's file list, so the count is the only
+            // way to ask "is this mechanism in use here".
+            println!(
+                "sidecars        {}  files found (on the declaration walk)",
+                db.stats.sidecars
+            );
             println!("routes          {}", db.routes.len());
             let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
             for r in &db.routes {

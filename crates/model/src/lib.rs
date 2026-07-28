@@ -128,9 +128,20 @@ pub struct Row {
     /// `rendered` is true and this is false.
     ///
     /// Sidecars (IO.md I8) widen the fact rather than change it: identity
-    /// will come from a block **or** a sidecar file, and this is the column
-    /// that answers "either".
+    /// comes from a block **or** a sidecar file, and this is the column that
+    /// answers "either". Which of the two is `sidecar`, below.
     pub front_mattered: bool,
+    /// IO.md I8: this row's identity arrived from a **sidecar** rather than
+    /// from a block in the file. `front_mattered` is then true while the
+    /// row's own bytes were never parsed — which is the split sidecars exist
+    /// for, and the one shape where `rendered` does not follow from
+    /// `front_mattered`.
+    ///
+    /// A bool rather than the sidecar's path, because the path is the row's
+    /// own `rel` plus `.toml` by construction — there is exactly one name a
+    /// sidecar can have. `grackle explain` prints it as the provenance of the
+    /// identity fact.
+    pub sidecar: bool,
     /// §4: this row's route rule was `on_demand`, so it publishes only when
     /// something references it. The URL is computed either way — what is
     /// deferred is whether a `Route` exists — which is what lets a link
@@ -780,6 +791,10 @@ impl Default for ViewRows {
 #[derive(Debug, Default, Serialize)]
 pub struct LoadStats {
     pub markers: usize,
+    /// Sidecar files found (IO.md I8) — a census beside the marker one, and
+    /// for the same reason: a declaration family whose whole effect is on
+    /// other files needs a count somebody can read.
+    pub sidecars: usize,
     pub markers_ms: f64,
     pub read_ms: f64,
     pub index_ms: f64,

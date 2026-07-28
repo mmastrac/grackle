@@ -24,6 +24,13 @@
 //! block, and the only one a reader cannot read off the file. It needs four
 //! rows rather than two, because the law it prints is a disjunction and each
 //! clause has a shape that is the only witness against getting it wrong.
+//!
+//! `front_mattered` carries its PROVENANCE from IO.md I8 — `true (block)` here,
+//! `true (sidecar)` on a row whose identity arrived from a second file — because
+//! once the fact has two sources the law stops being re-derivable from the
+//! printed pair. The sidecar half is pinned in `io_sidecar.rs`, beside the
+//! mechanism it is about; what these two rows hold is the other half, which is
+//! that identity written IN the file still says so.
 
 use std::path::PathBuf;
 
@@ -103,7 +110,7 @@ fn explain_reads_the_row_rather_than_a_literal() {
     assert_eq!(
         facts("/blog/2020/01/01/hello/"),
         "collection  posts\nrule        **/*.{md,markdown}\nshell       html\n\
-         front_mattered true\nrendered    true\n",
+         front_mattered true (block)\nrendered    true\n",
         "a post: the scope that claimed it, the RULE of that scope that did the \
          claiming, the shell it leaves through, identity"
     );
@@ -167,7 +174,7 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
     assert_eq!(
         facts("/demos/pane/"),
         "collection  entries\nrule        **/*.{html,md}\nshell       raw\n\
-         front_mattered true\nrendered    true\n",
+         front_mattered true (block)\nrendered    true\n",
         "the pane: identity plus the transparent shell renders, and `raw` then \
          emits the result verbatim — the law's first clause, and the row a \
          shell-only law would ship the `---` block for"

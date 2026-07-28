@@ -14,6 +14,7 @@ pub mod relations;
 pub mod schema;
 mod shape;
 pub mod shell;
+pub mod sidecar;
 pub mod store;
 pub mod views;
 

@@ -335,6 +335,18 @@ draft, and `search.bin`.
 An identity-less file routed `raw` is the ordinary byte row and says nothing at
 all — that is the normal case, not a degenerate one.
 
+**The law reads the BLOCK, and identity is wider than the block** *(IO.md I8,
+2026-07-27)*. A sidecar grants identity to a file that cannot carry one (§4b),
+so the two stopped being the same bit the day sidecars landed, and the law took
+the narrower of them: a block is *in* the file, so a file with one is a document
+whose remainder is a body; a sidecar is a second file and says nothing about the
+first one's bytes. A sidecar'd `.png` is therefore `front_mattered true` and
+`rendered false` — IO.md §3's sentence ("a `.png` with a sidecar is a governed
+row whose bytes are never parsed") as two columns. The **degeneracy warning**
+asks the other question, deliberately: it exists to nudge an unnamed row towards
+a name, and a sidecar is a name, so a sidecar'd row wearing `html` renders
+without a warning.
+
 **The law is observable** *(IO.md IR7)*. `grackle explain` prints `rendered`
 directly beneath `front_mattered` and `shell`, which is the derivation on one
 screen: the caret draft reads `front_mattered false / rendered true` and the
@@ -342,7 +354,10 @@ example's pane reads `shell raw / rendered true`, and between them the two
 lines say why neither fact alone is the answer. It is the block's only derived
 line, and it prints the bit the row was *built* with rather than re-running the
 law beside it — a `rendered` a reader can act on has to be the one that decided
-whether this file was parsed.
+whether this file was parsed. Since I8 the identity line carries its
+**provenance** for the same reason the derived line exists at all: `true
+(block)` or `true (sidecar)`, because `front_mattered true / rendered false`
+reads as a contradiction until you know which.
 
 ### Route tokens: one supplier *(q51's remainder; built 2026-07-27, IO.md I6)*
 
@@ -612,6 +627,53 @@ must carry `.gitignore` globs itself since it walks dotfiles; this yields a
 The `drafts/**` and `hidden/**` rules in §4 become unnecessary when the tree
 declares itself. The rules mechanism stays for what it is genuinely better at:
 routes and patterns that cut *across* the tree. Markers own per-subtree defaults.
+
+### Sidecars: identity for a file that cannot carry a block *(IO.md I8, 2026-07-27)*
+
+A marker declares defaults for a *directory*; a **sidecar** declares identity
+for one *file*. IO.md §1 says identity comes from front matter — "a literal
+block, or a sidecar file" — and q49 is the question it answers: where a row's
+metadata comes from when the file cannot carry front matter. A `.png` cannot.
+
+```
+assets/
+  kite.png
+  kite.png.toml            ← title, alt, any declared field, in TOML
+```
+
+**The spelling is the pair, not the name.** `X.toml` beside `X` is X's sidecar;
+a `.toml` naming no file beside it is ordinary content and still ships. That is
+what keeps `Cargo.toml`, `netlify.toml` and `.schema.toml` out of the mechanism
+with no exception list — and it is q49's own rider ("must not infer
+page-vs-component from absence") applied to the sidecar's own detection.
+
+**A sidecar is a front-matter block in TOML, and that is literal**: it
+deserializes into the same `FrontMatter` struct a `---` block does, so every
+named field (`title`, `date`, `permalink`, `tags`, `shell`, …) works, and
+everything else is validated by the governing `.schema.toml` exactly as a
+block's extra keys are (§5b). An undeclared key is the same load error naming
+the same knowns — pointed at the sidecar, which is the file to edit.
+
+**It grants exactly block-identity, and nothing about the bytes.** The row is
+`front_mattered`, governed, titled and in the link graph; it does not become a
+document (§4's gate section). An image with a sidecar wearing `html` is the
+**description page** of IO.md §4a — a second output whose content is not the
+row's bytes — and that is refused with the reason until the outputs half of the
+model is built.
+
+**Two identity sources on one file is a load error.** A sidecar exists for files
+that *cannot* carry a block, so a file carrying both has said the same thing in
+two places that will drift, and nothing ranks them — the marker-collision shape
+(MERGE.md A5), with the marker answer.
+
+**A sidecar is read on the DECLARATION walk**, beside markers and
+`.schema.toml`. That placement is load-bearing rather than incidental: `exclude`
+is applied to *directories* on that walk (§4c), so a file-shaped pattern — a
+statement about content, and grack.com's `exclude` lists `*.toml` — cannot
+silently unspeak a site's sidecars. It is MERGE.md R1's narrowing, one
+declaration family newer. Like a marker, a sidecar is never routed; unlike a
+marker, its change stamp is folded into the row's `version`, because a row whose
+identity lives in a second file has to notice that file changing.
 
 ### `noindex` and the layout chain
 
@@ -1173,7 +1235,7 @@ The tail names the constant the comparison became, and **which constant depends 
 
 The plural is not a hypothetical: `[[collections]] kind = "posts"` is the spelling one line of config away, and the route column typed that way used to type-check perfectly and then match nothing for as long as the config lived. A domain is what a schema column declares when the engine can enumerate its values; `Type::Enum` is the mechanism and `kind` is its one user today.
 
-**`front_mattered` is identity, and it is not `rendered`** *(IO.md §3)*. It answers "did the file this output came from carry a front-matter block", which is what `kind == "post" || kind == "page"` was always a flattened spelling of. It is `false` for a byte copy and `false` for a view route (which has no source file at all — the predicate is total over the route pool by design, so `!front_mattered` means something on every row). It differs from `rendered` on exactly one shape — the **degenerate row** (§4's "The gate is a fact"): a file with no block that a rule nonetheless sends through `html`/`light_html` is `rendered` without being `front_mattered`. grack.com has one, `_drafts/caret/…`. Since IO.md I7c the reason is stated rather than incidental: `rendered` is now *derived* from this fact and the shell (`front_mattered || shell ∈ {html, light_html}`), where it used to be a loader constant on the posts side and a copy of this column on the tree side. That difference is why `kind == "post"` means **scope membership**, not identity, and why grack.com's search route did not migrate with the example sites'.
+**`front_mattered` is identity, and it is not `rendered`** *(IO.md §3)*. It answers "does the row this output came from have identity — a front-matter block, or a sidecar file (§4b)", which is what `kind == "post" || kind == "page"` was always a flattened spelling of. It is `false` for a byte copy and `false` for a view route (which has no source file at all — the predicate is total over the route pool by design, so `!front_mattered` means something on every row). It differs from `rendered` on two shapes, one per direction. The **degenerate row** (§4's "The gate is a fact") is `rendered` without being `front_mattered`: a file with no block that a rule nonetheless sends through `html`/`light_html`; grack.com has one, `_drafts/caret/…`. The **sidecar'd row** (§4b, IO.md I8) is the mirror — `front_mattered` without being `rendered` — because identity may now arrive from a second file while the row's own bytes stay unparsed, which is the split sidecars exist for. Since IO.md I7c the reason is stated rather than incidental: `rendered` is *derived* from the shell and the file's own **block** (`block || shell ∈ {html, light_html}`), where it used to be a loader constant on the posts side and a copy of this column on the tree side — and since I8 this column is the wider of the two, answering "a block **or** a sidecar". That difference is why `kind == "post"` means **scope membership**, not identity, and why grack.com's search route did not migrate with the example sites'.
 
 **`noindex` is deliberately absent.** Computing it needs the layout chain (phase 2), and a field we cannot populate correctly is worse than no field: omitted, referencing it is a load-time error; present-but-wrong, it silently lies. It also turns out not to be needed.
 
@@ -1942,16 +2004,16 @@ its bytes. Nothing about the pipeline moved — the two were already one arm of
 ### Why exactly these tiers *(2026-07-19)*
 
 **Two bits, and one incoherent corner.** The real choice is two independent
-questions — does the row have **database identity** (front matter present, so:
-schema, content rules, link graph), and does the **engine construct its
-document** (`shell`). That 2×2 has only three corners: no-identity ×
+questions — does the row have **database identity** (front matter present — a
+block, or since IO.md I8 a sidecar — so: schema, content rules, link graph),
+and does the **engine construct its document** (`shell`). That 2×2 has only three corners: no-identity ×
 engine-builds is *incoherent*, because building a document means computing a
 `<head>`, a head is computed from schema, and schema is what identity *means*.
 There would be nothing to wrap. It is also mechanically unreachable. So the
 2×2 collapses to a three-state chain, and the chain is a **result rather than a
 modelling choice**: identity is a *precondition* for the other bit.
 
-*(The incoherent-corner argument above is **history as of 2026-07-27**, and IO.md records the amendment: Matt softened identity from a precondition to a preference. An identity-less file a rule sends through a rendering shell becomes a **degenerate row** — a warning and a slug-implied title, not an error — which **landed at IO.md I7c**, as the law in §4's "The gate is a fact". Arity stayed hard; identity did not. The 2×2's fourth corner is reachable after all, and what makes it coherent is that a title can be implied where a `<head>` cannot be invented — and "mechanically unreachable" was the claim that aged worst: the corner was one rule default away the whole time.)*
+*(The incoherent-corner argument above is **history as of 2026-07-27**, and IO.md records the amendment: Matt softened identity from a precondition to a preference. An identity-less file a rule sends through a rendering shell becomes a **degenerate row** — a warning and a slug-implied title, not an error — which **landed at IO.md I7c**, as the law in §4's "The gate is a fact". Arity stayed hard; identity did not. The 2×2's fourth corner is reachable after all, and what makes it coherent is that a title can be implied where a `<head>` cannot be invented — and "mechanically unreachable" was the claim that aged worst: the corner was one rule default away the whole time. **IO.md I8 then split the first bit itself**: identity is a block *or* a sidecar, and only the block says anything about the file's bytes — so the identity × engine-does-not-build corner gained its most useful occupant, a governed image, and the engine-builds side gained a refusal, because a picture with a document shell is the description page IO.md §4a defers.)*
 
 **The guarantee ladder**: each tier is what the engine *promises* about bytes — **object** (nothing, yours); **`raw`** (content rules ran, validity is your promise); **`light_html`** (valid document, minimal facts); **`html`** (valid document, full computed head, theme). A theme cannot lower a guarantee it did not make.
 
@@ -2824,7 +2886,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 43. **Media beyond image (§7b).** Audio/video schema field types (duration/player facts), podcast RSS enclosures, multi-format srcset renditions, externally-hosted originals.
 47. **Listing views render no language switcher (§6f).** `translations` axis is a ROW relation; plain listing views don't get switcher. French reader at `/fr/blog/` has no way back. Locale-parallel routes exist; question is whether axis belongs to route at all.
 48. **`type:` as row data, not presentation** *(Matt's shape)*. Row declares *what it is* (`type: recipe`), config maps to presentation (§4b rule). Test: *something other than renderer consumes it* — cross-tree filter, q40's JSON-LD, non-positional schema selection. Held deliberately; neither site needs one.
-49. **Where a row's metadata comes from when the file can't carry front matter** *(measured 2026-07-19)*. **Derive first** — 14 of 57 raw HTML carry `<title>` database ignores. **Then declare** — per-file sidecar `.p01.png.toml`, fallback for rows that can't carry front matter. Open: precedence vs markers/defaults; whether sidecar makes passthrough row `rendered`; real consumer is alt text for 838 images nobody committed to.
+49. **Where a row's metadata comes from when the file can't carry front matter** *(measured 2026-07-19; the DECLARE half built 2026-07-27, IO.md I8)*. **Derive first** — 14 of 57 raw HTML carry `<title>` database ignores. Still open, and still the half that needs a consumer. **Then declare** — built: the per-file sidecar is `X.toml` beside `X`, identified by the pair rather than by the name, and §4b's *Sidecars* carries the design. The three riders are answered rather than dropped: **precedence vs markers/defaults** — a sidecar sits at the front-matter rung (it *is* front matter, in TOML), so markers and rule defaults fill what it left unset, and a sidecar beside a BLOCK is a load error rather than an order; **does a sidecar make a passthrough row `rendered`** — no, and that turned out to be the feature (IO.md §3): identity and parsing come apart, so a sidecar'd `.png` is a governed row whose bytes are never read; **alt text for 838 images** — reachable now (a declared `alt` validates and lands on the row, and an image field resolves to it), still uncommitted-to, and what would consume it is the embed policy at IO.md I11.
     
     **What this must NOT do**: infer page-vs-component from absence. Heuristic measures well but is wrong twice: `demos/1996/mystery.html` (complete 1996 markup, no `<html>`); `demos/css-glass-pane/index.html` (880-byte demo, no title). Reading what exists is derivation; concluding from absence is guessing.
 

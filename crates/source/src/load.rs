@@ -18,6 +18,7 @@ use crate::config::{Collection, Config};
 use crate::filename::{self, FileKey, FilenameFormat};
 use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
+use crate::sidecar::Sidecars;
 use crate::store;
 
 /// Front matter's `date:`. `YYYY-MM-DD`; a bare `YYYY-MM` means the first of
@@ -910,6 +911,10 @@ fn walk_site(
     cfg: &Config,
     scopes: &[Scope],
     markers: &Markers,
+    // Found by the declaration walk (IO.md I8). Identity from a sidecar is the
+    // same fact identity from a block is — it just says nothing about the
+    // row's bytes.
+    sidecars: &Sidecars,
     schemas: &Schemas,
     // Compiled by `load` from the tree collection, and shared with the marker
     // and vocabulary walks so all three agree on what is not content (§4c).
@@ -964,6 +969,12 @@ fn walk_site(
         .filter(|f| !templates.iter().any(|t| *t == f.rel))
         // A marker declares defaults; it is not itself content.
         .filter(|f| !markers.is_marker(&f.path))
+        // Nor is a sidecar (IO.md I8), for the same reason and by the same
+        // kind of test: it declares the identity of the file beside it. The
+        // set comes from the declaration walk, so what makes a `.toml` a
+        // declaration is the file it sits beside — not its name, which is why
+        // an ordinary `netlify.toml` is still published like any other file.
+        .filter(|f| !sidecars.is_sidecar(&f.rel))
         // Nor is the config that declared all of this. Matched by identity,
         // not by glob, so a site needs no `exclude` entry to avoid
         // publishing its own grackle.toml.
@@ -1062,6 +1073,29 @@ fn walk_site(
         // acquire by accident; `io_dissolve.rs` pins both halves.
         let object_shaped = is_obj(&f.rel);
 
+        // **Identity: a block, or a sidecar** (IO.md §1, I8). The two are peers
+        // — neither is nearer than the other, and there is no ladder between
+        // them — so a file carrying both is a load error rather than a
+        // precedence rule nobody could predict. It is the marker-collision
+        // shape (MERGE.md A5) and it gets the same answer: an unrankable
+        // disagreement is refused, and the fix is to write one of them.
+        let sidecar = sidecars.get(&f.rel);
+        if sidecar.is_some() && f.has_front_matter {
+            bail!(
+                "{}: identity twice — the file carries a front-matter block and \
+                 {}.toml is a sidecar for it. A sidecar exists for files that \
+                 CANNOT carry a block; nothing ranks the two, so pick one: \
+                 delete the sidecar, or delete the block.",
+                f.rel.display(),
+                f.rel.display()
+            );
+        }
+        // The fact §3's table names, widened by I8 without changing its
+        // meaning. What it does NOT widen is `renders` below: a block is IN
+        // the file and so says the file is a document, while a sidecar says
+        // only that someone wrote a row's fields down somewhere.
+        let has_identity = f.has_front_matter || sidecar.is_some();
+
         // **The ordered rule sequence, first rule wins.** Every scope in turn,
         // each reading the path its own source makes of the file, until one of
         // their rules claims it.
@@ -1089,7 +1123,7 @@ fn walk_site(
                 true => (scope_rel, cfg.i18n.default.clone()),
                 false => cfg.i18n.split(&scope_rel),
             };
-            let r = apply_rules(&s.rules, &s.formats, &logical_rel, f.has_front_matter);
+            let r = apply_rules(&s.rules, &s.formats, &logical_rel, has_identity);
             if r.claimed.is_some() {
                 claim = Some((s, r, logical_rel, locale));
                 break;
@@ -1149,9 +1183,16 @@ fn walk_site(
         // the tree loader read only the front-mattered ones; the one walk reads
         // a file that has a block to parse, and reads a blockless one below
         // only if it turns out to render.
-        let (fm, mut body_bytes) = match f.has_front_matter {
-            true => read_front_matter(&f.path)?,
-            false => Default::default(),
+        // A sidecar is the same struct read from the other file (IO.md I8), so
+        // everything below this line — the title rung, `permalink:`, the date
+        // precedence, the declared fields — is one code path for both
+        // spellings of identity. A sidecar'd row's `body_bytes` is 0 until the
+        // rendering law says otherwise, because the sidecar is not the row's
+        // body and the row's own bytes have not been read.
+        let (fm, mut body_bytes) = match (f.has_front_matter, sidecar) {
+            (true, _) => read_front_matter(&f.path)?,
+            (false, Some(sc)) => (sc.front.clone(), 0),
+            (false, None) => Default::default(),
         };
         // §5b: a governed row's extra front matter is validated — an undeclared
         // key or wrong type fails the load naming the file. Ungoverned rows
@@ -1163,13 +1204,18 @@ fn walk_site(
         let parent = logical_root.parent().unwrap_or(Path::new("")).to_path_buf();
         // Every row is governed (§4e): declare a field before you use it.
         let schema = schemas.resolve(scope.name, &parent);
-        let mut checked = match f.has_front_matter {
-            true => schema::validate(&schema, &fm.extra, &f.path)?,
+        // Identity's own errors name the file identity was WRITTEN in, which
+        // is the file the author has to edit: the row for a block, the sidecar
+        // for a sidecar. Every rung below (markers, rules, the profile) keeps
+        // naming the row, because that is what those rungs are about.
+        let identity_path = sidecar.map_or(f.path.as_path(), |sc| sc.path.as_path());
+        let mut checked = match has_identity {
+            true => schema::validate(&schema, &fm.extra, identity_path)?,
             false => Default::default(),
         };
         // The engine's own four arrive on named front-matter fields rather
         // than in `extra`, so they are seeded here — nearest writer first.
-        schema::cascade_front(&schema, &fm, &mut checked, &f.path)?;
+        schema::cascade_front(&schema, &fm, &mut checked, identity_path)?;
         // Markers and rules fill whatever front matter left unset (§4b).
         schema::apply_defaults(&schema, &defaults, &mut checked, &f.path)?;
         // …and rung 0 overrules all three (§2, MERGE.md E1). Above `cascade`,
@@ -1181,7 +1227,41 @@ fn walk_site(
         // in. `rendered: true` stood in the posts loader and
         // `rendered: has_front_matter` in the tree's — each the config's answer
         // read off the wrong thing.
+        //
+        // **It reads the BLOCK, not identity** (IO.md I8), and that is the
+        // whole of what a sidecar splits: a block is in the file, so a file
+        // with one is a document whose remainder is a body; a sidecar is a
+        // second file, and says nothing about the first one's bytes. So a
+        // sidecar'd `.png` answers `front_mattered true` and `rendered false`,
+        // which is §3's sentence — "a `.png` with a sidecar is a governed row
+        // whose bytes are never parsed" — as two columns.
         let rendered = crate::shell::renders(f.has_front_matter, worn.shell.as_deref());
+        // **A picture is not a document, and the description page is not
+        // built.** IO.md §4a says an image with a sidecar *can* wear an html
+        // output — the object's description page — and that is I11/I12's, not
+        // this item's: it needs an output whose content is not the row's bytes,
+        // which the model has (facts at planning, content at materialization)
+        // and the engine does not yet. Until then the shape is refused where
+        // the author wrote it. Deleting this check does not make the page
+        // work — measured: the render path reads the row's file as text and
+        // the load dies on `stream did not contain valid UTF-8`, naming a
+        // file and no reason.
+        if rendered && object_shaped {
+            bail!(
+                "{}: shell = {:?} would render this file as a document, and its \
+                 bytes are a picture. An image's own outputs are its bytes (IO.md \
+                 §4a); a description PAGE for one is a second output and is not \
+                 built yet. Route it `raw`{}.",
+                f.rel.display(),
+                worn.shell.as_deref().unwrap_or("-"),
+                match sidecar.is_some() {
+                    true =>
+                        " — the sidecar still gives it a title, fields and a \
+                             place in the link graph",
+                    false => "",
+                }
+            );
+        }
         // A blockless row that renders is the one shape whose body was not
         // already in hand: it is ALL body. The posts loader read every post
         // whole and so had it; the tree loader read nothing and reported zero;
@@ -1195,7 +1275,7 @@ fn walk_site(
         // dated route template on any row rather than only on a post. That is
         // I6's recorded other half of "one supplier", and the seam it named.
         let date = match &fm.date {
-            Some(s) => Some(front_matter_date(s, &f.path)?),
+            Some(s) => Some(front_matter_date(s, identity_path)?),
             None => from_name,
         };
         // The engine-fallback rung, below front matter and every default
@@ -1209,7 +1289,11 @@ fn walk_site(
         // A degenerate row carries no front matter, so its title IS the
         // implied one — the warning states the derivation rather than reading
         // back a value it would have to prove is there.
-        if let Some(sh) = crate::shell::degenerate(f.has_front_matter, worn.shell.as_deref()) {
+        //
+        // This one asks IDENTITY, where `renders` above asks the block: the
+        // warning exists to nudge an unnamed row towards a name, and a sidecar
+        // is a name. Two questions, two inputs, one shell (IO.md I8).
+        if let Some(sh) = crate::shell::degenerate(has_identity, worn.shell.as_deref()) {
             warnings.push(degenerate_warning(&f.rel, sh, &implied_title(&slug)));
         }
 
@@ -1240,7 +1324,7 @@ fn walk_site(
         let claimed = claims.contains_key(logical.as_str());
         if claimed && !f.has_front_matter {
             bail!(
-                "view {}: content {logical:?} has no front matter, so it \
+                "view {}: content {logical:?} has no front-matter block, so it \
                  is a static file, not a claimable row",
                 claims[logical.as_str()]
             );
@@ -1266,13 +1350,23 @@ fn walk_site(
             // globs match the SCOPE-relative form: `match = "hidden/**"` is
             // relative to `_posts`.
             rel: f.rel,
-            version: f.version,
+            // A row's identity may live in a second file, so its change stamp
+            // has to (IO.md I8). Without the fold, editing a sidecar changes a
+            // row's title and nothing notices: `version` is what the
+            // incremental machinery compares.
+            version: match sidecar {
+                Some(sc) => f.version ^ sc.version,
+                None => f.version,
+            },
             url,
             rendered,
             // The tree's old page/static gate IS this fact, and since I7c it is
             // no longer the whole of the gate: the fact is one clause of the
-            // law above, which the shell can also satisfy.
-            front_mattered: f.has_front_matter,
+            // law above, which the shell can also satisfy. Since I8 it is also
+            // no longer the same question as "does this file open with `---`" —
+            // a sidecar answers it too, and `sidecar` says which.
+            front_mattered: has_identity,
+            sidecar: sidecar.is_some(),
             size: f.size,
             title,
             layout: worn.layout,
@@ -1445,6 +1539,13 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             &format!("grackle.toml [collections.{cname}.schema]"),
         )?;
     }
+    // Sidecars ride the same walk (IO.md I8): a sidecar is a declaration — it
+    // says what a file IS, the way a marker says what a directory's rows are —
+    // and a declaration must not be silenceable by a *content* statement. This
+    // walk applies `exclude` to directories only, which is exactly what keeps
+    // grack.com's `exclude = ["*.toml"]` from unspeaking every sidecar on the
+    // site (MERGE.md R1's narrowing, one family newer).
+    let mut sidecars = Sidecars::default();
     let b = store::walker_declarations(&root, &not_content, cfg.gitignore);
     for entry in b.build().filter_map(|e| e.ok()) {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
@@ -1460,8 +1561,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             let text = std::fs::read_to_string(entry.path())
                 .with_context(|| format!("reading {}", entry.path().display()))?;
             schemas.add(dir, &text, rel)?;
+        } else {
+            sidecars.offer(entry.path(), rel)?;
         }
     }
+    db.stats.sidecars = sidecars.found;
     db.sections.sort();
     // The site vocabulary travels with the database (§4e).
     db.declared = schemas.declared_schema();
@@ -1477,6 +1581,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         cfg,
         &scopes,
         &markers,
+        &sidecars,
         &schemas,
         &not_content,
         &mut db.warnings,

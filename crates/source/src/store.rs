@@ -8,7 +8,18 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 /// Front matter. Unknown keys are tolerated (Jekyll front matter is open).
-#[derive(Debug, Default, Deserialize)]
+///
+/// **One struct, two spellings** (IO.md I8): a `---` block deserializes into
+/// this from YAML, and a sidecar file deserializes into it from TOML. That is
+/// what makes "a sidecar grants exactly block-identity" true by construction
+/// rather than by a parallel implementation that drifts — every named field a
+/// block may write, a sidecar may write, and `extra` reaches the same
+/// `schema::validate`.
+///
+/// `Clone` for the sidecar's sake: a sidecar is parsed once at the declaration
+/// walk (so a malformed one is a load error wherever its companion ends up)
+/// and handed to the row constructor by value.
+#[derive(Debug, Default, Deserialize, Clone)]
 pub struct FrontMatter {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -95,7 +106,10 @@ pub fn split_front_matter(text: &str) -> (&str, &str) {
     ("", text)
 }
 
-fn version_of(meta: &std::fs::Metadata) -> u64 {
+/// The change stamp of one file: mtime and length, folded. Shared with the
+/// sidecar scan (IO.md I8), because a row whose identity lives in a second
+/// file has to notice that file changing.
+pub(crate) fn version_of(meta: &std::fs::Metadata) -> u64 {
     let mtime = meta
         .modified()
         .ok()

@@ -71,14 +71,14 @@ pub fn is_document(name: &str) -> bool {
     DOCUMENT.contains(&name)
 }
 
-/// **The rendering law** (IO.md §1 and §4, I7c): a row renders iff it carries
-/// identity, or a rule sent it through a document shell.
+/// **The rendering law** (IO.md §1 and §4, I7c): a row renders iff its file
+/// carries a front-matter **block**, or a rule sent it through a document shell.
 ///
 /// Both halves are load-bearing and neither implies the other, which is why the
 /// law is a disjunction rather than either clause on its own:
 ///
-/// - **`front_mattered` alone is not enough to say `raw`.** A front-mattered
-///   file wearing `shell = "raw"` is a document the pipeline renders and the
+/// - **A block alone is not enough to say `raw`.** A front-mattered file
+///   wearing `shell = "raw"` is a document the pipeline renders and the
 ///   `raw` shell then emits verbatim — `examples/field-notes`' `demos/pane.html`
 ///   is the live one. A law spelled "the shell decides" would byte-copy it, and
 ///   what a byte copy of a front-mattered file ships is the `---` block.
@@ -90,8 +90,16 @@ pub fn is_document(name: &str) -> bool {
 ///
 /// An identity-less file routed `raw` is the ordinary byte row, and gets no
 /// warning: that is the normal case, not a degenerate one.
-pub fn renders(front_mattered: bool, shell: Option<&str>) -> bool {
-    front_mattered || shell.is_some_and(is_document)
+///
+/// **It takes the block, not the identity fact** (IO.md I8), and the two stopped
+/// being the same bit when sidecars landed. A block is *in* the file, so a file
+/// with one is a document whose remainder is a body; a sidecar is a second file
+/// and says nothing about the first one's bytes. That is the split §3 calls the
+/// feature — "a `.png` with a sidecar is a governed row whose bytes are never
+/// parsed" — and it lives here, in one parameter name, rather than in a caller's
+/// discretion.
+pub fn renders(has_block: bool, shell: Option<&str>) -> bool {
+    has_block || shell.is_some_and(is_document)
 }
 
 /// The law's second clause standing alone: the row that renders WITHOUT
@@ -101,8 +109,12 @@ pub fn renders(front_mattered: bool, shell: Option<&str>) -> bool {
 /// A predicate would have been enough for the branch and not for the message,
 /// and the message is most of what a warning is. It also removes the corner
 /// where a caller has to default a shell name it can prove is present.
-pub fn degenerate(front_mattered: bool, shell: Option<&str>) -> Option<&str> {
-    shell.filter(|s| !front_mattered && is_document(s))
+///
+/// **This one takes IDENTITY**, where [`renders`] takes the block: the warning
+/// exists to nudge an unnamed row towards a name, and a sidecar is a name. Two
+/// questions about one row, and since IO.md I8 they can disagree.
+pub fn degenerate(has_identity: bool, shell: Option<&str>) -> Option<&str> {
+    shell.filter(|s| !has_identity && is_document(s))
 }
 
 pub fn is_fold(name: &str) -> bool {
