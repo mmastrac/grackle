@@ -67,8 +67,13 @@ one in, one out, `output` set, no identity.
 
 Consequences that fall out of the join rather than needing rules:
 
-- **The old `rendered` boolean** is bare-`output` truthiness (house style:
-  a bare field means "has one"). The name `rendered` retires.
+- ~~**The old `rendered` boolean** is bare-`output` truthiness (house
+  style: a bare field means "has one"). The name `rendered` retires.~~
+  **[STALE — corrected by review I-C, Matt's to rewrite]**: since I7c,
+  `rendered` is the rendering LAW's output (`front_mattered || shell ∈
+  DOCUMENT`), not output-truthiness — every routed byte copy has an
+  output and is not rendered — and IR7/I8 built surfaces on the name.
+  `output` lands BESIDE `rendered` at I9, not in place of it.
 - **Claimed rows** (a landing's content row) are visibly `!output` — the
   structural exclusion becomes a queryable fact.
 - **Axis alternates** are *other outputs of the same input*. The axis
@@ -668,18 +673,67 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   unparseable bytes; the identity/parsed split holds (`front_mattered`
   without content). Parity (no site uses one yet — fixture-driven).
 
-*→ Batch review I-C.*
+*→ Batch review I-C.* ✓ done — findings in §11; verdict: sound, I-D clear.
+**Veto digest: all seven rulings ENDORSED** (most-specific-source;
+scope-owns-source with IR8 required as companion; markers-reach-objects;
+implied_title-everywhere — vindicated by I8's sidecar probe;
+the picture refusal unnarrowed; both-sources-error; root-scope asymmetry
+KEPT per the reviewer's proposed answer, with IR8 as its observability).
+Two follow-up items, run before I9:
+
+- [ ] **IR8. The empty-claiming-scope warning.** *(Review I-C finding 1 —
+  a real regression at the ownership law's edge.)* A typo'd glob on a
+  sourced scope (`match = "**/*.markdwn"` over a populated `_posts/`)
+  builds clean and silent with `posts 0` — pre-phase it was a load error.
+  Scope-owns-source sends the unclaimed files out silently, and
+  `dead_rules`' `found == 0` suppression (built for an ABSENT source)
+  swallows the warning too. Fix: when a scope with a proper source was
+  OFFERED at least one file and claimed ZERO, warn naming the scope, its
+  source, and its rule globs. Warning, not error (an assets-only
+  `_drafts/` is legal); keyed on found==0 so the caret bundle under a
+  CLAIMING scope stays silent and stderr parity holds on all six.
+  Residual honestly carried: a partial typo (one rule of several) stays
+  silent; the census follow-up is `query stats`, not stderr, if wanted.
+  Doc riders fold in: DESIGN §4b gains one sentence (the sidecar pair
+  rule reaches non-content directories — the declaration walk's global
+  reach); io_sidecar.rs's one stale mutation comment (describes the
+  interrupted pass's intermediate state) fixed. Mutation: the probe site
+  warns; absent-source and empty-dir shapes stay silent; parity.
+
+- [ ] **IR9. An objects-scope rule may not declare `front_matter`.**
+  *(Review I-C question 3 — the thrice-recorded corner, made live by
+  I8.)* Pre-I8 the corner was vacuous (objects never peeked); post-I8
+  the gate reads identity, so `front_matter = true` on an objects rule
+  can claim a sidecar'd image while the next scope loses it. Config-time
+  refusal, the I7b dead-key family: "an objects rule selects by shape;
+  the identity gate belongs to scopes that parse." Kills the corner;
+  ends the recording. Mutation both ways; parity.
 
 ### Phase I-D — the join and the graph
 
 - [ ] **I9. The join fields.** `output` (record; canonical), `viewed_by`
   **[open: name — propose-and-flag]**, `inputs`; the `alternates` derived
-  name; claimed rows visible as `!output`. Parity.
+  name; claimed rows visible as `!output`. Parity. **Amendments from
+  review I-C**: (a) §2's `rendered` bullet is STALE (marked in place) —
+  `rendered` is I7c's law and stays; `output` lands beside it, never in
+  place of it. (b) State `output` for the three row shapes the phase
+  created/sharpened: degenerate rows (land; front_mattered false),
+  sidecar'd rows (identity without content; their output is bytes), and
+  on-demand rows (URL computed, route minted post-load by
+  materialize_referenced — the pull model says bare `output` is truthy
+  only when referenced; say so explicitly and test it). (c) I7e kept the
+  fact-keyed three-vector insert_rows interface and flagged I9 as where
+  it "becomes a query or stays" — claim that decision, record it.
 
 - [ ] **I10. The graph.** Planner builds nodes/edges upfront; cycle
   detection at load; invalidation keys derive from edges; serve becomes
   the pull (on-demand = unforced content stage). Parity + the serve
-  behavior tests.
+  behavior tests. **Amendments from review I-C**: the rung-0 residual
+  stated at `force_route_fields` (routes minted post-load by
+  materialize_referenced never see forced fields) is a graph-ordering
+  question — close it or restate it here. Helpful fact: I8's version
+  fold means sidecar edits already move `Row.version`, so invalidation
+  edges get identity-changes for free.
 
 *→ Batch review I-D.*
 
@@ -3149,3 +3203,37 @@ claimable** as a view's `content`, keyed on the block; recorded, not built.
 (v) **`front_mattered` is the wider fact and `sidecar` is not a filter column** —
 a query cannot yet ask "which rows got their identity from a sidecar", which is
 the same shape `rule` has had since I7d (explain reads it, no `where` does).
+
+**2026-07-27 — Batch review I-C (Fable), covering I6, I7a-I7e, IR6, IR7,
+I8 — the single-walk phase.** Verdict: **sound; I-D clear.** Independently
+re-verified: full parity grack.com both profiles against the pre-phase
+baseline (byte-identical modulo wall-clock timestamps; stderr moves by
+exactly the one declared caret line); urls set-diffs empty; the I7e census
+and I8 zero-sidecar scan exact; THIRTEEN mutations re-executed red,
+weighted to the resumed items (I7e, I8 — both coherent at the diff level;
+the one artifact found is a stale test comment describing an interrupted
+pass's intermediate state). Findings: (1) *should-fix → IR8*: a typo'd
+glob on a sourced scope silently empties the blog — a regression at the
+ownership law's edge (pre-phase it errored); the law is right, the
+warning is missing. (2) the stale comment → IR8 rider. (3) the sidecar
+pair rule reaches non-content directories (declaration-walk global reach,
+consistent, one DESIGN §4b sentence → IR8 rider). (4) *model drift,
+marked in place*: §2's "rendered retires" bullet was stale — rendered is
+I7c's law; I9's brief amended so the agent doesn't execute the stale
+text. (5) §1's "any rule default beats the implied title" is wider than
+the engine (both refusal paths are loud; no disease). (6) cross-item
+coherence verified three ways — the I7c×I8 probe (a sidecar'd row with
+no title gets the implied name, no warning) is the strongest evidence
+for the implied_title generalization. (7) pre-existing, census: the
+serve inspector's posts/pages tables both list all rows. (8) docs
+verified; ledger conventions followed; q51 settled properly.
+**Veto digest: all seven rulings endorsed** — including the proposed
+answer to the undecided root-scope asymmetry (keep it; IR8 is its
+observability; uniform silence deletes a real refusal, uniform refusal
+puts eighteen errors on a deliberate arrangement). IR9 filed (the
+thrice-recorded objects/front_matter corner, made live-able by I8's
+identity gate). Census additions for Matt: the I7a narrowing loss; the
+root-scope ruling to confirm; OUTLINE ch. 23's stale "neither half
+built" line (the DECLARE half shipped at I8; q49's DERIVE half still
+wants a consumer); §2/§1 model text (Matt's pen); the inspector tables;
+sidecar'd alt text writable but unconsumed until I11.
