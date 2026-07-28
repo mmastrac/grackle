@@ -24,7 +24,6 @@ layout = { type = "string" }
 toc = { type = "bool" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

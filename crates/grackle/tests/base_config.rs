@@ -94,7 +94,7 @@ fn the_flag_family_is_the_sites_vocabulary_not_the_engines() {
     std::fs::create_dir_all(&bare).unwrap();
     let alone = format!(
         "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-         [[collections]]\nkind = \"tree\"\nsource = \".\"\n\
+         [[collections]]\nsource = \".\"\n\
          [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{{path}}\"\n{with_base}"
     );
     std::fs::write(bare.join("grackle.toml"), &alone).unwrap();

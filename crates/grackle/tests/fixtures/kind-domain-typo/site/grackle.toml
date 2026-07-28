@@ -1,8 +1,7 @@
-# `kind` is a closed enum, so a value outside it is a load error naming the
-# knowns rather than a filter that matches nothing for as long as the config
-# lives (IO.md §3, item I1). The plural is the real-world spelling: the
-# COLLECTION key is `kind = "posts"`, so writing the route column the same way
-# is one keystroke of muscle memory away.
+# The route `kind` column is a closed enum, so a value outside it is a load
+# error naming the knowns rather than a filter that matches nothing for as long
+# as the config lives (IO.md §3, item I1). `posts` is the near-miss: it is the
+# plural habit — the value is `post`, singular — and the domain check catches it.
 [site]
 url = "https://example.com"
 title = "A Fixture"

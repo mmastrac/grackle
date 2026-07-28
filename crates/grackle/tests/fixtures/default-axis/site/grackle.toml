@@ -25,7 +25,6 @@ values = ["plain", "fancy"]
 field = "look"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

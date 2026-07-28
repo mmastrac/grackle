@@ -23,13 +23,11 @@ title = "Fenced"
 author = "Tester"
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 [profiles.drafts]
 
   [[profiles.drafts.collections]]
-  kind = "posts"
   source = "_notes"
   filename_formats = ["{year}-{month}-{day}-{slug}"]

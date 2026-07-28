@@ -19,7 +19,6 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -28,7 +27,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   route = "/notes/{slug}/"
 
 [[collections]]
-kind = "tree"
 source = "."
 exclude = ["themes/**"]
 

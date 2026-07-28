@@ -15,7 +15,6 @@ title = "No buckets"
 author = "Tester"
 
 [[collections]]
-kind = "objects"
 name = "objects"
 bucket = "assets"
 

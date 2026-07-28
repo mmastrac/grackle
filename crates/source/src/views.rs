@@ -6,13 +6,11 @@
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 
-use crate::config::{Config, Kind, Query, View};
+use crate::config::{Config, Query, View};
 use crate::schema::Schemas;
 use grackle_db::filter;
 use grackle_db::template;
-use grackle_model::{
-    object_schema, route_schema, row_schema, AxisMember, Route, RouteKind, SiteDb, ViewRows,
-};
+use grackle_model::{route_schema, row_schema, AxisMember, Route, RouteKind, SiteDb, ViewRows};
 
 /// One group key a row contributes under a single `group_by` spec: the typed
 /// sort component (years/months order numerically, tags lexically), the
@@ -218,7 +216,6 @@ fn insert_routeless(
     name: &str,
     v: &View,
     members: Vec<grackle_db::Key>,
-    table: Kind,
 ) {
     db.views.insert(
         name.to_string(),
@@ -226,7 +223,6 @@ fn insert_routeless(
             layout: v.layout.clone(),
             variant: v.variant.clone(),
             rows: members.len(),
-            table,
             members,
         },
     );
@@ -299,10 +295,7 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
 /// this stays only as the CLI's raw table walk.
 pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
-    for (cname, c) in &cfg.collections {
-        if c.kind != Kind::Posts {
-            continue;
-        }
+    for cname in cfg.collections.keys() {
         let ix: Vec<grackle_db::Key> = db
             .rows
             .iter()
@@ -363,25 +356,21 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         // Both named queries (`published`) and embedded views (`latest`) still
         // have to resolve, so a typo in `from` is a startup error either way.
         let q = cfg.query(name)?;
-        // Dispatch on the base collection's KIND, never its name: a posts
-        // collection may be called anything (§7a names one `notes`). A union's
-        // members share a kind (checked in `Config::check_base`), so the first
-        // answers for all of them.
-        let Some(kind) = q
+        // The base's role still decides row eligibility (objects skip it). A
+        // union's members share a role — they share a `from` vocabulary — so
+        // the first collection answers for the whole base.
+        let base_is_objects = q
             .base
             .first()
             .and_then(|n| cfg.collections.get(n))
-            .map(|c| c.kind)
-        else {
-            continue;
-        };
-        let base = Base::resolve(schemas, name, &q, kind)?;
+            .is_some_and(|c| c.is_objects());
+        let base = Base::resolve(schemas, name, &q, base_is_objects)?;
         // q53: the axis is the OUTERMOST dimension — a view on one materializes
         // once per member, and everything below it (locale, grouping,
         // pagination) happens within each. Ordering it outermost is what keeps
         // the branches below a substitution rather than a rewrite.
         for members in axis_member_combos(cfg, name, v)? {
-            build_view(cfg, db, name, v, &q, kind, base.clone(), members)?;
+            build_view(cfg, db, name, v, &q, base.clone(), members)?;
         }
     }
     // §4d: an inherited route with nothing to show does not materialize. The
@@ -428,27 +417,23 @@ struct Base {
 }
 
 impl Base {
-    fn resolve(schemas: &Schemas, name: &str, q: &Query, kind: Kind) -> Result<Base> {
+    fn resolve(schemas: &Schemas, name: &str, q: &Query, is_objects: bool) -> Result<Base> {
         // One rule for every base: the row's collection is one of the ones
-        // `from` named. It parses against the FULL row schema even for objects,
-        // because `collection` is a column only that one names — while the
-        // author's own filter type-checks against the narrow vocabulary below
-        // (§3, q51), which is what keeps `where = "draft"` on a gallery an error.
+        // `from` named. One row schema answers every view (IO.md §3): an object
+        // is a `Row` like any other, so `where` on a gallery sees the same
+        // columns — path, dir, name, ext, size, width, height all live on the
+        // row schema — that a post's `where` sees.
         let membership = filter::Filter::parse(&members_clause(&q.base), &row_schema())
             .with_context(|| format!("view {name}: base {:?}", q.base))?;
-        Ok(match kind {
-            Kind::Objects => Base {
-                schema: object_schema(),
-                membership,
-                parsed: false,
-            },
-            _ => Base {
-                // Built-ins plus every declared field, so `where` sees exactly
-                // what `order_by`, `group_by` and a relation's `rank` see.
-                schema: schemas.row_filter_schema(),
-                membership,
-                parsed: true,
-            },
+        Ok(Base {
+            // Built-ins plus every declared field, so `where` sees exactly
+            // what `order_by`, `group_by` and a relation's `rank` see.
+            schema: schemas.row_filter_schema(),
+            membership,
+            // Objects are never rendered, never a view's claimed content and
+            // carry no locale, so row eligibility would exclude every one of
+            // them — the one place the base's role still bends the flow.
+            parsed: !is_objects,
         })
     }
 }
@@ -535,7 +520,6 @@ fn build_view(
     name: &str,
     v: &View,
     q: &Query,
-    kind: Kind,
     base: Base,
     axis_members: Vec<AxisMember>,
 ) -> Result<()> {
@@ -580,7 +564,7 @@ fn build_view(
             .into_iter()
             .take(v.limit.unwrap_or(usize::MAX))
             .collect();
-        insert_routeless(db, name, v, members, kind);
+        insert_routeless(db, name, v, members);
         return Ok(());
     }
 
@@ -908,62 +892,19 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
 // `crates/grackle/tests/fixtures/{object-gallery,post-ordering}`.
 mod object_view_tests {
     use super::*;
-    use grackle_model::Row;
-    use std::path::PathBuf;
-
-    /// An object row: a path, a URL, and nothing rendered. `name`, `ext` and
-    /// `stem` all derive from `rel`, so there is nothing else to set.
-
-    /// Seed the row store with object rows AND record their membership —
-    /// without it the view's base filter matches nothing and the test passes
-    /// vacuously.
 
     fn cfg(views: &str) -> Config {
         let src = format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"objects\"\nkind = \"objects\"\n{views}"
+             [[collections]]\nname = \"objects\"\n{views}"
         );
         Config::from_toml(&src).expect("test config parses")
     }
 
-    /// With objects and content in ONE store, a gallery must see only
-    /// objects. Membership is a filter; this test fails if it is dropped.
-
-    /// The vocabulary is still the narrow one: an object cannot sort on a
-    /// column only a content row has.
-    #[test]
-    fn an_object_view_sorts_only_on_object_columns() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\norder_by = \"title\"\n\
-             path = \"/p/\"\nlayout = \"listing\"\n");
-        let e = format!(
-            "{:#}",
-            build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()
-        );
-        assert!(e.contains("order_by names unknown field \"title\""), "{e}");
-        // The object vocabulary is file facts only — including the pixel
-        // shape, which is one.
-        assert!(
-            e.contains("dir, ext, height, name, path, size, stem, url, width"),
-            "{e}"
-        );
-    }
-
-    #[test]
-    fn object_filters_typecheck_against_the_object_schema() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\nwhere = \"draft\"\n\
-             order_by = \"name\"\npath = \"/p/\"\nlayout = \"listing\"\n");
-        let e = format!(
-            "{:#}",
-            build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema())).unwrap_err()
-        );
-        assert!(e.contains("unknown field `draft`"), "{e}");
-    }
-
-    /// The other half of the same sentence, and G2's precondition: a gallery
-    /// scopes itself with `glob(path, …)` in its `where`, and that type-checks
-    /// HERE — `path` is a column of the object vocabulary, so retiring the
-    /// `match` key cost object views nothing. The test above is the control:
-    /// the vocabulary is still narrow, and this is what it does contain.
+    /// G2's precondition: a gallery scopes itself with `glob(path, …)` in its
+    /// `where`, and that type-checks HERE — `path` is a column of the one row
+    /// schema every view sees now (IO.md §3, an object is a `Row` like any
+    /// other), so retiring the `match` key cost object views nothing.
     #[test]
     fn an_object_view_scopes_itself_with_a_path_glob() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\n\
@@ -1017,7 +958,7 @@ mod posts_order_tests {
     fn cfg(clauses: &str) -> Config {
         let src = format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"notes\"\nsource = \"_posts\"\n\
              filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
              [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"listing\"\n{clauses}"
         );
@@ -1255,7 +1196,7 @@ mod adjacency_tests {
     fn cfg(extra: &str) -> Config {
         Config::from_toml(&format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"posts\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
              filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
         ))
         .expect("test config parses")
@@ -1274,7 +1215,7 @@ mod adjacency_tests {
     /// unable to recur.
     #[test]
     fn each_collection_gets_its_own_sequence() {
-        let c = cfg("[[collections]]\nname = \"notes\"\nkind = \"posts\"\n\
+        let c = cfg("[[collections]]\nname = \"notes\"\n\
                      source = \"_notes\"\nfilename_formats = [\"{year}-{month}-{day}-{slug}\"]\n");
         let mut db = db_with(vec![
             post("posts", "/blog/jan/", Some("2026-01-01"), false),

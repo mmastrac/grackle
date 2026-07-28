@@ -26,7 +26,6 @@ theme = "almanac"
 # dispatch on collection *kind*, so the name is ours to choose.
 [[collections]]
 name = "notes"
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -63,7 +62,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # else.
 [[collections]]
 name = "objects"
-kind = "objects"
 
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
@@ -72,7 +70,6 @@ kind = "objects"
 # ---------------------------------------------------------------- pages
 
 [[collections]]
-kind = "tree"
 source = "."
 # `shells/**` is build tooling, not content (§4c): a script shell's source
 # is input to the build, and without this the engine routed it as a static

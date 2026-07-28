@@ -128,7 +128,6 @@ values = [
 field = "theme"
 
 [[collections]]
-kind = "tree"
 source = "."
 exclude = ["themes/**"]
 
@@ -170,7 +169,6 @@ exclude = ["themes/**"]
 
 [[collections]]
 name = "notes"
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -197,7 +195,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # by content hash and publishes only what the galleries embed.
 [[collections]]
 name = "objects"
-kind = "objects"
 
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"

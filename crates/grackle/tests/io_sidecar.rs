@@ -40,7 +40,7 @@ const PNG: &[u8] = &[
 /// claims about.
 const CONFIG: &str = "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\
                       \n[schema]\nalt = { type = \"string\" }\ncover = { type = \"image\" }\n\
-                      \n[[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+                      \n[[collections]]\nname = \"objects\"\n\
                       [[collections.rules]]\n\
                       match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n";
 
@@ -356,7 +356,7 @@ fn a_sidecard_row_earns_no_degeneracy_warning() {
         &[
             (
                 "grackle.toml",
-                format!("{CONFIG}\n[[collections]]\nkind = \"tree\"\nsource = \".\"\n\n  \
+                format!("{CONFIG}\n[[collections]]\nsource = \".\"\n\n  \
                          [[collections.rules]]\n  match = \"**/*.html\"\n  route = \"/{{stem}}/\"\n  \
                          defaults = {{ shell = \"html\" }}\n")
                 .as_bytes(),
@@ -495,7 +495,7 @@ fn editing_a_sidecar_moves_the_rows_version() {
 #[test]
 fn a_picture_may_not_wear_a_document_shell() {
     let config = format!(
-        "{CONFIG}\n[[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n  \
+        "{CONFIG}\n[[collections]]\nname = \"objects\"\n\n  \
          [[collections.rules]]\n  match = \"**/*.png\"\n  route = \"/{{path}}\"\n  \
          defaults = {{ shell = \"html\" }}\n"
     );
@@ -544,7 +544,7 @@ fn a_content_exclude_does_not_unspeak_a_sidecar() {
             (
                 "grackle.toml",
                 format!(
-                    "{CONFIG}\n[[collections]]\nkind = \"tree\"\nsource = \".\"\n\
+                    "{CONFIG}\n[[collections]]\nsource = \".\"\n\
                      exclude = [\"*.toml\"]\n"
                 )
                 .as_bytes(),

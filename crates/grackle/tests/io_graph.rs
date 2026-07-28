@@ -54,7 +54,6 @@ draft = { type = "bool" }
 
 [[collections]]
 name = "objects"
-kind = "objects"
 
   # §4 on-demand: the URL is computed at load, the output is minted only when
   # the pull reaches it. grack.com's own images rule, minimised.
@@ -65,7 +64,6 @@ kind = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

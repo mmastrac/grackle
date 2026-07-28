@@ -96,7 +96,6 @@ alt = { type = "string" }
 
 [[collections]]
 name = "objects"
-kind = "objects"
 
   # §4 on-demand: the URL is computed, the route is not minted until something
   # references the file. grack.com's own images rule, minimised.
@@ -107,7 +106,6 @@ kind = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   # A blockless `.md` sent through a document shell is a DEGENERATE row
@@ -302,7 +300,6 @@ topic = { type = "string" }
 
 [[collections]]
 name = "posts"
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -312,7 +309,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   defaults = { shell = "html" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]
@@ -466,7 +462,6 @@ shell = { type = "string" }
 
 [[collections]]
 name = "posts"
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -476,7 +471,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   defaults = { shell = "html" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]
@@ -628,7 +622,6 @@ shell = { type = "string" }
 theme = { type = "string" }
 
 [[collections]]
-kind = "tree"
 source = "."
 exclude = ["themes/**"]
 

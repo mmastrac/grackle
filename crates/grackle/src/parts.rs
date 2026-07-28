@@ -1260,7 +1260,7 @@ mod config_schema_tests {
     fn cfg(parts: &str) -> Config {
         Config::from_toml(&format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"blog\"\nkind=\"posts\"\nsource=\"_posts\"\n{parts}"
+             [[collections]]\nname=\"blog\"\nsource=\"_posts\"\n{parts}"
         ))
         .expect("test config parses")
     }

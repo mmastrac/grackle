@@ -20,7 +20,6 @@ author = "Tester"
 summary = { type = "string", default = "" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

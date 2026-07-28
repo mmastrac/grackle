@@ -24,7 +24,6 @@ title = "Sections"
 author = "Tester"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

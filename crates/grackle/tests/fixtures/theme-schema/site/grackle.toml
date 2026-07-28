@@ -33,7 +33,6 @@ title = "Themed"
 author = "Tester"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

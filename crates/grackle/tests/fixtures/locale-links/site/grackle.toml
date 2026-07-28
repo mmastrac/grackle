@@ -19,7 +19,6 @@ default = "en"
 locales = ["fr"]
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

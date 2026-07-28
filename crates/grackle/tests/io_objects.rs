@@ -90,9 +90,9 @@ fn case_config(glob: &str) -> String {
     format!(
         "extends = \"none\"\n\
          [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-         [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n\
+         [[collections]]\nname = \"objects\"\n\n\
          [[collections.rules]]\nmatch = \"{glob}\"\nroute = \"/{{path}}\"\non_demand = true\n\n\
-         [[collections]]\nkind = \"tree\"\nname = \"entries\"\nsource = \".\"\n\n\
+         [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
          [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{{path}}\"\n"
     )
 }
@@ -200,9 +200,9 @@ fn one_extension_leaving_the_glob_empties_the_gallery() {
         format!(
             "extends = \"none\"\n\
              [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-             [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n\
+             [[collections]]\nname = \"objects\"\n\n\
              [[collections.rules]]\nmatch = \"gallery/**/*.{exts}\"\nroute = \"/{{path}}\"\n\n\
-             [[collections]]\nkind = \"tree\"\nname = \"entries\"\nsource = \".\"\n\n\
+             [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
              [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{{path}}\"\n\n\
              [routes.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
              order_by = \"name\"\nlayout = \"listing\"\ntitle = \"Photos\"\n"

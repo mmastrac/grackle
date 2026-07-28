@@ -24,7 +24,6 @@ author = "Tester"
 
 [[collections]]
 name = "objects"
-kind = "objects"
 
   [[collections.rules]]
   match = "**/*.{png,jpg}"
@@ -35,7 +34,6 @@ kind = "objects"
 # walk.
 # Without this the site loads zero rows and says nothing about it.
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

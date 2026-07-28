@@ -35,7 +35,6 @@ title = "Crumbs"
 author = "Tester"
 
 [[collections]]
-kind = "posts"
 source = "_drafts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -44,7 +43,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   route = "/notes/{slug}/"
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 trail = "yearly_archive"

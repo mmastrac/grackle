@@ -18,7 +18,6 @@ fr = "Français"
 
 [[collections]]
 name = "posts"
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 

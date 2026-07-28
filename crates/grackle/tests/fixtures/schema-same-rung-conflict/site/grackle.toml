@@ -19,7 +19,6 @@ title = "Two Subtrees"
 author = "Tester"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

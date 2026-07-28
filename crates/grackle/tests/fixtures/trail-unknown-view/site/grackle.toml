@@ -12,7 +12,6 @@ title = "A Trail To Nowhere"
 author = "Tester"
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 trail = "montly_archive"
 

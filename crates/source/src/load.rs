@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::template;
-use grackle_model::{AxisMember, Kind, Route, RouteKind, Row, SiteDb};
+use grackle_model::{AxisMember, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
 use crate::filename::{self, FileKey, FilenameFormat};
@@ -887,12 +887,13 @@ fn tidy(url: String) -> String {
 /// subtree they read.
 ///
 /// The word the model uses is **scope** (IO.md §1): a source subtree plus its
-/// rules, extractors, schema and relations. `Kind` survives as the scope's
-/// ROLE — which table its rows land in, and so which indexes, relation
-/// defaults and route kinds they get — but it no longer decides membership.
+/// rules, extractors, schema and relations. A scope's ROLE — which table its
+/// rows land in, and so which indexes, relation defaults and route kinds they
+/// get — is read off its `source` now that `kind` is gone: a proper source is
+/// a posts scope, no source at all the objects scope, and `"."` the tree (see
+/// [`crate::config::Collection::is_posts`]).
 struct Scope<'a> {
     name: &'a str,
-    kind: Kind,
     /// The subtree this scope's rules read, root-relative.
     ///
     /// - `None` — **sourceless** (the objects scope): its rules range over the
@@ -970,24 +971,18 @@ impl Scope<'_> {
 fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
     let mut out: Vec<Scope> = Vec::new();
     for (name, c) in &cfg.collections {
-        let source = match c.kind {
-            // A posts scope IS its source: no source, nothing to read.
-            Kind::Posts => Some(PathBuf::from(c.source.as_deref().ok_or_else(|| {
-                anyhow::anyhow!("collection {name} has kind=posts but no source")
-            })?)),
-            Kind::Tree => Some(PathBuf::new()),
-            Kind::Objects => None,
-        };
-        // `.` and the empty path are one statement, and the empty one is the
-        // spelling the rest of this file needs: a rule glob is relative to the
-        // source, so a root written `.` would grow a `./` on every path.
-        let source = source.map(|p| match p == Path::new(".") {
-            true => PathBuf::new(),
-            false => p,
+        // The source IS the role now (`kind` is gone): a sourceless scope is
+        // the objects one and owns nothing; a source that reads as `.` is the
+        // site root (the tree); anything else is a posts scope that owns its
+        // subtree. `.` and the empty path are one statement, and the empty one
+        // is the spelling the rest of this file needs: a rule glob is relative
+        // to the source, so a root written `.` would grow a `./` on every path.
+        let source = c.source.as_deref().map(|s| match s {
+            "." => PathBuf::new(),
+            other => PathBuf::from(other),
         });
         out.push(Scope {
             name,
-            kind: c.kind,
             source,
             rules: compile_rules(c)?,
             formats: compile_formats(&c.filename_formats)?,
@@ -1238,7 +1233,7 @@ fn walk_site(
     // writes.
     let obj_globs: Vec<&GlobMatcher> = scopes
         .iter()
-        .filter(|s| s.kind == Kind::Objects)
+        .filter(|s| s.source.is_none())
         .flat_map(|s| s.rules.iter().map(|r| &r.matcher))
         .collect();
     let is_obj = |rel: &Path| obj_globs.iter().any(|m| m.is_match(rel));
@@ -1638,11 +1633,15 @@ fn walk_site(
         // nothing else — there is one constructor above them, so which one a
         // row joins is a question about the row rather than about how it was
         // built. A posts scope's rows are its own by role; an image is an image
-        // because the extension fact says so, whichever scope claimed it.
-        match (scope.kind, object_shaped) {
-            (Kind::Posts, _) => posts.push(row),
-            (_, true) => objects.push(row),
-            _ => pages.push(row),
+        // because the extension fact says so, whichever scope claimed it. A
+        // posts scope is the one that OWNS a proper source — the role read off
+        // `source` now that `kind` is gone.
+        if scope.owned().is_some() {
+            posts.push(row);
+        } else if object_shaped {
+            objects.push(row);
+        } else {
+            pages.push(row);
         }
     }
 
@@ -1885,15 +1884,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // embedded site's `.schema.toml` (`cover`, under `grackle/examples/`)
     // joined grack.com's own field vocabulary at the same rung.
     //
-    // At most ONE collection of each kind reaches this binding, and the config
-    // is what guarantees it (`Config::check_collection_kinds`, MERGE.md C7a):
+    // The FIRST tree collection (`source = "."`) supplies the content lists:
     // the tree is the root, walked once, and every other scope reads out of
     // that same walk by its own rules, so a second tree would have nothing of
-    // its own to read. Before that guard this loop was the silent discard — an
-    // unconditional assignment over a `BTreeMap`, so the alphabetically last
-    // collection of each kind won and the other's rules, `exclude`, `include`
-    // and `schema` went nowhere.
-    let tree_c = cfg.collections.values().find(|c| c.kind == Kind::Tree);
+    // its own to read.
+    let tree_c = cfg.collections.values().find(|c| c.is_tree());
     let empty: &[String] = &[];
     let not_content = store::NotContent::new(
         build_globset(tree_c.map_or(empty, |c| &c.exclude))?,
@@ -2758,7 +2753,6 @@ title = "T"
 author = "A"
 
 [[collections]]
-kind = "tree"
 name = "entries"
 source = "."
 
@@ -2827,7 +2821,6 @@ title = "T"
 author = "A"
 
 [[collections]]
-kind = "objects"
 name = "objects"
 
   [[collections.rules]]
@@ -2843,7 +2836,6 @@ name = "objects"
   route = "/{path}"
 
 [[collections]]
-kind = "tree"
 name = "entries"
 source = "."
 
@@ -2876,7 +2868,6 @@ title = "T"
 author = "A"
 
 [[collections]]
-kind = "tree"
 name = "entries"
 source = "."
 
@@ -2991,7 +2982,6 @@ title = "T"
 author = "A"
 
 [[collections]]
-kind = "posts"
 name = "posts"
 source = "_drafts"
 
@@ -3000,7 +2990,6 @@ source = "_drafts"
   route = "/blog/{slug}/"
 
 [[collections]]
-kind = "tree"
 name = "entries"
 source = "."
 
@@ -3029,7 +3018,6 @@ title = "T"
 author = "A"
 
 [[collections]]
-kind = "posts"
 name = "posts"
 source = "_posts"
 
@@ -3038,7 +3026,6 @@ source = "_posts"
   route = "/blog/{slug}/"
 
 [[collections]]
-kind = "tree"
 name = "entries"
 source = "."
 
@@ -3084,7 +3071,6 @@ title = "T"
 author = "A"
 
 [[collections]]
-kind = "tree"
 name = "entries"
 source = "."
 

@@ -16,20 +16,9 @@ pub use rendition::Rendition;
 
 use anyhow::{bail, Result};
 use chrono::NaiveDate;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-
-/// Which table a collection feeds. Table identity is model vocabulary, so it
-/// lives here and config deserializes into it — that is what lets `ViewRows`
-/// name a table without the loader owning the name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    Posts,
-    Tree,
-    Objects,
-}
 
 /// The row field a group-by spec names. `date.year` is a spelling of the
 /// `year` column, not a field of its own; everything else is itself.
@@ -953,10 +942,6 @@ pub struct ViewRows {
     /// Fragment variant (q24), for embedded rendering.
     pub variant: Option<String>,
     pub rows: usize,
-    /// Which table `members` index — embedded views span collections now
-    /// (`{% view latest_recipes %}` ranges over pages).
-    #[serde(skip)]
-    pub table: Kind,
     #[serde(skip)]
     pub members: Vec<Key>,
 }
@@ -967,7 +952,6 @@ impl Default for ViewRows {
             layout: None,
             variant: None,
             rows: 0,
-            table: Kind::Posts,
             members: Vec::new(),
         }
     }
@@ -1117,37 +1101,6 @@ impl filter::Row for Row {
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
     }
-}
-
-/// Fields a filter may reference on an OBJECT row.
-///
-/// An object is a `Row` like any other now, so this is not a different type's
-/// schema — it is a narrower query vocabulary for a table whose rows carry no
-/// front matter. Keeping it narrow is the point: `where = "draft"` on a
-/// gallery is a load error naming the view, rather than a filter that matches
-/// nothing because every object's `draft` is false.
-/// Dimensions are deliberately absent: they are render-time facts from the
-/// thumbnail pass (q26), not load-time columns — a field that would need
-/// every image decoded at load is not worth a filter yet.
-///
-/// The join (IO.md §2) is absent for the narrowness reason rather than a
-/// timing one: `output` is answerable here — an unreferenced on-demand image
-/// is exactly `!output` — and a gallery may want it the day someone asks.
-/// Widening a deliberately narrow vocabulary on a guess is how it stops being
-/// one.
-pub fn object_schema() -> filter::Schema {
-    use filter::Type::*;
-    let mut s = filter::Schema::new();
-    s.insert("path", Str);
-    s.insert("dir", Str);
-    s.insert("name", Str);
-    s.insert("stem", Str);
-    s.insert("ext", Str);
-    s.insert("url", Str);
-    s.insert("size", Int);
-    s.insert("width", Int);
-    s.insert("height", Int);
-    s
 }
 
 impl SiteDb {
@@ -1489,26 +1442,6 @@ mod row_column_tests {
         };
         assert_eq!(r.field("collection"), filter::Value::Str("notes".into()));
         assert!(row_schema().contains_key("collection"));
-    }
-
-    /// Every column `object_schema` names must be answerable by a `Row`,
-    /// since an object row IS one — the narrower schema is a vocabulary, not
-    /// a different type.
-    #[test]
-    fn a_row_answers_every_object_column() {
-        let mut r = row("photos/beach.jpg");
-        // Measured, because dimensions are legitimately absent on a row that
-        // is not an image — the assertion below is about a column the type
-        // cannot answer AT ALL, not about one this fixture left empty.
-        r.width = Some(1200);
-        r.height = Some(800);
-        for col in object_schema().keys() {
-            assert_ne!(
-                r.field(col),
-                filter::Value::Null,
-                "object column {col:?} is unanswerable on a Row"
-            );
-        }
     }
 
     /// An unmeasured row answers Null, not zero: `where = "width >= 400"`

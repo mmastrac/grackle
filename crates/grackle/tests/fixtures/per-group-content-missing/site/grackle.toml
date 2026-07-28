@@ -26,7 +26,6 @@ topic = { type = "string" }
 
 [[collections]]
 name = "posts"
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -38,7 +37,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # at `/<key>/` on its own — the same URL its group's view route claims — but the
 # claim withholds that standalone route, so there is no collision.
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

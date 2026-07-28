@@ -75,7 +75,7 @@ fn a_posts_scope_routes_by_path_tokens() {
             (
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\n\
+                 [[collections]]\nsource = \"_posts\"\n\n\
                  [[collections.rules]]\nmatch = \"rust/**\"\nroute = \"/{dir}/{stem}/\"\n",
             ),
             ("_posts/rust/hello.md", "---\ntitle: Hello\n---\n\nProse.\n"),
@@ -113,7 +113,7 @@ fn one_template_spends_both_suppliers_and_the_rule_owns_the_extractor() {
             (
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+                 [[collections]]\nsource = \"_posts\"\n\
                  filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\n\
                  [[collections.rules]]\nmatch = \"legacy/**\"\n\
                  filename_formats = [\"{month}-{day}-{year}-{slug}\"]\n\
@@ -166,7 +166,7 @@ fn an_extractor_reaches_a_tree_rule() {
             (
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                 [[collections]]\nkind = \"tree\"\nsource = \".\"\n\n\
+                 [[collections]]\nsource = \".\"\n\n\
                  [[collections.rules]]\nmatch = \"notes/**\"\nfront_matter = true\n\
                  filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\
                  route = \"/{year}/{slug}/\"\n",
@@ -219,7 +219,7 @@ fn an_undated_row_under_a_dated_template_names_the_file_and_the_rule() {
             (
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+                 [[collections]]\nsource = \"_posts\"\n\
                  filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\n\
                  [[collections.rules]]\nmatch = \"notes/**\"\n\
                  route = \"/blog/{year}/{slug}/\"\n",
@@ -246,7 +246,7 @@ fn a_token_nothing_supplies_lists_what_a_route_may_spend() {
             (
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                 [[collections]]\nkind = \"tree\"\nsource = \".\"\n\n\
+                 [[collections]]\nsource = \".\"\n\n\
                  [[collections.rules]]\nmatch = \"*.md\"\nfront_matter = true\n\
                  route = \"/{author}/{stem}/\"\n",
             ),
@@ -277,9 +277,9 @@ fn a_posts_scope_needs_no_extractor_when_no_route_spends_a_date() {
                 "grackle.toml",
                 "extends = \"none\"\n\n\
                  [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\n\
+                 [[collections]]\nsource = \"_posts\"\n\n\
                  [[collections.rules]]\nmatch = \"**\"\nroute = \"/notes/{stem}/\"\n\n\
-                 [[collections]]\nkind = \"tree\"\nsource = \".\"\n\n\
+                 [[collections]]\nsource = \".\"\n\n\
                  [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{path}\"\n",
             ),
             ("_posts/hello.md", "---\ntitle: Hello\n---\n\nProse.\n"),

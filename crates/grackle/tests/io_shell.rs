@@ -50,7 +50,7 @@ fn site(who: &str) -> PathBuf {
              shell = \"sitemap\"\nwhere = 'shell == \"atom\"'\n\n\
              [routes.null_probe]\npath = \"/null.xml\"\n\
              shell = \"sitemap\"\nwhere = '!shell'\n\n\
-             [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+             [[collections]]\nname = \"objects\"\n\
              [[collections.rules]]\n\
              match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n",
         ),
@@ -225,7 +225,7 @@ fn an_axis_member_answers_its_own_shell() {
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
              [axes.serialization]\nvalues = [\"light_html\", \"html\"]\nfield = \"shell\"\n\n\
-             [[collections]]\nkind = \"tree\"\nsource = \".\"\n\n\
+             [[collections]]\nsource = \".\"\n\n\
              [[collections.rules]]\nmatch = \"tiers.md\"\nfront_matter = true\n\
              route = \"/tiers/{serialization}/\"\n\n\
              [routes.html_probe]\npath = \"/html.xml\"\n\

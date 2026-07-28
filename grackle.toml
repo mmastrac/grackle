@@ -30,7 +30,6 @@ email = "matthew@mastracci.com"
 # ---------------------------------------------------------------- posts
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 # A post's trail walks `trail`'s subdivision chain — Home > Blog > 2022 >
 # December > 16, every archive level clickable. The Blog level itself is
@@ -78,7 +77,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"
 # `_drafts` filenames carry no date, so the base's dated format is not what
 # this source wants and the line below replaces it.
 [[collections]]
-kind = "posts"
 source = "_drafts"
 # The whole stem is the slug: a draft has no date until it is published, so
 # `{slug}` is the honest format rather than a date the file does not carry.
@@ -134,7 +132,6 @@ filename_formats = ["{slug}"]
 # what it widened it by.
 [[collections]]
 name = "objects"
-kind = "objects"
 
   # Browser-convention assets: a favicon or a touch icon is fetched by URL
   # with nothing on the site linking it, so it cannot be reference-driven.
@@ -168,7 +165,6 @@ kind = "objects"
 # ---------------------------------------------------------------- pages
 
 [[collections]]
-kind = "tree"
 source = "."
 
 # Three layers, each doing what only it can:

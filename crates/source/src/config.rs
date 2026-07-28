@@ -267,28 +267,6 @@ fn every_config_key_has_a_law(c: Config) {
     } = c;
 }
 
-/// The compiler's half of one `[[collections]]` entry; see
-/// `every_config_key_has_a_law`.
-#[allow(dead_code)]
-fn every_collection_key_has_a_law(c: Collection) {
-    let Collection {
-        kind: _,
-        name: _,
-        source: _,
-        filename_formats: _,
-        exclude: _,
-        include: _,
-        rules: _,
-        trail: _,
-        tags: _,
-        relations: _,
-        schema: _,
-        // Not config surface: `#[serde(skip)]`, recorded at parse time from
-        // the site's own TOML, so no key of a site's ever reaches it.
-        inherited: _,
-    } = c;
-}
-
 /// The site config's shape — the merge surface itself, since `merge_base`
 /// reads every key's law off this list (`law_of`). Every depth in §3 table A
 /// is a fact about a type named here; the fields are in declaration order so
@@ -432,7 +410,6 @@ fn fence(pname: &str, key: &str) -> Result<()> {
 impl Shaped for Collection {
     fn shape() -> Shape {
         Shape::Struct(vec![
-            field("kind", |c: &Collection| &c.kind),
             field("name", |c: &Collection| &c.name),
             field("source", |c: &Collection| &c.source),
             field("filename_formats", |c: &Collection| &c.filename_formats),
@@ -520,7 +497,7 @@ macro_rules! enums_are_atoms {
     })* };
 }
 
-enums_are_atoms![Kind, Selector, LinkPolicy];
+enums_are_atoms![Selector, LinkPolicy];
 
 /// `LocalizedStr` is the atom spelled as a TABLE. `{ en = "Home", fr =
 /// "Accueil" }` is one value with one authority — §3 table D's "the atom is
@@ -1390,10 +1367,6 @@ pub struct Site {
     pub noindex: bool,
 }
 
-/// A collection's table. Declared here, defined by the database — a `kind`
-/// in the TOML deserializes straight into the database's own vocabulary.
-pub use grackle_model::Kind;
-
 /// The arrangements a view can ask for. `listing` is the routed one — a
 /// gallery and a card list are listings whose previews hold pictures, told
 /// apart by `variant`, not by layout. `link_list` and `card` are what an
@@ -1403,28 +1376,25 @@ pub const LAYOUTS: &[&str] = &["listing", "link_list", "card"];
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Collection {
-    pub kind: Kind,
     /// The table name, when the source directory is the wrong word for it
     /// (`_posts` holding a table called `notes`). Absent, the directory
     /// names the table — one place, not two.
     pub name: Option<String>,
-    /// The directory this collection reads — **for `posts` only**. A `tree`
-    /// collection's `source` is decorative: it names the collection
-    /// (`table_name`) and identifies it across the merge (§1's annotation,
-    /// `collection_key`), and the walk ignores it — `load::walk_site`
-    /// walks `cfg.root()`, always. So `source = "pages"` on a tree collection
-    /// means "call me `pages`", not "read `pages/`", and since it changes the
-    /// merge key it inherits the base's tree beside its own, which
-    /// `check_collection_kinds` refuses (MERGE.md C7a). Objects have no source
-    /// at all: they are picked out of that same walk by whatever their own
-    /// rules claim.
+    /// The directory this collection reads — **and the scope's ROLE**, now
+    /// that `kind` is gone (see [`Collection::is_posts`]). Three cases:
     ///
-    /// A POSTS scope's source, by contrast, is load-bearing three times over
-    /// since IO.md I7d: it is the subtree walked, the specificity that ORDERS
-    /// the scope in the one rule sequence, and the subtree that scope OWNS (a
-    /// file under it that no rule of it claims is not content). It also
-    /// punches through the dot/underscore skip, which is how `_posts` is
-    /// walked at all.
+    /// - **Absent** — the objects scope. It reads no directory of its own; it
+    ///   is picked out of the one site walk by whatever its rules claim.
+    /// - **`"."`** — the tree scope, the site root. `load::walk_site` walks
+    ///   `cfg.root()` whatever a collection wrote, so the tree's `source` says
+    ///   nothing but "I am the root"; to give the root table another name, use
+    ///   `name`, not a directory that is not read.
+    /// - **`"_posts"`** and the like — a posts scope, load-bearing three times
+    ///   over since IO.md I7d: it is the subtree walked, the specificity that
+    ///   ORDERS the scope in the one rule sequence, and the subtree that scope
+    ///   OWNS (a file under it that no rule of it claims is not content). It
+    ///   also punches through the dot/underscore skip, which is how `_posts`
+    ///   is walked at all.
     pub source: Option<String>,
     // No `extensions`. Membership in an objects scope is what its RULES say
     // (IO.md I7a): a `match` glob naming the extensions
@@ -1447,11 +1417,11 @@ pub struct Collection {
     /// A rule declaring its own list overrides this for the rows it governs.
     #[serde(default)]
     pub filename_formats: Vec<String>,
-    /// What the site walk does NOT read, and what re-admits it — **for the
-    /// `tree` collection only** (§4c, IO.md I7b). `load` compiles these two
-    /// lists into the one [`crate::store::NotContent`] the tree, marker and
-    /// vocabulary walks share, so a posts or objects collection writing them
-    /// configures nothing and `check_scope_content_keys` says so.
+    /// What the site walk does NOT read, and what re-admits it — read from the
+    /// `tree` collection only (§4c, IO.md I7b). `load` compiles these two lists
+    /// into the one [`crate::store::NotContent`] the tree, marker and
+    /// vocabulary walks share; a posts or objects collection writing them
+    /// configures nothing (the loader reads only the tree's).
     ///
     /// `include` has first say over `exclude`, and over the engine's own
     /// positional not-content rule (a site-root `themes/`): it is the one
@@ -1501,12 +1471,35 @@ pub struct Collection {
     /// same flag on the other two registries, recorded the same way: the
     /// site's own TOML is read before the merge blurs the two.
     ///
-    /// It buys one sentence, and `check_collection_kinds` is where it is
-    /// said: an identity error naming a collection the author never wrote
-    /// has to explain where it came from, or it is an error about a line
-    /// that is not in their file.
+    /// It lets a load error name where a collection came from: an error about
+    /// a collection the author never wrote has to say it is inherited, or it
+    /// is an error about a line that is not in their file.
     #[serde(skip)]
     pub inherited: bool,
+}
+
+impl Collection {
+    /// The **sourceless** scope — the objects role. It owns no subtree and
+    /// picks its rows out of the whole walk by shape (IO.md I7a). What the
+    /// deleted `kind` enum spelled `objects`, read now off the one fact that
+    /// always distinguished it: an objects collection has no `source` at all.
+    pub fn is_objects(&self) -> bool {
+        self.source.is_none()
+    }
+
+    /// The **site-root** scope — the tree role. Its `source` is `"."`
+    /// (decorative: it names the table, and the walk reads the root whatever
+    /// it wrote — see [`Collection::source`]). What `kind = "tree"` spelled.
+    pub fn is_tree(&self) -> bool {
+        self.source.as_deref() == Some(".")
+    }
+
+    /// A **proper-source** scope — the posts role, which OWNS its subtree
+    /// (IO.md I7d). Everything that is neither sourceless nor the root: what
+    /// `kind = "posts"` spelled.
+    pub fn is_posts(&self) -> bool {
+        !self.is_objects() && !self.is_tree()
+    }
 }
 
 /// One declared relation (§6g). A neighbour list expressed as a query over
@@ -2279,8 +2272,6 @@ impl Config {
                 r.inherited = i >= mine;
             }
         }
-        cfg.check_collection_kinds()?;
-        cfg.check_scope_content_keys()?;
         cfg.check_objects_rule_gate()?;
         cfg.check_rule_address()?;
         if let Some(name) = profile {
@@ -2420,132 +2411,6 @@ impl Config {
         Ok(())
     }
 
-    /// The tree collection and the objects collection are SINGLETONS, and
-    /// this is where a second one of either is refused (MERGE.md C7a).
-    ///
-    /// Several `posts` collections feeding one table is the multi-source
-    /// shape the engine has — `_posts` and `_drafts` are two sources of one
-    /// corpus (§4) — and it works because each has a `source` directory of
-    /// its own to read. The other two kinds have no second thing to range
-    /// over. The tree is the site ROOT, walked once (`store::walk_tree`
-    /// takes `cfg.root()`, never a collection's `source`), and objects are
-    /// picked out of that same walk by EXTENSION. So `load` reads exactly
-    /// one collection of each kind, and before this check it took whichever
-    /// came last in name order: the loser's keys were dropped without a word,
-    /// which is DESIGN.md §4's "a second posts collection silently overwrote
-    /// the first" disease still live at the two kinds that never got
-    /// multi-source support.
-    ///
-    /// Whether a site SHOULD be able to declare two is a design question
-    /// nobody has asked; until someone does, the answer is an error that
-    /// names both entries rather than a build that honours one of them.
-    fn check_collection_kinds(&self) -> Result<()> {
-        // Spelled rather than `{kind:?}`: the error quotes what a site
-        // WRITES (`kind = "tree"`), which is serde's lowercase rename and
-        // not `Kind`'s Rust name.
-        // `lost` is per-kind because the key sets differ: only a tree
-        // collection may write `exclude`/`include` at all (IO.md I7b), so
-        // naming them in the objects sentence would describe a loss that
-        // cannot happen.
-        for (kind, spelling, why, lost, merge_hint) in [
-            (
-                Kind::Tree,
-                "tree",
-                "the tree is the site root, walked once, so a second tree \
-                 collection has no second tree to read",
-                "rules, `exclude`, `include` and `schema`",
-                "collections key on `source` (MERGE.md §1), so a site declares \
-                 its tree at `source = \".\"` to REPLACE the base's rather than \
-                 sit beside it",
-            ),
-            (
-                Kind::Objects,
-                "objects",
-                "objects are picked out of that same one tree walk by their \
-                 own rules, so a second objects collection has no second walk \
-                 to read",
-                "rules and `schema`",
-                "an objects collection has no `source`, so it keys on its NAME \
-                 (MERGE.md §1): a site declares `name = \"objects\"` to REPLACE \
-                 the base's rather than sit beside it",
-            ),
-        ] {
-            let mut of_kind = self.collections.iter().filter(|(_, c)| c.kind == kind);
-            let (Some(a), Some(b)) = (of_kind.next(), of_kind.next()) else {
-                continue;
-            };
-            // Whichever of the two the author did not write is the one that
-            // needs explaining, and at most one of them can be inherited —
-            // the base declares one collection of each kind.
-            let note = match [a, b].into_iter().find(|(_, c)| c.inherited) {
-                Some((name, _)) => format!(
-                    "\n  {name:?} is inherited from the base config (§4d), so it is not \
-                     in your file: {merge_hint}. `extends = \"none\"` declines the base \
-                     entirely."
-                ),
-                None => String::new(),
-            };
-            anyhow::bail!(
-                "two `kind = \"{spelling}\"` collections — {} and {}. Only one of each is \
-                 supported: {why}, and only one of the two would be read at all — the \
-                 other's {lost} would be silently dropped. (Several `posts` \
-                 collections feeding one table is the multi-source shape the engine \
-                 has, §4.){note}",
-                describe_collection(a.0, a.1),
-                describe_collection(b.0, b.1),
-            );
-        }
-        Ok(())
-    }
-
-    /// `exclude`/`include` belong to the TREE collection, and to no other
-    /// (IO.md I7b).
-    ///
-    /// What is and is not content is one question with one answer: `load`
-    /// compiles a single [`store::NotContent`] from the tree collection's two
-    /// lists and hands it to all three walks (§4c, MERGE.md R1/R2). A posts or
-    /// objects collection's copies have no reader anywhere — theme-preview
-    /// carried `exclude = ["themes/**"]` on its objects scope for as long as
-    /// it has existed and deleting the line rebuilt the site byte-identical
-    /// (IO.md I7a's finding iii). Declared and ignored is the disease this
-    /// ledger exists to refuse, so the key says so at the line that wrote it.
-    ///
-    /// Made real for the other kinds instead? The alternative was weighed and
-    /// is not the same feature: a posts scope's `exclude` would have to mean
-    /// "narrow my `source` walk" and an objects scope's "narrow which files my
-    /// rules may claim" — two new semantics, neither of which any site has
-    /// asked for, and the second of which a rule glob already expresses.
-    fn check_scope_content_keys(&self) -> Result<()> {
-        for (name, c) in &self.collections {
-            // Spelled, not `{kind:?}`: the error quotes what the site WROTE.
-            // The tree is the one that reads these, so it is the one that
-            // leaves by this arm rather than by a test above.
-            let spelling = match c.kind {
-                Kind::Tree => continue,
-                Kind::Posts => "posts",
-                Kind::Objects => "objects",
-            };
-            let Some(key) = [("exclude", &c.exclude), ("include", &c.include)]
-                .into_iter()
-                .find(|(_, v)| !v.is_empty())
-                .map(|(k, _)| k)
-            else {
-                continue;
-            };
-            anyhow::bail!(
-                "collection {}: `{key}` on a `kind = \"{spelling}\"` collection \
-                 configures nothing. What counts as content is decided once, by the \
-                 `kind = \"tree\"` collection — its `exclude`/`include` are compiled \
-                 into the one value the tree, marker and vocabulary walks all read \
-                 (§4c) — and every other scope picks its rows out of that same walk. \
-                 Move the patterns to the tree collection's `{key}`, or delete the \
-                 line.",
-                describe_collection(name, c),
-            );
-        }
-        Ok(())
-    }
-
     /// An objects rule may not declare `front_matter` — either value
     /// (IO.md IR9). The dead-key family one table over, and the reason is one
     /// sentence: **an objects rule selects by shape; the identity gate belongs
@@ -2577,7 +2442,11 @@ impl Config {
     /// question about the config's shape alone.
     fn check_objects_rule_gate(&self) -> Result<()> {
         for (name, c) in &self.collections {
-            if c.kind != Kind::Objects {
+            // Objects scopes only: a parsing scope's rule (posts or the tree)
+            // MAY gate on `front_matter` — that is how a `.md` with no front
+            // matter becomes a static copy. The gate is a contradiction only
+            // where the row is never parsed, which is the sourceless scope.
+            if !c.is_objects() {
                 continue;
             }
             // Inherited rules are checked too. The base declares no such rule,
@@ -2762,18 +2631,6 @@ impl Config {
         if v.reads_all_outputs() {
             return grackle_model::route_schema(&declared);
         }
-        // Dispatch on the base collection's kind, exactly as `build_views`
-        // does. An unresolvable chain is not this function's error to report —
-        // `Config::query` is called again, and reported on, at build.
-        let kind = self.query(name).ok().and_then(|q| {
-            q.base
-                .first()
-                .and_then(|n| self.collections.get(n))
-                .map(|c| c.kind)
-        });
-        if kind == Some(Kind::Objects) {
-            return grackle_model::object_schema();
-        }
         let mut s = grackle_model::row_schema();
         for (k, t) in &declared {
             s.insert(k, *t);
@@ -2896,7 +2753,7 @@ impl Config {
                 "no collections declared — nothing would be built. A site \
                  needs at least one `[[collections]]` saying where its \
                  content lives, e.g.\n\n  \
-                 [[collections]]\n  kind = \"posts\"\n  source = \"_posts\"\n\n  \
+                 [[collections]]\n    source = \"_posts\"\n\n  \
                    [[collections.rules]]\n  match = \"**\"\n  \
                  route = \"/blog/{{year}}/{{month:02}}/{{slug}}/\""
             );
@@ -2985,8 +2842,7 @@ impl Config {
             let declared = cfg
                 .collections
                 .values()
-                .find(|c| c.kind == Kind::Posts)
-                .and_then(|c| c.tags.as_deref());
+                .find_map(|c| c.tags.as_deref());
             if let Some(name) = declared {
                 let Some(v) = cfg.views.get(name) else {
                     anyhow::bail!("collection tags view {name:?} is not a declared view");
@@ -3449,41 +3305,30 @@ impl Config {
                 self.whose_from(carrier, asked)
             );
         }
-        let mut kinds: Vec<(&str, Kind)> = Vec::new();
         for member in from.names() {
-            let Some(c) = self.collections.get(member) else {
-                if matches!(from, From::Union(_)) {
-                    anyhow::bail!(
-                        "{carrier}: `from` unions {member:?}, which is not a collection. A union \
-                         ranges over collections; to narrow a set, compose over it with `from = \
-                         {member:?}` and a `where`.{}",
-                        self.whose_from(carrier, asked)
-                    );
-                }
+            if self.collections.contains_key(member) {
+                continue;
+            }
+            if matches!(from, From::Union(_)) {
                 anyhow::bail!(
-                    "{carrier}: `from = {}` is neither a collection, a set nor a route \
-                     (collections: {}; sets and routes: {}){}",
-                    from.display(),
-                    self.collections
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    self.views.keys().cloned().collect::<Vec<_>>().join(", "),
-                    self.whose_from(carrier, asked)
-                );
-            };
-            kinds.push((member.as_str(), c.kind));
-        }
-        if let Some((first, k)) = kinds.first() {
-            if let Some((other, k2)) = kinds.iter().find(|(_, x)| x != k) {
-                anyhow::bail!(
-                    "{carrier}: `from` unions collections of two kinds — {first:?} is {k:?} and \
-                     {other:?} is {k2:?}. A union's members share a vocabulary, so they share a \
-                     kind.{}",
+                    "{carrier}: `from` unions {member:?}, which is not a collection. A union \
+                     ranges over collections; to narrow a set, compose over it with `from = \
+                     {member:?}` and a `where`.{}",
                     self.whose_from(carrier, asked)
                 );
             }
+            anyhow::bail!(
+                "{carrier}: `from = {}` is neither a collection, a set nor a route \
+                 (collections: {}; sets and routes: {}){}",
+                from.display(),
+                self.collections
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.views.keys().cloned().collect::<Vec<_>>().join(", "),
+                self.whose_from(carrier, asked)
+            );
         }
         if from.names().is_empty() {
             anyhow::bail!(
@@ -3646,15 +3491,14 @@ impl Config {
             .collect()
     }
 
-    /// The view that owns tag routes: the posts collection's declared `tags`
+    /// The view that owns tag routes: the first collection's declared `tags`
     /// view, else the unique view grouped by tags. Ambiguity without a
     /// declaration is a load error, so None means "no tag archive".
     pub fn tags_view(&self) -> Option<(&str, &View)> {
         if let Some(name) = self
             .collections
             .values()
-            .find(|c| c.kind == Kind::Posts)
-            .and_then(|c| c.tags.as_deref())
+            .find_map(|c| c.tags.as_deref())
         {
             return self.views.get(name).map(|v| (name, v));
         }
@@ -3711,7 +3555,7 @@ mod tests {
     fn cfg_source(views: &str) -> String {
         format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n{views}"
+             [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n{views}"
         )
     }
 
@@ -3898,8 +3742,8 @@ mod tests {
     fn a_collection_takes_its_name_from_its_source_directory() {
         let c = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
-             [[collections]]\nkind = \"tree\"\nsource = \"recipes\"\n",
+             [[collections]]\nsource = \"_posts\"\n\
+             [[collections]]\nsource = \"recipes\"\n",
         )
         .unwrap();
         let names: Vec<&str> = c.collections.keys().map(String::as_str).collect();
@@ -3911,7 +3755,7 @@ mod tests {
     fn a_root_collection_is_named_entries() {
         let c = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"tree\"\nsource = \".\"\n",
+             [[collections]]\nsource = \".\"\n",
         )
         .unwrap();
         assert!(
@@ -3925,7 +3769,7 @@ mod tests {
     fn an_explicit_name_overrides_the_directory() {
         let c = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n",
+             [[collections]]\nname = \"notes\"\nsource = \"_posts\"\n",
         )
         .unwrap();
         assert!(c.collections.contains_key("notes"));
@@ -3936,7 +3780,7 @@ mod tests {
     fn a_sourceless_collection_must_be_named() {
         let e = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"objects\"\n",
+             [[collections]]\n",
         )
         .unwrap_err()
         .to_string();
@@ -3947,8 +3791,8 @@ mod tests {
     fn two_collections_may_not_resolve_to_one_name() {
         let e = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
-             [[collections]]\nkind = \"tree\"\nsource = \"posts\"\n",
+             [[collections]]\nsource = \"_posts\"\n\
+             [[collections]]\nsource = \"posts\"\n",
         )
         .unwrap_err()
         .to_string();
@@ -3961,7 +3805,7 @@ mod tests {
     #[test]
     fn a_layout_outside_the_vocabulary_is_a_load_error() {
         let src = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-                   [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+                   [[collections]]\nsource = \"_posts\"\n\
                    filename_formats = [\"{slug}\"]\n\
                    [routes.x]\npath = \"/x/\"\nfrom = \"posts\"\nlayout = \"tag_index\"\n";
         let c = Config::from_toml(src).expect("it parses; validation is the gate");
@@ -4046,7 +3890,7 @@ mod tests {
     #[test]
     fn noindex_is_a_view_declaration_defaulting_to_indexed() {
         let head = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-                    [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+                    [[collections]]\nsource = \"_posts\"\n\
                     filename_formats = [\"{slug}\"]\n";
         let c = Config::from_toml(&format!(
             "{head}[routes.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"listing\"\n\
@@ -4088,7 +3932,7 @@ mod tests {
     fn a_sites_rules_prepend_to_the_inherited_ones() {
         let c = Config::from_toml(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind=\"posts\"\nsource=\"_posts\"\n\
+             [[collections]]\nsource=\"_posts\"\n\
              [[collections.rules]]\nmatch=\"**\"\nroute=\"/writing/{slug}/\"\n",
         )
         .unwrap();
@@ -4113,7 +3957,7 @@ mod tests {
     fn a_renamed_collection_replaces_the_inherited_one_over_the_same_source() {
         let c = Config::from_toml(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n",
+             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n",
         )
         .unwrap();
         assert!(c.collections.contains_key("notes"));
@@ -4122,104 +3966,6 @@ mod tests {
             "`_posts` would be read twice: {:?}",
             c.collections.keys()
         );
-    }
-
-    /// MERGE.md C7a. A site declaring its tree at another `source` does not
-    /// replace the base's — it sits beside it, and only one of the two would
-    /// ever be read. Both are named, and the one the author cannot find in
-    /// their own file is placed.
-    #[test]
-    fn a_second_tree_collection_names_both_and_places_the_inherited_one() {
-        let e = Config::from_toml(
-            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind=\"tree\"\nsource=\"pages\"\n",
-        )
-        .expect_err("two tree collections should not load")
-        .to_string();
-        assert!(e.contains("two `kind = \"tree\"` collections"), "{e}");
-        assert!(e.contains("\"entries\" at `source = \".\"`"), "{e}");
-        assert!(e.contains("\"pages\" at `source = \"pages\"`"), "{e}");
-        assert!(
-            e.contains("\"entries\" is inherited from the base config"),
-            "the base's is the one that is not in the author's file: {e}"
-        );
-    }
-
-    /// Same sentence one kind over, and the provenance hint differs because
-    /// the identity does: objects have no `source`, so they key on NAME.
-    #[test]
-    fn a_second_objects_collection_names_both() {
-        let e = Config::from_toml(
-            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"images\"\nkind=\"objects\"\n\
-             [[collections.rules]]\nmatch=\"**/*.png\"\nroute=\"/{path}\"\n",
-        )
-        .expect_err("two objects collections should not load")
-        .to_string();
-        assert!(e.contains("two `kind = \"objects\"` collections"), "{e}");
-        assert!(
-            e.contains("\"images\" (no `source`; rules \"**/*.png\")"),
-            "{e}"
-        );
-        assert!(
-            e.contains(
-                "\"objects\" (no `source`; rules \"favicon.{svg,png,webp,gif}\", \"**/*.{png,jpg"
-            ),
-            "the base's globs are what identify it now — BOTH of them, since \
-             I11 split the site icon out of the embed rule: {e}"
-        );
-        assert!(e.contains("`name = \"objects\"`"), "the fix: {e}");
-    }
-
-    /// The control, and the shape every site in the repo has: one tree, one
-    /// objects, and as many posts collections as it likes — `_posts` and
-    /// `_drafts` are two sources of one corpus (§4), which is the multi-source
-    /// support the other two kinds never got.
-    #[test]
-    fn one_of_each_kind_beside_several_posts_collections_is_legal() {
-        let c = Config::from_toml(
-            "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind=\"posts\"\nsource=\"_drafts\"\n\
-             [[collections]]\nkind=\"tree\"\nsource=\".\"\n\
-             [[collections]]\nname=\"objects\"\nkind=\"objects\"\n",
-        )
-        .expect("one tree, one objects, two posts");
-        let posts = c
-            .collections
-            .values()
-            .filter(|c| c.kind == Kind::Posts)
-            .count();
-        assert_eq!(posts, 2, "the site's `_drafts` beside the base's `_posts`");
-        assert_eq!(
-            c.collections
-                .values()
-                .filter(|c| c.kind == Kind::Tree)
-                .count(),
-            1
-        );
-        assert_eq!(
-            c.collections
-                .values()
-                .filter(|c| c.kind == Kind::Objects)
-                .count(),
-            1
-        );
-    }
-
-    /// `extends = "none"` reaches the same guard with nothing to explain:
-    /// both entries are the author's own, and a provenance sentence about a
-    /// base this site declined would be a lie.
-    #[test]
-    fn two_tree_collections_a_site_wrote_itself_get_no_provenance_sentence() {
-        let e = Config::from_toml(
-            "extends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind=\"tree\"\nsource=\".\"\n\
-             [[collections]]\nkind=\"tree\"\nsource=\"pages\"\n",
-        )
-        .expect_err("two tree collections should not load")
-        .to_string();
-        assert!(e.contains("two `kind = \"tree\"` collections"), "{e}");
-        assert!(!e.contains("inherited from the base config"), "{e}");
     }
 
     /// A registry entry is the unit: your `[routes.feed]` replaces the base's
@@ -4392,7 +4138,7 @@ mod tests {
     fn content_and_default_content_are_exclusive() {
         let e = Config::from_toml(
             "extends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind=\"tree\"\nsource=\".\"\n\
+             [[collections]]\nsource=\".\"\n\
              [routes.r]\npath=\"/r/\"\nfrom=\"entries\"\ncontent=\"a.md\"\n\
              default_content=\"b.md\"\n",
         )
@@ -4884,7 +4630,7 @@ mod tests {
         ] {
             let src = format!(
                 "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n{stale}"
+                 [[collections]]\nsource = \"_posts\"\n{stale}"
             );
             let e = Config::from_toml(&src)
                 .expect_err("stale spelling should not parse")
@@ -4906,7 +4652,7 @@ mod tests {
         ] {
             let src = format!(
                 "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-                 [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n{stale}"
+                 [[collections]]\nsource = \"_posts\"\n{stale}"
             );
             let e = Config::from_toml(&src)
                 .expect_err("stale spelling should not parse")
@@ -4980,7 +4726,7 @@ mod tests {
 
         // What loads is not a profile's to change, and the error says so.
         let e = cfg_err(&format!(
-            "{PROFILE_VIEWS}[[profiles.p.collections]]\nkind = \"objects\"\nname = \"x\"\n"
+            "{PROFILE_VIEWS}[[profiles.p.collections]]\nname = \"x\"\n"
         ));
         assert!(e.contains("[profiles.p.collections]"), "{e}");
         assert!(e.contains("never changes what loads"), "{e}");
@@ -5200,13 +4946,14 @@ mod tests {
     /// a `Bool` on a route — so "the union of all three", which is what a
     /// two-shot try is reaching for, is not a schema anything could
     /// type-check against. The dispatch is `build_views`'s, restated nowhere:
-    /// an all-outputs fold → routes, objects → objects, otherwise rows plus
-    /// every declared field.
+    /// an all-outputs fold → routes, otherwise rows plus every declared field —
+    /// and an object is a row like any other now (IO.md §3), so a gallery reads
+    /// the same row vocabulary a post's view does.
     #[test]
     fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
         let c = cfg_raw(&format!(
             "{PROFILE_VIEWS}\
-             [[collections]]\nkind = \"objects\"\nname = \"pics\"\n\
+             [[collections]]\nname = \"pics\"\n\
              [sets.gallery]\nfrom = \"pics\"\n\
              [routes.sitemap]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
         ));
@@ -5218,9 +4965,12 @@ mod tests {
         assert!(routes.contains_key("kind") && routes.contains_key("hidden"));
         assert!(!routes.contains_key("title"), "a route has no title");
 
+        // A gallery reads the ONE row schema now: the object columns (`width`)
+        // and every declared field (`hidden`) alike — the narrow object
+        // vocabulary is gone with `kind`.
         let objects = c.view_filter_schema("gallery");
         assert!(objects.contains_key("width"), "an object has dimensions");
-        assert!(!objects.contains_key("hidden"), "and no declared fields");
+        assert!(objects.contains_key("hidden"), "and the declared fields");
 
         // The collision that rules the union out, stated rather than implied.
         use grackle_db::filter::Type;
@@ -5560,7 +5310,7 @@ mod tests {
     fn an_inherited_sets_dangling_from_says_it_came_from_the_base() {
         let c = Config::from_toml(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n",
+             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n",
         )
         .unwrap();
         let e = c.query("published").unwrap_err().to_string();
@@ -5585,7 +5335,7 @@ mod tests {
     fn a_composed_chain_blames_the_view_that_carries_the_from() {
         let c = Config::from_toml(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n",
+             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n",
         )
         .unwrap();
         let e = c.query("blog_index").unwrap_err().to_string();
@@ -5606,7 +5356,7 @@ mod tests {
     fn a_renamed_collection_with_its_own_published_set_resolves() {
         let c = Config::from_toml(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nkind=\"posts\"\nsource=\"_posts\"\n\
+             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n\
              [sets.published]\nfrom=\"notes\"\nwhere=\"!draft\"\n",
         )
         .unwrap();
@@ -5863,7 +5613,7 @@ mod tests {
     fn prepended_rules_carry_provenance_per_rule() {
         let out = effective(
             "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nsource = \"_posts\"\n\
              [[collections.rules]]\nmatch = \"drafts/**\"\nroute = \"/d/{slug}/\"\n",
         );
         // Only the posts collection's rules: the base's other two collections
@@ -5925,7 +5675,7 @@ mod tests {
             // array-of-tables keyed by identity, its rules, a nested map of
             // definitions, a localized string, a quoted key, an inline table.
             "root = \"..\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nsource = \"_posts\"\n\
              [collections.schema]\ncover = { type = \"image\" }\n\
              [[collections.rules]]\nmatch = \"**\"\ndefaults = { layout = \"post\" }\n\
              [collections.relations.related]\nfrom = \"published\"\nlimit = 3\n\

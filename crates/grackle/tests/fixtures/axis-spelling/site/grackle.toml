@@ -27,7 +27,6 @@ values = ["plain", "fancy"]
 field = "look"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   # A path LIST (§6f, the default-axis case): the shortest template that still

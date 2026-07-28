@@ -27,7 +27,6 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   # The rule that spends the axes opts the row in (q53 step 2). This one names

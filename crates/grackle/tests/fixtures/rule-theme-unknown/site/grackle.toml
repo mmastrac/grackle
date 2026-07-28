@@ -15,7 +15,6 @@ title = "Unknown Theme, By Default"
 author = "Tester"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   # Site rules prepend (Law 1 in list form), so this wins for `.md` over the

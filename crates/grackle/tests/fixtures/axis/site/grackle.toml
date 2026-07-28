@@ -28,7 +28,6 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
-kind = "tree"
 source = "."
 exclude = ["themes/**"]
 

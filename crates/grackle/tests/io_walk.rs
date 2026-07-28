@@ -36,7 +36,7 @@ fn config(scopes: &str) -> String {
 /// the rule names the extensions, because a scope owns its source and what its
 /// rules do not claim is not content at all.
 const POSTS: &str = "[[collections]]\n\
-     name = \"posts\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+     name = \"posts\"\nsource = \"_posts\"\n\
      filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\n  \
      [[collections.rules]]\n  match = \"**/*.{md,markdown}\"\n  \
      route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
@@ -45,7 +45,7 @@ const POSTS: &str = "[[collections]]\n\
 /// is the scope whose bundle of non-markdown neighbours the ownership law
 /// exists for.
 const DRAFTS: &str = "[[collections]]\n\
-     name = \"drafts\"\nkind = \"posts\"\nsource = \"_drafts\"\n\
+     name = \"drafts\"\nsource = \"_drafts\"\n\
      filename_formats = [\"{slug}\"]\n\n  \
      [[collections.rules]]\n  match = \"**/*.{md,markdown}\"\n  \
      route = \"/drafts/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
@@ -54,13 +54,13 @@ const DRAFTS: &str = "[[collections]]\n\
 /// catch-all grack.com carries — the rule that would publish a draft's images
 /// the moment something cited them.
 const OBJECTS: &str = "[[collections]]\n\
-     name = \"objects\"\nkind = \"objects\"\n\n  \
+     name = \"objects\"\n\n  \
      [[collections.rules]]\n  match = \"**/*.{png,jpg,gif}\"\n  \
      route = \"/{path}\"\n  on_demand = true\n\n";
 
 /// The tree: the root scope, catch-all last.
 const TREE: &str = "[[collections]]\n\
-     kind = \"tree\"\nsource = \".\"\n\n  \
+     source = \".\"\n\n  \
      [[collections.rules]]\n  match = \"**/*.{html,md}\"\n  front_matter = true\n  \
      route = \"/{dir}/{stem}/\"\n  defaults = { shell = \"html\" }\n\n  \
      [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{path}\"\n  \
@@ -340,7 +340,7 @@ fn a_source_the_tree_excludes_is_a_load_error() {
     let dir = site(
         "excluded",
         &config(&format!(
-            "{POSTS}{OBJECTS}[[collections]]\nkind = \"tree\"\nsource = \".\"\n\
+            "{POSTS}{OBJECTS}[[collections]]\nsource = \".\"\n\
              exclude = [\"_posts/**\"]\n\n  \
              [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{{path}}\"\n  \
              defaults = {{ shell = \"raw\" }}\n\n"

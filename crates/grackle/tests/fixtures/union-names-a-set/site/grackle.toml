@@ -9,7 +9,6 @@ title = "Union"
 author = "Tester"
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -18,7 +17,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   route = "/blog/{slug}/"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

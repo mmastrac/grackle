@@ -18,7 +18,6 @@ title = "Unknown Theme, On An Axis"
 author = "Tester"
 
 [[collections]]
-kind = "tree"
 source = "."
 exclude = ["themes/**"]
 

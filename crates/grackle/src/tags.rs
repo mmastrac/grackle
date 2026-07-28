@@ -230,7 +230,6 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
 /// only looks the rows up and dispatches. Nothing here knows what "latest"
 /// means — change the filter in `grackle.toml` and this code does not move.
 fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
-    use crate::config::Kind;
     let name = name.trim();
     // q45: inside a landing's claimed content, the owning view embeds as
     // this route's slice — page 2 renders page 2's rows, /fr/ the French
@@ -253,12 +252,6 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
     match v.layout.as_deref() {
         // Bare titled links — posts and pages embed alike.
         Some("link_list") => {
-            if v.table == Kind::Objects {
-                bail!(
-                    "{}: view {name} ranges over objects, which link_list cannot show",
-                    cx.source
-                );
-            }
             let pairs: Vec<(String, String)> = v
                 .members
                 .iter()
@@ -269,12 +262,6 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
         }
         // One featured row as a card — the homepage's book of the month.
         Some("card") => {
-            if v.table != Kind::Tree {
-                bail!(
-                    "{}: view {name}: card embedding is for tree rows",
-                    cx.source
-                );
-            }
             let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
                 return Ok(String::new());
             };

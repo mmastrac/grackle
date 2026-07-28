@@ -95,7 +95,6 @@ icon = 'site.icon'
 ".noindex" = { noindex = true }
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
@@ -120,7 +119,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # site with assets to bookmark writes.
 [[collections]]
 name = "objects"
-kind = "objects"
 
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
@@ -133,7 +131,6 @@ kind = "objects"
 # front-mattered `index.md` takes `html` from the second rule, a static
 # `index.html` takes `raw` from the third.
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

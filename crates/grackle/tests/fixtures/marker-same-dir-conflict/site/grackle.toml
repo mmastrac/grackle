@@ -24,7 +24,6 @@ draft = { type = "bool" }
 ".published" = { draft = false }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

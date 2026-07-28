@@ -35,7 +35,7 @@ fn files() -> Vec<(&'static str, &'static str)> {
 
 const CONFIG: &str = "extends = \"none\"\n\
      [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-     [[collections]]\nkind = \"tree\"\nsource = \".\"\n";
+     [[collections]]\nsource = \".\"\n";
 
 const CATCH_ALL: &str = "\n  [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{path}\"\n";
 
@@ -115,14 +115,6 @@ fn declarations(dir: &Path) -> (Vec<String>, Vec<String>, usize) {
     )
 }
 
-/// The load error, for the sites that must not load at all.
-fn load_error(dir: &Path) -> String {
-    match grackle::config::Config::load(&dir.join("grackle.toml")) {
-        Ok(_) => panic!("the config loaded, and it must not"),
-        Err(e) => format!("{e:#}"),
-    }
-}
-
 /// **The ruling.** A minimal site with no `exclude` at all does not publish its
 /// theme sources — and the twin one directory over proves the walk would
 /// otherwise, byte for byte.
@@ -187,54 +179,8 @@ fn include_is_the_escape_hatch_over_the_position_rule() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The dead keys.** `exclude`/`include` have exactly one reader — the TREE
-/// collection's, compiled into the one `NotContent` all three walks share — so
-/// a posts or objects collection writing them configures nothing. theme-preview
-/// carried `exclude = ["themes/**"]` on its objects scope for as long as it has
-/// existed and deleting it rebuilt the site byte-identical (IO.md I7a).
-///
-/// Mutation: delete the `check_scope_content_keys` call and both halves load
-/// clean, which is the disease — a declared key doing nothing, forever.
-#[test]
-fn a_non_tree_scope_may_not_write_exclude_or_include() {
-    let objects = site(
-        "dead-key-objects",
-        &format!(
-            "{CONFIG}{CATCH_ALL}\n\
-             [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
-             exclude = [\"themes/**\"]\n\n  \
-             [[collections.rules]]\n  match = \"**/*.png\"\n  route = \"/{{path}}\"\n"
-        ),
-    );
-    let e = load_error(&objects);
-    assert!(e.contains("\"objects\""), "{e}");
-    assert!(e.contains("`exclude`"), "{e}");
-    assert!(e.contains("kind = \"tree\""), "{e}");
-
-    // The other key, the other kind — the check is about the pair, not about
-    // one word on one collection.
-    let posts = site(
-        "dead-key-posts",
-        &format!(
-            "{CONFIG}{CATCH_ALL}\n\
-             [[collections]]\nname = \"notes\"\nkind = \"posts\"\nsource = \"_posts\"\n\
-             include = [\"themes/**\"]\n\n  \
-             [[collections.rules]]\n  match = \"**\"\n  route = \"/notes/{{stem}}/\"\n"
-        ),
-    );
-    let e = load_error(&posts);
-    assert!(e.contains("\"notes\""), "{e}");
-    assert!(e.contains("`include`"), "{e}");
-
-    let _ = std::fs::remove_dir_all(&objects);
-    let _ = std::fs::remove_dir_all(&posts);
-}
-
-/// The control the narrowing owes: the TREE collection's `exclude` is
-/// untouched, and still decides what is content.
-///
-/// Mutation: widen `check_scope_content_keys` to every kind and this site stops
-/// loading — which is what "tree only" has to mean to be worth saying.
+/// The TREE collection's `exclude` decides what is content: `exclude =
+/// ["pages/**"]` on the tree scope drops those pages from the published set.
 #[test]
 fn the_tree_collections_exclude_still_works() {
     let dir = site(

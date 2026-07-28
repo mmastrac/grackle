@@ -454,7 +454,7 @@ mod tests {
     fn cfg() -> Config {
         Config::from_toml(
             "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nkind=\"tree\"\nsource=\".\"\n",
+             [[collections]]\nsource=\".\"\n",
         )
         .unwrap()
     }

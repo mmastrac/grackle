@@ -102,9 +102,9 @@ fn the_objects_index_keys_off_the_extension_fact() {
                 "grackle.toml",
                 b"extends = \"none\"\n\
                   [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                  [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n\
+                  [[collections]]\nname = \"objects\"\n\n\
                   [[collections.rules]]\nmatch = \"gallery/**/*.png\"\nroute = \"/{path}\"\n\n\
-                  [[collections]]\nkind = \"tree\"\nname = \"entries\"\nsource = \".\"\n\n\
+                  [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
                   [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{path}\"\n\n\
                   [routes.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
                   order_by = \"path\"\nlayout = \"listing\"\ntitle = \"Photos\"\n",
@@ -194,7 +194,7 @@ fn a_marker_reaches_a_former_object_row() {
             (
                 "grackle.toml",
                 b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                  [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+                  [[collections]]\nname = \"objects\"\n\
                   [[collections.rules]]\n\
                   match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
                   [routes.hidden_probe]\npath = \"/hidden.xml\"\n\
@@ -263,7 +263,7 @@ fn an_image_is_not_a_translation_of_itself() {
             (
                 "grackle.toml",
                 b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                  [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+                  [[collections]]\nname = \"objects\"\n\
                   [[collections.rules]]\n\
                   match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
                   [i18n]\nlocales = [\"en\", \"fr\"]\ndefault = \"en\"\n\n\
@@ -357,11 +357,11 @@ fn an_objects_rule_may_not_declare_front_matter() {
                         "extends = \"none\"\n\n\
                          [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                          [schema]\nshell = {{ type = \"string\" }}\n\n\
-                         [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n  \
+                         [[collections]]\nname = \"objects\"\n\n  \
                          [[collections.rules]]\n  match = \"**/*.png\"\n  \
                          front_matter = {want}\n  route = \"/pics/{{stem}}/\"\n  \
                          defaults = {{ shell = \"raw\" }}\n\n\
-                         [[collections]]\nkind = \"tree\"\nname = \"entries\"\n\
+                         [[collections]]\nname = \"entries\"\n\
                          source = \".\"\n\n  \
                          [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{{path}}\"\n  \
                          defaults = {{ shell = \"raw\" }}\n"
@@ -403,7 +403,7 @@ fn the_front_matter_gate_still_works_where_a_scope_parses() {
             (
                 "grackle.toml",
                 b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                  [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\n  \
+                  [[collections]]\nsource = \"_posts\"\n\n  \
                   [[collections.rules]]\n  match = \"**/*.md\"\n  front_matter = true\n  \
                   route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n  \
                   [[collections.rules]]\n  match = \"**/*.md\"\n  route = \"/raw/{stem}\"\n  \

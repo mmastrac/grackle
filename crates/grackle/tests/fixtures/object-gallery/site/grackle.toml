@@ -20,14 +20,12 @@ author = "Tester"
 
 [[collections]]
 name = "objects"
-kind = "objects"
 
   [[collections.rules]]
   match = "**/*.png"
   route = "/{path}"
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

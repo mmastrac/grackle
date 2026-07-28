@@ -947,7 +947,7 @@ mod tests {
     fn view_links_are_locale_aware() {
         let cfg: Config = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n\
              [i18n]\nlocales = [\"fr\"]\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
@@ -998,7 +998,7 @@ mod axis_tests {
             "root = \".\"\nextends = \"none\"\n\
              [site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [axes.look]\nvalues = [\"plain\", \"fancy\"]\nfield = \"look\"\n\
-             [[collections]]\nname = \"blog\"\nkind = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.hub]\nfrom = \"published\"\nlayout = \"listing\"\naxis = \"look\"\n\
              paths = [\"/{{{spell}}}/all/\", \"/all/\"]\n"

@@ -30,7 +30,6 @@ title = "Excluded"
 author = "Tester"
 
 [[collections]]
-kind = "tree"
 source = "."
 exclude = ["embedded/**"]
 

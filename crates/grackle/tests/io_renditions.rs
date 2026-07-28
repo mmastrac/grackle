@@ -75,7 +75,6 @@ cover = { type = "image" }
 
 [[collections]]
 name = "objects"
-kind = "objects"
 
   [[collections.rules]]
   match = "pics/**/*.png"
@@ -84,7 +83,6 @@ kind = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

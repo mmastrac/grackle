@@ -16,9 +16,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, HashMap};
 
 use grackle_db::filter::{self, Filter, Rank};
-use grackle_model::{
-    object_schema, two_row_schema, Kind, Pool, RelLabel, Relation, SiteDb, DERIVED_RELATIONS,
-};
+use grackle_model::{two_row_schema, Pool, RelLabel, Relation, SiteDb, DERIVED_RELATIONS};
 
 use crate::config::{Config, LocalizedStr, RelationCfg};
 use crate::schema::Schemas;
@@ -29,10 +27,10 @@ use crate::schema::Schemas;
 pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<Relation>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
-        // Defaults for the kind, then the site's declarations layered on top —
+        // Defaults for the role, then the site's declarations layered on top —
         // per NAME, so changing `related` leaves `earlier`/`later` alone
         // (§6g). A declared block replaces its default wholesale.
-        let mut specs: BTreeMap<String, RelationCfg> = default_relations(c.kind);
+        let mut specs: BTreeMap<String, RelationCfg> = default_relations(c.is_posts());
         for (name, rc) in &c.relations {
             specs.insert(name.clone(), rc.clone());
         }
@@ -45,7 +43,10 @@ pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
         // THIS collection as a list. Declared `.schema.toml` fields join the
         // base so `self.course` resolves (§6g same_course).
         let names: Vec<String> = specs.keys().cloned().collect();
-        let base = base_schema(c.kind, schemas);
+        // One row schema for every collection — an object is a `Row` like any
+        // other (IO.md §3), so its `self`/`candidate` vocabulary is the same
+        // one every other row answers.
+        let base = schemas.row_filter_schema();
         let schema = two_row_schema(&base, &names);
 
         let mut compiled: HashMap<String, Relation> = HashMap::new();
@@ -59,16 +60,6 @@ pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
     }
     db.relations = out;
     Ok(())
-}
-
-/// The base (single-row) schema a collection's `self`/`candidate` fields come
-/// from: the object vocabulary for binaries, otherwise the row schema plus
-/// every declared `.schema.toml` field.
-fn base_schema(kind: Kind, schemas: &Schemas) -> filter::Schema {
-    if kind == Kind::Objects {
-        return object_schema();
-    }
-    schemas.row_filter_schema()
 }
 
 fn compile_one(
@@ -186,7 +177,7 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
 /// date-and-similarity ideas a page has no answer for, and running them would
 /// be an empty group at O(n²) cost. A declared relation on any collection is
 /// added regardless.
-fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
+fn default_relations(is_posts: bool) -> BTreeMap<String, RelationCfg> {
     let mut m = BTreeMap::new();
     let rel =
         |from: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
@@ -210,7 +201,7 @@ fn default_relations(kind: Kind) -> BTreeMap<String, RelationCfg> {
             None,
         ),
     );
-    if kind == Kind::Posts {
+    if is_posts {
         // The nearest neighbour on each side. `date` is an ISO string, which
         // compares chronologically in `where` — but a rank must be a NUMBER,
         // so the ordinal is built from the y/m/d columns: bigger = later, so
@@ -342,7 +333,7 @@ mod tests {
         let toml = format!(
             "root=\".\"\nextends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [schema]\ndraft={{type=\"bool\"}}\nhidden={{type=\"bool\"}}\n\
-             [[collections]]\nname=\"posts\"\nkind=\"posts\"\nsource=\"_posts\"\n\
+             [[collections]]\nname=\"posts\"\nsource=\"_posts\"\n\
              filename_formats=[\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
         );
         let cfg = Config::from_toml(&toml)?;

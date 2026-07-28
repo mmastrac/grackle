@@ -125,7 +125,6 @@ icon = 'site.icon'
 # image beside a draft stays invisible rather than falling through to the tree.
 
 [[collections]]
-kind = "posts"
 source = "_posts"
 # The extractor's default for this collection's rules (§4, IO.md I6): a rule
 # may name its own `filename_formats`, and a rule routing by path tokens alone
@@ -172,7 +171,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 [[collections]]
 name = "objects"
-kind = "objects"
 
   # The one image the base routes, and it is rule 2's own exception: a site
   # icon is fetched by URL with nothing on the page pointing at it in any way
@@ -218,7 +216,6 @@ kind = "objects"
 # not simply declare `html`: half the files it routes are byte copies.
 
 [[collections]]
-kind = "tree"
 source = "."
 
   [[collections.rules]]

@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::config::{Config, Kind, View};
+use crate::config::{Collection, Config, View};
 use crate::db::{Rendition, Route, RouteKind, Row, SiteDb};
 use crate::markdown::Doc;
 use crate::parts;
@@ -681,8 +681,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let src = &row.path;
 
         // This route's slice, by the view's base kind.
-        let embed_parts = match view_base_kind(cfg, view) {
-            Some(Kind::Posts) => {
+        let embed_parts = match view_base_collection(cfg, view) {
+            Some(c) if c.is_posts() => {
                 let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
                 let items: Vec<parts::Preview> = r
                     .members
@@ -702,7 +702,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 let pagination = pagination_parts(db, view, v, r)?;
                 parts::listing_embed(items, false, pagination)
             }
-            Some(Kind::Tree) => {
+            Some(c) if c.is_tree() => {
                 let items: Vec<parts::Preview> = r
                     .members
                     .iter()
@@ -711,7 +711,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     .collect();
                 parts::listing_embed(items, v.featured, None)
             }
-            Some(Kind::Objects) => {
+            // The remaining role: objects (sourceless).
+            Some(_) => {
                 let items: Vec<parts::Preview> = r
                     .members
                     .iter()
@@ -964,8 +965,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(def) = cfg.shells.get(shell) else {
             continue;
         };
-        let rows: Vec<serde_json::Value> = match view_base_kind(cfg, view) {
-            Some(Kind::Tree) => r
+        let rows: Vec<serde_json::Value> = match view_base_collection(cfg, view) {
+            Some(c) if c.is_tree() => r
                 .members
                 .iter()
                 .filter_map(|k| db.rows.get(k))
@@ -1459,7 +1460,7 @@ fn thumbs_pass(
         // Gallery members (object-backed views) render too — the gallery pass
         // shows renditions and links originals, same as {% image %}.
         if let Some(view) = &r.view {
-            if view_base_kind(cfg, view) == Some(Kind::Objects) {
+            if view_base_collection(cfg, view).is_some_and(|c| c.is_objects()) {
                 for k in &r.members {
                     if let Some(o) = db.rows.get(k) {
                         asks.push((o.rel.to_string_lossy().to_string(), Rendition::THUMB));
@@ -2679,14 +2680,15 @@ fn site_overlay(root: &Path, stats: &mut Stats) -> Option<String> {
     }
 }
 
-/// The kind of the collection at the base of a view's `from` chain — what
-/// decides which render pass owns its routes. None for a fold over every
-/// output, which has no collection under it (IO.md §4).
-fn view_base_kind(cfg: &Config, view: &str) -> Option<Kind> {
-    // A union's members share a kind (`Config::check_base`), so the first
-    // answers for the whole base.
+/// The collection at the base of a view's `from` chain — whose role (read off
+/// its `source`, now that `kind` is gone) decides which render pass owns the
+/// view's routes. None for a fold over every output, which has no collection
+/// under it (IO.md §4).
+fn view_base_collection<'a>(cfg: &'a Config, view: &str) -> Option<&'a Collection> {
+    // A union's members share a role — they share a `from` vocabulary — so the
+    // first answers for the whole base.
     let base = cfg.query(view).ok()?.base;
-    Some(cfg.collections.get(base.first()?)?.kind)
+    cfg.collections.get(base.first()?)
 }
 
 /// The link resolver a page hands its slot fills (§6a): the fill's owner

@@ -43,7 +43,7 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-              [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n  \
+              [[collections]]\nname = \"objects\"\n\n  \
               [[collections.rules]]\n  match = \"**/*.png\"\n  route = \"/{path}\"\n\n\
               [routes.tags]\npath = \"/tags/{group:key}/\"\nfrom = \"posts\"\n\
               group_by = \"tags\"\nlayout = \"listing\"\n\n\

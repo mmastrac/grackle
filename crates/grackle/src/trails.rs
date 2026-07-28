@@ -15,7 +15,7 @@
 
 use anyhow::{Context, Result};
 
-use crate::config::{Config, Kind, View};
+use crate::config::{Config, View};
 use crate::db::{Route, Row, SiteDb};
 
 /// The URL "Home" means for a locale (§6f): the locale's own homepage
@@ -170,7 +170,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
     let trail_view = cfg
         .collections
         .values()
-        .filter(|c| c.kind == Kind::Posts)
+        .filter(|c| c.is_posts())
         .find_map(|c| c.trail.as_deref());
     let mut chained = false;
     if let Some(trail_view) = trail_view {
