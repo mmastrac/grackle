@@ -30,8 +30,7 @@ pub(crate) fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-pub mod base;
-pub mod binder;
+pub mod assemble;
 pub mod build;
 pub mod debug;
 pub mod diff;
@@ -40,15 +39,14 @@ pub mod highlight;
 pub mod links;
 pub mod markdown;
 pub mod outline;
-pub mod parts;
 pub mod passes;
 pub mod relate;
 pub mod render;
 pub mod rewrite;
 pub mod serve;
-pub mod slots;
 pub mod tags;
-pub mod theme;
+
+pub use assemble::{base, binder, parts, slots, theme};
 pub mod thumbs;
 pub mod trails;
 pub mod urls;

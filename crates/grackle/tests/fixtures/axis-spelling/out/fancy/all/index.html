@@ -21,13 +21,19 @@
 </details>
 </nav>
 </header>
-<main data-frame data-slot="main"><section data-kind="listing">
+<main data-frame data-slot="content"><article data-kind="row">
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">All</a></span>
 </nav>
-	<h1 data-slot="title">All</h1>
+	<header>
+		<h1 data-slot="title">All</h1>
+		
+	</header>
 	
-	<div data-slot="items"><article data-kind="summary">
+	
+	
+	
+	<div data-slot="content"><article data-kind="row">
 	<h2><a href="/" data-slot="title">Home</a></h2>
 	<p> </p>
 	
@@ -48,7 +54,7 @@
 </ul>
 </div>
 </article>
-<article data-kind="summary">
+<article data-kind="row">
 	<h2><a href="/note/" data-slot="title">Note</a></h2>
 	<p> </p>
 	
@@ -57,7 +63,8 @@
 </article>
 </div>
 	
-</section>
+	
+</article>
 </main>
 <footer data-frame>
 	

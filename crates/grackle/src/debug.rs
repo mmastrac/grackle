@@ -148,7 +148,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             title: p.title.clone(),
             date: p.date.map(|d| d.to_string()),
             tags: p.tags.clone(),
-            layout: p.layout.clone(),
+            layout: None,
             shell: None,
             theme: None,
             locale: p.locale.clone(),
@@ -176,7 +176,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             title: p.title.clone(),
             date: None,
             tags: Vec::new(),
-            layout: p.layout.clone(),
+            layout: None,
             shell: p.shell.clone(),
             theme: p.theme.clone(),
             locale: p.locale.clone(),
@@ -515,9 +515,13 @@ pub fn capped_list(name: &str, lines: &[String]) -> String {
 /// there because it is one of the three facts that replaced `kind` (IR2), not
 /// because it belongs to a different family. The skip below covers all four.
 pub fn row_fields(r: &crate::db::Row) -> String {
+    let slot = match r.fields.get("slot") {
+        Some(grackle_db::Value::Str(s)) => s.as_str(),
+        _ => "-",
+    };
     let mut out = format!(
-        "layout      {}\ntheme       {}\ntoc         {}\n",
-        r.layout.as_deref().unwrap_or("-"),
+        "slot        {}\ntheme       {}\ntoc         {}\n",
+        slot,
         r.theme.as_deref().unwrap_or("-"),
         r.toc,
     );

@@ -55,7 +55,7 @@ extends = "none"
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
-layout = { type = "string" }
+slot = { type = "string" }
 shell = { type = "string" }
 toc = { type = "bool" }
 

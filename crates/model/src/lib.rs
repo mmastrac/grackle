@@ -71,7 +71,6 @@ pub struct Row {
     /// let one row type serve both (q51).
     pub title: Option<String>,
     pub description: Option<String>,
-    pub layout: Option<String>,
     pub tags: Vec<String>,
     /// Which theme renders this row, and how much wrapper it wears (§5a,
     /// §5g).
@@ -979,7 +978,6 @@ pub fn row_schema() -> filter::Schema {
     s.insert("title", Str);
     s.insert("slug", Str);
     s.insert("stem", Str);
-    s.insert("layout", Str);
     s.insert("description", Str);
     s.insert("url", Str);
     // ISO-8601, so string ordering is date ordering.
@@ -1051,7 +1049,6 @@ impl filter::Row for Row {
             "slug" => V::Str(self.slug.clone()),
             "stem" => V::Str(self.stem.clone()),
             "url" => V::Str(self.url.clone()),
-            "layout" => opt_str(&self.layout),
             "description" => opt_str(&self.description),
             "date" => match self.date {
                 Some(d) => V::Str(d.format("%Y-%m-%d").to_string()),

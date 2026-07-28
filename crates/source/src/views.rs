@@ -1101,7 +1101,6 @@ mod grouping_tests {
             rendered: true,
             size: 0,
             title: Some("Carbonara".into()),
-            layout: None,
             description: None,
             order: None,
             date: None,

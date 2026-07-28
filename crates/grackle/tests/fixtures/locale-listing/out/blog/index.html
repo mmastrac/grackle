@@ -21,13 +21,19 @@
 </details>
 </nav>
 </header>
-<main data-frame data-slot="main"><section data-kind="listing">
+<main data-frame data-slot="content"><article data-kind="row">
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">Blog</a></span>
 </nav>
-	<h1 data-slot="title">Blog</h1>
+	<header>
+		<h1 data-slot="title">Blog</h1>
+		
+	</header>
 	
-	<div data-slot="items"><article data-kind="summary">
+	
+	
+	
+	<div data-slot="content"><article data-kind="row">
 	<h2><a href="/blog/hello/" data-slot="title">Hello</a></h2>
 	<p><time datetime="2026-01-01" data-slot="date_pretty">1 January 2026</time> </p>
 	
@@ -36,7 +42,8 @@
 </article>
 </div>
 	
-</section>
+	
+</article>
 </main>
 <footer data-frame>
 	

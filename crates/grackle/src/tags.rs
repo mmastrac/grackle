@@ -230,7 +230,12 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
 /// only looks the rows up and dispatches. Nothing here knows what "latest"
 /// means — change the filter in `grackle.toml` and this code does not move.
 fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
-    let name = name.trim();
+    let mut name = name.trim();
+    let mut layout_override: Option<&str> = None;
+    if let Some((n, lay)) = name.split_once('|') {
+        name = n.trim();
+        layout_override = Some(lay.trim());
+    }
     // q45: inside a landing's claimed content, the owning view embeds as
     // this route's slice — page 2 renders page 2's rows, /fr/ the French
     // partition.
@@ -249,25 +254,30 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
     let theme = cx.theme.ok_or_else(|| {
         anyhow::anyhow!("{}: {{% view {name} %}} needs a theme context", cx.source)
     })?;
-    match v.layout.as_deref() {
-        // Bare titled links — posts and pages embed alike.
-        Some("link_list") => {
+    let layout = layout_override
+        .or(v.layout.as_deref())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}: view {name} is query-only (no layout), so it cannot be embedded",
+                cx.source
+            )
+        })?;
+    match layout {
+        "link_list" => {
             let pairs: Vec<(String, String)> = v
                 .members
                 .iter()
                 .filter_map(|k| cx.db.rows.get(k))
                 .map(|p| (p.title.clone().unwrap_or_default(), p.url.clone()))
                 .collect();
-            Ok(theme.fragments.render(&crate::parts::link_list(&pairs)))
+            Ok(crate::assemble::chain::embed_members(
+                theme, layout, None, &pairs, None,
+            ))
         }
-        // One featured row as a card — the homepage's book of the month.
-        Some("card") => {
+        "card" => {
             let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
                 return Ok(String::new());
             };
-            // A card's hero takes the engine's default rendition: the ask is
-            // the tag's to write, and a layout that places an image places it
-            // at whatever size the theme styles it to.
             let thumb = p.hero_source().and_then(|s| {
                 cx.thumbs
                     .and_then(|t| t.get(&(s.to_string(), Rendition::THUMB)))
@@ -276,21 +286,20 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
                 title: Some(p.title.clone().unwrap_or_default()),
                 url: Some(p.url.clone()),
                 src: thumb.map(|t| t.url.clone()),
-                // q26: the embedded card carries its dimensions too.
                 dims: thumb.and_then(|t| t.dims),
                 note: p.description.clone(),
                 ..Default::default()
             };
-            Ok(theme
-                .fragments
-                .render_with(&crate::parts::preview(c), v.variant.as_deref()))
+            Ok(crate::assemble::chain::embed_members(
+                theme,
+                layout,
+                v.variant.as_deref(),
+                &[],
+                Some(c),
+            ))
         }
-        Some(other) => bail!(
+        other => bail!(
             "{}: view {name} has layout {other:?}, which is not embeddable",
-            cx.source
-        ),
-        None => bail!(
-            "{}: view {name} is query-only (no layout), so it cannot be embedded",
             cx.source
         ),
     }

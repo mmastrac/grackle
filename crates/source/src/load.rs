@@ -450,7 +450,6 @@ fn merged_defaults<'a>(
 struct Cascaded {
     theme: Option<String>,
     shell: Option<String>,
-    layout: Option<String>,
     toc: bool,
 }
 
@@ -490,7 +489,6 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
         // ladder is `fields`', not this read's.
         theme: worn("theme"),
         shell,
-        layout: worn("layout"),
         toc: matches!(
             fields.values.get("toc"),
             Some(grackle_db::Value::Bool(true))
@@ -1608,7 +1606,6 @@ fn walk_site(
             sidecar: sidecar.is_some(),
             size: f.size,
             title,
-            layout: worn.layout,
             description: fm.description,
             order: fm.order,
             date,
@@ -2494,13 +2491,11 @@ mod cascade_tests {
         let d = [
             ("theme", text("t")),
             ("shell", text("light_html")),
-            ("layout", text("l")),
             ("toc", yes()),
         ];
         let c = worn(&governed(), "{}", &d).unwrap();
         assert_eq!(c.theme.as_deref(), Some("t"));
         assert_eq!(c.shell.as_deref(), Some("light_html"));
-        assert_eq!(c.layout.as_deref(), Some("l"));
         assert!(c.toc);
     }
 
@@ -2508,7 +2503,6 @@ mod cascade_tests {
     fn an_unset_field_stays_unset() {
         let c = worn(&governed(), "{}", &[]).unwrap();
         assert_eq!(c.theme, None);
-        assert_eq!(c.layout, None);
         assert!(!c.toc);
     }
 
@@ -2596,13 +2590,13 @@ mod cascade_tests {
         assert!(e.contains("declared string"), "and the type: {e}");
     }
 
-    /// The four are governed like any other name (§4e, "every row is
+    /// The cascade keys are governed like any other name (§4e, "every row is
     /// governed"): a site that declared none of them and a row that wears one
     /// is a load error, not a value only the engine can see.
     #[test]
     fn an_undeclared_cascade_key_is_a_load_error() {
         let empty = BTreeMap::new();
-        let e = worn(&empty, "layout: page\n", &[]).unwrap_err().to_string();
+        let e = worn(&empty, "slot: root\n", &[]).unwrap_err().to_string();
         assert!(e.contains("not declared"), "{e}");
         assert!(e.contains("p.md"), "{e}");
 

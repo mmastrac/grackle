@@ -24,10 +24,10 @@ fn files() -> Vec<(&'static str, &'static str)> {
     vec![
         (
             "themes/mine/root.html",
-            "<main data-slot=\"main\"></main>\n",
+            "<main data-slot=\"content\"></main>\n",
         ),
         ("themes/mine/theme.scss", "body { color: red; }\n"),
-        ("pages/mine/root.html", "<main data-slot=\"main\"></main>\n"),
+        ("pages/mine/root.html", "<main data-slot=\"content\"></main>\n"),
         ("pages/mine/theme.scss", "body { color: red; }\n"),
         ("index.html", "hello\n"),
     ]
@@ -47,7 +47,7 @@ fn declaration_files() -> Vec<(&'static str, &'static str)> {
     vec![
         (
             "themes/mine/root.html",
-            "<main data-slot=\"main\"></main>\n",
+            "<main data-slot=\"content\"></main>\n",
         ),
         (
             "themes/mine/.schema.toml",

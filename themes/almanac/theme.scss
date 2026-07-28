@@ -528,3 +528,18 @@ $cover-height-pct: $cover-ratio * 1cqw;
 		}
 	}
 }
+
+
+// Listing-as-concat (THEME.md §3): members land directly in content.
+.doc-body:has(> .card) {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	gap: 1.25rem;
+	margin-top: 2.5rem;
+}
+.doc-body > .card:first-child:nth-last-child(n + 2) {
+	max-width: 300px;
+	grid-column: 1 / -1;
+}
+
+

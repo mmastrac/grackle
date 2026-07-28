@@ -69,7 +69,7 @@ fn site(whose: &str) -> PathBuf {
         ),
         (
             "_posts/2020-01-01-hello.md",
-            "---\ntitle: Hello\nlayout: post\ntheme: ledger\ntoc: true\nminutes: 4\n---\n\nProse.\n",
+            "---\ntitle: Hello\ntheme: ledger\ntoc: true\nminutes: 4\n---\n\nProse.\n",
         ),
         ("notes.txt", "Bytes, verbatim.\n"),
         (
@@ -244,11 +244,11 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
 }
 
 /// IO.md IR3: a cascade key is a named field on `Row` AND a declared column in
-/// `Row.fields`, so `explain` printed `layout` twice for every row that had
-/// one. Each of the three lives on exactly one line here.
+/// `Row.fields`, so `explain` printed cascade keys twice for every row that
+/// had one. Each of the three lives on exactly one line here.
 ///
 /// Mutations, each red: drop the `CASCADE` skip in `row_fields` and the post
-/// grows a second `layout`/`theme`/`toc` from the dump; drop any named line
+/// grows a second `slot`/`theme`/`toc` from the dump; drop any named line
 /// and the `.txt` — which resolves none of the three — loses its answer
 /// entirely, which is the failure the dump alone cannot see.
 #[test]
@@ -267,13 +267,13 @@ fn explain_prints_each_cascade_key_exactly_once() {
 
     assert_eq!(
         fields("/blog/2020/01/01/hello/"),
-        "layout      post\ntheme       ledger\ntoc         true\nminutes     4\n",
-        "a row that resolved all three: one line each, and the dump still \
-         carries the field that is not a cascade key"
+        "slot        -\ntheme       ledger\ntoc         true\nminutes     4\n",
+        "a row that resolved theme/toc (slot absent): one line each, and the \
+         dump still carries the field that is not a cascade key"
     );
     assert_eq!(
         fields("/notes.txt"),
-        "layout      -\ntheme       -\ntoc         false\n",
+        "slot        -\ntheme       -\ntoc         false\n",
         "a row that resolved none: the dump would have printed nothing at all, \
          so the named lines are the only answer"
     );

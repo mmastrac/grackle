@@ -9,10 +9,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Part kinds this site declares, or parts it adds to engine kinds (§5e).
-    /// The engine's own kinds are always present; a site adds to them.
-    #[serde(default)]
-    pub parts: Vec<PartsDecl>,
     /// The config this one inherits (§4d). `"default"` merges the engine's
     /// base config underneath this file; `"none"` is the stock setup, where
     /// the site declares every collection, rule and route itself.
@@ -237,7 +233,6 @@ const BASE: &str = include_str!("../assets/base.toml");
 #[allow(dead_code)]
 fn every_config_key_has_a_law(c: Config) {
     let Config {
-        parts: _,
         extends: _,
         root: _,
         gitignore: _,
@@ -274,7 +269,6 @@ fn every_config_key_has_a_law(c: Config) {
 impl Shaped for Config {
     fn shape() -> Shape {
         Shape::Struct(vec![
-            field("parts", |c: &Config| &c.parts),
             field("extends", |c: &Config| &c.extends),
             field("root", |c: &Config| &c.root),
             field("gitignore", |c: &Config| &c.gitignore),
@@ -284,9 +278,7 @@ impl Shaped for Config {
             //
             // And §1's annotation, half of it: identity is physical, so two
             // configs writing `_posts` are writing one collection however
-            // each of them names it. Structurally this is a `Vec` — an atom,
-            // like `[[parts]]` two lines up — and nothing but the annotation
-            // tells the two apart.
+            // each of them names it. Structurally this is a `Vec` — an atom.
             annotated(
                 "collections",
                 |c: &Config| &c.declared_collections,
@@ -349,7 +341,6 @@ const NOT_PROJECTABLE: &[&str] = &[
     "root",
     "gitignore",
     "extends",
-    "parts",
     "links",
     "profiles",
 ];
@@ -1211,20 +1202,6 @@ impl I18nCfg {
     }
 }
 
-/// A part-map kind a site declares, or parts it adds to an engine kind (§5e).
-///
-/// Raw on purpose: the typed vocabulary lives in the binary crate beside the
-/// binder that enforces it, and `source` sits below that. This carries the
-/// author's words up to be typed and checked there.
-#[derive(Debug, Deserialize, Clone, Default)]
-#[serde(deny_unknown_fields)]
-pub struct PartsDecl {
-    pub kind: String,
-    /// `[name, type]` pairs, in declaration order. Types are `text`, `url`,
-    /// `html`, `flag`, `stream:<kind>` or `map:<kind>`.
-    #[serde(default)]
-    pub parts: Vec<(String, String)>,
-}
 
 /// `[html]` (§4e): the parts of the document head that are a site's decision
 /// rather than the engine's.
@@ -4435,11 +4412,10 @@ mod tests {
         // and this is the assertion that fails.
         assert_eq!(law("markers"), Law::Descend(1));
         // Arrays and scalars are atoms whatever they hold.
-        assert_eq!(law("parts"), Law::Atom);
         assert_eq!(law("extends"), Law::Atom);
         // And the annotation is the annotation: structurally `[[collections]]`
-        // is an array like `[[parts]]`, and nothing but §1's exception tells
-        // the two apart.
+        // is an array, and nothing but §1's exception tells collections apart
+        // from a plain atom array.
         assert_eq!(law("collections"), Law::Collections);
         assert_eq!(collection_law("rules"), Law::Prepend);
         assert_eq!(
@@ -4733,7 +4709,7 @@ mod tests {
         assert!(e.contains("identical under every profile"), "{e}");
         assert!(e.contains("site, html, sets, routes"), "the knowns: {e}");
         // Every non-projectable key says it, not just the interesting one.
-        for key in ["schema", "markers", "extends", "root", "parts", "links"] {
+        for key in ["schema", "markers", "extends", "root", "links"] {
             let e = cfg_err(&format!("{PROFILE_VIEWS}[profiles.p]\n{key} = \"x\"\n"));
             assert!(e.contains("never changes what loads"), "{key}: {e}");
         }

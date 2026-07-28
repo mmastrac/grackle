@@ -21,23 +21,18 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::base;
-use crate::binder::{self, Fragments};
-use crate::parts::{Part, PartMap, PartType};
+use super::binder::{self, Fragments};
+use super::parts::{Part, PartMap, PartType, Schemas};
 use crate::slots::SlotFills;
+use crate::base;
 
 pub struct Theme {
     pub fragments: Fragments,
+    /// Part vocabulary for this theme: engine ∪ `.schema.toml`.
+    schemas: Schemas,
     fills: SlotFills,
     root: PathBuf,
-    /// Root identity slots: (schema name, element is phrasing-only).
-    /// Leaked: a slot name is decided at load and lives as long as the
-    /// process, and `PartMap` keys are `&'static str`.
     identity: Vec<(&'static str, bool)>,
-    /// The CSS a document-shaped `root.html` declared in its `<head>` —
-    /// `<style>` and nothing else, fenced at load (IO.md §6), and handed to
-    /// the CSS assembly rather than to any page (I5). Empty for a body-only
-    /// root, which is every theme in the repository today.
     style: String,
 }
 
@@ -75,7 +70,7 @@ impl Themes {
     pub fn load_all(
         themes_dir: &Path,
         site_root: &Path,
-        schemas: &crate::parts::Schemas,
+        schemas: &super::parts::Schemas,
         site_theme: Option<&str>,
     ) -> Result<Themes> {
         let mut map = std::collections::BTreeMap::new();
@@ -201,20 +196,15 @@ impl Theme {
     /// The null theme as a value — which is the BASE theme, not an empty one.
     /// A site with no `themes/` directory renders through the fragments the
     /// engine carries, so "no theme" means plain, never broken.
-    pub fn null(site_root: &Path, schemas: &crate::parts::Schemas) -> Result<Theme> {
-        Theme::from_sources(Vec::new(), site_root, schemas, "the base theme")
+    pub fn null(site_root: &Path, schemas: &Schemas) -> Result<Theme> {
+        Theme::from_sources(Vec::new(), site_root, schemas.clone(), "the base theme")
     }
 
     pub fn load(
         theme_dir: &Path,
         site_root: &Path,
-        schemas: &crate::parts::Schemas,
+        schemas: &Schemas,
     ) -> Result<Theme> {
-        // IO.md §6: the chrome file is `root.html`, and the part kind it
-        // binds renamed with it. A theme still carrying `shell.html` would
-        // otherwise fail with the generic "fragment names no layout kind
-        // `shell`", which sends its reader hunting for a kind when the fix is
-        // a rename — the one case §10's precedent allows a targeted sentence.
         if theme_dir.join("shell.html").exists() && !theme_dir.join("root.html").exists() {
             anyhow::bail!(
                 "{}: `shell.html` is `root.html` now (IO.md §6) — the chrome part kind \
@@ -223,34 +213,23 @@ impl Theme {
                 theme_dir.display()
             );
         }
+        let schemas = schemas.extend_theme_dir(theme_dir)?;
         let own = binder::dir_sources(theme_dir)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;
         let what = theme_dir.display().to_string();
         Theme::from_sources(own, site_root, schemas, &what)
     }
 
-    /// Build a theme from its OWN fragment sources, layered over the base's
-    /// (§5e). A source of the same name replaces the base's outright; every
-    /// kind the theme declines keeps the base arrangement, which is what
-    /// makes a theme "only its differences" rather than a whole vocabulary.
-    ///
-    /// The merge happens before `Fragments::load` deliberately: that function
-    /// parses the whole set and only then validates, so a theme's
-    /// `document.html` may name a stream child that lives in the base.
+    pub fn schemas(&self) -> &Schemas {
+        &self.schemas
+    }
+
     fn from_sources(
         mut own: Vec<(String, String, String)>,
         site_root: &Path,
-        schemas: &crate::parts::Schemas,
+        schemas: Schemas,
         what: &str,
     ) -> Result<Theme> {
-        // IO.md §6: `root.html` may be document-shaped. Split it before the
-        // merge, so the body half is an ordinary fragment source and the head
-        // half never reaches the binder's part vocabulary at all — it is
-        // presentation, not an arrangement of parts.
-        //
-        // A head-only root drops OUT of `own` here, which is the whole of
-        // "and inherits the base's chrome": the merge below is by name, so a
-        // theme that contributes no `root` body keeps the base's.
         let mut style = String::new();
         if let Some(i) = own.iter().position(|(n, _, _)| n == "root") {
             let split = binder::split_root(&own[i].1, &own[i].2)?;
@@ -271,23 +250,9 @@ impl Theme {
             .collect();
         sources.extend(own);
         let fragments =
-            Fragments::load(sources, schemas).with_context(|| format!("loading theme {what}"))?;
+            Fragments::load(sources, &schemas).with_context(|| format!("loading theme {what}"))?;
         let fills = SlotFills::load(site_root)?;
-        // Identity slots = root slots the TREE fills, matched back to the
-        // schema so the names stay 'static and checked.
-        //
-        // Which ones those are is read off the declared PART TYPE rather than
-        // off a list of names (MERGE.md C4c). A `.slots/` fill is HTML by
-        // construction — `Fill::render` produces markup and `page` sets it as
-        // `Part::Html` — so a root slot declared as anything else can never
-        // take one. That answers `site_title` (`text`) and, the case this was
-        // written for, `axes` (`stream:axis`, the engine's own language/theme
-        // switcher): without the type test, `.slots/axes.md` lands in a slot
-        // the binder validated as a stream and replaces it with prose.
-        //
-        // `main` is the one NAME left, because no type can say it: it is HTML
-        // the engine renders into itself.
-        let engine = ["main"];
+        let engine = ["content"];
         let mut identity = Vec::new();
         for (slot, tag) in fragments.slot_tags("root") {
             if engine.contains(&slot.as_str()) {
@@ -304,6 +269,7 @@ impl Theme {
         }
         Ok(Theme {
             fragments,
+            schemas,
             fills,
             root: site_root.to_path_buf(),
             identity,
@@ -365,17 +331,7 @@ impl Theme {
                 m.set(name, Part::Html(html));
             }
         }
-        m.set("main", Part::Html(main));
-        // A document-shaped root's `<style>` does NOT appear here (I5). It is
-        // CSS, so it goes where the site's CSS goes — the theme layer of the
-        // theme's own sheet, which `build::css_pass` assembles from
-        // `head_style()`. I4 emitted it inline in the computed head as a
-        // declared interim; the head now carries no theme styles at all, and
-        // a page keeps exactly one stylesheet link.
-        //
-        // The theme renders BODY chrome; the engine's root shell (§5g)
-        // supplies doctype/<html>/<head>/<body> around it — so even a
-        // theme with no root fragment yields a valid document.
+        m.set("content", Part::Html(main));
         let body = self.fragments.render_body(&m);
         Ok(crate::render::root_shell(
             &head_html, locale, subtheme, profile, axis, &body,
@@ -604,26 +560,36 @@ mod tests {
         // (kind, part, why the base declines it)
         const EXEMPT: &[(&str, &str, &str)] = &[
             (
-                "document",
+                "row",
                 "url",
                 "the page's own address — a self-link is chrome, not content, \
                  and a theme that wants a permalink places it itself",
             ),
             (
-                "summary",
+                "row",
                 "src",
-                "a picture needs `summary--figure` or a theme's card: rule 2 \
+                "a picture needs `row--figure` or a theme's card: rule 2 \
                  deletes an element with an EMPTY CONTENT SLOT, and an <img> \
-                 carries only attribute holes — so a plain summary that tried \
-                 to show a cover would emit a broken <img> on every text row",
+                 carries only attribute holes — so the default row face that \
+                 tried to show a cover would emit a broken <img> on every text row",
             ),
-            ("summary", "width", "rides with `src`"),
-            ("summary", "height", "rides with `src`"),
+            ("row", "width", "rides with `src`"),
+            ("row", "height", "rides with `src`"),
             (
-                "listing",
-                "featured",
-                "the base has one listing shape; lifting the first item out of \
-                 the stream is what `listing--cards` is for",
+                "row",
+                "date",
+                "member faces (card/link) place dates; page furniture does not",
+            ),
+            ("row", "date_pretty", "rides with `date` on member faces"),
+            (
+                "row",
+                "note",
+                "member faces place the blurb; page furniture does not",
+            ),
+            (
+                "row",
+                "truncated",
+                "a fact for card CSS; the default face has no truncated cue",
             ),
         ];
 
@@ -724,7 +690,7 @@ mod tests {
             .into_iter()
             .map(|(s, _)| s)
             .collect();
-        for engine in ["axes", "main", "site_title"] {
+        for engine in ["axes", "content", "site_title"] {
             assert!(placed.contains(&engine.to_string()), "the root places it");
             assert!(!slots.contains(&engine), "but the tree does not fill it");
         }
@@ -752,7 +718,7 @@ mod tests {
                 d.join("root.html"),
                 format!(
                     "<header><a data-slot=\"site_title\"></a>{places}</header>\
-                     <main data-slot=\"main\"></main>"
+                     <main data-slot=\"content\"></main>"
                 ),
             )
             .unwrap();
@@ -786,7 +752,7 @@ mod tests {
     #[test]
     fn no_theme_root_drops_an_identity_slot() {
         let base: std::collections::HashSet<String> = slots_of(
-            crate::base::fragments()
+            super::base::fragments()
                 .iter()
                 .find(|(n, _)| *n == "root")
                 .map(|(_, s)| *s)
@@ -829,7 +795,7 @@ mod tests {
     /// nothing — so this is the only place a typo can be caught.
     #[test]
     fn no_theme_uses_a_token_nothing_defines() {
-        let base = crate::base::partial("tokens").expect("base tokens");
+        let base = super::base::partial("tokens").expect("base tokens");
         let defined = |src: &str| -> std::collections::HashSet<String> {
             src.lines()
                 .filter_map(|l| l.trim().strip_prefix("--"))

@@ -878,7 +878,6 @@ mod tests {
             rendered: true,
             size: 0,
             title: None,
-            layout: None,
             description: None,
             order: None,
             date: None,

@@ -259,15 +259,6 @@ pub enum Theme {
     Light,
 }
 
-impl Theme {
-    pub fn parse(s: Option<&str>) -> Theme {
-        match s {
-            Some("light") => Theme::Light,
-            _ => Theme::Default,
-        }
-    }
-}
-
 /// §5g: the engine-owned ROOT HTML SHELL every theme inherits — doctype,
 /// `<html>` stamped with the root kind and any subtheme tokens, `<head>`
 /// from the computed facts, `<body>` from the theme's body chrome. A theme

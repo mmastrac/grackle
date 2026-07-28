@@ -54,7 +54,7 @@ noindex = { type = "bool" }
 # copies all four, `theme-preview` takes the two its front matter sets.
 theme = { type = "string" }
 shell = { type = "string" }
-layout = { type = "string" }
+slot = { type = "string" }
 toc = { type = "bool" }
 
 # What the engine puts in the head, declared rather than compiled in (§4e).

@@ -17,13 +17,19 @@
 	
 	
 </header>
-<main data-frame data-slot="main"><section data-kind="listing">
+<main data-frame data-slot="content"><article data-kind="row">
 	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 <span data-kind="crumb"><a data-slot="label">Blog</a></span>
 </nav>
-	<h1 data-slot="title">Blog</h1>
+	<header>
+		<h1 data-slot="title">Blog</h1>
+		
+	</header>
 	
-	<div data-slot="items"><article data-kind="summary">
+	
+	
+	
+	<div data-slot="content"><article data-kind="row">
 	<h2><a href="/blog/2026/02/01/second/" data-slot="title">Second</a></h2>
 	<p><time datetime="2026-02-01" data-slot="date_pretty">1 February 2026</time> </p>
 	
@@ -32,7 +38,7 @@ something to say on exactly one page — and <code class="language-text highligh
 schema (§4e) is what lets front matter set it at all.</p>
 </div>
 </article>
-<article data-kind="summary">
+<article data-kind="row">
 	<h2><a href="/blog/2026/01/01/hello/" data-slot="title">Hello</a></h2>
 	<p><time datetime="2026-01-01" data-slot="date_pretty">1 January 2026</time> <span data-slot="tags"><a data-slot="name" data-kind="tag">meta</a>
 </span></p>
@@ -42,7 +48,8 @@ schema (§4e) is what lets front matter set it at all.</p>
 </article>
 </div>
 	
-</section>
+	
+</article>
 </main>
 <footer data-frame>
 	

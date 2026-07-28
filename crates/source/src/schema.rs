@@ -87,7 +87,7 @@ impl FieldType {
 pub const CASCADE: &[(&str, FieldType)] = &[
     ("theme", FieldType::Str),
     ("shell", FieldType::Str),
-    ("layout", FieldType::Str),
+    ("slot", FieldType::Str),
     ("toc", FieldType::Bool),
 ];
 
@@ -665,7 +665,7 @@ pub(crate) fn cascade_front(
     let worn: [(&str, Option<Value>); 4] = [
         ("theme", front.theme.clone().map(Value::Str)),
         ("shell", front.shell.clone().map(Value::Str)),
-        ("layout", front.layout.clone().map(Value::Str)),
+        ("slot", front.slot.clone().map(Value::Str)),
         ("toc", front.toc.map(Value::Bool)),
     ];
     for (name, value) in worn {

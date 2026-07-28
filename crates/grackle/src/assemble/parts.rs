@@ -21,6 +21,8 @@
 //! composer/theme selects (§5a's law).
 
 use crate::db::Row;
+use anyhow::Context;
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum Part {
@@ -178,7 +180,7 @@ pub enum PartType {
 }
 
 impl PartType {
-    /// As a site spells it in `[[parts]]`, for errors that quote it back.
+    /// For errors that quote a part type back.
     pub fn spelling(&self) -> String {
         match self {
             PartType::Text => "text".into(),
@@ -191,110 +193,154 @@ impl PartType {
     }
 }
 
-/// The engine's part schemas, parsed once from `assets/parts.toml`; a site's
-/// `[[parts]]` extends them in `Schemas::load`.
-///
-/// Data, not a match: this is what a theme's fragments are checked against,
-/// what `set()` asserts against so the vocabulary cannot drift silently, and
-/// the canonical order `set()` stores parts in — so the file is an array of
-/// pairs, which preserves order, rather than a table, which would not.
+use PartType::{Flag, Html, Map, Stream, Text, Url};
+
+/// Engine part vocabulary + order (THEME.md §5). Themes extend via their own
+/// `.schema.toml`; site `[[parts]]` is gone.
+const ENGINE: &[(&str, &[(&str, PartType)])] = &[
+    (
+        "root",
+        &[
+            ("nav", Html),
+            ("site_title", Text),
+            ("axes", Stream("axis")),
+            ("content", Html),
+            ("copyright", Html),
+        ],
+    ),
+    // One presence-driven kind; faces are fragment variants (THEME.md §2).
+    (
+        "row",
+        &[
+            ("title", Text),
+            ("url", Url),
+            ("tree", Flag),
+            ("crumbs", Stream("crumb")),
+            ("tags", Stream("tag")),
+            ("hero", Map("row")),
+            ("section", Stream("outline_entry")),
+            ("outline", Stream("outline_entry")),
+            ("intro", Html),
+            ("content", Html),
+            ("pagination", Map("pagination")),
+            ("date", Text),
+            ("date_pretty", Text),
+            ("src", Url),
+            ("width", Text),
+            ("height", Text),
+            ("note", Text),
+            ("truncated", Flag),
+            ("relations", Stream("relation")),
+        ],
+    ),
+    (
+        "outline_entry",
+        &[
+            ("label", Text),
+            ("url", Url),
+            ("current", Text),
+            ("children", Stream("outline_entry")),
+        ],
+    ),
+    (
+        "axis",
+        &[
+            ("axis", Text),
+            ("label", Text),
+            ("current", Text),
+            ("items", Stream("axis_member")),
+        ],
+    ),
+    (
+        "axis_member",
+        &[("label", Text), ("url", Url), ("current", Text)],
+    ),
+    ("crumb", &[("label", Text), ("url", Url)]),
+    ("tag", &[("name", Text), ("url", Url)]),
+    (
+        "relation",
+        &[
+            ("relation", Text),
+            ("label", Text),
+            ("items", Stream("neighbor")),
+        ],
+    ),
+    (
+        "neighbor",
+        &[
+            ("url", Url),
+            ("date", Text),
+            ("date_pretty", Text),
+            ("title", Text),
+        ],
+    ),
+    (
+        "pagination",
+        &[
+            ("prev", Url),
+            ("next", Url),
+            ("pages", Stream("page_link")),
+        ],
+    ),
+    (
+        "page_link",
+        &[("n", Text), ("url", Url), ("current", Text)],
+    ),
+    ("item", &[("label", Text)]),
+    ("raw", &[("content", Html)]),
+];
+
 static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
     std::sync::OnceLock::new();
 
-#[derive(serde::Deserialize)]
-struct KindDecl {
-    name: String,
-    parts: Vec<(String, String)>,
-}
-
-fn parse_part_type(spec: &str, kind: &str, part: &str) -> anyhow::Result<PartType> {
-    Ok(match spec {
-        "text" => PartType::Text,
-        "url" => PartType::Url,
-        "html" => PartType::Html,
-        "flag" => PartType::Flag,
-        _ => match spec.split_once(':') {
-            // Leaked deliberately: a child kind name outlives the parse, and
-            // the set is closed and tiny. Nothing here is per-request.
-            Some(("stream", k)) => PartType::Stream(Box::leak(k.to_string().into_boxed_str())),
-            Some(("map", k)) => PartType::Map(Box::leak(k.to_string().into_boxed_str())),
-            _ => anyhow::bail!(
-                "part `{kind}.{part}`: unknown type {spec:?} — \
-                 expected text, url, html, flag, stream:<kind> or map:<kind>"
-            ),
-        },
-    })
-}
-
-/// The part vocabulary a build runs against: the engine's kinds, plus
-/// whatever `[[parts]]` a site declares.
-///
-/// A site ADDS. It may declare a new kind, or add parts to an engine kind, but
-/// it cannot remove an engine part or change one's type — an engine producer
-/// fills those, and a theme that lost `main` would render nothing. Same shape
-/// as `[i18n.strings]` (§6f): a closed engine set, extensible, checked at load.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Schemas {
     kinds: Vec<(String, Vec<(&'static str, PartType)>)>,
 }
 
 impl Schemas {
-    /// The engine's kinds with nothing added — for tests and for the null
-    /// theme, which has no site to extend it.
     pub fn engine_only() -> Schemas {
         Schemas { kinds: engine() }
     }
 
-    pub fn load(cfg: &crate::config::Config) -> anyhow::Result<Schemas> {
-        let mut kinds = engine();
-        for decl in &cfg.parts {
-            let mut typed = Vec::new();
-            for (name, spec) in &decl.parts {
-                // Leaked like the engine's own names: a part name is decided at
-                // load and lives as long as the process, and `PartMap` keys are
-                // `&'static str` so a declared part is set like any other.
-                let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
-                typed.push((leaked, parse_part_type(spec, &decl.kind, name)?));
-            }
-            match kinds.iter_mut().find(|(k, _)| *k == decl.kind) {
-                Some((_, existing)) => {
-                    for (name, ty) in typed {
-                        match existing.iter().find(|(n, _)| *n == name) {
-                            Some((_, prev)) if *prev != ty => anyhow::bail!(
-                                "part `{}.{name}`: the engine declares it as {prev:?}; a site \
-                                 may add parts to an engine kind but not retype one",
-                                decl.kind
-                            ),
-                            Some(_) => {}
-                            None => existing.push((name, ty)),
-                        }
-                    }
-                }
-                None => kinds.push((decl.kind.clone(), typed)),
-            }
-        }
-        let s = Schemas { kinds };
-        s.check_child_kinds()?;
-        Ok(s)
+    pub fn load(_cfg: &crate::config::Config) -> anyhow::Result<Schemas> {
+        Ok(Self::engine_only())
     }
 
-    /// Every `stream:`/`map:` must name a kind that exists, or the failure
-    /// surfaces later as a fragment that will not bind, far from its cause.
-    fn check_child_kinds(&self) -> anyhow::Result<()> {
-        for (kind, parts) in &self.kinds {
-            for (part, ty) in parts {
-                let child = match ty {
-                    PartType::Stream(k) | PartType::Map(k) => *k,
-                    _ => continue,
+    /// Extend with a theme's `.schema.toml` (THEME.md §5): each field becomes
+    /// a part on `row`. May not remove or retype an engine part.
+    pub fn extend_theme_dir(&self, theme_dir: &Path) -> anyhow::Result<Schemas> {
+        let path = theme_dir.join(".schema.toml");
+        if !path.is_file() {
+            return Ok(self.clone());
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let table: toml::Table = text
+            .parse()
+            .with_context(|| format!("parsing {}", path.display()))?;
+        let mut kinds = self.kinds.clone();
+        for (name, val) in &table {
+            let Some(part_ty) = field_value_as_part(val) else {
+                continue; // nested tables / unknowns — not part decls
+            };
+            let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
+            for kind in ["row"] {
+                let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == kind) else {
+                    continue;
                 };
-                if self.get(child).is_none() {
-                    anyhow::bail!(
-                        "part `{kind}.{part}` names kind {child:?}, which nothing declares"
-                    );
+                match parts.iter().find(|(n, _)| *n == leaked) {
+                    Some((_, prev)) if *prev != part_ty => anyhow::bail!(
+                        "{}: part `{kind}.{name}` is {:?}; a theme may not retype an engine part",
+                        path.display(),
+                        prev
+                    ),
+                    Some(_) => {}
+                    None => parts.push((leaked, part_ty)),
                 }
             }
         }
-        Ok(())
+        Ok(Schemas { kinds })
     }
 
     pub fn get(&self, kind: &str) -> Option<&[(&'static str, PartType)]> {
@@ -309,15 +355,24 @@ impl Schemas {
     }
 }
 
-/// The engine's kinds as `Schemas` holds them: names borrowed from the
-/// process-lifetime asset, so they are already `'static`.
+fn field_value_as_part(val: &toml::Value) -> Option<PartType> {
+    let ty = val.get("type")?.as_str()?;
+    Some(match ty {
+        "string" | "int" => PartType::Text,
+        "bool" => PartType::Flag,
+        "image" => PartType::Url,
+        "list" => PartType::Stream("item"),
+        _ => return None,
+    })
+}
+
 fn engine() -> Vec<(String, Vec<(&'static str, PartType)>)> {
-    schemas()
+    ENGINE
         .iter()
         .map(|(k, parts)| {
             (
-                k.clone(),
-                parts.iter().map(|(n, t)| (n.as_str(), *t)).collect(),
+                (*k).to_string(),
+                parts.iter().map(|(n, t)| (*n, *t)).collect(),
             )
         })
         .collect()
@@ -325,26 +380,16 @@ fn engine() -> Vec<(String, Vec<(&'static str, PartType)>)> {
 
 fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
     SCHEMAS.get_or_init(|| {
-        #[derive(serde::Deserialize)]
-        struct File {
-            kind: Vec<KindDecl>,
-        }
-        let f: File = toml::from_str(include_str!("../assets/parts.toml"))
-            .expect("parts.toml is an engine asset and must parse");
-        f.kind
-            .into_iter()
-            .map(|k| {
-                let parts = k
-                    .parts
-                    .iter()
-                    .map(|(n, t)| {
-                        (
-                            n.clone(),
-                            parse_part_type(t, &k.name, n).expect("engine asset"),
-                        )
-                    })
-                    .collect();
-                (k.name, parts)
+        ENGINE
+            .iter()
+            .map(|(k, parts)| {
+                (
+                    (*k).to_string(),
+                    parts
+                        .iter()
+                        .map(|(n, t)| ((*n).to_string(), *t))
+                        .collect(),
+                )
             })
             .collect()
     })
@@ -590,7 +635,7 @@ pub struct Document<'a> {
 }
 
 fn assemble(d: Document) -> PartMap {
-    let mut m = PartMap::new("document");
+    let mut m = PartMap::new("row");
     m.set("title", Part::Text(d.title));
     m.set("url", Part::Text(d.url));
     if d.tree {
@@ -712,7 +757,7 @@ pub struct Preview<'a> {
     pub tags: Option<Part>,
 }
 
-/// One row, projected into the `summary` kind.
+/// One row, projected into the `row` kind (card/link/figure faces select variants).
 ///
 /// Fill a kind's declared-but-unproduced parts from the row's typed fields
 /// (§5b × §5e).
@@ -819,7 +864,7 @@ pub fn fill_from_fields(
 /// A part is filled when the row answers it — one projection serves a post, a
 /// book and a photograph (q36).
 pub fn preview(p: Preview) -> PartMap {
-    let mut m = PartMap::new("summary");
+    let mut m = PartMap::new("row");
     let row = p.row;
     let title = p
         .title
@@ -863,57 +908,37 @@ pub fn preview(p: Preview) -> PartMap {
     m
 }
 
-/// N previews, arranged. The trail is the route's provenance chain (§5c),
-/// computed by the caller. `intro` is the landing's declared prose (q45
-/// mode A), already rendered; the slot collapses when absent. `featured`
-/// lifts the first preview into its own slot — the book-of-the-month shape.
-///
-/// One producer, because there is one arrangement: the blog index, the
-/// photo gallery and the book club differ in what their PREVIEWS hold and
-/// which fragment the view names, never in this map.
-pub fn listing(
-    items: Vec<Preview>,
-    featured: bool,
+/// Wrapper `row` for an aggregate page: furniture around already-concatenated
+/// member HTML (THEME.md §3).
+pub fn page_row(
     title: &str,
     trail: Vec<(String, Option<String>)>,
     intro: Option<String>,
+    content: String,
     pagination: Option<PartMap>,
 ) -> PartMap {
-    let mut m = PartMap::new("listing");
+    let mut m = PartMap::new("row");
     m.set("title", Part::Text(title.to_string()));
     m.set("crumbs", crumb_stream(trail));
     if let Some(i) = intro {
         m.set("intro", Part::Html(i));
     }
-    set_items(&mut m, items, featured);
+    m.set("content", Part::Html(content));
     if let Some(p) = pagination {
         m.set("pagination", Part::Map(p));
     }
     m
 }
 
-/// The landing's route-aware self-embed (q45 mode B): the same listing
-/// map with NO title or crumbs — the claimed row owns the arrangement,
-/// so only the items (and their pagination) render; the empty slots
-/// collapse.
-pub fn listing_embed(items: Vec<Preview>, featured: bool, pagination: Option<PartMap>) -> PartMap {
-    let mut m = PartMap::new("listing");
-    set_items(&mut m, items, featured);
-    if let Some(p) = pagination {
-        m.set("pagination", Part::Map(p));
+/// Layout sugar → member face name (THEME.md §3 / §7).
+pub fn member_face<'a>(layout: &str, variant: Option<&'a str>) -> &'a str {
+    if let Some(v) = variant {
+        return v;
     }
-    m
-}
-
-fn set_items(m: &mut PartMap, mut items: Vec<Preview>, featured: bool) {
-    if featured && !items.is_empty() {
-        m.set("featured", Part::Map(preview(items.remove(0))));
-    }
-    if !items.is_empty() {
-        m.set(
-            "items",
-            Part::Stream(items.into_iter().map(preview).collect()),
-        );
+    match layout {
+        "link_list" => "link",
+        "card" | "listing" => "card",
+        _ => "card",
     }
 }
 
@@ -950,23 +975,6 @@ pub fn pagination(current: usize, urls: &[String]) -> Option<PartMap> {
         .collect();
     m.set("pages", Part::Stream(pages));
     Some(m)
-}
-
-/// N rows as bare titled links — the smallest listing kind. Items are
-/// `(title, url)`, so posts and pages embed alike.
-pub fn link_list(items: &[(String, String)]) -> PartMap {
-    let mut m = PartMap::new("link_list");
-    let v = items
-        .iter()
-        .map(|(title, url)| {
-            let mut lm = PartMap::new("link");
-            lm.set("title", Part::Text(title.clone()));
-            lm.set("url", Part::Text(url.clone()));
-            lm
-        })
-        .collect();
-    m.set("items", Part::Stream(v));
-    m
 }
 
 /// The row's content *is* `main` — the null theme wraps it, real themes
@@ -1017,24 +1025,17 @@ mod tests {
         c.set("title", Part::Text("x".into()));
     }
 
-    /// A picture-first listing needs no kind of its own: `src` links, and the
+    /// A picture-first face needs no kind of its own: `src` links, and the
     /// measured dimensions ride along (q26).
     #[test]
     fn picture_previews_carry_dimension_facts() {
-        let m = listing(
-            vec![Preview {
-                title: Some("a".into()),
-                url: Some("/photos/a.png".into()),
-                src: Some("/static/x.jpg".into()),
-                dims: Some((320, 200)),
-                ..Default::default()
-            }],
-            false,
-            "Photos",
-            vec![("Home".into(), Some("/".into()))],
-            None,
-            None,
-        );
+        let m = preview(Preview {
+            title: Some("a".into()),
+            url: Some("/photos/a.png".into()),
+            src: Some("/static/x.jpg".into()),
+            dims: Some((320, 200)),
+            ..Default::default()
+        });
         let out = canonical(&m);
         assert!(
             out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#),
@@ -1052,14 +1053,14 @@ mod tests {
 
     #[test]
     fn canonical_renders_order_links_and_facts() {
-        let mut m = PartMap::new("document");
+        let mut m = PartMap::new("row");
         m.set("title", Part::Text("A & B".into()));
         m.set("url", Part::Text("/x/".into()));
         m.set("tree", Part::Flag(true));
         m.set("content", Part::Html("<p>hi</p>".into()));
         let out = canonical(&m);
         assert!(
-            out.starts_with(r#"<section data-kind="document" data-tree>"#),
+            out.starts_with(r#"<section data-kind="row" data-tree>"#),
             "{out}"
         );
         assert!(
@@ -1077,12 +1078,12 @@ mod tests {
     }
 
     /// Canonical order is the SCHEMA's, not the call order: a producer that
-    /// sets parts in a different sequence still renders in `parts.toml` order,
+    /// sets parts in a different sequence still renders in schema order,
     /// so reordering `set`s cannot silently change the null theme.
     #[test]
     fn canonical_follows_schema_order_not_call_order() {
-        // `document` declares title before content; set them the other way.
-        let mut m = PartMap::new("document");
+        // `row` declares title before content; set them the other way.
+        let mut m = PartMap::new("row");
         m.set("content", Part::Html("<p>body</p>".into()));
         m.set("title", Part::Text("T".into()));
         let names: Vec<&str> = m.iter().map(|(n, _)| n).collect();
@@ -1134,30 +1135,30 @@ mod tests {
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
 
-        // Every routed listing, summaries and pagination included.
+        // Every routed listing as a wrapper row whose content is a stand-in
+        // for the concatenated member faces.
         for r in &db.routes {
             if r.view.is_none() || r.members.is_empty() {
                 continue;
             }
-            let rows: Vec<Preview> = r
+            let content = r
                 .members
                 .iter()
                 .filter_map(|k| db.rows.get(k))
-                .enumerate()
-                .map(|(i, p)| Preview {
-                    row: Some(p),
-                    content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
-                    truncated: i % 2 == 0,
-                    tags: tag_stream(&cfg, p),
-                    ..Default::default()
+                .map(|p| {
+                    canonical(&preview(Preview {
+                        row: Some(p),
+                        content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
+                        tags: tag_stream(&cfg, p),
+                        ..Default::default()
+                    }))
                 })
-                .collect();
-            let m = listing(
-                rows,
-                false,
+                .collect::<String>();
+            let m = page_row(
                 r.key.as_deref().unwrap_or("listing"),
                 vec![("Home".to_string(), Some("/".to_string()))],
                 None,
+                content,
                 r.page.and_then(|n| {
                     let urls: Vec<String> = (1..=66).map(|i| format!("/blog/page/{i}")).collect();
                     pagination(n, &urls)
@@ -1225,18 +1226,31 @@ mod schema_asset_tests {
         };
         assert_eq!(
             names("root"),
-            ["nav", "site_title", "axes", "main", "copyright"]
+            ["nav", "site_title", "axes", "content", "copyright"]
         );
         assert_eq!(names("item"), ["label"], "the shape a list field fills");
         assert_eq!(
-            names("listing"),
+            names("row"),
             [
                 "title",
+                "url",
+                "tree",
                 "crumbs",
+                "tags",
+                "hero",
+                "section",
+                "outline",
                 "intro",
-                "featured",
-                "items",
-                "pagination"
+                "content",
+                "pagination",
+                "date",
+                "date_pretty",
+                "src",
+                "width",
+                "height",
+                "note",
+                "truncated",
+                "relations",
             ]
         );
         assert_eq!(names("axis"), ["axis", "label", "current", "items"]);
@@ -1247,293 +1261,7 @@ mod schema_asset_tests {
     /// named after a typo a load error rather than an empty render.
     #[test]
     fn an_undeclared_kind_is_none() {
-        assert!(schema("summary").is_some());
+        assert!(schema("row").is_some());
         assert!(schema("sumary").is_none());
-    }
-}
-
-#[cfg(test)]
-mod config_schema_tests {
-    use super::*;
-    use grackle_source::config::Config;
-
-    fn cfg(parts: &str) -> Config {
-        Config::from_toml(&format!(
-            "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"blog\"\nsource=\"_posts\"\n{parts}"
-        ))
-        .expect("test config parses")
-    }
-
-    /// A resolver for tests with no image field: it is never consulted,
-    /// so it just echoes. Image-specific tests pass their own.
-    fn verbatim(s: &str) -> String {
-        s.to_string()
-    }
-
-    fn row_with(fields: &[(&str, grackle_db::Value)]) -> Row {
-        Row {
-            rel: std::path::PathBuf::from("reviews/model-m.md"),
-            fields: fields
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.clone()))
-                .collect(),
-            ..Default::default()
-        }
-    }
-
-    /// A declared part with no engine producer is filled from the row's
-    /// `.schema.toml` field of the same name (§5b × §5e) — the mapping from
-    /// schema to display. Without it a site could declare `score`, place it,
-    /// and get a silently empty element, because the vocabulary was
-    /// extensible and the producer set was not.
-    #[test]
-    fn a_declared_part_is_filled_from_the_rows_field() {
-        use grackle_db::Value as V;
-        let c = cfg("[[parts]]\nkind = \"document\"\n\
-             parts = [[\"score\", \"text\"], [\"verdict\", \"text\"], [\"pick\", \"flag\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let row = row_with(&[
-            ("score", V::Int(9)),
-            ("verdict", V::Str("Still the best".into())),
-            ("pick", V::Bool(true)),
-        ]);
-
-        let mut m = PartMap::new("document");
-        m.set("title", Part::Text("Model M".into()));
-        fill_from_fields(&mut m, &row, &schemas, &verbatim).unwrap();
-
-        assert_eq!(m.text("score"), Some("9"), "an int renders as digits");
-        assert_eq!(m.text("verdict"), Some("Still the best"));
-        assert!(m.flag("pick"), "a bool becomes a fact, not text");
-    }
-
-    /// A `list` field fills a stream of one-text-part maps — the engine ships
-    /// `item`/`label` for it. A site may name its own kind of the same shape
-    /// instead, which is how a list gets its own `data-kind` for theme CSS.
-    #[test]
-    fn a_list_field_fills_a_stream_of_items() {
-        use grackle_db::Value as V;
-        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"kit\", \"stream:item\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let row = row_with(&[(
-            "kit",
-            V::List(vec!["heavy pan".into(), "fine sieve".into()]),
-        )]);
-        let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row, &schemas, &verbatim).unwrap();
-
-        let items = m.stream("kit");
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].kind, "item");
-        assert_eq!(items[0].text("label"), Some("heavy pan"));
-        assert_eq!(items[1].text("label"), Some("fine sieve"));
-
-        // A site's own kind of the same shape: its `data-kind` reaches theme
-        // CSS, and the part it declares receives the string whatever it is
-        // called — the name comes from the kind, not from `item`.
-        let c = cfg(
-            "[[parts]]\nkind = \"document\"\nparts = [[\"kit\", \"stream:kit_item\"]]\n\
-             [[parts]]\nkind = \"kit_item\"\nparts = [[\"name\", \"text\"]]\n",
-        );
-        let schemas = Schemas::load(&c).unwrap();
-        let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row, &schemas, &verbatim).unwrap();
-        let items = m.stream("kit");
-        assert_eq!(items[0].kind, "kit_item");
-        assert_eq!(items[0].text("name"), Some("heavy pan"));
-    }
-
-    /// The child kind must BE that shape. A stream of `tag` (name + url) has
-    /// no single place to put a string, and guessing one would be the silent
-    /// wrong answer — so it names what the kind actually declares.
-    #[test]
-    fn a_list_needs_a_one_text_part_child_kind() {
-        use grackle_db::Value as V;
-        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"kit\", \"stream:tag\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let mut m = PartMap::new("document");
-        let e = fill_from_fields(
-            &mut m,
-            &row_with(&[("kit", V::List(vec!["x".into()]))]),
-            &schemas,
-            &verbatim,
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(e.contains("exactly one text part"), "{e}");
-        assert!(e.contains("name: text, url: url"), "names the shape: {e}");
-    }
-
-    /// An image field filling a `url` part is a REFERENCE: the value names an
-    /// asset (row.images marks it), and the resolver turns that source path
-    /// into the published URL — the thumbnail's on a real build. This is the
-    /// one arm that consults the caller's presentation.
-    #[test]
-    fn an_image_field_resolves_to_its_published_url() {
-        use grackle_db::Value as V;
-        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"shot\", \"url\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let mut row = row_with(&[("shot", V::Str("reviews/model-m.jpg".into()))]);
-        row.images
-            .insert("shot".into(), "reviews/model-m.jpg".into());
-
-        let resolve = |src: &str| format!("/static/deadbeef-{src}");
-        let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row, &schemas, &resolve).unwrap();
-        assert_eq!(m.text("shot"), Some("/static/deadbeef-reviews/model-m.jpg"));
-    }
-
-    /// A plain string filling a `url` part is the author's OWN link, not an
-    /// asset — it is left verbatim and the resolver is never consulted. The
-    /// panicking resolver proves the image arm is entered only for a field
-    /// `row.images` marks.
-    #[test]
-    fn a_plain_string_url_field_is_left_as_written() {
-        use grackle_db::Value as V;
-        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"homepage\", \"url\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let row = row_with(&[("homepage", V::Str("https://example.com".into()))]);
-        let resolve = |_: &str| panic!("resolver must not run for a non-image string");
-        let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row, &schemas, &resolve).unwrap();
-        assert_eq!(m.text("homepage"), Some("https://example.com"));
-    }
-
-    /// Presence, not emptiness: a row that does not carry the field sets no
-    /// part, so the hole algebra deletes the element rather than rendering a
-    /// blank one. `false` is absence too — a fact is selected on presence.
-    #[test]
-    fn a_row_without_the_field_fills_nothing() {
-        use grackle_db::Value as V;
-        let c = cfg(
-            "[[parts]]\nkind = \"document\"\nparts = [[\"score\", \"text\"], [\"pick\", \"flag\"]]\n",
-        );
-        let schemas = Schemas::load(&c).unwrap();
-
-        let mut m = PartMap::new("document");
-        fill_from_fields(&mut m, &row_with(&[]), &schemas, &verbatim).unwrap();
-        assert_eq!(m.text("score"), None);
-
-        let mut m = PartMap::new("document");
-        fill_from_fields(
-            &mut m,
-            &row_with(&[("pick", V::Bool(false))]),
-            &schemas,
-            &verbatim,
-        )
-        .unwrap();
-        assert!(!m.flag("pick"), "false is absence, not a false fact");
-    }
-
-    /// An engine part is never overwritten by a field of the same name: the
-    /// producer computed it, and a row that happens to declare `title` must
-    /// not shadow the one the engine derived.
-    #[test]
-    fn an_engine_part_wins_over_a_field_of_the_same_name() {
-        use grackle_db::Value as V;
-        let schemas = Schemas::load(&cfg("")).unwrap();
-        let mut m = PartMap::new("document");
-        m.set("title", Part::Text("computed".into()));
-        fill_from_fields(
-            &mut m,
-            &row_with(&[("title", V::Str("front matter".into()))]),
-            &schemas,
-            &verbatim,
-        )
-        .unwrap();
-        assert_eq!(m.text("title"), Some("computed"));
-        // `get` returns the first match, so a shadowing field would be
-        // invisible here and render twice in canonical order. Count instead.
-        assert_eq!(
-            m.iter().filter(|(n, _)| *n == "title").count(),
-            1,
-            "the field must not be appended alongside the engine's part"
-        );
-    }
-
-    /// A type that cannot fill the declared part is an ERROR naming the file,
-    /// not an empty element — the silent-drop this whole binding closes. In
-    /// particular a string may not fill an `html` part: front matter is not
-    /// trusted markup.
-    #[test]
-    fn a_field_that_cannot_fill_its_part_is_an_error() {
-        use grackle_db::Value as V;
-        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"score\", \"url\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let mut m = PartMap::new("document");
-        let e = fill_from_fields(
-            &mut m,
-            &row_with(&[("score", V::Int(9))]),
-            &schemas,
-            &verbatim,
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(e.contains("model-m.md"), "names the file: {e}");
-        assert!(e.contains("an int"), "names what it got: {e}");
-        assert!(e.contains("`url`"), "names the declared type: {e}");
-
-        let c = cfg("[[parts]]\nkind = \"document\"\nparts = [[\"verdict\", \"html\"]]\n");
-        let schemas = Schemas::load(&c).unwrap();
-        let mut m = PartMap::new("document");
-        assert!(
-            fill_from_fields(
-                &mut m,
-                &row_with(&[("verdict", V::Str("<b>x</b>".into()))]),
-                &schemas,
-                &verbatim
-            )
-            .is_err(),
-            "front matter must not become trusted markup"
-        );
-    }
-
-    /// A site may invent a kind. This is the whole point: a theme can then
-    /// place it, and the binder checks the name against what the SITE
-    /// declared rather than against a Rust match.
-    #[test]
-    fn a_site_may_declare_a_new_kind() {
-        let c = cfg("[[parts]]\nkind = \"recipe_card\"\nparts = [[\"servings\", \"text\"]]\n");
-        let s = Schemas::load(&c).unwrap();
-        assert!(Schemas::engine_only().get("recipe_card").is_none());
-        assert_eq!(s.get("recipe_card").unwrap().first().unwrap().0, "servings");
-    }
-
-    /// And may add to an engine kind — an engine producer fills the engine
-    /// parts, a theme places the added one.
-    #[test]
-    fn a_site_may_add_a_part_to_an_engine_kind() {
-        let c = cfg("[[parts]]\nkind = \"summary\"\nparts = [[\"cook_time\", \"text\"]]\n");
-        let s = Schemas::load(&c).unwrap();
-        let names: Vec<&str> = s.get("summary").unwrap().iter().map(|(n, _)| *n).collect();
-        assert!(names.contains(&"title"), "engine parts survive: {names:?}");
-        assert!(names.contains(&"cook_time"), "{names:?}");
-    }
-
-    /// But may not RETYPE one: an engine producer fills `title` as text, and
-    /// a site that redeclared it as a stream would make that producer wrong.
-    #[test]
-    fn retyping_an_engine_part_is_a_load_error() {
-        let c = cfg("[[parts]]\nkind = \"summary\"\nparts = [[\"title\", \"stream:tag\"]]\n");
-        let e = Schemas::load(&c).unwrap_err().to_string();
-        assert!(e.contains("may add parts"), "{e}");
-        assert!(e.contains("summary.title"), "{e}");
-    }
-
-    /// A child kind that nothing declares fails at load, where the cause is,
-    /// rather than later as a fragment that will not bind.
-    #[test]
-    fn a_dangling_child_kind_is_a_load_error() {
-        let c = cfg("[[parts]]\nkind = \"box\"\nparts = [[\"items\", \"stream:nope\"]]\n");
-        let e = Schemas::load(&c).unwrap_err().to_string();
-        assert!(e.contains("nope"), "{e}");
-    }
-
-    #[test]
-    fn an_unknown_type_names_the_legal_ones() {
-        let c = cfg("[[parts]]\nkind = \"box\"\nparts = [[\"x\", \"integer\"]]\n");
-        let e = Schemas::load(&c).unwrap_err().to_string();
-        assert!(e.contains("stream:<kind>"), "{e}");
     }
 }

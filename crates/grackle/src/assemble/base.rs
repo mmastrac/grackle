@@ -13,7 +13,7 @@
 //! **Why the base needs fragments at all.** `canonical()` renders a `url` part
 //! as `<a href="/x/">/x/</a>` — a link whose text IS the URL — because with no
 //! fragment it has no way to know which sibling part the link is *for*. So
-//! every kind that pairs a label with a url (crumb, tag, neighbor, link,
+//! every kind that pairs a label with a url (crumb, tag, neighbor,
 //! page_link, outline_entry) needs a fragment to say "this text, that href",
 //! and there is exactly one sensible way to write each. Written once, here.
 //!
@@ -28,35 +28,31 @@ use std::sync::OnceLock;
 /// `(fragment name, source)`. Explicit rather than a directory walk: the list
 /// is the manifest, and a file that goes missing is a compile error.
 const FRAGMENTS: &[(&str, &str)] = &[
-    ("root", include_str!("../assets/base/root.html")),
-    ("document", include_str!("../assets/base/document.html")),
-    ("listing", include_str!("../assets/base/listing.html")),
-    ("summary", include_str!("../assets/base/summary.html")),
-    // The one variant the base ships: a summary that IS its picture, which
-    // is what a hero slot and a gallery item both want and neither can get
-    // from `summary` (that one leads with a heading). Same argument as the
-    // link-bearing kinds — one sensible arrangement, so write it once.
+    ("root", include_str!("../../assets/base/root.html")),
+    ("row", include_str!("../../assets/base/row.html")),
+    // Default member face: titled preview with optional date/tags/note/body.
+    ("row--card", include_str!("../../assets/base/row--card.html")),
+    // A row that IS its picture (hero + gallery members).
     (
-        "summary--figure",
-        include_str!("../assets/base/summary--figure.html"),
+        "row--figure",
+        include_str!("../../assets/base/row--figure.html"),
     ),
-    ("crumb", include_str!("../assets/base/crumb.html")),
-    ("tag", include_str!("../assets/base/tag.html")),
-    ("neighbor", include_str!("../assets/base/neighbor.html")),
-    ("relation", include_str!("../assets/base/relation.html")),
-    ("axis", include_str!("../assets/base/axis.html")),
+    ("row--link", include_str!("../../assets/base/row--link.html")),
+    ("crumb", include_str!("../../assets/base/crumb.html")),
+    ("tag", include_str!("../../assets/base/tag.html")),
+    ("neighbor", include_str!("../../assets/base/neighbor.html")),
+    ("relation", include_str!("../../assets/base/relation.html")),
+    ("axis", include_str!("../../assets/base/axis.html")),
     (
         "axis_member",
-        include_str!("../assets/base/axis_member.html"),
+        include_str!("../../assets/base/axis_member.html"),
     ),
     (
         "outline_entry",
-        include_str!("../assets/base/outline_entry.html"),
+        include_str!("../../assets/base/outline_entry.html"),
     ),
-    ("pagination", include_str!("../assets/base/pagination.html")),
-    ("page_link", include_str!("../assets/base/page_link.html")),
-    ("link", include_str!("../assets/base/link.html")),
-    ("link_list", include_str!("../assets/base/link_list.html")),
+    ("pagination", include_str!("../../assets/base/pagination.html")),
+    ("page_link", include_str!("../../assets/base/page_link.html")),
 ];
 
 /// Dev-only: read the base from `assets/base/` on disk instead of from the
@@ -110,18 +106,18 @@ pub fn fragments() -> &'static [(&'static str, &'static str)] {
 /// The base stylesheet's partials, keyed the way `@import "x"` names them, so
 /// the base's own `theme.scss` resolves its imports with no disk underneath.
 const PARTIALS: &[(&str, &str)] = &[
-    ("tokens", include_str!("../assets/base/_tokens.scss")),
-    ("base", include_str!("../assets/base/_base.scss")),
-    ("search", include_str!("../assets/base/_search.scss")),
+    ("tokens", include_str!("../../assets/base/_tokens.scss")),
+    ("base", include_str!("../../assets/base/_base.scss")),
+    ("search", include_str!("../../assets/base/_search.scss")),
     // The ladder: imported by the base's own sheet, always. Exposed here
     // too so a theme that wants it inside its OWN layer can re-import it.
-    ("type", include_str!("../assets/base/_type.scss")),
+    ("type", include_str!("../../assets/base/_type.scss")),
     // Opt-in: NOT imported by the base's own sheet. A theme takes the code
     // panel, blockquote rule and table borders with `@import "skin";`.
-    ("skin", include_str!("../assets/base/_skin.scss")),
+    ("skin", include_str!("../../assets/base/_skin.scss")),
 ];
 
-const SHEET: &str = include_str!("../assets/base/theme.scss");
+const SHEET: &str = include_str!("../../assets/base/theme.scss");
 
 /// A partial by the name an `@import` would use — how a THEME reaches the
 /// base's partials (`@import "base"` in a theme with no `_base.scss` of its
@@ -258,6 +254,6 @@ mod tests {
             .iter()
             .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
             .collect();
-        crate::binder::Fragments::load(sources, &schemas).expect("base fragments load");
+        crate::assemble::Fragments::load(sources, &schemas).expect("base fragments load");
     }
 }

@@ -1,10 +1,14 @@
 <article class="doc">
 	<nav class="crumbs" data-slot="crumbs" aria-label="Breadcrumbs"></nav>
-	<h1 class="doc-title" data-slot="title"></h1>
-	<div class="doc-hero" data-slot="hero" data-fragment="summary--figure"></div>
+	<header class="doc-header">
+		<h1 class="doc-title" data-slot="title"></h1>
+		<p class="doc-tags" data-slot="tags"></p>
+	</header>
+	<div class="doc-hero" data-slot="hero" data-fragment="row--figure"></div>
 	<nav class="doc-section" data-slot="section" aria-label="Section contents"></nav>
 	<nav class="doc-outline" data-slot="outline" aria-label="On this page"></nav>
-	<p class="doc-tags" data-slot="tags"></p>
+	<div data-slot="intro"></div>
 	<div class="doc-body" data-slot="content"></div>
+	<nav class="pagination" data-slot="pagination" aria-label="Pagination"></nav>
 	<nav class="relations" data-slot="relations" aria-label="Related"></nav>
 </article>

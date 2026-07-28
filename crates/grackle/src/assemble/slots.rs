@@ -369,7 +369,7 @@ fn is_void_tag(tag: &str) -> bool {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric())
         .collect();
-    crate::binder::VOID.contains(&name.as_str())
+    super::binder::VOID.contains(&name.as_str())
 }
 
 #[cfg(test)]

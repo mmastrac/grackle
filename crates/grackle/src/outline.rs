@@ -211,7 +211,6 @@ mod tests {
             rendered: true,
             size: 0,
             title: title.map(String::from),
-            layout: Some("page".into()),
             description: None,
             order,
             date: None,

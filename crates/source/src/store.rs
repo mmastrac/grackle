@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 pub struct FrontMatter {
     pub title: Option<String>,
     pub description: Option<String>,
-    pub layout: Option<String>,
+    /// Cut point in the render chain (THEME.md §4). `root` skips document furniture.
+    pub slot: Option<String>,
     pub permalink: Option<String>,
     #[serde(default, deserialize_with = "string_or_seq")]
     pub tags: Vec<String>,

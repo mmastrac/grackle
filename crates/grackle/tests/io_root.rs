@@ -132,7 +132,7 @@ fn page(out: &grackle::build::SiteOutput, route: &str) -> String {
 /// exactly what a `shell.html` was.
 const CHROME: &str = "<header><a data-slot=\"site_title\" href=\"/\"></a>\
                       <nav data-slot=\"nav\"></nav></header>\
-                      <main data-slot=\"main\"></main>\
+                      <main data-slot=\"content\"></main>\
                       <footer><p data-slot=\"copyright\"></p></footer>";
 
 /// **The migration, as a claim about bytes.** A `<body>`-wrapped root and a
@@ -464,7 +464,7 @@ fn a_head_only_root_inherits_the_base_chrome() {
     // The base's own chrome, which keys its geometry on [data-frame], and
     // the base's own identity slots reading the tree's words.
     assert!(
-        html.contains("<main data-frame data-slot=\"main\">"),
+        html.contains("<main data-frame data-slot=\"content\">"),
         "{html}"
     );
     assert!(

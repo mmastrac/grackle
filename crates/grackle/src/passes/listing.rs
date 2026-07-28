@@ -94,10 +94,12 @@ impl Pass for Listing {
                 },
             };
         let row_thm = ctx.themes.get(theme_name)?;
-        let main = row_thm.fragments.render_with(
-            &parts::listing(items, v.featured, &title, trail, intro, pagination),
-            v.variant.as_deref(),
-        );
+        let face = parts::member_face("listing", v.variant.as_deref());
+        let content =
+            crate::assemble::chain::concat_rows(&row_thm.fragments, face, items, v.featured);
+        let main = row_thm
+            .fragments
+            .render(&parts::page_row(&title, trail, intro, content, pagination));
         let mut head = render::head_simple(&title, &r.url, ctx.site);
         head.meta = render::eval_metas(ctx.metas, r, ctx.site, &title, &r.url);
         let html = row_thm.page(

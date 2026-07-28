@@ -209,7 +209,6 @@ const ORDER: &[&str] = &[
     "extends",
     "root",
     "gitignore",
-    "parts",
     "site",
     "schema",
     "html",

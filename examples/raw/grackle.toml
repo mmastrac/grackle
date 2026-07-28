@@ -43,7 +43,7 @@ hidden = { type = "bool" }
 noindex = { type = "bool" }
 theme = { type = "string" }
 shell = { type = "string" }
-layout = { type = "string" }
+slot = { type = "string" }
 toc = { type = "bool" }
 
 # The head, declared rather than compiled in (§4e). Every tag below is one
