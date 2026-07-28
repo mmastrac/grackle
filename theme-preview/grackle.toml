@@ -39,15 +39,14 @@ extends = "none"
 # is ordinary declared schema, so a site that inherits nothing declares its own
 # before filtering on it.
 #
-# `layout` and `toc` are here for the same reason one rung over (MERGE.md C1):
-# the engine reads them off a row by name, but the pages under `guide/` set
-# them in front matter, and a name a row wears is a name some schema declares.
-# `shell` joins them for the rules below to write (IO.md I7c): declining the
-# base declines its declared shell defaults too, so every row here resolved no
-# shell at all and reached the themed rendering through the renderer's legacy
-# `layout:` fallback. A declared shell is what makes this site's serialization
-# a fact instead of a fallback, and it is what the rendering law reads
-# (`front_mattered || shell ∈ {html, light_html}`).
+# `toc` is here with the flag family (MERGE.md C1 / §4e): the pages under
+# `guide/` set it in front matter, and a name a row wears is a name some schema
+# declares. `shell` and `slot` join them for the rules below to write (IO.md
+# I7c): declining the base declines its declared shell defaults too, so every
+# row here resolved no shell at all and reached the themed rendering through
+# the renderer's legacy `layout:` fallback. A declared shell is what makes this
+# site's serialization a fact instead of a fallback, and it is what the
+# rendering law reads (`front_mattered || shell ∈ {html, light_html}`).
 # `theme` is still NOT declared — this site never sets it on a row (the theme
 # axis below sets it per member, at render), and declaring what nothing uses is
 # how a vocabulary stops meaning anything.
@@ -55,9 +54,9 @@ extends = "none"
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
+toc = { type = "bool" }
 slot = { type = "string" }
 shell = { type = "string" }
-toc = { type = "bool" }
 
 # Declining the base also declines its head (§4e). This block is the base's,
 # copied — which is the honest cost of `extends = "none"` and worth seeing in
@@ -258,7 +257,6 @@ path = "/{theme}/shelf/"
 from = "shelf"
 layout = "card"
 variant = "cards"
-featured = true
 axis = "theme"
 content = "shelf/index.md"
 title = "Shelf"

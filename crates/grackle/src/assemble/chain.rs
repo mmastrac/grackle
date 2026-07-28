@@ -113,33 +113,11 @@ pub fn member_faces(
     layout: &str,
     variant: Option<&str>,
     items: Vec<Preview<'_>>,
-    featured: bool,
 ) -> Result<String> {
-    let face = parts::require_face(fragments, parts::member_face(layout, variant))?;
-    Ok(concat_rows(fragments, face, items, featured))
-}
-
-/// Concatenate member row faces (THEME.md §3). When `featured`, the first
-/// member prefers face `featured` if the theme ships it.
-fn concat_rows(
-    fragments: &Fragments,
-    face: &str,
-    items: Vec<Preview<'_>>,
-    featured: bool,
-) -> String {
+    let face = parts::member_face(fragments, layout, variant)?;
     let mut out = String::new();
-    let mut items = items;
-    if featured && !items.is_empty() {
-        let first = items.remove(0);
-        let feat = if fragments.has("row--featured") {
-            "featured"
-        } else {
-            face
-        };
-        out.push_str(&fragments.render_with(&parts::preview(first), Some(feat)));
-    }
     for p in items {
         out.push_str(&fragments.render_with(&parts::preview(p), Some(face)));
     }
-    out
+    Ok(out)
 }

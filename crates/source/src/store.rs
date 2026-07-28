@@ -36,10 +36,6 @@ pub struct FrontMatter {
     pub date: Option<String>,
     /// Declared position within a section tree (§6e). Unset sorts last.
     pub order: Option<i64>,
-    /// Render this document's heading outline (§6e) — §5a's canonical
-    /// "render directive" example. Cascades from markers/rules like any
-    /// default.
-    pub toc: Option<bool>,
     /// Which theme renders this row (§5a: theme is chosen per row).
     /// Cascades from rules, so a subtree changes look with one rule.
     pub theme: Option<String>,
@@ -49,8 +45,8 @@ pub struct FrontMatter {
     /// `theme`.
     pub shell: Option<String>,
     /// Everything else: captured for schema validation (§5b). `draft`,
-    /// `hidden` and `noindex` arrive here now — they are declared fields the
-    /// base config ships (§4e), not names this struct knows.
+    /// `hidden`, `noindex` and `toc` arrive here — declared fields the base
+    /// config ships (§4e), not names this struct knows.
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }

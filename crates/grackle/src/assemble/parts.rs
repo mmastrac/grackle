@@ -912,9 +912,20 @@ pub fn page_row(
     m
 }
 
-/// Face for a view's members: `variant` if set, else `layout`.
-pub fn member_face<'a>(layout: &'a str, variant: Option<&'a str>) -> &'a str {
-    variant.unwrap_or(layout)
+/// Face for a view's members: prefer `variant` when the theme ships it,
+/// else `layout`. A missing variant is a partial theme (DESIGN.md), not
+/// an error; a missing layout face bails.
+pub fn member_face<'a>(
+    fragments: &crate::assemble::binder::Fragments,
+    layout: &'a str,
+    variant: Option<&'a str>,
+) -> anyhow::Result<&'a str> {
+    if let Some(v) = variant {
+        if fragments.has_face(v) {
+            return Ok(v);
+        }
+    }
+    require_face(fragments, layout)
 }
 
 /// Bail unless the theme ships `row--{face}`.

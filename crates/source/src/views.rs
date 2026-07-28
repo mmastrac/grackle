@@ -222,7 +222,6 @@ fn insert_routeless(
         ViewRows {
             layout: v.layout.clone(),
             variant: v.variant.clone(),
-            featured: v.featured,
             rows: members.len(),
             members,
         },
@@ -314,15 +313,23 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas)
 
 /// A view's own declarations, as route fields (§4e).
 ///
-/// `[routes.x] noindex = true` is the config saying something about the route,
-/// and `[html.head.meta]` reads it by the same name a row would — so the two
-/// surfaces answer one expression. The engine still spells `noindex` here,
-/// which is the last of it: the honest end state is `fields = { noindex =
-/// true }` on the route, once a view can declare arbitrary fields.
-fn view_fields(v: &View) -> BTreeMap<String, filter::Value> {
+/// Schema-declared values on the view (`noindex = true`, …) land on the
+/// route under the same names a row would use, so `[html.head.meta]` and
+/// `where` share one vocabulary. `shell` is always present: absent means
+/// the HTML listing, and fold filters need a total column.
+fn view_fields(
+    v: &View,
+    schema: &BTreeMap<String, crate::schema::FieldType>,
+) -> anyhow::Result<BTreeMap<String, filter::Value>> {
     let mut f = BTreeMap::new();
-    if v.noindex {
-        f.insert("noindex".to_string(), filter::Value::Bool(true));
+    for (name, raw) in &v.route_fields {
+        let ty = schema.get(name.as_str()).copied().with_context(|| {
+            format!("view route field {name:?} was not validated against [schema]")
+        })?;
+        f.insert(
+            name.clone(),
+            crate::schema::typed(ty, name, raw, "view")?,
+        );
     }
     // IO.md §3: `shell` is "the serialization it left through", a fact about
     // the OUTPUT — so a view route answers the same column a row route does,
@@ -342,10 +349,11 @@ fn view_fields(v: &View) -> BTreeMap<String, filter::Value> {
                 .unwrap_or_else(|| crate::shell::VIEW_DEFAULT.to_string()),
         ),
     );
-    f
+    Ok(f)
 }
 
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
+    let route_schema = crate::schema::site_fields(&cfg.schema, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
         // A fold with no `from` reads every output (IO.md §4) — at this stage
         // the finished route set — so it runs in a second pass (see
@@ -371,7 +379,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
         // pagination) happens within each. Ordering it outermost is what keeps
         // the branches below a substitution rather than a rewrite.
         for members in axis_member_combos(cfg, name, v)? {
-            build_view(cfg, db, name, v, &q, base.clone(), members)?;
+            build_view(cfg, db, name, v, &q, base.clone(), members, &route_schema)?;
         }
     }
     // §4d: an inherited route with nothing to show does not materialize. The
@@ -523,6 +531,7 @@ fn build_view(
     q: &Query,
     base: Base,
     axis_members: Vec<AxisMember>,
+    route_schema: &BTreeMap<String, crate::schema::FieldType>,
 ) -> Result<()> {
     let Base {
         schema,
@@ -716,7 +725,7 @@ fn build_view(
                             .cloned()
                             .collect();
                         db.routes.push(Route {
-                            fields: view_fields(v),
+                            fields: view_fields(v, route_schema)?,
                             axis: axis_members.clone(),
                             view: Some(name.to_string()),
                             // A grouped page keeps its GROUP key — `{key}` in a
@@ -747,7 +756,7 @@ fn build_view(
                         false => cell.rows.clone(),
                     };
                     db.routes.push(Route {
-                        fields: view_fields(v),
+                        fields: view_fields(v, route_schema)?,
                         axis: axis_members.clone(),
                         view: Some(name.to_string()),
                         key: cell.key.clone(),
@@ -801,6 +810,7 @@ fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<fil
 /// through `build_views` with its rows, and the join makes that selection
 /// output-mediated at I9.
 pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
+    let route_schema = crate::schema::site_fields(&cfg.schema, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
         if !v.reads_all_outputs() {
             continue;
@@ -813,10 +823,8 @@ pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             view: Some(name.clone()),
             // This fold answers the `shell` column like any other route
             // (I2): `shell == "sitemap"` selects the route the sitemap leaves
-            // through. This route carried no fields at all before — `noindex`
-            // included, which is why it rides along rather than being added on
-            // its own.
-            fields: view_fields(v),
+            // through. Route fields (`noindex`, …) ride along from the view.
+            fields: view_fields(v, &route_schema)?,
             ..Route::new(tmpl.to_string(), RouteKind::View)
         });
     }
@@ -1106,7 +1114,6 @@ mod grouping_tests {
             order: None,
             date: None,
             tags: Vec::new(),
-            toc: false,
             theme: None,
             shell: None,
             fields: Default::default(),

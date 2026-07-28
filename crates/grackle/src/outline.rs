@@ -215,7 +215,6 @@ mod tests {
             order,
             date: None,
             tags: Vec::new(),
-            toc: false,
             theme: None,
             shell: None,
             fields: Default::default(),

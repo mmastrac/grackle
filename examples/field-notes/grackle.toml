@@ -303,16 +303,16 @@ variant = "gallery"
 title = "Photos"
 
 # The book-of-the-month club (§7a): a view over TREE rows with typed
-# fields (books/.schema.toml). Newest month leads (the listing's
-# `featured` slot); `variant` picks the theme's card face (q24/q36) —
-# /books/ and /blog/ are both listings, wearing different fragments.
+# fields (books/.schema.toml). Newest month leads; the theme's
+# `:first-child` card rule makes it the selection. `variant` picks the
+# face (q24/q36) — /books/ and /blog/ are both listings, wearing
+# different fragments.
 
 [routes.books_index]
 path = "/books/"
 from = "books"
 layout = "card"
 variant = "cards"
-featured = true
 title = { en = "Book of the Month", fr = "Le livre du mois" }
 # q45 mode A: declared prose in the listing layout's intro slot — a
 # LocalizedStr rendered as markdown through the link resolver, so the

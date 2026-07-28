@@ -27,35 +27,29 @@ url = "http://localhost:8080"
 title = "A grackle site"
 author = ""
 
-# The flag family (§4e). These are ordinary declared bool fields — the engine
-# names none of them, and `extends = "none"` genuinely leaves a site without
-# them, at which point `where = "!draft"` is a load error naming the knowns
-# rather than a filter that quietly matches everything.
+# The flag family (§4e). Ordinary declared bool fields — the engine's row
+# type names none of them, and `extends = "none"` genuinely leaves a site
+# without them, at which point `where = "!draft"` is a load error naming the
+# knowns rather than a filter that quietly matches everything.
 #
 # They live in `[schema]` rather than on a collection because they are
 # properties of a ROW, not of a directory or a source: a page can be hidden
-# exactly as a post can.
+# exactly as a post can. `toc` opts a document into its heading outline (§6e).
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
+toc = { type = "bool" }
 
-# The four the engine reads off a row BY NAME — which theme renders it (§5a),
-# which shell wraps it (§5g), which layout it takes, whether it gets an
-# outline (§6e). They are declared here for the same reason the flags are:
-# a marker or a rule setting one goes through `schema::apply_defaults` like
-# every other key, so `toc = "true"` is a load error naming the file and the
-# type rather than a silent `false` (MERGE.md C1).
-#
-# The engine still reads them, so their types are not a site's to choose: a
-# `.schema.toml` (or a site `[schema]`) may restate a line below, but
-# declaring one at another type is a load error. A site that declines the
-# base declares whatever its rows and rules actually use — `examples/raw`
-# copies all four, `theme-preview` takes the two its front matter sets.
+# The three the engine still reads off a row BY NAME — which theme renders it
+# (§5a), which shell wraps it (§5g), which slot cuts the render chain. Declared
+# here so a marker or a rule setting one goes through `schema::apply_defaults`
+# like every other key (MERGE.md C1). Their types are the engine's: restating
+# a line below is fine; declaring one at another type is a load error. A site
+# that declines the base declares whatever its rows and rules actually use.
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
-toc = { type = "bool" }
 
 # What the engine puts in the head, declared rather than compiled in (§4e).
 #

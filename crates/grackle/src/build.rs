@@ -389,7 +389,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         title: &cfg.site.title,
         author: &cfg.site.author,
         email: cfg.site.email.as_deref(),
-        noindex: cfg.site.noindex,
         icon: &icon,
     };
     let profile = cfg.profile.as_deref();
@@ -525,7 +524,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
             // §6e: toc rows carry outline from the same rendered bytes (h2–h3).
-            let outline = if p.toc {
+            let outline = if p.flag("toc") {
                 let tree = crate::outline::heading_tree(&bodies[&p.key].headings(), 2, 3);
                 crate::outline::to_parts(&tree, &p.url)
             } else {
@@ -662,7 +661,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             layout,
             v.variant.as_deref(),
             items,
-            v.featured,
         )
         .with_context(|| format!("view {view}"))?;
         if let Some(p) = pagination_parts(db, view, v, r)? {
@@ -952,7 +950,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 }
                 let frag = &pb.frag;
                 // §6e heading axis for `toc:` pages, from the prepass Doc.
-                let outline = match (&pb.doc, row.is_some_and(|p| p.toc)) {
+                let outline = match (&pb.doc, row.is_some_and(|p| p.flag("toc"))) {
                     (Some(d), true) => {
                         let tree = crate::outline::heading_tree(&d.headings(), 2, 3);
                         crate::outline::to_parts(&tree, &r.url)

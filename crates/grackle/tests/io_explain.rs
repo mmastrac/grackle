@@ -245,12 +245,13 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
 
 /// IO.md IR3: a cascade key is a named field on `Row` AND a declared column in
 /// `Row.fields`, so `explain` printed cascade keys twice for every row that
-/// had one. Each of the three lives on exactly one line here.
+/// had one. Each of `slot`/`theme` lives on exactly one line here; `toc` is an
+/// ordinary declared field and appears only in the dump when set.
 ///
 /// Mutations, each red: drop the `CASCADE` skip in `row_fields` and the post
-/// grows a second `slot`/`theme`/`toc` from the dump; drop any named line
-/// and the `.txt` — which resolves none of the three — loses its answer
-/// entirely, which is the failure the dump alone cannot see.
+/// grows a second `slot`/`theme` from the dump; drop any named line and the
+/// `.txt` — which resolves none — loses its answer entirely, which is the
+/// failure the dump alone cannot see.
 #[test]
 fn explain_prints_each_cascade_key_exactly_once() {
     let dir = site("cascade");
@@ -267,13 +268,13 @@ fn explain_prints_each_cascade_key_exactly_once() {
 
     assert_eq!(
         fields("/blog/2020/01/01/hello/"),
-        "slot        -\ntheme       ledger\ntoc         true\nminutes     4\n",
-        "a row that resolved theme/toc (slot absent): one line each, and the \
-         dump still carries the field that is not a cascade key"
+        "slot        -\ntheme       ledger\nminutes     4\ntoc         true\n",
+        "a row that resolved theme (slot absent): one named line each, and the \
+         dump still carries ordinary fields including toc"
     );
     assert_eq!(
         fields("/notes.txt"),
-        "slot        -\ntheme       -\ntoc         false\n",
+        "slot        -\ntheme       -\n",
         "a row that resolved none: the dump would have printed nothing at all, \
          so the named lines are the only answer"
     );

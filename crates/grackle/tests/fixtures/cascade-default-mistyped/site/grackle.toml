@@ -1,12 +1,12 @@
-# A rule default for one of the engine's own cascade keys is type-checked
-# (MERGE.md C1). `toc` is declared `bool` — by `base.toml`'s `[schema]`, like
-# `draft` beside it — so `toc = "true"` names a type nothing can read.
+# A rule default for a declared bool is type-checked (MERGE.md C1). `toc` is
+# declared `bool` — by `base.toml`'s `[schema]`, like `draft` beside it — so
+# `toc = "true"` names a type nothing can read.
 #
-# Before C1 the four cascade keys (`theme`, `shell`, `layout`, `toc`) SKIPPED
-# `schema::apply_defaults` and were read back out of raw TOML: `as_bool()` on
-# the string `"true"` is `None`, so this site built, and every note under
-# `notes/` rendered with no outline and nothing said. Restore the exemption in
-# `apply_defaults` and this fixture builds again — which is the whole item.
+# Before C1 the cascade keys SKIPPED `schema::apply_defaults` and were read
+# back out of raw TOML: `as_bool()` on the string `"true"` is `None`, so this
+# site built, and every note under `notes/` rendered with no outline and
+# nothing said. Restore an exemption in `apply_defaults` and this fixture
+# builds again — which is the whole item.
 extends = "none"
 
 [site]
@@ -14,13 +14,12 @@ url = "https://example.com"
 title = "Mistyped Default"
 author = "Tester"
 
-# The engine's four, as `base.toml` declares them. `extends = "none"` here so
-# the site's whole vocabulary is on the page; a site that inherits the base
-# gets these lines and the same error.
+# Declared fields as `base.toml` ships them (minus unused cascade keys).
+# `extends = "none"` here so the site's whole vocabulary is on the page; a site
+# that inherits the base gets these lines and the same error.
 [schema]
 theme = { type = "string" }
 shell = { type = "string" }
-layout = { type = "string" }
 toc = { type = "bool" }
 
 [[collections]]

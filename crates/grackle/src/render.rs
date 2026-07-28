@@ -72,9 +72,6 @@ pub struct Site<'a> {
     pub title: &'a str,
     pub author: &'a str,
     pub email: Option<&'a str>,
-    /// From the profile (§4a): a projection in its own URL space asks
-    /// search engines away, site-wide, without touching a row.
-    pub noindex: bool,
     /// The site icon's published URL, or empty when the tree has none
     /// (§4d). Resolved from the ROUTE set rather than from a filename, so
     /// pinning an icon that lives elsewhere is an ordinary named object
@@ -636,7 +633,6 @@ mod meta_tests {
             title: "T",
             author: "Ada",
             email: None,
-            noindex: false,
             icon: "",
         }
     }
@@ -716,7 +712,6 @@ mod meta_tests {
                 title: "t",
                 author: "a",
                 email: None,
-                noindex: false,
                 icon: "",
             },
         );

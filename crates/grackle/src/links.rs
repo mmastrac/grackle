@@ -882,7 +882,6 @@ mod tests {
             order: None,
             date: None,
             tags: Vec::new(),
-            toc: false,
             theme: None,
             shell: None,
             fields: Default::default(),

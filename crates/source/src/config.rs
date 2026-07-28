@@ -429,8 +429,6 @@ impl Shaped for Site {
             field("author", |s: &Site| &s.author),
             field("email", |s: &Site| &s.email),
             field("theme", |s: &Site| &s.theme),
-            // `noindex` is `#[serde(skip)]`: a profile's to set, never the
-            // site's to write, so it is not on the merge surface.
         ])
     }
 }
@@ -1328,20 +1326,6 @@ pub struct Site {
     /// rather than defaulting to `"default"`. A name no theme directory
     /// answers to is a load error listing the knowns (`Themes::load_all`).
     pub theme: Option<String>,
-    /// Set by a profile, never by the site: a projection published to its
-    /// own URL space asks search engines away (q10). Site-wide, so it needs
-    /// stating once rather than per row.
-    ///
-    /// **The profile's record of itself, not the mechanism** (MERGE.md E1).
-    /// What reaches a page is `[profiles.NAME.force] noindex`, written onto
-    /// every row and every route at rung 0 and read by the site's own
-    /// `[html.head.meta] robots` expression; this bool is what that projection
-    /// says about itself, mirrored here from the forced value. Nothing in the
-    /// engine reads it today — `data-profile` is stamped from
-    /// [`Config::profile`] — so it is a surface for a theme or a future pass
-    /// rather than a live one; see MERGE.md §7.
-    #[serde(skip)]
-    pub noindex: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1720,8 +1704,12 @@ where
 ///   * query only (no route, no layout) — a named set, e.g. `published`
 ///   * query + layout, no route         — embeddable, e.g. `latest`
 ///   * query + layout + route(s)        — materialized, e.g. `blog_index`
+///
+/// Unknown top-level keys are captured in [`View::route_fields`] and checked
+/// against `[schema]` at validate — so `noindex = true` is a schema field,
+/// not engine vocabulary. (`deny_unknown_fields` cannot coexist with that
+/// flatten.)
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct View {
     /// A collection name, another set/route's name, or a LIST of collections
     /// to union. Spelled `from` — one namespace, so what it names decides
@@ -1790,15 +1778,6 @@ pub struct View {
     /// wear their own. Nearest wins: the view beats member unanimity, which
     /// beats `[site] theme`.
     pub theme: Option<String>,
-    /// Fill the listing's `featured` slot with the first row (q36) — the
-    /// book-of-the-month shape. Most listings leave it off.
-    #[serde(default)]
-    pub featured: bool,
-    /// Ask search engines away from this route. Declared, because the rule
-    /// is editorial: tag pages and date archives are the same query language
-    /// as the blog index and differ only in whether they are worth indexing.
-    #[serde(default)]
-    pub noindex: bool,
     /// §6f locale-parallel materialization, DEFAULT-ON: a materializing
     /// row-query view partitions per declared locale (each locale's rows,
     /// locale-prefixed routes, titles resolved per locale; a locale with
@@ -1876,6 +1855,13 @@ pub struct View {
     /// `summary` is what listing previews consume.
     #[serde(default)]
     pub fields: BTreeMap<String, Field>,
+    /// Schema-declared values this route answers with (§4e). Spelled as
+    /// ordinary top-level keys (`noindex = true`) — the same names rows
+    /// use, so `[html.head.meta]` expressions and `where` clauses see one
+    /// vocabulary. Validated against `[schema]` (base.toml ships the flag
+    /// family); an undeclared key is a load error.
+    #[serde(default, flatten)]
+    pub route_fields: BTreeMap<String, toml::Value>,
 }
 
 /// One computed field: exactly one deriver names how the value is computed
@@ -2249,13 +2235,6 @@ impl Config {
             // Rung 0, lifted out of the profile so the loader can reach it
             // without knowing about profiles (§2, MERGE.md E1).
             cfg.forced = forced.into_iter().collect();
-            // The profile's record of ITSELF, distinct from what it forces:
-            // "this projection asks search engines away", carried on `Site` for
-            // a theme or a future surface to read. `data-profile` is the other
-            // half and comes off `cfg.profile`.
-            cfg.site.noindex =
-                matches!(cfg.forced.get("noindex"), Some(toml::Value::Boolean(true)));
-            cfg.profile = Some(name.to_string());
             // Who wrote the `where` a view carries. The overlay replaced the
             // whole definition, so the config no longer remembers on its own —
             // and an error about a filter must not send a reader to a `[sets]`
@@ -2265,6 +2244,7 @@ impl Config {
                     v.filter_profile = Some(name.to_string());
                 }
             }
+            cfg.profile = Some(name.to_string());
         } else {
             // Every declared profile, projected and validated, at every load —
             // so a typo in a projection nobody is building today is a load
@@ -2729,11 +2709,40 @@ impl Config {
                  route = \"/blog/{{year}}/{{month:02}}/{{slug}}/\""
             );
         }
+        let declared_route =
+            crate::schema::site_fields(&cfg.schema, "grackle.toml [schema]")?;
         for (vname, v) in &cfg.views {
             // §5a / THEME.md §3: `layout` (or `variant`) names the member face
             // the theme must ship as `row--{face}`. No closed vocabulary —
             // themes invent faces by shipping fragments; missing faces bail
             // at render / embed time.
+            // §4e: route field values (`noindex = true`, …) must be declared
+            // in `[schema]` and fit their types — the same gate as
+            // `[profiles.*.force]`. Keys that are neither engine view
+            // vocabulary nor schema fields (including retired spellings like
+            // `match` / `over`) are unknown fields.
+            for (field, val) in &v.route_fields {
+                let Some(ty) = declared_route.get(field.as_str()) else {
+                    let mut names: Vec<&str> =
+                        declared_route.keys().map(String::as_str).collect();
+                    names.sort_unstable();
+                    anyhow::bail!(
+                        "unknown field `{field}`, expected a view key or a \
+                         [schema] field\n  schema fields: {}",
+                        if names.is_empty() {
+                            "none".into()
+                        } else {
+                            names.join(", ")
+                        }
+                    );
+                };
+                crate::schema::typed(
+                    *ty,
+                    field,
+                    val,
+                    &format!("view {vname}"),
+                )?;
+            }
             // §7 q5 / MERGE.md F3: a set's `theme` can never apply, so declaring
             // one is declared-and-ignored. A set does not materialize, so there
             // is no document for a theme to dress; embedded, it is content
@@ -3842,12 +3851,13 @@ mod tests {
         assert!(e.contains("is a map shell"), "{e}");
     }
 
-    /// noindex was once hardcoded as `view != "blog_index"`, making every
-    /// other listing noindex by accident. It is editorial, so it is
-    /// declared; an undeclared listing is indexed.
+    /// noindex is editorial and schema-declared (base.toml `[schema]`). An
+    /// undeclared listing is indexed; `noindex = true` on a route stamps the
+    /// field the head expression reads.
     #[test]
     fn noindex_is_a_view_declaration_defaulting_to_indexed() {
         let head = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+                    [schema]\nnoindex = { type = \"bool\" }\n\
                     [[collections]]\nsource = \"_posts\"\n\
                     filename_formats = [\"{slug}\"]\n";
         let c = Config::from_toml(&format!(
@@ -3856,8 +3866,22 @@ mod tests {
              noindex = true\n"
         ))
         .unwrap();
-        assert!(!c.views["blog_index"].noindex);
-        assert!(c.views["tag_index"].noindex);
+        c.validate().unwrap();
+        assert!(!c.views["blog_index"].route_fields.contains_key("noindex"));
+        assert_eq!(
+            c.views["tag_index"].route_fields.get("noindex"),
+            Some(&toml::Value::Boolean(true))
+        );
+    }
+
+    #[test]
+    fn a_route_noindex_without_schema_is_a_load_error() {
+        let e = cfg_err(
+            "[routes.tag_index]\npath = \"/t/\"\nfrom = \"blog\"\nlayout = \"card\"\n\
+             noindex = true\n",
+        );
+        assert!(e.contains("unknown field `noindex`"), "{e}");
+        assert!(e.contains("schema fields"), "{e}");
     }
 
     /// §4a: the flag family reaches the page schema, not just posts —
@@ -4559,30 +4583,18 @@ mod tests {
         );
     }
 
-    /// Retired spellings must not be silently ignored: `deny_unknown_fields`
-    /// makes a stale key a parse error listing what is valid.
+    /// Retired spellings must not be silently ignored. View-level stales
+    /// (`match`, `over`, …) land in `route_fields` and fail validate;
+    /// everything else is still `deny_unknown_fields` at parse.
     #[test]
     fn an_unknown_config_key_is_a_parse_error() {
         for stale in [
             "[views.published]\nfrom = \"blog\"\n",
-            "[sets.s]\nover = \"blog\"\n",
-            "[sets.s]\nfrom = \"blog\"\nfilter = \"!draft\"\n",
-            "[routes.r]\nfrom = \"blog\"\nroute = \"/r/\"\n",
-            // MERGE.md G1: a relation's candidate pool is `from` now, the
-            // word a view already spelled. Hard cutoff — the key is gone and
-            // `deny_unknown_fields` is the whole of the answer, with `from`
-            // first in the knowns it lists.
+            // MERGE.md G1: a relation's candidate pool is `from` now.
             "[collections.relations.related]\nover = \"published\"\n",
-            // MERGE.md G2: `match` survives only in rules. A view's path
-            // scope is a `glob(path, …)` clause of its `where`, and a
-            // relation's is `scope` — the name that owns both of that key's
-            // jobs. Hard cutoff on both, one sentence from serde.
-            "[sets.s]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n",
+            // MERGE.md G2: `match` on a relation.
             "[collections.relations.related]\nmatch = \"recipes/**\"\n",
-            // IO.md I7a: an objects scope's membership is what its rules
-            // claim, so the extension list is a `match` glob
-            // (`**/*.{png,jpg,…}`) and the key is gone. Appended to the
-            // `[[collections]]` table above, which is where it used to sit.
+            // IO.md I7a: objects membership is a rule `match` glob.
             "extensions = [\"png\"]\n",
         ] {
             let src = format!(
@@ -4592,6 +4604,16 @@ mod tests {
             let e = Config::from_toml(&src)
                 .expect_err("stale spelling should not parse")
                 .to_string();
+            assert!(e.contains("unknown field"), "{stale} -> {e}");
+        }
+        // View keys that used to be deny_unknown_fields: validate, not parse.
+        for stale in [
+            "[sets.s]\nover = \"blog\"\n",
+            "[sets.s]\nfrom = \"blog\"\nfilter = \"!draft\"\n",
+            "[routes.r]\nfrom = \"blog\"\npath = \"/r/\"\nroute = \"/also/\"\n",
+            "[sets.s]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n",
+        ] {
+            let e = cfg_err(stale);
             assert!(e.contains("unknown field"), "{stale} -> {e}");
         }
     }
@@ -4625,28 +4647,15 @@ mod tests {
         assert!(e.contains("unknown field"), "{e}");
     }
 
-    /// `Site.noindex` is `#[serde(skip)]`, so `deny_unknown_fields` rejects
-    /// it in `[site]` — which is what the doc comment there already claims
-    /// ("set by a profile, never by the site"). The profile still sets it,
-    /// because it does so in Rust, off the forced field (MERGE.md E1), which
-    /// is the profile's record of itself rather than the mechanism.
+    /// `[site] noindex` is refused: the field lives in `[schema]` and is
+    /// forced via `[profiles.*.force]`, never written on the site table.
     #[test]
-    fn a_profile_still_sets_the_skipped_noindex() {
-        const S: &str =
-            "[schema]\nnoindex = { type = \"bool\" }\n[profiles.p.force]\nnoindex = true\n";
-        assert!(
-            !Config::from_toml(&cfg_source(S))
-                .expect("the default projection")
-                .site
-                .noindex
-        );
-        assert!(projected(S, "p").expect("the profile applies").site.noindex);
-
+    fn site_noindex_is_an_unknown_field() {
         let e = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              noindex = true\n",
         )
-        .expect_err("[site] noindex is the profile's to set")
+        .expect_err("[site] noindex is not a site key")
         .to_string();
         assert!(e.contains("unknown field `noindex`"), "{e}");
     }
@@ -4821,13 +4830,18 @@ mod tests {
     /// title` at line 2 instead.
     #[test]
     fn a_re_parse_that_changes_the_subject_does_not_speak() {
+        // `match` on a view is no longer a parse error (it is captured as a
+        // route field and refused at validate, since View flattens schema
+        // stamps). The R7 sentence still holds for keys that fail deserialize
+        // on the merged table — use a site-level unknown so the re-parse path
+        // is what speaks.
         let e = Config::from_toml_profile(
-            &format!("{BASE_LEANING}[profiles.q.sets.y]\nmatch = \"recipes/**\"\n"),
+            &format!("{BASE_LEANING}[profiles.q.site]\nnosuch = 1\n"),
             Some("q"),
         )
-        .expect_err("`match` is retired on sets — G2")
+        .expect_err("unknown site key")
         .to_string();
-        assert!(e.contains("unknown field `match`"), "the real error: {e}");
+        assert!(e.contains("unknown field `nosuch`"), "the real error: {e}");
         assert!(
             !e.contains("missing field"),
             "the site's own text is short of base-supplied keys; that is not an error: {e}"

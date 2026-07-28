@@ -472,8 +472,7 @@ mod tests {
     ///
     /// Deliberately weaker than completeness, because completeness is false
     /// for themes and should be: `terminal`'s summary drops tags on purpose,
-    /// `summary--card` is a jacket and drops the prose, `listing--gallery`
-    /// has no featured slot. An arrangement selects.
+    /// `row--card` is a jacket and drops the prose. An arrangement selects.
     ///
     /// What no arrangement may do is lose the thing the row is CALLED. A
     /// fragment that renders to nothing, or renders a summary with no title

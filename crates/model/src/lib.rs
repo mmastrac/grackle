@@ -94,8 +94,6 @@ pub struct Row {
     /// this is what a view sorts on when it says so — see `order_by` in
     /// `build_views`.
     pub order: Option<i64>,
-    /// Render the heading outline (§6e); front matter or cascaded default.
-    pub toc: bool,
     /// The locale axis (§6f): assigned by the path selector at load.
     pub locale: String,
     /// The locale-stripped identity shared by a row and its translations
@@ -238,12 +236,11 @@ impl Row {
         self.date.map(|d| (d.year(), d.month()))
     }
 
-    /// A declared `bool` field, false when the site never declared it (§4e).
+    /// A declared `bool` field, false when absent or unset (§4e).
     ///
-    /// Engine code should reach for this **rarely and namelessly**: a flag is
-    /// site vocabulary, and the remaining callers that spell one out — the
-    /// `noindex` head fact, the inspector, `explain` — are exactly what
-    /// `[html.head.meta]` and a generic field dump are meant to delete.
+    /// Site vocabulary, not engine columns: prefer a head expression or a
+    /// generic field dump. The outline pass still spells `toc` here because
+    /// building the heading tree is work, not a string the head can emit.
     pub fn flag(&self, name: &str) -> bool {
         matches!(self.fields.get(name), Some(filter::Value::Bool(true)))
     }
@@ -940,8 +937,6 @@ pub struct ViewRows {
     pub layout: Option<String>,
     /// Fragment variant (q24), for embedded rendering.
     pub variant: Option<String>,
-    /// Prefer `row--featured` for the first member when the theme ships it.
-    pub featured: bool,
     pub rows: usize,
     #[serde(skip)]
     pub members: Vec<Key>,
@@ -952,7 +947,6 @@ impl Default for ViewRows {
         ViewRows {
             layout: None,
             variant: None,
-            featured: false,
             rows: 0,
             members: Vec::new(),
         }
@@ -990,7 +984,6 @@ pub fn row_schema() -> filter::Schema {
     s.insert("day", Int);
     s.insert("body_bytes", Int);
     s.insert("order", Int);
-    s.insert("toc", Bool);
     s.insert("tags", List);
     s.insert("rendered", Bool);
     // IO.md §3: has identity — the row's file carried a front-matter block
@@ -1062,7 +1055,6 @@ impl filter::Row for Row {
             "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
             "body_bytes" => V::Int(self.body_bytes as i64),
             "order" => self.order.map_or(V::Null, V::Int),
-            "toc" => V::Bool(self.toc),
             "rendered" => V::Bool(self.rendered),
             "front_mattered" => V::Bool(self.front_mattered),
             // The join (IO.md §2). Bare `output` is the record's existence;

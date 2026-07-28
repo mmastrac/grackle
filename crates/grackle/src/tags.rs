@@ -287,7 +287,6 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
         layout,
         v.variant.as_deref(),
         items,
-        v.featured,
     )
     .with_context(|| format!("{}: view {name}", cx.source))
 }

@@ -375,26 +375,18 @@ a[data-kind="tag"] {
 	}
 }
 
-// Cards (q23): the book club. The featured card is this month's selection,
-// large; the grid is the back catalogue. width/height attrs come from the
-// engine's dimension facts, so covers reserve their space.
+// Cards (q23): the book club. Covers reserve space via engine dimension
+// facts (width/height attrs). First-of-many emphasis is CSS on
+// `:first-child` below — not a view flag.
 //
-// The title is specified against the cover's HEIGHT, but `top: 75%` would
-// resolve against the card box, which also holds the note. So height is
-// expressed in the card's inline size instead: covers are 2:3, making the
-// height 1.5x the width. One cq-unit declaration then holds at every
-// placement without a breakpoint, and a differently-shaped cover changes
-// $cover-ratio and nothing else.
-$cover-ratio: 1.5;
-$cover-height-pct: $cover-ratio * 1cqw;
+// Title-on-jacket: img and title share one grid cell so the title sits on
+// the cover without cqw math against a card that also holds the note (and
+// without breaking when the featured card spans the full grid row).
 
 .card {
 	display: block;
 	text-decoration: none;
-	// The card IS the jacket box: the cq units below resolve against it, so
-	// nothing may size the cover independently of it.
-	position: relative;
-	container-type: inline-size;
+	min-width: 0;
 
 	img {
 		width: 100%;
@@ -412,34 +404,41 @@ $cover-height-pct: $cover-ratio * 1cqw;
 	}
 
 	// Blank covers carry no type of their own, so the card sets the title on
-	// them — but only where there is a cover to set it on: `cover` is an
-	// optional schema field, and a coverless row's card has no jacket for
-	// the type to sit in.
-	&:has(img[src]) .card-title {
-		position: absolute;
-		// Centred ON the 75% line, not started at it: only 25% of the cover
-		// remains below, and a line costs ~11.5% of it, so anchoring the top
-		// there drops a third line off the jacket.
-		top: 75 * $cover-height-pct;
-		transform: translateY(-50%);
-		left: 0;
-		right: 0;
-		margin-top: 0;
-		padding: 0.3em 0.5em;
-		font-size: 10 * $cover-height-pct;
-		line-height: 1.15;
-		text-align: center;
-		color: var(--on-cover);
-		// Covers are arbitrary artwork, so legibility can't rest on any one
-		// of them: a band fading out at both edges carries the type over
-		// whatever is underneath, and the shadow covers the light-cover case.
-		background: linear-gradient(
-			rgba(0, 0, 0, 0),
-			rgba(0, 0, 0, 0.45) 20%,
-			rgba(0, 0, 0, 0.45) 80%,
-			rgba(0, 0, 0, 0)
-		);
-		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+	// them — but only where there is a cover to set it on.
+	&:has(img[src]) {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		container-type: inline-size;
+
+		img {
+			grid-row: 1;
+			grid-column: 1;
+		}
+
+		.card-title {
+			grid-row: 1;
+			grid-column: 1;
+			align-self: end;
+			z-index: 1;
+			margin: 0 0 12% 0;
+			padding: 0.3em 0.5em;
+			font-size: clamp(0.7rem, 8cqw, 1.35rem);
+			line-height: 1.15;
+			text-align: center;
+			color: var(--on-cover);
+			background: linear-gradient(
+				rgba(0, 0, 0, 0),
+				rgba(0, 0, 0, 0.45) 20%,
+				rgba(0, 0, 0, 0.45) 80%,
+				rgba(0, 0, 0, 0)
+			);
+			text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+		}
+
+		.card-note {
+			grid-row: 2;
+			grid-column: 1;
+		}
 	}
 
 	.card-note {
@@ -451,45 +450,54 @@ $cover-height-pct: $cover-ratio * 1cqw;
 }
 
 .card-list {
-	// The selection is a bigger jacket, not a different shape — its type
-	// scales with the cover, so there is no font size to override here.
-	.featured .card {
-		max-width: 300px;
-	}
-
 	.card-grid {
 		margin-top: 2.5rem;
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
 		gap: 1.25rem;
 	}
-
-	// The backlist label belongs to the CLUB shape, not to cards at large:
-	// it only reads under a featured selection. The empty `featured` slot
-	// collapses (rule 2), so adjacency IS the conditional — a course
-	// listing has no featured sibling and gets no label. (Rule 2 likewise
-	// deletes the grid itself when there is no backlist, which is why the
-	// label lives in CSS, not as a literal heading.)
-	.featured + .card-grid::before {
-		content: "Previous selections";
-		grid-column: 1 / -1;
-		font-weight: bold;
-		border-top: 1px solid var(--line);
-		padding-top: 1rem;
-	}
 }
 
-// The book page's cover (q23's hero): shown beside the opening prose.
+// The book page's cover (q23's hero): same jacket title as cards — blank
+// covers need the type on the artwork; the page h1 remains for the document.
 .doc-hero .figure {
 	float: right;
 	width: min(40%, 220px);
 	margin: 0 0 1rem 1.5rem;
+	container-type: inline-size;
 
-	img {
-		width: 100%;
-		height: auto;
-		border-radius: 4px;
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+	&:has(img[src]) {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+
+		img {
+			grid-row: 1;
+			grid-column: 1;
+			width: 100%;
+			height: auto;
+			border-radius: 4px;
+			box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+		}
+
+		.card-title {
+			grid-row: 1;
+			grid-column: 1;
+			align-self: end;
+			z-index: 1;
+			margin: 0 0 12% 0;
+			padding: 0.3em 0.5em;
+			font-size: clamp(0.7rem, 8cqw, 1.1rem);
+			line-height: 1.15;
+			text-align: center;
+			color: var(--on-cover);
+			background: linear-gradient(
+				rgba(0, 0, 0, 0),
+				rgba(0, 0, 0, 0.45) 20%,
+				rgba(0, 0, 0, 0.45) 80%,
+				rgba(0, 0, 0, 0)
+			);
+			text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+		}
 	}
 }
 
@@ -531,6 +539,9 @@ $cover-height-pct: $cover-ratio * 1cqw;
 
 
 // Listing-as-concat (THEME.md §3): members land directly in content.
+// First-of-many card is the selection (book club); the rest fill the grid.
+// Explicit width — not just max-width — so a full-row span cannot shrink
+// the card's used size to zero (grid min-content + width:100% img).
 .doc-body:has(> .card) {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -538,8 +549,10 @@ $cover-height-pct: $cover-ratio * 1cqw;
 	margin-top: 2.5rem;
 }
 .doc-body > .card:first-child:nth-last-child(n + 2) {
-	max-width: 300px;
+	width: 300px;
+	max-width: 100%;
 	grid-column: 1 / -1;
+	justify-self: start;
 }
 
 

@@ -1025,15 +1025,14 @@ engine's own row schema no longer mentions them.** `extends = "none"` genuinely 
 naming the knowns — which is exactly what `examples/raw` and `theme-preview`
 now declare `[schema]` to avoid.
 
-What remains is two spellings, both narrow and both named above: a view's
-`noindex = true` copied onto its routes, and `Site.noindex` as the drafts
-profile's record of itself. Neither is schema; both dissolve when a view can
-declare arbitrary route fields.
+What remains is one spelling, narrow and named above: a view's
+`noindex = true` copied onto its routes as an ordinary schema field. That too
+is schema, not engine vocabulary — the same name rows and profiles force.
 
 | where | what | verdict |
 |---|---|---|
 | `relations.rs` | the engine composing `"!candidate.draft && !candidate.hidden"` onto a defaulted pool | **deleted** |
-| `load.rs` | `Cascaded`, a struct of **seven named fields**, the only keys a marker could set | **four**, then none — the four left (theme, shell, layout, toc) are what the engine still READS by name, and MERGE.md C1 declares them in the base's `[schema]` so they cascade typed like everything else. `Cascaded` survives as the typed read. |
+| `load.rs` | `Cascaded`, a struct of **seven named fields**, the only keys a marker could set | **three**, then none — the three left (theme, shell, slot) are what the engine still READS by name, and MERGE.md C1 declares them in the base's `[schema]` so they cascade typed like everything else. `Cascaded` survives as the typed read. `toc` joined the flag family. |
 | `model/lib.rs` | `Row.draft/hidden/noindex`, `Route.draft/hidden`, both schemas | **deleted** — declared fields, carried in `Row.fields` and `Route.fields` |
 | `debug.rs`, `main.rs` | the inspector and `explain` printing three named bools | **deleted** — both print declared fields now |
 | `render.rs`, `build.rs`, `passes/listing.rs` | `noindex` → `<meta name="robots">` | **`[html.head.meta]`** — the one invention, below |
@@ -1107,12 +1106,13 @@ definition now, and `where` is its third consumer rather than its exception.
 The sharper one: **a marker or rule default could not set a declared field at
 all**, because `cascade()` read the names out of a Rust struct — so `[markers]
 ".archived" = { archived = true }` did nothing, silently. `CASCADE_KEYS` went
-to four (`theme`, `shell`, `layout`, `toc`) and then to **none**: MERGE.md C1
-declares those four in the base's `[schema]` too, so *every* key a marker or a
-rule sets goes through `schema::apply_defaults` — a declared field or a load
-error naming the knowns, front matter still the nearer writer, a type mismatch
-also an error. **§4b's mechanisms work for any field a site invents**, which is
-what the flag move was for.
+to four (`theme`, `shell`, `layout`, `toc`) and then to three (`theme`,
+`shell`, `slot`) with `toc` in the flag family: MERGE.md C1 declares those in
+the base's `[schema]` too, so *every* key a marker or a rule sets goes through
+`schema::apply_defaults` — a declared field or a load error naming the knowns,
+front matter still the nearer writer, a type mismatch also an error. **§4b's
+mechanisms work for any field a site invents**, which is what the flag move
+was for.
 
 Being engine vocabulary turned out to be a statement about who *reads* a field,
 not about who types it: the engine still reads all four off a row by name, and
@@ -1201,10 +1201,9 @@ Three notes on the shape:
   robots` with the constant `"noindex,follow"`, which meant a site that wrote
   its own expression silently lost it; that whole apparatus — the override,
   its warning, and `Config::site_robots` — is gone, because forcing a field
-  the site already declares needs no vocabulary of its own. `Site.noindex`
-  survives as the profile's own record of it. Byte-identical output on
-  grack.com under `--profile drafts` across the change: the clobber's constant
-  and `noindex ? "noindex,follow" : ""` are the same 552 tags.
+  the site already declares needs no vocabulary of its own. Byte-identical
+  output on grack.com under `--profile drafts` across the change: the clobber's
+  constant and `noindex ? "noindex,follow" : ""` are the same 552 tags.
 
 Verified by mutation: deleting `[html.head.meta]` from `base.toml` drops every
 `<meta name="robots">` on grack.com from its usual set to zero, and the site is

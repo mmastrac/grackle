@@ -351,10 +351,6 @@ a[data-kind="tag"] {
 }
 
 .card-list {
-	.featured .card {
-		max-width: var(--card-featured);
-	}
-
 	.card-grid {
 		margin-top: var(--space-lg);
 		display: grid;
@@ -559,8 +555,10 @@ a[data-kind="tag"] {
 	margin-top: 2.5rem;
 }
 .doc-body > .card:first-child:nth-last-child(n + 2) {
-	max-width: 300px;
+	width: var(--card-featured);
+	max-width: 100%;
 	grid-column: 1 / -1;
+	justify-self: start;
 }
 
 

@@ -59,7 +59,6 @@ impl Pass for Listing {
             layout,
             v.variant.as_deref(),
             items,
-            v.featured,
         )
         .with_context(|| format!("view {view}"))?;
         let main = row_thm.fragments.render(&parts::page_row(

@@ -55,16 +55,17 @@ HTML strings concatenated. Page furniture lives on the **wrapper** row:
 - title, crumbs, intro, pagination → set on a `row` PartMap rendered as
   `row.html` (default face)
 - that map's `content` → the concatenation
-- `featured` → first member may use face `featured` if the theme ships
-  `row--featured.html`; otherwise same face as the rest (themes may also
-  style `:first-child`)
+- first-member emphasis (book-of-the-month, etc.) is theme CSS on
+  `:first-child`, not a view flag or face
 
 ### Routes
 
 A materialized view is a synthetic row:
 
 - **Unclaimed** (has `layout`): wrapper `row.html` whose `content` is concat
-  of members through that face (`variant` overrides `layout` when set).
+  of members through that face. `variant` wins when the theme ships
+  `row--{variant}`; otherwise `layout` (partial themes). Missing `layout`
+  face is a build error.
 - **Claimed** (q45): real row owns the page; body places
   `{% view <self> %}` (optional `| face`); embed is route-aware.
 - **Embed-only** faces (`link`, `card`, …): concat (or one card) with **no**

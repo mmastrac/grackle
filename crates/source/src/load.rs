@@ -450,19 +450,17 @@ fn merged_defaults<'a>(
 struct Cascaded {
     theme: Option<String>,
     shell: Option<String>,
-    toc: bool,
 }
 
-/// Read the engine's four off a row's RESOLVED fields — one spelling, so posts
-/// and tree rows cannot drift apart on which fields cascade.
+/// Read the engine's cascade keys off a row's RESOLVED fields — one spelling,
+/// so posts and tree rows cannot drift apart on which fields cascade.
 ///
 /// This is no longer a cascade of its own (MERGE.md C1). It used to reach into
-/// raw TOML with `as_str()`/`as_bool()`, which is why `defaults = { toc =
-/// "true" }` was a silent `false` and `theme = 1` silently vanished. The
-/// cascade is `schema::cascade_front` (nearest) then `schema::apply_defaults`
-/// (markers, then rules), the same two calls every other declared key takes;
-/// what is left here is the typed read, plus the one vocabulary the engine
-/// closes.
+/// raw TOML with `as_str()`/`as_bool()`, which is why `defaults = { theme =
+/// 1 }` silently vanished. The cascade is `schema::cascade_front` (nearest)
+/// then `schema::apply_defaults` (markers, then rules), the same two calls
+/// every other declared key takes; what is left here is the typed read, plus
+/// the one vocabulary the engine closes.
 ///
 /// The values stay in `fields` as well as landing on the row's named fields:
 /// they are declared, so a `where`, an `order_by` or a fold's route may
@@ -489,10 +487,6 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
         // ladder is `fields`', not this read's.
         theme: worn("theme"),
         shell,
-        toc: matches!(
-            fields.values.get("toc"),
-            Some(grackle_db::Value::Bool(true))
-        ),
     })
 }
 
@@ -1610,7 +1604,6 @@ fn walk_site(
             order: fm.order,
             date,
             tags: fm.tags,
-            toc: worn.toc,
             theme: worn.theme,
             shell: worn.shell,
             fields: checked.values,
@@ -2454,35 +2447,39 @@ mod cascade_tests {
         serde_yaml_ng::from_str(yaml).unwrap()
     }
 
-    /// The engine's four as `base.toml` declares them. A test that typed them
-    /// by hand would be asserting its own copy; this reads the one list the
-    /// loader reads (`schema::CASCADE`).
+    /// The engine's cascade keys plus `toc` (flag family). Tests that typed
+    /// the cascade list by hand would be asserting their own copy; this reads
+    /// the one list the loader reads (`schema::CASCADE`).
     fn governed() -> BTreeMap<&'static str, schema::FieldType> {
-        schema::CASCADE.iter().copied().collect()
+        let mut m: BTreeMap<_, _> = schema::CASCADE.iter().copied().collect();
+        m.insert("toc", schema::FieldType::Bool);
+        m
     }
 
-    /// The whole row-side cascade, in the order `load` runs it: front matter
-    /// (nearest), then markers and rules, then the typed read. Driving all
-    /// three is the point — the type checking C1 added lives in the middle
-    /// call, and a test that only called `cascade` could not see it.
+    /// The whole row-side cascade, in the order `load` runs it: validated
+    /// extra (nearest declared fields), cascade_front for named engine keys,
+    /// then markers and rules. Driving all three is the point — the type
+    /// checking C1 added lives in the middle call, and a test that only
+    /// called `cascade` could not see it.
     fn worn(
         schema: &BTreeMap<&str, schema::FieldType>,
         yaml: &str,
         pairs: &[(&'static str, toml::Value)],
-    ) -> Result<Cascaded> {
+    ) -> Result<(Cascaded, schema::Fields)> {
         let fm = front(yaml);
-        let mut fields = schema::Fields::default();
+        let mut fields = schema::validate(schema, &fm.extra, Path::new("p.md"))?;
         schema::cascade_front(schema, &fm, &mut fields, Path::new("p.md"))?;
         schema::apply_defaults(schema, &defaults(pairs), &mut fields, Path::new("p.md"))?;
-        cascade(&fields, Path::new("p.md"))
+        let worn = cascade(&fields, Path::new("p.md"))?;
+        Ok((worn, fields))
     }
 
     #[test]
     fn front_matter_beats_a_default() {
         let d = [("theme", text("inherited")), ("toc", yes())];
-        let c = worn(&governed(), "theme: own\ntoc: false\n", &d).unwrap();
+        let (c, fields) = worn(&governed(), "theme: own\ntoc: false\n", &d).unwrap();
         assert_eq!(c.theme.as_deref(), Some("own"));
-        assert!(!c.toc);
+        assert_eq!(fields.values.get("toc"), Some(&grackle_db::Value::Bool(false)));
     }
 
     /// Every field a silent row inherits.
@@ -2493,17 +2490,17 @@ mod cascade_tests {
             ("shell", text("light_html")),
             ("toc", yes()),
         ];
-        let c = worn(&governed(), "{}", &d).unwrap();
+        let (c, fields) = worn(&governed(), "{}", &d).unwrap();
         assert_eq!(c.theme.as_deref(), Some("t"));
         assert_eq!(c.shell.as_deref(), Some("light_html"));
-        assert!(c.toc);
+        assert_eq!(fields.values.get("toc"), Some(&grackle_db::Value::Bool(true)));
     }
 
     #[test]
     fn an_unset_field_stays_unset() {
-        let c = worn(&governed(), "{}", &[]).unwrap();
+        let (c, fields) = worn(&governed(), "{}", &[]).unwrap();
         assert_eq!(c.theme, None);
-        assert!(!c.toc);
+        assert!(!fields.values.contains_key("toc"));
     }
 
     /// A shell outside the vocabulary must fail loudly — unchecked, a typo
@@ -2567,14 +2564,12 @@ mod cascade_tests {
         assert!(e.to_string().contains("is not a shell"), "{e}");
     }
 
-    /// C1, the whole item: a rule or marker default for one of the engine's
-    /// four is TYPE-CHECKED like every other key. `toc = "true"` used to skip
-    /// `apply_defaults` entirely and read back through `as_bool()` — `None`,
-    /// so `false`, so no outline and nothing said.
+    /// C1: a rule or marker default for a declared field is TYPE-CHECKED.
+    /// `toc = "true"` used to skip `apply_defaults` entirely and read back
+    /// through `as_bool()` — `None`, so `false`, so no outline and nothing said.
     ///
-    /// Mutation check: exempt `toc` in `apply_defaults` again (`if
-    /// schema::cascade_type(name).is_some() { continue }`) and this returns
-    /// `Ok` with `toc == false` — the silence, restored.
+    /// Mutation check: exempt declared keys in `apply_defaults` again and this
+    /// returns `Ok` with no `toc` — the silence, restored.
     #[test]
     fn a_mistyped_default_is_a_load_error_naming_the_type() {
         let d = [("toc", text("true"))];
@@ -2624,8 +2619,8 @@ mod cascade_tests {
 
     /// And the marker's value reaches the ROW — the half `a_marker_beats_a_rule`
     /// cannot see, because the merge is only the first of the three steps.
-    /// A marker sets one of the engine's four exactly as it sets a declared
-    /// field, front matter still nearer than both.
+    /// A marker sets a cascade key or a declared flag exactly as it sets any
+    /// other field, front matter still nearer than both.
     #[test]
     fn a_marker_sets_what_the_engine_reads() {
         let markers: Defaults = [
@@ -2644,7 +2639,11 @@ mod cascade_tests {
         schema::apply_defaults(&schema, &merged, &mut fields, Path::new("p.md")).unwrap();
         let c = cascade(&fields, Path::new("p.md")).unwrap();
         assert_eq!(c.theme.as_deref(), Some("marker"));
-        assert!(c.toc, "a marker's bool arrives as a bool");
+        assert_eq!(
+            fields.values.get("toc"),
+            Some(&grackle_db::Value::Bool(true)),
+            "a marker's bool arrives as a bool"
+        );
 
         // Front matter is nearer than the marker, at the row as at the merge.
         let mut fields = schema::Fields::default();
@@ -2665,14 +2664,12 @@ mod cascade_tests {
         );
     }
 
-    /// The engine's own types are not a site's to choose: declaring `toc` a
-    /// string would type a rule's value one way and have `cascade` read it
-    /// the other — silence again, one rung further out.
+    /// The engine's own cascade types are not a site's to choose: declaring
+    /// `theme` an int would type a rule's value one way and have `cascade`
+    /// read it the other — silence again, one rung further out.
     ///
     /// Mutation check: drop the `ty != engine` test inside `parse_fields`'
-    /// `cascade_type` arm and the retype is accepted. (Dropping the whole arm
-    /// is not the mutation: `layout` and `toc` are `reserved` names, so the
-    /// base's own `[schema]` would stop parsing and every site would fail.)
+    /// `cascade_type` arm and the retype is accepted.
     #[test]
     fn a_cascade_key_may_not_be_redeclared_at_another_type() {
         let mut s = schema::Schemas::new(grackle_model::row_schema());
