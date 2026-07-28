@@ -292,6 +292,8 @@ callout = """
   # same expiry: it means SCOPE MEMBERSHIP, and this profile is the projection
   # where that shows — `_drafts/caret/…` is a post with no front-matter block,
   # so `front_mattered` would drop it from this index while `kind` keeps it.
+  # These two lines are the whole reason IO.md I13 could not delete the
+  # column; the unlock is written out at the site's own [routes.search].
   [profiles.drafts.routes.search]
   path = "/search.bin"
   shell = "search"
@@ -374,11 +376,18 @@ shell = "atom"
 # The `kind ==` this corpus kept (IO.md I1), and deliberately: unlike the
 # example sites, this filter does not mean "the documents" — it means "the
 # blog corpus", which is SCOPE membership, and the output side has no column
-# for that until the join lands (I9). `front_mattered` is the wrong migration
-# twice over: it would admit every page under /code/ and /writing/, and it
-# would drop `_drafts/caret/…`, a post whose file carries no block. The
-# column is domain-checked now, so the plural typo that used to match nothing
-# forever is a load error while this waits.
+# for that. `front_mattered` is the wrong migration twice over: it would admit
+# every page under /code/ and /writing/, and it would drop `_drafts/caret/…`,
+# a post whose file carries no block. The column is domain-checked, so the
+# plural typo that used to match nothing forever is a load error while this
+# waits.
+#
+# It waited through the join (I9 landed `output`/`viewed_by`/`inputs` and none
+# of them says which SCOPE admitted a row) and through I13, the item that was
+# supposed to delete the column — this line and its twin in [profiles.drafts]
+# are why it did not. Two things unlock it, in order: an expressibility item
+# putting scope membership on the output pool, and then Matt's call, because
+# whatever replaces this moves /search.bin.
 [routes.search]
 path = "/search.bin"
 shell = "search"

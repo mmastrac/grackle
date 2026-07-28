@@ -119,7 +119,9 @@ Consequences that fall out of the join rather than needing rules:
 
 The route/row `kind` enum (`post`/`page`/`static`/`object`/`view`) was the
 last table tag — a flattened product of independent facts, surviving from
-before the one-store merge. It is deleted. The facts that replace it:
+before the one-store merge. It is deleted ~~outright~~ **as far as the facts
+reach, which I13 measured to be most of the way and not all of it** — the
+post-I13 truth is the marker below. The facts that replace it:
 
 | fact | on | meaning |
 |---|---|---|
@@ -133,20 +135,35 @@ before the one-store merge. It is deleted. The facts that replace it:
 The old filters translate to what they always meant — with a
 shipped/pending honesty marker per batch review I-A: the example sites'
 search filters → `front_mattered` (**shipped**, I1); grack.com's search →
-scope membership (**pending, re-pointed by review I-D**: I9 shipped
+scope membership (**pending, and I13 did not take it**: I9 shipped
 without making scope membership expressible on the route pool — no
 collection column, no `output.*` there — and `kind == "post"` covers two
 collections, so the replacement needs measurement; it is Matt's call
-with a small expressibility item as its prerequisite, and **I13 cannot
-delete the schema column before it lands**); the sitemap → **pending, and
-not a one-liner**: measured, grack.com's sitemap is *not* "the HTML
-documents" and never was — it deliberately lists byte-copy `.html` files,
-PDFs, static directory indexes and the `light_html` page (43 URLs beyond
-`shell == "html"` today), so its honest future spelling is a disjunction
-over shells + ext, or a declared byte change — Matt's call when it
-arrives. The silent-empty-query knife (`kind == "posts"`, plural,
-matching nothing forever) is dead already: I1's domain check (until I13
-deletes the column outright).
+with a small expressibility item as its prerequisite); the sitemap →
+**pending, and not a one-liner**: measured, grack.com's sitemap is *not*
+"the HTML documents" and never was — it deliberately lists byte-copy
+`.html` files, PDFs, static directory indexes and the `light_html` page
+(43 URLs beyond `shell == "html"` today), so its honest future spelling is
+a disjunction over shells + ext, or a declared byte change — Matt's call
+when it arrives. The silent-empty-query knife (`kind == "posts"`, plural,
+matching nothing forever) is dead: I1's domain check, which outlives I13
+because the column does.
+
+**What I13 left standing, and what unlocks each piece** *(2026-07-28; this
+is the post-I13 truth the marker above points at)*:
+
+| survivor | why it survived | what unlocks it |
+|---|---|---|
+| the **schema column**, its `Enum` domain, `explain`'s `kind` line, `query urls --kind` | the two live `kind == "post"` filters above have no replacement spelling | the config migration — an expressibility item (scope membership on the output pool) **plus Matt's call**, since it moves two live artifacts |
+| `Post` vs `Page` in `build.rs`'s render dispatch, `page_bodies`, `search_pass`'s doc arms | genuinely structural: "this scope's role is posts" is a fact about CONFIG, and I9 ruled that a row carries the scope's *name* and not its role. Adding the bit would re-mint the origin distinction I7e deleted | a merge of the posts and pages render passes into one body store — a refactor no item has proposed |
+| `Static` vs `Object` | nothing reads it: both are byte copies, one arm wherever anything dispatches, and that arm equals `!rendered` on all six trees (measured) | it is already free; it goes when the column does |
+
+What I13 DID take: every `kind == View` test in the engine — eight of them,
+across `build.rs`, `links.rs`, `trails.rs`, `load.rs` and `views.rs` — now
+reads the `view` column, and three of those were asking the same question
+twice and were deleted rather than respelled. The equality they all stand on
+(`kind == View` **iff** `view` is non-empty) held nothing but convention
+before and is now a test.
 
 Sidecars split identity from parsing, and that is a feature: a `.png` with
 a sidecar is a governed row — schema-validated fields, alt text, a place in
@@ -419,7 +436,7 @@ one thing in the whole system: the serialization a route leaves through.
 
 | dies | survives as |
 |---|---|
-| the `kind` enum | facts (§3) |
+| the `kind` enum | facts (§3) — **partly, measured at I13**: the `View` value is fully replaced by the `view` column; the rest survives as a config-visible column with two live filters and one internal post-vs-page dispatch, each with its unlock named in §3 |
 | the objects table | rules routing by extension + `raw`; name index and dimensions keyed off extension |
 | the tree machinery | the one walk + the front-matter fact + rules |
 | the `none` tier / static passthrough / object bytes | `raw` (§4) |
@@ -446,8 +463,12 @@ one thing in the whole system: the serialization a route leaves through.
 5. **The join fields and the graph** — `output`, `viewed_by`, `inputs` as
    columns; the planner builds the graph; invalidation rides it; serve
    pulls.
-6. **Delete `kind`** — by now unread; remove from schema, inspector,
-   export.
+6. **Delete `kind`** — ~~by now unread; remove from schema, inspector,
+   export.~~ **Executed at I13, and the ladder's own premise was the thing
+   it disproved**: `kind` was still read in eleven places, and after the
+   respellings it is read in five and still declared in the schema, the
+   inspector and the export, because two live config filters name it.
+   §3's marker carries the survivors and their unlocks.
 
 ## 9. Open questions
 

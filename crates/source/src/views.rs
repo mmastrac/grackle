@@ -885,7 +885,10 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
         let Some(at) = db
             .routes
             .iter()
-            .find(|r| r.kind == RouteKind::View && r.view.as_deref() == Some(name.as_str()))
+            // The `view` column alone: a route naming this view IS a view
+            // route, so the `kind == View` term that stood here was saying it
+            // twice (IO.md §3, I13).
+            .find(|r| r.view.as_deref() == Some(name.as_str()))
             .map(|r| r.id.clone())
         else {
             continue;

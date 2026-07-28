@@ -476,12 +476,18 @@ fn editing_a_sidecar_moves_the_rows_version() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The description page is deferred, and says so** (IO.md §4a, I11/I12).
+/// **The description page is refused, and no item owns it** (IO.md §4a).
 ///
 /// An image with a sidecar CAN wear an html output in the model — that is the
 /// object's description page — and it needs an output whose content is not the
-/// row's bytes, which the engine does not have yet. So the shape is refused
-/// where the author wrote it, for both spellings of identity.
+/// row's bytes, which the engine does not have. So the shape is refused where
+/// the author wrote it, for both spellings of identity.
+///
+/// I8 wrote this as "one line to delete when I11/I12 lands". Both landed and
+/// neither built it (I11 gave an input a second ADDRESS, I12 derived BYTES; a
+/// description page is an output rendered from a row's FIELDS), and I13 —
+/// the last item of the ledger — corrected the pointer rather than inheriting
+/// it. The refusal is not an interim.
 ///
 /// Mutation: delete the check and the load dies on `stream did not contain
 /// valid UTF-8` — the render path reading the PNG as a document body, naming a

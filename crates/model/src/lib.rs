@@ -328,6 +328,39 @@ pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
     )
 }
 
+/// The output's kind — **the last table tag, and what is left of it** after
+/// IO.md I13 (*delete `kind`*) took what was honestly takeable.
+///
+/// §3's claim is that this enum is a flattened product of independent facts
+/// (`front_mattered`, `output`, `shell`, the join, scope membership, view
+/// provenance) and should dissolve into them. Measured at I13, it dissolves
+/// **partly**, and the census is worth carrying at the definition because the
+/// reasons differ per survivor:
+///
+/// - **`View` is fully respellable and was respelled.** "Is this a view route"
+///   is the `view` column being non-empty — the three sites that mint one all
+///   set it and nothing else does — so all eight `kind == View` tests in the
+///   engine now read `view`, and three of them turned out to be asking the
+///   same question twice and were deleted outright.
+/// - **`Post` vs `Page` is NOT respellable**, and the reason is I9's, one
+///   store over: "this scope's role is posts" is a statement about CONFIG, and
+///   a row carries `collection` — the scope's *name* — and nothing that says
+///   what kind of scope that was. Adding a bit to make it expressible would
+///   re-mint, on the output side, exactly the origin distinction I7e deleted.
+///   The two render in different passes from different body stores, so
+///   `build.rs`'s render dispatch and `search_pass`'s doc arms read the enum.
+/// - **`Static` vs `Object` is respellable and no engine path asks it.** Both
+///   are byte copies (`Static | Object` is one arm wherever it is dispatched
+///   on, and it equals `!rendered` on all six corpus trees — measured), and
+///   the only reader that tells the two apart is the `kind` column itself.
+/// - **The COLUMN cannot go**, which is what keeps the enum alive whatever the
+///   engine does internally: grack.com's `[routes.search]` and its
+///   `[profiles.drafts]` restatement filter `kind == "post"`, meaning the blog
+///   corpus — SCOPE MEMBERSHIP — and the route pool has no column for that.
+///   The migration is Matt's call with an expressibility item as its
+///   prerequisite (§3's re-pointed marker). Until then this is a live config
+///   vocabulary, `NAMES` is its domain, and `check_domain` is what keeps the
+///   silent-empty-query knife (`kind == "posts"`) a load error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RouteKind {

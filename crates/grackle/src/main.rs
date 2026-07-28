@@ -270,6 +270,15 @@ fn count(n: &Node) -> usize {
     n.leaf.is_some() as usize + n.kids.values().map(count).sum::<usize>()
 }
 
+/// The `[kind]` annotation `grackle routes` hangs off a trie node, and the
+/// `kind` line `grackle explain <url>` prints for an output.
+///
+/// **Kept real at I13, deliberately.** IR2 deleted the ROW branch's hardcoded
+/// `kind post` because a row has no kind; this is the ROUTE branch, where the
+/// value is a live column a site's `where` can name (grack.com's search filter
+/// does). A debug surface that prints a column the query language still has is
+/// not a fossil — it is the surface. The day the column goes, this line and
+/// `query urls --kind` go with it, together.
 fn tag(kind: db::RouteKind, view: &Option<String>, rows: Option<usize>) -> String {
     let base = match (kind, view) {
         (db::RouteKind::View, Some(v)) => format!("view {v}"),

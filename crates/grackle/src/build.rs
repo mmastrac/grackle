@@ -140,12 +140,15 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
 
     // The routes that are THIS page in another form: a row's own routes, or the
     // same view route (same group key and page).
+    //
+    // "Is this a view route" is the `view` column being non-empty (IO.md §3,
+    // I13) — the three sites that mint one all set it, and nothing else does.
+    // The `is_some` is not implied by the equality below: a route with no row
+    // and no view is a shape this seam must not treat as a view's twin.
     let in_scope = |o: &Route| -> bool {
         match &r.row {
             Some(k) => o.row.as_ref() == Some(k),
-            None => {
-                o.kind == RouteKind::View && o.view == r.view && o.key == r.key && o.page == r.page
-            }
+            None => o.view.is_some() && o.view == r.view && o.key == r.key && o.page == r.page,
         }
     };
 
@@ -524,6 +527,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     //
     // `bodies` holds the in-memory bodies the posts loader produced, keyed by
     // ROW rather than by URL for the same reason.
+    //
+    // `kind == Post` survives I13 here: it is scope membership on the output
+    // side, and the route pool has no other column for that (see `RouteKind`'s
+    // own doc for the census).
     let post_routes: Vec<&Route> = db
         .routes
         .iter()
@@ -653,9 +660,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(content) = r.content.as_deref().or(v.content.as_deref()) else {
             continue;
         };
-        if r.kind != RouteKind::View {
-            continue;
-        }
+        // (A `kind != View` guard stood here and was DELETED at I13, not
+        // respelled: the `let Some(view)` four lines up already asked it —
+        // "is this a view route" is the `view` column being non-empty.)
         let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
 
         // The claimed row, in the route's locale — else the default's
@@ -1008,6 +1015,25 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // Section trees (§6e) derive once per `.section` root and are re-shaped
     // per page — the tree is shared with the landing pass, only `current`
     // moves.
+    //
+    // **The dispatch that survives `kind`** (IO.md I13). Half of it is
+    // respellable in facts and half is not, and taking the half would cost
+    // more than it buys:
+    //
+    // - `Static | Object` vs `Page` IS the rendering law's output. Measured on
+    //   all six corpus trees: every `Static` and every `Object` route's row is
+    //   `rendered false`, every `Page` route's row is `rendered true`. So this
+    //   `match` could ask `p.rendered` instead of naming three variants.
+    // - `Post` vs `Page` is NOT expressible. Posts render above, from their
+    //   own body store; "this row is in a posts scope" is a fact about the
+    //   CONFIG, and a row carries the scope's name and not its role (I9's
+    //   ruling, one store over). So the `_ => {}` arm would have to stay a
+    //   `kind` test whatever happens to the other two.
+    //
+    // A `match` that dispatches on which pass owns an output is what this enum
+    // IS; respelling two of its five arms and leaving a `kind == Post` guard
+    // above them makes one construct into three and reads worse. Declined,
+    // with the measurement recorded rather than the option forgotten.
     for r in &db.routes {
         match r.kind {
             RouteKind::Static | RouteKind::Object => {
@@ -1416,6 +1442,12 @@ fn thumbs_pass(
         );
     }
     for r in &db.routes {
+        // `Page` here means "renders, and its body was not already scanned by
+        // the posts loop above" — the second half is what keeps this a `kind`
+        // test after I13. `p.rendered` alone would re-read every post; moving
+        // the scan onto rows instead would change WHICH rows are scanned (a
+        // claimed row has no route, so it is not scanned today), which is a
+        // behaviour change and not this item's.
         if r.kind == RouteKind::Page {
             if let Some(src) = &r.source {
                 if let Ok(text) = std::fs::read_to_string(src) {
@@ -1651,6 +1683,10 @@ fn render_page_bodies(
 ) -> Result<HashMap<String, PageBody>> {
     let mut out = HashMap::new();
     for r in &db.routes {
+        // `page_bodies` is the PAGE body store, and its being a second store
+        // beside the posts one is why `kind` survives I13 at this line: the
+        // two are keyed differently (URL here, row key there) and read by
+        // different arms of `search_pass` and the feed.
         if r.kind != RouteKind::Page {
             continue;
         }
@@ -2357,6 +2393,12 @@ fn search_pass(
             .route_members
             .iter()
             .filter_map(|k| db.routes.get(k))
+            // The two arms are two BODY STORES, not two kinds of thing to say
+            // about an output — which is why `kind` survives I13 here: a post's
+            // html is in `bodies` (keyed by row) and a page's in `page_bodies`
+            // (keyed by URL), and no fact on the route says which pass filled
+            // which. `_ => None` is the rest: a byte copy has no body to
+            // search, and a fold's output is not a document.
             .filter_map(|r| match r.kind {
                 crate::db::RouteKind::Post => {
                     r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| {

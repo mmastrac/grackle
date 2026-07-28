@@ -19,7 +19,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::config::{Config, LinkPolicy};
-use crate::db::{RouteKind, SiteDb};
+use crate::db::SiteDb;
 // The materializer's own path selection (§6f, the default-axis case). Shared
 // rather than restated: a link that builds a URL by a rule of its own is a link
 // that can name a URL the build never issued.
@@ -169,12 +169,17 @@ impl LinkSpace {
         }
         for r in &db.routes {
             routes.insert(r.url.clone());
-            let form = match r.kind {
-                RouteKind::View => r.view.as_ref().map(|v| match &r.key {
+            // A view route names itself by its view (and group key); every
+            // other output names itself by its source path. "Is this a view
+            // route" is the `view` column being non-empty (IO.md §3, I13) —
+            // which is also the value this arm needs, so matching on the
+            // column binds it instead of asking `kind` and then unwrapping.
+            let form = match &r.view {
+                Some(v) => Some(match &r.key {
                     Some(k) => format!("view:{v}/{k}"),
                     None => format!("view:{v}"),
                 }),
-                _ => r.source.as_ref().and_then(|s| {
+                None => r.source.as_ref().and_then(|s| {
                     s.strip_prefix(root)
                         .ok()
                         .map(|rel| format!("/{}", rel.to_string_lossy()))

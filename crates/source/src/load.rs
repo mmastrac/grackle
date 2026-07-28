@@ -1447,14 +1447,23 @@ fn walk_site(
         let rendered = crate::shell::renders(f.has_front_matter, worn.shell.as_deref());
         // **A picture is not a document, and the description page is not
         // built.** IO.md §4a says an image with a sidecar *can* wear an html
-        // output — the object's description page — and that is I11/I12's, not
-        // this item's: it needs an output whose content is not the row's bytes,
-        // which the model has (facts at planning, content at materialization)
-        // and the engine does not yet. Until then the shape is refused where
-        // the author wrote it. Deleting this check does not make the page
-        // work — measured: the render path reads the row's file as text and
-        // the load dies on `stream did not contain valid UTF-8`, naming a
-        // file and no reason.
+        // output — the object's description page. It needs an output whose
+        // content is not the row's bytes, which the model has (facts at
+        // planning, content at materialization) and the engine does not.
+        //
+        // **No item owns it.** I8 wrote "one line to delete when I11/I12
+        // lands"; both landed and neither built it — I11 gave an input a
+        // second ADDRESS and I12 gave it derived BYTES, and a description page
+        // is neither: it is an output whose content is a rendered template
+        // over the row's fields. Nothing in the ledger is going to build that,
+        // so this refusal is not an interim, and the honest thing for the next
+        // reader is a shape rather than an item number: the day something
+        // materializes an html output from a row's FIELDS instead of its
+        // bytes, this check is what has to move. Until then the shape is
+        // refused where the author wrote it. Deleting the check does not make
+        // the page work — measured: the render path reads the row's file as
+        // text and the load dies on `stream did not contain valid UTF-8`,
+        // naming a file and no reason.
         if rendered && object_shaped {
             bail!(
                 "{}: shell = {:?} would render this file as a document, and its \
@@ -2114,9 +2123,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         let mut owner_of: HashMap<String, String> = HashMap::new(); // logical -> view
         let mut errors: Vec<String> = Vec::new();
         for r in &db.routes {
-            if r.kind != RouteKind::View {
-                continue;
-            }
+            // (A `kind != View` guard stood here and was DELETED at I13, not
+            // respelled: the `view` column below already asks it — "is this a
+            // view route" is that column being non-empty, IO.md §3.)
             let Some(view) = r.view.as_deref() else {
                 continue;
             };
@@ -2272,8 +2281,12 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             let url = db
                 .routes
                 .iter()
+                // "Is this a view route" is the `view` column being non-empty
+                // (IO.md §3, I13). In the second find it was already being
+                // said — the route NAMES the owning view — so only the term
+                // is gone there.
                 .find(|r| {
-                    r.kind == RouteKind::View
+                    r.view.is_some()
                         && r.content.as_deref() == Some(p.logical.as_str())
                         && r.locale == route_locale(&p.locale)
                 })
@@ -2283,8 +2296,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                     db.routes
                         .iter()
                         .find(|r| {
-                            r.kind == RouteKind::View
-                                && r.view.as_deref() == Some(owner)
+                            r.view.as_deref() == Some(owner)
                                 && r.locale == route_locale(&p.locale)
                                 && r.key.is_none()
                                 && r.page.is_none_or(|n| n == 1)
@@ -2408,8 +2420,16 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
 ///
 /// The mutation that proves it: label `route_members` as `Demand::Content` in
 /// `graph::Graph::of` and every site with a from-less fold stops loading, this
-/// error naming the fold's own URL. The check is armed for I11/I12, where a
-/// rendition IS an output derived from another output's bytes.
+/// error naming the fold's own URL.
+///
+/// **The check is armed for nothing named** (corrected at I13; `graph.rs` and
+/// `io_graph.rs` were corrected at I12 and this third copy was missed). I10
+/// expected renditions to bring the first output→output content edge; I12
+/// measured that they do not, because the transform reads the INPUT's bytes
+/// and the citing page reads the rendition's ADDRESS, which the hashing law
+/// makes a planning fact. Nothing in the engine derives an output from another
+/// output's content, so no live fixture is owed by any item — the day
+/// something does, this is the tripwire it trips.
 fn check_graph(db: &SiteDb) -> Result<()> {
     if let Err(cycle) = grackle_model::graph::Graph::of(db).check_acyclic() {
         bail!(

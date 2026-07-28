@@ -16,7 +16,7 @@
 use anyhow::{Context, Result};
 
 use crate::config::{Config, Kind, View};
-use crate::db::{Route, RouteKind, Row, SiteDb};
+use crate::db::{Route, Row, SiteDb};
 
 /// The URL "Home" means for a locale (§6f): the locale's own homepage
 /// when a translated index exists (`index.fr.html` → `/fr/`), else the
@@ -247,7 +247,9 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
                 out.push((parent, t.clone()));
             }
         } else if let Some(r) = db.routes.iter().find(|r| {
-            r.kind == RouteKind::View
+            // "Is this a view route" is the `view` column being non-empty
+            // (IO.md §3, I13).
+            r.view.is_some()
                 && r.url == parent
                 // The view's ROOT route, not one of its grouped archives:
                 // group keys accumulate in `params` along the subdivision
