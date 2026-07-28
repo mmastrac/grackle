@@ -347,31 +347,9 @@ fn site_icon(cfg: &Config, db: &SiteDb) -> String {
         .unwrap_or_default()
 }
 
-/// Every declared theme name, checked against the registry before anything
-/// renders (MERGE.md table C's theme ladder, C2).
-///
-/// This lives here rather than in config because the REGISTRY is the only
-/// thing that knows which names exist — the same reason `[site] theme` is
-/// checked in `load_all` and not in `Site`'s deserializer. A name that answers
-/// to nothing used to reach the render paths, where a bare `themes.get` names
-/// the theme and **nothing names the writer**: one post with `theme: legder`
-/// failed the whole build with "no theme named legder" and no file to open.
-///
-/// Three rungs, nearest first — one per writer that can name a theme:
-///
-///   * an **axis** whose `field` is `theme`: its values are set on the row at
-///     render (`axis_field`), which makes each one a theme spec, and the
-///     nearest rung there is. Nothing checked them at all before this.
-///   * a **view**'s `theme =`, named with its view.
-///   * a **row**'s `theme:` — front matter, a marker, or a rule default, all
-///     of which now arrive on `row.theme` through one typed cascade (C1), so
-///     one sweep covers every rung below the view's.
-///
-/// Only the spec's NAME half is checked (`split_spec`). Subtheme tokens are
-/// CSS selector fodder and name nothing the engine could know about; that they
-/// go unvalidated is a §7-adjacent gap, stated rather than closed. A row
-/// naming no theme is skipped: it resolves to the site default, and `load_all`
-/// has already checked that one.
+/// Declared theme names vs the registry (MERGE.md C2), before render.
+/// Name half only — subtheme tokens are CSS fodder. Themeless rows skip
+/// (site default already checked in `load_all`).
 fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Themes) -> Result<()> {
     for (name, axis) in &cfg.axes {
         if axis.field != "theme" {
@@ -446,7 +424,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // §5e: the part vocabulary this build runs against — the engine's kinds
     // plus whatever `[[parts]]` the site declares. Fragments are checked
     // against it, so a theme can place a part the site invented.
-    let schemas = parts::Schemas::load(cfg)?;
+    let schemas = parts::Schemas::engine_only();
     let themes = theme::Themes::load_all(
         &root.join("themes"),
         &root,
@@ -553,53 +531,43 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             head.meta = render::eval_metas(&metas, p, &site, &head.title, &p.url);
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
-            // §6e heading axis: `toc:` rows carry their outline, extracted
-            // from the same rendered bytes. h2–h3 is the v1 depth window
-            // (production policy, not CSS — never ship what a theme hides).
+            // §6e: toc rows carry outline from the same rendered bytes (h2–h3).
             let outline = if p.toc {
                 let tree = crate::outline::heading_tree(&bodies[&p.key].headings(), 2, 3);
                 crate::outline::to_parts(&tree, &p.url)
             } else {
                 Vec::new()
             };
-            // §6f: this row in other locales, labelled by language.
-            let translations: Vec<(String, String)> = db
-                .by_logical
-                .get(&p.logical)
-                .map(|sibs| {
-                    sibs.iter()
-                        .filter_map(|k| db.rows.get(k))
-                        .filter(|s| s.url != p.url)
-                        .map(|s| (s.locale.clone(), s.url.clone()))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let translations = locale_twins(db, p);
             let mut head = head;
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
-            // q53: this row's OTHER axis forms (themes, the md twin) as
-            // `rel="alternate"`, beside the locale twins above.
+            // q53: other axis forms as rel=alternate beside locale twins.
             head.alternates
                 .extend(axis_alternates(db, &cfg.site.url, r));
             let groups =
                 parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
-            let mut doc = parts::document(cfg, p, whole, trail, groups, outline);
+            let doc = parts::document(cfg, p, whole, trail, groups, outline);
             let dir = p.path.parent().unwrap_or(&root);
             let (theme_name, subtheme) =
                 themes.resolve(axis_field(r, "theme").or(p.theme.as_deref()));
             let row_thm = themes.get(theme_name)?;
-            parts::fill_from_fields(&mut doc, p, row_thm.schemas(), &resolve_asset)?;
-            let main = row_thm.fragments.render(&doc);
-            let html = row_thm.page(
-                render::head_html(&head, &css_of(theme_name)),
-                &cfg.site.title,
-                main,
-                dir,
-                &p.locale,
-                &fill_link_resolver(cfg, &linkspace, &p.locale),
-                subtheme.as_deref(),
-                profile,
-                &r.axis,
-                axes_part(cfg, db, r),
+            let html = chain::document_page(
+                chain::Page {
+                    theme: row_thm,
+                    head_html: render::head_html(&head, &css_of(theme_name)),
+                    site_title: &cfg.site.title,
+                    source_dir: dir,
+                    locale: &p.locale,
+                    resolve_link: &fill_link_resolver(cfg, &linkspace, &p.locale),
+                    subtheme: subtheme.as_deref(),
+                    profile,
+                    axis: &r.axis,
+                    axes: axes_part(cfg, db, r),
+                },
+                Some(p),
+                doc,
+                whole,
+                &resolve_asset,
             )?;
             Ok((url.to_string(), html))
         })
@@ -681,63 +649,27 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             v.layout.as_deref().unwrap_or("listing"),
             v.variant.as_deref(),
         );
-        let embed_parts = match view_base_collection(cfg, view) {
-            Some(c) if c.is_posts() => {
-                let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-                let items: Vec<parts::Preview> = r
-                    .members
-                    .iter()
-                    .filter_map(|k| db.rows.get(k))
-                    .map(|p| {
-                        let (html, truncated) = match bodies.get(&p.key) {
-                            Some(d) => match summary_field {
-                                Some(t) => d.truncate(t.max_blocks, t.max_chars),
-                                None => (d.whole.clone(), false),
-                            },
-                            None => (String::new(), false),
-                        };
-                        row_preview(cfg, p, &thumbs, Some(html), truncated)
-                    })
-                    .collect();
-                let pagination = pagination_parts(db, view, v, r)?;
-                (items, false, pagination)
-            }
-            Some(c) if c.is_tree() => {
-                let items: Vec<parts::Preview> = r
-                    .members
-                    .iter()
-                    .filter_map(|k| db.rows.get(k))
-                    .map(|p| row_preview(cfg, p, &thumbs, None, false))
-                    .collect();
-                (items, v.featured, None)
-            }
-            // The remaining role: objects (sourceless).
-            Some(_) => {
-                let items: Vec<parts::Preview> = r
-                    .members
-                    .iter()
-                    .filter_map(|k| db.rows.get(k))
-                    .map(|o| object_preview(o, &thumbs))
-                    .collect();
-                (items, false, None)
-            }
-            None => continue,
-        };
-
-        // The row's theme renders both the slice and the page (§5a: the
-        // landing wears its section's clothes) — unless the VIEW named one,
-        // which is nearer and explicit. Same order the listing pass uses, and
-        // it is what lets several routes over one query wear several looks
-        // without several copies of the rows underneath them.
-        // q53 first, then the view's own, then the claimed row's (§5h).
+        if view_base_collection(cfg, view).is_none() {
+            continue;
+        }
+        let items = member_previews(
+            cfg,
+            db,
+            view,
+            &r.members,
+            &thumbs,
+            &bodies,
+            &page_bodies,
+            |k| db.object_ix.iter().any(|o| o == k),
+        );
+        let pagination = pagination_parts(db, view, v, r)?;
         let (theme_name, subtheme) = match axis_field(r, "theme").or(v.theme.as_deref()) {
             Some(spec) => themes.resolve(Some(spec)),
             None => themes.resolve(row.theme.as_deref()),
         };
         let row_thm = themes.get(theme_name)?;
-        let (items, featured, pagination) = embed_parts;
         let mut embed_html =
-            crate::assemble::chain::concat_rows(&row_thm.fragments, face, items, featured);
+            crate::assemble::chain::concat_rows(&row_thm.fragments, face, items, v.featured);
         if let Some(p) = pagination {
             embed_html.push_str(&row_thm.fragments.render(&p));
         }
@@ -822,13 +754,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             &crate::trails::home_url(cfg, db, loc),
             &title,
             &r.url,
-            parts::TreeDoc {
-                ancestors: &crate::trails::ancestors(cfg, db, &r.url),
-                section,
-                outline: Vec::new(),
-                hero: None,
-                relation_groups: groups,
-            },
+            &crate::trails::ancestors(cfg, db, &r.url),
+            section,
+            Vec::new(),
+            None,
+            groups,
             &frag,
         );
         let mut head = render::head_simple(&title, &r.url, &site);
@@ -1143,17 +1073,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                         let groups = parts::relation_groups(
                             rel_groups.get(&r.url).cloned().unwrap_or_default(),
                         );
-                        let translations: Vec<(String, String)> = row
-                            .and_then(|p| {
-                                db.by_logical.get(&p.logical).map(|sibs| {
-                                    sibs.iter()
-                                        .filter_map(|k| db.rows.get(k))
-                                        .filter(|s| s.url != p.url)
-                                        .map(|s| (s.locale.clone(), s.url.clone()))
-                                        .collect()
-                                })
-                            })
-                            .unwrap_or_default();
+                        let translations = row.map(|p| locale_twins(db, p)).unwrap_or_default();
                         let mut head = head;
                         head.alternates =
                             locale_alternates(&cfg.site.url, row_locale, &r.url, &translations);
@@ -1165,13 +1085,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                             &crate::trails::home_url(cfg, db, row_locale),
                             &title,
                             &r.url,
-                            parts::TreeDoc {
-                                ancestors: &crate::trails::ancestors(cfg, db, &r.url),
-                                section,
-                                outline,
-                                hero,
-                                relation_groups: groups,
-                            },
+                            &crate::trails::ancestors(cfg, db, &r.url),
+                            section,
+                            outline,
+                            hero,
+                            groups,
                             frag,
                         );
                         let dir = src.parent().unwrap_or(&root);
@@ -2726,21 +2644,56 @@ pub(crate) fn pagination_parts(
     Ok(parts::pagination(cur, &urls))
 }
 
-/// q45 mode A: the view's declared intro, rendered as markdown through
-/// the locale-aware link resolver — an intro may say `view:…` or link a
-/// source path and gets the same strict validation as any body. Config
-/// prose has no directory, so the browser-agreement bypass is disabled
-/// (the impossible url_dir, as shared fills do) and every link
-/// canonicalizes.
-fn intro_html(
+/// Locale twins of `row` (other locales, labelled by language).
+fn locale_twins(db: &SiteDb, p: &Row) -> Vec<(String, String)> {
+    db.by_logical
+        .get(&p.logical)
+        .map(|sibs| {
+            sibs.iter()
+                .filter_map(|k| db.rows.get(k))
+                .filter(|s| s.url != p.url)
+                .map(|s| (s.locale.clone(), s.url.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Members of a view/route as previews — objects, truncated prose, or tree
+/// bodies from `page_bodies` when the post map has none.
+pub(crate) fn member_previews<'a>(
     cfg: &Config,
-    v: &View,
+    db: &'a crate::db::SiteDb,
     view: &str,
-    linkspace: &crate::links::LinkSpace,
-    locale: &str,
-) -> Result<Option<String>> {
-    let Some(i) = &v.intro else { return Ok(None) };
-    render_config_prose(cfg, linkspace, locale, &format!("view {view}: intro"), i)
+    members: &[grackle_model::Key],
+    thumbs: &crate::thumbs::Renditions,
+    bodies: &std::collections::HashMap<&grackle_model::Key, crate::markdown::Doc>,
+    page_bodies: &std::collections::HashMap<String, PageBody>,
+    is_object: impl Fn(&grackle_model::Key) -> bool,
+) -> Vec<parts::Preview<'a>> {
+    let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
+    members
+        .iter()
+        .filter_map(|k| db.rows.get(k))
+        .map(|p| {
+            if is_object(&p.key) {
+                return object_preview(p, thumbs);
+            }
+            let (html, truncated) = match bodies.get(&p.key) {
+                Some(d) => match summary_field {
+                    Some(t) => d.truncate(t.max_blocks, t.max_chars),
+                    None => (d.whole.clone(), false),
+                },
+                None => (
+                    page_bodies
+                        .get(&p.url)
+                        .map(|pb| pb.frag.clone())
+                        .unwrap_or_default(),
+                    false,
+                ),
+            };
+            row_preview(cfg, p, thumbs, Some(html), truncated)
+        })
+        .collect()
 }
 
 /// An object row as a preview: the row IS the picture, so it is its own
@@ -2830,7 +2783,10 @@ pub(crate) fn route_intro(
             }
         }
     }
-    intro_html(cfg, v, view, linkspace, locale)
+    match &v.intro {
+        Some(i) => render_config_prose(cfg, linkspace, locale, &format!("view {view}: intro"), i),
+        None => Ok(None),
+    }
 }
 
 /// Config-authored prose (intros): markdown through the locale-aware

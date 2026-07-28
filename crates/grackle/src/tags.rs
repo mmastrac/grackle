@@ -264,14 +264,21 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
         })?;
     match layout {
         "link_list" => {
-            let pairs: Vec<(String, String)> = v
+            let items: Vec<_> = v
                 .members
                 .iter()
                 .filter_map(|k| cx.db.rows.get(k))
-                .map(|p| (p.title.clone().unwrap_or_default(), p.url.clone()))
+                .map(|p| crate::parts::Preview {
+                    title: Some(p.title.clone().unwrap_or_default()),
+                    url: Some(p.url.clone()),
+                    ..Default::default()
+                })
                 .collect();
-            Ok(crate::assemble::chain::embed_members(
-                theme, layout, None, &pairs, None,
+            Ok(crate::assemble::chain::concat_rows(
+                &theme.fragments,
+                crate::parts::member_face(layout, None),
+                items,
+                false,
             ))
         }
         "card" => {
@@ -282,20 +289,17 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
                 cx.thumbs
                     .and_then(|t| t.get(&(s.to_string(), Rendition::THUMB)))
             });
-            let c = crate::parts::Preview {
-                title: Some(p.title.clone().unwrap_or_default()),
-                url: Some(p.url.clone()),
-                src: thumb.map(|t| t.url.clone()),
-                dims: thumb.and_then(|t| t.dims),
-                note: p.description.clone(),
-                ..Default::default()
-            };
-            Ok(crate::assemble::chain::embed_members(
-                theme,
-                layout,
-                v.variant.as_deref(),
-                &[],
-                Some(c),
+            let face = crate::parts::member_face(layout, v.variant.as_deref());
+            Ok(theme.fragments.render_with(
+                &crate::parts::preview(crate::parts::Preview {
+                    title: Some(p.title.clone().unwrap_or_default()),
+                    url: Some(p.url.clone()),
+                    src: thumb.map(|t| t.url.clone()),
+                    dims: thumb.and_then(|t| t.dims),
+                    note: p.description.clone(),
+                    ..Default::default()
+                }),
+                Some(face),
             ))
         }
         other => bail!(

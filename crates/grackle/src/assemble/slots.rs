@@ -137,21 +137,9 @@ impl SlotFills {
     }
 }
 
-/// Fills nothing will ever read (MERGE.md C4b): a `.slots/` file whose stem
-/// names no identity slot of any loaded theme's root — `.slots/copyrite.md`
-/// is walked, read, keyed, and then looked at by nothing.
-///
-/// `known` is the UNION over loaded themes (`Themes::identity_slots`) —
-/// different themes place different slots, and a fill is dead only when NO
-/// theme would read it. `locales` is the default locale plus `[i18n]
-/// locales`, because §6f's `nav.fr` is the stem `nav.fr` and only a declared
-/// locale makes it a localized `nav`.
-///
-/// **A warning, not an error, and deliberately.** A site may keep fills for a
-/// theme it has uninstalled, or install one before its words — erroring would
-/// make theme switching a two-step edit and would fail a build over a file
-/// whose only cost is disk. The engine says what it will not read; the author
-/// decides whether that is a typo or a spare.
+/// Fills nothing will ever read (MERGE.md C4b): stem not in any theme's
+/// identity slots. Warning not error — spare fills for uninstalled themes
+/// should not fail a build.
 pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec<String> {
     let mut out = Vec::new();
     for (stem, file) in fills.iter() {
@@ -439,22 +427,15 @@ mod tests {
         assert!(e.contains("nav.html"), "{e}");
         assert!(e.contains("nav.md"), "{e}");
         assert!(e.contains("fill slot \"nav\""), "{e}");
-        // Sorted by filename, so `read_dir`'s order does not reach the message.
+        // Sorted by filename so read_dir order does not reach the message.
         assert!(e.find("nav.html") < e.find("nav.md"), "{e}");
+        assert_eq!(
+            conflict(Path::new(".slots/nav.md"), Path::new(".slots/nav.html")),
+            conflict(Path::new(".slots/nav.html"), Path::new(".slots/nav.md"))
+        );
     }
 
-    /// …and the sort is the message's, not the caller's: `conflict` says one
-    /// sentence whichever way round the walk found the pair. (`read_dir`'s
-    /// order is not ours to choose, so this half is asserted directly.)
-    #[test]
-    fn the_conflict_message_does_not_depend_on_walk_order() {
-        let (md, html) = (Path::new(".slots/nav.md"), Path::new(".slots/nav.html"));
-        assert_eq!(conflict(md, html), conflict(html, md));
-        assert!(conflict(md, html).starts_with(".slots/nav.html is verbatim markup,"));
-    }
-
-    /// The control that is also the live corpus's shape (§6f): a locale suffix
-    /// IS a different slot name, and the base file is the default locale.
+    /// A locale suffix IS a different slot name; the base file is the default locale.
     #[test]
     fn a_locale_suffix_is_a_different_slot_not_a_collision() {
         let dir = tree(

@@ -1,34 +1,9 @@
-//! The fragment binder (§5e step 2): theme fragments are straight-line HTML
-//! with typed holes; this module parses them once at load, validates every
-//! name against the part schemas, and fills them from part maps at render.
+//! The fragment binder (THEME.md §5): parse theme HTML once, validate slots
+//! against schemas, fill from part maps at render.
 //!
-//! The whole hole algebra:
-//!
-//! 1. **`data-slot="name"`** — the element's content is replaced by the part.
-//!    `Text` parts are escaped; `Html` parts are trusted. `Stream`/`Map` parts
-//!    render a child fragment per item (the fragment for the child's kind, or
-//!    the `data-fragment` override). The loop lives here; fragments stay
-//!    straight-line.
-//! 2. **An empty part deletes its element.** Absent part, empty text, empty
-//!    stream: the element does not render. This one rule is every
-//!    presence-conditional (§5d's "genuinely hard" case, dissolved).
-//! 3. **`data-slot-attr="name"`** — the attribute `attr` is set from a `Text`
-//!    part, escaped; an absent part omits the attribute. `<a>` with no `href`
-//!    is the HTML-spec placeholder link, so "linked crumb vs inert tail" and
-//!    "page number vs current page" are `a:not([href])` in theme CSS, not a
-//!    branch anywhere.
-//!
-//! Facts (`Flag` parts) never fill holes: the root element of a rendered
-//! fragment is stamped `data-kind="<kind>"` plus `data-<name>` per true flag,
-//! and theme CSS selects on them (§5e: facts as attributes).
-//!
-//! **Everything is checked at load, not at render**: unknown slot, slot/type
-//! mismatch, content slot on a void element, `data-fragment` naming a missing
-//! or wrong-kind fragment — errors that name the file and line and list the
-//! known names, the filter-language discipline (§5) applied to themes. The
-//! parser is deliberately strict (well-formed, double-quoted attributes,
-//! matching close tags): a malformed fragment is a build error, not something
-//! to recover from. After validation, rendering is infallible.
+//! Hole algebra: `data-slot` replaces content (empty → delete element);
+//! `data-slot-attr` sets/omits attributes; flags stamp `data-*` on the root.
+//! Load-time checks only — render is infallible.
 
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
@@ -165,33 +140,11 @@ pub struct Root {
     pub body: Option<String>,
 }
 
-/// Split a theme's `root.html` into its head and body halves.
+/// Split `root.html` into head styles and body chrome.
 ///
-/// Three shapes are accepted, and the first is the one every theme in the
-/// repository writes:
-///
-/// - **a fragment** — no `<head>` and no `<body>` anywhere at the top level:
-///   the file IS the body chrome. This is what makes the `shell.html` →
-///   `root.html` migration a rename and nothing else, and it is why the
-///   `<body>` element is optional rather than required — the wrapper would
-///   be a tag every theme writes and no theme means anything by.
-/// - **a document** — `<head>` and/or `<body>` at the top level, with nothing
-///   else beside them.
-/// - **head-only** — a `<head>` and no `<body>`: the theme adds presentation
-///   and inherits the base's chrome, which falls out of the fragment merge
-///   (`theme.rs`) rather than needing a rule of its own.
-///
-/// One shape is REFUSED, and it is the one a full page skeleton pasted into
-/// the file has: a top-level `<html>` element, or a doctype. Neither is the
-/// theme's to write, and neither can be waved through — an `<html>` wrapper
-/// hides the `<head>` and the `<body>` from the fragment/document test, so
-/// the whole document reads as a fragment and every page ships the theme's
-/// `<title>` and metas *inside its `<body>`*: both of this function's
-/// invariants defeated at once, and no error anywhere (IR4).
-///
-/// The engine keeps owning `<html>` and the computed head in every accepted
-/// shape; the wrapper check and the head fence below are what make that a
-/// checked claim rather than a convention.
+/// Accepts a bare body fragment, or top-level `<head>`/`<body>`. Refuses
+/// `<html>`/doctype — the engine owns the skeleton (IO.md §6); wrapping would
+/// hide head/body and ship theme metas inside `<body>`.
 pub fn split_root(src: &str, file: &str) -> Result<Root> {
     let nodes = Parser::new(src, file).parse_all()?;
     // Before anything else, because this is the check the two shapes below

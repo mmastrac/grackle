@@ -341,7 +341,9 @@ impl Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::split_spec;
+    use super::{split_spec, Theme, Themes};
+    use crate::parts::{first_dropped, Schemas};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn theme_specs_split_on_colons() {
@@ -358,102 +360,44 @@ mod tests {
         assert_eq!(split_spec("recipes:"), ("recipes", None));
     }
 
-    // ------------------------------------------------- the site default
-    //
-    // `[site] theme` is rung 0 of the customization ladder (themes/DESIGN.md
-    // §2): the cheapest way to change how a site looks, and until it existed
-    // the answer was "rename a directory to `default`". It is one rewrite —
-    // a row that named nothing becomes a row that named the site's theme —
-    // which is why these tests are about `resolve` and not about rendering.
-
-    /// Absent, nothing moves. This is the test that protects URL parity:
-    /// `None` is what `css_of` reads as `/css/main.css`, so a site that never
-    /// writes the key must keep producing the byte-identical `None`.
+    // `[site] theme`: row-less resolve rewrites; tokens stay with the named theme.
     #[test]
-    fn no_site_theme_resolves_exactly_as_before() {
+    fn site_theme_resolve() {
         let schemas = Schemas::engine_only();
         let root = crate::workspace_root();
-        let themes = Themes::load_all(&gallery(), &root, &schemas, None).unwrap();
-        assert_eq!(themes.resolve(None), (None, None));
-        assert_eq!(themes.site_default(), (None, None));
-    }
 
-    /// The whole feature: a row that names nothing wears the site's spec,
-    /// tokens included — so `[site] theme = "ledger:dark"` is a one-line
-    /// site-wide dark mode, which is rung 2 reached from rung 0.
-    #[test]
-    fn a_themeless_row_wears_the_site_theme_and_its_tokens() {
-        let schemas = Schemas::engine_only();
-        let root = crate::workspace_root();
-        let themes = Themes::load_all(&gallery(), &root, &schemas, Some("ledger:dark")).unwrap();
-        assert_eq!(themes.resolve(None), (Some("ledger"), Some("dark".into())));
-        // And it is the theme that actually renders — not merely a name.
-        let thm = themes.get(themes.resolve(None).0).unwrap();
-        assert!(std::ptr::eq(thm, themes.get(Some("ledger")).unwrap()));
-    }
+        let none = Themes::load_all(&gallery(), &root, &schemas, None).unwrap();
+        assert_eq!(none.resolve(None), (None, None));
+        assert_eq!(none.site_default(), (None, None));
 
-    /// A row that names a theme states its own tokens. The site's `dark` must
-    /// not follow `terminal` around: a subtheme is a dress, and the row
-    /// changed clothes. (Merging the two would make `theme: terminal` mean
-    /// something different on every site that set a token.)
-    #[test]
-    fn a_rows_own_theme_beats_the_site_and_takes_no_tokens_with_it() {
-        let schemas = Schemas::engine_only();
-        let root = crate::workspace_root();
-        let themes = Themes::load_all(&gallery(), &root, &schemas, Some("ledger:dark")).unwrap();
-        assert_eq!(themes.resolve(Some("terminal")), (Some("terminal"), None));
+        let site = Themes::load_all(&gallery(), &root, &schemas, Some("ledger:dark")).unwrap();
+        assert_eq!(site.resolve(None), (Some("ledger"), Some("dark".into())));
+        assert!(std::ptr::eq(
+            site.get(site.resolve(None).0).unwrap(),
+            site.get(Some("ledger")).unwrap()
+        ));
+        assert_eq!(site.resolve(Some("terminal")), (Some("terminal"), None));
         assert_eq!(
-            themes.resolve(Some("terminal:wide")),
+            site.resolve(Some("terminal:wide")),
             (Some("terminal"), Some("wide".into()))
         );
-    }
 
-    /// Named explicitly, so it fails at load with the knowns — the same
-    /// bargain a row's `theme:` already gets. Checking it here rather than at
-    /// render time is the point: a typo in `[site] theme` would otherwise
-    /// surface as an error on the first page that happened to be themeless.
-    #[test]
-    fn an_unknown_site_theme_is_a_load_error_naming_the_knowns() {
-        let schemas = Schemas::engine_only();
-        let root = crate::workspace_root();
         let err = Themes::load_all(&gallery(), &root, &schemas, Some("legder"))
             .map(|_| ())
-            .expect_err("a misspelled site theme must not load")
+            .expect_err("misspelled site theme")
             .to_string();
-        assert!(err.contains("legder"), "{err}");
-        assert!(err.contains("ledger"), "{err}");
-    }
+        assert!(err.contains("legder") && err.contains("ledger"), "{err}");
 
-    /// `default` resolves without a directory — it is the base theme (§5e) —
-    /// so a site with no `themes/` at all may still say so, and gets the
-    /// floor rather than an error listing nothing.
-    #[test]
-    fn default_is_spellable_with_no_themes_directory() {
-        let schemas = Schemas::engine_only();
-        let root = crate::workspace_root();
-        let none = root.join("themes-that-do-not-exist");
-        let themes = Themes::load_all(&none, &root, &schemas, Some("default")).unwrap();
-        assert_eq!(themes.resolve(None), (Some("default"), None));
-        themes.get(Some("default")).expect("the base answers");
-
-        // Any other name has nothing to resolve to, and says so.
-        let err = Themes::load_all(&none, &root, &schemas, Some("ledger"))
+        let empty = root.join("themes-that-do-not-exist");
+        let base = Themes::load_all(&empty, &root, &schemas, Some("default")).unwrap();
+        assert_eq!(base.resolve(None), (Some("default"), None));
+        base.get(Some("default")).expect("base answers");
+        let err = Themes::load_all(&empty, &root, &schemas, Some("ledger"))
             .map(|_| ())
-            .expect_err("no directory, no ledger")
+            .expect_err("no directory")
             .to_string();
         assert!(err.contains("(none)"), "{err}");
     }
-
-    // ------------------------------------------------------------ gallery
-    //
-    // Three properties over `themes/`, the real gallery. They are the reason
-    // the gallery is in the repository rather than in a gist: a theme that
-    // drops a part, invents a token or hardcodes a colour should fail a
-    // build, not be noticed six months later by eye.
-
-    use super::{Theme, Themes};
-    use crate::parts::{Part, PartMap, PartType, Schemas};
-    use std::path::{Path, PathBuf};
 
     fn gallery() -> PathBuf {
         crate::workspace_root().join("themes")
@@ -473,124 +417,27 @@ mod tests {
         out
     }
 
-    /// A part map with every part of a kind filled with a traceable value.
-    /// Generated from the schema rather than hand-written, so a new part in
-    /// `parts.toml` is covered the day it lands. `depth` bounds the
-    /// self-recursive kinds (`outline_entry.children` is a stream of itself).
-    fn populate(schemas: &Schemas, kind: &str, depth: usize) -> PartMap {
-        // `PartMap` keys are &'static str, and so are the schema's names.
-        let name: &'static str = schemas
-            .kind_names()
-            .into_iter()
-            .find(|k| *k == kind)
-            .map(|k| Box::leak(k.to_string().into_boxed_str()) as &'static str)
-            .expect("kind exists");
-        let mut m = PartMap::new(name);
-        let Some(parts) = schemas.get(kind) else {
-            return m;
-        };
-        for (part, ty) in parts {
-            match ty {
-                PartType::Text => m.set(part, Part::Text(format!("text-{kind}-{part}"))),
-                PartType::Url => m.set(part, Part::Text(format!("/url-{kind}-{part}/"))),
-                PartType::Html => m.set(part, Part::Html(format!("<p>html-{kind}-{part}</p>"))),
-                PartType::Flag => m.set(part, Part::Flag(true)),
-                PartType::Stream(child) => {
-                    if depth > 0 {
-                        m.set(
-                            part,
-                            Part::Stream(vec![populate(schemas, child, depth - 1)]),
-                        );
-                    }
-                }
-                PartType::Map(child) => {
-                    if depth > 0 {
-                        m.set(part, Part::Map(populate(schemas, child, depth - 1)));
-                    }
-                }
-            }
-        }
-        m
-    }
-
-    /// The first `kind.part` whose bytes did not survive, ignoring the
-    /// exempt pairs at whatever depth they occur. Mirrors `parts::complete`,
-    /// which is the same walk without the exemptions.
-    fn first_dropped(m: &PartMap, out: &str, exempt: &[(&str, &str, &str)]) -> Option<String> {
-        for (name, part) in m.iter() {
-            if exempt.iter().any(|(k, p, _)| *k == m.kind && *p == name) {
-                continue;
-            }
-            let here = format!("{}.{name}", m.kind);
-            let kept = match part {
-                Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
-                Part::Html(v) => out.contains(v.as_str()),
-                Part::Flag(true) => out.contains(&format!("data-{name}")),
-                Part::Flag(false) => true,
-                Part::Stream(items) => {
-                    if let Some(d) = items.iter().find_map(|c| first_dropped(c, out, exempt)) {
-                        return Some(d);
-                    }
-                    true
-                }
-                Part::Map(sub) => {
-                    if let Some(d) = first_dropped(sub, out, exempt) {
-                        return Some(d);
-                    }
-                    true
-                }
-            };
-            if !kept {
-                return Some(here);
-            }
-        }
-        None
-    }
-
-    /// The base is the null theme now, so it inherits the null theme's
-    /// obligation: nothing the parts layer carries may silently vanish
-    /// (§5e step 4, and `parts.rs`'s version of this against `canonical()`).
-    ///
-    /// It does not inherit it *absolutely* — an arrangement is allowed to
-    /// decline a part, which is what rule 2 and partiality mean. So the
-    /// exemptions are listed here, each with a reason, and the test's real
-    /// job is to make adding a sixth one a deliberate act.
+    /// Base theme may decline listed parts; anything else must survive.
     #[test]
     fn the_base_theme_drops_only_what_it_means_to() {
-        // (kind, part, why the base declines it)
+        // (kind, part, why)
         const EXEMPT: &[(&str, &str, &str)] = &[
             (
                 "row",
                 "url",
-                "the page's own address — a self-link is chrome, not content, \
-                 and a theme that wants a permalink places it itself",
+                "self-link is chrome; themes that want a permalink place it",
             ),
             (
                 "row",
                 "src",
-                "a picture needs `row--figure` or a theme's card: rule 2 \
-                 deletes an element with an EMPTY CONTENT SLOT, and an <img> \
-                 carries only attribute holes — so the default row face that \
-                 tried to show a cover would emit a broken <img> on every text row",
+                "needs row--figure / card face — empty content slot would break <img>",
             ),
-            ("row", "width", "rides with `src`"),
-            ("row", "height", "rides with `src`"),
-            (
-                "row",
-                "date",
-                "member faces (card/link) place dates; page furniture does not",
-            ),
-            ("row", "date_pretty", "rides with `date` on member faces"),
-            (
-                "row",
-                "note",
-                "member faces place the blurb; page furniture does not",
-            ),
-            (
-                "row",
-                "truncated",
-                "a fact for card CSS; the default face has no truncated cue",
-            ),
+            ("row", "width", "rides with src"),
+            ("row", "height", "rides with src"),
+            ("row", "date", "member faces place dates"),
+            ("row", "date_pretty", "rides with date"),
+            ("row", "note", "member faces place the blurb"),
+            ("row", "truncated", "card CSS fact; default face has no cue"),
         ];
 
         let schemas = Schemas::engine_only();
@@ -600,7 +447,7 @@ mod tests {
             if kind == "root" {
                 continue;
             }
-            let full = populate(&schemas, kind, 2);
+            let full = crate::parts::populate(&schemas, kind, 2);
             let out = thm.fragments.render(&full);
             // Exemptions hold at every depth: `document.hero` is a summary,
             // so a summary's exempt parts are exempt inside it too.
@@ -639,7 +486,7 @@ mod tests {
                 if kind == "root" {
                     continue;
                 }
-                let m = populate(&schemas, kind, 2);
+                let m = crate::parts::populate(&schemas, kind, 2);
                 let out = thm.fragments.render(&m);
                 assert!(
                     out.contains(&format!("data-kind=\"{kind}\"")),

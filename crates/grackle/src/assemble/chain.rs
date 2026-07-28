@@ -130,34 +130,3 @@ pub fn concat_rows(
     }
     out
 }
-
-/// Embed a view as link or card faces through concat (no wrapper furniture).
-pub fn embed_members(
-    theme: &Theme,
-    layout: &str,
-    variant: Option<&str>,
-    pairs: &[(String, String)],
-    card: Option<Preview<'_>>,
-) -> String {
-    let face = parts::member_face(layout, variant);
-    match layout {
-        "link_list" => {
-            let items: Vec<Preview> = pairs
-                .iter()
-                .map(|(title, url)| Preview {
-                    title: Some(title.clone()),
-                    url: Some(url.clone()),
-                    ..Default::default()
-                })
-                .collect();
-            concat_rows(&theme.fragments, face, items, false)
-        }
-        "card" => {
-            let p = card.unwrap_or_default();
-            theme
-                .fragments
-                .render_with(&parts::preview(p), Some(face))
-        }
-        _ => String::new(),
-    }
-}

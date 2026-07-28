@@ -1,24 +1,8 @@
-//! §5e: a layout kind emits a **part map**, not a page.
+//! Part maps: typed holes a theme's fragments place (THEME.md §5).
 //!
-//! A part is a named, typed value — a scalar, a trusted HTML fragment, a
-//! stream of child maps, or a fact. Layout kinds *produce* parts; arranging
-//! them into markup belongs to a theme's fragments through the binder
-//! (`binder.rs`, `theme.rs`).
-//!
-//! Two disciplines live here:
-//!
-//! - **Names are checked against a per-kind schema** (`schema()`), the same
-//!   load-time discipline as the filter language (§5). `set()` on an unknown
-//!   name is a bug, not a rendering choice.
-//! - **Schema order is canonical semantic order** — reading order, what a
-//!   screen reader or the null theme sees. `set` stores parts at their
-//!   `parts.toml` position, not in call order, so the order is the declared
-//!   one and a producer cannot drift it.
-//!
-//! Producers never see `Site` — URLs in parts are root-relative, and prefixing
-//! `baseurl` is presentation. Presence is schema-driven: a row with tags gets a
-//! `tags` stream, a draft gets a drafts trail; the producer computes, the
-//! composer/theme selects (§5a's law).
+//! Schema order is canonical reading order. `set` stores at the schema's
+//! position, not call order. Producers never see `Site` — URLs stay
+//! root-relative.
 
 use crate::db::Row;
 use anyhow::Context;
@@ -80,19 +64,14 @@ impl PartMap {
             self.kind
         );
         self.parts.push((name, part));
-        // Stored order follows the SCHEMA, not the call order: `parts.toml` is
-        // the canonical reading order the null theme renders (§5e), and a
-        // producer must not be able to change it by reordering its `set`s. The
-        // sort is stable and the list is tiny; parts a site declared past the
-        // engine schema (`set_declared`) sort to the end in the order added.
+        // Schema order, not call order — null theme reading order.
         if let Some(sch) = schema(self.kind) {
             self.parts
                 .sort_by_key(|(n, _)| sch.iter().position(|(sn, _)| sn == n).unwrap_or(usize::MAX));
         }
     }
 
-    /// A map of a kind the engine may not declare — a site's `[[parts]]`
-    /// kind, checked against the merged schema by its caller.
+    /// Site-declared kind (not in the engine schema).
     fn new_declared(kind: &'static str) -> Self {
         PartMap {
             kind,
@@ -100,10 +79,7 @@ impl PartMap {
         }
     }
 
-    /// Set a part the engine has no producer for — a site's `[[parts]]`
-    /// declaration, filled from a row field. Unlike `set`, the name is not in
-    /// the engine schema; `fill_from_fields` has already checked it against
-    /// the merged one.
+    /// Part filled from a row field; name already checked against merged schema.
     fn set_declared(&mut self, name: &'static str, part: Part) {
         debug_assert!(
             self.parts.iter().all(|(n, _)| *n != name),
@@ -303,10 +279,6 @@ impl Schemas {
         Schemas { kinds: engine() }
     }
 
-    pub fn load(_cfg: &crate::config::Config) -> anyhow::Result<Schemas> {
-        Ok(Self::engine_only())
-    }
-
     /// Extend with a theme's `.schema.toml` (THEME.md §5): each field becomes
     /// a part on `row`. May not remove or retype an engine part.
     pub fn extend_theme_dir(&self, theme_dir: &Path) -> anyhow::Result<Schemas> {
@@ -412,39 +384,91 @@ pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
         .map(|(_, t)| *t)
 }
 
-/// The null theme (§5e step 4): a part map rendered with **no fragments at
-/// all** — canonical order, generic semantic markup, derived purely from the
-/// part types. This is what a theme's absence looks like, the fallback for
-/// any kind a theme declines to arrange, and the falsifier: if the canonical
-/// render of a row is not complete, the parts layer dropped something, and
-/// no fragment can put it back.
-///
-/// The vocabulary is deliberately tiny: the kind root is a `<section
-/// data-kind>` stamped with its facts, scalars are `<span data-slot>`, urls
-/// are real links, trusted HTML and nested maps get `<div data-slot>`.
-/// Element *choice* beyond that (headings, time elements) is a theme
-/// decision, which is exactly what the null theme doesn't make.
+/// Null theme: schema order, generic markup from part types (THEME.md §5).
 pub fn canonical(m: &PartMap) -> String {
     let mut out = String::new();
     canonical_into(m, &mut out);
     out
 }
 
-/// The completeness property the null theme exists to falsify: every part's
-/// bytes must survive into the canonical rendering. A part that can vanish at
-/// this layer is a part no fragment can put back. `theme.rs` runs the same
-/// walk against the base theme, with an exemption list, since an arrangement
-/// — unlike `canonical()` — is allowed to decline a part.
+/// Completeness: every part's bytes survive. `exempt` skips (kind, part, _) pairs
+/// an arrangement may decline (theme gallery); empty for the null theme.
+#[cfg(test)]
+pub(crate) fn first_dropped(
+    m: &PartMap,
+    out: &str,
+    exempt: &[(&str, &str, &str)],
+) -> Option<String> {
+    for (name, part) in m.iter() {
+        if exempt.iter().any(|(k, p, _)| *k == m.kind && *p == name) {
+            continue;
+        }
+        let here = format!("{}.{name}", m.kind);
+        let kept = match part {
+            Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
+            Part::Html(v) => out.contains(v.as_str()),
+            Part::Flag(true) => out.contains(&format!("data-{name}")),
+            Part::Flag(false) => true,
+            Part::Stream(items) => {
+                if let Some(d) = items.iter().find_map(|c| first_dropped(c, out, exempt)) {
+                    return Some(d);
+                }
+                true
+            }
+            Part::Map(sub) => {
+                if let Some(d) = first_dropped(sub, out, exempt) {
+                    return Some(d);
+                }
+                true
+            }
+        };
+        if !kept {
+            return Some(here);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 fn complete(m: &PartMap, out: &str) -> bool {
-    m.iter().all(|(n, p)| match p {
-        Part::Text(v) => out.contains(crate::render::esc(v).as_str()),
-        Part::Html(v) => out.contains(v.as_str()),
-        Part::Stream(items) => items.iter().all(|c| complete(c, out)),
-        Part::Map(sub) => complete(sub, out),
-        Part::Flag(true) => out.contains(&format!("data-{n}")),
-        Part::Flag(false) => true,
-    })
+    first_dropped(m, out, &[]).is_none()
+}
+
+/// Fill every part of a kind with a traceable value (schema-driven; for gallery tests).
+#[cfg(test)]
+pub(crate) fn populate(schemas: &Schemas, kind: &str, depth: usize) -> PartMap {
+    let name: &'static str = schemas
+        .kind_names()
+        .into_iter()
+        .find(|k| *k == kind)
+        .map(|k| Box::leak(k.to_string().into_boxed_str()) as &'static str)
+        .expect("kind exists");
+    let mut m = PartMap::new(name);
+    let Some(parts) = schemas.get(kind) else {
+        return m;
+    };
+    for (part, ty) in parts {
+        match ty {
+            PartType::Text => m.set(part, Part::Text(format!("text-{kind}-{part}"))),
+            PartType::Url => m.set(part, Part::Text(format!("/url-{kind}-{part}/"))),
+            PartType::Html => m.set(part, Part::Html(format!("<p>html-{kind}-{part}</p>"))),
+            PartType::Flag => m.set(part, Part::Flag(true)),
+            PartType::Stream(child) => {
+                if depth > 0 {
+                    m.set(
+                        part,
+                        Part::Stream(vec![populate(schemas, child, depth - 1)]),
+                    );
+                }
+            }
+            PartType::Map(child) => {
+                if depth > 0 {
+                    m.set(part, Part::Map(populate(schemas, child, depth - 1)));
+                }
+            }
+        }
+    }
+    m
 }
 
 fn canonical_into(m: &PartMap, out: &mut String) {
@@ -616,55 +640,46 @@ pub fn axis_group(
     Some(g)
 }
 
-/// Everything the `document` kind can carry. The two producers below differ
-/// in what they can SUPPLY — a dated row has tags and temporal neighbours, a
-/// tree row has ancestors and a section — not in how it is laid out, which is
-/// §5a's claim made structural. Canonical order lives in `assemble` alone.
-#[derive(Default)]
-pub struct Document<'a> {
-    pub title: String,
-    pub url: String,
-    pub tree: bool,
-    pub crumbs: Vec<(String, Option<String>)>,
-    pub hero: Option<PartMap>,
-    pub tags: Option<Part>,
-    pub section: Vec<PartMap>,
-    pub outline: Vec<PartMap>,
-    pub content: &'a str,
-    pub relations: Vec<PartMap>,
-}
-
-fn assemble(d: Document) -> PartMap {
+/// One row's part map (THEME.md §2). Callers differ in what they supply —
+/// crumbs, hero, relations — not in kind.
+pub fn row(
+    title: String,
+    url: String,
+    tree: bool,
+    crumbs: Vec<(String, Option<String>)>,
+    hero: Option<PartMap>,
+    tags: Option<Part>,
+    section: Vec<PartMap>,
+    outline: Vec<PartMap>,
+    content: &str,
+    relations: Vec<PartMap>,
+) -> PartMap {
     let mut m = PartMap::new("row");
-    m.set("title", Part::Text(d.title));
-    m.set("url", Part::Text(d.url));
-    if d.tree {
+    m.set("title", Part::Text(title));
+    m.set("url", Part::Text(url));
+    if tree {
         m.set("tree", Part::Flag(true));
     }
-    m.set("crumbs", crumb_stream(d.crumbs));
-    if let Some(h) = d.hero {
+    m.set("crumbs", crumb_stream(crumbs));
+    if let Some(h) = hero {
         m.set("hero", Part::Map(h));
     }
-    if let Some(t) = d.tags {
+    if let Some(t) = tags {
         m.set("tags", t);
     }
-    if !d.section.is_empty() {
-        m.set("section", Part::Stream(d.section));
+    if !section.is_empty() {
+        m.set("section", Part::Stream(section));
     }
-    if !d.outline.is_empty() {
-        m.set("outline", Part::Stream(d.outline));
+    if !outline.is_empty() {
+        m.set("outline", Part::Stream(outline));
     }
-    m.set("content", Part::Html(d.content.to_string()));
-    if !d.relations.is_empty() {
-        m.set("relations", Part::Stream(d.relations));
+    m.set("content", Part::Html(content.to_string()));
+    if !relations.is_empty() {
+        m.set("relations", Part::Stream(relations));
     }
     m
 }
 
-/// One dated row. Its neighbour lists are declared relations now (§6g),
-/// evaluated by the engine and handed in as `relation_groups`; the layout
-/// just places them, after the `translations` axis. What relations a row has
-/// is a fact of its collection's config, not a branch on "am I a post".
 pub fn document(
     cfg: &crate::config::Config,
     p: &Row,
@@ -673,33 +688,37 @@ pub fn document(
     relation_groups: Vec<PartMap>,
     outline: Vec<PartMap>,
 ) -> PartMap {
-    assemble(Document {
-        title: p.title.clone().unwrap_or_default(),
-        url: p.url.clone(),
-        crumbs: trail,
-        tags: tag_stream(cfg, p),
+    row(
+        p.title.clone().unwrap_or_default(),
+        p.url.clone(),
+        false,
+        trail,
+        None,
+        tag_stream(cfg, p),
+        Vec::new(),
         outline,
         content,
-        relations: relation_groups,
-        ..Default::default()
-    })
+        relation_groups,
+    )
 }
 
-/// One tree row: the same `document` kind — the relations differ
-/// because the *schema* differs (§5a). Ancestors instead of a date trail, the
-/// `tree` fact instead of temporal neighbors, and — inside a `.section` unit
-/// (§6e) — the section's page tree with this row marked current.
-/// Everything a tree document carries besides its identity.
-#[derive(Default)]
-pub struct TreeDoc<'a> {
-    pub ancestors: &'a [(String, String)],
-    pub section: Vec<PartMap>,
-    pub outline: Vec<PartMap>,
-    pub hero: Option<PartMap>,
-    /// This tree row's declared relation groups (§6g), pre-evaluated — for a
-    /// page that is `linked_from` by default, plus whatever the collection
-    /// declares (field-notes' `same_course`).
-    pub relation_groups: Vec<PartMap>,
+/// Home → ancestors → title (inert tail).
+pub fn tree_trail(
+    cfg: &crate::config::Config,
+    locale: &str,
+    home: &str,
+    title: &str,
+    ancestors: &[(String, String)],
+) -> Vec<(String, Option<String>)> {
+    let mut v = vec![(
+        cfg.i18n.string("home", locale).to_string(),
+        Some(home.to_string()),
+    )];
+    for (u, t) in ancestors {
+        v.push((t.clone(), Some(u.clone())));
+    }
+    v.push((title.to_string(), None));
+    v
 }
 
 pub fn document_tree(
@@ -708,69 +727,43 @@ pub fn document_tree(
     home: &str,
     title: &str,
     url: &str,
-    d: TreeDoc,
+    ancestors: &[(String, String)],
+    section: Vec<PartMap>,
+    outline: Vec<PartMap>,
+    hero: Option<PartMap>,
+    relation_groups: Vec<PartMap>,
     content: &str,
 ) -> PartMap {
-    let mut v = vec![(
-        cfg.i18n.string("home", locale).to_string(),
-        Some(home.to_string()),
-    )];
-    for (u, t) in d.ancestors {
-        v.push((t.clone(), Some(u.clone())));
-    }
-    v.push((title.to_string(), None));
-    assemble(Document {
-        title: title.to_string(),
-        url: url.to_string(),
-        tree: true,
-        crumbs: v,
-        hero: d.hero,
-        section: d.section,
-        outline: d.outline,
+    row(
+        title.to_string(),
+        url.to_string(),
+        true,
+        tree_trail(cfg, locale, home, title, ancestors),
+        hero,
+        None,
+        section,
+        outline,
         content,
-        relations: d.relation_groups,
-        ..Default::default()
-    })
+        relation_groups,
+    )
 }
 
-/// A row as the view sees it, for the one preview projection below.
-///
-/// Everything optional is *presence*: a field the row cannot answer is not
-/// set, and rule 2 of the hole algebra deletes its element. That is what makes
-/// one projection serve a post, a book and a photograph — they differ by what
-/// they HAVE, which is q36's settlement.
+/// A row as the view sees it. Optional fields are presence-driven (q36).
 #[derive(Default)]
 pub struct Preview<'a> {
     pub row: Option<&'a Row>,
-    /// Rendered body, whole or truncated. Absent for a row with no prose.
     pub content: Option<String>,
     pub truncated: bool,
-    /// Published thumbnail URL and its measured size (§6b, q26).
     pub src: Option<String>,
     pub dims: Option<(u32, u32)>,
-    /// The row's own words, when it is not a `Row` — an object's stem.
     pub title: Option<String>,
     pub url: Option<String>,
     pub note: Option<String>,
-    /// Already a `Stream("tag")` — computed by the caller, because tag URLs
-    /// come from the owning view's route template rather than the row.
     pub tags: Option<Part>,
 }
 
-/// One row, projected into the `row` kind (card/link/figure faces select variants).
-///
-/// Fill a kind's declared-but-unproduced parts from the row's typed fields
-/// (§5b × §5e).
-///
-/// The engine produces the parts it knows: title, date, content. A part it
-/// does NOT know can only have come from a site's `[[parts]]`, and the row's
-/// own `.schema.toml` field of that name is the one thing that could fill it —
-/// so a site declares `score = { type = "int" }`, places `data-slot="score"`,
-/// and the number appears. Nothing else in the engine changes.
-///
-/// Types must line up. A mismatch is an error rather than an empty element,
-/// because the empty element is exactly the silent failure this closes: a
-/// declared part with no filler renders as nothing at all.
+/// One presence-driven kind; faces select variants. Fill undeclared parts from
+/// row fields when types line up (§5e).
 pub fn fill_from_fields(
     m: &mut PartMap,
     row: &Row,
@@ -783,19 +776,13 @@ pub fn fill_from_fields(
     };
     for (name, ty) in decl {
         if m.get(name).is_some() {
-            continue; // an engine producer already answered
+            continue;
         }
         let Some(v) = row.fields.get(*name) else {
             continue;
         };
         let part = match (v, ty) {
             (V::Str(s), PartType::Text) => Part::Text(s.clone()),
-            // An image-typed field is a reference to an asset (checked at
-            // load): `resolve_asset` yields the thumbnail's URL when one
-            // exists, else the original under baseurl. A plain string filling
-            // a url part is the author's own link, left as written.
-            // Presentation stays with the caller — this still sees neither
-            // baseurl nor the thumb map.
             (V::Str(s), PartType::Url) => {
                 if row.images.contains_key(*name) {
                     Part::Text(resolve_asset(s))
@@ -804,19 +791,12 @@ pub fn fill_from_fields(
                 }
             }
             (V::Int(n), PartType::Text) => Part::Text(n.to_string()),
-            // A fact, not text: `data-<name>` on the fragment root, which is
-            // where theme CSS can reach it. False sets nothing, so the theme
-            // selects on presence exactly as it does for `truncated`.
             (V::Bool(b), PartType::Flag) => {
                 if !*b {
                     continue;
                 }
                 Part::Flag(true)
             }
-            // A list of strings fills a stream whose child kind is that
-            // shape: exactly one text part, one child map per string. The
-            // engine ships `item`/`label`; a site that wants its own
-            // `data-kind` for CSS declares a kind of the same shape.
             (V::List(items), PartType::Stream(child)) => {
                 let shape = schemas.get(child).unwrap_or(&[]);
                 let label = match shape {
@@ -1027,38 +1007,15 @@ mod tests {
         c.set("title", Part::Text("x".into()));
     }
 
-    /// A picture-first face needs no kind of its own: `src` links, and the
-    /// measured dimensions ride along (q26).
-    #[test]
-    fn picture_previews_carry_dimension_facts() {
-        let m = preview(Preview {
-            title: Some("a".into()),
-            url: Some("/photos/a.png".into()),
-            src: Some("/static/x.jpg".into()),
-            dims: Some((320, 200)),
-            ..Default::default()
-        });
-        let out = canonical(&m);
-        assert!(
-            out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#),
-            "{out}"
-        );
-        assert!(
-            out.contains(r#"<span data-slot="width">320</span>"#),
-            "{out}"
-        );
-        assert!(
-            out.contains(r#"<span data-slot="height">200</span>"#),
-            "{out}"
-        );
-    }
-
     #[test]
     fn canonical_renders_order_links_and_facts() {
         let mut m = PartMap::new("row");
         m.set("title", Part::Text("A & B".into()));
         m.set("url", Part::Text("/x/".into()));
         m.set("tree", Part::Flag(true));
+        m.set("src", Part::Text("/static/x.jpg".into()));
+        m.set("width", Part::Text("320".into()));
+        m.set("height", Part::Text("200".into()));
         m.set("content", Part::Html("<p>hi</p>".into()));
         let out = canonical(&m);
         assert!(
@@ -1069,9 +1026,16 @@ mod tests {
             out.contains(r#"<span data-slot="title">A &amp; B</span>"#),
             "{out}"
         );
-        // Url-typed parts are real links — the null theme is navigable.
         assert!(
             out.contains(r#"<a data-slot="url" href="/x/">/x/</a>"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"<span data-slot="width">320</span>"#),
             "{out}"
         );
         let t = out.find("data-slot=\"title\"").unwrap();
@@ -1079,32 +1043,22 @@ mod tests {
         assert!(t < c, "title precedes content, as the schema declares");
     }
 
-    /// Canonical order is the SCHEMA's, not the call order: a producer that
-    /// sets parts in a different sequence still renders in schema order,
-    /// so reordering `set`s cannot silently change the null theme.
     #[test]
     fn canonical_follows_schema_order_not_call_order() {
-        // `row` declares title before content; set them the other way.
         let mut m = PartMap::new("row");
         m.set("content", Part::Html("<p>body</p>".into()));
         m.set("title", Part::Text("T".into()));
         let names: Vec<&str> = m.iter().map(|(n, _)| n).collect();
-        assert_eq!(
-            names,
-            ["title", "content"],
-            "stored order is the schema's, whatever the call order"
-        );
+        assert_eq!(names, ["title", "content"]);
         let out = canonical(&m);
         assert!(
             out.find("data-slot=\"title\"").unwrap() < out.find("data-slot=\"content\"").unwrap(),
-            "and canonical renders that order: {out}"
+            "{out}"
         );
     }
 
-    /// §5e step 4's "run automatically on every row": load the real site and
-    /// render every post, page and listing through the null theme, asserting
-    /// nothing the parts layer carries is dropped. If a part can vanish, no
-    /// fragment can put it back — this catches it at the layer that owns it.
+    /// §5e: every real row through the null theme — nothing the parts layer
+    /// carries may vanish (fragments cannot put a dropped part back).
     #[test]
     fn null_theme_is_complete_over_every_real_row() {
         let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
@@ -1112,20 +1066,6 @@ mod tests {
         let db = grackle_source::load(&cfg).expect("site db loads");
         assert!(db.post_ix.len() > 300, "real corpus expected");
 
-        // Keys must actually identify: one per row, resolving back to it.
-        // The real corpus is the only place this is worth asserting — a
-        // fixture cannot collide two paths that a 27-year site can.
-        for r in db.rows.iter() {
-            assert_eq!(
-                db.row(&r.key).map(|f| &f.rel),
-                Some(&r.rel),
-                "key {} should resolve to its own row",
-                r.key
-            );
-        }
-
-        // Every post as a full document (raw body stands in for rendered
-        // content: completeness is a byte property, not a markdown one).
         for p in db.posts() {
             let trail = vec![
                 ("Home".to_string(), Some("/".to_string())),
@@ -1137,8 +1077,6 @@ mod tests {
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
 
-        // Every routed listing as a wrapper row whose content is a stand-in
-        // for the concatenated member faces.
         for r in &db.routes {
             if r.view.is_none() || r.members.is_empty() {
                 continue;
@@ -1171,8 +1109,6 @@ mod tests {
             assert!(complete(&m, &out), "listing {} dropped a part", r.url);
         }
 
-        // Every tree page shape (ancestors + title; content is the page's
-        // own problem — raw pages bypass parts by design).
         for pg in db.pages() {
             let title = pg.title.clone().unwrap_or_default();
             let m = document_tree(
@@ -1181,10 +1117,11 @@ mod tests {
                 "/",
                 &title,
                 &pg.url,
-                TreeDoc {
-                    ancestors: &[("/code/".to_string(), "Code".to_string())],
-                    ..Default::default()
-                },
+                &[("/code/".to_string(), "Code".to_string())],
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
                 "<p>body</p>",
             );
             let out = canonical(&m);

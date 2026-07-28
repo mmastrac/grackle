@@ -276,34 +276,11 @@ pub fn root_shell(
     let sub = subtheme
         .map(|s| format!(" data-subtheme=\"{}\"", esc(s)))
         .unwrap_or_default();
-    // §4a: the profile is stamped, not rendered. A dev banner is then a
-    // theme CSS rule on `[data-profile="dev"]` — themes opt in, the engine
-    // ships no chrome, and a theme that ignores it is unaffected. Same shape
-    // as the subtheme token beside it.
     let prof = profile
         .map(|p| format!(" data-profile=\"{}\"", esc(p)))
         .unwrap_or_default();
-    // q53: which member of which axis this route is, stamped like the two
-    // above. It means an axis `field` is never inert — a field no render path
-    // consults still reaches CSS as `[data-axis-thing="value"]`, so an axis can
-    // be declared for a purely presentational difference and a theme can act on
-    // it with no engine wiring at all. Same shape as the subtheme token, which
-    // is the precedent: the engine stamps, the theme decides what it means.
-    // Stamped TWICE, because the two forms answer different questions and
-    // neither substitutes for the other:
-    //
-    //   data-axis-theme="ledger"   selecting — `[data-axis-theme="ledger"] h1 {…}`
-    //   --axis-theme: "ledger"     reading   — `h1::after { content: var(--axis-theme) }`
-    //
-    // `attr()` reads only the attribute of the element a rule MATCHES, and this
-    // one is on the root, so a descendant cannot reach it that way — verified
-    // in a browser, not assumed. A custom property inherits, and `content`
-    // takes `var()`, so the value is legible anywhere in the document. The
-    // property is quoted so it drops into `content` as-is.
-    // One route may carry several members (the axis product), so the stamps
-    // accumulate: one `data-axis-<name>` attribute each, and a SINGLE `style`
-    // holding every `--axis-<name>` custom property — two `style=` attributes
-    // would be invalid, and the properties compose in one.
+    // §4a / q53: axis members stamped as data-axis-* (select) and --axis-*
+    // custom props (inherit); one style= holding every property.
     let ax = {
         let mut attrs = String::new();
         let mut styles = String::new();

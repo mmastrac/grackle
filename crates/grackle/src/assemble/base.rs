@@ -1,26 +1,9 @@
-//! The base theme, compiled into the binary (§5e).
+//! The base theme, compiled into the binary (THEME.md §5).
 //!
-//! Every theme inherits it: a theme's fragment replaces the base's of the same
-//! name, and every kind the theme declines to arrange keeps the base's. A site
-//! with no `themes/` directory at all *is* this theme — which is what turns
-//! "the null theme" from merely complete into actually good.
-//!
-//! Same shape as `parts.toml` (parts.rs): an engine asset a site extends but
-//! never has to carry. The reason it must live here rather than in a
-//! `themes/_base/` directory is the same reason `parts.toml` does — a site can
-//! forget to copy a directory, and cannot forget the binary.
-//!
-//! **Why the base needs fragments at all.** `canonical()` renders a `url` part
-//! as `<a href="/x/">/x/</a>` — a link whose text IS the URL — because with no
-//! fragment it has no way to know which sibling part the link is *for*. So
-//! every kind that pairs a label with a url (crumb, tag, neighbor,
-//! page_link, outline_entry) needs a fragment to say "this text, that href",
-//! and there is exactly one sensible way to write each. Written once, here.
-//!
-//! The stylesheet is the same bargain in CSS: it selects only on engine
-//! vocabulary — `[data-kind]`, `[data-slot]`, fact attributes, `aria-current`
-//! — never a class, so it lands equally on the base's own markup, on a partial
-//! theme's, and on the canonical fallback underneath both.
+//! Themes replace fragments by name; undeclared kinds keep the base. Sites
+//! with no `themes/` *are* this theme. Fragments exist because `canonical()`
+//! cannot pair label+url without them; the sheet selects only on engine
+//! vocabulary so it lands on base, partial themes, and the null fallback.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -132,32 +115,8 @@ pub fn partial(name: &str) -> Option<&'static str> {
         .map(|(_, src)| *src)
 }
 
-/// The compiled base stylesheet, once per process for each of its two forms.
-///
-/// Emitted beneath every theme's sheet in `@layer base` (§5e's declared
-/// cascade order). The layer is what makes inheritance work in CSS as well as
-/// in markup: a theme's rule wins over the base's regardless of which selector
-/// is more specific, so a theme styling `.crumb` is not silently outranked by
-/// a base rule on `[data-kind="crumb"] + [data-kind="crumb"]`.
-///
-/// The reset and the type LADDER are unconditional. `with_skin` adds the
-/// decorative half — blockquote rule, code panel, table borders, callout.
-///
-/// The split is measured, not assumed, and the measurement is the answer to
-/// "could we always merge the base in if it is fully overridable?". Under
-/// grack.com — the hard case, a theme with a complete type sheet of its own
-/// — the **ladder is inert**: the theme's reset zeroes everything the ladder
-/// sets, so the theme wins every conflict and the ladder only fills gaps. The
-/// **skins are not**: on the blog listing they move a paragraph 19px and the
-/// page 61px, because a blockquote gains a left border and a code block gains
-/// a panel. (grack.com has since dropped its Meyer reset for a handful of
-/// its own rules on top of this base, and the ladder stayed inert — the
-/// theme's own heading/block zeroing does the same job Meyer's did.)
-///
-/// So the ladder ships always and the skins wait to be asked for. What makes
-/// the ladder safe to impose is that it reads only tokens — a theme retunes
-/// the entire hierarchy through `--size` and `--scale` without restating a
-/// rule, which is a stronger kind of "overridable" than the cascade alone.
+/// Compiled base stylesheet (`@layer base`). Ladder always; skins (`with_skin`)
+/// opt-in — measured inert under grack.com's own type sheet, skins are not.
 pub fn css(with_skin: bool) -> &'static str {
     static NO_SKIN: OnceLock<String> = OnceLock::new();
     static WITH_SKIN: OnceLock<String> = OnceLock::new();
