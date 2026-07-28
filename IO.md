@@ -1,12 +1,19 @@
 # IO.md — two databases: inputs and outputs
 
-**Status: ALL WORK ITEMS COMPLETE (2026-07-28)** — every box in §10 is
-checked: I1–I13, IR1–IR9, and batch reviews I-A through I-D. What stands is
-the **final IO review** (whole-ledger, MERGE.md-final-review style) and §9's
-remaining opens, which are Matt's: q3 (`robots_txt` emission), and the
-Matt-only calls the ledger surfaced and deliberately did not take — the
-`kind`/search config migration and its expressibility prerequisite (§3), the
-sitemap's honest respelling (§3), and the rendition-address extension (I12).
+**Status: DONE (2026-07-28) — the final whole-ledger review passed; only
+Matt's calls remain.** Every box in §10 is checked (I1–I13, IR1–IR9, four
+batch reviews + the final review, §11's last entry); the whole-effort diff
+against the pre-IO baseline reduces to exactly three declared deltas (the
+`data-kind` stamp rename, the caret degeneracy stderr line, I2's prose
+migration in one field-notes post) plus wall-clock timestamps. What stands
+is §9's remaining opens and the Matt-only calls the ledger surfaced and
+deliberately did not take: q3 (`robots_txt` emission), the `kind`/search
+config migration and its expressibility prerequisite (§3), the sitemap's
+honest respelling (§3), and the rendition-address extension (I12); plus
+the filed-but-unowned proposals awaiting his priority call —
+scope-membership expressibility on the output pool (the migration's
+prerequisite, I13), the claimed-row rendition scan (I13), eager srcset
+(I12), and the description-page shape, which no item owns (I8→I13).
 *Originally: **APPROVED TO LEDGER (2026-07-27)** — Matt greenlit serial
 execution after the MERGE.md pipeline drains (F3 → G1 → G2 → batch
 review 4).* §10 is the work ledger; Matt may still edit the model sections
@@ -188,7 +195,7 @@ by arity, one input contract each:
 | family | consumes | members | emits |
 |---|---|---|---|
 | **map shells** — applied per output | one output | `raw`, `html`, `light_html`, (future `md`) | one file per output |
-| **fold shells** — sit on a query over outputs | a collection of outputs — the one shared projection (url, title, date, tags, facts, content where it exists) | `atom`, `sitemap`, `search`, `robots_txt`, script shells | one artifact |
+| **fold shells** — sit on a query over outputs | a collection of outputs — the one shared projection (url, title, date, tags, facts, content where it exists) | `atom`, `sitemap`, `search`, `robots_txt` *(unbuilt — §9 q3)*, script shells | one artifact |
 
 Rules of the axis:
 
@@ -216,7 +223,7 @@ Rules of the axis:
   (a set) — selecting inputs and following the join *is* selecting their
   outputs, so `[routes.feed] from = "published"` keeps meaning what it
   means. External/script shells are the one construct whose nature does not
-  decide its database: they declare it (**`pulls = "inputs" | "outputs"`**).
+  decide its database: they declare it (**`pulls = "inputs" | "outputs"`** — design, not yet built: until it lands, a script shell must name a `from`, IR1(a)).
 - **The fold projection is the outputs schema** — not a convention imposed
   on five shells but what querying the table means. The script-shell
   payload (documented as "the projection the atom shell eats") stops being
@@ -493,6 +500,8 @@ one thing in the whole system: the serialization a route leaves through.
    for precedence, the stamped root attribute for scope; both emitter-side,
    both inert until merging is built).
 5. ~~this document's name~~ — settled by use: `IO.md`.
+6. *(unused — the next item is cited as "q7" by §4a, I12 and DESIGN.md,
+   so its number is pinned, not renumbered.)*
 7. ~~**[shape]** renditions in the shell axis: a transform-bearing output
    (resize, re-encode) is map-shell-shaped but parameterized — whether
    that's a parameterized shell (`image:256w`), a distinct transform stage
@@ -842,7 +851,8 @@ Two follow-up items, run before I9:
   fold means sidecar edits already move `Row.version`, so invalidation
   edges get identity-changes for free.
 
-*→ Batch review I-D.*
+*→ Batch review I-D.* ✓ done — findings in §11; verdict: sound, I-E clear
+once I11 takes its amendments (taken — the briefs above carry them).
 
 ### Phase I-E — assets and the end of `kind`
 
@@ -4666,3 +4676,32 @@ standing between `kind` and the graveyard. (b) **The claimed-row rendition
 scan** (iii above). Neither is I13's to take: the first needs a design
 decision about what the column is called and whether it is a name or a role,
 and the second is a behaviour change under a byte gate.
+
+**2026-07-28 — FINAL IO REVIEW (Fable), whole-ledger.** Verdict: **DONE —
+only Matt's calls remain; nothing must land first.** Thirteen mutations
+re-executed red across all four phases plus the tail (the I13
+biconditional both directions; I11's resolve_citation and
+route-absence-as-embed; I12's parameter-drop, output-hashing, and
+forced-loop; six random guard-rot picks from I-A through I-D) — zero
+guard rot. Full three-way corpus parity against the TRUE pre-IO baseline
+(766332f — the review corrected its own brief's baseline and delta list):
+the whole effort reduces to three declared deltas + wall-clock lines;
+260 /static/ addresses set- and byte-identical across three eras; the
+I13 cross-tab bit-exact (631/187/40/331, zero kind↔rendered
+disagreements over 1,189 row routes); minting-seam coverage enumerated
+complete; warning inventory five lines, one of them the effort's single
+declared addition. Process verified across all 63 commits: OUTLINE.md
+untouched, pathspec discipline held (two declared out-of-grackle touches),
+stashes exactly the three pre-effort entries, no-chips honored. Findings
+were document-side only: the I-D marker lacked its ✓ (fixed), the I13
+census prose disagreed with its own table by one at a definitional
+boundary (fixed), §4's pulls/robots_txt read as shipped (marked), §9's
+numbering pinned at the phantom 6, the status header's remaining-list
+completed. One methodology note recorded: I12's output-hashing mutation
+description under-specifies the restructuring the faithful application
+needs — the naive shadowing stays green and is not guard rot.
+Proposals assessed: scope-membership expressibility (file-worthy,
+design-first — the last fossil's unlock) and the claimed-row rendition
+scan (file-worthy, small) await Matt's priority call in the status
+header; the rendition-address extension, eager srcset, and the
+description-page shape park with him.
