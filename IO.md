@@ -610,7 +610,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   `shell: raw`, so a shell-only law byte-copies it front matter and all:
   the test holds both halves of the disjunction.
 
-- [ ] **I7d. One walk, first rule wins.** The riskiest item, ALONE.
+- [x] **I7d. One walk, first rule wins.** The riskiest item, ALONE.
   `read_posts` + `store::load_dir` die; `walk_tree` is the one walk; the
   dot/underscore layer SURVIVES and declared scope sources punch through
   it (`_posts`/`_drafts` admitted because a scope names them; `_tools`/
@@ -2359,3 +2359,220 @@ glance. (iv) **A proposed item, not filed as a chip** per §10: `grackle explain
 prints `front_mattered` and `shell` but not `rendered`, which is now the derived
 answer a reader would most want beside them — one line in `debug::row_facts`,
 CLI-only, outside the byte gate.
+
+**2026-07-27 — I7d.** Landed as one commit. Two loaders became one walk, and
+the two flagged laws both landed — but not in the shape the brief predicted:
+**the ordering and the ownership turned out to be two mechanisms doing two
+jobs**, and the first version of this item had them doing one, which a mutation
+run is what exposed.
+
+*The two laws, as landed.* `load::walk_site` offers each file to every scope in
+`scopes()`' order — each scope reading the path its OWN source makes of the
+file, and skipping the file when it is not under that source — with each
+scope's rules in its own order. **First rule past both gates claims**, and the
+claiming rule's scope is the row's collection; that scope's rules then cascade
+defaults exactly as they always did, because membership is the only question
+the sequence answers. The order is the **most-specific-source law**: proper
+sources deepest first, sourceless scopes (objects) next, the root scope last,
+ties by site-before-base then table name. **A scope owns its source** is the
+second law and it is a STOP, not a filter: when a scope whose source contains
+the file is asked and claims nothing, the search ends there and the file leaves
+the walk.
+
+*Why the shape had to change, and it is the item's most useful output.* The
+first implementation expressed ownership as ELIGIBILITY — under a proper
+source, only that source's scopes are asked at all — which is correct, produces
+identical bytes, and makes the ordering law **untestable**. The mutation said
+so: reversing the scope order left every test green, because a file under
+`_posts` never reached the tree scope to be misclaimed by it. Two laws where
+one of them cannot be mutated is one law with a decoration, so the sequence now
+asks every scope in order and ownership stops it. Both mutations are
+independently red now, and the second one measures: with the sort key dropped
+(name order alone — theme-preview's disease), **all 327 of grack.com's posts
+move to `/_posts/…` URLs**, claimed by the tree's front-matter rule.
+
+*The ties are unobservable, and that is why declaration order is not
+recoverable.* `Config::collections` is a `BTreeMap` keyed by table name, so
+literal declaration order is gone by the time the loader sees it. It does not
+matter: two scopes tie only when their sources are equally specific, a scope
+only ever sees files under its own source, and two scopes sharing one source
+would share one table name and be one entry. The tie-break that landed is
+site-before-base (read off `Rule::inherited`, `dead_rules`' own test) then the
+table name — deterministic, and as near the brief's "declaration order" as a
+config keyed by name can get.
+
+*The config migration: every posts-scope rule names its extensions.* I7a's move
+one scope over. `match = "**"` → `match = "**/*.{md,markdown}"` in `base.toml`,
+grack.com's two posts scopes, theme-preview, field-notes, `examples/raw` and
+thirteen fixtures — eighteen rules. It is what makes the ownership law
+expressible: `store::load_dir` took `["md", "markdown"]` as an ARGUMENT, so the
+statement "a posts scope claims markdown" lived in a function signature where
+no config could see it. **grack.com's `hidden/**` deliberately did NOT
+migrate**: it is a defaults-only rule scoping a directory, it says nothing
+about kinds, and its glob is quoted in the dead-rule warning grack.com prints
+on every build — migrating it would have moved stderr. The corner it leaves is
+recorded at the line: a non-markdown file under `_posts/hidden/` would now be
+claimed and then fail *no rule supplies a route* rather than being skipped. No
+such directory exists (the rule has governed zero rows since it was written).
+
+*One guard the brief did not ask for, and the reason it is not scope creep.*
+**A tree `exclude` that names a scope's `source` is a load error.** `exclude`
+says "not content" and `source` says "content"; before this item they governed
+different walks, so the contradiction was not merely silent but harmless — the
+dot/underscore skip kept `_posts` out of the tree anyway, so
+`exclude = ["_posts/**"]` was a line that did nothing, and three fixtures
+carried one. With one walk it empties the scope, and the first run of the suite
+is how I found out: the three `per-group-*` fixtures failed with a grouped view
+that had no rows to group. Silently emptying a blog is the disease this ledger
+exists to refuse, so the line is refused instead and the three fixtures lost
+it. Keyed on `NotContent::keeps_dir(source)`, which is the subtree spelling. One
+residual, recorded rather than closed: a FILE-shaped exclude pattern reaching
+inside a source (`exclude = ["_posts/*.md"]`) would still empty the scope
+quietly; no corpus site writes one, and the check keys on the source because
+the source is the statement that contradicts.
+
+*Four unifications the merge forced, each byte-inert and each measured.* A
+merged loader cannot keep two answers to one question, so each of these picked
+one:
+
+- **`body_bytes` on a blockless row that renders.** The posts loader read every
+  post whole and had it; the tree loader read nothing and reported zero. The
+  walk reads a file with a block, and re-reads a blockless one only if it turns
+  out to render — so the caret draft keeps its real body size, which is what
+  the corpus needs, and the fact stops depending on which loader found the row.
+- **`permalink:` now reaches tree rows.** It was posts-only — the tree loader
+  parsed the field and ignored it, contradicting DESIGN §4's "an explicit
+  `permalink:` in the file wins outright". Measured before relying on it: no
+  file in the repository carries one.
+- **Front matter is read ABOVE routing**, so a `date:` reaches a dated route
+  template on any row. That is I6's recorded other half of "one supplier", and
+  the seam it named. It reorders which error a doubly-broken file reports; no
+  fixture is such a file.
+- **The shell error names the row relatively**, the tree loader's spelling
+  (`feedish.md: shell = "atom" is a fold shell`), not the posts loader's
+  absolute path. Chosen because a fixture pins it, and because it is the better
+  message.
+
+*What the objects globs still answer early, stated rather than hidden.* Two
+facts must be settled before the ordered sequence runs, and neither is the
+sequence's to settle because both come before the front-matter gate the
+sequence consults: **the peek** (whether a file was peeked is what the gate
+reads, so it cannot itself be gated — skipping the ~800 binaries is what keeps
+the peek off the critical path) and **the locale axis** (an image is shared
+across locales, §6f). Both are I7a's `is_obj`, unchanged: the objects scope's
+globs, asked on their own. The two answers agree with the sequence's because no
+objects rule of any site gates on front matter; one that did would take the
+glob's answer here and the gate's answer there. I7a recorded the same shape
+(such a rule claimed nothing before either).
+
+*Observability: `Row.rule`, and `explain` prints it beside `collection`.* An
+ordering law nobody can observe is an ordering law nobody can debug. `rule`
+holds the `match` glob of the rule that CLAIMED the row — which is not always
+the rule that ROUTED it, since a defaults-only rule claims files it does not
+land — so the pair `collection` + `rule` answers "which rule of which scope"
+directly:
+
+    url         /humans.txt          url         /blog/2020/01/01/hello/
+    collection  entries              collection  posts
+    rule        **/*                 rule        **/*.{md,markdown}
+    shell       raw                  shell       html
+    front_mattered false             front_mattered true
+
+`io_explain.rs`'s two-row assertion covers it (mutation: hardcode the glob and
+the byte copy's line goes red).
+
+*Six tests, six mutations plus two controls, each red alone and each restored*
+(`crates/grackle/tests/io_walk.rs` — built sites, not loaded ones, because what
+these laws decide is what the site PUBLISHES, and dropping ownership turns the
+bundle into ON-DEMAND object rows that only a build materializes). (1) the
+ownership law, with the draft's relative citation included so the on-demand
+path is live; mutation: widen `eligible` so an owned path also reaches the
+sourceless and root scopes → the `.gif` and the `.rtf` join the published set.
+(2) the control ownership owes — the same two extensions at the ROOT are an
+object and a byte copy, asserted through `claim()` so the scope AND the rule
+are named. (3) the ordering, on theme-preview's shape (tree declared first);
+mutation: sort by name alone → the post is claimed by `entries`. (4) the
+punch-through beside `_hidden/` and `_includes/`, which is §9b's amendment in
+one assertion; mutation: `punches_through` → `false`. (5) the minimal-site
+control: no declared source, so nothing punches through and an undeclared
+`_posts/` is just another underscore directory — green under every mutation
+above, which is what makes it the control. (6) the exclude/source
+contradiction; mutation: delete the `keeps_dir` loop → the site loads clean and
+publishes a blog with no posts. A unit test in `store.rs` pins the
+punch-through's whole-component comparison in both directions (grack.com has
+`_drafts` and `_drafts_temp` side by side; mutation: a string prefix → the
+second is walked).
+
+*The corpus measurements, run rather than reasoned.* Dropping the ownership
+stop, with the release binary against the real tree: rows **1396 → 1413**
+(objects 838 → 853, static tree rows 187 → 189), and the BUILD publishes two
+files it did not before — **`/caret/caret.xcf` and `/caret/caret2.rtf`**, at
+`/caret/…` rather than `/_drafts/caret/…` because the tree's `{path}` token is
+scope-relative. The fifteen images do not appear even then: the draft cites
+them relatively from `/drafts/…/`, so the references do not resolve and the
+on-demand rows are never materialized — which is the brief's "meaningless as
+today", now measured from the other side. Deleting the punch-through: posts
+**1396 → 1065**, dated **327 → 0**.
+
+*Build time (the R10 concern: a per-file front-matter peek where the posts
+loader read whole files).* Five interleaved runs on grack.com, HEAD's binary
+against this one, I6's method — build **586/871/841/827/897 ms** vs
+**838/852/841/824/806 ms**; the load's own `read+parse` **30.8/61.1/62.4/62.5/
+65.8 ms** vs **35.8/65.8/64.8/64.3/60.9 ms** (each first run cold). Inside
+run-to-run variance in both directions: nothing measurable. The peek was
+already running over the whole tree; what this item adds is ~330 four-byte
+opens under `_posts` and `_drafts`, and it removes 330 whole-file reads' worth
+of front-matter parsing done twice.
+
+*Parity [required, absolute].* Five sites plus grack.com `--profile drafts`,
+HEAD's binary built in a `git worktree` against this one, into separate trees
+from the same content with caches seeded so binary and config were the only
+variables — **byte-identical but for the six wall-clock `<updated>` lines**
+(2 diff lines per feed, 0 of them anything else; theme-preview identical
+outright, having no feed), **stderr identical on all six** (the I7c caret
+degeneracy line and the `hidden/**` dead-rule line present on both sides of
+grack.com's two), file counts 8 / 8 / 83 / 242 / 1828 / 1829, unmoved since
+IR1. **The `grackle urls` set-diff was recorded per site and is EMPTY on all
+six**: 7 / 7 / 222 / 63 / 1372 / 1373 URLs, zero diff lines. `cargo test` green
+(24 result lines); `cargo fmt --check` clean under the pin; **clippy 47, HEAD's
+48 minus one**, and the one that left is the arg-count warning on
+`build_tree_and_objects`, the function this item deleted; **zero re-blessing** —
+no `out/` file and no `expected-error` moved.
+
+*Docs.* DESIGN.md §3's *Membership is disjoint* rewritten as *one walk, first
+rule wins* (both laws, the order, the root-scope asymmetry, the explain pair);
+§0's tour precedence line; §3's origin table; §4's C7a paragraph (a posts
+scope's source now does three jobs, a tree's still does none); §4c's layer
+table plus two new paragraphs (the punch-through, the exclude/source
+contradiction); §4's route-token paragraph (I6's seam, closed); §9b's
+still-owed single-tree entry — the walk half is built and both measured
+obstacles are settled, the underscore one **amended rather than paid**; §9b's
+"loader collection choice" remainder closed; **q51 moves out of the open list
+into the settled ledger**, its rider decided. Config comments: `base.toml`,
+grack.com (the objects scope's ordering, the `_drafts` bundle, the three
+layers, `hidden/**`), theme-preview, field-notes, `examples/raw`.
+`manual/OUTLINE.md` untouched per §4, and checked rather than assumed: it
+teaches neither the membership precedence nor `_posts` as a walk of its own,
+and the one thing it does teach here — `permalink:` overriding every rule — is
+now MORE true than it was, since it reaches tree rows. Fifth change in the
+sequence that leaves that file honest.
+
+*For batch review I-C.* Five things. (i) **The two laws** are the calls to
+weigh, and the ordering is the one with a reversal cost of one line
+(`scopes()`'s sort key). (ii) **The root scope's asymmetry** — an unclaimed
+file under a proper source leaves silently, an unclaimed file under the root
+scope is *no rule supplies a route* — is a decision, not a derivation. The
+argument is that a proper source is a NARROWING (`source` plus `match` is one
+statement in two keys, and a `.png` beside a draft was never being refused, it
+was never being asked about) while the root is the site. The other reading —
+uniform silence — deletes a real refusal, and uniform refusal would put
+eighteen errors on grack.com. (iii) **The exclude/source load error** is new
+strictness the brief did not ask for; the alternative was a declared-and-
+ignored key, and the residual (a file-shaped pattern inside a source) is
+recorded above. (iv) **`permalink:` reaching tree rows** is a capability the
+merge added rather than a change it needed; it is byte-inert on the corpus and
+makes DESIGN §4 true, but it is worth one reviewer's glance. (v) **The objects
+globs still answer two questions before the sequence runs** (the peek, the
+locale axis); it is I7a's `is_obj` unchanged, but it is the one place where
+"the sequence decides membership" is not the whole truth, and I7e is where the
+object constructor it feeds gets folded in.
