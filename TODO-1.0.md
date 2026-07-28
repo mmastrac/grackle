@@ -1,18 +1,14 @@
 # grackle 1.0 — the list
 
-Checkbox form. Anything moved out of `DESIGN.md`, `themes/DESIGN.md` or
-`themes/README.md` during the compression pass landed here rather than being
-lost; `GRAVEYARD.md` holds the compressed prose those files gave up.
+The release checklist. MERGE.md and IO.md's ledgers are closed; their
+remaining Matt-only calls live here. `DESIGN.md` §11 is the authority for
+open *design* questions — where a question has 1.0 exposure it gets one
+line here and a pointer, never a copy. `GRAVEYARD.md` holds the compressed
+prose the design docs gave up.
 
-**What this file is not**: a mirror of `DESIGN.md` §11. An earlier draft copied
-all thirty open questions in, and that is exactly how two settled ones (q32,
-q46) came back as open and two invented q numbers appeared. §11 is the authority
-for open *design* questions; this file is the release checklist. Where a §11
-question has 1.0 exposure it gets one line here and a pointer, never a copy.
-
-Ordering is rough priority within each group, not across groups. Items marked
-*(from doc prose)* were harvested from documentation, not read out of the code —
-check them before acting; three such items turned out to be already built.
+Ordering is rough priority within each group, not across groups. Items
+marked *(from doc prose)* were harvested from documentation, not read out
+of the code — check them before acting.
 
 ---
 
@@ -32,42 +28,25 @@ check them before acting; three such items turned out to be already built.
       document. `git show dc96d5d^:grackle/DESIGN.md` and its `themes/` sibling
       hold the pre-compression text.
 
-- [ ] **A site-declared fold over every output** *(spelled `from = "*"` until
-      IO.md I3; now an absent `from` under a fold shell — the defect is
-      unmoved, because the pool it reads is the same route set)* — a routed row
-      is routed whatever its flags say, so every such route must restate
-      `!draft && !hidden`. `View::inherited` already records whose route a view
-      is, so the validator can refuse a site-declared one whose `where` omits
-      the flags while the base's own passes. (§5c)
+- [ ] **A site-declared fold over every output** *(absent `from` under a fold
+      shell — IO.md I3)* — a routed row is routed whatever its flags say, so
+      every such route must restate `!draft && !hidden`. `View::inherited`
+      already records whose route a view is, so the validator can refuse a
+      site-declared one whose `where` omits the flags while the base's own
+      passes. (§5c)
 
-## Tooling — the pipeline's dark stages
+## Tooling
 
-The pipeline is `file → row → query → doc model → parts → slots → CSS → URL`.
-Stages 1–2 have `query explain`; 4–6 have nothing, and the config merge added a
-layer with no inspector at all.
-
-- [x] **`grackle config --effective`** — print the merged config with provenance
-      per key (base vs site file). This is what makes `extends` inheritance
-      rather than magic; `examples/raw` is the stopgap. (§4d, named there as
-      "should ship before 1.0") — landed, MERGE.md B3.
 - [ ] **`grackle explain <url> --parts`** — the part map, which producer filled
       each part, which fragment placed it, and **which parts nothing placed**.
       The last is a partial answer to q50's forgotten-vs-deliberate hole that
       needs no settlement first.
-- [x] **Top-level `grackle explain`** — `DESIGN.md` §0 and the manual (ch. 2)
-      both teach `grackle explain <url>` as *the* debugging tool; the command is
-      `grackle query explain`. Alias it. — landed beside B3.
 
 ## The theme ladder and distribution
 
-Rung 0's config half landed (`[site] theme`). Everything below is
-`themes/DESIGN.md` §3–§5, specced and unbuilt.
+Rung 0 (`[site] theme`) and rung 1 (root `.style.scss`) are built.
+Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
 
-- [x] **`.style.scss` — built, at the root.** Rung 1 is real: a site-owned sheet
-      compiled into `@layer overlay` above every theme's CSS, appended to every
-      theme's stylesheet so an override survives a theme *switch*. Unscoped, so
-      it may declare `:root` properties — which is the recolour case. `serve`
-      watches it. (§5b, themes/DESIGN.md §2)
 - [ ] **Positional `.style.scss`** — §5b's other half: a file per subtree,
       scoped to `[data-scope~="dir"]`. Needs every rendered row to emit its scope
       chain, which nothing does yet, and carries the `:root`-in-a-scoped-block
@@ -115,6 +94,9 @@ Rung 0's config half landed (`[site] theme`). Everything below is
       does `theme.toml` list". Re-decide before building. (§0, §5a, §4e)
 - [ ] **Forced-colors mode** — claimed from spec for vanilla and the gallery,
       never tested.
+- [ ] **Subtheme token validation** — `theme: ledger:drak` stamps
+      `data-subtheme="drak"` silently; tokens name nothing the engine knows.
+      Needs `theme.toml` to declare them. *(MERGE.md §7 q13)*
 
 ## Policy
 
@@ -168,17 +150,6 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 One line each; `DESIGN.md` §11 carries the design. Everything else in §11 is a
 design question without a release consequence and is not listed here.
 
-- [x] **q47 — listing views render a language switcher** (built 2026-07). The
-      fix generalized to an **axis slot**: the engine computes, per route, every
-      axis THIS page is a member of — the locale axis (a row's `by_logical`
-      twins, a view's own routes in other locales) and any declared axis (theme,
-      …) — as an `axes` part, each group a set of member links with the current
-      one flagged. Themes place `data-slot="axes"`; the base theme's `axis.html`/
-      `axis_member.html` render it. This SUPERSEDED the `translations` relation
-      (the locale switcher is one group here), works for rows AND listing views
-      (so `/fr/blog/` now links back to `/blog/`), and `.?locale=fr` /
-      `.?theme=x` self-pivot links let an author write one by hand. Fixtures:
-      `locale-listing`, `default-axis-view`, `locale-links`. (§6f, q53)
 - [ ] **q26 — body-image dimensions.** Post bodies still ship without them;
       layout shift site-wide until the §6d rewrite stage reaches `{% image %}`.
 - [ ] **q28 — redirects for restructured URL trees.** No mechanism, and the
@@ -190,7 +161,40 @@ design question without a release consequence and is not listed here.
 - [ ] **q34 — three "not content" lists.** `slots.rs` and `serve.rs` carry
       private skip lists that can drift from `exclude`. Silent when it happens.
 - [ ] **q14 — `<style>` auto-scoping default.** A decision, not a build; cheap to
-      settle and it blocks per-post CSS.
+      settle and it blocks per-post CSS. *(MERGE.md §7 q4 is the layering half.)*
+
+## IO leftovers (Matt's calls)
+
+Unowned or deliberately not taken when IO closed. Priority call before build.
+
+- [ ] **`robots_txt` emission** — fold shell over output facts; exact emission
+      spec still open. *(IO.md §9 q3)*
+- [ ] **`kind` / search config migration** — needs scope-membership expressibility
+      on the output pool first, then Matt's migration decision. *(IO.md §3 / I13)*
+- [ ] **Scope-membership expressibility on the output pool** — the column (or
+      shell respelling of search) that unlocks deleting `kind`. *(IO.md I13)*
+- [ ] **Sitemap's honest respelling** — still filters via the old shape. *(IO.md §3)*
+- [ ] **Rendition-address extension** — parameterized image outputs beyond the
+      citation-site demand I12 shipped. *(IO.md I12)*
+- [ ] **Claimed-row rendition scan** — behaviour change under a byte gate.
+      *(IO.md I13)*
+- [ ] **Eager srcset** — *(IO.md I12)*
+- [ ] **Description-page shape** — second output whose content is not the bytes;
+      no item owns it. *(IO.md I8→I13, DESIGN.md)*
+
+## MERGE leftovers (Matt's calls)
+
+Not work until decided. Full text stays in MERGE.md §7.
+
+- [ ] **Variant validation policy** — silent degradation for row requests across
+      themes, but a view `variant` naming a fragment no loaded theme provides is
+      probably a typo. Warning? Error? *(MERGE.md §7 q2)*
+- [ ] **Vocabulary pass remainder** — `shell`/`tier`/`frame`, `kind`, row
+      `layout`, `[[parts]]` spelling, `template`, tree `source`. Every rename
+      touches documented surface. *(MERGE.md §7 q6)*
+- [ ] **`--effective` struct-level defaults** — nested defaults invisible when
+      neither base nor site writes the table. Grow `--effective`, or a future
+      `config --projected`? *(MERGE.md §7 q11)*
 
 ## Known gaps: document, don't fix
 
