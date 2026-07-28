@@ -133,6 +133,72 @@ fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<Str
         .collect()
 }
 
+/// A scope whose source held files and that claimed none of them (IO.md IR8).
+///
+/// This is the hole [`dead_rules`]' `found == 0` early return leaves, and I7d's
+/// **a scope owns its source** is what makes the hole matter: what a sourced
+/// scope does not claim is not content and leaves the walk without a word. So a
+/// typo'd glob — `match = "**/*.markdwn"` over a full `_posts/` — used to be a
+/// load error (`load_dir` read the directory and demanded rows) and became a
+/// clean, silent build with an empty blog. Silently emptying a blog is the
+/// disease this ledger exists to refuse.
+///
+/// **The key is `offered > 0 && found == 0`**, and the denominator is the whole
+/// point. `found == 0` alone cannot tell a typo from the two shapes that are
+/// documented legal and must stay silent:
+///
+/// - an **absent** source — §4d's site with no `_posts/`, which pays nothing;
+/// - an **empty but present** source — a directory waiting for its first post.
+///
+/// Both offer zero files, so both stay silent, and neither needs an exception.
+///
+/// **Only scopes with a PROPER source** ([`Scope::owned`]), which is where the
+/// narrowing lives. A sourceless scope (objects) selects by shape and owns
+/// nothing, so "asked about a file it did not want" is its ordinary day — the
+/// mutation admitting it puts a line on four existing warning fixtures. The
+/// root scope is excluded by the same call and is unreachable anyway: it is
+/// asked only when no owner stopped the search, so a file it declines is the
+/// engine's own *no rule supplies a route* error rather than a silent drop.
+///
+/// A warning and not an error, for `dead_rules`' reason one level up: a source
+/// holding nothing but assets is legal (an `_drafts/caret/` bundle of images
+/// under a scope that claims markdown), and the author may be mid-move. Reported
+/// for inherited scopes too, unlike a dead rule: the base's glob is not the
+/// author's to fix, but the FILES are — they are in a directory the author
+/// filled, and moving them or writing a rule are both theirs.
+///
+/// **Keyed on the scope, not the rule**, and the residual is carried honestly:
+/// a typo in ONE rule of several, where a sibling rule still claims something,
+/// does not trip this — the scope found rows. `dead_rules` reports that case
+/// instead, and only when the site wrote the rule; a per-rule census of what
+/// each glob was offered is `query stats`' shape, not stderr's.
+fn empty_source(scope: &Scope) -> Option<String> {
+    let source = scope.owned()?;
+    if scope.offered.get() == 0 || scope.found.get() > 0 {
+        return None;
+    }
+    let globs = scope
+        .rules
+        .iter()
+        .map(|r| format!("`{}`", r.pattern))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let n = scope.offered.get();
+    Some(format!(
+        "collection {}: `source = {:?}` offered {n} file{} and no rule of this \
+         scope claimed one — the collection is empty, and because a scope owns \
+         its source those files are not content and ship nowhere (IO.md I7d). \
+         The globs asked: {globs}. Fix a glob, or move the files out of {}.",
+        scope.name,
+        source,
+        match n {
+            1 => "",
+            _ => "s",
+        },
+        source.display()
+    ))
+}
+
 /// The engine-fallback title rung (IO.md §1): a name implied from the slug.
 ///
 /// One derivation, shared by both loaders, and deliberately the dumbest one
@@ -722,6 +788,12 @@ struct Scope<'a> {
     /// because the walk holds the scope list by shared reference, which is
     /// also why a rule's `governed` flag is one.
     found: Cell<usize>,
+    /// How many files the walk OFFERED this scope: every file under its source
+    /// that the ordered sequence actually asked it about. The denominator
+    /// `found` never had (IO.md IR8) — "claimed nothing" means one thing when
+    /// the source is empty or absent and quite another when it was full, and
+    /// only this counter tells the two apart.
+    offered: Cell<usize>,
 }
 
 impl Scope<'_> {
@@ -796,6 +868,7 @@ fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
             rules: compile_rules(c)?,
             formats: compile_formats(&c.filename_formats)?,
             found: Cell::new(0),
+            offered: Cell::new(0),
         });
     }
     out.sort_by_key(|s| {
@@ -1119,6 +1192,13 @@ fn walk_site(
             let Some(scope_rel) = s.relative(&f.rel) else {
                 continue;
             };
+            // Offered: this scope's source contains the file and the sequence
+            // reached it, so its rules are about to be asked. Counted here
+            // rather than from the file list because "under the source" and
+            // "asked" are the same event only at this line — a nearer scope
+            // that claimed first, or an owner that already stopped the search,
+            // means the scopes below never saw the file at all.
+            s.offered.set(s.offered.get() + 1);
             let (logical_rel, locale) = match object_shaped {
                 true => (scope_rel, cfg.i18n.default.clone()),
                 false => cfg.i18n.split(&scope_rel),
@@ -1422,6 +1502,10 @@ fn walk_site(
 
     for s in scopes {
         warnings.extend(dead_rules(s.name, &s.rules, s.found.get()));
+        // The other side of `dead_rules`' `found == 0` (IO.md IR8): where it
+        // falls silent because a whole scope came up empty, this asks whether
+        // the source was empty or the globs were wrong.
+        warnings.extend(empty_source(s));
     }
     Ok((posts, pages, objects))
 }
@@ -2453,6 +2537,155 @@ source = "."
         );
         assert_eq!(warnings(&dir), Vec::<String>::new());
     }
+
+    /// A posts scope over a populated source, with one glob and a typo in it
+    /// (`markdwn`). Nothing claims the posts; a scope owns its source, so they
+    /// leave the walk silently; `dead_rules` sees `found == 0` and says
+    /// nothing. Pre-I7d this was a load error, so the build that used to fail
+    /// now succeeds with an empty blog — IO.md IR8's regression, and the
+    /// warning is the fix.
+    ///
+    /// The control is in the same site: the tree scope claims `about.md`, so
+    /// its `**/*` is neither dead nor empty and only one line is printed.
+    ///
+    /// Mutation check: delete the `empty_source` call in `walk_site` and the
+    /// site is silent again.
+    #[test]
+    fn a_sourced_scope_offered_files_and_claiming_none_warns() {
+        let dir = site(
+            "empty-source",
+            &[
+                ("grackle.toml", TYPO_CONFIG),
+                (
+                    "_posts/2020-01-01-hello.md",
+                    "---\ntitle: Hello\n---\n\nHi.\n",
+                ),
+                (
+                    "_posts/2020-02-02-again.md",
+                    "---\ntitle: Again\n---\n\nHi.\n",
+                ),
+                ("about.md", PAGE),
+            ],
+        );
+        let w = warnings(&dir);
+        assert_eq!(w.len(), 1, "one empty scope, and only one: {w:?}");
+        assert!(w[0].contains("collection posts"), "names the scope: {w:?}");
+        assert!(w[0].contains(r#""_posts""#), "names the source: {w:?}");
+        assert!(w[0].contains("`**/*.markdwn`"), "names the globs: {w:?}");
+        assert!(
+            w[0].contains("2 files"),
+            "says how many were offered: {w:?}"
+        );
+    }
+
+    /// The first suppression, and it is documented behavior (§4d): a site with
+    /// no `_posts/` pays nothing for inheriting a rule about one. Zero offered,
+    /// so the scope's silence is the source's, not a glob's.
+    ///
+    /// Same config as the probe above, typo and all — which is the point: the
+    /// glob is exactly as wrong here, and there is nothing to say about it.
+    #[test]
+    fn an_absent_source_stays_silent() {
+        let dir = site(
+            "absent-source",
+            &[("grackle.toml", TYPO_CONFIG), ("about.md", PAGE)],
+        );
+        assert_eq!(warnings(&dir), Vec::<String>::new());
+    }
+
+    /// The second suppression: a source that EXISTS and holds nothing — a
+    /// directory waiting for its first post. Offered zero, so it reads exactly
+    /// like the absent one, which is why neither needs an exception.
+    #[test]
+    fn an_empty_present_source_stays_silent() {
+        let dir = site(
+            "empty-dir-source",
+            &[("grackle.toml", TYPO_CONFIG), ("about.md", PAGE)],
+        );
+        // `site` writes files; an empty directory has to be made by hand, and
+        // it is the whole of what this test varies from the one above.
+        std::fs::create_dir_all(dir.join("_posts")).unwrap();
+        assert_eq!(warnings(&dir), Vec::<String>::new());
+    }
+
+    /// grack.com's shape, at fixture scale: `_drafts/caret/` is a post beside
+    /// a bundle of images, an `.rtf` and an `.xcf` that no rule claims. The
+    /// scope claimed something, so the unclaimed remainder is the ownership law
+    /// working as designed and not a word is said about it — which is what
+    /// keeps stderr parity on all six corpus builds.
+    ///
+    /// Mutation check: key the warning on `found < offered` instead of
+    /// `found == 0` and this site starts reporting a deliberate arrangement.
+    #[test]
+    fn a_claiming_scope_with_unclaimed_extras_stays_silent() {
+        let dir = site(
+            "unclaimed-extras",
+            &[
+                (
+                    "grackle.toml",
+                    r#"
+extends = "none"
+[site]
+url = "https://example.com"
+title = "T"
+author = "A"
+
+[[collections]]
+kind = "posts"
+name = "posts"
+source = "_drafts"
+
+  [[collections.rules]]
+  match = "**/*.{md,markdown}"
+  route = "/blog/{slug}/"
+
+[[collections]]
+kind = "tree"
+name = "entries"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+"#,
+                ),
+                ("_drafts/caret/index.md", "---\ntitle: Caret\n---\n\nHi.\n"),
+                ("_drafts/caret/sketch.rtf", "{\\rtf1}\n"),
+                ("_drafts/caret/cursor.xcf", "gimp\n"),
+                ("about.md", PAGE),
+            ],
+        );
+        assert_eq!(warnings(&dir), Vec::<String>::new());
+    }
+
+    /// One posts scope with a typo'd glob, one tree scope, no base. Shared by
+    /// the probe and both suppressions so that the only thing that varies
+    /// between them is what is on disk.
+    const TYPO_CONFIG: &str = r#"
+extends = "none"
+[site]
+url = "https://example.com"
+title = "T"
+author = "A"
+
+[[collections]]
+kind = "posts"
+name = "posts"
+source = "_posts"
+
+  [[collections.rules]]
+  match = "**/*.markdwn"
+  route = "/blog/{slug}/"
+
+[[collections]]
+kind = "tree"
+name = "entries"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"
+"#;
 }
 
 /// A profile's `where` is accepted exactly where the `where` it replaces is

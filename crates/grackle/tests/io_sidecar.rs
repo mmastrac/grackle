@@ -95,8 +95,15 @@ fn row<'a>(db: &'a SiteDb, rel: &str) -> &'a grackle::db::Row {
 ///
 /// Mutations, each red and each restored: drop the `sidecar.is_some()` term in
 /// `has_identity` (the row loses identity, its title and its `alt`); pass
-/// `has_identity` to `shell::renders` instead of the block (the load dies
-/// reading the PNG as text, which is the split collapsing).
+/// `has_identity` to `shell::renders` instead of the block — the split
+/// collapsing, and the load dies one line later on the **picture refusal**,
+/// which sits directly downstream of `rendered` and catches it first:
+/// `assets/kite.png: shell = "raw" would render this file as a document, and
+/// its bytes are a picture … Route it `raw``. The message advising a route the
+/// row already wears is the collapse showing through, and it is the failure
+/// mode to expect — not the UTF-8 error, which is what the *picture refusal's*
+/// own mutation produces (`io_sidecar.rs`'s deferred-description test), one
+/// rung further down.
 #[test]
 fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     let dir = site(

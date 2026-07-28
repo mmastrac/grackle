@@ -671,9 +671,14 @@ two places that will drift, and nothing ranks them — the marker-collision shap
 is applied to *directories* on that walk (§4c), so a file-shaped pattern — a
 statement about content, and grack.com's `exclude` lists `*.toml` — cannot
 silently unspeak a site's sidecars. It is MERGE.md R1's narrowing, one
-declaration family newer. Like a marker, a sidecar is never routed; unlike a
-marker, its change stamp is folded into the row's `version`, because a row whose
-identity lives in a second file has to notice that file changing.
+declaration family newer. That placement also gives the pair rule the
+declaration walk's **global reach**: it visits directories the content walk
+never admits, so a malformed sidecar under `_hidden/` is a load error even
+though neither half of the pair could ever have been a row — consistent with
+marker semantics, and worth saying out loud. Like a marker, a sidecar is never
+routed; unlike a marker, its change stamp is folded into the row's `version`,
+because a row whose identity lives in a second file has to notice that file
+changing.
 
 ### `noindex` and the layout chain
 
