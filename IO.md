@@ -1,8 +1,15 @@
 # IO.md — two databases: inputs and outputs
 
-**Status: APPROVED TO LEDGER (2026-07-27)** — Matt greenlit serial
+**Status: ALL WORK ITEMS COMPLETE (2026-07-28)** — every box in §10 is
+checked: I1–I13, IR1–IR9, and batch reviews I-A through I-D. What stands is
+the **final IO review** (whole-ledger, MERGE.md-final-review style) and §9's
+remaining opens, which are Matt's: q3 (`robots_txt` emission), and the
+Matt-only calls the ledger surfaced and deliberately did not take — the
+`kind`/search config migration and its expressibility prerequisite (§3), the
+sitemap's honest respelling (§3), and the rendition-address extension (I12).
+*Originally: **APPROVED TO LEDGER (2026-07-27)** — Matt greenlit serial
 execution after the MERGE.md pipeline drains (F3 → G1 → G2 → batch
-review 4). §10 is the work ledger; Matt may still edit the model sections
+review 4).* §10 is the work ledger; Matt may still edit the model sections
 at any time and the ledger follows the document. Where this contradicts
 DESIGN.md, this is the intended successor and DESIGN.md records what
 shipped. Remaining **[open]** choices are settled in-item by the
@@ -874,7 +881,7 @@ Two follow-up items, run before I9:
   first transform; §9's rendition-surface **[open]** settled here by
   propose-and-flag. Parity.
 
-- [ ] **I13. Delete `kind`.** ~~By now unread~~ — **review I-D
+- [x] **I13. Delete `kind`.** ~~By now unread~~ — **review I-D
   measured otherwise**: structural readers remain in build.rs's render
   dispatch (Static|Object/Page arms), the feed's RouteKind::Post
   filter, search's Post/Page doc arms, kind==View tests (mostly
@@ -4461,3 +4468,201 @@ underneath it: the ask type, the union, and the output row. One observation for
 the census: I7e's description-page refusal ("one line to delete when I11/I12
 lands") is still standing — I12's brief did not include it, and it is now the
 only place the ledger points at an item that has landed.
+
+**2026-07-28 — I13.** Landed as one commit, and the item's whole content is a
+census rather than a deletion: **`kind` dissolves as far as the facts reach,
+which is most of the way and not all of it**, and the three survivors survive
+for three unrelated reasons. Saying that loudly IS the deliverable — the
+ladder's step 6 said "by now unread", review I-D said otherwise, and the
+measurement says the review was right and slightly under-counted.
+
+***The schema column CANNOT go, and this is the loud sentence the brief asked
+for.*** grack.com's `[routes.search]` and its `[profiles.drafts]` restatement
+filter `kind == "post"`, which means **the blog corpus** — SCOPE MEMBERSHIP —
+and there is no replacement spelling: the route pool carries `front_mattered`
+(identity, which would admit every page under `/code/` and `/writing/`),
+`shell` (serialization, which would admit every document), and no column at
+all for which scope admitted a row. I9 landed the join and none of its four
+fields answers it either. So the **column, its `Enum` domain, `check_domain`,
+`explain`'s `kind` line and `query urls --kind` all survive whole**, and the
+unlock is two-step and in this order: an expressibility item putting scope
+membership on the output pool, and then **Matt's call**, because whatever
+replaces the filter moves `/search.bin`. Both config comments now say this at
+the line, and §3's marker carries the post-I13 truth as a table.
+
+*The census, measured per site rather than reasoned.* Eleven `kind` reads in
+engine code at HEAD; five after.
+
+| site | outcome | reason |
+|---|---|---|
+| `build.rs` `axes_part`'s twin test | **taken** → `o.view.is_some()` | with `is_some` kept: a route with no row AND no view (a rendition mint) must not be treated as a view's twin, and the equality below it does not say so |
+| `build.rs` landing-content loop | **deleted** | the `let Some(view)` four lines above already asked it |
+| `links.rs` `url_form` | **taken** → `match &r.view` | the arm needed the value anyway, so matching on the column binds it instead of asking `kind` and then unwrapping — and `RouteKind` left the file's imports |
+| `trails.rs` landing climb | **taken** → `r.view.is_some()` | ditto; `RouteKind` left that file too |
+| `load.rs` templated-landing resolution | **deleted** | the `view` column below it already asked |
+| `load.rs` claimed-row URL, first `find` | **taken** → `r.view.is_some()` | |
+| `load.rs` claimed-row URL, second `find` | **deleted** | it names the owning view in the next term |
+| `views.rs` pool-fold route lookup | **deleted** | same shape: `r.view.as_deref() == Some(name)` says it |
+| `build.rs` render dispatch (`Static\|Object` / `Page` / `_`) | **left** | see below |
+| `build.rs` `thumbs_pass`, `render_page_bodies` (`kind == Page`) | **left** | |
+| `build.rs` `search_pass`'s two doc arms | **left** | |
+| the SCHEMA column + `explain`/`routes`/`query urls --kind` | **left, deliberately** | above |
+
+*What the eight taken sites all stand on, and the fact that it was holding
+nothing.* `kind == View` **iff** `view` is non-empty. That is true because the
+three `Route` mints in `views.rs` each set both and the row-route constructor
+in `load.rs` sets neither — a convention, checked by nobody, and eight
+rewrites now depend on it. So it is a test rather than a comment
+(`crates/grackle/tests/io_kind.rs`, over one site holding every route shape at
+once: two posts, a page, a byte copy, a routed image, a paginated listing, a
+grouped archive, a from-less fold). **Mutation-checked in both directions**,
+each red and each restored: drop `view: Some(name)` from `build_pool_folds` →
+`/blog-corpus.xml` is a `View` route the column cannot see (and the fold stops
+publishing, which is the second half of the same symptom); give the row-route
+constructor a `view: Some(…)` → `/about/` is a `Page` route the respellings
+would read as a listing. The biconditional is the parity proof for all eight
+at once, which is why no per-site mutation was written: given it, each
+rewrite is an identity.
+
+***Post vs Page is NOT expressible, and the reason is I9's ruling one store
+over.*** The render dispatch's `_ => {}` arm, `render_page_bodies`,
+`thumbs_pass`'s body scan and `search_pass`'s two doc arms all need to know
+whether an output is a post's, and **a row carries the scope's NAME
+(`collection`) and nothing that says what kind of scope that was** — "this
+scope's role is posts" is a statement about CONFIG. Adding the bit would
+re-mint, on the output side, exactly the origin distinction I7e deleted. The
+mechanical face of it is two body stores: `bodies` keyed by row, `page_bodies`
+keyed by URL, filled by two passes, and no fact on a route says which filled
+it. Closing this is a merge of the two render passes, which no item has
+proposed and which this one did not attempt.
+
+***`Static` vs `Object` is respellable, unread, and measured.*** Both are byte
+copies; they are one arm wherever anything dispatches on them; and that arm is
+**exactly `!rendered`** — cross-tabulated on grack.com's 1372 routes (object
+631 / static 187, `rendered false` every one; page 40 / post 331, `rendered
+true` every one) and pinned at fixture scale by
+`the_byte_copy_arms_are_exactly_the_rows_that_do_not_render`. The only reader
+in the engine that tells the two apart is the `kind` column itself. It costs
+nothing and it goes when the column does.
+
+***The dispatch respelling was ATTEMPTED and REVERTED, and the reason is
+shape rather than bytes.*** `match r.kind { Static|Object => copy, Page =>
+render, _ => {} }` becomes, in facts, *"skip a view; skip a post; then a row
+that renders is a page and one that does not is a byte copy"* — three guards
+and a lookup where there was one exhaustive `match`, and the `kind == Post`
+guard survives at the top of it regardless. No byte would have moved (the
+cross-tab above is the proof) and the code would read worse: a `match` that
+dispatches on which pass owns an output is what this enum *is*. Declined with
+the measurement recorded at the line rather than the option forgotten.
+`thumbs_pass` had a second reason of its own worth writing down: `p.rendered`
+alone would re-read every post's file, and moving the scan onto ROWS instead
+would change *which* rows are scanned — a claimed row has no route and so is
+not scanned today, which is a behaviour question (possibly a latent gap; see
+the census note below) and not this item's.
+
+***The debug surfaces keep printing the real thing, and that is the honest
+answer while the column lives.*** IR2 deleted the ROW branch's hardcoded `kind
+post` because a row has no kind. This is the ROUTE branch, and its value is a
+live column a site's `where` can name — so `explain`'s `kind` line,
+`routes`' `[kind]` annotation, `query urls --kind` and `export`'s `kind` field
+all stay, with the reasoning at `main.rs`'s `tag`. Adding the facts *alongside*
+was the other option offered and was refused for a small reason and a large
+one: the route branch already prints `view` (inside the tag) and `inputs`, and
+a second vocabulary on a surface whose column is still real teaches a reader
+that the column is doubtful when it is not. Measured: `explain`, `routes` and
+`query stats` are byte-identical old binary against new on five probe URLs.
+
+*Two stale pointers at landed items, corrected rather than inherited.* (a) The
+description-page refusal (I8, `load.rs`) said *"one line to delete when
+I11/I12 lands"*. Both landed and neither built it — I11 gave an input a second
+ADDRESS, I12 gave it derived BYTES, and a description page is **neither**: it
+is an output whose content is rendered from a row's FIELDS. **No item owns it
+and none is proposed**, so the comment now names the SHAPE that would move it
+rather than a number, and says the refusal is not an interim. I12's census
+flagged this as "the only place the ledger points at an item that has landed";
+it was not the only place. (b) `load.rs`'s `check_graph` doc still said the
+cycle check is *"armed for I11/I12, where a rendition IS an output derived
+from another output's bytes"* — I12 measured that renditions do **not** bring
+that edge and corrected `graph.rs` and `io_graph.rs`; this third copy was
+missed. Corrected here with I12's reason (the transform reads the INPUT's
+bytes; the citing page reads an ADDRESS the hashing law makes a planning
+fact).
+
+*Three tests, three mutations plus a control-by-construction*
+(`crates/grackle/tests/io_kind.rs`). (1) the biconditional, both mutations
+above, with both sides witnessed and all five `kind` values asserted present —
+a biconditional over an empty table is true and says nothing. (2) the
+byte-copy/`rendered` agreement, which asserts an agreement rather than
+guarding a path: if it ever goes red, `build.rs`'s dispatch has stopped being
+respellable and the log entry above is what needs rewriting. (3) the surviving
+column still selects the blog corpus — grack.com's live spelling at fixture
+scale, beside the pool it would have had to be narrowed from; the mutation is
+deleting `s.insert("kind", …)` from `route_schema`, which is the day this
+filter needs its replacement to exist.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one, into separate trees
+from the same content — **byte-identical but for the six wall-clock
+`<updated>` lines** (2 diff lines per feed, 2 of them the timestamp, 0
+anything else; theme-preview identical outright, having no feed), **stderr
+identical on all six**, file counts 8 / 8 / 83 / 242 / 1828 / 1829 and
+`grackle query urls` set-diffs **empty** on all six (7 / 7 / 63 / 222 / 1372 /
+1373), both unmoved since IR1. The two config comment edits were re-run
+through the same gate after the fact, since a comment that moves a byte is a
+comment in the wrong file. `cargo test` green (31 result lines, one more than
+I12's 30 — the new file); `cargo fmt --check` clean under the pin; **clippy's
+warning set byte-identical** to HEAD's rebuilt in the worktree (49, diffed
+line by line); **zero re-blessing** — no fixture, no `expected-error` and no
+existing assertion moved, and `git status` after the commit was empty.
+
+*Docs.* IO.md §3 gains the post-I13 survivor table (each survivor with its
+unlock) and its search marker stops saying "I13 cannot delete the column" and
+starts saying I13 did not; §7's dissolution row for the enum says *partly*,
+measured; §8's ladder step 6 records that its own premise — "by now unread" —
+is the thing the item disproved. DESIGN.md §5b's route-fields section gains
+**The column SURVIVES `kind`'s deletion** (the four-row census with the
+unlock), and §9b's single-tree entry records the last table tag as "as gone as
+it can be". `RouteKind`'s own doc carries the census where the next reader
+will be standing. grack.com's two filters carry the reason and the unlock at
+the line. **`manual/OUTLINE.md` untouched per MERGE.md §4, and checked rather
+than assumed** — and this one needed the check rather than an
+assumption, because the answer was not where I expected it. It teaches the
+route `kind` column in exactly ONE place — ch. 24's drafts-profile snippet,
+line 824, `where = 'kind == "post" && !hidden'`, which is grack.com's own
+restatement quoted verbatim — and it teaches the filter vocabulary nowhere
+else (its other `kind` hits are the COLLECTION key and the layout kind, both
+untouched). That line is still exactly right and, with the column surviving,
+stays right until Matt takes the migration. So the last item of the ledger is
+the seventh that leaves that file honest, and it is honest for the same reason
+the item was mostly a census: had `kind` gone, the manual's one snippet would
+have gone stale with it. Seventh in the sequence; the three it staled (I10's `query pull`, I11's
+`[embeds]`, I12's `width=N`) are still Matt's pen.
+
+*For the final IO review.* Five things. (i) **The declined dispatch respelling**
+is the call to weigh, and it is unusual in this ledger for being declined on
+LEGIBILITY rather than on bytes — the byte argument is settled (the cross-tab),
+so a reviewer who disagrees is disagreeing about whether three guards read
+better than one `match`. (ii) **The biconditional is the only guard for eight
+rewrites**, which is the right factoring and also a single point of failure:
+if a future mint sets one of the pair and not the other, the test says so, but
+nothing stops the mint from being written. (iii) **A latent gap found in
+passing and NOT fixed**: `thumbs_pass` collects `{% image %}` asks by walking
+ROUTES, so a **claimed row** (q45's landing content — theme-preview has three,
+field-notes two) has no route and its body is never scanned; if such a body
+ever writes `{% image %}`, the ask is not collected. No corpus claimed row
+does, so it is inert and unmeasurable from a build — proposed as an item
+rather than folded in, per §10's no-chips rule. (iv) **The description-page
+refusal now points at no item at all**, which is honest and also leaves a real
+model capability (§4a's "an image with a sidecar can wear an html output")
+refused with nobody assigned; if Matt wants it, it is an item. (v) **`Static`
+vs `Object` is dead weight the column carries** — nothing reads it, and it
+survives only because the column does; whoever takes the config migration
+should notice they are deleting two distinctions, not one.
+
+*Proposed items* (out of scope here, per §10's no-chips rule): two, neither
+blocking. (a) **Scope membership on the output pool** — the expressibility
+prerequisite §3's marker has named since review I-D, and now the last thing
+standing between `kind` and the graveyard. (b) **The claimed-row rendition
+scan** (iii above). Neither is I13's to take: the first needs a design
+decision about what the column is called and whether it is a name or a role,
+and the second is a behaviour change under a byte gate.
