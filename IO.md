@@ -259,7 +259,7 @@ parameters, never the output bytes** — the address must be computable at
 planning, before any transform runs. Today's thumbnail cache already obeys
 this (`blake3(image bytes + variant)`); the law codifies it.
 
-## 5. The graph
+## 5. The graph — **shipped, I10**
 
 Every shell has a concrete inputs → output mapping, so the build constructs
 the full dependency graph **at planning time** — nodes from
@@ -273,6 +273,19 @@ render surprise). Four existing features become views of this one graph:
   along edges;
 - **serve** — walking the graph backward from one requested output;
 - **relation/fold ordering** — topological order over the same nodes.
+
+**Amended at I10**, in the two places the build made the paragraph more
+specific than it was: (a) the edges are **two kinds under one label**, not
+one set — `output.inputs` is the CONTENT edge (the dependent's bytes read
+the dependency) and `route_members` is the FACTS edge (it reads only what
+planning finished), and §1's law is what the label says; (b) the four
+features are views in different states, honestly — the pull and
+`materialize_referenced` are **built**, invalidation is the **edge set with
+no consumer yet** (serve still rebuilds the world, so there is no live key
+system to replace), serve has the **entry point and no caller**, and
+relation/fold ordering **did not move**: relations order themselves at load
+and a fold's ordering falls out of §4's column rule rather than out of a
+topological sort. DESIGN §5j carries the built form.
 
 ## 6. Themes: `root.html`, and no shell vocabulary
 
@@ -747,7 +760,7 @@ Two follow-up items, run before I9:
   fact-keyed three-vector insert_rows interface and flagged I9 as where
   it "becomes a query or stays" — claim that decision, record it.
 
-- [ ] **I10. The graph.** Planner builds nodes/edges upfront; cycle
+- [x] **I10. The graph.** Planner builds nodes/edges upfront; cycle
   detection at load; invalidation keys derive from edges; serve becomes
   the pull (on-demand = unforced content stage). Parity + the serve
   behavior tests. **Amendments from review I-C**: the rung-0 residual
@@ -3703,3 +3716,195 @@ its selected routes**, which for grack.com's sitemap is 409 rows out of 589
 selected routes; the other 180 are sourceless outputs whose edge is
 `route_members` rather than `inputs`, and whether I10 wants those two read as
 one graph or two is its question, not this one's.
+
+**2026-07-27 — I10.** Landed as one commit. The item's whole content is one
+label, and the reason is that without it the graph refuses a site the corpus
+ships: **a pool fold with no `where` selects its own route**, so `/all.xml` is
+literally its own `route_members` member. Read as one undifferentiated graph
+that is a cycle; read with the label it is free. Everything else here follows
+from getting that right.
+
+***[decided]* ONE graph, two edge kinds** — I9's flag 5, and the lean taken.
+The two columns name keys in different stores (`inputs` names rows,
+`route_members` names routes), and two graphs would have meant two traversals
+that must agree, which is the shape a join exists to delete. So the edges are
+labelled instead, and what the label says is §1's law: a **`Content`** edge
+means the dependent's BYTES read the dependency; a **`Facts`** edge means it
+reads only what planning finished (url, shell, declared fields). A fold
+carries both at once — its facts edges name the outputs it arranged, its
+content edges the rows behind them — which is the assertion that makes "one
+graph" a claim rather than a preference. `grackle_model::graph` adds no fact:
+nodes are every row and every route, edges are the two columns read, and
+nothing is recomputed or looked up, which is what I9 bought.
+
+***The cycle answer: not expressible today, and the check is armed anyway.***
+Content edges run input → output — nothing in the engine derives an output
+from another output's *content* — and an input has no incoming edge, so the
+content subgraph is bipartite with every source on one side and has no cycle
+to find. That is the doc, and it is also the fast path (`check_acyclic`
+returns on one linear scan when no content edge leaves an output), so the
+claim and the code are the same sentence. **The mutation is what makes this a
+measurement rather than an argument**: label `route_members` as `Content` and
+`io_folds.rs`'s three tests go red while the new fixture dies on *dependency
+cycle: output /all.xml → output /all.xml*. Two things worth recording from
+that run. (i) **grack.com does NOT tell them apart** — its sitemap says
+`dir || ext == "html"`, so it excludes its own `.xml` route and loads clean
+under the mutation; the site that decides this is any site with a from-less
+fold, which is what `[routes.all]` in the fixture is. (ii) The detector is
+tested where a cycle can be BUILT — `graph.rs`'s unit tests hand it the
+output→output content edge I11's renditions introduce — because a detector
+whose only evidence is that it never fires is indistinguishable from a
+comment.
+
+***[decided]* The load check's call site has a compound mutation, and that is
+stated rather than dressed up.** Deleting `check_graph(&db)?` alone turns
+nothing red, because nothing can build a cycle. Deleting it *together with*
+the mislabel above makes the fixture load clean and publish a fold that is its
+own content dependency — which is exactly what the call buys and the only
+honest way to mutation-check it. Recorded in the test's doc comment, both
+halves run.
+
+***`materialize_referenced` became a pull, and the rewiring was a deletion.***
+A citation names a URL; `db.by_url` is the inputs database's address index, so
+resolving one IS walking a content edge to the input at its far end. The pass
+used to key a private `pending` map off `on_demand && !url.is_empty()` — a
+second index of a fact the join already holds — and the "have I done this
+one" test used to be `pending.remove`. Both are gone: the resolution is
+`by_url`, and the test is **`row.output.is_some()`**, I9's own column. Behaviour
+is identical by construction (`by_url` holds exactly the rows carrying a URL;
+`output` is `None` for an on-demand row until this line sets it), and the
+mutation says what the second index was hiding: drop the `output.is_some()`
+half and the asset — cited from two finished documents — is minted **twice**,
+two outputs at one URL. Measured, not predicted.
+
+***[decided]* The rung-0 residual is CLOSED, at the minting seam.** Review
+I-C handed this over as a graph-ordering question and the graph answers it:
+**minting an output is a graph event**, so rung 0 belongs at every seam that
+mints one rather than at the one pass that happened to run first. The typed
+values are computed once in `force_route_fields` and kept on
+`SiteDb::forced_fields`; `materialize_referenced` applies them to the route it
+mints. One list, two writers, no re-derivation — the alternative was rebuilding
+the values at the second seam from a `Schemas` the build does not have. It is
+**byte-inert today and that is stated at the code**: those routes are byte
+publishes with no head, minted below every reader of a route field, and
+`explain`'s route branch prints no `fields` line (checked). Closed now rather
+than when a reader arrives, because the hole grows once per minting seam and
+I11/I12 add two. Each half is separately mutation-checked, and the ROUTE half
+still passes when the second seam's loop is deleted, which is what makes them
+two lines rather than one.
+
+***What serve got, and what waits.*** Serve got **the entry point and a
+sentence**, and no architecture. `Graph::pull(output)` returns the ordered
+work — dependencies before dependents, the output last — and is tested
+standalone, including on the fold that selects itself (finite, appears once).
+Nothing calls it: `serve` still rebuilds the world, which DESIGN §7 now says
+alongside the two upgrades it owes in the graph's own vocabulary (`fanout` for
+the watcher, `pull` for the request). Rewriting serve was explicitly out of
+scope; what the item owed was the graph the rewrite stands on.
+
+***Invalidation: the equivalence stated, and a guard that is not vacuous.***
+DESIGN §2's typed keys are a **design, not machinery** — nothing consumes
+them, because serve rebuilds the world — so "the keys agree with the graph"
+had no live thing to compare against, and a self-comparison (the fanout equals
+the column it was built from) would have been arithmetic. What landed instead
+compares the graph against **reality**: edit one input, rebuild the whole
+site, and every output whose bytes moved must lie inside that input's
+`fanout`. A missing edge is exactly an output that moves and is not in the set
+— the stale page an incremental rebuild would ship — so the guard fails on the
+mechanism's own defect. Two mutations red (`join_arrangement`'s `r.row` term:
+the document's own page leaves; its `route_members` term: `/search.bin`
+leaves, and that fold is the one that proves the term because a search index
+is BINARY and cites nothing).
+
+*And one finding the guard produced by NOT firing.* Dropping
+`ins.extend(r.members…)` leaves the fanout test green, because **a listing
+links what it arranges**, so `join_citations` re-derives the same edge off the
+finished bytes. Arrangement and citation genuinely overlap wherever an
+arrangement is rendered as links — which is why `viewed_by` and `linked_from`
+are still two fields (they answer different questions, I9's ruling) and why
+`inputs` may receive one edge from two sources without double-counting. It is
+recorded in the test rather than papered over, because a mutation that does
+not fire is a fact about the system, not a gap in the test.
+
+*One more decision recorded rather than pinned.* Making `pull` recurse into
+facts edges as well produces the **same order on every shape the engine can
+build** — measured — because a fold's `inputs` already holds the rows behind
+its members, so the recursion re-finds what the content edges named. The
+non-recursion is therefore the label's MEANING here (and bounded work: linear
+in member count rather than in the closure behind them); where the label is
+observable is the cycle check. I9's unfenced-scanner call is the precedent for
+recording a choice no mutation can redden.
+
+*The surface.* `grackle query pull <url>` — the output, its edge list tagged
+`content`/`facts`, then the ordered work, both capped at eight with a count
+(`debug::capped_list`, `join_list`'s formatter generalized rather than
+copied, since two surfaces that cap differently are two surfaces a reader has
+to learn). Planning edges only, for `explain`'s reason: the citation half is
+added by the render pass and the CLI runs none. On grack.com the sitemap reads
+`needs 998` (409 content + 589 facts) and `pull 999`, which is the whole model
+on one screen.
+
+*The cost, measured against I9's precedent of catching +23 ms.* Twenty
+interleaved loads of grack.com, HEAD's binary against this one: **1.34–1.36 s
+vs 1.37–1.39 s**, i.e. **+1.5 ms per load** for building the graph and
+checking it — 2% of a 67 ms load, 0.2% of a 900 ms build, and inside variance
+at the build level (five interleaved builds, both directions). The fast path
+above is why it is not more; the remainder is hashing ~2 800 nodes and ~15 000
+edges into the two adjacency maps.
+
+*Six integration tests plus four unit tests, ten mutations red and two
+recorded green* (`crates/grackle/tests/io_graph.rs`, `graph.rs`'s module
+tests). The fixture is one site with all the shapes beside each other —
+two documents, a listing over them, a from-less pool fold, a `search` fold
+(binary, cites nothing), a byte copy, two on-demand images of which exactly
+one is cited, and a `[profiles.hide]` forcing a field — and it is
+`extends = "none"` on purpose, because one test builds it twice and diffs the
+bytes, which a wall-clock feed would break.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one, into separate trees
+from the same content — **byte-identical but for the six wall-clock
+`<updated>` lines** (theme-preview identical outright, having no feed),
+**stderr identical on all six**, file counts 8 / 8 / 83 / 242 / 1828 / 1829
+and `grackle query urls` set-diffs **empty** on all six (7 / 7 / 63 / 222 /
+1372 / 1373), both unmoved since IR1. `cargo test` green (28 result lines, one
+more than I9's 27); `cargo fmt --check` clean under the pin; **clippy's
+warning set byte-identical** to HEAD's rebuilt in the worktree (47);
+**zero re-blessing** — no fixture, no `expected-error` and no existing
+assertion moved.
+
+*Docs.* DESIGN.md §2's invalidation bullet rewritten (the fanout IS the
+`Row(path)` key set; the two honest limits — the keys have no consumer, the
+non-row dependencies stay keys; the consistency guard that stands in for a
+comparison); a new **§5j, The graph: one graph, two edge kinds** (the edge
+table, the one-graph argument, the cycle answer, the four views with their
+real states, the pull, the rung-0 seam); §7's serve bullet (what I10 changed
+is the story, and the two upgrades named in the graph's vocabulary); §7's
+`grackle query` line gains `pull <url>`; §9b's single-tree entry records the
+graph as built and hands the endgame's remainder to a **consumer** rather
+than to a structure. `serve.rs`'s module doc says the same thing where the
+next agent will be standing. **`manual/OUTLINE.md` untouched per MERGE.md §4,
+and checked rather than assumed — and this is the first item in six that
+leaves it one spelling STALER**: ch. 33f enumerates the CLI (`build / serve /
+query (incl. query stats) / explain / urls / diff`) and there is now a
+`query pull` it does not list. Matt's pen; nothing in it became false, only
+incomplete.
+
+*For batch review I-D.* Five things. (i) **The edge-kind split** is the call
+to weigh, and the reversal cost is one word — but the mutation above is what
+it costs, so the argument is measurable rather than aesthetic. (ii) **The load
+check cannot fire**, and its call site is only mutation-checkable in
+combination; a reviewer may reasonably want it deferred to I11 instead, and
+the counter-argument is that I11 is the item that introduces the first cycle
+and should find the tripwire already there. (iii) **`SiteDb::forced_fields` is
+a new field on the database that exists so a build-time pass can do a
+load-time thing** — the smallest shape that closes E1's hole, but it does put
+a config projection on the database, and the alternative (hand `cfg` and a
+`Schemas` to `materialize_referenced`) was refused as re-deriving typed values
+at a second seam. (iv) **`fanout` follows content edges only**, which is right
+today because a fold's `inputs` already reaches the rows behind its members —
+if that ever stops being true the omission is silent, and there is no guard
+for it. (v) **The graph is rebuilt from scratch at every load and thrown
+away** (+1.5 ms); the day something reads it more than once it should live on
+the database beside the join it reads, which is a change of ownership rather
+than of code.
