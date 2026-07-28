@@ -681,7 +681,7 @@ the picture refusal unnarrowed; both-sources-error; root-scope asymmetry
 KEPT per the reviewer's proposed answer, with IR8 as its observability).
 Two follow-up items, run before I9:
 
-- [ ] **IR8. The empty-claiming-scope warning.** *(Review I-C finding 1 —
+- [x] **IR8. The empty-claiming-scope warning.** *(Review I-C finding 1 —
   a real regression at the ownership law's edge.)* A typo'd glob on a
   sourced scope (`match = "**/*.markdwn"` over a populated `_posts/`)
   builds clean and silent with `posts 0` — pre-phase it was a load error.
@@ -3237,3 +3237,106 @@ root-scope ruling to confirm; OUTLINE ch. 23's stale "neither half
 built" line (the DECLARE half shipped at I8; q49's DERIVE half still
 wants a consumer); §2/§1 model text (Matt's pen); the inspector tables;
 sidecar'd alt text writable but unconsumed until I11.
+
+**2026-07-27 — IR8.** Landed as one commit. The fix turned out to be a
+**denominator**, and naming it that is the item's whole content: `dead_rules`
+has always asked "how many rows did this scope find", and `found == 0` was
+doing two jobs — suppressing three warnings about one absent directory (which
+is right) and suppressing the one warning about a typo'd glob (which is the
+regression). A count of what the scope was OFFERED separates them, and once
+there are two numbers no exception is needed for either documented silence: an
+absent `_posts/` and an empty-but-present `_posts/` both offer zero, so both
+stay silent for the same reason rather than for two reasons.
+
+*Where the counts live.* `Scope::offered`, a `Cell` beside `found` for the same
+reason `found` is one — the walk holds the scope list by shared reference. It
+increments at exactly one line, the `s.relative(&f.rel)` in I7d's ordered
+sequence, and that placement is the honest one: "under this source" and "asked
+about it" are the same event only there. Counting from the file list instead
+would over-count, because a nearer scope that claimed first, or an owner that
+already stopped the search, means the scopes below never saw the file at all.
+Per scope and not per rule, which is what the review asked for and what makes
+the residual below the residual it is.
+
+*The warning, as landed*, keyed on `offered > 0 && found == 0`:
+
+    grackle: collection posts: `source = "_posts"` offered 2 files and no rule
+    of this scope claimed one — the collection is empty, and because a scope
+    owns its source those files are not content and ship nowhere (IO.md I7d).
+    The globs asked: `**/*.markdwn`. Fix a glob, or move the files out of
+    _posts.
+
+It names the scope, the source, the globs and the count, because the count is
+the fact that distinguishes this from the legal shapes and a reader who cannot
+see it cannot tell which warning they are reading.
+
+***[decided]* Inherited scopes are reported, unlike inherited rules.**
+`dead_rules` suppresses the base's globs on the argument that they are not the
+author's to fix — a permanent unfixable line is how a warning stops being read.
+That argument does not transfer, and the difference is worth the sentence: a
+dead inherited rule is the base making a statement about a corpus that never
+arrived, while an inherited scope offered files is the AUTHOR having filled a
+directory. The files are theirs, the fix (move them, or write a rule) is
+theirs, and the line goes away when they act.
+
+*The guard's reach, measured rather than claimed.* The narrowing is
+`Scope::owned()` — proper sources only — and mutating it in the two available
+directions says two different things. Admitting **sourceless** scopes is a real
+guard: an objects scope being asked about a file it does not want is its
+ordinary day, and four existing warning fixtures light up. Admitting the
+**root** scope is inert, and it is inert for a structural reason worth
+recording: the root is asked only when no owner stopped the search, so a file
+it declines is already the engine's *no rule supplies a route* error rather
+than a silent drop. `offered > 0 && found == 0` is unreachable there. Recorded
+at the line as unreachable, not guarded and not claimed as guarded.
+
+*The residual, carried and not closed.* A typo in ONE rule of several, where a
+sibling rule still claims something, does not trip this — the scope found rows.
+`dead_rules` reports that case, and only when the site wrote the rule, so an
+inherited rule going dead inside a live scope stays silent both ways. The
+per-rule version would want a per-rule `offered`, which is a census and belongs
+in `query stats` rather than on stderr; the review said so and this agrees.
+
+*Two doc riders.* DESIGN.md §4b gains one sentence: the sidecar pair rule
+inherits the declaration walk's **global reach** — `walker_declarations` has no
+dot/underscore skip, only the `themes/`, `.git` and `exclude` prunes — so a
+malformed sidecar under `_hidden/` is a load error though neither half of the
+pair could ever have been a row. **Verified on a scratch site rather than
+reasoned**: the build dies with `sidecar _hidden/note.txt.toml`, and with the
+TOML fixed the same site ships three files, none of them from `_hidden/`.
+Consistent with marker semantics, now stated. And `io_sidecar.rs`'s headline
+mutation comment claimed the load "dies reading the PNG as text"; it does not,
+and the review was right that it never did — measured, the mutation dies one
+line earlier on the **picture refusal**, which sits directly downstream of
+`rendered`, with a message advising a route the row already wears. That last
+detail is the collapse showing through and is what the comment now says.
+
+*Four tests* in `load::load_warning_tests` (the probe, both suppressions, and
+the caret shape at fixture scale), sharing one config so that the only thing
+varying between the probe and its two controls is what is on disk. Three
+mutations red and restored: delete the `empty_source` call (the probe goes
+silent); key on `found < offered` (the caret shape starts reporting a
+deliberate arrangement, which is exactly the corpus-wide noise the `found == 0`
+key exists to avoid); drop the `offered > 0` guard (five fixtures light up,
+including three that predate this item).
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one over the same content
+trees — byte-identical but for the wall-clock `<updated>` lines, and every
+differing line checked to be one (`diff -r` filtered: nothing else moved).
+**stderr identical on all six** — no corpus scope trips the new warning, which
+is the parity run's own answer to the caret question and not a prediction. File
+counts 8 / 8 / 83 / 242 / 1828 / 1829 and `query urls` set-diffs **empty** on
+all six (7 / 7 / 63 / 222 / 1372 / 1373), both unmoved since IR1. `cargo test`
+green (26 result lines); `cargo fmt --check` clean under the pin; clippy **47**,
+HEAD's number; **zero re-blessing** — no fixture and no `expected-error` moved,
+and no assertion outside the four new tests changed.
+
+*For batch review I-D.* Two things. (i) **Inherited scopes are reported** and
+that is the only place this warning is louder than `dead_rules`; the argument
+is above and the shape it could produce is a base-declared `_posts` scope over
+a directory of assets on a site that inherits without thinking about it — legal,
+warned, fixable. (ii) The **root-scope half of the guard is unreachable** by the
+argument above rather than by a test, which is the one claim here a reviewer
+should want to re-derive; if it is wrong, the symptom is a warning on a site
+that should have gotten *no rule supplies a route*.
