@@ -17,8 +17,8 @@
 //! row (or a per-member route) is one output, so it takes a map shell; a view
 //! is a query, so it takes a fold shell. Identity is the SOFT contract — an
 //! identity-less file under `html` becomes a degenerate row (IO.md §1, Matt
-//! 2026-07-27) and is I7's business, not this module's. Nothing here looks at
-//! front matter.
+//! 2026-07-27), and since I7c that softness is stated here too, as
+//! [`renders`]: the one law that says whether a row is a document at all.
 //!
 //! The retired spellings (`none` → `raw`, `light` → `light_html`) get no
 //! teaching error: MERGE.md §4 makes retired spellings hard cutoffs, and no
@@ -53,8 +53,56 @@ pub const FOLD: &[&str] = &["atom", "sitemap", "search"];
 /// route set does not already answer.
 pub const VIEW_DEFAULT: &str = "html";
 
+/// The **document family**: the map shells that wrap an output in an HTML
+/// document. A subset of [`MAP`] — `raw` is the transparent one and wraps
+/// nothing — and the set [`renders`] reads.
+///
+/// It is a named set rather than two literals because the law below is a
+/// statement about a FAMILY: the future `md` shell will have to decide whether
+/// it joins, and a `matches!(s, "html" | "light_html")` at the one call site
+/// would let it join by omission.
+pub const DOCUMENT: &[&str] = &["html", "light_html"];
+
 pub fn is_map(name: &str) -> bool {
     MAP.contains(&name)
+}
+
+pub fn is_document(name: &str) -> bool {
+    DOCUMENT.contains(&name)
+}
+
+/// **The rendering law** (IO.md §1 and §4, I7c): a row renders iff it carries
+/// identity, or a rule sent it through a document shell.
+///
+/// Both halves are load-bearing and neither implies the other, which is why the
+/// law is a disjunction rather than either clause on its own:
+///
+/// - **`front_mattered` alone is not enough to say `raw`.** A front-mattered
+///   file wearing `shell = "raw"` is a document the pipeline renders and the
+///   `raw` shell then emits verbatim — `examples/field-notes`' `demos/pane.html`
+///   is the live one. A law spelled "the shell decides" would byte-copy it, and
+///   what a byte copy of a front-mattered file ships is the `---` block.
+/// - **`shell` alone is not enough to say "no identity, no document".** That
+///   second clause IS the degenerate row (IO.md §1): an identity-less file that
+///   rules send through `html`/`light_html` renders anyway — a warning, never an
+///   error, with its title implied from its slug. `_drafts/caret/…` on grack.com
+///   is the corpus's one.
+///
+/// An identity-less file routed `raw` is the ordinary byte row, and gets no
+/// warning: that is the normal case, not a degenerate one.
+pub fn renders(front_mattered: bool, shell: Option<&str>) -> bool {
+    front_mattered || shell.is_some_and(is_document)
+}
+
+/// The law's second clause standing alone: the row that renders WITHOUT
+/// identity — IO.md §1's **degenerate row**. Hands back the document shell that
+/// made it one, so the warning can name it.
+///
+/// A predicate would have been enough for the branch and not for the message,
+/// and the message is most of what a warning is. It also removes the corner
+/// where a caller has to default a shell name it can prove is present.
+pub fn degenerate(front_mattered: bool, shell: Option<&str>) -> Option<&str> {
+    shell.filter(|s| !front_mattered && is_document(s))
 }
 
 pub fn is_fold(name: &str) -> bool {
@@ -234,6 +282,48 @@ mod tests {
             assert!(!is_fold(m), "{m} is in both families");
         }
         assert!(is_map(VIEW_DEFAULT), "the view default is a map shell");
+    }
+
+    /// The document family is the html half of [`MAP`]: `raw` wraps nothing,
+    /// and a fold shell is not a row's to wear at all. Spelled as a
+    /// partition so that adding a map shell (the future `md`) has to decide
+    /// which side it falls on rather than defaulting to one.
+    #[test]
+    fn the_document_family_is_the_non_raw_map_shells() {
+        for name in DOCUMENT {
+            assert!(is_map(name), "{name} is not even a map shell");
+        }
+        assert!(!is_document("raw"), "raw wraps nothing");
+        for f in FOLD {
+            assert!(!is_document(f), "{f} is a fold");
+        }
+    }
+
+    /// **The law** (I7c), in all four corners. The two that are not simply
+    /// "identity decides" are the ones the corpus writes: a front-mattered
+    /// `raw` row renders (field-notes' `demos/pane.html`), and an
+    /// identity-less `html` row renders as the degenerate case (grack.com's
+    /// caret draft).
+    #[test]
+    fn a_row_renders_iff_it_has_identity_or_a_document_shell() {
+        assert!(renders(true, None));
+        assert!(renders(true, Some("raw")));
+        assert!(renders(false, Some("html")));
+        assert!(renders(false, Some("light_html")));
+        assert!(!renders(false, Some("raw")));
+        assert!(!renders(false, None));
+    }
+
+    /// The second clause on its own, and the three ways not to be it: identity
+    /// (an ordinary document), `raw` without identity (an ordinary byte row),
+    /// and no shell at all.
+    #[test]
+    fn only_an_identity_less_document_shell_is_degenerate() {
+        assert_eq!(degenerate(false, Some("html")), Some("html"));
+        assert_eq!(degenerate(false, Some("light_html")), Some("light_html"));
+        assert_eq!(degenerate(true, Some("html")), None);
+        assert_eq!(degenerate(false, Some("raw")), None);
+        assert_eq!(degenerate(false, None), None);
     }
 
     /// The retired spellings are hard cutoffs (MERGE.md §4): out of the

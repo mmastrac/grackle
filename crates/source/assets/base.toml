@@ -151,10 +151,17 @@ kind = "objects"
 
 # ---------------------------------------------------------------- pages
 #
-# Front matter decides whether a file is a row at all: with it, a page at a
-# pretty URL; without it, bytes at the literal path, invisible to every query.
+# Front matter is what the rules below select on: with it, a page at a pretty
+# URL; without it, bytes at the literal path, invisible to every query.
 #
-# It also decides the SHELL, and the two rules below say so rather than leaving
+# It is a fact and not a branch, though — whether a row is a DOCUMENT is
+# `front_mattered || shell ∈ {html, light_html}` (IO.md I7c), so the second
+# clause is what these rules spend. Point a rule with no front-matter gate at a
+# blockless file, default it `shell = "html"`, and it renders as a degenerate
+# row: a warning, a title implied from its slug, and a page. Nothing here does
+# that; the base routes identity-less files `raw`, which is the normal case.
+#
+# Front matter also decides the SHELL, and the two rules below say so rather than leaving
 # it to a fallback in the renderer (IO.md §4, I2: "defaults are declared, not
 # built in"). A rule's defaults apply wherever the rule MATCHES, not only where
 # it wins the route — so the index rule needs no shell of its own: a

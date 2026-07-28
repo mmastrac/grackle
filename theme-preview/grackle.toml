@@ -42,14 +42,21 @@ extends = "none"
 # `layout` and `toc` are here for the same reason one rung over (MERGE.md C1):
 # the engine reads them off a row by name, but the pages under `guide/` set
 # them in front matter, and a name a row wears is a name some schema declares.
-# `theme` and `shell` are NOT declared — this site never sets either on a row
-# (the theme axis below sets it per member, at render), and declaring what
-# nothing uses is how a vocabulary stops meaning anything.
+# `shell` joins them for the rules below to write (IO.md I7c): declining the
+# base declines its declared shell defaults too, so every row here resolved no
+# shell at all and reached the themed rendering through the renderer's legacy
+# `layout:` fallback. A declared shell is what makes this site's serialization
+# a fact instead of a fallback, and it is what the rendering law reads
+# (`front_mattered || shell ∈ {html, light_html}`).
+# `theme` is still NOT declared — this site never sets it on a row (the theme
+# axis below sets it per member, at render), and declaring what nothing uses is
+# how a vocabulary stops meaning anything.
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
 layout = { type = "string" }
+shell = { type = "string" }
 toc = { type = "bool" }
 
 # Declining the base also declines its head (§4e). This block is the base's,
@@ -134,6 +141,13 @@ exclude = ["themes/**"]
   route = "/"
 
   # Everything else spends `{theme}`, so every row below lands eight times.
+  #
+  # The shell defaults below are the base's, on a site that declines the base
+  # (IO.md I7c). The index rule declares none for the base's own reason: a
+  # rule's defaults apply wherever it MATCHES, so a front-mattered `index.md`
+  # takes `html` from the third rule and a static `index.html` would take `raw`
+  # from the fourth — the same front-matter gate that decides everything else
+  # about it.
   [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{theme}/{dir}/"
@@ -142,10 +156,12 @@ exclude = ["themes/**"]
   match = "**/*.{html,md}"
   front_matter = true
   route = "/{theme}/{dir}/{stem}/"
+  defaults = { shell = "html" }
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
 # ------------------------------------------------------------------ notes
 #
@@ -161,6 +177,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   [[collections.rules]]
   match = "**"
   route = "/{theme}/notes/{slug}/"
+  defaults = { shell = "html" }
 
 # ---------------------------------------------------------------- objects
 

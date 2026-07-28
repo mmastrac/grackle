@@ -1102,12 +1102,20 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // does: the member IS the alternative form.
                 //
                 // The `_` arm is the row that named no shell at all, and after
-                // I2 that is a row no RULE named one for either — the base's
-                // front-mattered-page rule declares `html`, so on a site that
-                // inherits it this arm is reached only by the index rule's rows
-                // and by `extends = "none"` sites. It still ends at the legacy
-                // `layout:` (q33(f)), which is the one place `layout: light`
-                // is still read.
+                // I7c it has exactly one shape left: a row that renders by
+                // IDENTITY (the law's first clause) on a site whose rules
+                // declare no shell — the second clause cannot reach it, since
+                // it is a statement ABOUT the shell. **No corpus site has one**:
+                // I7c's two config migrations drained the last two (grack.com's
+                // `_drafts` and every row of `theme-preview`), and the shells
+                // were counted on all six trees to say so. What still reaches it
+                // is the fixture suite and the temp sites the tests write, which
+                // is why it stays: "a front-mattered row with no shell is a
+                // document" is a real engine rung, and deleting it here would be
+                // declaring a default while removing the code that applies it.
+                // It still ends at the legacy `layout:` (q33(f)), which is the
+                // one place `layout: light` is still read — a fossil branch no
+                // row anywhere now takes. **I7d/I13.**
                 let shell = axis_field(r, "shell").or(row.and_then(|p| p.shell.as_deref()));
                 if shell == Some("raw") {
                     out_map.insert(r.url.clone(), frag.clone().into_bytes());

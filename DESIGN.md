@@ -229,6 +229,48 @@ those are the tree collection's keys, because what counts as content is decided
 once for the whole site (§4c) and every other scope picks its rows out of that
 one walk — a narrowing an objects scope wants is a narrowing of its `match`.
 
+### The gate is a fact, and the rule key selects on it *(IO.md I7c, 2026-07-27)*
+
+A rule may carry `front_matter = true` (or `false`), and it matches only rows
+that agree. The base's tree rules use it — `**/*.{html,md}` claims the
+front-mattered ones and routes them at a pretty URL, the `**/*` catch-all takes
+the rest at their literal path.
+
+**The key survives; what it means narrowed.** It used to be the loader branch:
+a rule gated `front_matter = true` was how a file became a *page* rather than
+bytes, and the tree loader wrote `rendered: f.has_front_matter` to say the same
+thing a second time. The gate is now a **selector over one fact** — "this rule
+claims files that carry identity" — and whether the row is a document is
+decided somewhere else, by a law over two facts:
+
+> **A row renders iff `front_mattered || shell ∈ {html, light_html}`.**
+
+Both clauses do work no other clause can, which is why it is a disjunction and
+not either half:
+
+- **Identity alone cannot be spelled `shell`.** A front-mattered file wearing
+  `shell = "raw"` is a document the pipeline renders and `raw` then emits
+  verbatim (§5g). The example's `demos/pane.html` is the live one, and a law
+  spelled "the shell decides" byte-copies it — which for a front-mattered file
+  means shipping its `---` block to the browser. Measured, not argued: 571
+  bytes beginning `---\ntitle: Glass pane` where 521 bytes of document belong.
+- **The shell alone is the degenerate row.** An identity-less file that rules
+  send through a document shell renders anyway — a **warning, never an error**,
+  with a title implied from its slug. That is IO.md §1's softening of the
+  identity contract, and grack.com has exactly one occupant: `_drafts/caret/…`,
+  a post whose author wrote no block.
+
+**A degenerate row costs a warning and a title.** The title is the bottom rung
+of the cascade — front matter beats it, and so does any marker or rule default
+— and it is `slug.replace('-', " ")`, the derivation the posts loader has used
+since before any of this and which grack.com publishes on a live page. It is
+pinned by a test *because* it is live: prettying it (title-casing, say) moves
+`<title>`, `og:title`, the rendered `<h2>`, the archive page that lists the
+draft, and `search.bin`.
+
+An identity-less file routed `raw` is the ordinary byte row and says nothing at
+all — that is the normal case, not a degenerate one.
+
 ### Route tokens: one supplier *(q51's remainder; built 2026-07-27, IO.md I6)*
 
 A rule's `route` spends tokens, and **every rule offers the same table** —
@@ -298,6 +340,7 @@ an explicit `permalink:` in the file wins outright.
 - **One row, two routes** → error, naming the file and both URLs. *The dual, and the stronger statement:* **a row renders at exactly one route.** The legal counts are 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand and unreferenced), 1 (everything else), and **N only along an axis** (q53). An axis is the sole mechanism permitted to break it; anything else producing a second route onto one row is a bug, and now says so at load.
 - **Undated row routed by a dated template**: error naming the file and rule. **Generalized** *(IO.md I6)*: a template spending ANY token the supplier cannot fill for that row is the error, in whatever collection the rule lives — the dated case keeps a sentence of its own, because "unfillable" is the mechanism and "this file carries no date" is the diagnosis. The refusal is the only reason the check exists: an unfilled token already fails the render, by a sentence about a template rather than about a row.
 - **Dead rule** (matches zero rows) → warning, naming the collection and the glob. Scoped to rules the **site declared**, in a collection that produced rows: the base's rules go dead for ordinary reasons (no `_posts/`, no `index.md`) and are nobody's to fix, and a collection with no rows at all says nothing about any one glob.
+- **Degenerate row** (no front-matter block, but a rule sends it through a document shell) → warning, naming the file, the shell and the implied title. A warning and never an error, per IO.md §1: the author asked for a page and has one, and the fix is three characters. The gate above.
 - **URL-set parity** with reference builds — maintained via `grackle urls`.
 
 ### Several collections, one table *(built 2026-07-19)*
@@ -1013,7 +1056,7 @@ The tail names the constant the comparison became, and **which constant depends 
 
 The plural is not a hypothetical: `[[collections]] kind = "posts"` is the spelling one line of config away, and the route column typed that way used to type-check perfectly and then match nothing for as long as the config lived. A domain is what a schema column declares when the engine can enumerate its values; `Type::Enum` is the mechanism and `kind` is its one user today.
 
-**`front_mattered` is identity, and it is not `rendered`** *(IO.md §3)*. It answers "did the file this output came from carry a front-matter block", which is what `kind == "post" || kind == "page"` was always a flattened spelling of. It is `false` for a byte copy and `false` for a view route (which has no source file at all — the predicate is total over the route pool by design, so `!front_mattered` means something on every row). It differs from `rendered` on exactly one shape: a `.md` in a posts scope with no block is parsed all the same — the scope hands it a date and a route — so it is `rendered` without being `front_mattered`. grack.com has one. That difference is why `kind == "post"` means **scope membership**, not identity, and why grack.com's search route did not migrate with the example sites'.
+**`front_mattered` is identity, and it is not `rendered`** *(IO.md §3)*. It answers "did the file this output came from carry a front-matter block", which is what `kind == "post" || kind == "page"` was always a flattened spelling of. It is `false` for a byte copy and `false` for a view route (which has no source file at all — the predicate is total over the route pool by design, so `!front_mattered` means something on every row). It differs from `rendered` on exactly one shape — the **degenerate row** (§4's "The gate is a fact"): a file with no block that a rule nonetheless sends through `html`/`light_html` is `rendered` without being `front_mattered`. grack.com has one, `_drafts/caret/…`. Since IO.md I7c the reason is stated rather than incidental: `rendered` is now *derived* from this fact and the shell (`front_mattered || shell ∈ {html, light_html}`), where it used to be a loader constant on the posts side and a copy of this column on the tree side. That difference is why `kind == "post"` means **scope membership**, not identity, and why grack.com's search route did not migrate with the example sites'.
 
 **`noindex` is deliberately absent.** Computing it needs the layout chain (phase 2), and a field we cannot populate correctly is worse than no field: omitted, referencing it is a load-time error; present-but-wrong, it silently lies. It also turns out not to be needed.
 
@@ -1038,7 +1081,7 @@ A bare field is a **truthiness** test, which is what makes `!draft` read natural
 
 Post fields: `draft` `hidden` `rendered` `front_mattered` (bool); `title` `slug` `stem` `layout` `description` `url` `date` (string); `year` `month` `day` `body_bytes` (int); `tags` (list). `date` is ISO-8601, so string ordering *is* date ordering and `date >= "2020-01-01"` works without a date type.
 
-`rendered` and `front_mattered` are two questions, not one written twice — see *Route fields* above.
+`rendered` and `front_mattered` are two questions, not one written twice — see *Route fields* above. Since IO.md I7c the second is an input to the first: `rendered` is the rendering law's answer, and `front_mattered` is one of the two facts it reads.
 
 ```toml
 where = '!draft && !hidden'
@@ -1749,7 +1792,7 @@ A row declares `shell:` and picks its own wrapper: **`raw`** (body IS output —
 
 **Which shell a row wears is declared, not defaulted in Rust** *(IO.md I2)*. The base config's rules carry it: the posts rule and the front-matter page rule declare `defaults = { shell = "html" }`, the tree catch-all declares `shell = "raw"`, and front matter still beats both. The index rule (`**/index.{html,md}`) declares nothing on purpose — it routes rendered pages and byte copies alike, and a rule's defaults apply wherever it MATCHES rather than only where it wins the route, so a front-mattered `index.md` takes `html` from the rule beside it and a static `index.html` takes `raw` from the catch-all. Each by the same front-matter gate that decides everything else about it.
 
-The engine keeps one fallback under all of that — a row no rule named a shell for renders through the legacy `layout:` (`layout: light` → the light tier, else the theme). On a site inheriting the base it is reached only by the index rule's rows and by `extends = "none"` sites.
+The engine keeps one fallback under all of that — a row no rule named a shell for renders through the legacy `layout:` (`layout: light` → the light tier, else the theme). **Since IO.md I7c it has exactly one shape left**, and no site in this repository has one: a row that renders by IDENTITY on a site whose rules declare no shell. The two that did were migrated in that item, both byte-inert and both measured with the unchanged binary first — grack.com's `_drafts` (a second posts source, so it pairs with nothing in the base and inherited no shell) and every row of `theme-preview` (which declines the base, so it inherited nothing at all). What still reaches the fallback is the fixture suite and the sites the tests write, which is why it stays: "a front-mattered row with no shell is a document" is a real rung, and the `layout: light` branch inside it is a fossil no row anywhere now takes.
 
 ### Row tiers: where a row leaves the pipeline *(settled 2026-07-19; renamed 2026-07-27)*
 
@@ -1782,7 +1825,7 @@ There would be nothing to wrap. It is also mechanically unreachable. So the
 2×2 collapses to a three-state chain, and the chain is a **result rather than a
 modelling choice**: identity is a *precondition* for the other bit.
 
-*(The incoherent-corner argument above is **history as of 2026-07-27**, and IO.md records the amendment: Matt softened identity from a precondition to a preference. An identity-less file a rule sends through a rendering shell becomes a **degenerate row** — a warning and a slug-implied title, not an error — which lands in IO.md I7. Arity stayed hard; identity did not. The 2×2's fourth corner is reachable after all, and what makes it coherent is that a title can be implied where a `<head>` cannot be invented.)*
+*(The incoherent-corner argument above is **history as of 2026-07-27**, and IO.md records the amendment: Matt softened identity from a precondition to a preference. An identity-less file a rule sends through a rendering shell becomes a **degenerate row** — a warning and a slug-implied title, not an error — which **landed at IO.md I7c**, as the law in §4's "The gate is a fact". Arity stayed hard; identity did not. The 2×2's fourth corner is reachable after all, and what makes it coherent is that a title can be implied where a `<head>` cannot be invented — and "mechanically unreachable" was the claim that aged worst: the corner was one rule default away the whole time.)*
 
 **The guarantee ladder**: each tier is what the engine *promises* about bytes — **object** (nothing, yours); **`raw`** (content rules ran, validity is your promise); **`light_html`** (valid document, minimal facts); **`html`** (valid document, full computed head, theme). A theme cannot lower a guarantee it did not make.
 

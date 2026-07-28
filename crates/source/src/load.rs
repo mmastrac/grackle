@@ -132,6 +132,38 @@ fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<Str
         .collect()
 }
 
+/// The engine-fallback title rung (IO.md §1): a name implied from the slug.
+///
+/// One derivation, shared by both loaders, and deliberately the dumbest one
+/// that could work — the posts loader has spelled it exactly this way since
+/// before the ledger, and grack.com's caret draft has been publishing
+/// `<title>why is a cursor called a caret</title>` from it. Anything prettier
+/// (title-casing, an acronym table) would move published bytes on a live page
+/// the moment it landed, so the string is PINNED and a test says so.
+///
+/// It is the bottom rung and nothing else: front matter beats it, and so does
+/// any rule or marker default, because both are read before it is.
+fn implied_title(slug: &str) -> String {
+    slug.replace('-', " ")
+}
+
+/// The degenerate row's warning (IO.md §1, I7c) — a nudge, never an error.
+///
+/// A file with no front-matter block that rules nonetheless send through a
+/// document shell renders anyway, with the title above. That is a softening of
+/// the identity contract and not a licence, so the build says so once per row
+/// and keeps going: the author wanted a page, they have one, and the fix is
+/// three characters.
+fn degenerate_warning(rel: &Path, shell: &str, title: &str) -> String {
+    format!(
+        "{}: no front-matter block, but a rule sends it through the \
+         `{shell}` shell — so it renders as a degenerate row (IO.md §1) whose \
+         title is implied from its slug: {title:?}. Add a `---` block to give \
+         it identity, or route it `shell = \"raw\"` to ship it as bytes.",
+        rel.display()
+    )
+}
+
 // D1's `declared_and_unread` lived here and went with its subject (MERGE.md
 // F1): `bucket` was the only key it reported, and a key that no longer parses
 // needs no warning — `deny_unknown_fields` names it at the line that wrote it,
@@ -699,9 +731,16 @@ fn read_posts(
         // post at `2020/x.md` with a tree page at `2020/x.md`.
         let logical = source_rel.join(&logical_rel).to_string_lossy().to_string();
 
-        // `true`, not `raw.has_front_matter`: every post is a rendered row
-        // (`rendered` below says the same), so a `front_matter = false` rule
-        // describes a static file and cannot describe a post.
+        // `true`, not `raw.front_mattered`, and since I7c that is a claim this
+        // loader makes rather than a fact it reads: a `front_matter = ` rule
+        // key selects on the row's IDENTITY (§4), and this hands the cascade a
+        // constant. It is byte-inert on the corpus — no posts rule of any site
+        // writes the key — and it is deliberately left alone here, because the
+        // shape that fixes it is the one walk: **I7d**, where the two loaders
+        // become one and there is a single answer to hand over. Until then a
+        // blockless draft is offered to `front_matter = true` rules it does not
+        // satisfy, and the row's own column (`front_mattered`, below) is the
+        // one that tells the truth.
         //
         // The rules run before the extractor because they are what says which
         // extractor this row has (IO.md I6).
@@ -735,12 +774,6 @@ fn read_posts(
             .to_path_buf();
         let marker_defaults = markers.defaults_for(&root_rel);
         let defaults = merged_defaults(&marker_defaults, rule_defaults);
-        let title = Some(
-            raw.front
-                .title
-                .clone()
-                .unwrap_or_else(|| slug.replace('-', " ")),
-        );
         // Governance follows the LOGICAL path (§6f), exactly as the tree
         // loader does it: a translation is governed by its original's
         // `.schema.toml`.
@@ -765,6 +798,32 @@ fn read_posts(
         // so a forced `theme` or `toc` is what the row wears.
         schema::force(&cfg.forced, &schema, &mut checked, &raw.path)?;
         let worn = cascade(&checked, &raw.path)?;
+
+        // The law (IO.md I7c), and it is the same call the tree loader makes —
+        // which is the point of it being a call. `rendered: true` stood here
+        // before, and was true only because every posts rule a site writes
+        // sends its rows through a document shell; now the config says so and
+        // the row believes the config.
+        let rendered = crate::shell::renders(raw.front_mattered, worn.shell.as_deref());
+        // The engine-fallback rung, below front matter and every default
+        // (§4b). A row that is not a document has no title to imply: its
+        // content is its bytes.
+        let title = match rendered {
+            true => Some(
+                raw.front
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| implied_title(&slug)),
+            ),
+            false => raw.front.title.clone(),
+        };
+        let row_rel = source_rel.join(&raw.rel);
+        // A degenerate row carries no front matter, so its title IS the
+        // implied one — the warning states the derivation rather than reading
+        // back a value it would have to prove is there.
+        if let Some(sh) = crate::shell::degenerate(raw.front_mattered, worn.shell.as_deref()) {
+            warnings.push(degenerate_warning(&row_rel, sh, &implied_title(&slug)));
+        }
 
         // A `permalink` is a literal URL, spending no axis; otherwise each of
         // the rule's template(s) is rendered by the one supplier — path tokens,
@@ -821,7 +880,7 @@ fn read_posts(
             // Rule globs match the collection-relative form (`apply_rules`
             // takes `logical_rel`): `match = "hidden/**"` is relative to
             // `_posts`.
-            rel: source_rel.join(&raw.rel),
+            rel: row_rel,
             version: raw.version,
             date,
             slug,
@@ -840,12 +899,12 @@ fn read_posts(
             logical,
             url,
             body_bytes: raw.body.len(),
-            // A post is always parsed; the tree distinction does not apply.
-            rendered: true,
+            rendered,
             // Identity, which is a different question (IO.md §3): a `.md` in a
             // posts scope with no `---` block is parsed all the same — the
             // scope hands it a date, a slug and a route — but it carries no
-            // front matter, and this column says so.
+            // front matter, and this column says so. It is now also one half
+            // of the law above, which is where the two questions meet.
             front_mattered: raw.front_mattered,
             size: raw.size,
             claimed: false,
@@ -1127,6 +1186,24 @@ fn build_tree_and_objects(
                 Some(s) => Some(front_matter_date(s, &f.path)?),
                 None => from_name,
             };
+            // The law (IO.md I7c) — the same call the posts loader makes.
+            // `rendered: f.has_front_matter` stood here, which was the first
+            // clause alone; the second is what makes a degenerate row possible
+            // at all, and on this side it is what lets a rule turn a blockless
+            // `.md` into a page by saying `shell = "html"` and nothing else.
+            let rendered = crate::shell::renders(f.has_front_matter, worn.shell.as_deref());
+            // The engine-fallback rung, below front matter and every default
+            // (§4b), and the same rung the posts loader offers — a byte row
+            // gets none, because its content is its bytes.
+            let title = match (fm.title, rendered) {
+                (Some(t), _) => Some(t),
+                (None, true) => Some(implied_title(&slug)),
+                (None, false) => None,
+            };
+            // As on the posts side: no block, so the title is the implied one.
+            if let Some(sh) = crate::shell::degenerate(f.has_front_matter, worn.shell.as_deref()) {
+                warnings.push(degenerate_warning(&f.rel, sh, &implied_title(&slug)));
+            }
             let logical = logical_rel.to_string_lossy().to_string();
             // q45: a row named by some view's `content` is claimed — every
             // locale variant of it (the claim is on the logical identity).
@@ -1153,13 +1230,13 @@ fn build_tree_and_objects(
                 rel: f.rel,
                 version: f.version,
                 url,
-                rendered: f.has_front_matter,
-                // The two agree on the tree side, and that is not an accident
-                // to be tidied away: the tree's page/static gate IS the
-                // front-matter fact (IO.md I7 makes that the only gate).
+                rendered,
+                // The tree's old page/static gate IS this fact, and since I7c
+                // it is no longer the whole of the gate: the fact is one clause
+                // of the law above, which the shell can also satisfy.
                 front_mattered: f.has_front_matter,
                 size: f.size,
-                title: fm.title,
+                title,
                 layout: worn.layout,
                 description: fm.description,
                 order: fm.order,

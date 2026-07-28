@@ -80,9 +80,18 @@ source = "_drafts"
 # own may name another, and none here does.
 filename_formats = ["{slug}"]
 
+  # `shell = "html"` because this collection pairs with nothing in the base:
+  # `_posts` merges with the base's posts collection and inherits its
+  # `defaults = { shell = "html" }`, while this second source has no base twin
+  # to inherit from, so its rows resolved no shell at all and reached the
+  # themed rendering through the renderer's legacy `layout:` fallback. Saying
+  # it here is what makes the drafts' serialization a declared fact like every
+  # other row's (IO.md §4, "defaults are declared, not built in") — and it is
+  # what the rendering law reads, since a draft may carry no front-matter
+  # block at all (IO.md I7c: `front_mattered || shell ∈ {html, light_html}`).
   [[collections.rules]]
   match = "**"
-  defaults = { draft = true }
+  defaults = { draft = true, shell = "html" }
   route = "/drafts/{slug}/"
 
 # ---------------------------------------------------------------- objects
