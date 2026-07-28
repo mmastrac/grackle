@@ -18,6 +18,10 @@ use anyhow::{Context, Result};
 use crate::config::{Config, View};
 use crate::db::{Route, Row, SiteDb};
 
+fn crumb_tmpl(v: &View) -> Option<&crate::config::LocalizedStr> {
+    v.crumb.as_ref().or(v.title.as_ref())
+}
+
 /// The URL "Home" means for a locale (§6f): the locale's own homepage
 /// when a translated index exists (`index.fr.html` → `/fr/`), else the
 /// site root. Existence-checked, not assumed — a locale with translated
@@ -110,16 +114,13 @@ pub fn listing_title_and_trail(
         // it is the view's root, so it names itself in the tail the way
         // every other listing does.
         Some(p) if p > 1 => Some(cfg.i18n.string("page", loc).replace("{n}", &p.to_string())),
-        _ => {
-            let tmpl = v.crumb.as_ref().or(v.title.as_ref());
-            match tmpl {
-                Some(t) => Some(
-                    crate::template::render(&text(t), param)
-                        .with_context(|| format!("view {view}: crumb"))?,
-                ),
-                None => r.key.clone(),
-            }
-        }
+        _ => match crumb_tmpl(v) {
+            Some(t) => Some(
+                crate::template::render(&text(t), param)
+                    .with_context(|| format!("view {view}: crumb"))?,
+            ),
+            None => r.key.clone(),
+        },
     };
     let mut trail = trail_root(cfg, db, loc);
     // The landing chain (q45): URL ancestors between the root and this
@@ -130,8 +131,7 @@ pub fn listing_title_and_trail(
     }
     for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
         let av = &cfg.views[anc.as_str()];
-        let tmpl = av.crumb.as_ref().or(av.title.as_ref());
-        if let (Some(t), Some(route_t)) = (tmpl, av.route.as_deref()) {
+        if let (Some(t), Some(route_t)) = (crumb_tmpl(av), av.route.as_deref()) {
             let label = crate::template::render(&text(t), param)
                 .with_context(|| format!("view {anc}: crumb"))?;
             let url = crate::template::render(route_t, param)?;
@@ -191,8 +191,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
                     _ => None,
                 }
             };
-            let tmpl = v.crumb.as_ref().or(v.title.as_ref());
-            if let (Some(tm), Some(rt)) = (tmpl, v.route.as_deref()) {
+            if let (Some(tm), Some(rt)) = (crumb_tmpl(v), v.route.as_deref()) {
                 let tm = cfg.i18n.text(tm, loc);
                 if let (Ok(label), Ok(url)) = (
                     crate::template::render(tm, get),
@@ -266,7 +265,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             // route's locale; a mode-B landing never reaches here (its
             // claimed row matched above, and the row's title wins).
             if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
-                if let Some(t) = v.crumb.as_ref().or(v.title.as_ref()) {
+                if let Some(t) = crumb_tmpl(v) {
                     let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
                     out.push((parent, cfg.i18n.text(t, loc).to_string()));
                 }

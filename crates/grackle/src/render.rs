@@ -253,6 +253,19 @@ pub fn head_simple(title: &str, _url: &str, _site: &Site) -> Head {
     Head::empty(title.to_string())
 }
 
+/// Title + evaluated metas for a listing/landing/page.
+pub fn head_for(
+    title: &str,
+    url: &str,
+    site: &Site,
+    metas: &Metas,
+    row: &impl crate::filter::Row,
+) -> Head {
+    let mut head = head_simple(title, url, site);
+    head.meta = eval_metas(metas, row, site, title, url);
+    head
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
     Default,

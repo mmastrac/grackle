@@ -51,6 +51,14 @@ pub fn split_spec(spec: &str) -> (&str, Option<String>) {
     }
 }
 
+/// Stylesheet URL for a theme name (`None` / `default` keep `/css/main.css`).
+pub fn css_url(baseurl: &str, theme: Option<&str>) -> String {
+    match theme {
+        None | Some("default") => format!("{baseurl}/css/main.css"),
+        Some(n) => format!("{baseurl}/css/{n}.css"),
+    }
+}
+
 /// Every theme under `themes/`, keyed by directory name. Theme is chosen
 /// per row (§5a): a row names one (`theme:` front matter, cascadable via
 /// rule defaults); failing that the site default (`[site] theme`, else the

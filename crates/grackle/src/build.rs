@@ -395,13 +395,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     let profile = cfg.profile.as_deref();
     // `[html.head.meta]` (§4e), compiled once against both surfaces.
     let metas = render::compile_metas(cfg, &db.declared)?;
-    // Each theme compiles its own stylesheet; `default` keeps /css/main.css
-    // (URL parity with the reference), others get /css/{name}.css.
-    let css_of = |theme: Option<&str>| match theme {
-        None | Some("default") => format!("{}/css/main.css", cfg.site.baseurl),
-        Some(n) => format!("{}/css/{n}.css", cfg.site.baseurl),
-    };
-
     let mut stats = Stats::default();
 
     let root = cfg.root();
@@ -554,7 +547,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             let html = chain::document_page(
                 chain::Page {
                     theme: row_thm,
-                    head_html: render::head_html(&head, &css_of(theme_name)),
+                    head_html: render::head_html(
+                        &head,
+                        &theme::css_url(&cfg.site.baseurl, theme_name),
+                    ),
                     site_title: &cfg.site.title,
                     source_dir: dir,
                     locale: &p.locale,
@@ -739,14 +735,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         // The landing's locale switcher and any axis are the `axes` slot now,
         // computed per route by `axes_part` — a landing per locale IS the
         // translation set (a fallback landing is still the French landing).
-        let section: Vec<parts::PartMap> = crate::outline::nearest(&db.sections, &row.rel)
-            .map(|sec| {
-                let tree = section_trees
-                    .entry(sec.to_path_buf())
-                    .or_insert_with(|| crate::outline::section_tree(db, sec, &cfg.i18n.default));
-                crate::outline::to_parts(tree, &r.url)
-            })
-            .unwrap_or_default();
+        let section = section_parts(
+            db,
+            &mut section_trees,
+            &row.rel,
+            &r.url,
+            &cfg.i18n.default,
+        );
         let groups = parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
         let doc = parts::document_tree(
             cfg,
@@ -761,13 +756,15 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             groups,
             &frag,
         );
-        let mut head = render::head_simple(&title, &r.url, &site);
-        head.meta = render::eval_metas(&metas, r, &site, &title, &r.url);
+        let head = render::head_for(&title, &r.url, &site, &metas, r);
         let dir = src.parent().unwrap_or(&root);
         let html = chain::document_page(
             chain::Page {
                 theme: row_thm,
-                head_html: render::head_html(&head, &css_of(theme_name)),
+                head_html: render::head_html(
+                    &head,
+                    &theme::css_url(&cfg.site.baseurl, theme_name),
+                ),
                 site_title: &cfg.site.title,
                 source_dir: dir,
                 locale: loc,
@@ -813,19 +810,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .members
             .iter()
             .filter_map(|k| db.rows.get(k))
-            .map(|p| {
-                let html = bodies
-                    .get(&p.key)
-                    .map(|d| d.whole.as_str())
-                    .or_else(|| {
-                        page_bodies
-                            .get(&p.url)
-                            .filter(|pb| !pb.skipped)
-                            .map(|pb| pb.frag.as_str())
-                    })
-                    .unwrap_or("");
-                (p, html)
-            })
+            .map(|p| (p, row_body_html(p, &bodies, &page_bodies).unwrap_or("")))
             .collect();
         let xml = render::feed(&site, &r.url, &updated, &entries);
         out_map.insert(r.url.clone(), xml.into_bytes());
@@ -891,38 +876,21 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(def) = cfg.shells.get(shell) else {
             continue;
         };
-        let rows: Vec<serde_json::Value> = match view_base_collection(cfg, view) {
-            Some(c) if c.is_tree() => r
-                .members
-                .iter()
-                .filter_map(|k| db.rows.get(k))
-                .map(|p| {
-                    serde_json::json!({
-                        "url": p.url,
-                        "title": p.title,
-                        "date": p.date.map(crate::db::iso_date),
-                        "date_pretty": p.date.map(crate::db::pretty_date),
-                        "tags": p.tags,
-                        "html": page_bodies.get(&p.url).map(|pb| pb.frag.as_str()).unwrap_or(""),
-                    })
+        let rows: Vec<serde_json::Value> = r
+            .members
+            .iter()
+            .filter_map(|k| db.rows.get(k))
+            .map(|p| {
+                serde_json::json!({
+                    "url": p.url,
+                    "title": p.title,
+                    "date": p.date.map(crate::db::iso_date),
+                    "date_pretty": p.date.map(crate::db::pretty_date),
+                    "tags": p.tags,
+                    "html": row_body_html(p, &bodies, &page_bodies).unwrap_or(""),
                 })
-                .collect(),
-            _ => r
-                .members
-                .iter()
-                .filter_map(|k| db.rows.get(k))
-                .map(|p| {
-                    serde_json::json!({
-                        "url": p.url,
-                        "title": p.title,
-                        "date": p.date.map(crate::db::iso_date),
-                        "date_pretty": p.date.map(crate::db::pretty_date),
-                        "tags": p.tags,
-                        "html": bodies.get(&p.key).map(|d| d.whole.as_str()).unwrap_or(""),
-                    })
-                })
-                .collect(),
-        };
+            })
+            .collect();
         let payload = serde_json::json!({
             "schema": "grackle-shell/0",
             "shell": shell,
@@ -995,20 +963,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     _ => Vec::new(),
                 };
 
-                // The section tree this row carries, if a `.section` unit
-                // encloses it (§6e).
-                let section: Vec<parts::PartMap> = row
-                    .and_then(|p| crate::outline::nearest(&db.sections, &p.rel))
-                    .map(|sec| {
-                        let tree = section_trees.entry(sec.to_path_buf()).or_insert_with(|| {
-                            crate::outline::section_tree(db, sec, &cfg.i18n.default)
-                        });
-                        crate::outline::to_parts(tree, &r.url)
+                let section = row
+                    .map(|p| {
+                        section_parts(db, &mut section_trees, &p.rel, &r.url, &cfg.i18n.default)
                     })
                     .unwrap_or_default();
 
-                // The hero (q23): an image-typed schema field, thumbnailed,
-                // dimension facts attached.
+                // Hero (q23): image-typed field, thumbnailed, with dimensions.
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
                     let t = crate::thumbs::default_of(&thumbs, s);
                     let full = asset_url(&cfg.site.baseurl, s);
@@ -1021,29 +982,15 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     })
                 });
 
-                // The legacy `layout:` field selects a layout kind; the
-                // row's `theme:` (front matter or rule default) selects the
-                // theme — per row, §5a — with a colon suffix carrying
-                // subtheme tokens for CSS subselection (`recipes:spicy` →
-                // data-subtheme="spicy" wherever the shell places it).
-                // q53: an axis member's theme beats the row's, same as the
-                // post path — the member IS the alternative form.
+                // Theme per row (§5a); axis theme beats the row's (q53).
                 let (theme_name, subtheme) =
                     themes.resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())));
                 let row_thm = themes.get(theme_name)?;
-                let row_css = css_of(theme_name);
-                let mut head = render::head_simple(&title, &r.url, &site);
-                // A page's metas read its ROW when it has one; a sourceless
-                // route falls back to the route's own fields.
-                head.meta = match row {
-                    // The head describes the DOCUMENT, whose address is its
-                    // canonical URL — the row's own, which is exactly what the
-                    // canonical axis member is published at. So an alternate
-                    // canonicalizes to the canonical form instead of itself,
-                    // which is the difference between an alternative form and a
-                    // duplicate page. Identical to `r.url` off an axis.
-                    Some(p) => render::eval_metas(&metas, p, &site, &title, &p.url),
-                    None => render::eval_metas(&metas, r, &site, &title, &r.url),
+                let row_css = theme::css_url(&cfg.site.baseurl, theme_name);
+                // Metas read the ROW when present; sourceless routes use the route.
+                let head = match row {
+                    Some(p) => render::head_for(&title, &p.url, &site, &metas, p),
+                    None => render::head_for(&title, &r.url, &site, &metas, r),
                 };
                 // IO.md §4: the output picks its map shell. `raw` is the
                 // transparent one — the body IS the output, so an imported
@@ -1135,7 +1082,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // Each theme's sheet carries that theme's own `root.html` head styles
     // (I5) — the head fence's whole purpose, and the reason no page needs an
     // inline `<style>`. `get(None)` is the `default` directory or the base,
-    // matching `css_of`'s `/css/main.css`.
+    // matching theme::css_url's `/css/main.css`.
     css_pass(
         &theme_dir,
         themes.get(None)?.head_style(),
@@ -2140,13 +2087,7 @@ fn backlinks_map(
     // map differs by origin — posts hold their body, pages are re-read.
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
-        let html = bodies.get(&p.key).map(|d| d.whole.as_str()).or_else(|| {
-            page_bodies
-                .get(&p.url)
-                .filter(|pb| !pb.skipped)
-                .map(|pb| pb.frag.as_str())
-        });
-        if let Some(html) = html {
+        if let Some(html) = row_body_html(p, bodies, page_bodies) {
             sources.push((
                 p.url.as_str(),
                 p.title.clone().unwrap_or_default(),
@@ -2644,6 +2585,24 @@ pub(crate) fn pagination_parts(
     Ok(parts::pagination(cur, &urls))
 }
 
+/// Section outline for a row inside a `.section` unit (§6e), cached per unit.
+fn section_parts(
+    db: &SiteDb,
+    section_trees: &mut HashMap<PathBuf, Vec<crate::outline::Node>>,
+    rel: &Path,
+    page_url: &str,
+    default_locale: &str,
+) -> Vec<parts::PartMap> {
+    crate::outline::nearest(&db.sections, rel)
+        .map(|sec| {
+            let tree = section_trees
+                .entry(sec.to_path_buf())
+                .or_insert_with(|| crate::outline::section_tree(db, sec, default_locale));
+            crate::outline::to_parts(tree, page_url)
+        })
+        .unwrap_or_default()
+}
+
 /// Locale twins of `row` (other locales, labelled by language).
 fn locale_twins(db: &SiteDb, p: &Row) -> Vec<(String, String)> {
     db.by_logical
@@ -2656,6 +2615,23 @@ fn locale_twins(db: &SiteDb, p: &Row) -> Vec<(String, String)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Post body if held, else non-skipped page body.
+fn row_body_html<'a>(
+    p: &Row,
+    bodies: &'a HashMap<&grackle_model::Key, Doc>,
+    page_bodies: &'a HashMap<String, PageBody>,
+) -> Option<&'a str> {
+    bodies
+        .get(&p.key)
+        .map(|d| d.whole.as_str())
+        .or_else(|| {
+            page_bodies
+                .get(&p.url)
+                .filter(|pb| !pb.skipped)
+                .map(|pb| pb.frag.as_str())
+        })
 }
 
 /// Members of a view/route as previews — objects, truncated prose, or tree

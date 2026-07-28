@@ -46,13 +46,9 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    /// Each theme compiles its own stylesheet; `default` keeps
-    /// `/css/main.css` for URL parity with the reference.
+    /// Each theme compiles its own stylesheet; `default` keeps `/css/main.css`.
     pub fn css_of(&self, theme: Option<&str>) -> String {
-        match theme {
-            None | Some("default") => format!("{}/css/main.css", self.cfg.site.baseurl),
-            Some(n) => format!("{}/css/{n}.css", self.cfg.site.baseurl),
-        }
+        crate::theme::css_url(&self.cfg.site.baseurl, theme)
     }
 
     /// The route's locale, or the site default.
