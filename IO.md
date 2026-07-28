@@ -664,7 +664,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   `front_mattered false / rendered true` — the pair that teaches the
   law). Mutation-check; standard parity.
 
-- [ ] **I8. Sidecars.** Identity from a sidecar file; governed rows for
+- [x] **I8. Sidecars.** Identity from a sidecar file; governed rows for
   unparseable bytes; the identity/parsed split holds (`front_mattered`
   without content). Parity (no site uses one yet — fixture-driven).
 
@@ -2940,3 +2940,212 @@ reading** — `collection` and `rule` decide the shell, the shell and identity
 decide `rendered`. Nothing else in `explain` is derived, and if a second derived
 line ever joins, the block wants a visual separation the format string does not
 currently have.
+
+**2026-07-27 — I8.** Landed as one commit. The item is one new spelling of one
+old fact, and everything interesting in it is about what the fact does NOT
+imply — the two laws that used to read one bit and now read two.
+
+***[decided]* The spelling is the pair, not the name.** q49 floated
+`.p01.png.toml`, and the shape it names — `<file>.toml` beside `<file>` — is
+what landed, because the model text assumes a sidecar sits beside the thing it
+speaks for and nothing argued otherwise. The two alternatives were weighed and
+are worse in the same way: a `.meta/` directory splits a file from its
+description across two places (`git mv` moves one of them), and a
+front-matter-block-in-a-twin (`photo.png.md`) would make the twin a row of its
+own that the walk then has to un-claim. What is a decision rather than a copy
+of q49 is **how a sidecar is recognised**: by the *pair*, not by the name. `X`
+must exist beside `X.toml`, and a `.toml` naming no file is ordinary content
+that still ships. That is what keeps `Cargo.toml`, `netlify.toml` and
+`.schema.toml` out of the mechanism with **no exception list** — `.schema.toml`
+would speak for a file called `.schema`, which no site has — and it is q49's own
+rider ("must not infer page-vs-component from absence") applied to the
+detection rather than only to the design. The residual is recorded rather than
+closed: rename `photo.png` and its sidecar quietly becomes content, published at
+its own URL. An error would have to fire on stray `.toml` files, which is
+exactly the false positive the pair test exists to avoid; a heuristic over the
+stem ("it looks like it names a file") is the guessing q49 forbids.
+
+***[decided]* A sidecar IS a front-matter block, literally.** It deserializes
+into the same `store::FrontMatter` struct, from TOML instead of YAML — so every
+named field a block may write (`title`, `date`, `permalink`, `tags`, `shell`,
+`theme`, `layout`, `toc`, `order`, `description`) works on day one, and `extra`
+reaches the same `schema::validate` with the same undeclared-key error naming
+the same knowns. The brief's "the identity it grants is exactly block-identity"
+is then true **by construction** rather than by a parallel implementation that
+drifts. It cost one `Clone` derive. The one authoring wrinkle is TOML's: a bare
+`date = 2020-01-01` is a TOML datetime and must be quoted, which the type error
+says.
+
+***[decided]* Two sources on one file is a load error.** The brief's lean,
+taken. The argument that survived contact is not "peers cannot be ranked" but
+that **a sidecar exists for files that CANNOT carry a block**, so a file with
+both has said one thing twice in two places that will drift — MERGE.md A5's
+unrankable-disagreement shape, and A5's answer. Mutation-checked, and the
+mutation is the reason it is an error: with the `bail!` deleted the site loads
+and the BLOCK silently wins, which is a precedence rule nobody declared and
+nobody could look up.
+
+***The item's real content: `renders` reads the BLOCK, `degenerate` reads
+IDENTITY.*** I7c stated one law over two facts and fed it `f.has_front_matter`,
+where "has a block" and "has identity" were the same bit. I8 is where they come
+apart, and taking the *narrower* one for the rendering law is the whole of §3's
+"sidecars split identity from parsing": a block is IN the file, so a file with
+one is a document whose remainder is a body; a sidecar is a second file and says
+nothing about the first one's bytes. So a sidecar'd `.png` answers
+`front_mattered true / rendered false`, `body_bytes 0`, and ships its bytes
+through `raw`. The degeneracy warning asks the OTHER question deliberately — it
+exists to nudge an *unnamed* row towards a name, and a sidecar is a name — so a
+sidecar'd row under `shell = "html"` renders with no warning while the blockless
+file beside it still earns one. Both parameters were renamed at their
+definitions (`has_block`, `has_identity`), because a law whose correctness
+depends on which bool a caller happens to pass is one refactor from being wrong.
+
+***[decided]* `explain` says which, and both are spelled.** IR7 flagged that its
+stored-vs-derived call "is not merely academic … the first shape that can make
+the stored bit and a re-derivation disagree is a row whose identity arrives from
+somewhere the printed facts do not name". That shape is here, and IR7's call is
+vindicated: the printed `rendered` is the bit the row was built with, and a
+re-derivation from the printed `front_mattered` would now say `true` for a
+sidecar'd image. The fix is to make the printed facts name the source —
+`front_mattered true (block)` / `true (sidecar)` — after which the law is
+re-derivable from the block again. **Both spelled, not only the exception**: a
+`true` whose meaning depends on the absence of a word is the shape this ledger
+keeps refusing, and the cost is a CLI-only line that no test, fixture, script or
+doc outside `io_explain.rs` reproduces (the grep, re-run). A separate `sidecar`
+line was the alternative and loses on the thing the block is for: a reader
+seeing `front_mattered true / rendered false` on adjacent lines needs the
+answer on one of them, not two lines apart. The row carries `sidecar: bool`
+rather than the sidecar's path, because the path is `rel` + `.toml` by
+construction — there is exactly one name it can have.
+
+***[decided]* Sidecars are read on the DECLARATION walk, and that is
+load-bearing.** IR6's world made the choice available and R1 made it correct:
+`store::walker_declarations` applies `exclude` to **directories only**, because
+a file-shaped pattern is a statement about *content* and must not silently
+unspeak a declaration. grack.com's `exclude` lists `*.toml`. Reading sidecars on
+the content walk would therefore have let one pre-existing line delete every
+sidecar on the site, silently, with the images still shipping — invisible in a
+build's file list, which is the failure class this document exists to refuse.
+Guarded by a test whose site writes exactly that exclude, and mutation-checked
+by gating the offer on `not_content.keeps` (the content walk's file question):
+the site loads clean and the image loses its identity.
+
+*Scope interaction, and the filter that was needed.* The sidecar file itself is
+not content — the statement `markers.is_marker` makes one declaration family
+over, filtered by the set the declaration walk found rather than by a name
+pattern. Checked against I7d's laws rather than assumed: an unclaimed `.toml`
+under a posts source already falls out by **scope-owns-source**, but under the
+TREE scope the `**/*` catch-all claims it, so without the filter
+`/assets/kite.png.toml` is published — the row's own metadata served as a file.
+That is the test's mutation, and its control is `netlify.toml`, which names
+nothing beside it and still ships.
+
+***[decided]* The description page is refused, not built.** §4a says an image
+with a sidecar can wear an html output; the brief says do not build it. It needs
+an output whose content is not the row's bytes — the outputs half of the model
+(I11/I12) — so the shape is refused where the author wrote it, naming the file,
+the shell and the fix. **Measured on the mutant rather than reasoned**: with the
+check deleted the load dies on `reading …/kite.png: stream did not contain valid
+UTF-8`, a sentence that names a file and no reason. It is §10's precedent (one
+targeted sentence only where the generic diagnosis misleads) applied to an
+UNBUILT capability rather than a retired spelling, and it is keyed on the
+extension fact rather than on the sidecar — so a degenerate image (an objects
+rule defaulting `shell = "html"`, reachable before this item and inert on the
+corpus) gets the same sentence. One line to delete when I11/I12 lands; it is the
+call a reviewer is most likely to want narrowed to sidecar'd rows, or dropped.
+
+*One thing built that the brief did not name, and the reason.* **A sidecar's
+change stamp folds into its row's `version`** (`f.version ^ sc.version`).
+Without it, editing a sidecar changes a row's title and nothing notices — the
+incremental machinery compares `version`, and a row whose identity lives in a
+second file has to notice that file changing. Guarded by loading twice across an
+edit to the sidecar alone; the mutation leaves the two versions equal while the
+titles differ.
+
+*The census, and where it lives.* `db.stats.sidecars` beside
+`db.stats.markers`, printed by `grackle query stats`, for the marker census's
+reason: a declaration family whose whole effect lands on OTHER files leaves no
+trace in a build's file list, so a count is the only way to ask whether the
+mechanism is in use. **0 on all five sites**, and the stronger statement was
+measured rather than inferred: a scan of every `.toml` in the repository,
+tracked and untracked, finds **no `X.toml` beside an `X`** — so no corpus file
+could have become a sidecar by accident and parity was free by construction
+rather than by luck.
+
+*Two messages moved, neither re-blessed.* Identity's own errors now name the
+file identity was WRITTEN in — the sidecar for a sidecar, the row for a block —
+because that is the file the author has to edit (`schema::validate`,
+`cascade_front`, `front_matter_date`); every rung below keeps naming the row,
+because markers, rules and the profile are about the row. And q45's claim check
+says "has no front-matter **block**" rather than "has no front matter", which is
+the one sentence I8 made imprecise; the check itself is unchanged and still keys
+on the block, so a sidecar'd file is not claimable as a view's content — a
+corner recorded rather than built, since a claimed landing wants a body and a
+sidecar is not one.
+
+*Nine tests, eleven mutations plus controls, each red alone and each restored*
+(`crates/grackle/tests/io_sidecar.rs`, plus two unit tests in
+`crates/source/src/sidecar.rs`). Built sites where the claim is about what the
+site publishes (the sidecar is not a row; the image still ships its bytes),
+loaded sites where the claim is about a fact no output can show (the version
+fold, the warning that must not fire). The mutations: identity drops the sidecar
+term; `renders` reads identity instead of the block; the both-sources `bail!`;
+the not-content filter; `degenerate` reads the block; the version fold; the
+picture refusal; `validate` names the row instead of the sidecar; sidecars read
+on the content walk; and the provenance word hardcoded each way (each red on
+exactly the rows that disagree — `(block)` fails the image, `(sidecar)` fails
+`io_explain`'s two). Controls in the same sites: a sidecar-LESS image, a
+block-identity page, a lone `netlify.toml`, and a genuinely degenerate row so
+that the asserted silence is silence that means something.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one over the same content
+trees into separate outputs — **byte-identical but for two wall-clock
+`<updated>` lines** (the other four builds landed in the same second),
+**stderr identical on all six**, file counts 8 / 8 / 83 / 242 / 1828 / 1829,
+unmoved since IR1, and the **`grackle query urls` set-diff EMPTY on all six**
+(7 / 7 / 63 / 222 / 1372 / 1373). `cargo test` green (26 result lines);
+`cargo fmt --check` clean under the pin; clippy **47**, HEAD's number (two of my
+own were fixed to keep it there); **zero re-blessing** — no fixture and no
+`expected-error` moved, and the only assertions that changed are
+`io_explain.rs`'s two, for the declared `(block)` provenance.
+
+*Docs.* DESIGN.md §4b gains **Sidecars: identity for a file that cannot carry a
+block** (the pair rule, the one-struct claim, governance, the both-sources
+refusal, the declaration-walk argument, the version fold) — beside markers,
+because a marker declares defaults for a directory and a sidecar declares
+identity for a file; §4's gate section says the law reads the block and the
+warning reads identity, and its observability paragraph gains the provenance;
+§5's `front_mattered` paragraph now has **two** shapes where the fact and
+`rendered` disagree, one per direction; §5g's 2×2 paragraph records that the
+first bit split. **q49 keeps its number and half its openness**: the DECLARE
+half is built and points at §4b, the DERIVE half (14 of 57 raw HTML files carry
+a `<title>` the database ignores) is untouched and still wants a consumer, and
+its three riders are answered in place rather than dropped — precedence (the
+front-matter rung; a block beside it is an error), whether a sidecar makes a
+passthrough row `rendered` (**no**, and that turned out to be the feature), and
+the 838 images' alt text (reachable now, consumed by nothing until I11).
+`manual/OUTLINE.md` untouched per §4, and checked rather than assumed — it is
+the first file in this sequence that the item made *more* true and *less*: ch. 23
+teaches the `.p01.png.toml` spelling, which is exactly what landed, so the
+spelling it has taught since before the ledger is now the engine's; its
+"★ Neither half is built" line and its q49 pointer are the halves that went
+stale, Matt's pen.
+
+*For batch review I-C.* Five things to probe. (i) **The picture refusal** is the
+call to weigh: it refuses a shape that is coherent in the model and unbuilt in
+the engine, which is a kind of error this ledger has not written before, and it
+is keyed on the extension fact so it is wider than sidecars. The measured
+alternative is above; the reversal is one `if`. (ii) **The pair rule's
+residual** — a renamed companion silently demotes a sidecar to content, and
+publishes it. (iii) **Identity now reaches the front-matter GATE**, so a rule
+spelled `front_matter = true` claims a sidecar'd image where it did not before;
+that is the capability working, but it means a site's existing rules can change
+membership the moment a sidecar appears — and on a site whose search filters on
+`front_mattered` (the two example sites, since I1) a sidecar'd image joins that
+set. Inert corpus-wide (zero sidecars), stated because it is the first way a
+sidecar can move bytes that are not its own. (iv) **A sidecar'd file is not
+claimable** as a view's `content`, keyed on the block; recorded, not built.
+(v) **`front_mattered` is the wider fact and `sidecar` is not a filter column** —
+a query cannot yet ask "which rows got their identity from a sidecar", which is
+the same shape `rule` has had since I7d (explain reads it, no `where` does).
