@@ -122,11 +122,31 @@ FsStore
   A post body edit invalidates that post's `rendered` and pages embedding it,
   but not tag pages (which read stage-2 fields only) unless front matter changed.
   Template/SCSS edits invalidate by `Template(...)` key.
-  **The row-level half of that edge set is a column now** — `Route.inputs`
-  (IO.md I9, §5i below) — so `Row(path)` keys stop being curated by hand and
-  start being read off the join. The typed keys are untouched until I10 wires
-  them to it; the column is the edge, not yet the mechanism, and the non-row
-  dependencies (`Template`, `Config`) stay keys because they are not rows.
+
+  **The row-level half of that edge set is not a key set any more — it is a
+  graph** *(IO.md I10, 2026-07-27; §5j below)*. `Route.inputs` made the edges a
+  column at I9; `grackle_model::graph` reads that column plus `route_members`
+  as nodes and edges, and `Graph::fanout(input)` is the set a `Row(path)` key
+  was curating by hand. Nothing in it is derived twice: the graph adds no fact,
+  it is the join read a second way, which is what makes "the keys agree with
+  the graph" a statement about one source rather than about two.
+
+  Two honest limits, stated because the difference between design and
+  machinery is the thing this document keeps having to say out loud. **(1) The
+  typed keys are still a design.** No incremental machinery consumes them
+  today: `serve` rebuilds the world (§7), so there is nothing live for the
+  graph to replace — what exists is the edge set, correct and walkable, and the
+  consumer is the item that makes `serve` incremental. **(2) Non-row
+  dependencies stay keys** (`Template`, `Config`, a `.slots/` fill, a theme
+  file): they are not rows, so they are not nodes, and IO.md §2's "row-level
+  closure" excludes them by construction rather than by a filter.
+
+  What guards the equivalence in the meantime is a *consistency* test rather
+  than a comparison: edit one input, rebuild the whole site, and every output
+  whose bytes moved must lie inside that input's graph fanout
+  (`io_graph.rs`). A missing edge is exactly an output that moves and is not in
+  the set — which is the stale page an incremental rebuild would ship — so the
+  guard fails on the defect the mechanism would have.
 
 ## 3. Tables
 
@@ -2189,6 +2209,61 @@ config — are outside it by construction rather than by a filter, since they
 are not rows; they stay the typed keys of §2. The output→output half of the
 same graph is `route_members`.
 
+## 5j. The graph: one graph, two edge kinds *(IO.md §5; built I10, 2026-07-27)*
+
+The join is already the dependency graph; `grackle_model::graph` is the join
+**read** as one, constructed at planning from a finished database and adding no
+fact of its own. Nodes are the two tables — every row an `Input`, every route
+an `Output`, whether or not anything joins them. Edges are §5i's two columns:
+
+| edge | from the column | means |
+|---|---|---|
+| `Demand::Content` | `Route.inputs` | the dependent's **bytes** read the dependency |
+| `Demand::Facts` | `Route.route_members` | the dependent reads only **planning facts** — url, shell, declared fields |
+
+**One graph, not two** (IO.md I9's open flag, decided here). The two columns
+name keys in different stores, but a pull that materializes a fold traverses
+both — `/sitemap.xml` reads the routes it selected and the rows behind them —
+so two graphs would be two traversals that must agree, which is the shape a
+join exists to delete. The edges are labelled instead, and the label is §1's
+law: *facts at planning; content at materialization*.
+
+**Cycles: refused at load, and structurally impossible today.** `load` builds
+the graph and refuses a content cycle, naming it — the relations precedent,
+config error rather than render surprise. It cannot fire, and the reason is
+worth stating because it is the whole argument for the labels: content edges
+run input → output, an input has no incoming edge, so the content subgraph is
+bipartite and has no cycle to find. What *can* loop is the facts half — a pool
+fold with no `where` selects every route including its own, which is a shipped
+shape (`io_folds.rs` asserts the `<loc>` list) — and that is legal precisely
+because a facts edge demands nothing that has to be produced first. Read as one
+undifferentiated graph, every such site would stop loading; the mutation that
+labels `route_members` as content is exactly that, and it is the measurement
+the split rests on. The detector is armed rather than decorative: **I11's
+renditions and I12's transforms are outputs derived from other outputs' bytes**,
+the first content edge that can point output → output.
+
+**Four features are views of it**, and the honest state of each:
+
+| view | state |
+|---|---|
+| **invalidation** | `Graph::fanout(input)` is the `Row(path)` key set (§2). The keys have no consumer yet; the guard is a rebuild-and-diff consistency test. |
+| **`materialize_referenced`** | **built as a pull.** A citation names a URL, `by_url` resolves it to the input at the far end of a content edge, and an on-demand input with no `output` is a node the pull mints — output and edge together. |
+| **serve** | the entry point exists (`Graph::pull`) and `serve` does not call it (§7). |
+| **relation/fold ordering** | unchanged: relations still order themselves at load, and a fold's ordering falls out of §4's column rule rather than out of a topological sort. |
+
+**The pull** is `Graph::pull(output) -> ordered work`, dependencies before
+dependents, the output last. A content edge recurses; a facts edge does not,
+which keeps a fold's pull linear in its member count. `grackle query pull <url>`
+is the surface: an output's edge list by demand, then the order.
+
+**Rung 0 rides the minting seam, not one pass.** `force_route_fields` writes
+every route that exists when it runs, and `materialize_referenced` mints one
+after the load returns — the hole MERGE.md E1 recorded and left stated. Minting
+an output is a graph event, so the forced values are typed once at load
+(`SiteDb::forced_fields`) and applied wherever an output is minted. Byte-inert
+today; closed because I11 and I12 each add a minting seam.
+
 ## 6a. Object references: paths and names
 
 ⚠️ **Bare names are PARKED; the key is deleted** *(2026-07-27, MERGE.md F1 /
@@ -2730,7 +2805,20 @@ Both `build` and `serve` use one render path: `build::render_site` produces `URL
 
 - **`grackle build`** — AOT materialization: render the map, write to disk.
 - **`grackle serve`** — 🟡 **built (v1).** Resident render map via raw `hyper`. A `notify` watcher rebuilds on content change (~0.3s) and bumps version; injected script polls and reloads. Snapshot lives in `keepcalm` RCU cell: reads are lock-free, writer swaps whole snapshot with no blocking (verified: 20 concurrent reads through rebuild, all 200). **v1 re-renders everything** (still sub-second) and polls rather than streaming (§2 upgrades not yet built).
-- **`grackle query`** — REPL/CLI over live DB (`urls`, `posts where tag=rust limit 5`, `explain <url>`). Doubles as migration validator.
+
+  **What IO.md I10 changed here is the story, not the code.** IO.md §1 says
+  build is "pull every output" and serve is "pull *this* one", and since I10
+  the pull is a real function over a real graph (§5j): `Graph::pull(output)`
+  hands back the ordered work, and it is tested standalone. What serve does
+  with it is nothing, deliberately — the entry point has no caller, so the
+  documented next step is precise rather than aspirational: **walk backwards
+  from the changed input** (`Graph::fanout`) instead of re-rendering the map,
+  and **materialize on request** (`Graph::pull`) instead of at startup, at
+  which point on-demand rendering stops being a mode and becomes an output
+  whose content stage nobody forced yet. Rewriting serve's architecture was
+  explicitly out of I10's scope; what it owed was the graph the rewrite will
+  stand on, and a serve section that says which half is which.
+- **`grackle query`** — REPL/CLI over live DB (`urls`, `posts where tag=rust limit 5`, `explain <url>`, `pull <url>` — §5j's edge list and work order). Doubles as migration validator.
 - **`grackle urls --against _site-prod`** — URL-set parity. A **missing** URL exits non-zero; an **extra** is reported only. Derived assets exempt per q12.
 - **`grackle diff --against _site-prod`** — Golden comparison: normalized HTML per post body with summary matrix (identical / equivalent / differs / missing). Bodies only.
 
@@ -2930,7 +3018,7 @@ Three merges unified distinctions that were never real: two row flows became one
 ### Still owed
 
 - ~~**The objects dispatch.**~~ **Closed, and it was closed in two halves by two different items** — recorded rather than quietly deleted, because the entry outlived both. The VIEW half went when `build_object_view` became three parameters on one materializer (§5c's *One materializer*): `group_by` and `paginate` work over objects and the `object-grouping` fixture proves it, so this entry's last sentence has been false since that merge. The LOAD half went at **IO.md I7e**: the object row constructor is the row constructor, and `object_ix` keys off the extension fact (§3). What is left is not a dispatch at all — it is the two facts an object still differs by, both of them parameters a caller passes: the narrow `object_schema` vocabulary, and `rendered: false`.
-- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i): `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two sides of membership — so "views as partitions" is a query on the half that may be queried (`output`, `alternates`) and a column on the half that may not (arrangement is what membership produces, so selection may not read it). What remains of the endgame is I10's graph: the same three fields read as nodes and edges, with invalidation riding them.
+- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i): `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two sides of membership — so "views as partitions" is a query on the half that may be queried (`output`, `alternates`) and a column on the half that may not (arrangement is what membership produces, so selection may not read it). **And the GRAPH is built, as of IO.md I10** (§5j): the same columns read as nodes and edges, one graph with two edge kinds, cycles refused at load. What the endgame still owes is not a structure but a *consumer* — `serve` walking the fanout instead of rebuilding the world (§7), which is the item that turns §2's typed keys from a design into machinery.
 
 ## 10. Phasing (each phase has a checkable exit)
 

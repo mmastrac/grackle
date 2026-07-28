@@ -8,6 +8,8 @@
 
 use grackle_db::{filter, Keyed, Table};
 
+pub mod graph;
+
 pub use grackle_db::Key;
 
 use anyhow::{bail, Result};
@@ -726,6 +728,17 @@ pub struct SiteDb {
     /// warning no test can hold the loader to.
     #[serde(skip)]
     pub warnings: Vec<String>,
+    /// Rung 0's forced route fields (§4a, MERGE.md E1), typed once at load and
+    /// kept so a route minted LATER can take them too.
+    ///
+    /// `load::force_route_fields` writes every route that exists when it runs;
+    /// `build::materialize_referenced` mints one after the load has returned
+    /// (IO.md §4's pull model), and a route the profile never reached would be
+    /// a rung-0 hole that grows every time an output is minted at a new seam.
+    /// One typed list, two writers — the alternative is re-deriving the values
+    /// at the second seam from a `Schemas` the build does not have.
+    #[serde(skip)]
+    pub forced_fields: BTreeMap<String, filter::Value>,
     pub stats: LoadStats,
 }
 

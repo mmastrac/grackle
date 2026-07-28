@@ -1592,22 +1592,40 @@ fn render_page_bodies(
 /// appends an entry for each file it materializes, and IO.md §2's
 /// `join_citations` then reads the whole of it. One scan of the output serves
 /// both consumers, which is what keeps the join's citation edges free.
+///
+/// **A pull along the graph's edges** (IO.md §5, I10). A citation is a URL and
+/// `db.by_url` is the inputs database's address index, so resolving one *is*
+/// walking a content edge to the input at its far end — and the test for "have
+/// I materialized this already" is the join's own `output` column rather than
+/// a private map of pending URLs. That is the whole rewiring, and it is a
+/// deletion: this pass used to key a second index off `on_demand && url`, and
+/// two indexes of one fact are two things that can disagree. The behaviour is
+/// identical by construction — `by_url` holds exactly the rows that carry a
+/// URL, and `output` is `None` for an on-demand row until this line sets it.
 fn materialize_referenced(
     db: &mut SiteDb,
     out_map: &mut SiteOutput,
     site_url: &str,
     cited: &mut Vec<(String, Vec<String>)>,
 ) -> Result<usize> {
-    // Every row that publishes only when cited, by the URL a citation names.
-    let mut pending: HashMap<String, grackle_db::Key> = db
+    // Nothing to pull: no input publishes on demand, so no edge this pass
+    // walks can end at an unminted output.
+    if !db
         .rows
         .iter()
-        .filter(|p| p.on_demand && !p.url.is_empty())
-        .map(|p| (p.url.clone(), p.key.clone()))
-        .collect();
-    if pending.is_empty() {
+        .any(|p| p.on_demand && p.output.is_none() && !p.url.is_empty())
+    {
         return Ok(0);
     }
+    // Rung 0 reaches the outputs minted here too (IO.md I10, closing E1's
+    // recorded hole): minting is the graph event, so the seam that mints
+    // applies the profile's forced fields rather than leaving a route the
+    // profile never saw.
+    let forced: Vec<(String, grackle_db::filter::Value)> = db
+        .forced_fields
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
 
     let mut frontier: Vec<String> = cited.iter().flat_map(|(_, c)| c.iter().cloned()).collect();
 
@@ -1615,12 +1633,18 @@ fn materialize_referenced(
     while !frontier.is_empty() {
         let mut next: Vec<String> = Vec::new();
         for url in std::mem::take(&mut frontier) {
-            let Some(key) = pending.remove(&url) else {
-                continue; // already materialized, or not ours to publish
+            // The edge's far end: which INPUT does this citation name?
+            let Some(key) = db.by_url.get(&url).cloned() else {
+                continue; // not a row of this site (external, or an output)
             };
             let Some(row) = db.rows.get(&key) else {
                 continue;
             };
+            // An input that already lands is not the pull's to mint, and one
+            // that lands eagerly never was.
+            if !row.on_demand || row.output.is_some() {
+                continue;
+            }
             let (path, url) = (row.path.clone(), row.url.clone());
             let front_mattered = row.front_mattered;
             let bytes = std::fs::read(&path)
@@ -1635,13 +1659,17 @@ fn materialize_referenced(
                     cited.push((url.clone(), mine));
                 }
             }
-            let route = Route {
+            let mut route = Route {
                 row: Some(key.clone()),
                 source: Some(path),
                 front_mattered,
+                // The content edge, minted with the output it points at.
                 inputs: vec![key.clone()],
                 ..Route::new(url.clone(), RouteKind::Object)
             };
+            for (name, value) in &forced {
+                route.fields.insert(name.clone(), value.clone());
+            }
             // IO.md §2, the pull model made literal: an on-demand row's
             // `output` is `None` for the whole of the build's queryable life
             // and becomes `Some` exactly here — the moment a reference

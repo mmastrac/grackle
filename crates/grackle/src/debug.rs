@@ -452,16 +452,24 @@ pub fn row_facts(r: &crate::db::Row) -> String {
 /// shape is "the first few, and how many there are". Sorted at construction,
 /// so what a reader sees is stable across runs.
 pub fn join_list(name: &str, keys: &[crate::db::Key]) -> String {
+    let lines: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+    capped_list(name, &lines)
+}
+
+/// `join_list`'s shape over already-rendered lines — what `pull` prints its
+/// edge list and its work order with (IO.md §5). One formatter, because two
+/// surfaces that cap differently are two surfaces a reader has to learn.
+pub fn capped_list(name: &str, lines: &[String]) -> String {
     const SHOWN: usize = 8;
-    if keys.is_empty() {
+    if lines.is_empty() {
         return format!("{name:<11} -\n");
     }
-    let mut out = format!("{name:<11} {}\n", keys.len());
-    for k in keys.iter().take(SHOWN) {
-        out.push_str(&format!("            {k}\n"));
+    let mut out = format!("{name:<11} {}\n", lines.len());
+    for l in lines.iter().take(SHOWN) {
+        out.push_str(&format!("            {l}\n"));
     }
-    if keys.len() > SHOWN {
-        out.push_str(&format!("            … and {} more\n", keys.len() - SHOWN));
+    if lines.len() > SHOWN {
+        out.push_str(&format!("            … and {} more\n", lines.len() - SHOWN));
     }
     out
 }

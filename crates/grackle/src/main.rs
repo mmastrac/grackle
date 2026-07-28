@@ -137,6 +137,9 @@ enum Query {
     Archives,
     /// Everything known about one URL.
     Explain { url: String },
+    /// The graph edges one output stands on, and the work of pulling it
+    /// (IO.md §5).
+    Pull { url: String },
 }
 
 fn main() -> Result<()> {
@@ -546,6 +549,36 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             // Planning edges only: the citation half is added by the render
             // pass, and `explain` runs none.
             print!("{}", debug::join_list("inputs", &r.inputs));
+        }
+        // IO.md §5: the graph, from the standpoint of one output. `explain`
+        // answers "what is this"; this answers "what does it stand on, and in
+        // what order would a pull do the work". Planning edges only, for
+        // `explain`'s reason — the citation half is added by the render pass,
+        // and the CLI runs none.
+        Query::Pull { url } => {
+            let Some(r) = db.routes.iter().find(|r| r.url == url) else {
+                anyhow::bail!("no output at {url} — `grackle query urls` lists them");
+            };
+            let g = db::graph::Graph::of(db);
+            let node = db::graph::Node::Output(r.id.clone());
+            println!("output      {}", r.url);
+            // The edge list, by what it demands: `content` is a row whose
+            // bytes this output reads, `facts` an output this one arranges by
+            // its planning facts alone. The split is why a fold that selects
+            // itself is not a cycle.
+            let edges: Vec<String> = g
+                .needs(&node)
+                .map(|e| {
+                    let demand = match e.demand {
+                        db::graph::Demand::Content => "content",
+                        db::graph::Demand::Facts => "facts",
+                    };
+                    format!("{demand:<8} {}", e.from.label())
+                })
+                .collect();
+            print!("{}", debug::capped_list("needs", &edges));
+            let order: Vec<String> = g.pull(&node).iter().map(|n| n.label()).collect();
+            print!("{}", debug::capped_list("pull", &order));
         }
     }
     Ok(())

@@ -447,11 +447,17 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
 /// Nothing between the two calls
 /// reads a route field, so the sentence never described the code.
 ///
-/// The one route this does not reach: an on-demand row published by
-/// `build::materialize_referenced`, which mints its route after `load` has
-/// returned. Those are `RouteKind::Object` byte publishes with no head, and
-/// the route pool resolved before they existed, so no reader of theirs is a
-/// reader of rung 0 — stated rather than fixed, as E1 stated it.
+/// **The one route this does not reach — closed at IO.md I10.** An on-demand
+/// row published by `build::materialize_referenced` mints its route after
+/// `load` has returned, so this pass cannot write it. E1 stated the hole and
+/// review I-C handed it here as a graph-ordering question; the answer is that
+/// minting an output is the graph event, so rung 0 belongs at every minting
+/// seam rather than at this one pass. The typed values are kept on
+/// `SiteDb::forced_fields` and the second seam applies them from there — one
+/// list, two writers, no re-derivation. Byte-inert today (those routes are
+/// `RouteKind::Object` byte publishes with no head, minted below every reader
+/// of a route field), which is exactly why it is worth closing now rather than
+/// when a reader arrives.
 ///
 /// The types come from the site vocabulary (`Schemas::declared`) rather than
 /// from a row's resolved schema, because a route is not in a directory — it is
@@ -480,6 +486,7 @@ fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Resul
             r.fields.insert(name.clone(), value.clone());
         }
     }
+    db.forced_fields = values.into_iter().collect();
     Ok(())
 }
 
@@ -2226,7 +2233,37 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // reads what every pass above decided — and the render pass adds the
     // citation edges to `inputs` on top (`build::join_citations`).
     join_arrangement(cfg, &mut db);
+    // IO.md §5: the graph exists the moment the join does, so its one refusal
+    // is asked here — at load, like relations' dependency order, and never as
+    // a render surprise.
+    check_graph(&db)?;
     Ok(db)
+}
+
+/// IO.md §5's tripwire: no output's CONTENT may depend on its own.
+///
+/// **This cannot fire today, and it is not decoration.** The graph's content
+/// edges run input → output (a row's bytes feed an output; nothing derives an
+/// output from another output's bytes yet), so the content subgraph is
+/// bipartite with every source on the inputs side and has no cycle to find.
+/// What CAN loop is the facts half — a pool fold with no `where` selects its
+/// own route, so `/all.xml` is its own `route_members` member on any site that
+/// writes one — and that is legal by §4's column rule: a facts edge demands
+/// only what planning already finished. The two are told apart by the edge
+/// label and by nothing else, which is what this call is really guarding.
+///
+/// The mutation that proves it: label `route_members` as `Demand::Content` in
+/// `graph::Graph::of` and every site with a from-less fold stops loading, this
+/// error naming the fold's own URL. The check is armed for I11/I12, where a
+/// rendition IS an output derived from another output's bytes.
+fn check_graph(db: &SiteDb) -> Result<()> {
+    if let Err(cycle) = grackle_model::graph::Graph::of(db).check_acyclic() {
+        bail!(
+            "dependency cycle: {} — an output's content may not depend on its own (IO.md §5)",
+            grackle_model::graph::describe_cycle(&cycle)
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
