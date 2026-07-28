@@ -20,8 +20,8 @@ file → row → query → doc model → part map → slots → CSS → URL
 site root, which is what all 194 of them are. (A bare `burrs.jpg` resolving to
 a sibling is §6a's bubble-and-bucket design: specced, **parked**, and not what
 this tour is showing.) Every file belongs
-to exactly one table by precedence — posts, then objects (whatever the objects
-scope's rules claim), then tree.
+to exactly one table, and which one is decided by the first rule that claims it
+in one ordered sequence over every scope (§3).
 The post lands in `blog` at `/blog/2026/07/17/espresso-grinder/`.
 
 **2. Views query it.** Queries are declared once, never in loops:
@@ -133,7 +133,7 @@ their filename. Identity = path keeps every row addressable; dated-ness is a pro
 |---|---|---|---|
 | `posts` | source path | `(date, slug)` unique | `_posts/**` |
 | `tree` | source path | path hierarchy | site root |
-| `objects` | source path | `by_name` (non-unique) | its own rules, out of the tree walk |
+| `objects` | source path | `by_name` (non-unique) | its own rules, out of the one walk |
 
 **One store, three origins.** These were three tables; they are one `SiteDb.rows`
 and three lists of keys. Objects went last because q51 had already written every
@@ -153,17 +153,61 @@ the membership clause names a column only the full row schema has.
 - **Objects**: binary assets, selected by the scope's own rules. `by_name` is non-unique
   (multiple `screenshot5.png` can exist), so resolution is a query that can fail.
 
-### Membership is disjoint
+### Membership is disjoint — one walk, first rule wins
 
-A file belongs to **exactly one** table, resolved by precedence:
+A file belongs to **exactly one** scope, and which one is not a table
+precedence: it is the answer **one ordered sequence of rules** gives, over
+**one walk** of the site root (`load::walk_site`, IO.md I7d). The file is
+offered to every scope in turn, each scope's rules in its own order, and the
+first rule past both its gates — its `match` glob and its `front_matter =`
+selector — claims it. That rule's scope is the row's collection; the rest of
+that scope's rules then cascade defaults as always (§4).
 
-1. **posts** — under a posts collection's `source`, and a `.md`
-2. **objects** — matched by a rule of the objects scope (a `match` glob
-   naming the extensions, `**/*.{png,jpg,…}`)
-3. **tree** — everything else
+Two laws hold the answer in place.
 
-This removes a whole class of ambiguity: without it, `assets/x.png`
-would match both the objects table and the tree's passthrough.
+**The order is the most-specific-source law.** Scopes sort by how specific
+their source is:
+
+1. scopes with a **proper source**, deepest first — `_posts` and `_drafts`
+   before `.`, because the more specific statement about a subtree wins, the
+   way a nearer marker and a nearer `.schema.toml` already do;
+2. **sourceless** scopes (objects), whose rules select by shape rather than by
+   place — above the root scope for the same reason a catch-all is written
+   last: `**` sorts after everything or nothing after it ever matches;
+3. the **root scope** (`source = "."`) last;
+4. ties: the site's own scopes before the base's (mirroring the rule prepend,
+   §4d), then the table name. The tie is unobservable while two scopes'
+   sources differ.
+
+It is *derived* rather than declared, and that is the point — declaration
+order alone is disqualified by a real site: `theme-preview` declares its tree
+first, and would eat its own posts.
+
+**A scope owns its source.** When a scope whose source contains the file is
+asked and claims nothing, the search stops: the file is **not content** and
+leaves the walk, rather than falling through to the scopes below. So a
+posts scope claiming `**/*.{md,markdown}` makes the images, the `.rtf` and the
+`.xcf` sitting beside a draft invisible — not objects, not byte copies,
+nothing. This reproduces exactly what the retired posts loader did by
+accident, its own walk having been handed an extension list it never looked
+past.
+
+The root scope is where the second law reads differently, deliberately: its
+source is the whole site, so "the owning scope claimed nothing" is not a
+narrowing that missed but a site with no rule for a file — the load error
+*no rule supplies a route*, which is what it always was.
+
+Between them the two laws remove the ambiguity the old precedence removed —
+`assets/x.png` matches both the objects scope's glob and the tree's
+passthrough, and the objects scope is asked first — while saying *why* rather
+than asserting an order. `grackle explain` prints the pair that makes the
+answer checkable: `collection` (the scope) and `rule` (the glob inside it).
+
+**The walk keeps Jekyll's dot/underscore skip, and a declared source punches
+through it.** `_posts` and `_drafts` are walked because a scope named them as
+its `source`; `_tools`, `_hidden`, `_includes` stay out because nothing does.
+A tree `exclude` that names a scope's source is the one contradiction this
+creates, and it is a load error naming both keys (§4c).
 
 ## 4. Schema: rules (defaults + routing)
 
@@ -300,7 +344,9 @@ writer wins per key like every other rule key.
 
 Until IO.md I6 the two halves lived in different loaders and neither knew the
 other's words: the tree offered path tokens, the posts loader offered
-date/slug inline. So `_posts/rust/hello.md` could not route to `/rust/hello/`
+date/slug inline. (The loaders themselves went at I7d, which also closed the
+half I6 left at the seam: front matter is read above routing on every row now,
+so a `date:` reaches a dated route template wherever the row came from.) So `_posts/rust/hello.md` could not route to `/rust/hello/`
 (*"template `/{dir}/{stem}/` references unknown token {dir}"*), and a tree
 page whose filename carried a date could not spend it. Both halves reach
 every rule now — which is also what makes an extractor **optional** in a posts
@@ -358,7 +404,11 @@ that same one walk by their own rules (IO.md I7a). **A tree collection's `source
 decorative**: it names the collection (`_pages` → the table `pages`) and
 identifies it across the merge, and the walk ignores it — `walk_tree` takes
 the site root, always. `source = "pages"` there means "call me `pages`", not
-"read `pages/`", which is not what it reads like. So there is nothing for a
+"read `pages/`", which is not what it reads like. (Since IO.md I7d a POSTS
+scope's source does two more jobs, and both make the asymmetry worth keeping
+straight: it is the specificity that orders the scope in §3's sequence, and it
+is the subtree that scope OWNS. A tree's decorative source is neither — the
+tree's effective source is the root whatever it wrote.) So there is nothing for a
 second collection of either kind to contribute, and until C7a the loader
 still took whichever came last in name order, dropping the other's rules and
 `schema` in silence (and, for a tree, its `exclude`/`include` — which since
@@ -549,12 +599,27 @@ we cannot populate correctly is worse than no field (q33(e)).
 | Layer | Covers |
 |---|---|
 | **`.gitignore`** | build artifacts: `_site*`, `_log*`, `vendor`, `_cache`, `.jekyll-cache` |
-| **dot/underscore skip** | `_posts`, `_layouts`, `_sass`, `_includes`, `.git` |
+| **dot/underscore skip** | `_layouts`, `_sass`, `_includes`, `_tools`, `_hidden`, `.git` — everything no scope declared as its `source` |
 | **`exclude`** | `docker/`, `scripts/`, `TODO`, `*.sh`, `Gemfile`, `*.yml`, `*.toml` |
 | **position** | what the engine reads by where it sits: the site's own `grackle.toml`, and `themes/` |
 
 Tracked content files are excluded by the dot/underscore skip and `exclude`;
 `.gitignore` handles untracked build artifacts.
+
+**A declared `source` punches through the dot/underscore skip** *(IO.md I7d)*.
+There is one walk now, and `_posts` has to come out of it, so the skip asks the
+declared scope sources first: a directory a scope named as its `source` is
+content by that declaration, and every other `_dir` stays out for free. The
+skip is otherwise untouched — this is the amendment that let §9b's "six
+underscore directories need explicit excludes" obstacle go unpaid.
+
+**A tree `exclude` that names a scope's `source` is a load error.** It is the
+one contradiction the merge creates: `exclude` says "not content" and `source`
+says "content", and before there was one walk they governed different walks and
+the disagreement was not merely silent but harmless — the skip kept `_posts`
+out of the tree anyway, so `exclude = ["_posts/**"]` was a line that did
+nothing (three fixtures carried one). With one walk it empties the scope. The
+error names the scope, the source and the key to delete.
 
 ### The positional layer: what the engine reads by position
 
@@ -2650,7 +2715,7 @@ The split itself was the audit: boundaries you have to declare to Cargo are ones
 
 ### Since, and what is left *(2026-07-21)*
 
-Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. What remains: objects dispatch, loader collection choice, config validation, presentation policy.
+Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. What remains: objects dispatch, config validation, presentation policy. *(**Loader collection choice** is closed — IO.md I7d: there is one walk and one ordered rule sequence, and which scope claims a file is per-file rather than per-loader.)*
 
 ### Surveys/audits worth re-running
 
@@ -2661,7 +2726,7 @@ Three merges unified distinctions that were never real: two row flows became one
 ### Still owed
 
 - **The objects dispatch.** `build_object_view` stays separate by design (§5b), and object rows are `rendered: false`. Folding it in would require three parameters; what was stale has been deleted; `group_by`/`paginate` still bail there.
-- **The single tree** (§3's endgame: one table, views as partitions). Measured obstacles: `store.rs` skips `.`/`_` names by convention; six underscore directories need explicit excludes. *(The third — `filename_formats` per-collection where it wants to be per-rule — is gone: IO.md I6 moved it, §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)*
+- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* What remains of the endgame is the TABLE half: three key lists and the object row constructor (IO.md I7e), then the join (I9).
 
 ## 10. Phasing (each phase has a checkable exit)
 
@@ -2704,7 +2769,6 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
 50. **Transplanting an imported page** *(Matt's case)*. Import raw HTML page, lift *meat* out and render through theme. No mechanism: front matter on full document nests it inside second `<html>`. Two operations, must not fuse: **extraction** (body children or selector-scoped region — scheduled at q49/§6d stage B) and **chrome** (row `shell:`, §5g). Left open: `light` may be honest destination for imports; theme wanting *less* furniture can only omit a part-hole (binder doesn't flag it). Deliberate omission byte-identical to forgotten one. **How does a theme say "I deliberately don't place this part"?** Must settle first.
 
-51. **One row type: route-token supply** *(built; one rider remains)*. **Built 2026-07:** one `Row` type, one `SiteDb.rows` store with membership lists, `date`/`tags`/`theme`/`fields` on every row. **Built 2026-07-27 (IO.md I6):** the two suppliers merged — §4's *Route tokens: one supplier* carries the design (path tokens always, extractor results where a format matched, `filename_formats` per rule with the collection's list as the default its rules inherit), and the posts-path-only validation moved with it and generalized to any unfillable token. `_posts/rust/hello.md` routes to `/rust/hello/`. **Remains:** the **most-specific-source rule** for `_posts` inside `.` — the tree's source contains the posts scope's, and today nothing has to rule on it because walk-level membership precedence (§3) keeps posts files out of tree rules entirely. Stating it as a rule is IO.md **I7**'s, which retires that precedence machinery in favour of first-rule-wins over one walk; until then the containment is handled, not decided.
     
     Three rules merge bought (each from silent failure): `.schema.toml` may not redeclare base field (load error); ordering belongs to SET, not table; for additive capability, byte-identical proves nothing.
 
@@ -2788,6 +2852,7 @@ One line per retired question; the named section carries the design.
 |---|---|---|
 | 3 | fresh `grackle.toml`, no `_config.yml` migration — settled by building both sites | §4 |
 | 5 | three explicit not-content layers (gitignore / dotfile / declared exclude) | §4c |
+| 51 | one row type, one route-token supplier, and the most-specific-source rule that decides `_posts` inside `.` | §3, §4 |
 | 7 | profiles gate materialization; `/hidden/` is a drafts-profile view, URL parity holds | §4a |
 | 8 | hidden rows don't exist in the public profile, so no hidden neighbour renders | §4a |
 | 9, 9a | buckets + bubbling resolve bare names with no restructuring; the two genuine collisions stay unreferenced — leave | §6a |

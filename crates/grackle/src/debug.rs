@@ -371,10 +371,19 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// dump because the dump prints a field only where the row resolved one:
 /// 842 of grack.com's 1396 rows resolve no shell, and a line that is simply
 /// absent is not an answer to "which shell".
+///
+/// **`rule` is the fourth, and it is the ordering law's one observable**
+/// (IO.md I7d). Membership is no longer a precedence a reader can look up in
+/// a doc — it is the answer one ordered sequence of rules gave for one file,
+/// so `collection` names the scope that claimed the row and `rule` names the
+/// glob inside it that did the claiming. Without the pair, "why is this file
+/// an object rather than a page" has no answer short of re-deriving the
+/// order by hand.
 pub fn row_facts(r: &crate::db::Row) -> String {
     format!(
-        "collection  {}\nshell       {}\nfront_mattered {}\n",
+        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {}\n",
         r.collection,
+        r.rule.as_deref().unwrap_or("-"),
         r.shell.as_deref().unwrap_or("-"),
         r.front_mattered,
     )

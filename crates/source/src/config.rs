@@ -1323,13 +1323,20 @@ pub struct Collection {
     /// The directory this collection reads — **for `posts` only**. A `tree`
     /// collection's `source` is decorative: it names the collection
     /// (`table_name`) and identifies it across the merge (§1's annotation,
-    /// `collection_key`), and the walk ignores it — `build_tree_and_objects`
+    /// `collection_key`), and the walk ignores it — `load::walk_site`
     /// walks `cfg.root()`, always. So `source = "pages"` on a tree collection
     /// means "call me `pages`", not "read `pages/`", and since it changes the
     /// merge key it inherits the base's tree beside its own, which
     /// `check_collection_kinds` refuses (MERGE.md C7a). Objects have no source
     /// at all: they are picked out of that same walk by whatever their own
     /// rules claim.
+    ///
+    /// A POSTS scope's source, by contrast, is load-bearing three times over
+    /// since IO.md I7d: it is the subtree walked, the specificity that ORDERS
+    /// the scope in the one rule sequence, and the subtree that scope OWNS (a
+    /// file under it that no rule of it claims is not content). It also
+    /// punches through the dot/underscore skip, which is how `_posts` is
+    /// walked at all.
     pub source: Option<String>,
     // No `extensions`. Membership in an objects scope is what its RULES say
     // (IO.md I7a): a `match` glob naming the extensions
@@ -1361,6 +1368,13 @@ pub struct Collection {
     /// `include` has first say over `exclude`, and over the engine's own
     /// positional not-content rule (a site-root `themes/`): it is the one
     /// key that means "publish this anyway".
+    ///
+    /// Since IO.md I7d these lists govern the WHOLE walk, posts sources
+    /// included — there is only one walk left to govern. An `exclude` naming a
+    /// scope's `source` is therefore a contradiction rather than a redundancy,
+    /// and `load::walk_site` refuses it: before the merge it was a harmless
+    /// line (the dot/underscore skip kept `_posts` out of the tree anyway),
+    /// and after it, it empties the scope.
     #[serde(default)]
     pub exclude: Vec<String>,
     /// See [`Collection::exclude`] — the same key, in the other direction,

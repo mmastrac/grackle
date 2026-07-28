@@ -18,7 +18,7 @@ use crate::config::{Collection, Config};
 use crate::filename::{self, FileKey, FilenameFormat};
 use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
-use crate::store::{self, RawRow};
+use crate::store;
 
 /// Front matter's `date:`. `YYYY-MM-DD`; a bare `YYYY-MM` means the first of
 /// that month.
@@ -173,6 +173,15 @@ fn degenerate_warning(rel: &Path, shell: &str, title: &str) -> String {
 
 /// What the rule cascade decided for one row.
 struct Routing<'a> {
+    /// The glob of the FIRST rule of this scope that matched — the claim
+    /// (IO.md I7d). `None` is "no rule of this scope wanted this file", which
+    /// is what sends the ordered sequence on to the next scope, and what a
+    /// scope's own source turns into "not content".
+    ///
+    /// Distinct from `pattern` below, which is the first rule that ROUTED: a
+    /// defaults-only rule claims a file it cannot land, and that is an error
+    /// naming the file rather than a quiet drop.
+    claimed: Option<&'a str>,
     templates: &'a [String],
     /// The glob of the rule that supplied `templates` — carried so a routing
     /// error can name the rule the reader has to edit, not just the template
@@ -193,7 +202,10 @@ struct Routing<'a> {
     defaults: BTreeMap<&'a str, &'a toml::Value>,
 }
 
-/// First-writer-wins per key (DESIGN.md §4).
+/// First-writer-wins per key (DESIGN.md §4) — and, since IO.md I7d,
+/// first-rule-wins for MEMBERSHIP: the first rule of this scope past both
+/// gates is the claim, and `walk_site` asks the scopes in order until one
+/// claims.
 fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
     // The collection's own `filename_formats`: the default its rules inherit,
@@ -202,6 +214,7 @@ fn apply_rules<'a>(
     rel: &Path,
     has_front_matter: bool,
 ) -> Routing<'a> {
+    let mut claimed: Option<&str> = None;
     let mut templates: &[String] = &[];
     let mut pattern: &str = "";
     let mut formats: Option<&[FilenameFormat]> = None;
@@ -221,6 +234,9 @@ fn apply_rules<'a>(
         // the one that wins the route. That is what keeps a rule shadowed by
         // a nearer one (it still fills defaults) out of `dead_rules`.
         rule.governed.set(true);
+        // …and the first one past them is the CLAIM (IO.md I7d): first rule
+        // wins, and the rule that wins says which scope this row is in.
+        claimed.get_or_insert(rule.pattern);
         if rule.on_demand && !rule.route.is_empty() {
             on_demand_cover.push(rule.pattern);
         }
@@ -241,6 +257,7 @@ fn apply_rules<'a>(
         }
     }
     Routing {
+        claimed,
         templates,
         pattern,
         formats: formats.unwrap_or(collection_formats),
@@ -675,249 +692,133 @@ fn tidy(url: String) -> String {
     out
 }
 
-/// Read one posts collection's rows. Indexing is deliberately NOT here:
-/// several collections can contribute to the one posts table (`_posts` and
-/// `_drafts`), and an index built per collection would see only part of the
-/// corpus — `by_url` could not detect a collision between them, and `order`
-/// would restart per source.
-fn read_posts(
-    cfg: &Config,
-    name: &str,
-    c: &Collection,
-    markers: &Markers,
-    schemas: &Schemas,
-    warnings: &mut Vec<String>,
-) -> Result<(Vec<Row>, f64)> {
-    // Bound here because the row loop shadows `name` with the post's own
-    // path identity — silently, since both are strings.
-    let collection = name.to_string();
-    let root = cfg.root();
-    let source_rel = PathBuf::from(
-        c.source
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("collection {name} has kind=posts but no source"))?,
-    );
-    let source = root.join(&source_rel);
-
-    let t0 = std::time::Instant::now();
-    let raws: Vec<RawRow> = store::load_dir(&source, &["md", "markdown"])?;
-    let read_ms = t0.elapsed().as_secs_f64() * 1000.0;
-
-    // The collection's list is the DEFAULT its rules inherit (§4, IO.md I6),
-    // not a requirement: a posts scope whose rules route by path tokens
-    // (`/{dir}/{stem}/`) needs no extractor at all, and the pre-I6 refusal —
-    // "kind=posts but no filename_formats" — would have refused exactly the
-    // config q51 exists to make possible. What replaces it is per row and per
-    // template: a route that spends a date the row does not have is the error,
-    // wherever that route came from (`RouteTokens::check`).
-    let collection_formats = compile_formats(&c.filename_formats)?;
-    let rules = compile_rules(c)?;
-
-    let mut rows: Vec<Row> = Vec::with_capacity(raws.len());
-    for raw in raws {
-        // §6f: the path selector strips the locale first, so filename
-        // parsing, rules and routing all see the logical path — a
-        // translation rides the same machinery as its original.
-        let (logical_rel, locale) = cfg.i18n.split(&raw.rel);
-        let stem: String = logical_rel
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_string();
-
-        // `logical` keeps its extension, matching the tree side — where the
-        // convention is config-visible (`content = "recipes/index.md"`).
-        // ROOT-relative too, like `rel`: collection-relative would collide a
-        // post at `2020/x.md` with a tree page at `2020/x.md`.
-        let logical = source_rel.join(&logical_rel).to_string_lossy().to_string();
-
-        // `true`, not `raw.front_mattered`, and since I7c that is a claim this
-        // loader makes rather than a fact it reads: a `front_matter = ` rule
-        // key selects on the row's IDENTITY (§4), and this hands the cascade a
-        // constant. It is byte-inert on the corpus — no posts rule of any site
-        // writes the key — and it is deliberately left alone here, because the
-        // shape that fixes it is the one walk: **I7d**, where the two loaders
-        // become one and there is a single answer to hand over. Until then a
-        // blockless draft is offered to `front_matter = true` rules it does not
-        // satisfy, and the row's own column (`front_mattered`, below) is the
-        // one that tells the truth.
-        //
-        // The rules run before the extractor because they are what says which
-        // extractor this row has (IO.md I6).
-        let routing = apply_rules(&rules, &collection_formats, &logical_rel, true);
-        check_on_demand_cover(&logical_rel, &routing)?;
-        let (route_tmpls, rule_defaults) = (routing.templates, routing.defaults);
-        let key = filename::extract(routing.formats, &stem);
-        let from_name = match key.as_ref().and_then(|k| k.ymd()) {
-            Some((y, m, d)) => Some(NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
-                format!(
-                    "{} has an impossible date in its filename",
-                    raw.path.display()
-                )
-            })?),
-            None => None,
-        };
-        // Front matter beats the filename, the same precedence every other
-        // field has (§4b).
-        let date = match &raw.front.date {
-            Some(s) => Some(front_matter_date(s, &raw.path)?),
-            None => from_name,
-        };
-        let slug = key
-            .as_ref()
-            .and_then(|k| k.slug.clone())
-            .unwrap_or_else(|| stem.clone());
-        let root_rel = raw
-            .path
-            .strip_prefix(&root)
-            .unwrap_or(&raw.rel)
-            .to_path_buf();
-        let marker_defaults = markers.defaults_for(&root_rel);
-        let defaults = merged_defaults(&marker_defaults, rule_defaults);
-        // Governance follows the LOGICAL path (§6f), exactly as the tree
-        // loader does it: a translation is governed by its original's
-        // `.schema.toml`.
-        // The path is made root-relative first, because schemas are keyed
-        // root-relative by the root-wide `.schema.toml` walk — a
-        // `_posts/.schema.toml` is registered under `_posts`, and resolving
-        // the bare filename would never find it.
-        let parent = source_rel
-            .join(&logical_rel)
-            .parent()
-            .unwrap_or(Path::new(""))
-            .to_path_buf();
-        // Every row is governed (§4e): declare a field before you use it.
-        let schema = schemas.resolve(&collection, &parent);
-        let mut checked = schema::validate(&schema, &raw.front.extra, &raw.path)?;
-        // The engine's own four arrive on named front-matter fields rather
-        // than in `extra`, so they are seeded here — nearest writer first.
-        schema::cascade_front(&schema, &raw.front, &mut checked, &raw.path)?;
-        // Markers and rules fill whatever front matter left unset (§4b).
-        schema::apply_defaults(&schema, &defaults, &mut checked, &raw.path)?;
-        // …and rung 0 overrules all three (§2, MERGE.md E1). Above `cascade`,
-        // so a forced `theme` or `toc` is what the row wears.
-        schema::force(&cfg.forced, &schema, &mut checked, &raw.path)?;
-        let worn = cascade(&checked, &raw.path)?;
-
-        // The law (IO.md I7c), and it is the same call the tree loader makes —
-        // which is the point of it being a call. `rendered: true` stood here
-        // before, and was true only because every posts rule a site writes
-        // sends its rows through a document shell; now the config says so and
-        // the row believes the config.
-        let rendered = crate::shell::renders(raw.front_mattered, worn.shell.as_deref());
-        // The engine-fallback rung, below front matter and every default
-        // (§4b). A row that is not a document has no title to imply: its
-        // content is its bytes.
-        let title = match rendered {
-            true => Some(
-                raw.front
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| implied_title(&slug)),
-            ),
-            false => raw.front.title.clone(),
-        };
-        let row_rel = source_rel.join(&raw.rel);
-        // A degenerate row carries no front matter, so its title IS the
-        // implied one — the warning states the derivation rather than reading
-        // back a value it would have to prove is there.
-        if let Some(sh) = crate::shell::degenerate(raw.front_mattered, worn.shell.as_deref()) {
-            warnings.push(degenerate_warning(&row_rel, sh, &implied_title(&slug)));
-        }
-
-        // A `permalink` is a literal URL, spending no axis; otherwise each of
-        // the rule's template(s) is rendered by the one supplier — path tokens,
-        // the extractor's, axis and locale placeholders preserved for
-        // per-member selection.
-        let route_templates: Vec<String> = if let Some(p) = &raw.front.permalink {
-            vec![p.clone()]
-        } else {
-            if route_tmpls.is_empty() {
-                bail!("no rule supplies a route for {}", raw.path.display());
-            }
-            RouteTokens {
-                cfg,
-                rel: &logical_rel,
-                date,
-                key: key.as_ref(),
-                slug: &slug,
-            }
-            .render_all(route_tmpls, routing.pattern, &raw.path)?
-        };
-        let row_axis = row_axes(cfg, &route_templates);
-        // `Row.url` is the canonical address (every axis at canonical, the row's
-        // own locale); §6f's locale prefix is applied by `select_path` when no
-        // template spends locale.
-        let coords: Vec<Coord> = row_axis
-            .iter()
-            .map(|ra| Coord {
-                axis: &ra.name,
-                value: cfg.axes[&ra.name].canonical().unwrap_or_default(),
-                canonical: true,
-            })
-            .chain(std::iter::once(Coord {
-                axis: "locale",
-                value: &locale,
-                canonical: locale == cfg.i18n.default,
-            }))
-            .collect();
-        let url = select_path(&route_templates, &coords)?;
-        drop(coords);
-
-        rows.push(Row {
-            axis: row_axis,
-            route_templates,
-            width: None,
-            height: None,
-            // Assigned by `insert_rows`, which is where rows become the
-            // database's rather than the loader's.
-            key: Default::default(),
-            // A post publishes because it exists; nothing needs to cite it.
-            on_demand: false,
-            collection: collection.clone(),
-            path: raw.path,
-            // ROOT-relative, so `path`/`dir` mean one thing on every row.
-            // Rule globs match the collection-relative form (`apply_rules`
-            // takes `logical_rel`): `match = "hidden/**"` is relative to
-            // `_posts`.
-            rel: row_rel,
-            version: raw.version,
-            date,
-            slug,
-            stem,
-            title,
-            description: raw.front.description,
-            layout: worn.layout,
-            tags: raw.front.tags,
-            theme: worn.theme,
-            shell: worn.shell,
-            fields: checked.values,
-            images: checked.images,
-            order: raw.front.order,
-            toc: worn.toc,
-            locale,
-            logical,
-            url,
-            body_bytes: raw.body.len(),
-            rendered,
-            // Identity, which is a different question (IO.md §3): a `.md` in a
-            // posts scope with no `---` block is parsed all the same — the
-            // scope hands it a date, a slug and a route — but it carries no
-            // front matter, and this column says so. It is now also one half
-            // of the law above, which is where the two questions meet.
-            front_mattered: raw.front_mattered,
-            size: raw.size,
-            claimed: false,
-        });
-    }
-
-    warnings.extend(dead_rules(&collection, &rules, rows.len()));
-    Ok((rows, read_ms))
+/// One collection, compiled: the rules that decide what it claims, and the
+/// subtree they read.
+///
+/// The word the model uses is **scope** (IO.md §1): a source subtree plus its
+/// rules, extractors, schema and relations. `Kind` survives as the scope's
+/// ROLE — which table its rows land in, and so which indexes, relation
+/// defaults and route kinds they get — but it no longer decides membership.
+struct Scope<'a> {
+    name: &'a str,
+    kind: Kind,
+    /// The subtree this scope's rules read, root-relative.
+    ///
+    /// - `None` — **sourceless** (the objects scope): its rules range over the
+    ///   whole walk, and it owns nothing.
+    /// - `Some("")` — the **site root** (the tree scope). A tree collection's
+    ///   declared `source` is decorative — it names the table and nothing
+    ///   else, which [`crate::config::Collection::source`] says at the key —
+    ///   so the root is what it reads whatever it wrote.
+    /// - `Some("_posts")` — a **proper subtree**, which this scope OWNS (see
+    ///   [`walk_site`]).
+    source: Option<PathBuf>,
+    rules: Vec<CompiledRule<'a>>,
+    /// The collection-level `filename_formats` (IO.md I6): the default its
+    /// rules inherit, read where no matching rule declared a list.
+    formats: Vec<FilenameFormat>,
+    /// How many rows this scope claimed — `dead_rules`' `found`. A `Cell`
+    /// because the walk holds the scope list by shared reference, which is
+    /// also why a rule's `governed` flag is one.
+    found: Cell<usize>,
 }
 
-/// Posts arrive from several collections (`_posts` and `_drafts` are two
-/// sources of one corpus), so they are gathered first and ordered once.
-/// Indexing belongs to `SiteDb::insert_rows` (q51).
+impl Scope<'_> {
+    /// The subtree this scope owns, if it owns one. The root scope and the
+    /// sourceless scopes own nothing — see [`walk_site`].
+    fn owned(&self) -> Option<&Path> {
+        match &self.source {
+            Some(p) if !p.as_os_str().is_empty() => Some(p.as_path()),
+            _ => None,
+        }
+    }
+
+    /// The path this scope's rules read for a file, or `None` when the file is
+    /// not under this scope's source at all — which is how a scope declines to
+    /// look without having to be filtered out of the sequence.
+    fn relative(&self, rel: &Path) -> Option<PathBuf> {
+        match &self.source {
+            Some(src) => rel.strip_prefix(src).ok().map(Path::to_path_buf),
+            None => Some(rel.to_path_buf()),
+        }
+    }
+}
+
+/// **The ordered rule sequence** (IO.md I7d): every scope of the site, in the
+/// order the walk asks them.
+///
+/// The order comes from the **most-specific-source law**, and deriving it is
+/// the point — `posts → objects → tree` was a constant in the loader
+/// (DESIGN.md §3's membership precedence), and a constant cannot say why:
+///
+/// 1. **Scopes with a proper source, deepest first.** `_posts` sits inside the
+///    tree's `.`, and the more specific statement about a subtree wins — the
+///    reading a nearer marker and a nearer `.schema.toml` already get (§4b,
+///    §5b). This is q51's rider, decided.
+/// 2. **Sourceless scopes** (objects) next. A scope with no source selects by
+///    shape rather than by place, and it has to outrank the root scope for the
+///    reason the root's own rules are ordered as they are: `**` sorts last, or
+///    nothing after it ever matches.
+/// 3. **The root scope** (`source = "."`) last, by the same principle.
+/// 4. **Ties**: the site's own scopes before the base's, mirroring the rule
+///    prepend (§4d) — then the table name, which is deterministic and is as
+///    near declaration order as a config keyed BY table name can get. The tie
+///    is unobservable while two scopes' sources differ, because a scope only
+///    ever sees files under its own source and two scopes sharing one source
+///    would be one entry.
+///
+/// Verified against all four corpus sites to reproduce the retired precedence
+/// whatever the declaration order — **theme-preview declares its tree FIRST**,
+/// and under declaration order alone that tree would eat its own posts.
+fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
+    let mut out: Vec<Scope> = Vec::new();
+    for (name, c) in &cfg.collections {
+        let source = match c.kind {
+            // A posts scope IS its source: no source, nothing to read.
+            Kind::Posts => Some(PathBuf::from(c.source.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("collection {name} has kind=posts but no source")
+            })?)),
+            Kind::Tree => Some(PathBuf::new()),
+            Kind::Objects => None,
+        };
+        // `.` and the empty path are one statement, and the empty one is the
+        // spelling the rest of this file needs: a rule glob is relative to the
+        // source, so a root written `.` would grow a `./` on every path.
+        let source = source.map(|p| match p == Path::new(".") {
+            true => PathBuf::new(),
+            false => p,
+        });
+        out.push(Scope {
+            name,
+            kind: c.kind,
+            source,
+            rules: compile_rules(c)?,
+            formats: compile_formats(&c.filename_formats)?,
+            found: Cell::new(0),
+        });
+    }
+    out.sort_by_key(|s| {
+        let (class, depth) = match &s.source {
+            Some(p) if !p.as_os_str().is_empty() => (0u8, p.components().count()),
+            None => (1, 0),
+            Some(_) => (2, 0),
+        };
+        // "The site's before the base's", read off the rules the way
+        // `dead_rules` reads it: a scope the site did not write is one whose
+        // every rule arrived inherited.
+        let inherited = !s.rules.is_empty() && s.rules.iter().all(|r| r.inherited);
+        (class, std::cmp::Reverse(depth), inherited, s.name)
+    });
+    Ok(out)
+}
+
+/// Posts arrive from several scopes (`_posts` and `_drafts` are two sources of
+/// one corpus) and, since IO.md I7d, from one walk that visits them in path
+/// order — so this is now a statement rather than a fix. It stays a statement:
+/// the posts table's load order is the loader's to decide (q51), and leaving it
+/// to be a side effect of how a directory walk happens to sort is how an
+/// ordering-derived byte (an embedding neighbour, a tag list) moves without
+/// anyone choosing to move it.
 fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
     rows
@@ -934,27 +835,107 @@ fn under_themes(rel: &Path) -> bool {
     parts.next().is_some_and(|c| c.as_os_str() == "themes") && parts.next().is_some()
 }
 
-/// One walk of the site root, partitioned by membership precedence
-/// (DESIGN.md §3): a file the objects scope's rules claim is an object,
-/// tree takes the rest.
-fn build_tree_and_objects(
+/// The canonical address of one row: every axis at its canonical value, the
+/// row's own locale (§6f). `select_path` drops a canonical segment where a
+/// shorter template allows, and applies the locale prefix when no template
+/// spends locale.
+fn canonical_url(cfg: &Config, templates: &[String], locale: &str) -> Result<String> {
+    let row_axis = row_axes(cfg, templates);
+    let coords: Vec<Coord> = row_axis
+        .iter()
+        .map(|ra| Coord {
+            axis: &ra.name,
+            value: cfg.axes[&ra.name].canonical().unwrap_or_default(),
+            canonical: true,
+        })
+        .chain(std::iter::once(Coord {
+            axis: "locale",
+            value: locale,
+            canonical: locale == cfg.i18n.default,
+        }))
+        .collect();
+    select_path(templates, &coords)
+}
+
+/// **One walk of the site, one ordered rule sequence over it, first rule
+/// wins** (IO.md I7d). Every row of every table comes from here.
+///
+/// Two laws decide membership, and between them they retire the hardcoded
+/// posts → objects → tree precedence (DESIGN.md §3) that the two loaders were:
+///
+/// - **First rule wins.** A file is offered to every scope in [`scopes`]'
+///   order — each reading the path its own source makes of the file, and
+///   skipping the file entirely when it is not under that source — with each
+///   scope's rules in its own order. The first rule past both gates claims it,
+///   and the scope that rule belongs to is the row's collection. That scope's
+///   rules then cascade defaults exactly as they always did: membership is
+///   what the sequence answers, and everything after it is §4's per-key law
+///   inside the one scope.
+/// - **A scope owns its source.** When a scope whose source CONTAINS the file
+///   is asked and claims nothing, the search stops there: the file is **not
+///   content** and leaves the walk. It does not fall through to the scopes
+///   below, which is what makes the law a law rather than an ordering. This
+///   is what `store::load_dir`'s `.md`-only argument list did by accident,
+///   said out loud — and it is what keeps `_drafts/caret/`'s bundle of images,
+///   an `.rtf` and an `.xcf` invisible rather than letting the objects
+///   catch-all and the tree's passthrough take eighteen files nobody asked
+///   for. (Two scopes on one source own it jointly, so the stop waits for
+///   them both; they are adjacent in the order by construction.)
+///
+///   **The root scope is where the second law reads differently, and
+///   deliberately.** Its source is the whole site, so "the owning scope
+///   claimed nothing" is not a narrowing that missed — it is a site with no
+///   rule for a file, which the engine already refuses by name (*no rule
+///   supplies a route*). A proper subtree IS a narrowing: `source = "_posts"`
+///   with `match = "**/*.{md,markdown}"` is one statement written in two keys,
+///   and a `.png` beside a draft was never being refused, it was never being
+///   asked about.
+///
+/// The walk keeps Jekyll's dot/underscore skip, with the declared sources
+/// punching through it (`store::walk_tree`).
+fn walk_site(
     cfg: &Config,
-    tree_name: &str,
-    tree_c: Option<&Collection>,
-    obj_name: &str,
-    obj_c: Option<&Collection>,
+    scopes: &[Scope],
     markers: &Markers,
     schemas: &Schemas,
-    // Compiled by `load` from this very collection, and shared with the marker
+    // Compiled by `load` from the tree collection, and shared with the marker
     // and vocabulary walks so all three agree on what is not content (§4c).
     not_content: &store::NotContent,
     warnings: &mut Vec<String>,
-) -> Result<(Vec<Row>, Vec<Row>)> {
-    let Some(tree_c) = tree_c else {
-        return Ok((Vec::new(), Vec::new()));
-    };
+) -> Result<(Vec<Row>, Vec<Row>, Vec<Row>)> {
     let root = cfg.root();
-    let files = store::walk_tree(&root, not_content, cfg.gitignore)?;
+    // The sources that punch through the dot/underscore skip: a scope naming a
+    // directory has declared it to be content, in the one key that means that.
+    let sources: Vec<PathBuf> = scopes
+        .iter()
+        .filter_map(|s| s.owned())
+        .map(|p| p.to_path_buf())
+        .collect();
+    // The one contradiction the one walk creates, refused rather than
+    // suffered. `exclude` is the site saying "this is not content" (§4c) and
+    // `source` is a scope saying "this is"; before I7d they governed different
+    // walks and could disagree in silence, and the disagreement was even
+    // harmless — the dot/underscore skip kept `_posts` out of the tree anyway,
+    // so an `exclude = ["_posts/**"]` was a redundant line that did nothing.
+    // With one walk it does something: it empties the blog, and nothing says
+    // so. A load error naming both keys is the house answer, and the fix is to
+    // delete the line.
+    for s in scopes {
+        let Some(src) = s.owned() else { continue };
+        if !not_content.keeps_dir(src) {
+            bail!(
+                "collection {}: `source = {:?}` declares that directory to be \
+                 content, and the tree's `exclude` takes it back out of the \
+                 walk — so this scope would load nothing. There is one walk \
+                 now: a declared source is content, and the dot/underscore \
+                 skip already keeps it out of the tree. Delete the `exclude` \
+                 entry that names it.",
+                s.name,
+                src.display()
+            );
+        }
+    }
+    let files = store::walk_tree(&root, not_content, cfg.gitignore, &sources)?;
 
     // A file claimed as a view's template is not independently routable: the
     // view owns its routes. (`blog/index.html` is rendered once per paginated
@@ -997,31 +978,31 @@ fn build_tree_and_objects(
     // original.
     let claims = cfg.content_claims();
 
-    let tree_rules = compile_rules(tree_c)?;
-    let obj_rules = obj_c.map(compile_rules).transpose()?.unwrap_or_default();
-    // The collection-level default, on this side too (IO.md I6): the tree and
-    // the objects collection may name an extractor for their rules exactly as
-    // a posts collection does — one key, one meaning, three kinds.
-    let tree_formats = compile_formats(&tree_c.filename_formats)?;
-    let obj_formats = obj_c
-        .map(|c| compile_formats(&c.filename_formats))
-        .transpose()?
-        .unwrap_or_default();
-
-    // Membership in the objects scope is what that scope's rules claim
-    // (IO.md I7a) — `**/*.{png,jpg,…}` says "these files are objects" in the
-    // one mechanism that also says where they land.
+    // The objects scope's globs, asked EARLY and on their own (IO.md I7a's
+    // `is_obj`, unchanged in what it computes). Two facts have to be settled
+    // before the ordered sequence can run, and neither is the sequence's to
+    // settle, because both come BEFORE the front-matter gate the sequence
+    // consults:
     //
-    // The GLOB only, and not `apply_rules`, because a rule's front-matter gate
-    // cannot be consulted here: whether a file was peeked for front matter is
-    // decided BY this answer (the peek skips binaries, below). Nothing is lost
-    // — an object's `has_front_matter` is always false, so a `front_matter =
-    // true` objects rule routed nothing before this either.
+    //   - the PEEK. Whether a file was peeked is what the gate reads, so it
+    //     cannot itself be gated. Skipping the ~800 binaries is what keeps the
+    //     peek off the build's critical path.
+    //   - the LOCALE axis. An image is shared across locales (§6f), so an
+    //     object's path does not go through the locale selector.
     //
-    // Bare matchers rather than `obj_rules` itself: this closure runs inside
-    // the parallel peek, and a `CompiledRule` carries the `Cell<bool>` that
-    // `dead_rules` writes.
-    let obj_globs: Vec<&GlobMatcher> = obj_rules.iter().map(|r| &r.matcher).collect();
+    // The two answers agree with the sequence's because no objects rule of any
+    // site gates on front matter — one that did would take the glob's answer
+    // here and the gate's answer there, which is stated rather than guarded
+    // (I7a recorded the same shape: such a rule claimed nothing before either).
+    //
+    // Bare matchers rather than the rules themselves: this closure runs inside
+    // the parallel peek, and a `CompiledRule` carries the `Cell`s the walk
+    // writes.
+    let obj_globs: Vec<&GlobMatcher> = scopes
+        .iter()
+        .filter(|s| s.kind == Kind::Objects)
+        .flat_map(|s| s.rules.iter().map(|r| &r.matcher))
+        .collect();
     let is_obj = |rel: &Path| obj_globs.iter().any(|m| m.is_match(rel));
 
     // Only text rows can carry front matter, and only non-objects need the
@@ -1034,49 +1015,85 @@ fn build_tree_and_objects(
         }
     });
 
+    let mut posts: Vec<Row> = Vec::new();
     let mut pages: Vec<Row> = Vec::new();
     let mut objects: Vec<Row> = Vec::new();
 
     for f in files {
-        let is_object = is_obj(&f.rel);
+        // §6f: the path selector strips the locale first, so filename parsing,
+        // rules and routing all see the logical path — a translation rides the
+        // same machinery as its original. An object skips it (above), and that
+        // is the objects globs' second early answer.
+        let object_shaped = is_obj(&f.rel);
 
-        // §6f: rendered pages carry the locale axis; objects (images) are
-        // shared across locales and skip the selector.
-        let (logical_rel, locale) = if is_object {
-            (f.rel.clone(), cfg.i18n.default.clone())
-        } else {
-            cfg.i18n.split(&f.rel)
+        // **The ordered rule sequence, first rule wins.** Every scope in turn,
+        // each reading the path its own source makes of the file, until one of
+        // their rules claims it.
+        let mut claim: Option<(&Scope, Routing, PathBuf, String)> = None;
+        // Set when a scope that OWNS this path has been asked and passed. What
+        // it means is "not content" — see this function's doc — and the loop
+        // keeps going only for the scopes that share that same source, because
+        // two scopes on one source own it jointly. Nothing below them looks.
+        let mut owner_passed: Option<&Path> = None;
+        for s in scopes {
+            if let Some(o) = owner_passed {
+                if s.owned() != Some(o) {
+                    break;
+                }
+            }
+            // Rule globs and route tokens read the path this scope's source
+            // makes of it — collection-relative in `_posts`, root-relative in
+            // the tree — so a rule's `match` and its `route` spell the same
+            // words (IO.md I6). `None` is a file outside this scope's source,
+            // which the scope never sees.
+            let Some(scope_rel) = s.relative(&f.rel) else {
+                continue;
+            };
+            let (logical_rel, locale) = match object_shaped {
+                true => (scope_rel, cfg.i18n.default.clone()),
+                false => cfg.i18n.split(&scope_rel),
+            };
+            let r = apply_rules(&s.rules, &s.formats, &logical_rel, f.has_front_matter);
+            if r.claimed.is_some() {
+                claim = Some((s, r, logical_rel, locale));
+                break;
+            }
+            if let Some(o) = s.owned() {
+                owner_passed = Some(o);
+            }
+        }
+        let Some((scope, routing, logical_rel, locale)) = claim else {
+            // A scope owns its source: what its rules did not claim is not
+            // content, and it leaves without a word — that silence is
+            // `load_dir`'s extension filter, which never said anything either.
+            // Under the root scope there is no narrowing to have missed, so
+            // the site is simply missing a rule, which is the error it was.
+            if owner_passed.is_some() {
+                continue;
+            }
+            bail!("no rule supplies a route for {}", f.path.display());
         };
-
-        let rules = if is_object { &obj_rules } else { &tree_rules };
-        let collection_formats = if is_object {
-            &obj_formats
-        } else {
-            &tree_formats
+        // Root-relative again for everything that is about the FILE rather
+        // than about a rule: schema governance, `logical` identity, the claim.
+        let logical_root: PathBuf = match scope.owned() {
+            Some(src) => src.join(&logical_rel),
+            None => logical_rel.clone(),
         };
-        let routing = apply_rules(rules, collection_formats, &logical_rel, f.has_front_matter);
+        scope.found.set(scope.found.get() + 1);
         check_on_demand_cover(&logical_rel, &routing)?;
         let on_demand = routing.on_demand;
-        let (tmpls, rule_defaults) = (routing.templates, routing.defaults);
         let marker_defaults = markers.defaults_for(&f.rel);
-        let defaults = merged_defaults(&marker_defaults, rule_defaults);
-        if tmpls.is_empty() {
-            bail!("no rule supplies a route for {}", f.path.display());
-        }
-        // `stem` is computed here, above the object/page split, because both
-        // halves want it and the extractor wants it before either: it is what
-        // a `filename_formats` entry describes.
-        //
-        // STORED rather than re-derived later: recomputing it from `logical`
-        // via `file_stem()` returns `v1` for `v1.2-release.md`.
+        let defaults = merged_defaults(&marker_defaults, routing.defaults);
+
+        // STORED rather than re-derived later: recomputing the stem from
+        // `logical` via `file_stem()` returns `v1` for `v1.2-release.md`.
         let stem = logical_rel
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
-        // The extractor, wherever a rule (or this collection) named one. No
-        // corpus tree or objects collection does today, so `key` is `None` and
-        // every token below comes from the path — which is exactly what this
-        // side has always supplied.
+        // The extractor, wherever a rule (or this scope) named one — run after
+        // the rules, because they are what says which extractor this row has
+        // (IO.md I6).
         let key = filename::extract(routing.formats, &stem);
         let from_name = match key.as_ref().and_then(|k| k.ymd()) {
             Some((y, m, d)) => Some(NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
@@ -1091,55 +1108,30 @@ fn build_tree_and_objects(
             .as_ref()
             .and_then(|k| k.slug.clone())
             .unwrap_or_else(|| stem.clone());
-        // Render each of the rule's route template(s) through the one supplier:
-        // path tokens and extractor results filled, axis and locale
-        // placeholders preserved for the materializer to spend per member. A
-        // single template is the ordinary case; a list is the default-axis case
-        // (§6f), where a canonical member drops its segment.
-        //
-        // The date offered here is the FILENAME's, not front matter's: this
-        // loader reads a page's front matter below, after routing, so a tree
-        // route cannot spend a `date:` the way a post's can. That seam is the
-        // remaining half of "one supplier" and belongs to I7, which dissolves
-        // the two loaders into one walk; nothing here depends on it.
-        let route_templates: Vec<String> = RouteTokens {
-            cfg,
-            rel: &logical_rel,
-            date: from_name,
-            key: key.as_ref(),
-            slug: &slug,
-        }
-        .render_all(tmpls, routing.pattern, &f.path)?;
-        let row_axis = row_axes(cfg, &route_templates);
-        // `Row.url` is the CANONICAL address: every axis at its canonical value,
-        // the row's own locale. `select_path` drops a canonical segment where a
-        // shorter template allows, and applies the locale prefix when no template
-        // spends locale — the shape a config without `{axis:locale}` has always
-        // had.
-        let coords: Vec<Coord> = row_axis
-            .iter()
-            .map(|ra| Coord {
-                axis: &ra.name,
-                value: cfg.axes[&ra.name].canonical().unwrap_or_default(),
-                canonical: true,
-            })
-            .chain(std::iter::once(Coord {
-                axis: "locale",
-                value: &locale,
-                canonical: locale == cfg.i18n.default,
-            }))
-            .collect();
-        let url = select_path(&route_templates, &coords)?;
 
-        if is_object {
+        if scope.kind == Kind::Objects {
+            if routing.templates.is_empty() {
+                bail!("no rule supplies a route for {}", f.path.display());
+            }
+            let tmpls = RouteTokens {
+                cfg,
+                rel: &logical_rel,
+                date: from_name,
+                key: key.as_ref(),
+                slug: &slug,
+            }
+            .render_all(routing.templates, routing.pattern, &f.path)?;
+            let url = canonical_url(cfg, &tmpls, &locale)?;
             // An object is a row that was never rendered. Everything else it
             // could carry — front matter, a locale axis — a binary file does
             // not have, so the defaults are the honest values. Its `slug` is
             // its stem unless a rule's extractor said otherwise, which is the
-            // same sentence every other row now gets.
+            // same sentence every other row now gets. (IO.md I7e is where this
+            // branch and the one below become one constructor.)
             objects.push(Row {
                 key: grackle_db::Key::new(f.rel.to_string_lossy()),
-                collection: obj_name.to_string(),
+                collection: scope.name.to_string(),
+                rule: routing.claimed.map(str::to_string),
                 path: f.path,
                 rel: f.rel,
                 version: f.version,
@@ -1153,110 +1145,167 @@ fn build_tree_and_objects(
                 on_demand,
                 ..Default::default()
             });
+            continue;
+        }
+
+        // Front matter, read once. The posts loader read every file whole and
+        // the tree loader read only the front-mattered ones; the one walk reads
+        // a file that has a block to parse, and reads a blockless one below
+        // only if it turns out to render.
+        let (fm, mut body_bytes) = match f.has_front_matter {
+            true => read_front_matter(&f.path)?,
+            false => Default::default(),
+        };
+        // §5b: a governed row's extra front matter is validated — an undeclared
+        // key or wrong type fails the load naming the file. Ungoverned rows
+        // stay as tolerant as they always were. Governance follows the LOGICAL
+        // path (§6f): a translation is governed by the same `.schema.toml` as
+        // its original — and the ROOT-relative one, because that walk keys them
+        // root-relative (a `_posts/.schema.toml` is registered under `_posts`,
+        // and resolving a bare filename would never find it).
+        let parent = logical_root.parent().unwrap_or(Path::new("")).to_path_buf();
+        // Every row is governed (§4e): declare a field before you use it.
+        let schema = schemas.resolve(scope.name, &parent);
+        let mut checked = match f.has_front_matter {
+            true => schema::validate(&schema, &fm.extra, &f.path)?,
+            false => Default::default(),
+        };
+        // The engine's own four arrive on named front-matter fields rather
+        // than in `extra`, so they are seeded here — nearest writer first.
+        schema::cascade_front(&schema, &fm, &mut checked, &f.path)?;
+        // Markers and rules fill whatever front matter left unset (§4b).
+        schema::apply_defaults(&schema, &defaults, &mut checked, &f.path)?;
+        // …and rung 0 overrules all three (§2, MERGE.md E1). Above `cascade`,
+        // so a forced `theme` or `toc` is what the row wears.
+        schema::force(&cfg.forced, &schema, &mut checked, &f.path)?;
+        let worn = cascade(&checked, &f.rel)?;
+
+        // The law (IO.md I7c), asked once now that there is one walk to ask it
+        // in. `rendered: true` stood in the posts loader and
+        // `rendered: has_front_matter` in the tree's — each the config's answer
+        // read off the wrong thing.
+        let rendered = crate::shell::renders(f.has_front_matter, worn.shell.as_deref());
+        // A blockless row that renders is the one shape whose body was not
+        // already in hand: it is ALL body. The posts loader read every post
+        // whole and so had it; the tree loader read nothing and reported zero;
+        // one walk has to pick one answer, and `body_bytes` is a fact about
+        // the row rather than about which loader found it.
+        if rendered && !f.has_front_matter {
+            body_bytes = read_front_matter(&f.path)?.1;
+        }
+        // Front matter beats the filename, the precedence every other field
+        // has (§4b) — and it is read ABOVE routing now, so a `date:` reaches a
+        // dated route template on any row rather than only on a post. That is
+        // I6's recorded other half of "one supplier", and the seam it named.
+        let date = match &fm.date {
+            Some(s) => Some(front_matter_date(s, &f.path)?),
+            None => from_name,
+        };
+        // The engine-fallback rung, below front matter and every default
+        // (§4b). A row that is not a document has no title to imply: its
+        // content is its bytes.
+        let title = match (fm.title, rendered) {
+            (Some(t), _) => Some(t),
+            (None, true) => Some(implied_title(&slug)),
+            (None, false) => None,
+        };
+        // A degenerate row carries no front matter, so its title IS the
+        // implied one — the warning states the derivation rather than reading
+        // back a value it would have to prove is there.
+        if let Some(sh) = crate::shell::degenerate(f.has_front_matter, worn.shell.as_deref()) {
+            warnings.push(degenerate_warning(&f.rel, sh, &implied_title(&slug)));
+        }
+
+        // A `permalink` is a literal URL, spending no axis; otherwise each of
+        // the rule's template(s) is rendered by the one supplier — path tokens,
+        // the extractor's, axis and locale placeholders preserved for
+        // per-member selection.
+        let route_templates: Vec<String> = if let Some(p) = &fm.permalink {
+            vec![p.clone()]
         } else {
-            // Only rendered rows have schema; 41 files, so parsing is cheap.
-            let (fm, body_bytes) = if f.has_front_matter {
-                read_page_schema(&f.path)?
-            } else {
-                Default::default()
-            };
-            // §5b: a governed row's extra front matter is validated — an
-            // undeclared key or wrong type fails the load naming the file.
-            // Ungoverned rows stay as tolerant as they always were. Schema
-            // governance follows the LOGICAL path (§6f): a translation is
-            // governed by the same .schema.toml as its original.
-            let parent = logical_rel.parent().unwrap_or(Path::new("")).to_path_buf();
-            // Every row is governed (§4e). A file with no front matter has
-            // nothing to validate, but still takes marker and rule defaults.
-            let schema = schemas.resolve(tree_name, &parent);
-            let mut checked = match f.has_front_matter {
-                true => schema::validate(&schema, &fm.extra, &f.path)?,
-                false => Default::default(),
-            };
-            schema::cascade_front(&schema, &fm, &mut checked, &f.path)?;
-            schema::apply_defaults(&schema, &defaults, &mut checked, &f.path)?;
-            // Rung 0, above all three (§2, MERGE.md E1) — the posts loader
-            // says the same thing at the same seam.
-            schema::force(&cfg.forced, &schema, &mut checked, &f.path)?;
-            let worn = cascade(&checked, &f.rel)?;
-            // Front matter beats the filename, exactly as it does for a post
-            // (§4b) — and the filename half is `None` on every corpus row,
-            // since no tree rule names an extractor.
-            let date = match &fm.date {
-                Some(s) => Some(front_matter_date(s, &f.path)?),
-                None => from_name,
-            };
-            // The law (IO.md I7c) — the same call the posts loader makes.
-            // `rendered: f.has_front_matter` stood here, which was the first
-            // clause alone; the second is what makes a degenerate row possible
-            // at all, and on this side it is what lets a rule turn a blockless
-            // `.md` into a page by saying `shell = "html"` and nothing else.
-            let rendered = crate::shell::renders(f.has_front_matter, worn.shell.as_deref());
-            // The engine-fallback rung, below front matter and every default
-            // (§4b), and the same rung the posts loader offers — a byte row
-            // gets none, because its content is its bytes.
-            let title = match (fm.title, rendered) {
-                (Some(t), _) => Some(t),
-                (None, true) => Some(implied_title(&slug)),
-                (None, false) => None,
-            };
-            // As on the posts side: no block, so the title is the implied one.
-            if let Some(sh) = crate::shell::degenerate(f.has_front_matter, worn.shell.as_deref()) {
-                warnings.push(degenerate_warning(&f.rel, sh, &implied_title(&slug)));
+            if routing.templates.is_empty() {
+                bail!("no rule supplies a route for {}", f.path.display());
             }
-            let logical = logical_rel.to_string_lossy().to_string();
-            // q45: a row named by some view's `content` is claimed — every
-            // locale variant of it (the claim is on the logical identity).
-            let claimed = claims.contains_key(logical.as_str());
-            if claimed && !f.has_front_matter {
-                bail!(
-                    "view {}: content {logical:?} has no front matter, so it \
-                     is a static file, not a claimable row",
-                    claims[logical.as_str()]
-                );
-            }
-            pages.push(Row {
-                axis: row_axis.clone(),
-                route_templates,
-                width: None,
-                height: None,
-                key: Default::default(),
-                on_demand,
-                collection: tree_name.to_string(),
-                slug,
-                stem,
-                body_bytes,
-                path: f.path,
-                rel: f.rel,
-                version: f.version,
-                url,
-                rendered,
-                // The tree's old page/static gate IS this fact, and since I7c
-                // it is no longer the whole of the gate: the fact is one clause
-                // of the law above, which the shell can also satisfy.
-                front_mattered: f.has_front_matter,
-                size: f.size,
-                title,
-                layout: worn.layout,
-                description: fm.description,
-                order: fm.order,
+            RouteTokens {
+                cfg,
+                rel: &logical_rel,
                 date,
-                tags: fm.tags,
-                toc: worn.toc,
-                theme: worn.theme,
-                shell: worn.shell,
-                fields: checked.values,
-                images: checked.images,
-                locale,
-                logical,
-                claimed,
-            });
+                key: key.as_ref(),
+                slug: &slug,
+            }
+            .render_all(routing.templates, routing.pattern, &f.path)?
+        };
+        let url = canonical_url(cfg, &route_templates, &locale)?;
+
+        let logical = logical_root.to_string_lossy().to_string();
+        // q45: a row named by some view's `content` is claimed — every locale
+        // variant of it (the claim is on the logical identity).
+        let claimed = claims.contains_key(logical.as_str());
+        if claimed && !f.has_front_matter {
+            bail!(
+                "view {}: content {logical:?} has no front matter, so it \
+                 is a static file, not a claimable row",
+                claims[logical.as_str()]
+            );
+        }
+        let row = Row {
+            axis: row_axes(cfg, &route_templates),
+            route_templates,
+            width: None,
+            height: None,
+            // Assigned by `insert_rows`, which is where rows become the
+            // database's rather than the loader's.
+            key: Default::default(),
+            on_demand,
+            collection: scope.name.to_string(),
+            // Which rule of which scope claimed this row: the ordering law's
+            // one observable (IO.md I7d), printed by `grackle explain`.
+            rule: routing.claimed.map(str::to_string),
+            slug,
+            stem,
+            body_bytes,
+            path: f.path,
+            // ROOT-relative, so `path`/`dir` mean one thing on every row. Rule
+            // globs match the SCOPE-relative form: `match = "hidden/**"` is
+            // relative to `_posts`.
+            rel: f.rel,
+            version: f.version,
+            url,
+            rendered,
+            // The tree's old page/static gate IS this fact, and since I7c it is
+            // no longer the whole of the gate: the fact is one clause of the
+            // law above, which the shell can also satisfy.
+            front_mattered: f.has_front_matter,
+            size: f.size,
+            title,
+            layout: worn.layout,
+            description: fm.description,
+            order: fm.order,
+            date,
+            tags: fm.tags,
+            toc: worn.toc,
+            theme: worn.theme,
+            shell: worn.shell,
+            fields: checked.values,
+            images: checked.images,
+            locale,
+            logical,
+            claimed,
+        };
+        match scope.kind {
+            Kind::Posts => posts.push(row),
+            _ => pages.push(row),
         }
     }
+
     // Every claim must have found its row — a typo'd content path is a
     // load error naming the view, not a silently bare landing.
     for (path, view) in &claims {
-        if !pages.iter().any(|p| p.claimed && p.logical == *path) {
+        if !pages
+            .iter()
+            .chain(posts.iter())
+            .any(|p| p.claimed && p.logical == *path)
+        {
             bail!("view {view}: content {path:?} names no row in the tree");
         }
     }
@@ -1271,24 +1320,35 @@ fn build_tree_and_objects(
         }
     });
 
-    warnings.extend(dead_rules(tree_name, &tree_rules, pages.len()));
-    warnings.extend(dead_rules(obj_name, &obj_rules, objects.len()));
-    Ok((pages, objects))
+    for s in scopes {
+        warnings.extend(dead_rules(s.name, &s.rules, s.found.get()));
+    }
+    Ok((posts, pages, objects))
 }
 
-/// Front matter of a tree page: presentation reads its fields directly.
+/// Front matter of one row, and the size of its body.
+///
 /// A parse failure is a LOAD ERROR naming the file, never an empty schema —
-/// an unquoted `title: A: B` must not ship a silently titleless page (§4).
-fn read_page_schema(path: &Path) -> Result<(store::FrontMatter, usize)> {
+/// an unquoted `title: A: B` must not ship a silently titleless page (§4). An
+/// EMPTY block is not a failure, though: `---\n---` is a file that carries
+/// identity and says nothing with it, which is what the posts loader always
+/// read it as, and one walk keeps the more permissive of the two readings
+/// because the other one was an accident of never being asked.
+///
+/// `body_bytes` comes from the same read, so the field means the same thing on
+/// every row.
+fn read_front_matter(path: &Path) -> Result<(store::FrontMatter, usize)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let (yaml, body) = store::split_front_matter(&text);
-    let fm = serde_yaml_ng::from_str(yaml)
-        .with_context(|| format!("front matter of {}", path.display()))?;
-    // `body_bytes` from the same read, so the field means the same thing on
-    // every row.
+    let fm = match yaml.trim().is_empty() {
+        true => store::FrontMatter::default(),
+        false => serde_yaml_ng::from_str(yaml)
+            .with_context(|| format!("front matter of {}", path.display()))?,
+    };
     Ok((fm, body.len()))
 }
+
 /// Read the site named by `cfg` and return the database it describes.
 /// An image field names a ROW, so check that it does (§5b × §6a).
 ///
@@ -1343,31 +1403,15 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // embedded site's `.schema.toml` (`cover`, under `grackle/examples/`)
     // joined grack.com's own field vocabulary at the same rung.
     //
-    // At most ONE collection of each kind reaches these bindings, and the
-    // config is what guarantees it (`Config::check_collection_kinds`, MERGE.md
-    // C7a): the tree is the root, walked once, and objects come out of that
-    // same walk by their own rules, so a second collection of either kind has
-    // nothing of its own to read. Before that guard this loop was the silent
-    // discard — an unconditional assignment over a `BTreeMap`, so the
-    // alphabetically last collection of each kind won and the other's rules,
-    // `exclude`, `include` and `schema` went nowhere.
-    let mut tree_c = None;
-    let mut tree_name = String::new();
-    let mut obj_c = None;
-    let mut obj_name = String::new();
-    for (name, c) in &cfg.collections {
-        match c.kind {
-            Kind::Tree => {
-                tree_c = Some(c);
-                tree_name = name.clone();
-            }
-            Kind::Objects => {
-                obj_c = Some(c);
-                obj_name = name.clone();
-            }
-            Kind::Posts => {}
-        }
-    }
+    // At most ONE collection of each kind reaches this binding, and the config
+    // is what guarantees it (`Config::check_collection_kinds`, MERGE.md C7a):
+    // the tree is the root, walked once, and every other scope reads out of
+    // that same walk by its own rules, so a second tree would have nothing of
+    // its own to read. Before that guard this loop was the silent discard — an
+    // unconditional assignment over a `BTreeMap`, so the alphabetically last
+    // collection of each kind won and the other's rules, `exclude`, `include`
+    // and `schema` went nowhere.
+    let tree_c = cfg.collections.values().find(|c| c.kind == Kind::Tree);
     let empty: &[String] = &[];
     let not_content = store::NotContent::new(
         build_globset(tree_c.map_or(empty, |c| &c.exclude))?,
@@ -1415,24 +1459,15 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // The site vocabulary travels with the database (§4e).
     db.declared = schemas.declared_schema();
 
-    // Several collections may feed the posts table — `_posts` and
-    // `_drafts` are two sources of one corpus — so rows are gathered
-    // first and indexed once, over all of them.
-    let mut post_rows: Vec<Row> = Vec::new();
-    for (name, c) in &cfg.collections {
-        if c.kind == Kind::Posts {
-            let (rows, read_ms) = read_posts(cfg, name, c, &markers, &schemas, &mut db.warnings)?;
-            post_rows.extend(rows);
-            db.stats.read_ms += read_ms;
-        }
-    }
+    // ONE walk (IO.md I7d), and one ordered rule sequence over it. The three
+    // vectors are a PARTITION of its result, not three loaders: which table a
+    // row lands in is the role of the scope whose rule claimed it, decided
+    // per file rather than per pass.
     let t = std::time::Instant::now();
-    let (page_rows, objects) = build_tree_and_objects(
+    let scopes = scopes(cfg)?;
+    let (post_rows, page_rows, objects) = walk_site(
         cfg,
-        &tree_name,
-        tree_c,
-        &obj_name,
-        obj_c,
+        &scopes,
         &markers,
         &schemas,
         &not_content,
@@ -2151,7 +2186,7 @@ mod load_warning_tests {
     ///
     /// Mutation check: delete `rule.governed.set(true)` in `apply_rules` and
     /// the live rule is reported dead as well; delete the `dead_rules` call
-    /// in `build_tree_and_objects` and nothing is reported at all.
+    /// in `walk_site` and nothing is reported at all.
     #[test]
     fn a_site_declared_rule_that_matches_nothing_warns() {
         let dir = site(

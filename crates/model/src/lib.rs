@@ -50,6 +50,19 @@ pub struct Row {
     /// it, not to the table: two dated collections in one table interleave,
     /// making a blog post's "later post" a note.
     pub collection: String,
+    /// The `match` glob of the rule that CLAIMED this row — the first rule of
+    /// the first eligible scope that wanted it (IO.md I7d).
+    ///
+    /// Membership is an answer the ordered rule sequence gives per file, so
+    /// something has to be able to say which rule gave it: `collection` names
+    /// the scope and this names the rule inside it, and `grackle explain`
+    /// prints the pair. An ordering law nobody can observe is an ordering law
+    /// nobody can debug.
+    ///
+    /// Distinct from the rule that ROUTED the row, which may be a later one:
+    /// a defaults-only rule claims files it does not land.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
     pub path: PathBuf,
     pub rel: PathBuf,
     #[serde(serialize_with = "hex")]

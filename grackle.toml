@@ -42,12 +42,18 @@ trail = "monthly_archive"
 # in _posts, but the format list costs nothing to keep.
 filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
 
+  # A defaults-only rule scoping a directory, so it names no extension: what it
+  # says is about where a file sits, not what kind it is. (It still CLAIMS what
+  # it matches — IO.md I7d — so a non-markdown file under `_posts/hidden/`
+  # would be a load error naming it rather than a silent skip. There is no such
+  # directory today: this rule has governed no rows since it was written, and
+  # the build says so on stderr.)
   [[collections.rules]]
   match = "hidden/**"
   defaults = { hidden = true }
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
   # Related posts (§6g). Embedding cosine, minus a small recency penalty —
@@ -80,6 +86,13 @@ source = "_drafts"
 # own may name another, and none here does.
 filename_formats = ["{slug}"]
 
+  # The rule's glob names the extensions this scope claims, and here that is
+  # load-bearing rather than tidy: `_drafts/caret/` holds a draft and eighteen
+  # files beside it — fifteen images the draft cites with relative paths, an
+  # `.rtf` and an `.xcf`. **A scope owns its source** (IO.md I7d), so what this
+  # rule does not claim is not content at all: not objects, not byte copies,
+  # nothing. Widen this glob and the bundle joins the site.
+
   # `shell = "html"` because this collection pairs with nothing in the base:
   # `_posts` merges with the base's posts collection and inherits its
   # `defaults = { shell = "html" }`, while this second source has no base twin
@@ -90,15 +103,19 @@ filename_formats = ["{slug}"]
   # what the rendering law reads, since a draft may carry no front-matter
   # block at all (IO.md I7c: `front_mattered || shell ∈ {html, light_html}`).
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   defaults = { draft = true, shell = "html" }
   route = "/drafts/{slug}/"
 
 # ---------------------------------------------------------------- objects
 
-# Claimed by these rules' globs anywhere in the tree; membership precedence is
-# posts -> objects -> tree (DESIGN.md §3), so these never collide with the
-# tree's passthrough rule.
+# Claimed by these rules' globs anywhere in the walk. This scope has no
+# `source`, so it selects by shape rather than by place — which is what puts it
+# ABOVE the tree in the one ordered rule sequence (DESIGN.md §3, IO.md I7d) and
+# is why these never collide with the tree's passthrough rule. It sits BELOW
+# `_posts` and `_drafts` for the same reason, from the other side: those scopes
+# name a directory, and a more specific source wins. That is what keeps
+# `_drafts/caret/`'s images out of here.
 #
 # The extension list that used to sit here is now part of every glob below
 # (IO.md I7a) — one mechanism decides both what this scope claims and where
@@ -149,7 +166,13 @@ source = "."
 #      _tools/converter/target. All 10 verified already listed there, and they
 #      are exactly the expensive subtrees. Self-maintaining: add a line to
 #      .gitignore and grackle stops seeing it.
-#   2. Jekyll's implicit dot/underscore skip covers _posts, _layouts, _sass, ...
+#      This list also governs `_posts` and `_drafts` now that there is one walk
+#      (IO.md I7d) — and a pattern that named either of them would be a load
+#      error, because a declared `source` is content by declaration.
+#   2. Jekyll's implicit dot/underscore skip covers _layouts, _sass, _hidden,
+#      _includes, _tools, ... — everything no scope declares as its `source`.
+#      `_posts` and `_drafts` punch through it because the two collections
+#      above name them, which is why neither needs an entry in the list below.
 #   3. This list, for what is tracked on purpose but still isn't content.
 #      Nothing here is gitignored, so nothing here is a duplicate.
 exclude = [

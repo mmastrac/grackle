@@ -4,10 +4,8 @@
 //! never parsed or rendered here — see DESIGN.md §2 for the stages.
 
 use anyhow::{Context, Result};
-use rayon::prelude::*;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 /// Front matter. Unknown keys are tolerated (Jekyll front matter is open).
 #[derive(Debug, Default, Deserialize)]
@@ -65,25 +63,6 @@ where
     })
 }
 
-/// A hydrated source file.
-#[derive(Debug)]
-pub struct RawRow {
-    /// Identity (DESIGN.md §3): the source path, absolute.
-    pub path: PathBuf,
-    /// Path relative to the collection source; what rule globs match against.
-    pub rel: PathBuf,
-    /// Cheap version: mtime ^ size. A pre-check, not a content hash — two
-    /// edits inside one mtime tick with the same size look identical.
-    pub version: u64,
-    pub size: u64,
-    pub front: FrontMatter,
-    /// IO.md §3: the file opened with a `---` fence. Distinct from "`front`
-    /// is non-default" — a file may carry an empty block, and a file may
-    /// carry none and still become a parsed post.
-    pub front_mattered: bool,
-    pub body: String,
-}
-
 /// The body of a source file, read from disk. No row holds its body: the
 /// posts loader used to keep one in memory while the tree loader did not,
 /// and that asymmetry outlived the row-type merge (q51) for no reason
@@ -126,29 +105,6 @@ fn version_of(meta: &std::fs::Metadata) -> u64 {
     mtime ^ meta.len().rotate_left(32)
 }
 
-fn load_one(path: &Path, source: &Path) -> Result<RawRow> {
-    let meta = std::fs::metadata(path)?;
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let (yaml, body) = split_front_matter(&text);
-    let front: FrontMatter = if yaml.trim().is_empty() {
-        FrontMatter::default()
-    } else {
-        serde_yaml_ng::from_str(yaml)
-            .with_context(|| format!("front matter of {}", path.display()))?
-    };
-    let rel = path.strip_prefix(source).unwrap_or(path).to_path_buf();
-    Ok(RawRow {
-        path: path.to_path_buf(),
-        rel,
-        version: version_of(&meta),
-        size: meta.len(),
-        front,
-        front_mattered: opens_front_matter(&text),
-        body: body.to_string(),
-    })
-}
-
 /// Does this file start with a `---` front-matter fence?
 ///
 /// This is the page/static discriminator in Jekyll: a file with front matter is
@@ -166,12 +122,13 @@ pub fn peek_front_matter(path: &Path) -> bool {
     }
 }
 
-/// The same question asked of text already in hand — the posts loader reads
-/// whole files, so it never peeks (IO.md §3's `front_mattered`).
+/// The same question asked of bytes already in hand.
 ///
 /// ONE definition, deliberately: two spellings of "does this file carry front
 /// matter" would be two answers the day one of them learned about `\r\n` and
-/// the other did not.
+/// the other did not. Since IO.md I7d there is also only one CALLER — the one
+/// walk peeks every file it may render, where the posts loader used to read
+/// whole files and ask this of the text.
 fn opens_front_matter(text: impl AsRef<[u8]>) -> bool {
     matches!(text.as_ref(), [b'-', b'-', b'-', b'\n' | b'\r', ..])
 }
@@ -270,7 +227,7 @@ impl NotContent {
     /// one cannot (`*.toml` matches `a/b.toml`, never `a/`), which is what
     /// keeps R1's narrowing: grack.com excludes `*.toml` and must not thereby
     /// prune the directory a `.schema.toml` lives in.
-    fn keeps_dir(&self, rel: &Path) -> bool {
+    pub fn keeps_dir(&self, rel: &Path) -> bool {
         // `Path::join("")` is that empty child: "embedded" -> "embedded/".
         let below = rel.join("");
         rel.as_os_str().is_empty()
@@ -318,13 +275,48 @@ pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ig
     b
 }
 
+/// Is `rel` on the way to, or inside, one of the declared scope sources?
+///
+/// The punch-through (IO.md I7d). The dot/underscore skip below is Jekyll's
+/// and it survives — `_tools/`, `_hidden/`, `_includes/` are not content on
+/// any site and nothing declares them — but a scope that says
+/// `source = "_posts"` has declared that directory to be content, in the one
+/// key that means that. So the skip asks the sources first, and DESIGN.md
+/// §9b's "six underscore directories need explicit excludes" obstacle is
+/// amended rather than paid: the five that no scope names stay out for free.
+///
+/// Both directions of containment matter and for different reasons: a source
+/// itself (`rel == "_posts"`) and everything under it are admitted, and so is
+/// every directory on the way DOWN to a nested source (`_a` for a
+/// `source = "_a/_b"`), because a pruning walk that refuses the parent never
+/// reaches the child. Whole components throughout — `_drafts_temp` is not
+/// under `_drafts`, which a string prefix would get wrong.
+fn punches_through(rel: &Path, sources: &[PathBuf]) -> bool {
+    sources
+        .iter()
+        .any(|s| rel.starts_with(s) || s.starts_with(rel))
+}
+
 /// Walk the site root the way Jekyll does: skip dot- and underscore-prefixed
-/// entries and anything matching `exclude`, unless `include` re-adds it.
+/// entries and anything matching `exclude`, unless `include` re-adds it — or
+/// unless a collection declared the path as its `source` (see
+/// [`punches_through`]).
+///
+/// **The one walk** (IO.md I7d). Every row the site loads comes from here:
+/// what a scope's rules claim decides which table it lands in, and the walk
+/// itself has no opinion about tables.
+///
 /// `.gitignore` is honoured underneath (see `walker`).
-pub fn walk_tree(root: &Path, not: &NotContent, gitignore: bool) -> Result<Vec<TreeFile>> {
+pub fn walk_tree(
+    root: &Path,
+    not: &NotContent,
+    gitignore: bool,
+    sources: &[PathBuf],
+) -> Result<Vec<TreeFile>> {
     let mut out = Vec::new();
     let root_owned = root.to_path_buf();
     let owned = not.clone();
+    let sources = sources.to_vec();
 
     let mut b = walker(root, gitignore);
     b.filter_entry(move |e| {
@@ -338,7 +330,7 @@ pub fn walk_tree(root: &Path, not: &NotContent, gitignore: bool) -> Result<Vec<T
             return true;
         }
         let name = e.file_name().to_string_lossy();
-        if name.starts_with('.') || name.starts_with('_') {
+        if (name.starts_with('.') || name.starts_with('_')) && !punches_through(rel, &sources) {
             return false;
         }
         owned.keeps(rel)
@@ -373,29 +365,14 @@ pub fn walk_tree(root: &Path, not: &NotContent, gitignore: bool) -> Result<Vec<T
     Ok(out)
 }
 
-/// Walk `source` and hydrate every file with one of `extensions`.
-pub fn load_dir(source: &Path, extensions: &[&str]) -> Result<Vec<RawRow>> {
-    let paths: Vec<PathBuf> = WalkDir::new(source)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.into_path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))
-                .unwrap_or(false)
-        })
-        .collect();
-
-    // 327 files / 1.6 MB: parallel parse keeps the whole load well inside the
-    // 200ms budget even cold.
-    paths
-        .par_iter()
-        .map(|p| load_one(p, source))
-        .collect::<Result<Vec<_>>>()
-}
+// `load_dir` — the posts loader's own walk of one `source`, hydrating every
+// `.md`/`.markdown` under it — is GONE (IO.md I7d). There is one walk, and
+// the extension filter that lived in its argument list is a rule glob now
+// (`match = "**/*.{md,markdown}"`), which is I7a's move one scope over: what a
+// scope claims is what its rules say, in the one mechanism that also says
+// where a claimed row lands. What that filter did by accident — a `.png`
+// beside a draft is not a post, and not anything else either — is now the
+// stated law: **a scope owns its source** (`load::walk_site`).
 
 #[cfg(test)]
 mod tests {
@@ -446,6 +423,32 @@ mod tests {
         let not = not_content(&["vendor/**"], &["vendor/**"]);
         assert!(not.keeps_dir(Path::new("vendor")));
         assert!(not.keeps_dir(Path::new("vendor/keep")));
+    }
+
+    /// The punch-through compares whole COMPONENTS, both ways (IO.md I7d).
+    ///
+    /// grack.com is the site that makes each half matter: it has `_drafts` and
+    /// `_drafts_temp` side by side, so a string prefix would walk the second
+    /// because the first is declared — and the downward direction is what lets
+    /// a pruning walk reach a nested source at all, since refusing `_a` never
+    /// gets you to `_a/_b`.
+    ///
+    /// Mutation: `to_string_lossy().starts_with()` instead of
+    /// `Path::starts_with` and `_drafts_temp` joins the walk; drop the second
+    /// clause and a `source = "_a/_b"` is unreachable.
+    #[test]
+    fn the_punch_through_names_whole_components_in_both_directions() {
+        let sources = vec![PathBuf::from("_drafts"), PathBuf::from("_a/_b")];
+        assert!(punches_through(Path::new("_drafts"), &sources));
+        assert!(punches_through(Path::new("_drafts/caret/x.md"), &sources));
+        assert!(!punches_through(Path::new("_drafts_temp"), &sources));
+        assert!(!punches_through(Path::new("_drafts_temp/x.md"), &sources));
+        // On the way down to a nested source, and no further.
+        assert!(punches_through(Path::new("_a"), &sources));
+        assert!(punches_through(Path::new("_a/_b/x.md"), &sources));
+        assert!(!punches_through(Path::new("_a2"), &sources));
+        // And a site that declares no source punches nothing through.
+        assert!(!punches_through(Path::new("_posts"), &[]));
     }
 
     #[test]

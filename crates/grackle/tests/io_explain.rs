@@ -3,8 +3,11 @@
 //! The line under test used to be `println!("kind        post")` — a literal,
 //! printed for every row, so a `.txt` copied verbatim reported itself a post.
 //! A literal passes any test written against one row shape, so this asserts
-//! the block for **two rows that must disagree in all three facts**: a post
-//! with a front-matter block, and a byte copy with none.
+//! the block for **two rows that must disagree in every fact**: a post with a
+//! front-matter block, and a byte copy with none. Since IO.md I7d the block
+//! carries a fourth, `rule` — the glob that CLAIMED the row, which is the
+//! ordering law's one observable and the only way to ask why a file landed in
+//! the scope it did.
 //!
 //! The loader is in the loop deliberately. `row_facts` reads three fields, and
 //! a unit test over a hand-built `Row` would prove only that `format!`
@@ -52,9 +55,10 @@ fn site(whose: &str) -> PathBuf {
     dir
 }
 
-/// Mutation: put any one of the three values back as a literal — `"posts"`,
-/// `"html"`, `true` — and the byte copy's assertion fails on that line. (The
-/// original lie, `kind post` for everything, is the `collection` case.)
+/// Mutation: put any one of the four values back as a literal — `"posts"`,
+/// `"**/*.{md,markdown}"`, `"html"`, `true` — and the byte copy's assertion
+/// fails on that line. (The original lie, `kind post` for everything, is the
+/// `collection` case.)
 #[test]
 fn explain_reads_the_row_rather_than_a_literal() {
     let dir = site("facts");
@@ -71,14 +75,17 @@ fn explain_reads_the_row_rather_than_a_literal() {
 
     assert_eq!(
         facts("/blog/2020/01/01/hello/"),
-        "collection  posts\nshell       html\nfront_mattered true\n",
-        "a post: the scope that claimed it, the shell it leaves through, identity"
+        "collection  posts\nrule        **/*.{md,markdown}\nshell       html\n\
+         front_mattered true\n",
+        "a post: the scope that claimed it, the RULE of that scope that did the \
+         claiming, the shell it leaves through, identity"
     );
     assert_eq!(
         facts("/notes.txt"),
-        "collection  entries\nshell       raw\nfront_mattered false\n",
-        "a byte copy disagrees with the post in all three — and used to report \
-         itself a post in the one fact printed"
+        "collection  entries\nrule        **/*\nshell       raw\nfront_mattered false\n",
+        "a byte copy disagrees with the post in all four: a different scope, a \
+         different rule of it, a different shell, no identity — and it used to \
+         report itself a post in the one fact printed"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

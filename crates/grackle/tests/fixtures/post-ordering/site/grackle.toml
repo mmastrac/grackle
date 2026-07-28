@@ -21,7 +21,7 @@ source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/notes/{slug}/"
 
 # No `order_by`: path order, NOT newest-first. A posts collection asks for

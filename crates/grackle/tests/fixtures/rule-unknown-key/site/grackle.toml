@@ -15,6 +15,6 @@ source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/blog/{slug}/"
   theme = "ledger"

@@ -116,6 +116,13 @@ icon = 'site.icon'
 # A missing `_posts/` is not an error — the collection contributes no rows and
 # the views over it come out empty, so a site with no blog pays nothing for
 # this entry.
+#
+# The rule's glob names the EXTENSIONS this scope claims, which is I7a's move
+# one scope over (IO.md I7d): the posts loader's own walk took `["md",
+# "markdown"]` as an argument, and now the one rule that says where a post
+# lands is also what says a post is markdown. It matters because **a scope owns
+# its source**: what no rule of this scope claims is not content at all, so an
+# image beside a draft stays invisible rather than falling through to the tree.
 
 [[collections]]
 kind = "posts"
@@ -126,7 +133,7 @@ source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
   defaults = { shell = "html" }
 

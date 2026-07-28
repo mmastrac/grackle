@@ -31,7 +31,7 @@ source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/blog/{slug}/"
 
 # The tree holds the per-group landing bodies. Each `<key>/index.md` would land
@@ -40,7 +40,6 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 [[collections]]
 kind = "tree"
 source = "."
-exclude = ["_posts/**"]
 
   [[collections.rules]]
   match = "*/index.md"

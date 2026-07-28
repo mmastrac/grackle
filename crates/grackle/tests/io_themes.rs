@@ -76,7 +76,7 @@ fn load_error(dir: &Path) -> String {
 /// otherwise, byte for byte.
 ///
 /// This is the review I-B probe shape returned as a guard. Mutation: delete the
-/// `under_themes` filter in `build_tree_and_objects` and `/themes/mine/root.html`
+/// `under_themes` filter in `walk_site` and `/themes/mine/root.html`
 /// and `/themes/mine/theme.scss` join the published set — the theme's chrome
 /// fragment served as a page, and its stylesheet source served beside the
 /// compiled sheet the engine already publishes at `/css/mine.css`.

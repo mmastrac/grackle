@@ -40,7 +40,7 @@ source = "_drafts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/notes/{slug}/"
 
 [[collections]]
@@ -50,7 +50,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 trail = "yearly_archive"
 
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
 [sets.published]

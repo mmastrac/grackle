@@ -174,8 +174,12 @@ kind = "posts"
 source = "_posts"
 filename_formats = ["{year}-{month}-{day}-{slug}"]
 
+  # The glob names what this scope claims — markdown, and only markdown. A
+  # scope owns its source (IO.md I7d), so what no rule here claims is not
+  # content: an image sitting in `_posts/` is invisible rather than falling
+  # through to the tree.
   [[collections.rules]]
-  match = "**"
+  match = "**/*.{md,markdown}"
   route = "/{theme}/notes/{slug}/"
   defaults = { shell = "html" }
 
