@@ -1,0 +1,50 @@
+# A theme's field declarations are not this site's vocabulary.
+#
+# `themes/` is engine vocabulary by POSITION (IO.md I7b) — the build reads
+# themes from `root.join("themes")` and from nowhere else, so what sits there
+# is input to the build in the same sense this file is. I7b closed the CONTENT
+# walk over it. The declaration walks still descended it, which is the same
+# leak `excluded-schema` records one layer down (MERGE.md R1): a `.schema.toml`
+# under `themes/mine/` declares `cover`, `Schemas::declared` flattens every
+# rung into ONE site-wide field list, and `cover` type-checked in THIS site's
+# `where` clauses — a theme and its host sharing one vocabulary.
+#
+# Note what this site does NOT have: an `exclude`. The rule under test is
+# positional, so the fixture must not be able to pass by writing the rule the
+# engine is supposed to know.
+#
+# So the route below is a typo now, and the load says so. Delete the `themes`
+# prune in `store::walker_declarations` and `cover` becomes known again — this
+# fixture renders instead of failing.
+#
+# `themes/.schema.toml` is not valid TOML, and it is the R2 boundary: the
+# prune is asked at `themes` ITSELF, so a file sitting directly inside goes
+# with the subtree. Ask the question one level down instead — at `themes/mine`,
+# which is where a theme's own declaration "obviously" lives — and this file is
+# read and the load fails on a TOML parse error instead of the expected
+# `unknown field cover`. Both halves, one expected error: the message proves
+# `cover` did not leak, and its being that message rather than a parse error
+# proves nothing under `themes/` was read at all.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Themed"
+author = "Tester"
+
+[[collections]]
+kind = "tree"
+source = "."
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+# No `from`: a fold shell reads every output (IO.md §4, I3), which is what puts
+# this `where` in the ROUTE vocabulary — the environment `cover` used to leak
+# into.
+[routes.covered]
+path = "/covered.xml"
+shell = "sitemap"
+where = 'cover != ""'

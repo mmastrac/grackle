@@ -1,0 +1,8 @@
+# A declaration at the positional subtree's FIRST level (IO.md IR6, after
+# MERGE.md R2).
+#
+# The declaration walks prune `themes` itself, so this file goes with the
+# subtree. It is deliberately not valid TOML, so a walk that reaches it fails
+# the host's load with a parse error naming this file instead of the
+# `unknown field cover` the fixture expects.
+this file is not valid TOML [

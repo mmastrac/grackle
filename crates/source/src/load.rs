@@ -830,9 +830,12 @@ fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
 /// name, is not: what the engine reads is `root.join("themes")` as a
 /// directory, so the positional claim is over its contents. `Path::starts_with`
 /// compares whole components, so `themes-old/x.md` is ordinary content.
+///
+/// The name of the directory is `store::THEMES`, shared with the declaration
+/// walks' prune (IO.md IR6) so the positional layer is one word in one place.
 fn under_themes(rel: &Path) -> bool {
     let mut parts = rel.components();
-    parts.next().is_some_and(|c| c.as_os_str() == "themes") && parts.next().is_some()
+    parts.next().is_some_and(|c| c.as_os_str() == store::THEMES) && parts.next().is_some()
 }
 
 /// The canonical address of one row: every axis at its canonical value, the
@@ -1429,7 +1432,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // The engine-vocabulary walk: `.section` scope markers (§6e) and
     // `.schema.toml` field declarations (§5b) — positional names like
     // `.slots/`, no config entries. One name-only pass with the same
-    // .gitignore and `exclude` defences as the marker scan.
+    // .gitignore, `exclude` and `themes/` defences as the marker scan
+    // (`walker_declarations` owns all three).
     let mut schemas = Schemas::new(grackle_model::row_schema());
     // The config axes first, so a positional `.schema.toml` is the NEAREST
     // declaration and wins per name (§5b).

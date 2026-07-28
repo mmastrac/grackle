@@ -1,0 +1,3 @@
+# The theme's own field vocabulary. Its rows are its own business; the host's
+# `where` must not be able to name `cover`.
+cover = { type = "string" }

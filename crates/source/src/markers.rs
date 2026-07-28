@@ -62,9 +62,10 @@ impl Markers {
     /// thing we're looking for. The other two §4c layers do apply —
     /// `.gitignore` is what keeps this walk out of `_site*`, `vendor` and
     /// `target` (without some form of pruning it costs ~80ms instead of ~6ms),
-    /// and `exclude` keeps it out of an embedded site that is not this one.
-    /// `store::walker_declarations` owns both. Only names are inspected; no
-    /// file is read.
+    /// and `exclude` keeps it out of an embedded site that is not this one,
+    /// and the positional layer keeps it out of `themes/` (IO.md IR6).
+    /// `store::walker_declarations` owns all three. Only names are inspected;
+    /// no file is read.
     pub fn scan(
         root: &Path,
         cfg: &BTreeMap<String, MarkerDef>,

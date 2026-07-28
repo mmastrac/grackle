@@ -175,6 +175,20 @@ fn is_git_dir(e: &ignore::DirEntry) -> bool {
     e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"
 }
 
+/// The site-root directory that is engine vocabulary by POSITION (IO.md I7b):
+/// the build reads themes from `root.join("themes")` and from nowhere else, so
+/// what sits under it is input to the build in the same sense the config file
+/// is.
+///
+/// Named once, here, because the word is not the fact: `slots.rs`'s `SKIP`
+/// says the same thing about the same directory, and `serve.rs`'s `is_content`
+/// says the OPPOSITE about it (theme sources are *watched* precisely because
+/// they are build input). q34 counts three occurrences of the literal for that
+/// reason; this constant is the one that means "not content", and both readers
+/// of that sense — the content walk's `under_themes` and the declaration
+/// walk's pruning below — take it from here.
+pub const THEMES: &str = "themes";
+
 /// The *declared* not-content layer of DESIGN.md §4c — a collection's
 /// `exclude`, with `include` re-adding ahead of it — compiled once and read
 /// by every walk of the site root.
@@ -209,6 +223,19 @@ impl NotContent {
     /// declared layer and not for the engine's own.
     pub fn included(&self, rel: &Path) -> bool {
         self.include.is_match(rel)
+    }
+
+    /// `included`'s directory twin: does an `include` pattern name the
+    /// directory `rel`, or its contents?
+    ///
+    /// It exists for the reason `keeps_dir` does (MERGE.md R2) — `themes/**`
+    /// matches `themes/x`, never `themes` — and a pruning walk asks about the
+    /// directory. The declaration walks prune the positional layer at
+    /// `themes/` itself (IO.md IR6), so asking the file question there would
+    /// find the hatch bolted shut for the one spelling every site writes.
+    pub fn included_dir(&self, rel: &Path) -> bool {
+        // `Path::join("")` is `keeps_dir`'s empty child: "themes" -> "themes/".
+        self.include.is_match(rel) || self.include.is_match(rel.join(""))
     }
 
     /// Is `rel` (root-relative) still inside the site?
@@ -256,6 +283,14 @@ impl NotContent {
 /// Directory-only means `keeps_dir`, not `keeps`: the subtree's own root has
 /// to be pruned with it, or the walk steps one level in and reads the
 /// declaration sitting directly there (MERGE.md R2).
+///
+/// The **positional** layer applies here too (IO.md IR6): a site-root
+/// `themes/` is engine vocabulary by position, and a declaration is the one
+/// thing a directory can put into the site's vocabulary without owning a
+/// single row of it. `declared()` flattens every rung into one site-wide field
+/// list, so a theme shipping a `.schema.toml` would type-check names into its
+/// host's `where` clauses — R1's `cover` leak, at the directory I7b declared to
+/// be build input. `include` stays the hatch, asked as the directory question.
 pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ignore::WalkBuilder {
     let root_owned = root.to_path_buf();
     let not = not.clone();
@@ -268,6 +303,11 @@ pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ig
             return true;
         }
         match e.path().strip_prefix(&root_owned) {
+            // The positional prune is asked at `themes/` ITSELF, not at its
+            // children: R2's lesson is that a pruning walk gets no second
+            // chance, and a `.schema.toml` sitting directly in `themes/` is as
+            // much a theme's declaration as one nested under `themes/mine/`.
+            Ok(rel) if rel == Path::new(THEMES) && !not.included_dir(rel) => false,
             Ok(rel) => not.keeps_dir(rel),
             Err(_) => true,
         }
@@ -423,6 +463,27 @@ mod tests {
         let not = not_content(&["vendor/**"], &["vendor/**"]);
         assert!(not.keeps_dir(Path::new("vendor")));
         assert!(not.keeps_dir(Path::new("vendor/keep")));
+    }
+
+    /// The positional layer's hatch asks the DIRECTORY question (IO.md IR6).
+    ///
+    /// `included` is the file question I7b's content filter asks, and it is
+    /// the wrong one for a pruning walk: the declaration walks prune `themes`
+    /// itself, and `themes/**` — the one spelling a site would write — does
+    /// not match `themes`. Same asymmetry `keeps_dir` exists for (R2), so the
+    /// same idiom answers it.
+    ///
+    /// Mutation: drop the empty-child clause from `included_dir` and the hatch
+    /// opens for nothing a site would type.
+    #[test]
+    fn the_positional_hatch_is_asked_of_the_directory() {
+        let not = not_content(&[], &["themes/**"]);
+        assert!(!not.included(Path::new("themes")));
+        assert!(not.included_dir(Path::new("themes")));
+        // A file-shaped `include` cannot open a directory, which is the other
+        // half of the same asymmetry.
+        let not = not_content(&[], &["*.toml"]);
+        assert!(!not.included_dir(Path::new("themes")));
     }
 
     /// The punch-through compares whole COMPONENTS, both ways (IO.md I7d).

@@ -621,7 +621,7 @@ we cannot populate correctly is worse than no field (q33(e)).
 | **`.gitignore`** | build artifacts: `_site*`, `_log*`, `vendor`, `_cache`, `.jekyll-cache` |
 | **dot/underscore skip** | `_layouts`, `_sass`, `_includes`, `_tools`, `_hidden`, `.git` — everything no scope declared as its `source` |
 | **`exclude`** | `docker/`, `scripts/`, `TODO`, `*.sh`, `Gemfile`, `*.yml`, `*.toml` |
-| **position** | what the engine reads by where it sits: the site's own `grackle.toml`, and `themes/` |
+| **position** | what the engine reads by where it sits: the site's own `grackle.toml`, and `themes/` (content *and* declarations) |
 
 Tracked content files are excluded by the dot/underscore skip and `exclude`;
 `.gitignore` handles untracked build artifacts.
@@ -659,13 +659,30 @@ some paths are **engine vocabulary by position**, the class `.slots/`,
   Every site in the corpus writes `exclude = ["themes/**"]` to say this, which
   is the evidence: a rule every site has to restate is the engine's.
 
+**The `themes/` rule reaches the declaration walks too** *(IO.md IR6)*. Being
+content is not the only way into a site: the marker walk and the
+`.schema.toml`/`.section` vocabulary walk read what a directory *declares*, and
+`Schemas::declared` flattens every rung into one site-wide field list — so a
+theme shipping a `.schema.toml` would type-check its field names into its
+host's `where` clauses. That is MERGE.md R1's `cover` leak at the directory
+I7b called build input, and it closes the same way, in `walker_declarations`.
+The prune is asked at `themes` **itself**, not at its children: R2's lesson is
+that a pruning walk gets no second chance, and a declaration sitting directly
+in `themes/` is as much a theme's as one nested a level down.
+
 **`include` is the escape hatch, and it is the one that already exists.**
 `include` has first say over `exclude` (`NotContent::keeps`), so it has first
 say over the positional rule too — a site that deliberately publishes something
 under `themes/` says so in the key that already means that, and no second
-mechanism exists for it. (The config file is the exception, and deliberately:
-it is one named file, not a subtree, and there is no site that means to
-publish it.)
+mechanism exists for it. It opens the declaration walks by the same key
+*(IR6)*: one hatch, uniformly, because a key that admitted bytes but not
+vocabulary would be two rules wearing one name — whether a site MEANS to take a
+theme's field declarations is the site author's business, said in the key that
+already says it. The walks ask it different questions for the reason `keeps_dir`
+exists: `included` is the file question, `included_dir` the directory one, and
+`themes/**` matches `themes/` but never `themes`. (The config file is the
+exception, and deliberately: it is one named file, not a subtree, and there is
+no site that means to publish it.)
 
 **Not content is not the same as not watched.** `serve`'s `is_content`
 deliberately treats `themes/` as something to watch — a theme edit changes
@@ -2789,7 +2806,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure.
 30. **Pagination × subdivision (§5c).** A grouped view can subdivide; paginated one cannot yet. Year archive could paginate while months subdivide — row-set semantics cohere but namespace shares. Collision (hard error today) vs pattern-space overlap (should warn or declare).
 33. **View-name policy in `build.rs` (§9b).** Settled: (a) listing `noindex` is a view declaration; (c) dead layout names renamed to `listing`; (f) row `layout:` dissolved. Remains: (b) `"blog_index"` fallback dies when view declares layout; (d) `template` no longer templates — it claims a legacy file; (e) sitemap filter's second evaluation.
-34. **Three "not content" lists (§9b).** §4c's layers are now one shared `store::NotContent`, read by the tree, declaration and marker walks (MERGE.md R1/R2). Remaining: `slots.rs` and `serve.rs` carry private skips — and `slots.rs`'s hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host build (MERGE.md A6), so adopting the shared value means consulting the site's `exclude` too. Serve's `_cache/` stays its own (rebuild *writes* it). **IO.md I7b sharpened the case without paying it**: the tree walk now names `themes` positionally too, so the literal appears in `load.rs` and in `slots.rs`'s `SKIP` — where it means the same thing — and in `serve.rs`, where it means the OPPOSITE (theme sources are watched precisely because they are build input). Two of the three are the same fact stated twice; the third is a different fact wearing the same word, and any port has to keep them apart.
+34. **Three "not content" lists (§9b).** §4c's layers are now one shared `store::NotContent`, read by the tree, declaration and marker walks (MERGE.md R1/R2). Remaining: `slots.rs` and `serve.rs` carry private skips — and `slots.rs`'s hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host build (MERGE.md A6), so adopting the shared value means consulting the site's `exclude` too. Serve's `_cache/` stays its own (rebuild *writes* it). **IO.md I7b sharpened the case without paying it**: the tree walk now names `themes` positionally too, so the literal appears in `load.rs` and in `slots.rs`'s `SKIP` — where it means the same thing — and in `serve.rs`, where it means the OPPOSITE (theme sources are watched precisely because they are build input). Two of the three are the same fact stated twice; the third is a different fact wearing the same word, and any port has to keep them apart. **IR6 added a second reader of the not-content sense** (the declaration walks) and named the word once rather than a fourth time: `store::THEMES`, which `load.rs`'s `under_themes` and `walker_declarations` both take it from — so the census still reads three, and the two that mean "not content" are now one string.
 37. **The `board` kind (§5c-adjacent, specced, deliberately pending).** A board is a query over queries. Would retire last hand-written arrangement on either homepage. Pending: (a) member declaration; (b) labels — per-member vs inherited; (c) routable or embed-only; (d) boards-in-boards; (e) board items vs opaque.
 38. **Transclusion (§7b).** Render row X inline by reference. Backlinks half built; waits on real consumer, with §5d's no-control-flow rule.
 39. **Set-scoped computed fields (§7b).** Fields derive from ONE row; survey wants aggregates — `count()`, `sum(minutes)`, date spans. Natural §5f extension but changes inheritance story.
