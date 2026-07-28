@@ -534,15 +534,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             let translations = locale_twins(db, p);
             let mut head = head;
             head.alternates = locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
-            // q53: other axis forms as rel=alternate beside locale twins.
             head.alternates
                 .extend(axis_alternates(db, &cfg.site.url, r));
             let groups =
                 parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
             let doc = parts::document(cfg, p, whole, trail, groups, outline);
             let dir = p.path.parent().unwrap_or(&root);
-            let (theme_name, subtheme) =
-                themes.resolve(axis_field(r, "theme").or(p.theme.as_deref()));
+            let (theme_name, subtheme) = resolve_theme(&themes, r, p.theme.as_deref());
             let row_thm = themes.get(theme_name)?;
             let html = chain::document_page(
                 chain::Page {
@@ -639,12 +637,6 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let Some(row) = row else { continue }; // existence-checked at load
         let src = &row.path;
 
-        // This route's slice: concatenated member faces (+ pagination on a
-        // thin wrapper row with no title/crumbs — the claimed row owns those).
-        let face = parts::member_face(
-            v.layout.as_deref().unwrap_or("listing"),
-            v.variant.as_deref(),
-        );
         if view_base_collection(cfg, view).is_none() {
             continue;
         }
@@ -658,15 +650,18 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             &page_bodies,
             |k| db.object_ix.iter().any(|o| o == k),
         );
-        let pagination = pagination_parts(db, view, v, r)?;
-        let (theme_name, subtheme) = match axis_field(r, "theme").or(v.theme.as_deref()) {
-            Some(spec) => themes.resolve(Some(spec)),
-            None => themes.resolve(row.theme.as_deref()),
-        };
+        let (theme_name, subtheme) =
+            resolve_view_theme(&themes, r, v.theme.as_deref(), || {
+                themes.resolve(row.theme.as_deref())
+            });
         let row_thm = themes.get(theme_name)?;
-        let mut embed_html =
-            crate::assemble::chain::concat_rows(&row_thm.fragments, face, items, v.featured);
-        if let Some(p) = pagination {
+        let mut embed_html = chain::concat_rows(
+            &row_thm.fragments,
+            parts::member_face(v.layout.as_deref().unwrap_or("listing"), v.variant.as_deref()),
+            items,
+            v.featured,
+        );
+        if let Some(p) = pagination_parts(db, view, v, r)? {
             embed_html.push_str(&row_thm.fragments.render(&p));
         }
 
@@ -712,13 +707,11 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         let resolve = |form: crate::links::Cite, href: &str| {
             crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, form, href)
         };
-        let frag = if src.extension().is_some_and(|e| e == "md") {
-            crate::markdown::render_doc_with(&expanded, &resolve)?
-                .whole
-                .clone()
-        } else {
-            crate::rewrite::resolve_links(&expanded, &resolve)?
-        };
+        let (frag, _) = crate::markdown::render_source(
+            &expanded,
+            src.extension().is_some_and(|e| e == "md"),
+            &resolve,
+        )?;
         let frag = frag.replace(SENTINEL, &embed_html);
 
         // Title: the row's front matter beats the view's declaration
@@ -984,7 +977,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
                 // Theme per row (§5a); axis theme beats the row's (q53).
                 let (theme_name, subtheme) =
-                    themes.resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())));
+                    resolve_theme(&themes, r, row.and_then(|p| p.theme.as_deref()));
                 let row_thm = themes.get(theme_name)?;
                 let row_css = theme::css_url(&cfg.site.baseurl, theme_name);
                 // Metas read the ROW when present; sourceless routes use the route.
@@ -1522,11 +1515,7 @@ fn render_page_bodies(
         // themed page's body arranges its rows the way that page's theme
         // says, exactly as the landing path does.
         let row = r.row.as_ref().and_then(|k| db.rows.get(k));
-        let row_thm = themes.get(
-            themes
-                .resolve(axis_field(r, "theme").or(row.and_then(|p| p.theme.as_deref())))
-                .0,
-        )?;
+        let row_thm = themes.get(resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref())).0)?;
         // Expand FIRST, then decide: most pages that look unsupported use
         // only constructs the expander already handles.
         let cx = tags::Ctx {
@@ -1564,8 +1553,7 @@ fn render_page_bodies(
             crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, form, href)
         };
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
-            let d = crate::markdown::render_doc_with(&expanded, &resolve)?;
-            (d.whole.clone(), Some(d))
+            crate::markdown::render_source(&expanded, true, &resolve)?
         } else {
             // One deliberate asymmetry, scoped as tightly as it can be. A
             // raw-HTML body has `{% view %}` expanded INTO it, so where an
@@ -2540,6 +2528,28 @@ pub(crate) fn axis_field<'a>(r: &'a Route, field: &str) -> Option<&'a str> {
         .iter()
         .find(|a| a.field == field)
         .map(|a| a.value.as_str())
+}
+
+/// Theme for a route: axis member beats `next` (row or view theme).
+pub(crate) fn resolve_theme<'a>(
+    themes: &'a theme::Themes,
+    r: &'a Route,
+    next: Option<&'a str>,
+) -> (Option<&'a str>, Option<String>) {
+    themes.resolve(axis_field(r, "theme").or(next))
+}
+
+/// Listing/landing: axis or view theme, else `fallback`.
+pub(crate) fn resolve_view_theme<'a>(
+    themes: &'a theme::Themes,
+    r: &'a Route,
+    view_theme: Option<&'a str>,
+    fallback: impl FnOnce() -> (Option<&'a str>, Option<String>),
+) -> (Option<&'a str>, Option<String>) {
+    match axis_field(r, "theme").or(view_theme) {
+        Some(spec) => themes.resolve(Some(spec)),
+        None => fallback(),
+    }
 }
 
 /// Pagination for a paginated route (those carrying a page number); an

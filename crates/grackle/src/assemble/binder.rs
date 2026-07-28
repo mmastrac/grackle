@@ -470,27 +470,24 @@ impl Fragments {
     /// root is not stamped — the engine's root HTML shell carries
     /// `data-kind`/`data-subtheme` on `<html>` itself.
     pub fn render_body(&self, m: &PartMap) -> String {
-        match self.map.get(m.kind) {
-            Some(frag) => {
-                let mut out = String::new();
-                self.render_nodes(&frag.nodes, m, &mut out, false);
-                out
-            }
-            None => super::parts::canonical(m),
-        }
+        self.render_frag(m, None, false)
     }
 
     /// Render through a variant's fragment when the theme has one (q24):
     /// `{kind}--{variant}` → the kind's base fragment → canonical. The
     /// view declares the variant; the theme opts in by shipping the file.
     pub fn render_with(&self, m: &PartMap, variant: Option<&str>) -> String {
+        self.render_frag(m, variant, true)
+    }
+
+    fn render_frag(&self, m: &PartMap, variant: Option<&str>, stamp_root: bool) -> String {
         let frag = variant
             .and_then(|v| self.map.get(&format!("{}--{v}", m.kind)))
             .or_else(|| self.map.get(m.kind));
         match frag {
             Some(frag) => {
                 let mut out = String::new();
-                self.render_nodes(&frag.nodes, m, &mut out, true);
+                self.render_nodes(&frag.nodes, m, &mut out, stamp_root);
                 out
             }
             None => super::parts::canonical(m),

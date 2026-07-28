@@ -53,17 +53,9 @@ impl Fill {
         &self,
         resolve: &dyn Fn(crate::links::Cite, &str) -> anyhow::Result<Option<String>>,
     ) -> Result<RenderedFill> {
-        let html = match self.ext.as_str() {
-            "md" => {
-                crate::markdown::render_doc_with(self.raw.trim(), resolve)
-                    .with_context(|| format!("slot fill {}", self.file.display()))?
-                    .whole
-            }
-            // §6d stage B: an `.html` fill never meets comrak, so its links
-            // resolve here instead — same contract as a `.md` fill's.
-            _ => crate::rewrite::resolve_links(self.raw.trim(), resolve)
-                .with_context(|| format!("slot fill {}", self.file.display()))?,
-        };
+        let markdown = self.ext == "md";
+        let (html, _) = crate::markdown::render_source(self.raw.trim(), markdown, resolve)
+            .with_context(|| format!("slot fill {}", self.file.display()))?;
         let (block_count, inline) = block_shape(&html);
         Ok(RenderedFill {
             blocks: html,

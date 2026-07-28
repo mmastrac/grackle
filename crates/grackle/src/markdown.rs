@@ -190,6 +190,20 @@ pub fn render_doc_with(
     Ok(Doc { whole, blocks })
 }
 
+/// Markdown or raw HTML through the same link resolver.
+pub fn render_source(
+    src: &str,
+    markdown: bool,
+    resolve: &dyn Fn(crate::links::Cite, &str) -> anyhow::Result<Option<String>>,
+) -> anyhow::Result<(String, Option<Doc>)> {
+    if markdown {
+        let doc = render_doc_with(src, resolve)?;
+        Ok((doc.whole.clone(), Some(doc)))
+    } else {
+        Ok((crate::rewrite::resolve_links(src, resolve)?, None))
+    }
+}
+
 impl Doc {
     /// A truncated projection of the document: blocks kept until either
     /// budget runs out, plus whether anything was cut (the `truncated` fact

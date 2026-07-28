@@ -5,8 +5,8 @@ use anyhow::Result;
 use super::{Ctx, Pass};
 use crate::assemble::chain;
 use crate::build::{
-    axes_part, fill_link_resolver, member_previews, pagination_parts, route_intro, SiteOutput,
-    Stats,
+    axes_part, fill_link_resolver, member_previews, pagination_parts, resolve_view_theme,
+    route_intro, SiteOutput, Stats,
 };
 use crate::config::View;
 use crate::db::Route;
@@ -44,20 +44,19 @@ impl Pass for Listing {
         let pagination = pagination_parts(ctx.db, view, v, r)?;
         let loc = ctx.locale_of(r);
         let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc)?;
-
-        // Nearest wins (§5e): view theme, then unanimous members (§5h), then site.
-        // Axis theme (§53) beats view/unanimity — the member IS this route.
-        let (theme_name, subtheme) =
-            match crate::build::axis_field(r, "theme").or(v.theme.as_deref()) {
-                Some(spec) => ctx.themes.resolve(Some(spec)),
-                None => match ctx.unanimous_theme(r) {
-                    Some(n) => (Some(n), None),
-                    None => ctx.themes.site_default(),
-                },
-            };
+        let (theme_name, subtheme) = resolve_view_theme(ctx.themes, r, v.theme.as_deref(), || {
+            match ctx.unanimous_theme(r) {
+                Some(n) => (Some(n), None),
+                None => ctx.themes.site_default(),
+            }
+        });
         let row_thm = ctx.themes.get(theme_name)?;
-        let face = parts::member_face("listing", v.variant.as_deref());
-        let content = chain::concat_rows(&row_thm.fragments, face, items, v.featured);
+        let content = chain::concat_rows(
+            &row_thm.fragments,
+            parts::member_face("listing", v.variant.as_deref()),
+            items,
+            v.featured,
+        );
         let main = row_thm.fragments.render(&parts::page_row(
             &title,
             &r.url,
