@@ -656,6 +656,14 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   (same `included` escape hatch), with an R1-style leak fixture proving
   closure both ways. Parity byte-identical; mutation-check.
 
+- [ ] **IR7. `explain` gains a `rendered` line.** *(I7c's proposal.)* The
+  surface prints `front_mattered` and `shell` but not `rendered` — now
+  the derived answer a reader most wants beside them (the law's output:
+  `front_mattered || shell ∈ DOCUMENT`). One line in `debug::row_facts`;
+  CLI-only; extend `io_explain.rs` (a degenerate row reads
+  `front_mattered false / rendered true` — the pair that teaches the
+  law). Mutation-check; standard parity.
+
 - [ ] **I8. Sidecars.** Identity from a sidecar file; governed rows for
   unparseable bytes; the identity/parsed split holds (`front_mattered`
   without content). Parity (no site uses one yet — fixture-driven).
