@@ -335,6 +335,15 @@ draft, and `search.bin`.
 An identity-less file routed `raw` is the ordinary byte row and says nothing at
 all — that is the normal case, not a degenerate one.
 
+**The law is observable** *(IO.md IR7)*. `grackle explain` prints `rendered`
+directly beneath `front_mattered` and `shell`, which is the derivation on one
+screen: the caret draft reads `front_mattered false / rendered true` and the
+example's pane reads `shell raw / rendered true`, and between them the two
+lines say why neither fact alone is the answer. It is the block's only derived
+line, and it prints the bit the row was *built* with rather than re-running the
+law beside it — a `rendered` a reader can act on has to be the one that decided
+whether this file was parsed.
+
 ### Route tokens: one supplier *(q51's remainder; built 2026-07-27, IO.md I6)*
 
 A rule's `route` spends tokens, and **every rule offers the same table** —

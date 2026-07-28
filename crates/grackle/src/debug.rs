@@ -379,13 +379,34 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// glob inside it that did the claiming. Without the pair, "why is this file
 /// an object rather than a page" has no answer short of re-deriving the
 /// order by hand.
+///
+/// **`rendered` is the fifth, and it is the only DERIVED line in the block**
+/// (IO.md IR7). It is the rendering law's output —
+/// `shell::renders(front_mattered, shell)`, IO.md §4's `front_mattered ||
+/// shell ∈ DOCUMENT` — printed immediately beneath the two facts it is a
+/// function of, because the pair is what teaches the law and neither half
+/// predicts it alone: a degenerate row reads `front_mattered false /
+/// rendered true` (identity-less, sent through a document shell), and
+/// `field-notes`' front-mattered `shell: raw` `demos/pane.html` reads
+/// `shell raw / rendered true` — it renders, and the `raw` shell then emits
+/// the result verbatim.
+///
+/// **The line prints the STORED bit, not a re-derivation**, and the two are
+/// the same answer by construction: `load.rs` builds every row by calling
+/// `shell::renders` on exactly these two fields and keeps the result. Calling
+/// the law again here would read like a second opinion while being the same
+/// one — and would print what the law *would* say rather than what this row
+/// was actually built as, which is the diagnosis a reader of `explain` came
+/// for. If the two ever disagreed, the stored bit is the one that decided
+/// whether this file was parsed.
 pub fn row_facts(r: &crate::db::Row) -> String {
     format!(
-        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {}\n",
+        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {}\nrendered    {}\n",
         r.collection,
         r.rule.as_deref().unwrap_or("-"),
         r.shell.as_deref().unwrap_or("-"),
         r.front_mattered,
+        r.rendered,
     )
 }
 

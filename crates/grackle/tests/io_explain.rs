@@ -19,18 +19,37 @@
 //! `explain` printed `layout` twice for every row that resolved one. The
 //! loader earns its place there for the same reason — whether a value reaches
 //! both places is a fact about the load, not about the printer.
+//!
+//! The third covers IO.md IR7's `rendered` line — the one DERIVED value in the
+//! block, and the only one a reader cannot read off the file. It needs four
+//! rows rather than two, because the law it prints is a disjunction and each
+//! clause has a shape that is the only witness against getting it wrong.
 
 use std::path::PathBuf;
 
-/// Two rows, chosen because every fact differs across them: a dated post the
-/// posts scope claims (identity in the file, the html shell) and a `.txt` the
-/// tree rule copies verbatim (no identity, the raw shell).
+/// Four rows, chosen so that no two agree on the whole block.
+///
+/// The first two are IR2's pair, and every fact differs across them: a dated
+/// post the posts scope claims (identity in the file, the html shell) and a
+/// `.txt` the tree rule copies verbatim (no identity, the raw shell).
 ///
 /// The post carries all three of the cascade keys `row_fields` names, and one
 /// declared field that is not a cascade key (`minutes`), so IR3's skip is
 /// pinned as "skip these four names" rather than "skip the dump".
 ///
-/// `whose` keeps the two tests off each other's tree: they run in parallel and
+/// The other two are IR7's, one per clause of the rendering law, and both are
+/// corpus shapes rather than invented ones:
+///
+/// - **The degenerate row.** A blockless `.md` under `_posts/`, which the base's
+///   posts rule claims with `defaults = { shell = "html" }` and no front-matter
+///   gate: `front_mattered false`, `rendered true`. This is grack.com's
+///   `_drafts/caret/…`, reproduced under the base config.
+/// - **The pane.** A front-mattered `.html` whose front matter says
+///   `shell: raw` — `examples/field-notes`' `demos/pane.html`, down to the
+///   path. It renders (identity), and the `raw` shell then emits the result
+///   verbatim: `shell raw`, `rendered true`.
+///
+/// `whose` keeps the tests off each other's tree: they run in parallel and
 /// each deletes its directory at both ends.
 fn site(whose: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("grackle-io-explain-{whose}"));
@@ -46,6 +65,14 @@ fn site(whose: &str) -> PathBuf {
             "---\ntitle: Hello\nlayout: post\ntheme: ledger\ntoc: true\nminutes: 4\n---\n\nProse.\n",
         ),
         ("notes.txt", "Bytes, verbatim.\n"),
+        (
+            "_posts/2020-02-02-why-is-a-cursor-called-a-caret.md",
+            "No block at all — this file is all body.\n",
+        ),
+        (
+            "demos/pane.html",
+            "---\ntitle: Glass pane\nshell: raw\n---\n<div class=\"pane\"></div>\n",
+        ),
     ];
     for (rel, body) in files {
         let p = dir.join(rel);
@@ -76,16 +103,74 @@ fn explain_reads_the_row_rather_than_a_literal() {
     assert_eq!(
         facts("/blog/2020/01/01/hello/"),
         "collection  posts\nrule        **/*.{md,markdown}\nshell       html\n\
-         front_mattered true\n",
+         front_mattered true\nrendered    true\n",
         "a post: the scope that claimed it, the RULE of that scope that did the \
          claiming, the shell it leaves through, identity"
     );
     assert_eq!(
         facts("/notes.txt"),
-        "collection  entries\nrule        **/*\nshell       raw\nfront_mattered false\n",
+        "collection  entries\nrule        **/*\nshell       raw\nfront_mattered false\n\
+         rendered    false\n",
         "a byte copy disagrees with the post in all four: a different scope, a \
          different rule of it, a different shell, no identity — and it used to \
          report itself a post in the one fact printed"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// IO.md IR7: the block's last line is the rendering law's answer —
+/// `front_mattered || shell ∈ {html, light_html}` — printed beneath the two
+/// facts it reads, because the derivation is what a reader of `explain` cannot
+/// do in their head from a row they are already confused about.
+///
+/// Four rows and no two alike. The two IR2 chose (`true`/`true` and
+/// `false`/`false`) agree with both halves of the law and so witness nothing on
+/// their own; the two below are each the sole witness against one wrong
+/// implementation:
+///
+/// - the **degenerate** row reads `front_mattered false / rendered true` — the
+///   pair that teaches the law, and the row that fails an engine printing
+///   `r.front_mattered` under a `rendered` label (the pre-I7c tree loader's
+///   answer);
+/// - the **pane** reads `shell raw / rendered true` — the row that fails "the
+///   shell decides", which is the law that byte-copies a front-mattered file
+///   and ships its `---` block.
+///
+/// Mutations, each red: hardcode `true` and the byte copy fails; hardcode
+/// `false` and the other three do; print `r.front_mattered` and the degenerate
+/// row fails alone; print `is_document(shell)` and the pane fails alone. The
+/// loader is in the loop for the reason the file's other tests keep it there —
+/// `rendered` is *stored* on the row, decided at load by `shell::renders`, so a
+/// hand-built `Row` would prove only that `format!` interpolates a bool.
+#[test]
+fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
+    let dir = site("rendered");
+    let cfg = grackle::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
+    let db = grackle_source::load(&cfg).expect("the site loads");
+    let facts = |url: &str| {
+        let r = db
+            .by_url
+            .get(url)
+            .and_then(|k| db.rows.get(k))
+            .unwrap_or_else(|| panic!("no row at {url}"));
+        grackle::debug::row_facts(r)
+    };
+
+    assert_eq!(
+        facts("/blog/2020/02/02/why-is-a-cursor-called-a-caret/"),
+        "collection  posts\nrule        **/*.{md,markdown}\nshell       html\n\
+         front_mattered false\nrendered    true\n",
+        "the degenerate row: no identity, a document shell, and it renders — \
+         the law's second clause, and the pair a reader learns it from"
+    );
+    assert_eq!(
+        facts("/demos/pane/"),
+        "collection  entries\nrule        **/*.{html,md}\nshell       raw\n\
+         front_mattered true\nrendered    true\n",
+        "the pane: identity plus the transparent shell renders, and `raw` then \
+         emits the result verbatim — the law's first clause, and the row a \
+         shell-only law would ship the `---` block for"
     );
 
     let _ = std::fs::remove_dir_all(&dir);
