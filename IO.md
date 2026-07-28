@@ -700,7 +700,7 @@ Two follow-up items, run before I9:
   interrupted pass's intermediate state) fixed. Mutation: the probe site
   warns; absent-source and empty-dir shapes stay silent; parity.
 
-- [ ] **IR9. An objects-scope rule may not declare `front_matter`.**
+- [x] **IR9. An objects-scope rule may not declare `front_matter`.**
   *(Review I-C question 3 — the thrice-recorded corner, made live by
   I8.)* Pre-I8 the corner was vacuous (objects never peeked); post-I8
   the gate reads identity, so `front_matter = true` on an objects rule
@@ -3340,3 +3340,89 @@ warned, fixable. (ii) The **root-scope half of the guard is unreachable** by the
 argument above rather than by a test, which is the one claim here a reviewer
 should want to re-derive; if it is wrong, the symptom is a warning on a site
 that should have gotten *no rule supplies a route*.
+
+**2026-07-27 — IR9.** Landed as one commit. The item is a refusal, and the only
+thing worth arguing about is whether the corner it closes was still there — it
+was recorded three times on the strength of a premise that has since been
+retired, and a fourth recording would have been the same mistake a fourth time.
+
+*The premise, probed rather than inherited.* I7a wrote that an objects rule
+gated `front_matter = true` "never routed anything before either, because an
+object's `has_front_matter` is always false"; I7d flagged it; I7e stated it at
+the code. All three are true of a world where the only identity a file can have
+is a block it opens with, and **I8 ended that world**: the gate is
+`apply_rules(…, has_identity)`, and `has_identity` is `block || sidecar`. Two
+throwaway sites on the current tree (IR8's `load.rs` included), one inheriting
+the base and one `extends = "none"`, both with a sidecar'd `photo.png` and a
+blockless `plain.png`:
+
+| rule | `photo.png` (sidecar'd) | `plain.png` (blockless) |
+|---|---|---|
+| `front_matter = true`  | `objects`, `/pics/photo/` | `entries`, `/plain.png` |
+| `front_matter = false` | `entries`, `/photo.png`   | `objects`, `/pics/plain/` |
+
+…and `query stats` says **objects 2, distinct names 2** in both runs. So the
+corner is live in both directions at once: the gate claims one of the two
+pictures into the objects scope and sends the other to whatever scope comes
+next, while the extension fact — which never asked about identity — goes on
+indexing both. A row `explain` calls `collection entries` that `object_ix`
+counts a picture is exactly I7e's sentence, now reachable by writing one line.
+
+***[decided]* The refusal is on the KEY, not on the dangerous value.**
+`front_matter = false` is the same split with the sides swapped, and a check
+that let it through would be saying the problem is sidecars rather than the
+gate. Both values, one message. (Mutation-checked in that direction too:
+narrowing the check to `Some(true)` turns the second half of the test red.)
+
+***[decided]* Config time, not load time.** It is a question about the config's
+shape alone — no walk, no file — so it belongs with I7b's dead keys, in
+`Config::from_toml` beside `check_scope_content_keys`. That placement also gets
+the profiles for free: every declared profile is projected and validated at
+every load, so a projection cannot smuggle one in. (In fact it cannot declare a
+collection at all — the E2 fence — but the check does not have to know that.)
+
+*The one thing this family had not seen before.* I7b's dead keys configure
+**nothing**; this one configures something, and the something is wrong. The
+message says so rather than borrowing the "configures nothing" sentence: the
+reason to delete the line is that it splits a directory of images between two
+scopes by whether someone wrote a `.toml` beside them, not that nobody reads
+it. Inherited rules are checked too — the base declares none, so it can only
+fire on a site's own line, but the argument is about the rule's text and a base
+that grew one would be exactly as wrong.
+
+*Two tests, four mutations, in `io_dissolve.rs`* — the file where the extension
+fact lives, because that is the half of the disagreement the refusal protects.
+The refusal (both values, naming the collection, the glob and what was written);
+the control (a tree rule and a posts rule still gating, still deciding routes).
+Mutations: delete the call (both sites load — the table above is the measured
+signature, not a prediction); widen the check to every kind (the control dies,
+and three neighbouring tests with it); narrow it to `Some(true)`. The fixture is
+`extends = "none"` on purpose: under the inherited base the blockless image
+falls to the base's own ungated objects rule and stays in the objects scope,
+which hides the half of the split that matters.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one over the same content
+trees — **byte-identical but for three wall-clock `<updated>` lines** (the other
+three builds landed in the same second), **stderr identical on all six**, file
+counts 8 / 8 / 242 / 83 / 1828 / 1829 and `grackle query urls` set-diffs
+**empty** on all six (7 / 7 / 222 / 63 / 1372 / 1373), both unmoved since IR1.
+`cargo test` green (26 result lines); `cargo fmt --check` clean under the pin;
+clippy **47**, HEAD's number. **Zero re-blessing**, and measured rather than
+assumed: a `tomllib` scan of all 45 collection-bearing TOMLs in the repository —
+sites, base, fixtures, and `[profiles.*]` bodies, since the walk recurses —
+finds 31 rules declaring `front_matter` and **none of them on an objects
+scope**. No fixture, `expected-error` or assertion outside the two new tests
+moved.
+
+*Docs.* DESIGN.md §4's objects-scope key list gains **Nor `front_matter`**
+beside I7a's `extensions` and I7b's `exclude`/`include`, with the two-questions
+reason; the gate section gains a clause saying which scopes may carry it.
+
+*For batch review I-D.* The refusal is unnarrowed on purpose and that is the
+call to check: it fires on any objects rule declaring the key, including one
+whose scope has an ungated rule beneath it that would have caught the fallout.
+That shape is legal today and byte-inert; refusing it too is the same argument
+I7e's `favicon.ico` finding made from the other side (a scope owns what its
+globs widen), and the narrower check would have to reason about rule order to
+say anything at all.
