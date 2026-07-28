@@ -1,0 +1,288 @@
+//! Objects dissolve; the Null shape collapses (IO.md I7e).
+//!
+//! There is one row constructor now. A former-object row takes rule defaults,
+//! marker defaults, schema validation and rung 0 like every other row, and what
+//! survives of "object" is a fact about the FILE — the objects scopes' globs,
+//! I7a's rule-claimed membership, read by the loader as **the extension fact**.
+//! Three things key off it and nothing else does: `object_ix`, `by_name` and
+//! the header read that fills `width`/`height`.
+//!
+//! Built sites rather than loaded ones wherever the claim is about what a
+//! reader DOES with the index: the listing pass asks `object_ix` whether a
+//! member is a picture, and a test that asked the database the same question
+//! would pass against an engine whose gallery had stopped showing pictures.
+
+use grackle::db::SiteDb;
+use std::path::{Path, PathBuf};
+
+/// A 2×3 PNG — real bytes, because one of the three readers under test is the
+/// header read.
+const PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x08, 0x02, 0x00, 0x00, 0x00, 0x36, 0x88, 0x49,
+    0xd6, 0x00, 0x00, 0x00, 0x16, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0x10, 0x91, 0x03,
+    0x21, 0x2e, 0x11, 0x39, 0x2e, 0x10, 0x4b, 0x44, 0x0e, 0x88, 0x00, 0x0d, 0x49, 0x01, 0x69, 0x37,
+    0x8b, 0x8f, 0x82, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+fn site(who: &str, files: &[(&str, &[u8])]) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("grackle-io-dissolve-{who}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (rel, body) in files {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
+        std::fs::write(&p, body).unwrap();
+    }
+    dir
+}
+
+fn load(dir: &Path) -> SiteDb {
+    let cfg = grackle::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
+    grackle_source::load(&cfg).expect("the site loads")
+}
+
+fn render(dir: &Path) -> grackle::build::SiteOutput {
+    let cfg = grackle::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
+    let mut db = grackle_source::load(&cfg).expect("the site loads");
+    let (out, _) = grackle::build::render_site(&cfg, &mut db).expect("the site renders");
+    let _ = std::fs::remove_dir_all(dir.join("_cache"));
+    out
+}
+
+/// One page of a built site, as text.
+fn page(dir: &Path, url: &str) -> String {
+    let out = render(dir);
+    String::from_utf8(
+        out.get(url)
+            .unwrap_or_else(|| panic!("no page at {url} — routes: {:?}", out.keys()))
+            .clone(),
+    )
+    .expect("a page is utf-8")
+}
+
+/// The URLs a fold selected, out of its sitemap.
+fn selected(dir: &Path, route: &str) -> Vec<String> {
+    let xml = page(dir, route);
+    xml.lines()
+        .filter_map(|l| l.strip_prefix("<loc>")?.strip_suffix("</loc>"))
+        .map(|u| u.trim_start_matches("https://example.com").to_string())
+        .collect()
+}
+
+/// **The re-keying, and what it buys.** `object_ix`, `by_name` and the header
+/// read key off the extension fact rather than off the vector a row arrived in.
+///
+/// All three are asserted together because they are one decision, and each of
+/// them is a different consumer's whole answer:
+///
+/// - `by_name` is what `grackle query stats` reports distinct and ambiguous
+///   names from — the measurement §6a's collision argument rests on, which is
+///   why the fixture carries two `shot.png`s in different directories;
+/// - `object_ix` is what the listing pass asks per member (`ctx.objects`), and
+///   an object member previews as a PICTURE while a row member previews as
+///   prose — so the gallery is where losing the index shows;
+/// - `width`/`height` come from a header read the loader only performs on the
+///   rows this fact names.
+///
+/// Mutation: send former-object rows to `pages` instead (`(_, true) =>
+/// objects.push(row)` → `pages.push(row)`) — the index empties, `by_name` goes
+/// with it (distinct 0, ambiguous 0), the header read never runs, and the
+/// gallery comes out with three members and no links at all, because a picture
+/// answers `title` with nothing and the empty label takes its `<a>` with it.
+/// The MEMBERSHIP half survives that mutation on purpose — the row's
+/// `collection` is still the objects scope's, so the view still selects it —
+/// which is what makes every assertion here about the INDEX rather than about
+/// the query.
+#[test]
+fn the_objects_index_keys_off_the_extension_fact() {
+    let dir = site(
+        "index",
+        &[
+            (
+                "grackle.toml",
+                b"extends = \"none\"\n\
+                  [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                  [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n\
+                  [[collections.rules]]\nmatch = \"gallery/**/*.png\"\nroute = \"/{path}\"\n\n\
+                  [[collections]]\nkind = \"tree\"\nname = \"entries\"\nsource = \".\"\n\n\
+                  [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{path}\"\n\n\
+                  [routes.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
+                  order_by = \"path\"\nlayout = \"listing\"\ntitle = \"Photos\"\n",
+            ),
+            ("gallery/a/shot.png", PNG),
+            ("gallery/b/shot.png", PNG),
+            ("gallery/solo.png", PNG),
+            ("notes.txt", b"Bytes.\n"),
+        ],
+    );
+
+    // What the index BUYS, asserted first: the listing pass asks `object_ix`
+    // per member, and an object previews as the picture it is — labelled by its
+    // stem, which is the only name a file has. A row member has a `title` and
+    // an image has none, so losing the index does not mis-label the gallery, it
+    // empties it: rule 2 deletes an element with an empty content slot, so the
+    // link goes with the label.
+    let gallery = page(&dir, "/photos/");
+    assert_eq!(
+        gallery.matches("href=\"/gallery/").count(),
+        3,
+        "each member previews as the picture it is:\n{gallery}"
+    );
+    assert!(
+        gallery.contains(">solo</a>"),
+        "and its stem is the label:\n{gallery}"
+    );
+
+    let db = load(&dir);
+    assert_eq!(db.object_ix.len(), 3, "three pictures, one index");
+    assert_eq!(
+        db.by_name.len(),
+        2,
+        "distinct names: `shot.png` collides with itself, `solo.png` does not"
+    );
+    assert_eq!(
+        db.by_name.values().filter(|v| v.len() > 1).count(),
+        1,
+        "ambiguous names — the count `query stats` prints"
+    );
+    for o in db.objects() {
+        assert_eq!(
+            (o.width, o.height),
+            (Some(2), Some(3)),
+            "{} lost its header read",
+            o.rel.display()
+        );
+    }
+    // The `.txt` is the control: it is a row of the same walk, built by the
+    // same constructor, and it is in none of the three.
+    assert!(
+        db.by_name.values().flatten().count() == 3 && !db.by_name.contains_key("notes.txt"),
+        "the name index is the pictures, not the corpus"
+    );
+}
+
+/// **Markers reach a former-object row** — the propose-and-flag call (IO.md
+/// I7e). A `.hidden` beside a gallery means what it says: refusing it would
+/// re-mint the origin distinction this item deletes, since the only reason to
+/// refuse is *which constructor built the row*.
+///
+/// Asserted through a fold over the ROUTE pool, because the point is that the
+/// fact reaches the output side where a query can act on it — a marker that
+/// wrote a field nothing could read would be the declared-and-ignored disease
+/// with extra steps. (The gallery's own vocabulary is deliberately narrower:
+/// `where = "hidden"` on an object view is still a load error, which is the
+/// other half of §5b and is not disturbed here.)
+///
+/// Byte-inert on the corpus today, and that was measured rather than assumed:
+/// `query stats` reports 0 marker files on all five sites, so no image on any
+/// of them sits under one.
+///
+/// Mutation: pass `&Defaults::default()` in place of `marker_defaults` when
+/// `object_shaped` — the origin distinction re-minted in one line, which is
+/// exactly what this test refuses — and the image leaves the set while the
+/// `.md` beside it stays.
+#[test]
+fn a_marker_reaches_a_former_object_row() {
+    let dir = site(
+        "marker",
+        &[
+            (
+                "grackle.toml",
+                b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                  [routes.hidden_probe]\npath = \"/hidden.xml\"\n\
+                  shell = \"sitemap\"\nwhere = 'hidden'\n",
+            ),
+            ("gallery/.hidden", b""),
+            ("gallery/private.png", PNG),
+            ("gallery/notes.md", b"---\ntitle: Notes\n---\n\nProse.\n"),
+            ("public.png", PNG),
+        ],
+    );
+    let hidden = selected(&dir, "/hidden.xml");
+    assert!(
+        hidden.contains(&"/gallery/private.png".to_string()),
+        "the marker's defaults reach the image beneath it: {hidden:?}"
+    );
+    assert!(
+        hidden.contains(&"/gallery/notes/".to_string()),
+        "and the page beside it, as they always did: {hidden:?}"
+    );
+    assert!(
+        !hidden.contains(&"/public.png".to_string()),
+        "a marker governs its own directory and no other: {hidden:?}"
+    );
+    // The same fact on the row, so a reader knows the route did not invent it.
+    let db = load(&dir);
+    // Found through `rows` rather than `objects()`, so this test says nothing
+    // about the index — it is about what the constructor put on the row.
+    let img = db
+        .rows
+        .iter()
+        .find(|o| o.rel.to_string_lossy() == "gallery/private.png")
+        .expect("the image is a row");
+    assert_eq!(
+        img.fields.get("hidden"),
+        Some(&grackle::filter::Value::Bool(true)),
+        "the row carries the declared field the marker set"
+    );
+}
+
+/// **The locale selector does not run on a former-object row**, and the
+/// decision is pinned in both directions (IO.md I7e).
+///
+/// One picture serves every locale (§6f), so `photo.fr.png` is a file whose
+/// name carries a dot rather than the French edition of `photo.png`. Letting
+/// the selector run is byte-inert on the corpus TODAY — no `.fr.`-infixed image
+/// exists on any of the six trees — and latent forever after, which is what
+/// earns it a test rather than a note: the day someone names a file that way it
+/// would silently mint `/fr/…` and drop `.fr.` from the address.
+///
+/// Both halves are here because the skip has to be about pictures and not about
+/// the site: the `.md` beside it IS the French edition, at the prefixed URL,
+/// under the same config.
+///
+/// Mutation: drop the `object_shaped` arm so every row goes through
+/// `cfg.i18n.split` — the image is republished at `/fr/gallery/photo.png` and
+/// its literal path disappears from the URL set. (The reverse mutation, always
+/// taking the object arm, takes the French page's URL with it.)
+#[test]
+fn an_image_is_not_a_translation_of_itself() {
+    let dir = site(
+        "locale",
+        &[
+            (
+                "grackle.toml",
+                b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                  [i18n]\nlocales = [\"en\", \"fr\"]\ndefault = \"en\"\n\n\
+                  [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
+            ),
+            ("gallery/photo.fr.png", PNG),
+            ("gallery/notes.md", b"---\ntitle: Notes\n---\n\nEnglish.\n"),
+            (
+                "gallery/notes.fr.md",
+                "---\ntitle: Notes\n---\n\nFrançais.\n".as_bytes(),
+            ),
+        ],
+    );
+    let urls = selected(&dir, "/all.xml");
+    assert!(
+        urls.contains(&"/gallery/photo.fr.png".to_string()),
+        "the image keeps the name it was given: {urls:?}"
+    );
+    assert!(
+        !urls.iter().any(|u| u.contains("/fr/gallery/photo")),
+        "and mints no locale address for a file nobody translated: {urls:?}"
+    );
+    assert!(
+        urls.contains(&"/fr/gallery/notes/".to_string()),
+        "while the page beside it IS a translation, at the prefixed URL: {urls:?}"
+    );
+
+    let db = load(&dir);
+    let img = db
+        .rows
+        .iter()
+        .find(|o| o.rel.to_string_lossy() == "gallery/photo.fr.png")
+        .expect("the image is a row");
+    assert_eq!(img.locale, "en", "an image carries the default locale");
+}

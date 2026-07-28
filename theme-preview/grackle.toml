@@ -186,7 +186,10 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # ---------------------------------------------------------------- objects
 
 # Membership is what this scope's rules claim (IO.md I7a): the extension list
-# is the glob, case-insensitively.
+# is the glob, case-insensitively. This site declines the base, so it says the
+# objects rule's shell itself — an image leaves through the transparent one
+# (IO.md I7e: one row constructor, so an object takes rule defaults like any
+# other row, and this site's census reads `raw` rather than Null).
 [[collections]]
 name = "objects"
 kind = "objects"
@@ -194,6 +197,7 @@ kind = "objects"
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
 # ---------------------------------------------------------------- widgets
 

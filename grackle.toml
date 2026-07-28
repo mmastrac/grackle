@@ -123,6 +123,15 @@ filename_formats = ["{slug}"]
 # these three, which is why `ico` had to be spelled here and nowhere else.
 # Globs compile case-insensitively, which is what keeps
 # `assets/2004/06/after-theme-hack.PNG` an object.
+#
+# All three declare `shell = "raw"` even though the base's rule declares it
+# too, and the seventh extension is exactly why (IO.md I7e): rule defaults
+# accumulate from every MATCHING rule, so a `.png` here would take `raw` from
+# the base's inherited rule whether or not these said so — but the base's glob
+# names six extensions and `favicon.ico` matches none of them, so that one row
+# resolved NO shell at all once the object constructor started reading rule
+# defaults. A scope that widens the base's membership owns the defaults for
+# what it widened it by.
 [[collections]]
 name = "objects"
 kind = "objects"
@@ -135,6 +144,7 @@ kind = "objects"
   [[collections.rules]]
   match = "resource/**/*.{png,jpg,jpeg,gif,webp,svg,ico}"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
   # Frozen legacy subtrees. These are hand-written pages from 1996 onward
   # citing their assets in markup the reference scan does not read and never
@@ -144,6 +154,7 @@ kind = "objects"
   [[collections.rules]]
   match = "{code,demos,writing}/**/*.{png,jpg,jpeg,gif,webp,svg,ico}"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
   # §4 on-demand: an image publishes at its literal path when something
   # references it. The template still says WHERE, so `{% image %}` and every
@@ -152,6 +163,7 @@ kind = "objects"
   match = "**/*.{png,jpg,jpeg,gif,webp,svg,ico}"
   route = "/{path}"
   on_demand = true
+  defaults = { shell = "raw" }
 
 # ---------------------------------------------------------------- pages
 

@@ -597,9 +597,11 @@ pub struct SiteDb {
     /// root-relative on each.
     #[serde(skip)]
     pub by_logical: BTreeMap<String, Vec<Key>>,
-    /// Keys of rows an objects collection produced. Every index in
-    /// `index_rows` gates on row PROPERTIES (`post_ix` membership,
-    /// `rendered`), never on which origin a row arrived from.
+    /// Keys of the rows that are PICTURES — the extension fact (IO.md I7e):
+    /// an objects scope's globs claim the path, which is I7a's rule-claimed
+    /// membership. Not "which loader made the row": there is one row
+    /// constructor, and every index in `index_rows` gates on row PROPERTIES
+    /// (`post_ix` membership, `rendered`) for the same reason.
     #[serde(skip)]
     pub object_ix: Vec<Key>,
     /// Object basename -> rows. Deliberately non-unique (DESIGN.md §6a):
@@ -959,16 +961,20 @@ impl SiteDb {
         self.page_ix.iter().filter_map(|k| self.rows.get(k))
     }
 
-    /// The rows an objects collection produced: binaries, never rendered.
+    /// The pictures: the rows the extension fact names (see `object_ix`).
     pub fn objects(&self) -> impl Iterator<Item = &Row> {
         self.object_ix.iter().filter_map(|k| self.rows.get(k))
     }
 
-    /// Fill the row store from its three origins and build every index.
+    /// Fill the row store from the loader's three key lists and build every
+    /// index.
     ///
-    /// The one way rows enter the database. `posts` and `pages` arrive
-    /// already ordered — the loader decides load order, since it is the half
-    /// that knows what a collection is.
+    /// The one way rows enter the database. The three arguments are not three
+    /// origins — since IO.md I7e one constructor builds every row and the
+    /// lists are a partition of its output, each keyed off a fact: `posts` is
+    /// the claiming scope's role, `objects` is the extension fact, `pages` is
+    /// the rest. They arrive already ordered — the loader decides load order,
+    /// since it is the half that knows what a collection is.
     ///
     /// `default_locale` is the only configuration fact the database needs,
     /// for one rule (§6f): the dated indexes are single-locale, because a

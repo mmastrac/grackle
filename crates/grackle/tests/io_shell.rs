@@ -151,36 +151,44 @@ fn a_feed_route_answers_atom() {
     assert_eq!(urls(&dir, "/atom-probe.xml"), ["/atom.xml"]);
 }
 
-/// What is left over, stated rather than left to be discovered — this is the
-/// item's honest remainder and the reason the sitemap's `dir || ext == "html"`
-/// did NOT migrate to `shell == "html"` here (IO.md §11).
+/// **The census, and I2's remainder closed** (IO.md I7e). I2 recorded that an
+/// objects-collection row "never takes a rule default at all": the loader built
+/// it from `Default::default()`, so no cascade ran over it and a `defaults =
+/// { shell = … }` on the base's objects rule would have been read by nobody —
+/// every image on every site answered Null, 838 of them on grack.com.
 ///
-/// An objects-collection row never takes a rule default at all: the loader
-/// builds it from `Default::default()`, so no cascade runs over it and no
-/// `defaults = { shell = … }` on the objects rule would be read. Every image
-/// on a site therefore answers Null, and a filter written as `shell == "raw"`
-/// would silently drop them where `dir || ext == "html"` never listed them in
-/// the first place.
+/// There is one row constructor now, so the base's objects rule declares `raw`
+/// and the image takes it exactly as a `.txt` takes the catch-all's. The Null
+/// set is empty on this site, which is the small statement of what the corpus
+/// census says at scale (grack.com: 838 Null → 0, everything former-object
+/// `raw`).
 ///
-/// Mutation: add `defaults = { shell = "raw" }` to the base's objects rule and
-/// this test does not move, which is the proof that the gap is in the loader
-/// rather than in the config.
+/// Mutation: restore the object branch in `walk_site` — the image drops out of
+/// the raw set and back into the null one, on both assertions. (The other
+/// direction, deleting the base rule's `defaults` line, does the same and says
+/// the same thing about the config half.)
 #[test]
-fn an_object_row_answers_no_shell_at_all() {
+fn a_former_object_row_answers_the_shell_its_rule_declares() {
     let dir = site("null");
     std::fs::write(dir.join("logo.png"), b"not really a png").unwrap();
-    let null = urls(&dir, "/null.xml");
+    let raw = urls(&dir, "/raw.xml");
     assert!(
-        null.contains(&"/logo.png".to_string()),
-        "an object takes no rule defaults, so it wears no shell: {null:?}"
+        raw.contains(&"/logo.png".to_string()),
+        "an image takes its rule's `raw` like every other row: {raw:?}"
+    );
+    let null = urls(&dir, "/null.xml");
+    assert_eq!(
+        null,
+        Vec::<String>::new(),
+        "nothing on this site resolves no shell at all: {null:?}"
     );
     // An all-outputs fold answers the column too — its route carried no
     // fields AT ALL before I2, so without its `view_fields` call the four
-    // probes would be sitting in this set.
+    // probes would be sitting in the null set above.
     for probe in ["/html.xml", "/raw.xml", "/atom-probe.xml", "/null.xml"] {
         assert!(
-            !null.contains(&probe.to_string()),
-            "a fold's route leaves through the sitemap shell: {null:?}"
+            !raw.contains(&probe.to_string()),
+            "a fold's route leaves through the sitemap shell: {raw:?}"
         );
     }
 }

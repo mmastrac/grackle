@@ -147,6 +147,12 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # The extension list IS the rule's glob (IO.md I7a): membership in this scope
 # is what its rules claim, in the one mechanism that also says where a claimed
 # row lands. Globs compile case-insensitively, so `.PNG` is a `png`.
+#
+# The shell is declared here like every other rule's (IO.md §4, "defaults are
+# declared, not built in"). It reached nobody until I7e — an object row was
+# built from `Default::default()`, so no cascade ran over it and its `shell`
+# was Null — and now that there is one row constructor it is the line that says
+# an image leaves through the transparent shell, which is what it always did.
 
 [[collections]]
 name = "objects"
@@ -155,6 +161,7 @@ kind = "objects"
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
 # ---------------------------------------------------------------- pages
 #

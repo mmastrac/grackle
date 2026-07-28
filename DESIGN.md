@@ -125,19 +125,28 @@ FsStore
 
 ## 3. Tables
 
-**Row identity is always the source path**, for both table kinds. `(date, slug)`
+**One store, one constructor, three key lists** *(IO.md I7e, 2026-07-27)*.
+There is no origins table any more, because there are no origins: one walk
+(§3's *Membership is disjoint*) offers every file to one ordered rule sequence,
+and one constructor builds every row it claims — rule defaults, marker
+defaults, schema validation, rung 0, the rendering law, routing. What used to
+be three tables is one `SiteDb.rows` and three lists of keys, and each list is
+keyed off a FACT rather than off which loader made the row:
+
+| key list | what puts a row in it | what it buys |
+|---|---|---|
+| `post_ix` | the claiming scope's **role** (`kind = "posts"`) | the dated indexes (`(date, slug)` unique, `by_slug`, `by_tag`, `by_year_month`), adjacency, `RouteKind::Post` |
+| `object_ix` | the **extension fact** — an objects scope's globs claim the path (I7a's rule-claimed membership) | `by_name` (non-unique), the header read that fills `width`/`height`, `RouteKind::Object`, the listing pass's picture preview |
+| `page_ix` | neither | the path hierarchy: `ancestors`, `children` |
+
+Identity is the source path in all three, for both table kinds. `(date, slug)`
 is a *unique index* over posts, not the primary key — drafts have no date in
-their filename. Identity = path keeps every row addressable; dated-ness is a property, not an identity.
+their filename. Identity = path keeps every row addressable; dated-ness is a
+property, not an identity.
 
-| Origin | Identity | Primary index | Source |
-|---|---|---|---|
-| `posts` | source path | `(date, slug)` unique | `_posts/**` |
-| `tree` | source path | path hierarchy | site root |
-| `objects` | source path | `by_name` (non-unique) | its own rules, out of the one walk |
-
-**One store, three origins.** These were three tables; they are one `SiteDb.rows`
-and three lists of keys. Objects went last because q51 had already written every
-index to gate on a row's PROPERTIES rather than which vector it arrived in.
+The three lists went in one at a time and the last one cost nothing, because
+q51 had already written every index to gate on a row's PROPERTIES rather than
+on which vector it arrived in.
 
 **Membership is a filter now.** An object view's base is `collection ==
 "<the objects collection>"`, ANDed onto the view's own predicate. The two halves
@@ -145,13 +154,24 @@ parse against *different* schemas on purpose — the author's filter type-checks
 against `object_schema`, so `where = "draft"` on a gallery is a load error, while
 the membership clause names a column only the full row schema has.
 
+So a gallery selects by the SCOPE that claimed a row while the index above
+selects by the extension fact. The two agree wherever no objects rule gates on
+front matter, which is every rule of every corpus site (a rule that did would
+claim nothing anyway — I7a measured it); where they could disagree, each answers
+the question it is about: a view asks *which collection is this*, and `by_name`
+and the header read ask *is this a picture*.
+
 - **Posts**: ordered rows, reverse-chronological over the dated set. Secondary
   indexes: `by_slug`, `by_tag`, `by_year_month`, adjacency (`next`/`previous`).
   Undated rows (drafts) are absent from the chronological indexes and sort last.
 - **Tree pages**: hierarchical. Derived relations: `ancestors(page)` (breadcrumbs),
   `children(page)`.
-- **Objects**: binary assets, selected by the scope's own rules. `by_name` is non-unique
-  (multiple `screenshot5.png` can exist), so resolution is a query that can fail.
+- **Objects**: pictures. `by_name` is non-unique (multiple `screenshot5.png` can
+  exist), so resolution is a query that can fail. What makes a row one is the
+  extension fact above — *this file is a picture* — and not how it was loaded:
+  since I7e an image is built by the same constructor as a post, so it carries
+  its rule's and its marker's defaults, its declared fields and its shell
+  (`raw`, from the base's objects rule) like any other row.
 
 ### Membership is disjoint — one walk, first rule wins
 
@@ -956,11 +976,17 @@ both** *(2026-07-27)*:
   html by an engine default, so `shell == "html"` matched the rows that said
   so and no others. The base's rules now declare the field (§5g), so it
   materializes through this same typed cascade and the answer is total for
-  every row a rule governs. Two shapes still answer Null, deliberately: an
-  objects-collection row (which never takes a rule default — the loader builds
-  it from `Default::default()`), and a row whose only governing rule declares
-  no shell. That is why the sitemap's `dir || ext == "html"` did **not** become
-  `shell == "html"` in I2: the sets are not the same set;
+  every row a rule governs. Two shapes still answered Null after I2 — an
+  objects-collection row (which took no rule default at all, the loader
+  building it from `Default::default()`) and a row whose only governing rule
+  declares no shell — which is why the sitemap's `dir || ext == "html"` did
+  **not** become `shell == "html"` there: the sets were not the same set.
+  **IO.md I7e closed the first shape** *(2026-07-27)*: there is one row
+  constructor, the base's objects rule declares `raw` like every other rule,
+  and the column is total on all five corpus sites (grack.com: 838 Null → 0,
+  1025 `raw` / 370 `html` / 1 `light_html`). The sitemap migration is
+  *possible* now and was deliberately **not taken** — it is a live artifact and
+  a byte change, Matt's call, per IO.md §3's shipped/pending marker;
 - a *view* route's serialization (`shell = "atom"`) was not in the column at
   all — it was the route's declaration, not a row field. A view route now mints
   the column when it is created, so a feed answers `atom`, a sitemap answers
@@ -1874,7 +1900,16 @@ only as the name for where a row leaves.
 | `html` | full — 739 B | theme fragments | engine |
 
 **"Aren't `shell: raw` rows just objects?"** They emit verbatim (last step only they share), but enter the full pipeline: tag expansion, object resolution, thumbnailing, content-addressed assets — all run with load-time enforcement. Objects never enter; their bytes come off disk, and what makes a file one is
-a rule of the objects scope claiming it. **"Isn't `shell: light_html` just `theme: light`?"** No: a theme chooses body chrome; the head is computed from schema and no theme may write it. The root shell enforces this separation. `theme: none` fails because **the null theme still emits a valid document**, so `shell: raw` (promising the body already is one) cannot be silent about the head.
+a rule of the objects scope claiming it.
+
+*(**Amended at IO.md I7e**, 2026-07-27: the `object` line of the table above is
+not a fourth exit — it is the `raw` one, taken by a row that never rendered. An
+object wears `shell = "raw"` now, declared on the base's objects rule like every
+other rule's, so the table's first two lines differ in **`rendered`** and not in
+the shell: a rendered `raw` row emits its rendered parts, an unrendered one is
+its bytes. Nothing about the pipeline moved — the two were already one arm of
+`build.rs`'s copy — but the question above used to be answerable by reading
+`shell` and now is not.)* **"Isn't `shell: light_html` just `theme: light`?"** No: a theme chooses body chrome; the head is computed from schema and no theme may write it. The root shell enforces this separation. `theme: none` fails because **the null theme still emits a valid document**, so `shell: raw` (promising the body already is one) cannot be silent about the head.
 
 **One correction:** `light_html` is not "the null theme" — it bypasses the theme registry; there is no `themes/light/` directory. (This is why the rename is `light_html` rather than `light`: the name now says what it *is*, the html shell with no theme root merged, instead of naming a rung.)
 
@@ -2715,7 +2750,7 @@ The split itself was the audit: boundaries you have to declare to Cargo are ones
 
 ### Since, and what is left *(2026-07-21)*
 
-Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. What remains: objects dispatch, config validation, presentation policy. *(**Loader collection choice** is closed — IO.md I7d: there is one walk and one ordered rule sequence, and which scope claims a file is per-file rather than per-loader.)*
+Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. What remains: objects dispatch, config validation, presentation policy. *(**Loader collection choice** is closed — IO.md I7d: there is one walk and one ordered rule sequence, and which scope claims a file is per-file rather than per-loader. **Objects dispatch** is closed as well, in two halves and by two items — the "Still owed" list below carries the record.)*
 
 ### Surveys/audits worth re-running
 
@@ -2725,8 +2760,8 @@ Three merges unified distinctions that were never real: two row flows became one
 
 ### Still owed
 
-- **The objects dispatch.** `build_object_view` stays separate by design (§5b), and object rows are `rendered: false`. Folding it in would require three parameters; what was stale has been deleted; `group_by`/`paginate` still bail there.
-- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* What remains of the endgame is the TABLE half: three key lists and the object row constructor (IO.md I7e), then the join (I9).
+- ~~**The objects dispatch.**~~ **Closed, and it was closed in two halves by two different items** — recorded rather than quietly deleted, because the entry outlived both. The VIEW half went when `build_object_view` became three parameters on one materializer (§5c's *One materializer*): `group_by` and `paginate` work over objects and the `object-grouping` fixture proves it, so this entry's last sentence has been false since that merge. The LOAD half went at **IO.md I7e**: the object row constructor is the row constructor, and `object_ix` keys off the extension fact (§3). What is left is not a dispatch at all — it is the two facts an object still differs by, both of them parameters a caller passes: the narrow `object_schema` vocabulary, and `rendered: false`.
+- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). What remains of the endgame is the JOIN (I9): `output`, `viewed_by` and `inputs` as columns, at which point "views as partitions" is a query rather than a list.
 
 ## 10. Phasing (each phase has a checkable exit)
 

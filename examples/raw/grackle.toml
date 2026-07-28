@@ -109,7 +109,9 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
   defaults = { shell = "html" }
 
 # Membership is what this scope's rules claim (IO.md I7a): the extension list
-# is the glob, case-insensitively.
+# is the glob, case-insensitively. The shell is declared like every other
+# rule's — an image leaves through the transparent one (IO.md I7e: one row
+# constructor, so an object takes rule defaults like any other row).
 [[collections]]
 name = "objects"
 kind = "objects"
@@ -117,6 +119,7 @@ kind = "objects"
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   route = "/{path}"
+  defaults = { shell = "raw" }
 
 # The shell each row leaves through is declared here, not decided in the
 # renderer (IO.md §4). Rule defaults apply wherever a rule MATCHES rather than

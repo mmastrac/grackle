@@ -893,6 +893,16 @@ fn canonical_url(cfg: &Config, templates: &[String], locale: &str) -> Result<Str
 ///
 /// The walk keeps Jekyll's dot/underscore skip, with the declared sources
 /// punching through it (`store::walk_tree`).
+///
+/// **One constructor** (IO.md I7e). Every row this function returns is built by
+/// the one block below: rule defaults, marker defaults, schema validation and
+/// rung 0, then the rendering law, then routing. The objects branch that used
+/// to build a binary row from `Default::default()` — no cascade, no markers, no
+/// declared fields, a Null shell — is gone, and with it the last place where
+/// a row's origin decided what a row could carry. What survives of
+/// "object" is a fact about the FILE (the extension fact, below), which keys
+/// the three things that were ever really about pictures: the objects index,
+/// the name index and the header read.
 fn walk_site(
     cfg: &Config,
     scopes: &[Scope],
@@ -978,22 +988,34 @@ fn walk_site(
     // original.
     let claims = cfg.content_claims();
 
-    // The objects scope's globs, asked EARLY and on their own (IO.md I7a's
-    // `is_obj`, unchanged in what it computes). Two facts have to be settled
-    // before the ordered sequence can run, and neither is the sequence's to
-    // settle, because both come BEFORE the front-matter gate the sequence
-    // consults:
+    // **The extension fact** (IO.md §7: "name index and dimensions keyed off
+    // extension") — the objects scopes' globs, asked on their own. It is I7a's
+    // `is_obj`, unchanged in what it computes, and since I7e it is a fact about
+    // the FILE that stands beside the sequence rather than a preview of it:
+    // the sequence answers which scope claims a row, and this answers whether
+    // the row is a picture. Three readers, none of which the sequence can
+    // serve:
     //
-    //   - the PEEK. Whether a file was peeked is what the gate reads, so it
-    //     cannot itself be gated. Skipping the ~800 binaries is what keeps the
-    //     peek off the build's critical path.
+    //   - the PEEK. Whether a file was peeked is what the front-matter gate
+    //     reads, so it cannot itself be gated. Skipping the ~800 binaries is
+    //     what keeps the peek off the build's critical path.
     //   - the LOCALE axis. An image is shared across locales (§6f), so an
-    //     object's path does not go through the locale selector.
+    //     object's path does not go through the locale selector. Pinned in
+    //     both directions by `io_dissolve.rs` — a `photo.fr.png` keeps its
+    //     literal name while a `notes.fr.md` beside it is the French variant.
+    //   - the OBJECTS index (I7e). `object_ix`, `by_name` and the header read
+    //     key off this rather than off which scope claimed the row, which is
+    //     what lets the row constructor be one constructor: a former-object
+    //     row is built like every other row and is an object because of what
+    //     it IS.
     //
-    // The two answers agree with the sequence's because no objects rule of any
-    // site gates on front matter — one that did would take the glob's answer
-    // here and the gate's answer there, which is stated rather than guarded
-    // (I7a recorded the same shape: such a rule claimed nothing before either).
+    // The three agree with the sequence on every corpus site because no objects
+    // rule of any site gates on front matter — one that did would take the
+    // glob's answer here and the gate's answer there, and its rows would be
+    // indexed as images while belonging to whichever scope claimed them, which
+    // is the honest reading of an index keyed off extension. Stated rather than
+    // guarded (I7a recorded the same shape: such a rule claimed nothing before
+    // either).
     //
     // Bare matchers rather than the rules themselves: this closure runs inside
     // the parallel peek, and a `CompiledRule` carries the `Cell`s the walk
@@ -1020,10 +1042,21 @@ fn walk_site(
     let mut objects: Vec<Row> = Vec::new();
 
     for f in files {
+        // The extension fact (above), asked once per file and read three times:
+        // by the peek that already ran, by the locale selector just below, and
+        // by the partition at the bottom of this loop.
+        //
         // §6f: the path selector strips the locale first, so filename parsing,
         // rules and routing all see the logical path — a translation rides the
-        // same machinery as its original. An object skips it (above), and that
-        // is the objects globs' second early answer.
+        // same machinery as its original. An IMAGE does not go through it:
+        // `photo.fr.png` is a file whose name happens to carry a dot, not the
+        // French edition of `photo.png`, because one picture serves every
+        // locale. **Decided at I7e and left where it was**: the alternative
+        // (let the selector run, so an image could be localized like a page)
+        // is byte-inert on the corpus today — no `.fr.`-infixed image exists —
+        // but it would mint `/fr/…` URLs for files nobody translated the day
+        // one appeared. Localized images are a feature to ask for, not one to
+        // acquire by accident; `io_dissolve.rs` pins both halves.
         let object_shaped = is_obj(&f.rel);
 
         // **The ordered rule sequence, first rule wins.** Every scope in turn,
@@ -1108,45 +1141,6 @@ fn walk_site(
             .as_ref()
             .and_then(|k| k.slug.clone())
             .unwrap_or_else(|| stem.clone());
-
-        if scope.kind == Kind::Objects {
-            if routing.templates.is_empty() {
-                bail!("no rule supplies a route for {}", f.path.display());
-            }
-            let tmpls = RouteTokens {
-                cfg,
-                rel: &logical_rel,
-                date: from_name,
-                key: key.as_ref(),
-                slug: &slug,
-            }
-            .render_all(routing.templates, routing.pattern, &f.path)?;
-            let url = canonical_url(cfg, &tmpls, &locale)?;
-            // An object is a row that was never rendered. Everything else it
-            // could carry — front matter, a locale axis — a binary file does
-            // not have, so the defaults are the honest values. Its `slug` is
-            // its stem unless a rule's extractor said otherwise, which is the
-            // same sentence every other row now gets. (IO.md I7e is where this
-            // branch and the one below become one constructor.)
-            objects.push(Row {
-                key: grackle_db::Key::new(f.rel.to_string_lossy()),
-                collection: scope.name.to_string(),
-                rule: routing.claimed.map(str::to_string),
-                path: f.path,
-                rel: f.rel,
-                version: f.version,
-                url,
-                size: f.size,
-                slug,
-                stem,
-                date: from_name,
-                locale,
-                rendered: false,
-                on_demand,
-                ..Default::default()
-            });
-            continue;
-        }
 
         // Front matter, read once. The posts loader read every file whole and
         // the tree loader read only the front-mattered ones; the one walk reads
@@ -1292,8 +1286,15 @@ fn walk_site(
             logical,
             claimed,
         };
-        match scope.kind {
-            Kind::Posts => posts.push(row),
+        // **The partition, keyed off the fact** (IO.md I7e). The three vectors
+        // are the three key lists (`post_ix`, `page_ix`, `object_ix`) and
+        // nothing else — there is one constructor above them, so which one a
+        // row joins is a question about the row rather than about how it was
+        // built. A posts scope's rows are its own by role; an image is an image
+        // because the extension fact says so, whichever scope claimed it.
+        match (scope.kind, object_shaped) {
+            (Kind::Posts, _) => posts.push(row),
+            (_, true) => objects.push(row),
             _ => pages.push(row),
         }
     }
@@ -1312,7 +1313,9 @@ fn walk_site(
     // Dimensions are a property of the FILE, so they belong on the row where
     // a query can reach them rather than in a build-time side map. One header
     // read each, in parallel — sequentially this is ~200ms on a corpus with
-    // 850 images, which is a third of the whole build.
+    // 850 images, which is a third of the whole build. Keyed off the extension
+    // fact like the two indexes (IO.md I7e): the reason to open a file looking
+    // for a width is that it is a picture.
     objects.par_iter_mut().for_each(|o| {
         if let Ok((w, h)) = image::image_dimensions(&o.path) {
             o.width = Some(w);
@@ -1459,10 +1462,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // The site vocabulary travels with the database (§4e).
     db.declared = schemas.declared_schema();
 
-    // ONE walk (IO.md I7d), and one ordered rule sequence over it. The three
-    // vectors are a PARTITION of its result, not three loaders: which table a
-    // row lands in is the role of the scope whose rule claimed it, decided
-    // per file rather than per pass.
+    // ONE walk (IO.md I7d), one ordered rule sequence over it, and since I7e
+    // one row constructor under that. The three vectors are a PARTITION of its
+    // result, not three loaders and not three shapes of row: `posts` is the
+    // claiming scope's role, `objects` is the extension fact, and `pages` is
+    // everything else.
     let t = std::time::Instant::now();
     let scopes = scopes(cfg)?;
     let (post_rows, page_rows, objects) = walk_site(
