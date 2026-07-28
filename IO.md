@@ -656,7 +656,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   (same `included` escape hatch), with an R1-style leak fixture proving
   closure both ways. Parity byte-identical; mutation-check.
 
-- [ ] **IR7. `explain` gains a `rendered` line.** *(I7c's proposal.)* The
+- [x] **IR7. `explain` gains a `rendered` line.** *(I7c's proposal.)* The
   surface prints `front_mattered` and `shell` but not `rendered` — now
   the derived answer a reader most wants beside them (the law's output:
   `front_mattered || shell ∈ DOCUMENT`). One line in `debug::row_facts`;
@@ -2855,3 +2855,88 @@ one instance of. (iii) **The fixture's `themes/mine/pages/demo.md` carries a
 row is not content — I7b's rule and this one being true at once. If I7b's filter
 were ever reversed, that file fails the load rather than silently publishing,
 which is a nicer failure than the one I7b's own test would give.
+
+**2026-07-27 — IR7.** Landed as one commit. A one-line surface change, and the
+only decision in it is which of two identical answers to print.
+
+*The three shapes, run against the real corpus rather than predicted.* The
+block now ends with the law's output, directly beneath the two facts it reads:
+
+```
+$ grackle --profile drafts explain /drafts/why-is-a-cursor-called-a-caret/
+  collection drafts / rule **/*.{md,markdown} / shell html
+  front_mattered false / rendered true          ← the degenerate row
+
+$ grackle --config examples/field-notes/grackle.toml explain /demos/pane/
+  collection entries / rule **/*.{html,md} / shell raw
+  front_mattered true / rendered true           ← the pane
+
+$ grackle explain /humans.txt
+  collection entries / rule **/* / shell raw
+  front_mattered false / rendered false         ← the byte copy
+```
+
+**The pane answer the brief asked for is TRUE, and confirmed on the live site**
+rather than reasoned from the law: `demos/pane.html` is front-mattered and wears
+`shell: raw`, so it renders — the first clause — and the `raw` shell then emits
+the result verbatim. It is the row that fails a "the shell decides" law, and now
+it is the row that *says* so on one screen.
+
+***[decided]* The line prints the STORED bit, not a re-derivation.** The two are
+the same answer by construction — `load.rs` builds every row by calling
+`shell::renders(f.has_front_matter, worn.shell)` and keeps the result — and the
+agreement was **measured, not assumed**: a scratch test re-ran the law over every
+row of all six trees and compared, **2864 row-loads, zero disagreements**
+(grack.com 1396 × 2 profiles, field-notes 42, theme-preview 24, minimal 3,
+raw 3). Given equality the choice is about what the line *means*: a
+re-derivation prints what the law WOULD say, and the stored bit is what actually
+decided whether this file was parsed. On a row where they ever diverged the
+second is the diagnosis and the first is a distraction, so `explain` prints the
+row and the recomputation stays where it belongs, in the loader. The census also
+recorded the two clause-witnesses corpus-wide: **one degenerate row** (the caret,
+on both grack.com profiles — the warning fires on the default build too) and
+**one front-mattered non-`html` row per site that has one** (grack.com's single
+`light_html`, field-notes' pane).
+
+*Four rows, four mutations, each red on exactly the row that disagrees.* IR2's
+pair (`true`/`true` and `false`/`false`) agree with both halves of the
+disjunction and so witness nothing alone — which is why the test needed two more,
+and why both are corpus shapes rather than invented ones: a blockless `.md` under
+`_posts/` (the base's posts rule claims it with `defaults = { shell = "html" }`
+and no front-matter gate — grack.com's `_drafts/caret/…` under the base config)
+and a front-mattered `demos/pane.html` saying `shell: raw`, down to the path.
+Mutations: hardcode `true` → the byte copy fails; hardcode `false` → the other
+three; print `r.front_mattered` → **the degenerate row alone**, which is the
+pre-I7c tree loader's answer caught by the one row it was ever wrong about;
+print `is_document(shell)` → **the pane alone**. The loader stays in the loop for
+the file's standing reason: `rendered` is stored, so a hand-built `Row` would
+prove only that `format!` interpolates a bool.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's release binary
+built in a `git worktree` against this one over the same content trees —
+byte-identical but for the two grack.com feeds' wall-clock `<updated>` (the four
+other builds landed in the same second), stderr identical for all six, stdout
+identical modulo the out-dir name and timings, file counts 8 / 8 / 83 / 242 /
+1828 / 1829, unmoved since IR1. `cargo test` green (25 result lines);
+`cargo fmt --check` clean under the pin; clippy 47, HEAD's number; **zero
+re-blessing** — `git status` after the commit showed only the three paths the
+item touched. The CLI delta is one added line, diffed old-binary against new.
+
+*Docs.* DESIGN.md §4's gate section gains an observability paragraph, I7d's
+`collection`/`rule` precedent (§4's "one supplier" neighbourhood) applied one law
+over: the law is stated there, so where it can be *seen* belongs there too.
+`manual/OUTLINE.md` untouched per MERGE.md §4, and checked rather than assumed —
+fifth in the sequence: it introduces `grackle explain` as *the* debugging tool
+(ch. 5, ch. 7) but never enumerates the lines it prints and teaches neither
+`rendered` nor `front_mattered`, so nothing in it went stale.
+
+*For batch review I-C.* Two things. (i) **The stored-vs-derived call** is the
+item's only judgement, it is reversible in one expression, and the reason it is
+not merely academic is I8: a sidecar widens what `front_mattered` means, and the
+first shape that can make the stored bit and a re-derivation disagree is a row
+whose identity arrives from somewhere the printed facts do not name. (ii) **The
+block is now five lines and four of them are inputs to the fifth in some
+reading** — `collection` and `rule` decide the shell, the shell and identity
+decide `rendered`. Nothing else in `explain` is derived, and if a second derived
+line ever joins, the block wants a visual separation the format string does not
+currently have.
