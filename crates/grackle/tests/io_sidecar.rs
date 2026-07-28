@@ -172,16 +172,20 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     assert_eq!(out.get("/assets/plain.png").map(Vec::as_slice), Some(PNG));
 
     // IO.md I8's `explain` line: the fact carries its provenance, because
-    // `true` beside `rendered false` is unreadable without it.
+    // `true` beside `rendered false` is unreadable without it. And IO.md I9's:
+    // a sidecar'd row's OUTPUT is its bytes — identity without content lands
+    // exactly where the file always did, which is the third pair the block
+    // teaches (`front_mattered true / rendered false / output <the file>`).
     assert_eq!(
         grackle::debug::row_facts(kite),
         "collection  objects\nrule        **/*.{png,jpg,jpeg,gif,webp,svg}\n\
-         shell       raw\nfront_mattered true (sidecar)\nrendered    false\n",
+         shell       raw\nfront_mattered true (sidecar)\nrendered    false\n\
+         output      /assets/kite.png\n",
     );
     assert_eq!(
         grackle::debug::row_facts(about),
         "collection  entries\nrule        **/*.{html,md}\nshell       html\n\
-         front_mattered true (block)\nrendered    true\n",
+         front_mattered true (block)\nrendered    true\noutput      /about/\n",
     );
 
     let _ = std::fs::remove_dir_all(&dir);

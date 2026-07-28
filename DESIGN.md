@@ -122,6 +122,11 @@ FsStore
   A post body edit invalidates that post's `rendered` and pages embedding it,
   but not tag pages (which read stage-2 fields only) unless front matter changed.
   Template/SCSS edits invalidate by `Template(...)` key.
+  **The row-level half of that edge set is a column now** — `Route.inputs`
+  (IO.md I9, §5i below) — so `Row(path)` keys stop being curated by hand and
+  start being read off the join. The typed keys are untouched until I10 wires
+  them to it; the column is the edge, not yet the mechanism, and the non-row
+  dependencies (`Template`, `Config`) stay keys because they are not rows.
 
 ## 3. Tables
 
@@ -1275,6 +1280,8 @@ Post fields: `draft` `hidden` `rendered` `front_mattered` (bool); `title` `slug`
 
 `rendered` and `front_mattered` are two questions, not one written twice — see *Route fields* above. Since IO.md I7c the second is an input to the first: `rendered` is the rendering law's answer, and `front_mattered` is one of the two facts it reads.
 
+**The join (IO.md I9, §5i) adds three more**: `output` (bool — does this row land anywhere), `output.url` (string — where), and `alternates` (list — its other forms). `output` is a RECORD, and this language has no record type, so it enters as the pair the language does have: the bare name is the record's existence and a dotted name is a projected field, which is `date.year`'s spelling one construct over. `!output` is then the landings exclusion said out loud. The two *arrangement* fields of the join — `viewed_by` and an output's `inputs` — are deliberately absent: see §5i.
+
 ```toml
 where = '!draft && !hidden'
 where = 'year >= 2020 && "rust" in tags'
@@ -2094,7 +2101,7 @@ Either the theme owns the arrangement, or the author does. Three tiers:
 
 ### Claiming
 
-A referenced content row is **claimed**: no standalone route, and out of every query **structurally** — by ownership, not a naming convention. The row keeps everything rows have: front matter (its `title:` beats the view's), its rule-derived theme, its directory (slot fills resolve nearest-wins from there), suffix localization with default-locale fallback.
+A referenced content row is **claimed**: no standalone route, and out of every query **structurally** — by ownership, not a naming convention. Since IO.md I9 that ownership is also *sayable*: a claimed row is exactly `!output` (§5i), so the exclusion a reader used to have to know is a fact they can query and `grackle explain` prints with its reason. The row keeps everything rows have: front matter (its `title:` beats the view's), its rule-derived theme, its directory (slot fills resolve nearest-wins from there), suffix localization with default-locale fallback.
 
 Claiming is **declared, never discovered** — a convention would claim silently — which makes migration incremental: unclaimed index pages behave exactly as before. Load checks: the path names a row, one owner per row, intro XOR content, materialized views only, must-place. **Claimed rows leave the backlink scan** — membership is not citation.
 
@@ -2121,6 +2128,67 @@ A **literal** claim is settled at load (the row is marked, its own route withhel
   q37's board hangs in this frame), the manual waits for the section
   tree to be a landing's listing. The example search's one remaining
   `stem != "index"` filter survives exactly until they do.
+
+## 5i. The join: two databases, three fields *(IO.md §2; built I9, 2026-07-27)*
+
+Inputs and outputs are two tables, and they join on explicit fields in both
+directions. Everything below is a *fact*, not a scan: each is filled once, at
+the earliest point its answer is complete, and read from there.
+
+| side | field | holds | cardinality |
+|---|---|---|---|
+| input | `output` | the row's **canonical** output, keyed by URL — `None` when it lands nowhere | 0..1 |
+| input | `alternates` | its non-canonical outputs — q53's `rel="alternate"` set | 0..N |
+| input | `viewed_by` | every output that carries the row as a **member** | 0..N |
+| output | `inputs` | every input row that fed the output | 0..N |
+
+**Where each is built, and why there.** *Facts at planning; content at
+materialization* decides all four:
+
+- `output`/`alternates` at **route minting** (`load::join_outputs`), before
+  views build — which is what lets a view's `where` read `output` and get a
+  true answer. Recomputed once where q45's templated landing retracts a
+  claimed row's routes, because that is the one place a planning fact is
+  corrected rather than decided.
+- `viewed_by` and `inputs` at the **end of the load**
+  (`load::join_arrangement`), because a view's membership is what produces
+  them.
+- `inputs` again after the **write pass** (`build::join_citations`), for the
+  half only content can answer: what the finished bytes cite.
+- and `output` once more in `materialize_referenced`, which is the pull model
+  stated exactly: an on-demand row's bare `output` is truthy iff something
+  referenced it.
+
+**Two of the four are filter columns, and two are not.** `output` enters the
+expression language as the honest pair the language has — bare `output` is a
+bool ("there is a record"), `output.url` is a string column ("its address"),
+the `date.year` dotted spelling one construct over — and `alternates` is a
+list. Both are complete before any filter runs. `viewed_by` and `inputs` are
+NOT in `row_schema`/`route_schema`, by §5's own rule for `noindex`: they are
+what membership *produces*, so at the moment a `where` is evaluated they are
+empty for every row, and a field that cannot be populated correctly is worse
+than no field. **Selection may not read arrangement.** `grackle explain`
+prints all four; relations, which run at build, could read the arrangement
+pair and get it the day something needs it.
+
+**What the join makes sayable.** A claimed row (§5h) is visibly `!output` —
+the structural exclusion becomes a queryable fact rather than a rule you have
+to know. An unreferenced on-demand row is `!output` for the same field and a
+different reason, which is why `explain` prints the reason beside the dash. An
+axis row's `output` is the canonical member's URL and its `alternates` are the
+others, so "points at other forms of THIS row" is a column rather than a scan
+of the route table. And `viewed_by` is the **arrangement** half of what the
+backlink scanner has always had two clients for: `linked_from` is citation, a
+human's link; `viewed_by` is arrangement, a query's list.
+
+**`inputs` is the full row-level closure** (IO.md §2's `[open]`, decided
+here): the row a route renders, a landing's claimed content row, a view's
+members, the rows behind a pool fold's selected routes, and every row the
+finished output cites. Non-row dependencies — theme files, `.slots/` fills,
+config — are outside it by construction rather than by a filter, since they
+are not rows; they stay the typed keys of §2. The output→output half of the
+same graph is `route_members`.
+
 ## 6a. Object references: paths and names
 
 ⚠️ **Bare names are PARKED; the key is deleted** *(2026-07-27, MERGE.md F1 /
@@ -2649,7 +2717,7 @@ Each declared relation with a nonempty list emits one `relation` group — `{rel
 
 ### Problem 2 belongs to the link layer, and the scanner serves two masters
 
-"Linked from: Home" is a fact about the **link**, not the page: the homepage cites you through its recent-posts *arrangement*; a real citation cites you through someone's writing. That distinction lives on the link, which the two-row model cannot see. The fix is in link-graph construction: `backlinks_map` scans the rendered fragment, which for the homepage **includes the spliced `{% view %}` output**, so every arrangement link counts as a citation. Mark the splice boundary and skip it — but only for the backlink consumer: `cited_urls` is one scanner with two clients, and the on-demand publisher must keep seeing arrangement links, or an image referenced only by a listing quietly unpublishes.
+"Linked from: Home" is a fact about the **link**, not the page: the homepage cites you through its recent-posts *arrangement*; a real citation cites you through someone's writing. That distinction lives on the link, which the two-row model cannot see. The fix is in link-graph construction: `backlinks_map` scans the rendered fragment, which for the homepage **includes the spliced `{% view %}` output**, so every arrangement link counts as a citation. Mark the splice boundary and skip it — but only for the backlink consumer: `cited_urls` is one scanner with **three** clients now, and neither of the other two wants the fence — the on-demand publisher must keep seeing arrangement links or an image referenced only by a listing quietly unpublishes, and IO.md §5i's `inputs` closure wants every citation in the bytes for the same reason a rebuild would. The distinction the fence draws is about what counts as *citation*, and only the backlink graph is asking that question. The other half of Problem 2 lands as vocabulary rather than as a fence: arrangement now has a field of its own, `viewed_by` (§5i), so "which listings carry this row" stops having to be asked of the link graph at all.
 
 ### Honest edges, named now
 
@@ -2862,7 +2930,7 @@ Three merges unified distinctions that were never real: two row flows became one
 ### Still owed
 
 - ~~**The objects dispatch.**~~ **Closed, and it was closed in two halves by two different items** — recorded rather than quietly deleted, because the entry outlived both. The VIEW half went when `build_object_view` became three parameters on one materializer (§5c's *One materializer*): `group_by` and `paginate` work over objects and the `object-grouping` fixture proves it, so this entry's last sentence has been false since that merge. The LOAD half went at **IO.md I7e**: the object row constructor is the row constructor, and `object_ix` keys off the extension fact (§3). What is left is not a dispatch at all — it is the two facts an object still differs by, both of them parameters a caller passes: the narrow `object_schema` vocabulary, and `rendered: false`.
-- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). What remains of the endgame is the JOIN (I9): `output`, `viewed_by` and `inputs` as columns, at which point "views as partitions" is a query rather than a list.
+- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i): `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two sides of membership — so "views as partitions" is a query on the half that may be queried (`output`, `alternates`) and a column on the half that may not (arrangement is what membership produces, so selection may not read it). What remains of the endgame is I10's graph: the same three fields read as nodes and edges, with invalidation riding them.
 
 ## 10. Phasing (each phase has a checkable exit)
 

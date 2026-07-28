@@ -407,19 +407,63 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// or `true (sidecar)`, and the law becomes re-derivable from what is printed.
 /// Both are spelled rather than only the exception: a `true` whose meaning
 /// depends on the absence of a word is the shape this project keeps refusing.
+/// **`output` is the sixth, and it is the join** (IO.md I9). It lands BESIDE
+/// `rendered`, never in place of it: `rendered` is I7c's law (did the pipeline
+/// parse this file), `output` is §2's join (does this row land, and where), and
+/// the corpus disagrees about them in both directions — a byte copy reads
+/// `rendered false` with an output, and a claimed row reads `rendered true`
+/// with none.
+///
+/// The line prints the URL, or `-` for the three shapes that land nowhere —
+/// **and the two that have a name say it**, for I8's reason one field over: a
+/// `-` sitting two lines under `url /recipes/` reads as a contradiction unless
+/// the reader already knows q45, and a value whose meaning depends on
+/// knowledge the surface withholds is the shape this project keeps refusing.
+/// So a **claimed** row says the landing owns that URL (`url` is the landing's
+/// by design — that is what q45 rewrote it to), an **on-demand** row says
+/// nothing has referenced it (`explain` runs no render pass, so this is the
+/// answer it will always give one), and a row no rule routed gets the bare
+/// dash, which is then the only thing a bare dash can mean.
 pub fn row_facts(r: &crate::db::Row) -> String {
     let identity = match (r.front_mattered, r.sidecar) {
         (false, _) => "false".to_string(),
         (true, false) => "true (block)".to_string(),
         (true, true) => "true (sidecar)".to_string(),
     };
+    let output = match (&r.output, r.claimed, r.on_demand) {
+        (Some(k), _, _) => k.to_string(),
+        (None, true, _) => "- (claimed — the landing at that URL owns it)".to_string(),
+        (None, _, true) => "- (on demand — nothing has referenced it)".to_string(),
+        (None, _, _) => "-".to_string(),
+    };
     format!(
-        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {identity}\nrendered    {}\n",
+        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {identity}\nrendered    {}\noutput      {output}\n",
         r.collection,
         r.rule.as_deref().unwrap_or("-"),
         r.shell.as_deref().unwrap_or("-"),
         r.rendered,
     )
+}
+
+/// The join's two list fields, as `explain` prints them (IO.md §2).
+///
+/// A capped list rather than a count: on grack.com a post is carried by five
+/// or six listings and a fold's `inputs` is the whole site, so the useful
+/// shape is "the first few, and how many there are". Sorted at construction,
+/// so what a reader sees is stable across runs.
+pub fn join_list(name: &str, keys: &[crate::db::Key]) -> String {
+    const SHOWN: usize = 8;
+    if keys.is_empty() {
+        return format!("{name:<11} -\n");
+    }
+    let mut out = format!("{name:<11} {}\n", keys.len());
+    for k in keys.iter().take(SHOWN) {
+        out.push_str(&format!("            {k}\n"));
+    }
+    if keys.len() > SHOWN {
+        out.push_str(&format!("            … and {} more\n", keys.len() - SHOWN));
+    }
+    out
 }
 
 /// The rest of `explain`'s row block: the cascade keys the engine reads off

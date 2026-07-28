@@ -521,6 +521,12 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 };
                 println!("newer       {}", url_of(newer));
                 println!("older       {}", url_of(older));
+                // IO.md §2's other two input-side join fields. `alternates` is
+                // this row's other FORMS (q53's axis); `viewed_by` is the
+                // outputs that ARRANGE it — which is why a citation of this
+                // row appears in neither (that is `linked_from`).
+                print!("{}", debug::join_list("alternates", &r.alternates));
+                print!("{}", debug::join_list("viewed_by", &r.viewed_by));
                 return Ok(());
             }
             let Some(r) = db.routes.iter().find(|r| r.url == url) else {
@@ -534,6 +540,12 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             if let Some(k) = &r.key {
                 println!("key         {k}");
             }
+            // The join, from the output side (IO.md §2). This branch answers
+            // for the routes NO row claims — a listing, an archive, a fold —
+            // which is exactly where "what fed this" has no other answer.
+            // Planning edges only: the citation half is added by the render
+            // pass, and `explain` runs none.
+            print!("{}", debug::join_list("inputs", &r.inputs));
         }
     }
     Ok(())

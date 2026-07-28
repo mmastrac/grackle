@@ -1256,13 +1256,82 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         )?;
     }
 
-    stats.on_demand = materialize_referenced(db, &mut out_map, &cfg.site.url)?;
+    // One scan of the finished output, read twice: the pull model's frontier,
+    // and IO.md §2's citation edges. `materialize_referenced` extends it with
+    // whatever it publishes.
+    let mut cited = citation_map(&out_map, &cfg.site.url);
+    stats.on_demand = materialize_referenced(db, &mut out_map, &cfg.site.url, &mut cited)?;
+
+    // IO.md §2: the half of `output.inputs` that only content can answer.
+    join_citations(db, &cited);
 
     // The §6g splice markers have done their two jobs — fencing the citation
     // scan (backlinks) while on-demand publishing above read past them — so
     // strip them before the bytes ship. Last pass, after every scanner.
     strip_view_markers(&mut out_map);
     Ok((out_map, stats))
+}
+
+/// The citation half of `Route.inputs` (IO.md §2), added once the bytes exist.
+///
+/// **Facts at planning; content at materialization** — and `inputs` is the one
+/// join field that straddles the line. `load::join_arrangement` filled every
+/// edge planning knows (the row a route renders, a landing's claimed body, a
+/// view's members, the rows behind a fold's selected routes); the rest of the
+/// row-level closure is *cited* rows, and a citation is a fact about finished
+/// output. An `{% image %}` expands to markup no body contains, so there is no
+/// earlier moment this could be honest.
+///
+/// The same scanner on-demand publishing uses, and deliberately the unfenced
+/// one (`cited_urls`, not `cited_urls_cited`): a spliced arrangement's links
+/// are not citations for the backlink graph's purpose, but an image a listing
+/// arranged is still an input to the bytes. What §6g's fence keeps out of
+/// "linked from" it must not keep out of "what would a rebuild need".
+///
+/// Cited URLs that name no row are skipped rather than recorded: an
+/// output→output edge is `route_members`, and an external link is not an edge
+/// at all.
+fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
+    let mut found: Vec<(grackle_db::Key, Vec<grackle_db::Key>)> = Vec::new();
+    for (url, urls) in cited {
+        let rows: Vec<grackle_db::Key> = urls
+            .iter()
+            .filter_map(|u| db.by_url.get(u).cloned())
+            .collect();
+        if rows.is_empty() {
+            continue;
+        }
+        found.push((grackle_db::Key::new(url), rows));
+    }
+    for (route, rows) in found {
+        let Some(r) = db.routes.get_mut(&route) else {
+            continue;
+        };
+        r.inputs.extend(rows);
+        r.inputs.sort();
+        r.inputs.dedup();
+    }
+}
+
+/// Every internal citation of every finished output, by the URL it was
+/// published at.
+///
+/// Each document is scanned against its OWN url, because a citation is usually
+/// relative: `code/legacy/romtool/index.html` says `<img src="screen1.png">`,
+/// which §6a records as how that content has always been organised. Binary
+/// entries fail the UTF-8 gate and cite nothing.
+///
+/// One scan, two consumers (on-demand publishing and IO.md §2's citation
+/// edges) — the seam that keeps the join's closure from costing a second pass
+/// over the whole site.
+fn citation_map(out: &SiteOutput, site_url: &str) -> Vec<(String, Vec<String>)> {
+    out.iter()
+        .filter_map(|(u, b)| std::str::from_utf8(b).ok().map(|t| (u, t)))
+        .filter_map(|(u, t)| {
+            let c = cited_urls(t, u, site_url);
+            (!c.is_empty()).then(|| (u.clone(), c))
+        })
+        .collect()
 }
 
 /// Remove the `{% view %}` fence comments from the finished output (§6g). Only
@@ -1518,10 +1587,16 @@ fn render_page_bodies(
 /// stylesheet can introduce references of its own. No iteration bound is
 /// needed: each round only ever adds rows from a finite set and a row
 /// materializes once, so the loop is monotone and terminates structurally.
+/// `cited` is the seed AND the output: the caller scanned every finished
+/// document once (`citation_map`), this pass reads that as its frontier and
+/// appends an entry for each file it materializes, and IO.md §2's
+/// `join_citations` then reads the whole of it. One scan of the output serves
+/// both consumers, which is what keeps the join's citation edges free.
 fn materialize_referenced(
     db: &mut SiteDb,
     out_map: &mut SiteOutput,
     site_url: &str,
+    cited: &mut Vec<(String, Vec<String>)>,
 ) -> Result<usize> {
     // Every row that publishes only when cited, by the URL a citation names.
     let mut pending: HashMap<String, grackle_db::Key> = db
@@ -1534,15 +1609,7 @@ fn materialize_referenced(
         return Ok(0);
     }
 
-    // Seed from everything already written. Each document is scanned against
-    // its OWN url, because a citation is usually relative: `code/legacy/
-    // romtool/index.html` says `<img src="screen1.png">`, which §6a records
-    // as how that content has always been organised.
-    let mut frontier: Vec<String> = out_map
-        .iter()
-        .filter_map(|(u, b)| std::str::from_utf8(b).ok().map(|t| (u.as_str(), t)))
-        .flat_map(|(u, t)| cited_urls(t, u, site_url))
-        .collect();
+    let mut frontier: Vec<String> = cited.iter().flat_map(|(_, c)| c.iter().cloned()).collect();
 
     let mut made = 0usize;
     while !frontier.is_empty() {
@@ -1558,15 +1625,34 @@ fn materialize_referenced(
             let front_mattered = row.front_mattered;
             let bytes = std::fs::read(&path)
                 .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
-            // A materialized text file can cite more.
+            // A materialized text file can cite more — and those citations are
+            // edges like any other, so they join the map rather than only the
+            // frontier.
             if let Ok(text) = std::str::from_utf8(&bytes) {
-                next.extend(cited_urls(text, &url, site_url));
+                let mine = cited_urls(text, &url, site_url);
+                next.extend(mine.iter().cloned());
+                if !mine.is_empty() {
+                    cited.push((url.clone(), mine));
+                }
             }
-            db.routes.push(Route {
+            let route = Route {
+                row: Some(key.clone()),
                 source: Some(path),
                 front_mattered,
+                inputs: vec![key.clone()],
                 ..Route::new(url.clone(), RouteKind::Object)
-            });
+            };
+            // IO.md §2, the pull model made literal: an on-demand row's
+            // `output` is `None` for the whole of the build's queryable life
+            // and becomes `Some` exactly here — the moment a reference
+            // materialized it. "Bare `output` is truthy iff the row lands
+            // anywhere" is then true at every instant rather than true of a
+            // plan; what it costs is that a filter, which runs upstream of
+            // this pass, always sees the unreferenced answer.
+            if let Some(row) = db.rows.get_mut(&key) {
+                row.output = Some(route.id.clone());
+            }
+            db.routes.push(route);
             out_map.insert(url, bytes);
             made += 1;
         }

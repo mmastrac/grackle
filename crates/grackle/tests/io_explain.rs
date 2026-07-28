@@ -110,17 +110,19 @@ fn explain_reads_the_row_rather_than_a_literal() {
     assert_eq!(
         facts("/blog/2020/01/01/hello/"),
         "collection  posts\nrule        **/*.{md,markdown}\nshell       html\n\
-         front_mattered true (block)\nrendered    true\n",
+         front_mattered true (block)\nrendered    true\n\
+         output      /blog/2020/01/01/hello/\n",
         "a post: the scope that claimed it, the RULE of that scope that did the \
-         claiming, the shell it leaves through, identity"
+         claiming, the shell it leaves through, identity, and where it LANDS"
     );
     assert_eq!(
         facts("/notes.txt"),
         "collection  entries\nrule        **/*\nshell       raw\nfront_mattered false\n\
-         rendered    false\n",
+         rendered    false\noutput      /notes.txt\n",
         "a byte copy disagrees with the post in all four: a different scope, a \
          different rule of it, a different shell, no identity — and it used to \
-         report itself a post in the one fact printed"
+         report itself a post in the one fact printed. It agrees in the fifth: \
+         it lands, which is why `output` is not a spelling of `rendered`"
     );
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -167,14 +169,16 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
     assert_eq!(
         facts("/blog/2020/02/02/why-is-a-cursor-called-a-caret/"),
         "collection  posts\nrule        **/*.{md,markdown}\nshell       html\n\
-         front_mattered false\nrendered    true\n",
+         front_mattered false\nrendered    true\n\
+         output      /blog/2020/02/02/why-is-a-cursor-called-a-caret/\n",
         "the degenerate row: no identity, a document shell, and it renders — \
-         the law's second clause, and the pair a reader learns it from"
+         the law's second clause, and the pair a reader learns it from. It \
+         lands like any other row: identity is not what mints a URL"
     );
     assert_eq!(
         facts("/demos/pane/"),
         "collection  entries\nrule        **/*.{html,md}\nshell       raw\n\
-         front_mattered true (block)\nrendered    true\n",
+         front_mattered true (block)\nrendered    true\noutput      /demos/pane/\n",
         "the pane: identity plus the transparent shell renders, and `raw` then \
          emits the result verbatim — the law's first clause, and the row a \
          shell-only law would ship the `---` block for"

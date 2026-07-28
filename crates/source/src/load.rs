@@ -1462,6 +1462,12 @@ fn walk_site(
             locale,
             logical,
             claimed,
+            // IO.md §2's join: filled by `join_outputs`/`join_arrangement`
+            // once the routes exist. Not derivable here — a row cannot say
+            // whether it lands until the route table says so.
+            output: None,
+            alternates: Vec::new(),
+            viewed_by: Vec::new(),
         };
         // **The partition, keyed off the fact** (IO.md I7e). The three vectors
         // are the three key lists (`post_ix`, `page_ix`, `object_ix`) and
@@ -1573,6 +1579,134 @@ fn resolve_image_fields(db: &SiteDb, schemas: &Schemas) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The join's OUTPUT half, from the input side (IO.md §2): every row's
+/// `output` and `alternates`, read off the routes that name it.
+///
+/// **Facts at planning.** This is called the moment the route list exists,
+/// before `build_views` — which is what makes `output` a column a view's
+/// `where` may read and get a true answer from. `viewed_by` and `inputs`
+/// cannot be built here (a view's membership is what produces them), and that
+/// asymmetry is the whole reason they are not filter columns.
+///
+/// A recomputation rather than an increment, because it is called twice: once
+/// at minting, and again where q45's TEMPLATED landing retracts a claimed
+/// row's routes. Cheap (one pass over routes, one over rows) and, more to the
+/// point, it cannot drift from the route table by construction — the field is
+/// the table's shadow, and a shadow is not a second opinion.
+///
+/// **The canonical one is the all-canonical member-tuple**, which is the
+/// settled axis design: a row published once has an empty tuple and so is
+/// trivially canonical; a row on N axes has exactly one tuple where every
+/// coordinate is the first-declared value, and that is what `rel="canonical"`
+/// names and the only one a fold over the output pool sees.
+fn join_outputs(db: &mut SiteDb) {
+    let mut by_row: HashMap<grackle_db::Key, (Option<grackle_db::Key>, Vec<grackle_db::Key>)> =
+        HashMap::new();
+    for r in db.routes.iter() {
+        let Some(k) = &r.row else { continue };
+        let e = by_row.entry(k.clone()).or_default();
+        if r.axis.iter().all(|m| m.canonical) {
+            e.0 = Some(r.id.clone());
+        } else {
+            e.1.push(r.id.clone());
+        }
+    }
+    for row in db.rows.iter_mut() {
+        let (canonical, mut alternates) = by_row.remove(&row.key).unwrap_or_default();
+        // Routes are minted in axis-product order and only sorted later, so
+        // the field sorts itself: an order that depends on when the pass ran
+        // is an order a test cannot pin.
+        alternates.sort();
+        row.output = canonical;
+        row.alternates = alternates;
+    }
+}
+
+/// The join's ARRANGEMENT half (IO.md §2): each row's `viewed_by`, and each
+/// output's `inputs`.
+///
+/// **Membership at materialization planning.** Both halves read the same
+/// finished fact — which rows a view materialized — so they are built
+/// together, at the one point where that fact is complete: after
+/// `resolve_pool_folds`, with the route list final and q45's claims settled.
+/// That is later than any filter the engine runs, which is why neither is a
+/// filter column (see `route_schema`'s note).
+///
+/// `inputs` gets the ROW-LEVEL closure the invalidation edge set needs, minus
+/// the half that cannot exist yet: the citation edges are facts about
+/// *content*, so `build::join_citations` adds them after the write pass. What
+/// lands here is everything planning knows —
+///
+/// - a row-backed output: the row it renders;
+/// - a landing: the row it claims as content (literal or templated), which is
+///   the one input a landing has that its member list does not name;
+/// - a view route: its members, in materialization order;
+/// - a fold over the output pool: the rows behind the routes it selected —
+///   `route_members` is the output→output edge, and this is the same edge
+///   followed one step further into the inputs database.
+fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
+    // Arrangement, from the routes that did the arranging.
+    let mut viewed_by: HashMap<grackle_db::Key, Vec<grackle_db::Key>> = HashMap::new();
+    for r in db.routes.iter() {
+        for m in &r.members {
+            viewed_by.entry(m.clone()).or_default().push(r.id.clone());
+        }
+    }
+    for row in db.rows.iter_mut() {
+        let mut seen = viewed_by.remove(&row.key).unwrap_or_default();
+        seen.sort();
+        seen.dedup();
+        row.viewed_by = seen;
+    }
+
+    // The inputs half. Resolved against the row store, so it is computed
+    // before the borrow that writes it.
+    let mut inputs: Vec<(grackle_db::Key, Vec<grackle_db::Key>)> = Vec::new();
+    for r in db.routes.iter() {
+        let mut ins: Vec<grackle_db::Key> = Vec::new();
+        if let Some(k) = &r.row {
+            ins.push(k.clone());
+        }
+        // q45: a landing's body is a row nothing else names — a literal claim
+        // lives on the view, a templated one on the route.
+        let claimed = r.content.clone().or_else(|| {
+            let v = cfg.views.get(r.view.as_deref()?)?;
+            let c = v.content.as_deref()?;
+            (!crate::config::is_templated(c)).then(|| c.to_string())
+        });
+        if let Some(logical) = claimed {
+            // §6f: a landing route is per locale, and so is the row it claims.
+            // The route's `locale` is None for the default one, which is the
+            // same spelling `route_locale` writes.
+            for k in db.by_logical.get(&logical).into_iter().flatten() {
+                let matches = db.rows.get(k).is_some_and(|row| {
+                    let want = (row.locale != cfg.i18n.default).then_some(row.locale.as_str());
+                    r.locale.as_deref() == want
+                });
+                if matches {
+                    ins.push(k.clone());
+                }
+            }
+        }
+        ins.extend(r.members.iter().cloned());
+        // A fold over the output pool arranges OUTPUTS; the rows behind them
+        // are what a change to any of them would move.
+        for rk in &r.route_members {
+            if let Some(row) = db.routes.get(rk).and_then(|o| o.row.clone()) {
+                ins.push(row);
+            }
+        }
+        ins.sort();
+        ins.dedup();
+        inputs.push((r.id.clone(), ins));
+    }
+    for (id, ins) in inputs {
+        if let Some(r) = db.routes.get_mut(&id) {
+            r.inputs = ins;
+        }
+    }
 }
 
 pub fn load(cfg: &Config) -> Result<SiteDb> {
@@ -1789,6 +1923,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         }
     }
     db.routes.extend(new_routes);
+    // IO.md §2, the join's output half — here because this is the earliest
+    // point its answer is complete, and because `build_views` below is the
+    // first reader: a set spelled `where = "!output"` must select the rows
+    // that land nowhere, not every row in the store.
+    join_outputs(&mut db);
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_pool_folds(cfg, &mut db)?;
@@ -1928,6 +2067,12 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         // routes go — exactly as a literal claim withholds them at load.
         db.routes
             .retain(|r| r.row.as_ref().is_none_or(|k| !claimed_keys.contains(k)));
+        // …and with the routes, the join fact that named them. This is the one
+        // place a planning fact is corrected rather than decided, for the
+        // reason the two lines below are: a TEMPLATED claim is not knowable
+        // until the group keys exist. A literal claim never mints the route at
+        // all, so it needs no correction.
+        join_outputs(&mut db);
         // And the rows leave every query they were materialized into: a literal
         // claim is excluded at build_views, but a templated one was not known
         // until now, so its rows are dropped from view membership here.
@@ -2077,6 +2222,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // All-outputs folds index routes, so they resolve against the final,
     // sorted list.
     crate::views::resolve_pool_folds(cfg, &mut db, &schemas)?;
+    // IO.md §2, the join's arrangement half. Last, because it is the half that
+    // reads what every pass above decided — and the render pass adds the
+    // citation edges to `inputs` on top (`build::join_citations`).
+    join_arrangement(cfg, &mut db);
     Ok(db)
 }
 

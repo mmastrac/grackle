@@ -147,6 +147,43 @@ pub struct Row {
     /// deferred is whether a `Route` exists — which is what lets a link
     /// resolve to a row nothing has materialized yet.
     pub on_demand: bool,
+    /// IO.md §2, the join's input side: this row's **canonical** output, keyed
+    /// by its URL, or `None` when the row lands nowhere.
+    ///
+    /// The route table's shadow, not a second opinion: `load` fills it from
+    /// the routes it minted, so `output` is `Some` exactly when a `Route`
+    /// names this row. That is what makes the three shapes with no output
+    /// sayable rather than structural — a **claimed** row (its landing owns
+    /// the URL, q45), an **on-demand** row nobody has referenced yet (§4 — the
+    /// pull model, so the answer becomes `Some` at `materialize_referenced`
+    /// and not before), and a row a rule declined to route at all.
+    ///
+    /// A key rather than a `String` because a route's key IS its URL: the
+    /// join's three fields are all key lists, which is what lets I10's graph
+    /// read them as edges without a lookup table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<Key>,
+    /// IO.md §2: this row's NON-canonical outputs — the `rel="alternate"` set
+    /// (q53's axis), keyed by URL, sorted.
+    ///
+    /// "A form is an output" made literal: the axis design's sentence — this
+    /// route points at other forms of THIS row — is a field rather than a
+    /// scan of the route table. Empty for a row published once, which is
+    /// almost every row.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alternates: Vec<Key>,
+    /// IO.md §2: every output that carries this row as a **member** — the
+    /// listings, archives and feeds that arrange it, keyed by URL, sorted.
+    ///
+    /// **Arrangement, not citation.** `linked_from` is the citation half (a
+    /// human wrote a link); this is the arrangement half (a query put the row
+    /// in a list). The backlink scanner learned that distinction the hard way
+    /// — a listing that carries a row is not a page that cites it — and this
+    /// is the second of its two clients, now with a name of its own.
+    ///
+    /// Not a filter column, deliberately: see `row_schema`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub viewed_by: Vec<Key>,
     pub size: u64,
     /// An object's pixel shape, header-read at load beside `size` (§6b's
     /// dimension facts, q26). A file property like any other, so a view can
@@ -429,6 +466,29 @@ pub struct Route {
     /// §4), which ranges over routes rather than posts.
     #[serde(skip)]
     pub members: Vec<Key>,
+    /// IO.md §2, the join's output side: every input row that fed this
+    /// output, keyed by source path, sorted and deduped.
+    ///
+    /// **The invalidation edge set, as a column.** The incremental machinery's
+    /// typed keys have been curating exactly these edges by hand; this is the
+    /// same set said once, in the row store's own vocabulary. Wiring
+    /// invalidation to it is I10's — this field is the edge, not yet the
+    /// mechanism.
+    ///
+    /// Scope is the **full row-level closure** (IO.md §2's `[open]`, decided
+    /// at I9): the row a route renders, a landing's claimed content row, a
+    /// view's members, the source rows behind a pool fold's selected routes,
+    /// and — added at render, because a citation is a fact about content —
+    /// every row the finished bytes cite. Non-row dependencies (theme files,
+    /// `.slots/` fills, config) are NOT here: they are not rows, so they stay
+    /// the existing typed keys, which is what "row-level closure" narrows to
+    /// by construction.
+    ///
+    /// The output→output half of the same graph is `route_members`: a fold
+    /// over the route pool arranges outputs, and `inputs` then holds the rows
+    /// behind them.
+    #[serde(skip)]
+    pub inputs: Vec<Key>,
 }
 
 impl Route {
@@ -453,6 +513,7 @@ impl Route {
             fields: BTreeMap::new(),
             members: Vec::new(),
             route_members: Vec::new(),
+            inputs: Vec::new(),
         }
     }
 
@@ -485,6 +546,14 @@ impl Route {
 /// that cannot be populated correctly is worse than no field — referencing it
 /// is a load-time error rather than a silent lie. jekyll-sitemap ignores
 /// noindex anyway, so nothing wants it.
+///
+/// **Nor `inputs`** (IO.md I9), by that same rule rather than by a new one.
+/// The one filter the engine runs over this pool is a fold's `where`, in
+/// `resolve_pool_folds` — and a fold's own membership is what completes the
+/// edge set, so at the moment that filter runs `inputs` is either empty or
+/// half-filled depending on view name order. A column no filter can read
+/// correctly is not a column; `inputs` is a field of the outputs table with
+/// `grackle explain` as its surface, and I10's graph as its consumer.
 pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
@@ -827,6 +896,31 @@ pub fn row_schema() -> filter::Schema {
     // (and, from I8, a sidecar counts). Distinct from `rendered`, which says
     // the pipeline parsed it; see `Row::front_mattered`.
     s.insert("front_mattered", Bool);
+    // IO.md §2, the join. `output` is a RECORD, and this language has no
+    // record type — so it enters as the honest pair the language does have: a
+    // bool saying the record exists, and a dotted column per field it
+    // projects. `date.year` is the same spelling one construct over (see
+    // `spec_field`), and the dotted name costs nothing because an identifier
+    // may already contain a `.`.
+    //
+    // The pair, not one column carrying both jobs: a `Str` holding the URL
+    // would make `output == "/x/"` type-check, which reads as comparing a
+    // record to a string. `!output` is the landings exclusion said out loud
+    // (q45's claimed rows), and `output.url` is the address.
+    //
+    // Complete before any view filter runs — routes are minted first — which
+    // is what separates these from `viewed_by` and `inputs`.
+    s.insert("output", Bool);
+    s.insert("output.url", Str);
+    // The `rel="alternate"` set (q53): this row's other forms, as URLs. A
+    // planning fact like `output`, so it is safe to select on.
+    s.insert("alternates", List);
+    // NOT `viewed_by`: it is what a view's membership PRODUCES, so at the
+    // moment a view's `where` is evaluated it is empty for every row —
+    // `route_schema`'s `noindex` rule ("a field that cannot be populated
+    // correctly is worse than no field"), one table over. Selection may not
+    // read arrangement. `grackle explain` prints it; relations, which run at
+    // build, would be able to read it, and get it the day something needs it.
     s.insert("path", Str);
     s.insert("dir", Str);
     // §6f: the row's locale, always set (the default when no selector fired).
@@ -871,6 +965,16 @@ impl filter::Row for Row {
             "toc" => V::Bool(self.toc),
             "rendered" => V::Bool(self.rendered),
             "front_mattered" => V::Bool(self.front_mattered),
+            // The join (IO.md §2). Bare `output` is the record's existence;
+            // `output.url` is its one projected field, Null when there is no
+            // record to project — never the empty string, because "lands at
+            // nowhere" and "lands at ''" are different claims.
+            "output" => V::Bool(self.output.is_some()),
+            "output.url" => self
+                .output
+                .as_ref()
+                .map_or(V::Null, |k| V::Str(k.to_string())),
+            "alternates" => V::List(self.alternates.iter().map(|k| k.to_string()).collect()),
             // `rel` is root-relative for every row, whatever its origin.
             "path" => V::Str(self.rel.to_string_lossy().to_string()),
             "dir" => V::Str(
@@ -909,6 +1013,12 @@ impl filter::Row for Row {
 /// Dimensions are deliberately absent: they are render-time facts from the
 /// thumbnail pass (q26), not load-time columns — a field that would need
 /// every image decoded at load is not worth a filter yet.
+///
+/// The join (IO.md §2) is absent for the narrowness reason rather than a
+/// timing one: `output` is answerable here — an unreferenced on-demand image
+/// is exactly `!output` — and a gallery may want it the day someone asks.
+/// Widening a deliberately narrow vocabulary on a guess is how it stops being
+/// one.
 pub fn object_schema() -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
@@ -990,6 +1100,28 @@ impl SiteDb {
     /// the claiming scope's role, `objects` is the extension fact, `pages` is
     /// the rest. They arrive already ordered — the loader decides load order,
     /// since it is the half that knows what a collection is.
+    ///
+    /// **The three vectors STAY a shape** (IO.md I9, claiming I7e's flag —
+    /// "the join is where it either becomes a query or stays"). The join gave
+    /// the argument rather than the capability, and it goes both ways at once:
+    ///
+    /// - A query needs its predicate in the row's own columns, and neither
+    ///   fact is there. "This scope's role is posts" and "an objects scope's
+    ///   glob claimed this path" are both statements about CONFIG — a row
+    ///   carries `collection`, the scope's *name*, and nothing that says what
+    ///   kind of scope that was. Adding the two bits to make the query
+    ///   expressible would re-mint, as two engine-named row facts, exactly the
+    ///   origin distinction I7e deleted.
+    /// - A query returns a set; this hands over a SEQUENCE. `post_ix`'s order
+    ///   is load order after `sort_posts`, and it is load-bearing: `embed`'s
+    ///   vectors are parallel to it, `relate` reads them by that position, and
+    ///   `by_tag`/`by_year_month`/`by_slug` take their within-key order from
+    ///   the table's. Ordering-derived bytes, and no predicate carries an
+    ///   order.
+    ///
+    /// So the boundary is right where it is: the loader knows config and
+    /// decides order, the database owns identity and the indexes, and the
+    /// three lists are the handover.
     ///
     /// `default_locale` is the only configuration fact the database needs,
     /// for one rule (§6f): the dated indexes are single-locale, because a
