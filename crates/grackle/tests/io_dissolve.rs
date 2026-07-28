@@ -286,3 +286,137 @@ fn an_image_is_not_a_translation_of_itself() {
         .expect("the image is a row");
     assert_eq!(img.locale, "en", "an image carries the default locale");
 }
+
+// ---------------------------------------------------------------------------
+// The corner closes (IO.md IR9).
+//
+// I7e stated it at the code rather than guarding it: "an objects rule gated
+// `front_matter = true` would be claimed by whichever scope came next while
+// still being indexed as a picture". I7a and I7d's flag 5 had said the same
+// thing before it. All three leaned on a premise I8 retired — an object is
+// never peeked, so the gate could never pass — and I8's sidecars are identity
+// a `.png` can have. The gate reads identity (`apply_rules(…, has_identity)`),
+// so the corner is reachable, and it is refused where the author wrote it.
+
+/// What `Config::load` said, flattened.
+fn config_err(dir: &Path) -> String {
+    format!(
+        "{:#}",
+        grackle::config::Config::load(&dir.join("grackle.toml"))
+            .expect_err("the config must not load")
+    )
+}
+
+/// **An objects rule selects by shape; the identity gate belongs to scopes
+/// that parse** (IO.md IR9) — and the refusal is on the KEY, not on one of its
+/// values, so both spellings are here.
+///
+/// The fixture is the corner itself: a sidecar'd `photo.png` and a blockless
+/// `plain.png` under one objects scope whose rule gates on front matter, with
+/// a tree catch-all beneath to catch whatever the gate turns away.
+///
+/// Mutation, measured on this fixture rather than reasoned: delete the
+/// `check_objects_rule_gate` call and both sites LOAD, one directory of two
+/// pictures split between two scopes by whether someone wrote a `.toml`.
+///
+/// | rule | `photo.png` (sidecar'd) | `plain.png` (blockless) |
+/// |---|---|---|
+/// | `front_matter = true`  | `objects`, `/pics/photo/` | `entries`, `/plain.png` |
+/// | `front_matter = false` | `entries`, `/photo.png`   | `objects`, `/pics/plain/` |
+///
+/// …and in BOTH runs `query stats` reports **objects 2, distinct names 2**,
+/// because the extension fact never asked about identity. A row that `explain`
+/// calls `collection entries` while the objects index counts it a picture is
+/// the disagreement I7e stated and this refuses.
+///
+/// Two narrowings are checked too: widening the check to every kind kills the
+/// control below, and narrowing it to `Some(true)` kills the second half of
+/// this loop.
+#[test]
+fn an_objects_rule_may_not_declare_front_matter() {
+    for want in ["true", "false"] {
+        let dir = site(
+            &format!("gate-{want}"),
+            &[
+                (
+                    "grackle.toml",
+                    format!(
+                        "extends = \"none\"\n\n\
+                         [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                         [schema]\nshell = {{ type = \"string\" }}\n\n\
+                         [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\n  \
+                         [[collections.rules]]\n  match = \"**/*.png\"\n  \
+                         front_matter = {want}\n  route = \"/pics/{{stem}}/\"\n  \
+                         defaults = {{ shell = \"raw\" }}\n\n\
+                         [[collections]]\nkind = \"tree\"\nname = \"entries\"\n\
+                         source = \".\"\n\n  \
+                         [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{{path}}\"\n  \
+                         defaults = {{ shell = \"raw\" }}\n"
+                    )
+                    .as_bytes(),
+                ),
+                ("photo.png", PNG),
+                ("photo.png.toml", b"title = \"A described picture\"\n"),
+                ("plain.png", PNG),
+            ],
+        );
+        let e = config_err(&dir);
+        assert!(e.contains("\"objects\""), "names the collection: {e}");
+        assert!(e.contains("\"**/*.png\""), "names the rule: {e}");
+        assert!(
+            e.contains(&format!("front_matter = {want}")),
+            "quotes what was written: {e}"
+        );
+        assert!(
+            e.contains("selects by SHAPE") && e.contains("scopes that PARSE"),
+            "gives the reason: {e}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The control the refusal owes: `front_matter` is a rule key like any other
+/// wherever the scope PARSES its rows. A tree rule and a posts rule both gate
+/// on it here, and both gates decide a route.
+///
+/// Mutation: widen `check_objects_rule_gate` to every kind and this site stops
+/// loading — which is what "an objects rule" has to mean to be worth saying.
+#[test]
+fn the_front_matter_gate_still_works_where_a_scope_parses() {
+    let dir = site(
+        "gate-control",
+        &[
+            (
+                "grackle.toml",
+                b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                  [[collections]]\nkind = \"posts\"\nsource = \"_posts\"\n\n  \
+                  [[collections.rules]]\n  match = \"**/*.md\"\n  front_matter = true\n  \
+                  route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n  \
+                  [[collections.rules]]\n  match = \"**/*.md\"\n  route = \"/raw/{stem}\"\n  \
+                  defaults = { shell = \"raw\" }\n\n\
+                  [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
+            ),
+            ("about.md", b"---\ntitle: About\n---\n\nProse.\n"),
+            ("notes.md", b"Just bytes.\n"),
+            (
+                "_posts/2020-01-01-hello.md",
+                b"---\ntitle: Hello\n---\n\nProse.\n",
+            ),
+            ("_posts/2020-01-02-bare.md", b"Just bytes.\n"),
+        ],
+    );
+    let urls = selected(&dir, "/all.xml");
+
+    // The tree's gate: the base's two rules, unmoved.
+    assert!(urls.contains(&"/about/".to_string()), "{urls:?}");
+    assert!(urls.contains(&"/notes.md".to_string()), "{urls:?}");
+    // The posts scope's, written by this site.
+    assert!(urls.contains(&"/blog/hello/".to_string()), "{urls:?}");
+    assert!(
+        urls.contains(&"/raw/2020-01-02-bare".to_string()),
+        "{urls:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

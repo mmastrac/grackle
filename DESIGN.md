@@ -292,13 +292,21 @@ extension before comparing and a glob would not have, and `.PNG` must stay a
 those are the tree collection's keys, because what counts as content is decided
 once for the whole site (§4c) and every other scope picks its rows out of that
 one walk — a narrowing an objects scope wants is a narrowing of its `match`.
+**Nor `front_matter`** *(IO.md IR9)*: an objects rule selects by shape, and the
+identity gate belongs to the scopes that parse. Which rows are pictures is the
+extension fact — read off the path alone, and read that way by the objects
+index whichever scope claims the row — so a gate here would split one directory
+of images between two scopes by whether someone wrote a sidecar beside them
+(§4b), while the index went on calling all of them pictures. Either value is a
+load error.
 
 ### The gate is a fact, and the rule key selects on it *(IO.md I7c, 2026-07-27)*
 
 A rule may carry `front_matter = true` (or `false`), and it matches only rows
 that agree. The base's tree rules use it — `**/*.{html,md}` claims the
 front-mattered ones and routes them at a pretty URL, the `**/*` catch-all takes
-the rest at their literal path.
+the rest at their literal path. A posts rule may gate too; an objects rule may
+not (above).
 
 **The key survives; what it means narrowed.** It used to be the loader branch:
 a rule gated `front_matter = true` was how a file became a *page* rather than

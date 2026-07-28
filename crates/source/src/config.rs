@@ -2169,6 +2169,7 @@ impl Config {
         }
         cfg.check_collection_kinds()?;
         cfg.check_scope_content_keys()?;
+        cfg.check_objects_rule_gate()?;
         if let Some(name) = profile {
             // Rung 0, lifted out of the profile so the loader can reach it
             // without knowing about profiles (§2, MERGE.md E1).
@@ -2428,6 +2429,64 @@ impl Config {
                  line.",
                 describe_collection(name, c),
             );
+        }
+        Ok(())
+    }
+
+    /// An objects rule may not declare `front_matter` — either value
+    /// (IO.md IR9). The dead-key family one table over, and the reason is one
+    /// sentence: **an objects rule selects by shape; the identity gate belongs
+    /// to the scopes that parse.**
+    ///
+    /// Two questions run over an image and they are not the same question
+    /// (IO.md I7e). *Is this row a picture* is the extension fact — `load`'s
+    /// `is_obj`, the objects globs asked of the path alone, before anything is
+    /// peeked — and it is what keys `object_ix`, `by_name` and the header read
+    /// that fills `width`/`height`, whichever scope ends up claiming the row.
+    /// *Which scope claims this row* is the ordered rule sequence. A
+    /// `front_matter` gate is the one spelling that makes the two disagree,
+    /// because the gate reads identity and the fact reads the path:
+    ///
+    /// - `front_matter = true` — an image with a sidecar passes the gate, so
+    ///   this scope claims it and spends its route; the blockless image beside
+    ///   it fails and falls to whatever scope comes next, keeping its place in
+    ///   the objects index all the same. One directory of pictures, split
+    ///   across two scopes by whether someone wrote a `.toml`.
+    /// - `front_matter = false` — the same split with the sides swapped.
+    ///
+    /// The corner was recorded three items running rather than guarded (I7a,
+    /// I7d's flag 5, I7e's "the one corner where the two questions could
+    /// disagree") on the strength of a premise I8 retired: that an object is
+    /// never peeked, so `has_front_matter` was always `false` and such a rule
+    /// claimed nothing. Since I8 the gate reads IDENTITY, and a sidecar is
+    /// identity a `.png` can have — so the corner is live, and this is where
+    /// it stops. Refused at config time, in the I7b family, because it is a
+    /// question about the config's shape alone.
+    fn check_objects_rule_gate(&self) -> Result<()> {
+        for (name, c) in &self.collections {
+            if c.kind != Kind::Objects {
+                continue;
+            }
+            // Inherited rules are checked too. The base declares no such rule,
+            // so this can only fire on something a site wrote — but the reason
+            // is the rule's own text, not who wrote it, and a base that grew
+            // one would be exactly as wrong.
+            for r in &c.rules {
+                let Some(want) = r.front_matter else { continue };
+                anyhow::bail!(
+                    "collection {}: rule `match = {:?}` declares \
+                     `front_matter = {want}`. An objects rule selects by SHAPE — \
+                     what makes a row a picture is its extension, read off the \
+                     path alone, and the objects index answers that way whichever \
+                     scope claims the row — while the identity gate belongs to \
+                     the scopes that PARSE. Gating here splits one directory of \
+                     images between two scopes by whether someone wrote a sidecar \
+                     beside them, and calls all of them pictures either way. \
+                     Delete the line.",
+                    describe_collection(name, c),
+                    r.pattern,
+                );
+            }
         }
         Ok(())
     }
