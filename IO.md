@@ -647,7 +647,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   collapses; gallery loses previews), locale selector on former-object
   rows (byte-inert today, latent — gets a test), marker-reach guard.
 
-- [ ] **IR6. The declaration walks skip `themes/` too.** *(I7b's finding
+- [x] **IR6. The declaration walks skip `themes/` too.** *(I7b's finding
   3.)* The marker walk and the `.schema.toml`/`.section` vocabulary walk
   still descend `themes/`, so a theme shipping a `.schema.toml` would
   enter the site's field vocabulary — MERGE R1's `cover` leak, at a
@@ -2746,3 +2746,112 @@ could disagree** (an objects rule gating on front matter) is stated in code and
 guarded by nothing; it has now been recorded three items running (I7a, I7d,
 here), which is either the right amount of honesty or a sign it should be a
 load error.
+
+**2026-07-27 — IR6.** Landed as one commit. The premise held, but not where the
+item filed it, and the interesting part is the boundary the fix had to be asked
+at rather than the fix.
+
+*The premise, re-verified against the current tree.* I7c/I7d/I7e rebuilt the
+loaders around it and moved none of it: `store::walker_declarations` is still
+the ONE walk both declaration passes share (`Markers::scan`, and the
+`.schema.toml`/`.section` pass in `load`), its only filter was still
+`NotContent::keeps_dir` — the declared layer — and I7b's positional filter was
+still where I7b put it, in the content path (`walk_site`'s
+`not_content.included(&f.rel) || !under_themes(&f.rel)`). So the leak was live
+exactly as filed. It is also **inert on the corpus and measurably so**: two
+`themes/` directories exist under a site root (grack.com's and the workspace's),
+and a `find` over the whole repo puts every `.schema.toml` and `.section` —
+three real, five fixture — outside all of them, with zero marker files anywhere
+(A5's corpus note, still true). Parity was therefore expected to be free, and
+was.
+
+*Why the prune is asked at `themes` and not at `themes/<child>`.* This is the
+one design call in the item, and R2 already made it: a pruning walk gets no
+second chance at the files inside, so the question has to be asked about the
+directory *that contains them*. Ask it one level down — at `themes/mine`, which
+is where a theme's own declaration obviously lives — and a `.schema.toml`
+sitting directly in `themes/` is read, which is R2's first-level blindness
+reproduced in a new place by someone who read R2. So the fixture's broken file
+is at `themes/.schema.toml`, and that mutation is one of the five below.
+
+***[decided]* The hatch applies uniformly, and the coherence question is the
+site author's.** The brief asked whether `include`ing something under `themes/`
+even means anything for declarations. It does, and the argument is not about
+declarations: the value of one escape hatch is that there is one of it, and a
+key that admitted bytes but not vocabulary would be two rules wearing one name —
+a site would have to learn which of its `include`d files are "content-included"
+and which are "declaration-included", a distinction the config has no word for.
+So `include` opens both, and what a site does with a theme's field declarations
+after saying so is its own business. It is asked as the DIRECTORY question
+(`NotContent::included_dir`, `keeps_dir`'s empty-child idiom): `themes/**` — the
+one spelling every site in the corpus writes — matches `themes/` and never
+`themes`, so the file question would have bolted the hatch shut for the only
+form anyone types. That is a second-order R2 and it is guarded by its own unit
+test.
+
+*The marker half is NOT unmeasurable, which is where this differs from R1.* R1
+recorded that a marker under an excluded directory governs only excluded rows,
+so nothing observable moves and there is no test to write. The same is true here
+of *output* — no row under `themes/` is content since I7b — but `markers.found`
+is a census, exported as `db.stats.markers`, and a marker the walk should not
+have seen is one the census should not count. So the marker half gets a real
+assertion (1 with the rule, 2 without) rather than R1's parity-is-the-test.
+
+*One fixture, two load-level tests, five mutations, each red and each restored.*
+The fixture (`theme-schema`) is `excluded-schema`'s two-part shape transplanted:
+a host `[routes.covered]` whose `where` names `cover`, declared ONLY under
+`themes/mine/`, and a deliberately-broken `themes/.schema.toml` at the boundary.
+The expected error — `unknown field cover` — proves both halves at once: that
+`cover` did not enter the vocabulary, and that its being *that* message rather
+than a TOML parse error means nothing under `themes/` was read at all. The site
+writes **no `exclude`**, deliberately, so it cannot pass by restating the rule
+the engine is supposed to know. Mutations: (1) delete the arm → parse error on
+the boundary file; (2) delete the arm AND remove the boundary file → the fixture
+builds successfully, which is `cover` type-checking in the host's `where` — the
+leak itself, seen alone; (3) ask at `themes/<child>` → the boundary file is read,
+parse error; (4) drop `included_dir` from the arm → the hatch is shut; (5) weaken
+it to `included` → the hatch opens for nothing a site would write. The two
+`io_themes.rs` tests read the census (vocabulary, section list, marker count)
+off a LOADED site rather than a built one — the inverse of I7b's discipline, and
+for the same reason: a declaration publishes nothing, so a built site is the
+test that cannot see it — with the twin at `pages/mine/` declaring the same
+three things in the same words as the control.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's release binary
+built in a `git worktree` against this one over the same content trees —
+byte-identical but for the feeds' wall-clock `<updated>`, stderr identical for
+all six, file counts 8 / 8 / 83 / 242 / 1828 / 1829, unmoved since IR1. Run
+twice, before and after a needless-borrow tidy. `cargo test` green (25 result
+lines); `cargo fmt --check` clean under the pin; clippy 47, HEAD's number (the
+first draft's `&rel.join("")` made it 48 and was fixed rather than carried);
+**zero re-blessing** — `git status` after the commit showed nothing but the six
+paths the item touched.
+
+*Docs.* DESIGN.md §4c's position row now says "content *and* declarations"; the
+positional subsection gains a paragraph for the declaration walks (with the
+at-`themes`-itself reasoning) and the hatch paragraph gains the uniformity
+argument and the two questions. **q34's census still reads three**, and that is
+the item's one tidy: the literal was about to appear a fourth time, so it is
+named once (`store::THEMES`) and the two readers that mean *not content* —
+`load.rs`'s `under_themes` and the new prune — take it from there; `slots.rs`'s
+`SKIP` and `serve.rs`'s opposite sense are untouched and still the thing q34 is
+about. `manual/OUTLINE.md` untouched per §4, and checked rather than assumed —
+this one needed the check, because unlike the last three it DOES teach both
+words. Ch. 22 teaches positional `.schema.toml` and ch. 13 teaches `themes/`
+(install by `cp -r`, one directory per theme), and they never meet: nothing in
+it says a theme may declare fields, and its one sentence about where a
+declaration reaches (ch. 29's "only type-checks against the recipes subtree's
+`.schema.toml`") is about narrowing within the site, which is I7a's declared
+loss and not this. Honest word for word, fourth in the sequence.
+
+*For batch review I-C.* Three things. (i) **The uniform hatch** is the call to
+weigh; the argument is above and the reversal is one clause. (ii) **`themes/` is
+now the only positional name the declaration walks know**, and the asymmetry is
+worth seeing: `.slots/` is not pruned there (it has its own walk with its own
+`SKIP`), and a `.schema.toml` inside a `.slots/` directory would still be read.
+Nothing ships one; it is the same class of latent shape this item just closed
+one instance of. (iii) **The fixture's `themes/mine/pages/demo.md` carries a
+`cover:` front-matter field that nothing declares** and loads clean because the
+row is not content — I7b's rule and this one being true at once. If I7b's filter
+were ever reversed, that file fails the load rather than silently publishing,
+which is a nicer failure than the one I7b's own test would give.
