@@ -593,7 +593,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   dead keys for non-tree scopes (the declared-and-ignored disease), or
   make them real; either way theme-preview's dead line goes.
 
-- [ ] **I7c. The gate becomes the fact; degenerate rows land.** One law:
+- [x] **I7c. The gate becomes the fact; degenerate rows land.** One law:
   a row renders iff `front_mattered || shell ∈ {html, light_html}` — the
   second clause is the degenerate row (warn; slug-title pinned to the
   existing `slug.replace('-', " ")` derivation, run-not-reasoned against
@@ -2207,3 +2207,147 @@ q34's disease one rung up (MERGE.md R1's `cover` leak) at a directory this item
 just declared engine vocabulary. No theme in the repository ships one, so it is
 inert today and unmeasurable from a build; the brief scoped this item to the
 content filter, so it is filed rather than folded in.
+
+**2026-07-27 — I7c.** Landed as one commit. The law is four words wider than
+the gate it replaces, and everything interesting in the item is in what the
+PRE-FLIGHT measurements said before a line of it was written.
+
+*The two migrations, measured first and byte-inert both.* I2's method, and the
+reason for it is that a config migration under a byte-parity gate is only
+honest if the binary is held still: each config change was built with the
+**unchanged HEAD binary** against the same content trees, before the law
+existed. (1) grack.com's `_drafts` rule gains `shell = "html"` — that
+collection is a second posts SOURCE with no twin in the base (`_posts` merges
+with the base's posts collection and takes its `defaults = { shell = "html" }`;
+`_drafts` pairs with nothing), so its four rows resolved no shell at all. Six
+trees, byte-identical but for the wall-clock feeds. (2) theme-preview gains
+`shell = { type = "string" }` in `[schema]` and the base's three rule defaults
+spelled out — `html` on the front-mattered page rule and on the notes rule,
+`raw` on the catch-all, **silence on the index rule for the base's own reason**
+(a rule's defaults apply wherever it MATCHES, so a front-mattered `index.md`
+takes `html` from the rule beside it). Byte-identical outright; it has no feed.
+Only then did the law land on top.
+
+*The census, and it is the item's most useful output.* Rows, per site, exported
+from the HEAD binary and counted rather than reasoned about. **Rendered with a
+Null shell — i.e. reaching `build.rs`'s legacy `Theme::parse(layout)`
+fallback — was 19 rows in two sites**: grack.com's four drafts and every one of
+theme-preview's fifteen. minimal, raw and field-notes: zero. After the two
+migrations: **zero everywhere**. Shell census after, for the record:
+theme-preview 15 html / 9 Null (its objects); grack.com 370 html / 187 raw /
+1 light_html / 838 Null (its objects — I7a's number).
+
+*Who still reaches the legacy fallback, which the brief asked for by name.*
+**No corpus site, and it is not deletable.** Mutated to `panic!` and to an
+`eprintln` and the suite answered: the fixture suite and the temp sites the
+tests write reach it ~26 URLs' worth (`/manual/…`, `/recipes/`, the axis and
+locale fixtures), because a site whose rules declare no shell still has
+front-mattered rows, and those render by the law's FIRST clause and then need a
+tier. So the arm has exactly one shape left — *renders by identity, no shell
+resolved* — and it is a real rung, not a fossil: deleting it would declare a
+default while removing the code that applies it. What IS a fossil is the
+`layout: light` branch INSIDE it (`Theme::parse`), which no row on any site or
+fixture now takes. Recorded at the line and in DESIGN.md §5g; **I7d/I13.**
+
+*The degenerate row is one row, and it already rendered.* Review I-A's finding 2
+was right to flag the parity exception as possibly vacuous: `_drafts/caret/…`
+has been publishing `<title>why is a cursor called a caret</title>` for as long
+as the loader has had its slug fallback, so making it a degenerate row moved no
+bytes at all. The declared exception is therefore exactly ONE stderr line, on
+grack.com's default AND drafts builds, and nothing else. The corpus's other
+blockless `.md` files are the three `README.md`s under `demos/`, `code/legacy/`
+and `writing/school/` — all `shell = "raw"` by the catch-all, all still byte
+copies, all silent. That is the law's second clause doing its job by NOT firing,
+and it is why "shell decides" and "identity decides" are both wrong.
+
+***[decided]* The implied title is the rung for every RENDERED row, both
+loaders — not for degenerate rows only.** The posts loader has applied it to
+every post since before the ledger; making the tree agree is what turns I7d into
+a relocation instead of a reconciliation, and it is byte-inert because **no
+rendered row on any of the six trees lacks a title today** (measured, not
+assumed). A byte row still gets none: its content is its bytes, so there is no
+name to imply. The other reading — degenerate-only — would have left the two
+loaders saying different things about the same question for one item.
+
+*The derivation pin, RUN and not reasoned.* `slug.replace('-', " ")`, shared by
+both loaders as `implied_title`. The mutation is a prettier form (title-case
+each hyphen-separated word), built as a real binary against the real corpus, and
+it moves **four files across the two profiles** — one more than the brief
+predicted: the caret page's `<title>`, `og:title` **and its rendered
+`<h2 data-slot="title">`**; the drafts profile's `/blog/page/66/index.html`, the
+archive page that lists the draft; and `/search.bin`. The extra surface is the
+listing, and it is the one a reasoned answer would have missed.
+
+***[decided]* The rule key survives; its meaning narrowed.** `front_matter =
+true` on a rule was the loader BRANCH — it is how a file became a page rather
+than bytes, and the tree loader wrote `rendered: f.has_front_matter` to say it a
+second time. It is now a **selector over one fact**: "this rule claims files that
+carry identity". Whether the row is a document is a separate law over two facts,
+stated once in `shell::renders`. DESIGN.md §4 gains *The gate is a fact, and the
+rule key selects on it*; §5g's fallback paragraph, its `front_mattered`-vs-
+`rendered` paragraph (§5) and the "why exactly these tiers" 2×2 parenthetical
+were all made true rather than left standing — that parenthetical had said the
+fourth corner was "mechanically unreachable", and it was one rule default away
+the whole time.
+
+*One asymmetry found and deliberately NOT fixed.* `read_posts` hands
+`apply_rules` a constant `true` for the front-matter gate, so a blockless draft
+is offered to `front_matter = true` rules it does not satisfy. Byte-inert (no
+posts rule of any corpus site writes the key) and left alone with the reason
+stated at the line: the shape that fixes it is the one walk, where there is a
+single answer to hand over. **I7d.**
+
+*Four integration tests plus four unit tests, five mutations, each red and each
+restored* (`crates/grackle/tests/io_gate.rs`, `shell.rs`'s module tests).
+(1) the degenerate row — a blockless `.md` under `shell = "html"` renders at
+its rule's URL with the slug title, plus a `light_html` twin because the law
+reads the FAMILY and a test naming one member would pass against an engine that
+forgot the other; mutation: drop the shell clause and both byte-copy their own
+markdown. (2) **the control** — a front-mattered `shell: raw` file, the
+pane.html shape, plus an identity-less `raw` byte row beside it that must earn
+no warning; mutation: drop the identity clause and the `---` block ships (and on
+the REAL corpus, field-notes' `/demos/pane/` goes 521 → 571 bytes opening
+`---\ntitle: Glass pane`). (3) the derivation pin, on `<title>` and `og:title`,
+with an underscored and an ALL-CAPS name saying the rule is about hyphens alone.
+(4) the rung — front matter beats the implied title, and only the blockless page
+is degenerate; mutation: swap the arms. (5) `shell::degenerate` never fires →
+silence returns while both pages still ship, which is the softening losing its
+nudge. A sixth crosses into the vocabulary: widen `DOCUMENT` to include `raw`
+and three unit tests go red at once.
+
+*Parity.* Five sites plus grack.com `--profile drafts`, HEAD's binary built in a
+`git worktree` against this one, into separate trees from the same content so
+binary and config were the only variables — **byte-identical but for the six
+wall-clock `<updated>` lines** (checked line by line: no atom diff is anything
+else), stdout identical modulo timings, file counts 8 / 8 / 83 / 242 / 1828 /
+1829, unmoved since IR1. **Stderr identical on four sites and one line longer on
+grack.com's two**, the declared caret warning. `cargo test` green (23 binaries,
+483 tests); `cargo fmt --check` clean under the pin; clippy 48, I7a's number
+(one warning of my own was fixed to keep it there); **zero re-blessing** — no
+fixture moved, and `git status` after the commit showed only the eight files the
+item touched.
+
+*Docs.* DESIGN.md §4 (the new gate section + a `Constraints` bullet for the
+warning), §5's two `front_mattered` paragraphs, §5g's fallback paragraph and the
+2×2 parenthetical. `base.toml`'s pages comment says the law and says what the
+base does NOT do with it (it routes identity-less files `raw`, which is the
+normal case). `manual/OUTLINE.md` untouched per §4, and checked rather than
+assumed: it teaches neither the `front_matter` rule key nor `rendered`, so this
+is the fourth change in the sequence that leaves that file honest.
+
+*For batch review I-C.* Four things. (i) **The implied title for every rendered
+row** is the call a reviewer might narrow to degenerate-only; the argument and
+the measurement are above, and the change is one `match` arm in each loader.
+(ii) **theme-preview's migration was not needed for correctness** — every one of
+its rows is front-mattered, so all fifteen render by the first clause either way.
+It was taken for the reason the brief gave (drain the legacy fallback and make
+the site's serialization a declared fact), and it is the one config change in the
+item that no row's behaviour depended on. (iii) **`front_mattered` is still
+computed by a 4-byte peek at the head of the file** (`store::peek_front_matter`),
+and it is now a *rendering* decision rather than a parsing one — a file opening
+with `---` that is not valid YAML is a load error, which is right, but the fact
+that the law's first clause is decided by four bytes is worth one reviewer's
+glance. (iv) **A proposed item, not filed as a chip** per §10: `grackle explain`
+prints `front_mattered` and `shell` but not `rendered`, which is now the derived
+answer a reader would most want beside them — one line in `debug::row_facts`,
+CLI-only, outside the byte gate.
