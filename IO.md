@@ -219,8 +219,15 @@ outputs — and the model already has the law for that (a form is an output):
   of the URL shape, and identical bytes dedupe to one address by
   construction. Disabled, an embedded-but-unrouted asset is a load error
   naming the asset and the fix; subset, the policy carries a
-  match/extension filter. **[open]**: the table's name (`[embeds]` vs
-  `[static]`).
+  match/extension filter. ~~**[open]**: the table's name (`[embeds]` vs
+  `[static]`).~~ — settled at I11: **`[embeds]`**. `/static/` is a PLACE with
+  two mints under it already (thumbs, strong addresses), and what a site wants
+  to configure is the POLICY, so the table carries `enabled`/`match` and the
+  prefix is not a key. *(Landed with one addition the design did not name: a
+  rule declares `embed = true` to decline a route, rather than the ABSENCE of
+  `route` meaning it — which is what keeps* no rule supplies a route *the
+  refusal it has always been. The refusals are asked at LOAD, so an unrouted
+  asset the policy will not address fails whether or not anything embeds it.)*
 - **Authored links demand a route.** A markdown/`<a>` link to an asset
   resolves to its canonical routed URL, and an unrouted target is a load
   error with the fix spelled: "add a rule routing it (e.g.
@@ -231,7 +238,12 @@ outputs — and the model already has the law for that (a form is an output):
   present when the policy published it. When an untransformed embed
   shares bytes with a routed output, the hash address *is* that output's
   strong URL — embeds and affordances use it, authored links and
-  `rel=canonical` use the canonical. A transformed embed's hash is the
+  `rel=canonical` use the canonical. *(Read together with the precedence
+  bullet below, which governs: a citation of a ROUTED asset takes the declared
+  address whatever its form, and the twin rule is about the IDENTITY of
+  addresses rather than about which one a citation takes. Recorded at I11,
+  where the two bullets first had to be executed together; Matt's to fold in.)*
+  A transformed embed's hash is the
   rendition's own (inputs + parameters), related to the original only
   through the graph. The "exactly one route" law is untouched: strong
   addresses are the content store made public, not routes.
@@ -783,7 +795,7 @@ Two follow-up items, run before I9:
 
 ### Phase I-E — assets and the end of `kind`
 
-- [ ] **I11. The embed policy and strong URLs.** **Amendments from
+- [x] **I11. The embed policy and strong URLs.** **Amendments from
   review I-D**: (i) THE DESIGN CATCH — `join_citations` and the pull
   resolve citations through `db.by_url`, which holds canonical row URLs
   only: a hashed `/static/<hash>` citation resolves to NOTHING and is
@@ -3972,3 +3984,250 @@ the serve inspector tables remain; DISK — the host hit 100% during
 review (cleaned to ~5.5GiB free; parity worktrees ~1GB each, target/
 13GB — headroom before the remaining parity items is Matt's hygiene
 call).
+
+**2026-07-28 — I11.** Landed as one commit. The item's whole content is one
+key that did not have to exist: **`embed = true` on a rule**, declaring that
+its rows have no canonical address, rather than the ABSENCE of `route` meaning
+the same thing. Everything else follows from getting that right, and what it
+buys is stated below.
+
+***[decided]* A rule decides an address once, and says which.** The design
+said "the base's objects catch-all dies", and the obvious reading — a rule
+that claims and does not route is embed-addressed — deletes a refusal the
+engine has had since there was a walk: *no rule supplies a route*, the one
+error that catches a rules-gap. With `embed` a declared key the refusal is
+untouched, because the two cases are now distinguishable by what the author
+wrote: a rule that says NEITHER has forgotten, a rule that says one has
+decided. The mutation is the argument — read "no route template" as
+"embed-addressed" and the probe site loads, a `.txt` silently stops
+publishing, and the refusal is gone — and it is why the alternative was not
+taken even though it needs no key at all. Declaring both is a config error
+(a routed output wins, so the fallback beneath it could never be reached; the
+routed+strong twin, where one output carries BOTH addresses, is I12's and
+would need a way to say which address a citation takes). `on_demand` beside
+`embed` is the I7b dead-key family, refused the same way.
+
+***[decided]* The table is `[embeds]`** — §4a's open choice, taken against
+`[static]`, and the reason is that the two name different things. `/static/`
+is a PLACE, and it now has two mints publishing under it (the thumbnail cache
+since §6b, strong addresses since this item); a table named for the place
+would be a third name for something neither mint asked to configure. What a
+site actually wants to say is about the POLICY — run it or don't, over these
+files or all of them — so the table carries `enabled` and `match` and the
+prefix is not a key at all. DESIGN §6b's `[static] dir` line, declared and
+never built, is corrected in place. **Not projectable**: an address is a load
+fact, and a projection that turned the policy off would be a different
+database rather than a different view of one, which is §4a's whole premise.
+
+***[decided]* Both policy refusals are at LOAD, which is stricter than §4a's
+letter.** The design says an embedded-but-unrouted asset is a load error when
+the policy is off. Asking at load asks one question earlier — before anyone
+knows whether the asset is embedded — and so also refuses the UNCITED one.
+That is the honest place: with the policy off, or with a `match` that excludes
+the row, `embed = true` names no address at all, which is a statement about
+the config and needs no citation to be wrong. It also lets the message name a
+path instead of a URL that does not exist. Recorded as a deviation because it
+is one.
+
+***[decided]* A strong address IS an Output node** — review I-D's question,
+answered the way invalidation needs. The design says strong addresses are not
+routes, and that stays true of the CONFIG (no rule minted one, `Route.strong_
+url == url` says so, and the "exactly one route" law never sees it); but the
+graph has to reach the bytes, so the pull mints a `Route` for it at exactly
+the seam it mints an on-demand route at. Which gave the item its cheapest
+win: **rung 0 came free.** I10 closed the forced-fields hole by putting the
+law at every minting seam and warned that I11/I12 would add two — and I11
+added a SHAPE to the existing seam rather than a seam, one `match` on
+`row.strong_url` inside `materialize_referenced`'s own loop, under the same
+`forced` list. `io_graph.rs`'s doc says so where the next reader will be.
+
+***The design catch, closed, and the shape it wanted was a MULTI index.***
+`db.by_url` holds canonical row URLs, so a `/static/{hash}` citation resolved
+to nothing: the pull never published the bytes and `join_citations` dropped
+the asset out of the embedding page's `inputs` — the stale page, silently.
+`db.by_strong` is the other half, and it is non-unique on purpose, which is
+the untransformed-twin rule as a data structure: the address is a pure
+function of the bytes, so two inputs holding one byte string legitimately
+share one address. A unique index would have called that a collision. One
+`build::resolve_citation` reads both and serves both consumers, so the pull
+and the join cannot disagree about what an address means.
+
+***The twin rule, and the sentence it needed.*** §4a's third bullet ("embeds
+and affordances use the strong URL") and its fifth ("a routed output wins —
+citations link the declared address") read as a contradiction. They are not,
+and the reconciliation is recorded: **precedence governs which address a
+citation takes; the twin rule is about the IDENTITY of addresses.** An embed
+of a routed asset keeps the canonical — which is also what made the corpus
+byte-inert, since rewriting every relative `<img src>` to a canonical URL is a
+byte change no item asked for. What the twin rule asserts is that if a strong
+address is minted for bytes a routed output also holds, it is the same string;
+live, three files hold one byte string, one routed and two not, and the two
+land at ONE `/static/` entry which is **one output with two inputs**. The
+fanout of either reaches the page that embeds the other, which is right,
+because editing either changes what those bytes are.
+
+***The corpus impact, measured on all six trees: NOTHING MOVES.*** The
+review-era expectation held, and the measurement is the item's most useful
+output. `examples/field-notes`, `theme-preview` and grack.com each declare
+their own objects rule with `route = "/{path}"`, and first-writer-wins means
+the base's line beneath it never speaks; `examples/minimal` has no images at
+all; `examples/raw` declines the base and was updated to transcribe it
+faithfully. So the policy lands corpus-inert and the capability is
+fixture-proven, exactly as the brief allowed for. The three configs that keep
+their route gained a comment saying why, because "the base used to do this"
+stops being visible the moment it stops being true.
+
+***The one thing the base still routes, and it is rule 2's own exception.***
+The first parity run failed on four fixture assertions about `favicon.svg`:
+`[html.head.link] icon` links `site.icon`, which is the first of
+`/favicon.{svg,png,ico,webp,gif}` a row OCCUPIES, and with the base declining
+to route images the `.svg` stopped occupying one and the tag fell to the
+`.ico`. A favicon is fetched by URL with nothing on the page pointing at it in
+a way any reference scan can see — grack.com's config has said exactly this
+about `resource/**` for months — so it cannot be reference-driven. The base
+gained `match = "favicon.{svg,png,webp,gif}"`, `route = "/{path}"`, above the
+embed rule: the first use of base rule 2's *"unless the absence of that URL
+would be a bug on any site"* clause, which had been written and never spent.
+The four extensions are the intersection of the icon list with the objects
+glob, so `.ico` stays the ordinary tree byte copy it was and no row changes
+scope.
+
+***The cycle answer: still not expressible, and measured rather than hoped.***
+A strong address publishes an INPUT's bytes at a hash of those bytes, so the
+output it mints carries `inputs = [that row]` and its content edge runs input
+→ output like every other; the twin adds a second INPUT to one output, never
+an output to an output. The bipartite argument therefore holds whole,
+`check_acyclic`'s fast path still returns on one linear scan, and I10's
++1.5 ms is unchanged in kind. So the amendment's live fixture is **not owed
+here and is owed by I12**, whose renditions read the bytes an earlier
+transform produced; `graph.rs` and `io_graph.rs` both had I11 named as that
+item and both now name I12, with the reason. The unit-level coverage stands
+as it was.
+
+***The hashing law, in code and spent once.*** `grackle_source::strong` is a
+40-line module whose doc IS the law — inputs plus transform parameters, never
+output bytes — with the argument for why §1 depends on it (an address computed
+from what a transform produced could not exist at planning, and "facts at
+planning" would be false for exactly these outputs). `IDENTITY` is the
+do-nothing transform's parameter set, distinct from `thumbs::VARIANT` so an
+original and a derivative can never collide. **Thumb addressing is untouched**,
+per the brief's preference: the thumb cache obeys the same law and its
+variant, its extension contest and its cache layout are I12's to unify, said
+at the module doc.
+
+***`{hash}`, and the difference it exposes.*** A route may spend `{hash}` —
+the row's content hash, read lazily and memoized, so a template that does not
+spend it opens nothing — and it produces the same digest the policy would
+have. That equality is the point (one hash function, one address per byte
+string, whichever mechanism asked) and the fixture found the instructive
+disagreement: two identical files routed by `{hash}` are a **route collision**,
+refused by the pre-existing unique-URL check naming both. Which is right, and
+is the sharpest statement of how the two mechanisms differ — the policy's
+address is a place in the content store, so sharing it is dedupe; a route is a
+row's own address, so sharing it is a collision.
+
+***The citation form became a parameter, and that closed a recorded
+asymmetry.*** `links::resolve` takes a `Cite::Link | Cite::Embed`, which is
+§4a's own sentence — *each citation form knowing its address kind* — as a type.
+It also settles something `rewrite.rs` had written down and left: the comrak
+pass visited `Link` and not `Image`, so `![](x.png)` reached no resolver at
+all, and the raw-HTML seam declined `img[src]` to keep the two paths equal.
+Both now offer both (`img`/`iframe`/`video`/`audio`/`source` on the HTML side),
+and the resolver rewrites **exactly one case** — a target no rule routed —
+handing everything else back untouched. That narrowness is why the corpus did
+not move, and it is deliberate rather than incidental: an embed is not held to
+`[links] policy` either, because most `src`s on a finished page are
+engine-derived (`/static/` thumbs, the stylesheet) and were never a source
+path to dangle.
+
+***What `{% image %}` got, and what waits for I12.*** Its `<a>` is an
+expansion AFFORDANCE, not an authored link, so it takes the strong address
+where a link to the same row is refused — which is §4a's worked example's
+middle leg, landed. The third leg (a download link at the canonical route,
+beside the expansion) is not: the tag emits one element with one href, and a
+second address needs a second affordance. Renditions are the item that gives
+affordances parameters to carry, so it waits there. Byte-identical on the
+corpus, because every corpus image is routed and the routed branch is the
+line that was already there. **No `baseurl` prefix on a strong address**, and
+that is a decision: `Row.url` carries none either, and the two agreeing is
+what lets the citation scan resolve a `/static/` href back to its input.
+
+*Ten tests, fourteen mutations, each red alone and each restored*
+(`crates/grackle/tests/io_embeds.rs` — nine; `io_explain.rs` — one; plus
+`strong.rs`'s two unit tests on the law itself). The fixture is one site with
+every address shape beside each other: a routed subtree and an embed-addressed
+one under the same scope, an embedded-and-unrouted image, three files holding
+one byte string with one of them routed, an unrouted image nothing mentions,
+a raw-HTML page embedding the same asset twice, and a `.txt` only the tree
+catch-all claims (which is what makes the untouched refusal reachable). The
+mutations: the strong arm of the mint deleted; the embed branch of `resolve`
+neutered; `by_strong` indexing nothing; the path hashed beside the bytes;
+the twin-join branch bypassed; `resolve_citation` reading `by_url` alone; the
+link refusal removed; the `enabled` guard; the subset guard; the subset
+defaulting to matching nothing instead of everything (seven tests red — the
+default is load-bearing); both config bails; the `{hash}` token hashing a
+constant; route-absence read as embed; and `explain`'s fourth dash reason.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary against this one over the same content trees, into separate
+trees — **byte-identical but for the six wall-clock `<updated>` lines**
+(theme-preview identical outright, having no feed; every differing line
+checked to be one), **stderr identical on all six**, file counts
+8 / 8 / 83 / 242 / 1828 / 1829 and `grackle query urls` set-diffs **empty** on
+all six (7 / 7 / 63 / 222 / 1372 / 1373), both unmoved since IR1. `cargo test`
+green (29 result lines, one more than I10's 28 — the new file); `cargo fmt
+--check` clean under the pin. **Clippy is +2 and they are named rather than
+silenced**: `links::resolve` gained the citation form, so it trips *too many
+arguments (8/7)*, and the closure it is passed as trips one more *very complex
+type*; both are the one signature change, and an `#[allow]` on a lint the item
+just tripped would be hiding rather than deciding. Load cost **+0.7 ms**,
+consistently (66.0 → 66.7 ms, seven interleaved batches of twenty on
+grack.com) — one multi-index pass that finds nothing, since no corpus row is
+embed-addressed. Re-blessing: **five test files and one unit assertion, each
+with the reason at the line** — `io_dissolve.rs`, `io_shell.rs` and
+`io_sidecar.rs` gained an objects route in their fixture configs (every
+assertion in them is about an image's own ADDRESS, and the base no longer
+supplies one — which is what a real site does in one line), `io_explain.rs`
+and `io_graph.rs` are doc riders plus one new test, and `config.rs`'s
+two-objects-collections message now lists the base's two globs. No fixture and
+no `expected-error` moved.
+
+*Docs.* DESIGN.md gains **§5k, Two address slots: the embed policy and strong
+URLs** (the slot table, the rule's one decision, `[embeds]`, the hashing law
+and the twin rule, `{hash}` and the collision-vs-dedupe distinction, the two
+address indexes, what waits for I12); §4's *Named object routes* rewritten
+(the base declines; a site writes one line; the favicon exception); §4's
+constraint list gains three refusals and one legal count; §4d's rule 2 says
+what got stricter and where the "unless" clause was first spent; §4d's site-
+icon bullet says why it is the base's one routed image; §5j corrected in two
+places (the cycle answer is I12's, and `materialize_referenced` resolves
+through two indexes); §6a's `{% image %}` and resolution paragraphs; §6b's
+`[static] dir` block corrected in place; §9b's single-tree entry records the
+address model as built. `manual/OUTLINE.md` untouched per MERGE.md §4, and
+checked rather than assumed: nothing in it became FALSE — its `/static/{hash}`
+and frozen-legacy-subtree passages are still exactly right — but like I10 it
+is now one spelling more incomplete, since `[embeds]` and `embed = true` are
+constructs ch. 11 and ch. 25 would teach. Matt's pen.
+
+*For the final IO review.* Five things. (i) **`embed = true` as a declared key**
+is the call to weigh: it is a new config surface where "route absent" would
+have needed none, and the argument is entirely the refusal it preserves —
+mutation-checked, but a reviewer may read the refusal as cheaper to lose than
+the key is to add. (ii) **Both policy refusals at load** is stricter than the
+design's letter, above. (iii) **An embed of a routed asset is left untouched**
+rather than resolved to the canonical URL — right by precedence and the reason
+parity was free, but it does mean the embed seam today decides exactly one
+case, and a reviewer may want the routed case resolved too (which would be a
+measured byte change on the corpus). (iv) **The favicon rule** is a new base
+URL, and though it is the same URL every base-inheriting site already had, it
+is the base minting a route on purpose and deserves the veto it may get.
+(v) **The `[embeds]` prefix is not configurable** — `/static/` is hardcoded in
+`strong::PREFIX` and independently in `thumbs.rs`; unifying those two is
+I12's, and until then the string appears twice.
+
+*Proposed items* (out of scope here, per §10's no-chips rule): none blocking.
+One observation for the census — `Row.strong_url` and `Route.strong_url` join
+`Row.url` in carrying no `baseurl`, so a site with a `baseurl` has the same
+pre-existing seam for strong addresses that it has for row URLs; nothing in
+the corpus sets one, and closing it is a question about `baseurl` rather than
+about addresses.
