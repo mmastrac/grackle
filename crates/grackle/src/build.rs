@@ -759,6 +759,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             thumbs: Some(&thumbs),
             theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
+            links: Some(&linkspace),
             embed: Some((view.as_str(), SENTINEL)),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
@@ -770,8 +771,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         // document yet and everything the resolver meets is authored.
         let dir = row.rel.parent().map(Path::to_path_buf).unwrap_or_default();
         let rel = row.rel.to_string_lossy().to_string();
-        let resolve =
-            |href: &str| crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, href);
+        let resolve = |form: crate::links::Cite, href: &str| {
+            crate::links::resolve(cfg, &linkspace, &dir, &r.url, loc, &rel, form, href)
+        };
         let frag = if src.extension().is_some_and(|e| e == "md") {
             crate::markdown::render_doc_with(&expanded, &resolve)?
                 .whole
@@ -1294,10 +1296,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
     let mut found: Vec<(grackle_db::Key, Vec<grackle_db::Key>)> = Vec::new();
     for (url, urls) in cited {
-        let rows: Vec<grackle_db::Key> = urls
-            .iter()
-            .filter_map(|u| db.by_url.get(u).cloned())
-            .collect();
+        let rows: Vec<grackle_db::Key> =
+            urls.iter().flat_map(|u| resolve_citation(db, u)).collect();
         if rows.is_empty() {
             continue;
         }
@@ -1311,6 +1311,26 @@ fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
         r.inputs.sort();
         r.inputs.dedup();
     }
+}
+
+/// The inputs one cited URL names (IO.md §4a, I11) — the address resolution
+/// both halves of the citation seam read, so the pull and the join cannot
+/// disagree about what an address means.
+///
+/// Two slots, two indexes. `by_url` answers a CANONICAL address and answers it
+/// uniquely. `by_strong` answers a hash address and answers it with a LIST,
+/// because the address is a pure function of the bytes and inputs holding one
+/// byte string share it. All of them are edges: over-approximating here costs
+/// a rebuild an extra output to reconsider, while dropping one is the stale
+/// page the graph exists to prevent.
+///
+/// A URL in neither is not an edge at all — an external link, or an output
+/// (whose edge is `route_members`).
+fn resolve_citation(db: &SiteDb, url: &str) -> Vec<grackle_db::Key> {
+    if let Some(k) = db.by_url.get(url) {
+        return vec![k.clone()];
+    }
+    db.by_strong.get(url).cloned().unwrap_or_default()
 }
 
 /// Every internal citation of every finished output, by the URL it was
@@ -1436,6 +1456,7 @@ fn render_bodies<'a>(
             let cx = tags::Ctx {
                 thumbs: Some(thumbs),
                 widgets: Some(&cfg.widgets),
+                links: Some(linkspace),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let body = crate::store::read_body(&p.path)?;
@@ -1448,7 +1469,7 @@ fn render_bodies<'a>(
                 .ok()
                 .and_then(|r| r.parent().map(Path::to_path_buf))
                 .unwrap_or_default();
-            let doc = crate::markdown::render_doc_with(&expanded, &|href| {
+            let doc = crate::markdown::render_doc_with(&expanded, &|form, href| {
                 crate::links::resolve(
                     cfg,
                     linkspace,
@@ -1456,6 +1477,7 @@ fn render_bodies<'a>(
                     &p.url,
                     &p.locale,
                     &p.rel.to_string_lossy(),
+                    form,
                     href,
                 )
             })?;
@@ -1513,6 +1535,7 @@ fn render_page_bodies(
             thumbs: Some(thumbs),
             theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
+            links: Some(linkspace),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
         let expanded = tags::expand(body, &cx)?;
@@ -1537,8 +1560,9 @@ fn render_page_bodies(
         let rel = row
             .map(|p| p.rel.to_string_lossy().to_string())
             .unwrap_or_default();
-        let resolve =
-            |href: &str| crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, href);
+        let resolve = |form: crate::links::Cite, href: &str| {
+            crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, form, href)
+        };
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
             let d = crate::markdown::render_doc_with(&expanded, &resolve)?;
             (d.whole.clone(), Some(d))
@@ -1555,11 +1579,11 @@ fn render_page_bodies(
             // branch — a link matching nothing at all — fails the build, and
             // catching those is what this seam existed to gain.
             let embeds = body.contains("{% view");
-            let raw = |href: &str| {
+            let raw = |form: crate::links::Cite, href: &str| {
                 if embeds && linkspace.is_route(href) {
                     return Ok(None);
                 }
-                resolve(href)
+                resolve(form, href)
             };
             (crate::rewrite::resolve_links(&expanded, &raw)?, None)
         };
@@ -1608,13 +1632,13 @@ fn materialize_referenced(
     site_url: &str,
     cited: &mut Vec<(String, Vec<String>)>,
 ) -> Result<usize> {
-    // Nothing to pull: no input publishes on demand, so no edge this pass
-    // walks can end at an unminted output.
-    if !db
-        .rows
-        .iter()
-        .any(|p| p.on_demand && p.output.is_none() && !p.url.is_empty())
-    {
+    // Nothing to pull: no input publishes lazily, so no edge this pass walks
+    // can end at an unminted output. Two shapes qualify — an `on_demand` row,
+    // whose RULE deferred its route, and an embed-addressed row (IO.md §4a),
+    // which has no route to defer and publishes at its strong address.
+    if !db.rows.iter().any(|p| {
+        p.output.is_none() && (p.strong_url.is_some() || (p.on_demand && !p.url.is_empty()))
+    }) {
         return Ok(0);
     }
     // Rung 0 reaches the outputs minted here too (IO.md I10, closing E1's
@@ -1634,55 +1658,99 @@ fn materialize_referenced(
         let mut next: Vec<String> = Vec::new();
         for url in std::mem::take(&mut frontier) {
             // The edge's far end: which INPUT does this citation name?
-            let Some(key) = db.by_url.get(&url).cloned() else {
-                continue; // not a row of this site (external, or an output)
-            };
-            let Some(row) = db.rows.get(&key) else {
-                continue;
-            };
-            // An input that already lands is not the pull's to mint, and one
-            // that lands eagerly never was.
-            if !row.on_demand || row.output.is_some() {
-                continue;
-            }
-            let (path, url) = (row.path.clone(), row.url.clone());
-            let front_mattered = row.front_mattered;
-            let bytes = std::fs::read(&path)
-                .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
-            // A materialized text file can cite more — and those citations are
-            // edges like any other, so they join the map rather than only the
-            // frontier.
-            if let Ok(text) = std::str::from_utf8(&bytes) {
-                let mine = cited_urls(text, &url, site_url);
-                next.extend(mine.iter().cloned());
-                if !mine.is_empty() {
-                    cited.push((url.clone(), mine));
+            //
+            // TWO address indexes, because an output has two address slots
+            // (IO.md §4a). `by_url` holds CANONICAL row URLs only, so a
+            // `/static/{hash}` citation resolves to nothing there — and review
+            // I-D named exactly that as the hole: the pull would never publish
+            // the bytes, and `join_citations` below would silently drop the
+            // asset edge out of the embedding page's `inputs`. `by_strong` is
+            // the other half, and it is a MULTI index because identical bytes
+            // legitimately share one address.
+            for key in resolve_citation(db, &url) {
+                let Some(row) = db.rows.get(&key) else {
+                    continue;
+                };
+                // An input that already lands is not the pull's to mint.
+                if row.output.is_some() {
+                    continue;
                 }
+                // Where this input publishes, and whether it publishes lazily
+                // at all: its strong address if the policy gave it one, else
+                // its own URL — and then only if its rule deferred the route.
+                let at = match &row.strong_url {
+                    Some(s) => s.clone(),
+                    None if row.on_demand => row.url.clone(),
+                    None => continue, // lands eagerly, or never
+                };
+                // The twin: another input with the same bytes already
+                // published at this address, so there is ONE artifact and this
+                // row is its second input. Not a collision — dedupe, which is
+                // what a content address is for — so the edge joins the
+                // existing output instead of minting a second one over it.
+                let at_key = grackle_db::Key::new(&at);
+                if let Some(existing) = db.routes.get_mut(&at_key) {
+                    existing.inputs.push(key.clone());
+                    existing.inputs.sort();
+                    existing.inputs.dedup();
+                    if let Some(row) = db.rows.get_mut(&key) {
+                        row.output = Some(at_key);
+                    }
+                    continue;
+                }
+                let path = row.path.clone();
+                let strong = row.strong_url.clone();
+                let front_mattered = row.front_mattered;
+                let bytes = std::fs::read(&path)
+                    .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
+                // A materialized text file can cite more — and those citations
+                // are edges like any other, so they join the map rather than
+                // only the frontier.
+                if let Ok(text) = std::str::from_utf8(&bytes) {
+                    let mine = cited_urls(text, &at, site_url);
+                    next.extend(mine.iter().cloned());
+                    if !mine.is_empty() {
+                        cited.push((at.clone(), mine));
+                    }
+                }
+                let mut route = Route {
+                    row: Some(key.clone()),
+                    source: Some(path),
+                    front_mattered,
+                    // IO.md §4a's second address slot on the output side. For
+                    // an output the policy minted this equals `url`: the hash
+                    // address is where the artifact landed, because no rule
+                    // gave it another one.
+                    strong_url: strong,
+                    // The content edge, minted with the output it points at.
+                    inputs: vec![key.clone()],
+                    ..Route::new(at.clone(), RouteKind::Object)
+                };
+                // Rung 0 reaches BOTH shapes this seam mints (IO.md I10, the
+                // law at load.rs's `force_route_fields` call site): minting an
+                // output is the graph event, so every minting seam applies
+                // `SiteDb::forced_fields`. I11 adds a shape to this seam, not
+                // a seam — which is the cheapest possible way to stay inside
+                // the law, and the reason the strong mint was folded into this
+                // loop rather than written beside it.
+                for (name, value) in &forced {
+                    route.fields.insert(name.clone(), value.clone());
+                }
+                // IO.md §2, the pull model made literal: a lazily-published
+                // row's `output` is `None` for the whole of the build's
+                // queryable life and becomes `Some` exactly here — the moment
+                // a reference materialized it. "Bare `output` is truthy iff
+                // the row lands anywhere" is then true at every instant rather
+                // than true of a plan; what it costs is that a filter, which
+                // runs upstream of this pass, always sees the unreferenced
+                // answer.
+                if let Some(row) = db.rows.get_mut(&key) {
+                    row.output = Some(route.id.clone());
+                }
+                db.routes.push(route);
+                out_map.insert(at, bytes);
+                made += 1;
             }
-            let mut route = Route {
-                row: Some(key.clone()),
-                source: Some(path),
-                front_mattered,
-                // The content edge, minted with the output it points at.
-                inputs: vec![key.clone()],
-                ..Route::new(url.clone(), RouteKind::Object)
-            };
-            for (name, value) in &forced {
-                route.fields.insert(name.clone(), value.clone());
-            }
-            // IO.md §2, the pull model made literal: an on-demand row's
-            // `output` is `None` for the whole of the build's queryable life
-            // and becomes `Some` exactly here — the moment a reference
-            // materialized it. "Bare `output` is truthy iff the row lands
-            // anywhere" is then true at every instant rather than true of a
-            // plan; what it costs is that a filter, which runs upstream of
-            // this pass, always sees the unreferenced answer.
-            if let Some(row) = db.rows.get_mut(&key) {
-                row.output = Some(route.id.clone());
-            }
-            db.routes.push(route);
-            out_map.insert(url, bytes);
-            made += 1;
         }
         frontier = next;
     }
@@ -2443,8 +2511,8 @@ pub(crate) fn fill_link_resolver<'a>(
     cfg: &'a Config,
     space: &'a crate::links::LinkSpace,
     locale: &'a str,
-) -> impl Fn(&Path, &str) -> Result<Option<String>> + 'a {
-    move |owner: &Path, href: &str| {
+) -> impl Fn(crate::links::Cite, &Path, &str) -> Result<Option<String>> + 'a {
+    move |form: crate::links::Cite, owner: &Path, href: &str| {
         crate::links::resolve(
             cfg,
             space,
@@ -2452,6 +2520,7 @@ pub(crate) fn fill_link_resolver<'a>(
             "\u{0}",
             locale,
             &format!("{}/.slots", owner.display()),
+            form,
             href,
         )
     }
@@ -2632,8 +2701,17 @@ fn render_config_prose(
     text: &crate::config::LocalizedStr,
 ) -> Result<Option<String>> {
     let text = cfg.i18n.text(text, locale);
-    let doc = crate::markdown::render_doc_with(text, &|href| {
-        crate::links::resolve(cfg, linkspace, Path::new(""), "\u{0}", locale, source, href)
+    let doc = crate::markdown::render_doc_with(text, &|form, href| {
+        crate::links::resolve(
+            cfg,
+            linkspace,
+            Path::new(""),
+            "\u{0}",
+            locale,
+            source,
+            form,
+            href,
+        )
     })?;
     Ok(Some(doc.whole.trim_end().to_string()))
 }

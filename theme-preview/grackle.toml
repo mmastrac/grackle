@@ -190,6 +190,11 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # objects rule's shell itself — an image leaves through the transparent one
 # (IO.md I7e: one row constructor, so an object takes rule defaults like any
 # other row, and this site's census reads `raw` rather than Null).
+#
+# The route is this site's own. `extends = "none"` means there is no base rule
+# to silence, so this is simply the site saying where its wall and its covers
+# land — the alternative being `embed = true` (IO.md §4a), which addresses them
+# by content hash and publishes only what the galleries embed.
 [[collections]]
 name = "objects"
 kind = "objects"

@@ -80,6 +80,11 @@ fn site(whose: &str) -> PathBuf {
             "demos/pane.html",
             "---\ntitle: Glass pane\nshell: raw\n---\n<div class=\"pane\"></div>\n",
         ),
+        // The fifth, IO.md I11's: an image the base's objects rule DECLINES to
+        // route (`embed = true`), so its address is the policy's. Written as
+        // text rather than as PNG bytes because nothing here decodes it — the
+        // block under test is about addresses.
+        ("assets/kite.png", "not a real png, and nothing reads it\n"),
     ];
     for (rel, body) in files {
         let p = dir.join(rel);
@@ -123,6 +128,57 @@ fn explain_reads_the_row_rather_than_a_literal() {
          different rule of it, a different shell, no identity — and it used to \
          report itself a post in the one fact printed. It agrees in the fifth: \
          it lands, which is why `output` is not a spelling of `rendered`"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **The two address slots, as `explain` prints them** (IO.md §4a, I11).
+///
+/// An embed-addressed row is the one shape where the block's `output` dash has
+/// to be read together with a line ABOVE it: `url` is empty, `output` is a
+/// dash, and without the reason those two together say "this row is broken"
+/// rather than "an `<img>` can reach this row and a link cannot". So the dash
+/// carries its fourth reason and `strong_url` is printed beside it — and only
+/// there, because a `strong_url -` on every routed row of every site would
+/// report the policy off rather than the row routed.
+///
+/// Found by `rel` rather than by URL, which is itself the claim: there is no
+/// URL to look it up by.
+///
+/// Mutations, each red: give the fourth arm the bare dash (the reason goes,
+/// and the row is indistinguishable from one no rule mentioned); print
+/// `strong_url` unconditionally (the post's block grows a line that says
+/// nothing); print the slot and drop the reason (the pair stops being
+/// readable, which is the shape I8 argued about one field over).
+#[test]
+fn explain_prints_the_second_address_slot_and_the_reason_for_the_dash() {
+    let dir = site("strong");
+    let cfg = grackle::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
+    let db = grackle_source::load(&cfg).expect("the site loads");
+    let kite = db
+        .rows
+        .iter()
+        .find(|r| r.rel.to_string_lossy() == "assets/kite.png")
+        .expect("the image is a row, addressed or not");
+    let block = grackle::debug::row_facts(kite);
+    assert!(
+        block.contains("output      - (embed-addressed — nothing has embedded it)\n"),
+        "the fourth reason a dash can have: {block}"
+    );
+    assert!(
+        block.contains("strong_url  /static/"),
+        "and the slot that says what CAN reach it: {block}"
+    );
+    // The control, in the same site: a routed row prints no slot at all.
+    let post = db
+        .by_url
+        .get("/blog/2020/01/01/hello/")
+        .and_then(|k| db.rows.get(k))
+        .expect("the post is a row");
+    assert!(
+        !grackle::debug::row_facts(post).contains("strong_url"),
+        "a routed row has one address and says so by silence"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

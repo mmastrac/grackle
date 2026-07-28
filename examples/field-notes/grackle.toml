@@ -53,6 +53,14 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 # Membership is what this scope's rules claim (IO.md I7a): the extension list
 # is the glob, case-insensitively.
+#
+# The route is this site's own, and since I11 that is the whole story: the base
+# declines to route images (`embed = true`, IO.md §4a), so a site that wants
+# literal asset paths — bookmarkable, linkable, what `photos/p01.png` has always
+# meant here — says so in one line, and first-writer-wins silences the base's.
+# Delete it and these twelve photos would publish only at their `/static/`
+# content addresses, reachable by the galleries that embed them and by nothing
+# else.
 [[collections]]
 name = "objects"
 kind = "objects"

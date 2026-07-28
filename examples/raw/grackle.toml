@@ -112,13 +112,19 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # is the glob, case-insensitively. The shell is declared like every other
 # rule's — an image leaves through the transparent one (IO.md I7e: one row
 # constructor, so an object takes rule defaults like any other row).
+#
+# `embed = true` transcribes the base faithfully (IO.md §4a, I11): the base
+# routes no image, so neither does this. This site has none, so the line is
+# what the transcription says rather than what it does — swap it for
+# `route = "/{path}"` and images land at their literal paths, which is what a
+# site with assets to bookmark writes.
 [[collections]]
 name = "objects"
 kind = "objects"
 
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
-  route = "/{path}"
+  embed = true
   defaults = { shell = "raw" }
 
 # The shell each row leaves through is declared here, not decided in the

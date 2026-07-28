@@ -424,20 +424,32 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// nothing has referenced it (`explain` runs no render pass, so this is the
 /// answer it will always give one), and a row no rule routed gets the bare
 /// dash, which is then the only thing a bare dash can mean.
+///
+/// **`strong_url` is the seventh** (IO.md §4a, I11) — the row's other address
+/// slot, printed only where there is one, because a `-` on every row of every
+/// site would say the policy is off rather than that the row is routed. Where
+/// it IS printed, `url` is empty and the `output` dash reads *embed-addressed*:
+/// three lines that together say the one thing worth knowing about such a row,
+/// which is that an `<img>` can reach it and a link cannot.
 pub fn row_facts(r: &crate::db::Row) -> String {
     let identity = match (r.front_mattered, r.sidecar) {
         (false, _) => "false".to_string(),
         (true, false) => "true (block)".to_string(),
         (true, true) => "true (sidecar)".to_string(),
     };
-    let output = match (&r.output, r.claimed, r.on_demand) {
-        (Some(k), _, _) => k.to_string(),
-        (None, true, _) => "- (claimed — the landing at that URL owns it)".to_string(),
-        (None, _, true) => "- (on demand — nothing has referenced it)".to_string(),
-        (None, _, _) => "-".to_string(),
+    let output = match (&r.output, r.claimed, r.on_demand, &r.strong_url) {
+        (Some(k), _, _, _) => k.to_string(),
+        (None, true, _, _) => "- (claimed — the landing at that URL owns it)".to_string(),
+        (None, _, true, _) => "- (on demand — nothing has referenced it)".to_string(),
+        (None, _, _, Some(_)) => "- (embed-addressed — nothing has embedded it)".to_string(),
+        (None, _, _, _) => "-".to_string(),
+    };
+    let strong = match &r.strong_url {
+        Some(s) => format!("strong_url  {s}\n"),
+        None => String::new(),
     };
     format!(
-        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {identity}\nrendered    {}\noutput      {output}\n",
+        "collection  {}\nrule        {}\nshell       {}\nfront_mattered {identity}\nrendered    {}\noutput      {output}\n{strong}",
         r.collection,
         r.rule.as_deref().unwrap_or("-"),
         r.shell.as_deref().unwrap_or("-"),

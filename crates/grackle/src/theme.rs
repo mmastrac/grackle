@@ -343,7 +343,7 @@ impl Theme {
         main: String,
         source_dir: &Path,
         locale: &str,
-        resolve_link: &dyn Fn(&Path, &str) -> Result<Option<String>>,
+        resolve_link: &dyn Fn(crate::links::Cite, &Path, &str) -> Result<Option<String>>,
         subtheme: Option<&str>,
         profile: Option<&str>,
         axis: &[grackle_model::AxisMember],
@@ -356,7 +356,7 @@ impl Theme {
         }
         for (name, phrasing) in &self.identity {
             if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, locale) {
-                let rendered = fill.render(&|href| resolve_link(&fill.owner, href))?;
+                let rendered = fill.render(&|form, href| resolve_link(form, &fill.owner, href))?;
                 let html = if *phrasing {
                     SlotFills::inline_or_err(&rendered)?.to_string()
                 } else {

@@ -51,7 +51,7 @@ impl Fill {
     /// via the §6d stage-B rewriter.
     pub fn render(
         &self,
-        resolve: &dyn Fn(&str) -> anyhow::Result<Option<String>>,
+        resolve: &dyn Fn(crate::links::Cite, &str) -> anyhow::Result<Option<String>>,
     ) -> Result<RenderedFill> {
         let html = match self.ext.as_str() {
             "md" => {

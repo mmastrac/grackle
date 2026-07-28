@@ -113,6 +113,23 @@ pub struct Row {
     #[serde(skip)]
     pub logical: String,
     pub url: String,
+    /// IO.md §4a's second address slot: the **hash address** the embed policy
+    /// published for this row, `/static/{hash}.{ext}`.
+    ///
+    /// `url` is the canonical address — where a rule said the row lands, what
+    /// an authored link resolves to, what `rel=canonical` names. This is the
+    /// content store made public: what an EMBEDDED citation resolves to when
+    /// no rule routed the row. `Some` exactly when a rule said `embed = true`
+    /// and the policy admitted the row, and then `url` is empty — the two
+    /// slots are not alternatives on one row today, because a routed output
+    /// wins and I12 owns the twin that carries both.
+    ///
+    /// Computed at LOAD, from the input bytes and the transform parameters and
+    /// from nothing else (`strong::address`) — the hashing law, which is what
+    /// keeps §1's "facts at planning" true of an output whose whole address is
+    /// a hash.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strong_url: Option<String>,
     /// Measured at load, when the body is briefly in hand. The body itself
     /// is not kept — every consumer re-reads it (§2).
     pub body_bytes: usize,
@@ -384,6 +401,17 @@ pub struct Route {
     #[serde(skip)]
     pub id: Key,
     pub url: String,
+    /// IO.md §4a: this output's **hash address**, when the embed policy
+    /// published it — [`Row::strong_url`] on the output side.
+    ///
+    /// For an output the policy minted, this equals `url`: the strong address
+    /// is where the artifact landed, because no rule gave it another one.
+    /// That equality is the honest reading of "strong addresses are the
+    /// content store made public, not routes" — the node exists so
+    /// invalidation can reach it and the pull can order it, and the *rule*
+    /// that would have minted a canonical URL was never written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strong_url: Option<String>,
     pub kind: RouteKind,
     /// IO.md §3: the input this output came from carried a front-matter block.
     ///
@@ -500,6 +528,7 @@ impl Route {
         Route {
             id: Key::new(&url),
             url,
+            strong_url: None,
             kind,
             front_mattered: false,
             row: None,
@@ -674,6 +703,21 @@ pub struct SiteDb {
     pub by_year_month: BTreeMap<(i32, u32), Vec<Key>>,
     #[serde(skip)]
     pub by_url: HashMap<String, Key>,
+    /// IO.md §4a, I11: **strong address → the rows that share it.**
+    ///
+    /// `by_url` is the CANONICAL address index and holds canonical row URLs
+    /// only, so a `/static/{hash}` citation resolves to nothing there — which
+    /// is exactly the hole review I-D named: an embedding page's `inputs`
+    /// would silently lose the asset edge, and the pull would never publish
+    /// the bytes. This is the other half of citation resolution.
+    ///
+    /// **Non-unique on purpose**, and that is the untransformed-twin rule
+    /// spelled as a data structure: the address is a pure function of the
+    /// bytes, so two inputs holding one byte string legitimately share one
+    /// address and one store entry. A unique index would have called that a
+    /// collision; a multi-index calls it dedupe, which is what it is.
+    #[serde(skip)]
+    pub by_strong: BTreeMap<String, Vec<Key>>,
     /// §6f: logical identity -> every locale variant (default included).
     /// Safe to share across both origins now that `logical` is
     /// root-relative on each.
@@ -1224,7 +1268,11 @@ impl SiteDb {
         let by_year_month = self
             .rows
             .multi_index(|p| dated(p).then(|| p.year_month()).flatten());
+        // The second address index (IO.md §4a): MULTI, because sharing an
+        // address is what identical bytes are supposed to do.
+        let by_strong = self.rows.multi_index(|p| p.strong_url.clone());
 
+        self.by_strong = by_strong;
         self.by_logical = by_logical;
         self.by_slug = by_slug;
         self.by_tag = by_tag;

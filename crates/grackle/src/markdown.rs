@@ -140,16 +140,24 @@ pub struct Doc {
 }
 
 pub fn render_doc(src: &str) -> Doc {
-    render_doc_with(src, &|_| Ok(None)).expect("no-op resolver cannot fail")
+    render_doc_with(src, &|_, _| Ok(None)).expect("no-op resolver cannot fail")
 }
 
-/// `render_doc` with a link resolver (§6a row/view links): every markdown
-/// link's destination is offered to `resolve`; `Ok(Some(url))` rewrites it,
-/// `Ok(None)` leaves it, and an error aborts the render — a broken source
-/// reference is a build error naming the file, not a shipped 404.
+/// `render_doc` with a citation resolver (§6a row/view links, IO.md §4a):
+/// every markdown link's and image's destination is offered to `resolve`;
+/// `Ok(Some(url))` rewrites it, `Ok(None)` leaves it, and an error aborts the
+/// render — a broken source reference is a build error naming the file, not a
+/// shipped 404.
+///
+/// **Links and images are offered separately**, tagged with which they are.
+/// They were not before: the AST pass visited `Link` and skipped `Image`, so
+/// `![](x.png)` reached no resolver at all, and §6d stage B's raw-HTML twin
+/// declined `img[src]` to keep the two paths equal. Both now offer both, and
+/// what the two forms MEAN is `links::resolve`'s to say — an authored link
+/// demands a route, an embed takes the strong address.
 pub fn render_doc_with(
     src: &str,
-    resolve: &dyn Fn(&str) -> anyhow::Result<Option<String>>,
+    resolve: &dyn Fn(crate::links::Cite, &str) -> anyhow::Result<Option<String>>,
 ) -> anyhow::Result<Doc> {
     let arena = Arena::new();
     let opts = options();
@@ -157,10 +165,18 @@ pub fn render_doc_with(
     rouge_code_blocks(root);
     for node in root.descendants() {
         let mut data = node.data.borrow_mut();
-        if let comrak::nodes::NodeValue::Link(ref mut link) = data.value {
-            if let Some(url) = resolve(&link.url)? {
-                link.url = url;
+        match data.value {
+            comrak::nodes::NodeValue::Link(ref mut link) => {
+                if let Some(url) = resolve(crate::links::Cite::Link, &link.url)? {
+                    link.url = url;
+                }
             }
+            comrak::nodes::NodeValue::Image(ref mut img) => {
+                if let Some(url) = resolve(crate::links::Cite::Embed, &img.url)? {
+                    img.url = url;
+                }
+            }
+            _ => {}
         }
     }
     let mut whole = String::new();
@@ -290,7 +306,7 @@ mod link_tests {
     /// what it returns None for, and its errors abort the render.
     #[test]
     fn resolver_rewrites_and_fails_loud() {
-        let doc = render_doc_with("[a](x.md) and [b](https://e.com/)", &|href| {
+        let doc = render_doc_with("[a](x.md) and [b](https://e.com/)", &|_, href| {
             Ok(match href {
                 "x.md" => Some("/x/".to_string()),
                 _ => None,
@@ -303,7 +319,7 @@ mod link_tests {
             "{}",
             doc.whole
         );
-        let err = render_doc_with("[a](nope.md)", &|_| anyhow::bail!("no such source"));
+        let err = render_doc_with("[a](nope.md)", &|_, _| anyhow::bail!("no such source"));
         let Err(e) = err else {
             panic!("a resolver error must fail the render")
         };

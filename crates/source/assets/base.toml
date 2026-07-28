@@ -153,14 +153,47 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 # built from `Default::default()`, so no cascade ran over it and its `shell`
 # was Null — and now that there is one row constructor it is the line that says
 # an image leaves through the transparent shell, which is what it always did.
+#
+# `embed = true` and NOT `route = "/{path}"` (IO.md §4a, I11), which is rule 2
+# above at its strictest: the base used to mint a public URL for every image on
+# every site that inherited it, at a path the author never wrote down and could
+# not have declined without an `extends = "none"`. Now it mints none. An
+# `<img>` reaches these rows at their content address under `/static/`, an
+# authored link to one is a load error naming the fix, and an image nothing
+# cites ships nowhere at all.
+#
+# A site that wants literal asset paths writes ONE rule saying so, above this
+# one — `route = "/{path}"`, which is the line that used to be here — and every
+# corpus site with images already does (`examples/field-notes`, `theme-preview`
+# and grack.com each declare their own objects rule; that is why this change
+# moves no byte anywhere). First-writer-wins does the rest: the address
+# question is answered once, by the first rule that answers it either way, so
+# a site's route silences this line without deleting it.
 
 [[collections]]
 name = "objects"
 kind = "objects"
 
+  # The one image the base routes, and it is rule 2's own exception: a site
+  # icon is fetched by URL with nothing on the page pointing at it in any way
+  # a reference scan can see, so it cannot be reference-driven — and
+  # `[html.head.link] icon` above LINKS `site.icon`, which is the first of
+  # `/favicon.{svg,png,ico,webp,gif}` a row occupies (§4d, build.rs's
+  # `ICON_URLS`). Leave this to the embed policy and every base-inheriting site
+  # ships a `<link rel="icon">` pointing at nothing, which is a bug on any
+  # site.
+  #
+  # The four extensions are the intersection of that list with the glob below:
+  # `.ico` is not an image this scope claims, so it stays an ordinary tree byte
+  # copy at its literal path, exactly as it did before this rule existed.
+  [[collections.rules]]
+  match = "favicon.{svg,png,webp,gif}"
+  route = "/{path}"
+  defaults = { shell = "raw" }
+
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
-  route = "/{path}"
+  embed = true
   defaults = { shell = "raw" }
 
 # ---------------------------------------------------------------- pages

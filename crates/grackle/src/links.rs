@@ -25,6 +25,23 @@ use crate::db::{RouteKind, SiteDb};
 // that can name a URL the build never issued.
 use grackle_source::load::{select_path, Coord};
 
+/// Which FORM of citation is asking (IO.md §4a, I11).
+///
+/// The design's sentence — *three URLs, three jobs, each citation form knowing
+/// its address kind* — as a parameter. An authored **link** is a promise of a
+/// bookmarkable address, so it demands a route and errors without one. An
+/// **embed** is markup the browser fetches, so it takes the strong address
+/// when the target has no route, and is not held to the link policy at all:
+/// half the `src`s on a finished page are engine-derived (`/static/` thumbs,
+/// the stylesheet) and were never anybody's source path.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cite {
+    /// `[text](x)`, `<a href>` — an address a human may bookmark.
+    Link,
+    /// `![alt](x)`, `<img src>`, `<iframe src>` — bytes the page pulls in.
+    Embed,
+}
+
 /// Everything link resolution needs, computed once per build.
 pub struct LinkSpace {
     /// Root-relative source path → the row's URL (posts, pages, objects).
@@ -66,9 +83,31 @@ pub struct LinkSpace {
     /// abstraction: a member may add its own content file.
     source_to_logical: HashMap<String, String>,
     sibling: HashMap<(String, String), String>,
+    /// IO.md §4a: root-relative source path → the row's STRONG address, for
+    /// the rows a rule declined to route (`embed = true`).
+    ///
+    /// A second map rather than a widening of `source_to_url`, because the two
+    /// answer different questions and exactly one citation form may read each:
+    /// an embed resolves here, and an authored link resolving here is the
+    /// error that says a bookmarkable address was never declared. Merging them
+    /// would have made a link to an unrouted asset silently ship a hash URL,
+    /// which is the address kind that exists precisely because it is nobody's
+    /// to write down.
+    source_to_strong: HashMap<String, String>,
 }
 
 impl LinkSpace {
+    /// The strong address of a root-relative source path, for the generated
+    /// affordances that are not markup anyone authored (IO.md §4a).
+    ///
+    /// `{% image %}` is the one caller today: its `<a href>` is an expansion
+    /// affordance rather than an authored link, so it takes the strong address
+    /// where an authored link to the same row would be refused. Same map, and
+    /// the difference is entirely which citation form is asking.
+    pub fn strong_of_source(&self, rel: &str) -> Option<&str> {
+        self.source_to_strong.get(rel).map(String::as_str)
+    }
+
     /// Does this URL name a materialized route? The raw-HTML seam (§6d stage
     /// B) asks, because it meets engine-derived URLs it must not police.
     pub fn is_route(&self, url: &str) -> bool {
@@ -92,11 +131,19 @@ impl LinkSpace {
         let mut source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>> = HashMap::new();
         let mut source_to_logical = HashMap::new();
         let mut sibling = HashMap::new();
+        let mut source_to_strong = HashMap::new();
         // A row that publishes on demand (§4) is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
         // cited it. Its URL comes from the same rule template either way.
         for p in db.posts().chain(db.pages()).chain(db.objects()) {
+            // IO.md §4a: an embed-addressed row has no canonical URL at all,
+            // and its strong address goes in the other map — which is what
+            // makes a LINK to it an error and an EMBED of it resolve.
+            if let Some(strong) = &p.strong_url {
+                source_to_strong.insert(p.rel.to_string_lossy().to_string(), strong.clone());
+                continue;
+            }
             // q45: a claimed locale variant whose partition never
             // materialized has no URL; offering it would rewrite links
             // to "".
@@ -169,6 +216,7 @@ impl LinkSpace {
             member_url,
             source_to_logical,
             sibling,
+            source_to_strong,
             warnings: Mutex::new(BTreeSet::new()),
         }
     }
@@ -281,6 +329,7 @@ pub fn resolve(
     url_dir: &str,
     locale: &str,
     source: &str,
+    form: Cite,
     href: &str,
 ) -> Result<Option<String>> {
     // Not ours: external schemes, in-page fragments, protocol-relative.
@@ -299,6 +348,29 @@ pub fn resolve(
 
     if let Some(rest) = href.strip_prefix("view:") {
         return view_link(cfg, space, locale, source, rest).map(Some);
+    }
+
+    // IO.md §4a's embed branch, and it is deliberately the SMALLEST thing that
+    // can be true.
+    //
+    // An embed rewrites in exactly one case — the target is a row a rule
+    // declined to route, so the only address it has is the strong one — and
+    // otherwise hands the author's markup back untouched. Two refusals fall
+    // out of that, both of them right:
+    //
+    //   * an embed of a ROUTED row keeps what the author wrote. "A routed
+    //     output wins — citations link the declared address" is what a
+    //     relative `src` beside its page already says, and rewriting those to
+    //     canonical URLs would move bytes on a corpus no item asked to move.
+    //   * an embed is not held to `[links] policy`. Most `src`s on a finished
+    //     page are engine-derived — `/static/` thumbnails, the stylesheet, the
+    //     favicon — and were never a source path to dangle.
+    //
+    // So the whole seam is: two candidate spellings of a source path, one
+    // lookup, no index fallback (an embed of a directory means nothing) and no
+    // axis selectors (an image has one form; renditions are I12's).
+    if form == Cite::Embed {
+        return Ok(embed_target(space, linking_dir, href));
     }
 
     // Split an anchor/query suffix off the path part.
@@ -407,6 +479,21 @@ pub fn resolve(
         }
     }
     for (c, was_relative) in &candidates {
+        // IO.md §4a: **an authored link demands a route.** The target is a
+        // known row — the resolver found it — and the config declined to give
+        // it a canonical address, so there is nothing here a reader could
+        // bookmark. Answering with the strong address would be worse than
+        // failing: a hash URL is the content store made public, it changes the
+        // day the bytes do, and a link is a promise that it will not.
+        if let Some(strong) = space.source_to_strong.get(c) {
+            bail!(
+                "{source}: link {href:?} names {c:?}, which no rule routes — \
+                 the embed policy gives it a content address ({strong}) and \
+                 nothing else, and that address is not a link's to make. Add a \
+                 rule routing it (e.g. `route = \"/{{path}}\"`), or embed it \
+                 instead."
+            );
+        }
         if let Some(url) = space.source_to_url.get(c) {
             if *was_relative {
                 let browser = format!(
@@ -519,6 +606,34 @@ pub fn resolve(
             }
         }
     }
+}
+
+/// The strong address an EMBED of `href` resolves to, or `None` to leave the
+/// markup exactly as written (IO.md §4a).
+///
+/// `href` is offered in the two spellings the corpus writes: relative to the
+/// embedding file, and root-relative. Anything with a query or a fragment
+/// keeps them — an `<img src="a.png?v=2">` names the same file — so the suffix
+/// is split off the path and put back.
+fn embed_target(space: &LinkSpace, linking_dir: &Path, href: &str) -> Option<String> {
+    let cut = href.find(['#', '?']).unwrap_or(href.len());
+    let (path_part, suffix) = href.split_at(cut);
+    if path_part.is_empty() {
+        return None;
+    }
+    let mut candidates: Vec<String> = Vec::new();
+    if !path_part.starts_with('/') {
+        candidates.push(
+            normalize(&linking_dir.join(path_part))
+                .to_string_lossy()
+                .to_string(),
+        );
+    }
+    candidates.push(path_part.trim_start_matches('/').to_string());
+    candidates
+        .iter()
+        .find_map(|c| space.source_to_strong.get(c))
+        .map(|s| format!("{s}{suffix}"))
 }
 
 /// `view:name[/key…]` → the view's route, rendered and verified.
@@ -713,6 +828,32 @@ mod tests {
     use super::*;
     use crate::db::{Route, RouteKind};
 
+    /// Every case below is about an authored LINK, so the form is bound once
+    /// here rather than repeated at thirty call sites. The embed form has its
+    /// own tests, in `io_embeds.rs`, where a site with an unrouted asset can
+    /// be built.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn resolve(
+        cfg: &Config,
+        space: &LinkSpace,
+        linking_dir: &Path,
+        url_dir: &str,
+        locale: &str,
+        source: &str,
+        href: &str,
+    ) -> Result<Option<String>> {
+        super::resolve(
+            cfg,
+            space,
+            linking_dir,
+            url_dir,
+            locale,
+            source,
+            Cite::Link,
+            href,
+        )
+    }
+
     /// A link to a DIRECTORY resolves to its index; strict mode must not
     /// call those dangling.
     #[test]
@@ -839,6 +980,7 @@ mod tests {
 
 #[cfg(test)]
 mod axis_tests {
+    use super::tests::resolve;
     use super::*;
     use crate::db::{Route, RouteKind};
     use grackle_model::AxisMember;

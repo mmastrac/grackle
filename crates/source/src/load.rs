@@ -40,6 +40,9 @@ struct CompiledRule<'a> {
     route: &'a [String],
     front_matter: Option<bool>,
     on_demand: bool,
+    /// IO.md §4a: this rule declines to route — the embed policy addresses
+    /// its rows. The other half of `route`, and read in the same place.
+    embed: bool,
     pattern: &'a str,
     /// This rule's own extractors, compiled. Empty means "the collection's",
     /// which [`apply_rules`] resolves — the rule holds what it DECLARED, so
@@ -74,6 +77,7 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
                 route: &r.route,
                 front_matter: r.front_matter,
                 on_demand: r.on_demand.unwrap_or(false),
+                embed: r.embed.unwrap_or(false),
                 pattern: r.pattern.as_str(),
                 formats: compile_formats(&r.filename_formats)?,
                 defaults: &r.defaults,
@@ -257,6 +261,15 @@ struct Routing<'a> {
     /// The extractors in force for this row: the first matching rule that
     /// declared any, else the collection's own list.
     formats: &'a [FilenameFormat],
+    /// The rule that decided the address said `embed = true` (IO.md §4a):
+    /// there is no route to render, and the embed policy supplies a
+    /// `strong_url` instead.
+    ///
+    /// Decided by the SAME first-writer step `templates` is, and that matters
+    /// on every base-inheriting site: `route` and `embed` are two answers to
+    /// one question, so the first rule that answers it wins and the base's
+    /// `embed` line beneath a site's own routing rule never speaks.
+    embed: bool,
     /// The winning route rule was on-demand: compute the URL, emit no route
     /// until something references it.
     on_demand: bool,
@@ -285,6 +298,12 @@ fn apply_rules<'a>(
     let mut templates: &[String] = &[];
     let mut pattern: &str = "";
     let mut formats: Option<&[FilenameFormat]> = None;
+    let mut embed = false;
+    // The address question is answered ONCE, by the first rule past both gates
+    // that answers it either way (IO.md §4a). `templates.is_empty()` used to
+    // stand in for this, and cannot any more: an embed rule supplies no
+    // template, so silence and a decision would look the same.
+    let mut addressed = false;
     let mut on_demand = false;
     let mut on_demand_cover: Vec<&str> = Vec::new();
     let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
@@ -307,10 +326,15 @@ fn apply_rules<'a>(
         if rule.on_demand && !rule.route.is_empty() {
             on_demand_cover.push(rule.pattern);
         }
-        if templates.is_empty() && !rule.route.is_empty() {
+        if !addressed && !rule.route.is_empty() {
             templates = rule.route;
             pattern = rule.pattern;
             on_demand = rule.on_demand;
+            addressed = true;
+        } else if !addressed && rule.embed {
+            embed = true;
+            pattern = rule.pattern;
+            addressed = true;
         }
         // First writer wins here too, and deliberately independent of which
         // rule won the ROUTE: `filename_formats` is a key like any other, so a
@@ -328,10 +352,65 @@ fn apply_rules<'a>(
         templates,
         pattern,
         formats: formats.unwrap_or(collection_formats),
+        embed,
         on_demand,
         on_demand_cover,
         defaults,
     }
+}
+
+/// The embed policy's answer for one row (IO.md §4a, I11): its strong address,
+/// or the load error that says the config left this asset unreachable.
+///
+/// **Both refusals are here, at load, and that is stricter than §4a's letter
+/// on purpose.** The design says an embedded-but-unrouted asset is an error
+/// when the policy is off; asking at load asks one question earlier — before
+/// anyone knows whether the asset is embedded — and answers it for the uncited
+/// asset too. That is the honest place for it: with the policy off, or with
+/// this row outside its subset, `embed = true` is a rule that names no address
+/// at all, which is a statement about the CONFIG and needs no citation to be
+/// wrong. It also means the refusal names the asset (the design's ask) with a
+/// path rather than with a URL that does not exist.
+///
+/// The mint itself is `strong::address`, and the hashing law is stated there:
+/// inputs plus parameters, never output bytes.
+fn embed_address(
+    cfg: &Config,
+    subset: &Option<GlobSet>,
+    f: &store::TreeFile,
+    pattern: &str,
+) -> Result<String> {
+    let fix = "Route it with a rule (e.g. `route = \"/{path}\"`), or let the \
+               embed policy address it";
+    if !cfg.embeds.enabled {
+        bail!(
+            "{}: the rule `match = {pattern:?}` declares `embed = true`, so no \
+             rule routes this asset — and `[embeds] enabled = false` turns off \
+             the policy that would have given it a `/static/` address. It can \
+             be reached by nothing. {fix} by re-enabling `[embeds]`.",
+            f.rel.display()
+        );
+    }
+    if let Some(g) = subset {
+        if !g.is_match(&f.rel) {
+            bail!(
+                "{}: the rule `match = {pattern:?}` declares `embed = true`, so \
+                 no rule routes this asset — and `[embeds] match` does not \
+                 admit it, so the policy publishes no address for it either. \
+                 It can be reached by nothing. {fix} by widening `[embeds] \
+                 match` ({}).",
+                f.rel.display(),
+                cfg.embeds.patterns.join(", ")
+            );
+        }
+    }
+    let bytes = std::fs::read(&f.path)
+        .with_context(|| format!("embed address: reading {}", f.path.display()))?;
+    Ok(crate::strong::address(
+        &bytes,
+        crate::strong::IDENTITY,
+        &crate::strong::ext_of(&f.rel),
+    ))
 }
 
 /// At most one on-demand rule may cover a path (§4).
@@ -615,7 +694,11 @@ const PATH_TOKENS: &[&str] = &["path", "dir", "stem", "name", "ext"];
 ///   named;
 /// - **the axes**, which are not filled here at all: a declared axis (and
 ///   `locale`) is handed back as its own placeholder, for `select_path` and
-///   the materializer to spend per member (q53).
+///   the materializer to spend per member (q53);
+/// - **`{hash}`**, the row's content hash (IO.md §4a, I11) — for a site that
+///   wants hashed CANONICAL addresses by rule rather than by policy. It reads
+///   the file, so it is the one token that costs I/O, and it is read lazily
+///   and once: a template that does not spend it never opens anything.
 ///
 /// Before this type there were two suppliers with no overlap: the tree offered
 /// path tokens and the posts loader offered date/slug inline, so a file in a
@@ -625,6 +708,13 @@ struct RouteTokens<'a> {
     cfg: &'a Config,
     /// The path the rule matched — see the doc above on why it is that one.
     rel: &'a Path,
+    /// The row's file, for `{hash}`. Absolute, unlike `rel`, because the token
+    /// is about the BYTES rather than about the name.
+    path: &'a Path,
+    /// `{hash}`, memoized: `check` asks for every token and then `render`
+    /// asks again, and hashing a file twice per template is not a thing to do
+    /// quietly. `Some(None)` is "asked, and the file would not read".
+    hash: std::cell::RefCell<Option<Option<String>>>,
     /// The row's resolved date: front matter first where the loader has read
     /// it, else the extractor's. `None` is a row with no date at all, and the
     /// three date tokens are then unfillable — which is the error below.
@@ -661,6 +751,17 @@ impl RouteTokens<'_> {
                 .map(|d| d.format("%-d").to_string())
                 .or_else(|| self.key?.day.map(|d| d.to_string())),
             "slug" => Some(self.slug.to_string()),
+            // IO.md §4a's hashing law, spent as a route token: the digest is
+            // over the INPUT bytes and the identity transform's parameters,
+            // which is what a canonical URL spending `{hash}` has to mean —
+            // the address exists at planning, before any shell runs, exactly
+            // like every other route token.
+            //
+            // A site spelling `route = "/static/{hash}.{ext}"` therefore mints
+            // the SAME string the embed policy would have, which is the
+            // untransformed-twin rule arriving for free: one hash function,
+            // one address per byte string, whichever mechanism asked.
+            "hash" => self.content_hash(),
             // An axis placeholder is spent per member, not here (q53).
             k => {
                 let (_, bare) = template::classify(k);
@@ -668,6 +769,22 @@ impl RouteTokens<'_> {
                     .then(|| format!("{{{k}}}"))
             }
         }
+    }
+
+    /// The `{hash}` token's value, computed at most once per row.
+    fn content_hash(&self) -> Option<String> {
+        if let Some(cached) = self.hash.borrow().as_ref() {
+            return cached.clone();
+        }
+        let v = std::fs::read(self.path).ok().map(|b| {
+            crate::strong::address(&b, crate::strong::IDENTITY, "")
+                .rsplit('/')
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        });
+        *self.hash.borrow_mut() = Some(v.clone());
+        v
     }
 
     /// Render one rule's route templates for one row, refusing any template
@@ -735,9 +852,9 @@ impl RouteTokens<'_> {
         bail!(
             "{}: the rule `match = {pattern:?}` routes it to {tmpl:?}, which \
              spends {{{}}} — nothing supplies that token. A route may spend the \
-             path tokens ({}), the row's {{slug}}, the date tokens (year, month, \
-             day) wherever `filename_formats` or a `date:` gives the row a \
-             date{axes}.",
+             path tokens ({}), the row's {{slug}}, `{{hash}}` (the content \
+             hash), the date tokens (year, month, day) wherever \
+             `filename_formats` or a `date:` gives the row a date{axes}.",
             path.display(),
             unfillable.join("}, {"),
             PATH_TOKENS.join(", ")
@@ -1002,6 +1119,11 @@ fn walk_site(
     warnings: &mut Vec<String>,
 ) -> Result<(Vec<Row>, Vec<Row>, Vec<Row>)> {
     let root = cfg.root();
+    // IO.md §4a's policy, compiled once. `None` is "no subset declared" —
+    // every row an `embed` rule marked — which is not the same as an empty
+    // set, and is why this is an Option rather than a GlobSet that matches
+    // everything.
+    let embed_subset = cfg.embeds.compiled()?;
     // The sources that punch through the dot/underscore skip: a scope naming a
     // directory has declared it to be content, in the one key that means that.
     let sources: Vec<PathBuf> = scopes
@@ -1384,12 +1506,28 @@ fn walk_site(
             warnings.push(degenerate_warning(&f.rel, sh, &implied_title(&slug)));
         }
 
+        // The embed policy's half of the address question (IO.md §4a, I11).
+        // A rule said `embed = true`, so this row has NO canonical URL; what it
+        // has instead is the hash address the policy publishes, computed here —
+        // at planning, from the input bytes and the identity transform's
+        // parameters — because §1's law says an output's facts exist before
+        // anything renders and this address is one of them.
+        //
+        // Below the `permalink` branch on purpose: front matter beats a rule
+        // (§4b), and a `permalink:` is a canonical address written by hand, so
+        // a row that carries one is routed however its rule was written.
+        let mut strong_url: Option<String> = None;
+        if routing.embed && fm.permalink.is_none() {
+            strong_url = Some(embed_address(cfg, &embed_subset, &f, routing.pattern)?);
+        }
         // A `permalink` is a literal URL, spending no axis; otherwise each of
         // the rule's template(s) is rendered by the one supplier — path tokens,
         // the extractor's, axis and locale placeholders preserved for
         // per-member selection.
         let route_templates: Vec<String> = if let Some(p) = &fm.permalink {
             vec![p.clone()]
+        } else if strong_url.is_some() {
+            Vec::new()
         } else {
             if routing.templates.is_empty() {
                 bail!("no rule supplies a route for {}", f.path.display());
@@ -1397,13 +1535,22 @@ fn walk_site(
             RouteTokens {
                 cfg,
                 rel: &logical_rel,
+                path: &f.path,
+                hash: Default::default(),
                 date,
                 key: key.as_ref(),
                 slug: &slug,
             }
             .render_all(routing.templates, routing.pattern, &f.path)?
         };
-        let url = canonical_url(cfg, &route_templates, &locale)?;
+        // Empty for an embed-addressed row, and that is the shape the two
+        // slots take today: `url` is the canonical address and this row has
+        // none, so every reader that asks "where does this land canonically"
+        // gets the honest answer rather than a hash dressed as a route.
+        let url = match route_templates.is_empty() {
+            true => String::new(),
+            false => canonical_url(cfg, &route_templates, &locale)?,
+        };
 
         let logical = logical_root.to_string_lossy().to_string();
         // q45: a row named by some view's `content` is claimed — every locale
@@ -1446,6 +1593,7 @@ fn walk_site(
                 None => f.version,
             },
             url,
+            strong_url,
             rendered,
             // The tree's old page/static gate IS this fact, and since I7c it is
             // no longer the whole of the gate: the fact is one clause of the
@@ -1840,8 +1988,14 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut new_routes: Vec<Route> = Vec::new();
     // q45: a claimed row has no route of its own — the owning view materializes
     // the landing. §4: an on-demand row has none YET — a reference materializes
-    // it after the render pass.
-    for p in db.rows.iter().filter(|p| !p.claimed && !p.on_demand) {
+    // it after the render pass. IO.md §4a: an embed-addressed row has none
+    // EVER — no rule minted one — and its strong address publishes on the same
+    // pull, for the same reason: what nothing cites never materializes.
+    for p in db
+        .rows
+        .iter()
+        .filter(|p| !p.claimed && !p.on_demand && p.strong_url.is_none())
+    {
         // Route kind is a question about the row's PROPERTIES, not about which
         // vector it arrived in.
         let kind = if posts.contains(&p.key) {

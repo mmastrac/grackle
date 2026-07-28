@@ -312,7 +312,9 @@ fn the_pull_orders_dependencies_before_dependents() {
 /// output, and an input has no incoming edge, so the content subgraph is
 /// bipartite and has no cycle to find. The detector itself is exercised where
 /// a cycle can actually be built — `graph.rs`'s unit tests, which hand it the
-/// output→output content edge I11's renditions will introduce.
+/// output→output content edge I12's renditions will introduce. (I11 did not:
+/// a strong address hashes an INPUT's bytes, so its edge runs input →
+/// output like every other one — measured, and recorded in `graph.rs`.)
 ///
 /// Mutations, each red and each restored:
 ///
@@ -428,7 +430,9 @@ fn the_pull_publishes_a_cited_input_and_only_a_cited_one() {
 /// Byte-inert today, and that is stated rather than hidden: these routes are
 /// byte publishes with no head, minted below every reader of a route field. It
 /// is closed now because the hole grows every time an output is minted at a
-/// new seam, and I11/I12 add two.
+/// new seam. I11 added a SHAPE to this seam rather than a seam — its strong
+/// mint sits inside the same loop, under the same `forced_fields` — which is
+/// the cheapest way there is to stay inside the law.
 ///
 /// Mutations, each red and each restored: delete the `forced` loop in
 /// `materialize_referenced` (the minted route carries nothing while every

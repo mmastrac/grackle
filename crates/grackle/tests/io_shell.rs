@@ -29,6 +29,12 @@ use std::path::{Path, PathBuf};
 ///   stay silent (half the files it routes are byte copies);
 /// - the base's own feed and blog listing, which answer `atom` and `html`
 ///   without either being written anywhere.
+///
+/// The site declares where its images land and nothing else about them (I11:
+/// the base routes none), which sharpens the census below rather than blunting
+/// it — the ADDRESS comes from the site's rule and the SHELL still comes from
+/// the base's, because rule defaults accumulate from every matching rule while
+/// the address is decided once by the first that answers.
 fn site(who: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("grackle-io-shell-{who}"));
     let _ = std::fs::remove_dir_all(&dir);
@@ -43,7 +49,10 @@ fn site(who: &str) -> PathBuf {
              [routes.atom_probe]\npath = \"/atom-probe.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"atom\"'\n\n\
              [routes.null_probe]\npath = \"/null.xml\"\n\
-             shell = \"sitemap\"\nwhere = '!shell'\n",
+             shell = \"sitemap\"\nwhere = '!shell'\n\n\
+             [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+             [[collections.rules]]\n\
+             match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n",
         ),
         (
             "_posts/2020-01-01-hello.md",

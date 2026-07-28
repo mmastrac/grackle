@@ -40,6 +40,11 @@ pub struct Ctx<'a> {
     /// Custom block widgets: `name → wrapper template with a {body} hole`
     /// (§5d). None disables paired tags.
     pub widgets: Option<&'a std::collections::BTreeMap<String, String>>,
+    /// IO.md §4a: the address book, for the affordances this expander
+    /// generates. None leaves `{% image %}` with the source path it was given,
+    /// which is what every caller that has no `LinkSpace` (the unit tests) is
+    /// asking for.
+    pub links: Option<&'a crate::links::LinkSpace>,
     /// q45: the landing's route-aware self-embed — when a claimed row
     /// places `{% view <owner> %}`, the owning view is not looked up (it
     /// is materialized, not embeddable): THIS route's already-rendered
@@ -58,6 +63,7 @@ impl<'a> Ctx<'a> {
             thumbs: None,
             theme: None,
             widgets: None,
+            links: None,
             embed: None,
         }
     }
@@ -116,9 +122,28 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
         bail!("{}: {{% image %}} with no source", cx.source);
     }
     let thumb = cx.thumbs.and_then(|t| t.get(src));
+    // IO.md §4a's lightbox chain, as far as I11 takes it. The `<a>` is an
+    // EXPANSION AFFORDANCE — markup this expander generates, not a link a
+    // human wrote — so it is entitled to the strong address, which is exactly
+    // what the design's worked example says the full-size expansion uses. A
+    // routed asset keeps its canonical address here, byte for byte, because a
+    // routed output wins; only a row no rule routed reaches for the hash.
+    //
+    // What waits for I12: the THIRD URL. The example wants a download link at
+    // the canonical route beside the expansion, and `{% image %}` emits one
+    // element with one href — a second address needs a second affordance, and
+    // renditions are the item that gives affordances parameters to carry.
+    let full = match cx.links.and_then(|s| s.strong_of_source(src)) {
+        // No `baseurl` prefix, deliberately: a strong address is a published
+        // address like `Row.url`, and `Row.url` carries none either. The two
+        // agree, which is what lets the citation scan resolve this back to its
+        // input through `by_strong`.
+        Some(strong) => strong.to_string(),
+        None => format!("{}/{}", cx.baseurl, src),
+    };
     let img_src = match thumb {
         Some(t) => t.url.clone(),
-        None => format!("{}/{}", cx.baseurl, src),
+        None => full.clone(),
     };
     // q26: dimensions on the element that ships, so the browser reserves the
     // box before the bytes land. Emitted only when the thumb pass measured
@@ -128,8 +153,7 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
         None => String::new(),
     };
     Ok(format!(
-        "<a class='image {mode}' href='{b}/{src}'><img src='{img_src}' alt=''{dims}></a>",
-        b = cx.baseurl,
+        "<a class='image {mode}' href='{full}'><img src='{img_src}' alt=''{dims}></a>"
     ))
 }
 

@@ -16,6 +16,7 @@ mod shape;
 pub mod shell;
 pub mod sidecar;
 pub mod store;
+pub mod strong;
 pub mod views;
 
 pub use load::load;

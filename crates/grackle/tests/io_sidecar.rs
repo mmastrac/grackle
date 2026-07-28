@@ -33,8 +33,16 @@ const PNG: &[u8] = &[
 
 /// A site inheriting the base — so the objects rule, the tree rules and the
 /// front-matter gate are the real ones rather than a fixture's idea of them.
+/// The site routes its own images (IO.md I11: the base routes none), because
+/// every claim below is about a governed image's own address — `/assets/
+/// kite.png`, the bytes it ships there, the picture refusal that advises a
+/// route — and an embed-addressed row has no address of its own to make those
+/// claims about.
 const CONFIG: &str = "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\
-                      \n[schema]\nalt = { type = \"string\" }\ncover = { type = \"image\" }\n";
+                      \n[schema]\nalt = { type = \"string\" }\ncover = { type = \"image\" }\n\
+                      \n[[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+                      [[collections.rules]]\n\
+                      match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n";
 
 fn site(whose: &str, files: &[(&str, &[u8])]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("grackle-io-sidecar-{whose}"));

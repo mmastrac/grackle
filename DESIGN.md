@@ -307,6 +307,10 @@ kind = "objects"
   route = "/{path}"
 ```
 
+*(That last rule is the site's own since IO.md I11 — the base declares
+`embed = true` in its place, §5k. A site with images either writes it or lets
+the embed policy address them.)*
+
 **An objects scope has no extension list** *(IO.md I7a, 2026-07-27)*. It used
 to: `extensions = [...]` beside the rules, scanned before them. The list is a
 `match` glob now, so one mechanism answers both "is this row mine" and "where
@@ -433,11 +437,22 @@ a posts scope routes by dates.
 
 ### Named object routes
 
-Objects are routed by ordered rules. The default `**` → `/{path}` keeps every
-original where it is, which matters because `{% image %}` emits
-`<a href="/assets/…/foo.jpeg"><img src="{thumb}"></a>` — the thumbnail
-links to the original at its literal path. Under the default rule all of those
-keep working untouched, so named routes are purely additive.
+Objects are routed by ordered rules — and since IO.md I11 the base declares
+**no** route for them (§5k): its objects rule says `embed = true`, so an image a
+site does not route itself has no canonical address and is reached by embedded
+citations at its content address under `/static/`. **A site that wants literal
+asset paths writes one rule saying so**, and every corpus site with images
+does: `match = "**/*.{png,…}"`, `route = "/{path}"`, above the base's line,
+which first-writer-wins silences. That is what keeps `{% image %}`'s
+`<a href="/assets/…/foo.jpeg"><img src="{thumb}"></a>` emitting the literal
+path on every site that declared one; where a site did not, the anchor takes
+the strong address instead, because it is an affordance rather than a link.
+
+The one image the base still routes is `favicon.{svg,png,webp,gif}` at the site
+root: `[html.head.link] icon` links `site.icon` (§4d), so leaving it to the
+embed policy would ship a `<link rel="icon">` pointing at nothing — which is
+the "unless the absence of that URL would be a bug on any site" clause of the
+base's own rule 2, exercised for the first time.
 
 ### Resolution order
 
@@ -460,8 +475,11 @@ an explicit `permalink:` in the file wins outright.
 ### Constraints (checked at transaction time, not discovered as 404s)
 
 - **Route collisions** → error, naming both rows. *Two rows may not share a URL.*
-- **One row, two routes** → error, naming the file and both URLs. *The dual, and the stronger statement:* **a row renders at exactly one route.** The legal counts are 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand and unreferenced), 1 (everything else), and **N only along an axis** (q53). An axis is the sole mechanism permitted to break it; anything else producing a second route onto one row is a bug, and now says so at load.
+- **One row, two routes** → error, naming the file and both URLs. *The dual, and the stronger statement:* **a row renders at exactly one route.** The legal counts are 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand and unreferenced, or **embed-addressed** and unembedded, §5k), 1 (everything else), and **N only along an axis** (q53). An axis is the sole mechanism permitted to break it; anything else producing a second route onto one row is a bug, and now says so at load.
 - **Undated row routed by a dated template**: error naming the file and rule. **Generalized** *(IO.md I6)*: a template spending ANY token the supplier cannot fill for that row is the error, in whatever collection the rule lives — the dated case keeps a sentence of its own, because "unfillable" is the mechanism and "this file carries no date" is the diagnosis. The refusal is the only reason the check exists: an unfilled token already fails the render, by a sentence about a template rather than about a row.
+- **A rule decides an address once** *(IO.md I11)* → config error, naming the collection and the glob: `route` and `embed` are two answers to one question and a routed output wins, so a fallback beneath it could never be reached; `on_demand` beside `embed` defers a route the rule does not mint. And a rule that declares NEITHER is the pre-existing *no rule supplies a route*, unchanged — which is the whole reason `embed` is a declared key rather than the absence of `route`.
+- **An unrouted asset the policy will not address** → load error naming the asset: `[embeds] enabled = false`, or a `[embeds] match` that does not admit it, leaves a claimed row reachable by nothing.
+- **An authored link to an unrouted asset** → error naming the target and the fix (`route = "/{path}"`, or embed it instead). A content address changes the day the bytes do; a link is a promise that it will not.
 - **Dead rule** (matches zero rows) → warning, naming the collection and the glob. Scoped to rules the **site declared**, in a collection that produced rows: the base's rules go dead for ordinary reasons (no `_posts/`, no `index.md`) and are nobody's to fix, and a collection with no rows at all says nothing about any one glob.
 - **Degenerate row** (no front-matter block, but a rule sends it through a document shell) → warning, naming the file, the shell and the implied title. A warning and never an error, per IO.md §1: the author asked for a page and has one, and the fix is three characters. The gate above.
 - **URL-set parity** with reference builds — maintained via `grackle urls`.
@@ -861,6 +879,14 @@ Two rules, and the second is the one that took work.
    Tag pages do not — plenty of sites never tag. `/search.*` does not — it is a
    real payload.
 
+**Rule 2 got stricter at IO.md I11** (§5k): the base used to route every image
+on every inheriting site at `/{path}` — a public URL per asset that no author
+wrote down and none could decline short of `extends = "none"`. It routes none
+now. The clause after the comma got its first use at the same moment: a site
+icon IS a URL whose absence would be a bug on any site, because the base's own
+`[html.head.link] icon` points at it, so `favicon.{svg,png,webp,gif}` is routed
+and nothing else is.
+
 Rule 2 needed a mechanism, not just discipline: **an inherited route with no
 members does not materialize.** A site with no `_posts/` never asked for an
 empty `/blog/` or a feed with no entries. A route the *site* declared still
@@ -912,7 +938,12 @@ icon = 'site.icon'
 Four things fall out, none of them new machinery:
 
 - **Dropping `favicon.svg` at the root is the whole interface.** No key, no
-  registration.
+  registration. It is also the base's ONE routed image since IO.md I11 (§4,
+  §5k): the base declines to route assets now, and an icon is fetched by URL
+  with nothing on the page pointing at it in a way a reference scan can see —
+  so leaving it to the embed policy would ship this `<link>` pointing at
+  nothing. The base's rule 2 has an "unless the absence of that URL would be a
+  bug on any site" clause, and this is the first thing to use it.
 - **An icon that lives elsewhere is pinned by a named object route** (§4) —
   `match = "brand/icon-v3.png"`, `route = "/favicon.png"`. Resolution keys on
   the *published URL*, so the feature that already existed for logos covers
@@ -2239,16 +2270,21 @@ shape (`io_folds.rs` asserts the `<loc>` list) — and that is legal precisely
 because a facts edge demands nothing that has to be produced first. Read as one
 undifferentiated graph, every such site would stop loading; the mutation that
 labels `route_members` as content is exactly that, and it is the measurement
-the split rests on. The detector is armed rather than decorative: **I11's
-renditions and I12's transforms are outputs derived from other outputs' bytes**,
-the first content edge that can point output → output.
+the split rests on. The detector is armed rather than decorative: **a transform
+that derives an output from another output's bytes** is the first content edge
+that can point output → output. **I11 was not it, measured rather than
+assumed**: a strong address (§5k) publishes an INPUT's bytes at a hash of those
+bytes, so the output it mints carries `inputs = [that row]` and its content
+edge runs input → output like every other; the untransformed twin adds a second
+input to one output, never an output to an output. I12's renditions are the
+item that changes this, and the item that owes the live fixture.
 
 **Four features are views of it**, and the honest state of each:
 
 | view | state |
 |---|---|
 | **invalidation** | `Graph::fanout(input)` is the `Row(path)` key set (§2). The keys have no consumer yet; the guard is a rebuild-and-diff consistency test. |
-| **`materialize_referenced`** | **built as a pull.** A citation names a URL, `by_url` resolves it to the input at the far end of a content edge, and an on-demand input with no `output` is a node the pull mints — output and edge together. |
+| **`materialize_referenced`** | **built as a pull.** A citation names a URL, the two address indexes (`by_url`, `by_strong` — §5k) resolve it to the input at the far end of a content edge, and a lazily-published input with no `output` is a node the pull mints — output and edge together. |
 | **serve** | the entry point exists (`Graph::pull`) and `serve` does not call it (§7). |
 | **relation/fold ordering** | unchanged: relations still order themselves at load, and a fold's ordering falls out of §4's column rule rather than out of a topological sort. |
 
@@ -2262,7 +2298,88 @@ every route that exists when it runs, and `materialize_referenced` mints one
 after the load returns — the hole MERGE.md E1 recorded and left stated. Minting
 an output is a graph event, so the forced values are typed once at load
 (`SiteDb::forced_fields`) and applied wherever an output is minted. Byte-inert
-today; closed because I11 and I12 each add a minting seam.
+today; closed because I11 and I12 each add a minting seam. **I11 added a shape
+to the existing seam rather than a second seam** — its strong mint sits inside
+`materialize_referenced`'s own loop, under the same `forced` list — which is
+the cheapest possible way to stay inside the law.
+
+## 5k. Two address slots: the embed policy and strong URLs *(IO.md §4a; built I11, 2026-07-27)*
+
+An output has **two address slots**, and which one a citation takes is decided
+by the citation's FORM:
+
+| slot | is | who takes it |
+|---|---|---|
+| `url` | the **canonical** address a rule minted | authored links (`[text](x)`, `<a href>`), `rel=canonical`, the link checker |
+| `strong_url` | the **hash** address, `/static/{hash}.{ext}` | embeds (`![](x)`, `<img>`, `<iframe>`, `<video>`) and generated affordances |
+
+**A rule decides which.** `route = "…"` mints a canonical address; `embed =
+true` declines to, and hands the row to the policy. They are not layers — a
+routed output wins, so declaring both is a config error — and a rule declaring
+neither is still *no rule supplies a route*, which is exactly why `embed` is a
+key an author writes rather than the absence of one.
+
+**The base declines.** Since I11 the base config routes no image (§4): every
+human-addressable asset URL exists because a rule said so, which is the base's
+"may not mint a URL the author did not ask for" rule at its strictest. Nothing
+in the corpus moved — `examples/field-notes`, `theme-preview` and grack.com
+each declare their own objects route, and `examples/minimal` has no images —
+so the capability is fixture-proven and the default is corpus-inert.
+
+**`[embeds]`** is the policy's only config surface: `enabled` (off makes an
+unrouted asset a load error naming it) and `match` (a subset; outside it, the
+same error). The `/static/` prefix is not a key — one directory the engine owns,
+which derived assets have published under since §6b. The table is **not
+projectable**: an address is a load fact, and a projection that changed one
+would be a different database rather than a different view of it.
+
+### The hashing law
+
+> A content-hashed URL hashes the **inputs plus the transform parameters, never
+> the output bytes.**
+
+`grackle_source::strong::address(bytes, variant, ext)` is the one place it is
+spent. It is what keeps §1's *facts at planning; content at materialization*
+true of an output whose whole address is a hash: an address computed from what
+a transform produced could not exist until after the transform ran. The
+thumbnail cache (`blake3(image bytes + variant)`) has obeyed the same law since
+§6b and is deliberately **not** routed through here yet — its variant, its
+extension contest and its cache layout are I12's to unify, and the addresses it
+mints today must not move.
+
+**Untransformed twins fall out of it.** `strong::IDENTITY` is the parameter set
+of the transform that does nothing, so an untransformed embed's address is a
+pure function of the input bytes: two inputs holding one byte string land at
+one address, one store entry, and **one output with two inputs** — dedupe with
+no dedupe pass. When one of those inputs is also a routed output, that address
+*is* that output's strong URL. The rule is arithmetic; nothing compares the two.
+
+`{hash}` is the same digest as a **route token**, for a site that wants hashed
+canonical addresses by rule. One hash function, one address per byte string,
+whichever mechanism asked — with one instructive difference: two identical
+files routed by `{hash}` are a **route collision** (a canonical address belongs
+to one row), while the same two under the policy are dedupe. That is the
+distinction between a place in the content store and a row's own address.
+
+### Citation resolution reads both indexes
+
+`db.by_url` holds canonical row URLs; `db.by_strong` maps a hash address to the
+rows that share it (**multi**, because sharing is what identical bytes are
+supposed to do). `build::resolve_citation` reads both, and both consumers go
+through it: `materialize_referenced` (the pull, which publishes the bytes) and
+`join_citations` (the join, which records the edge). Without the second index a
+`/static/` citation resolves to nothing, the bytes never publish, and the
+embedding page's `inputs` silently loses the asset — the stale page an
+incremental rebuild would ship.
+
+### What waits for I12
+
+The worked example in IO.md §4a is a chain of three URLs — thumbnail
+(rendition) → full-size expansion (the original's strong URL) → download (the
+canonical route) — and I11 landed the addresses and two of the three legs.
+`{% image %}` emits one element with one href, so the third leg needs a second
+affordance, and an affordance that carries transform parameters is what
+renditions are. Thumb addressing is untouched by design.
 
 ## 6a. Object references: paths and names
 
@@ -2341,8 +2458,8 @@ An earlier version of this section claimed "bare names work for posts today, wit
 
 Do **both**, but let the reference form decide:
 
-- `{% image %}` stays — 194 uses need it, and it carries the `left`/`right`/`inline` mode that markdown image syntax can't express.
-- A **post-render `lol_html` pass** rewrites `<img src>` and `<iframe src>` **only when the src is a bare name**. Anything containing `/` or `://` passes through untouched.
+- `{% image %}` stays — 194 uses need it, and it carries the `left`/`right`/`inline` mode that markdown image syntax can't express. Its `<a>` is an **affordance**, not an authored link, which is why it may take a strong address where a link to the same row is refused (§5k).
+- A **post-render `lol_html` pass** rewrites `<img src>` and `<iframe src>` **only when the src is a bare name**. Anything containing `/` or `://` passes through untouched. *(The bare-name half is still parked. What DID land, at I11: `img`/`iframe`/`video`/`audio`/`source` `src` attributes are offered to the resolver as **embeds**, in raw HTML and in markdown alike — the AST pass now visits `Image` nodes too — and the resolver rewrites exactly one case, a target no rule routed. Everything else is handed back untouched, which is why the corpus did not move.)*
 - This makes plain markdown `![alt](foo.png)` work with no new tag, and gives `<iframe src="demo.html">` the same treatment.
 - The same pass is where `feed_images` already lives and where `<style>` extraction happens (§6c).
 
@@ -2358,7 +2475,7 @@ URLs are DERIVED values here. Matt's rule closes the gap: **authored links refer
 
 ✅ **Raw HTML joined the net, 2026-07-21** (§6d stage B). `.html` page bodies, `.html` slot fills and raw-HTML landings never met comrak; a narrow `lol_html` pass now walks them, catching the `/blog` above in `index.html` and `_includes/social.html` and closing the example's `index.fr.html` residual.
 
-Resolution is a comrak AST pass over Link nodes per-row, against a `LinkSpace` built once per build. The byte-oracle rule: **the engine rewrites only where the browser would get it wrong** — a relative link whose source-resolution and URL-resolution agree ships byte-identical; `.md` references and cross-dir links get the engine's answer.
+Resolution is a comrak AST pass over Link and Image nodes per-row, against a `LinkSpace` built once per build; each destination is tagged with which citation form is asking (§5k). The byte-oracle rule: **the engine rewrites only where the browser would get it wrong** — a relative link whose source-resolution and URL-resolution agree ships byte-identical; `.md` references and cross-dir links get the engine's answer.
 
 **`.slots/` fills render THROUGH the resolver, per consuming page**: one `nav.md` of `view:`/source links serves every locale — `view:blog_index` is `/blog/` on English and `/fr/blog/` on French — and `nav.fr.md` exists only to translate labels.
 
@@ -2366,7 +2483,7 @@ Pending: the closest-match suggester is stem-exact, not fuzzy.
 
 ## 6b. `_cache/`: one content-addressed store for every derived artifact
 
-Everything expensive is a pure function of bytes → cache it by the hash of those bytes. Keys are content hashes, so entries are **self-invalidating and never stale**: a changed input is simply a different key.
+Everything expensive is a pure function of bytes → cache it by the hash of those bytes. Keys are content hashes, so entries are **self-invalidating and never stale**: a changed input is simply a different key. The hash is over **inputs plus parameters, never output bytes** — §5k states the law and says why the split in §1 depends on it.
 
 ```
 _cache/                      # gitignored; not published
@@ -2378,15 +2495,20 @@ _cache/                      # gitignored; not published
 ```toml
 [cache]
 dir = "_cache"
-
-[static]
-dir = "/static"              # published URL prefix for derived assets
 ```
 
 Two distinct things:
 
 - **`_cache/` is the build cache** — gitignored, never published, keyed by content, always safe to delete.
-- **`static.dir` is the published location** — where derived assets get URLs (`/static/{hash}{ext}`).
+- **`/static/` is the published location** — where hash-addressed artifacts get URLs (`/static/{hash}{ext}`).
+
+⚠️ **`[static] dir` was never built and is not the plan** *(corrected at I11)*.
+The prefix is not configurable: it is one directory the engine owns, and it now
+has **two** mints publishing under it — the thumbnail cache below, and the
+embed policy's strong addresses (§5k). Both obey the hashing law stated there;
+a key naming the place two mints already share is a name nobody asked for. The
+policy's own table is `[embeds]`, and it configures the policy rather than the
+location.
 
 **Cache is keyed by content, not by path**, which means a renamed post keeps its embedding, a moved image keeps its thumbnail, and the drafts profile shares every entry with the public profile.
 
@@ -3018,7 +3140,7 @@ Three merges unified distinctions that were never real: two row flows became one
 ### Still owed
 
 - ~~**The objects dispatch.**~~ **Closed, and it was closed in two halves by two different items** — recorded rather than quietly deleted, because the entry outlived both. The VIEW half went when `build_object_view` became three parameters on one materializer (§5c's *One materializer*): `group_by` and `paginate` work over objects and the `object-grouping` fixture proves it, so this entry's last sentence has been false since that merge. The LOAD half went at **IO.md I7e**: the object row constructor is the row constructor, and `object_ix` keys off the extension fact (§3). What is left is not a dispatch at all — it is the two facts an object still differs by, both of them parameters a caller passes: the narrow `object_schema` vocabulary, and `rendered: false`.
-- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i): `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two sides of membership — so "views as partitions" is a query on the half that may be queried (`output`, `alternates`) and a column on the half that may not (arrangement is what membership produces, so selection may not read it). **And the GRAPH is built, as of IO.md I10** (§5j): the same columns read as nodes and edges, one graph with two edge kinds, cycles refused at load. What the endgame still owes is not a structure but a *consumer* — `serve` walking the fanout instead of rebuilding the world (§7), which is the item that turns §2's typed keys from a design into machinery.
+- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i): `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two sides of membership — so "views as partitions" is a query on the half that may be queried (`output`, `alternates`) and a column on the half that may not (arrangement is what membership produces, so selection may not read it). **And the GRAPH is built, as of IO.md I10** (§5j): the same columns read as nodes and edges, one graph with two edge kinds, cycles refused at load. **And the ADDRESS model is built, as of IO.md I11** (§5k): an output has two slots, a rule decides which one it fills, and the citation's form decides which one it takes — which is the point at which the base stopped minting a URL for every image on every site that inherited it. What the endgame still owes is not a structure but a *consumer* — `serve` walking the fanout instead of rebuilding the world (§7), which is the item that turns §2's typed keys from a design into machinery.
 
 ## 10. Phasing (each phase has a checkable exit)
 

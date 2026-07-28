@@ -177,6 +177,11 @@ fn the_objects_index_keys_off_the_extension_fact() {
 /// `query stats` reports 0 marker files on all five sites, so no image on any
 /// of them sits under one.
 ///
+/// The fixture declares its own objects route since I11 — the base routes no
+/// image now (IO.md §4a), and the assertion is about a marker reaching a row,
+/// not about where the row lands, so the site says where in one line the way
+/// every corpus site with images does.
+///
 /// Mutation: pass `&Defaults::default()` in place of `marker_defaults` when
 /// `object_shaped` — the origin distinction re-minted in one line, which is
 /// exactly what this test refuses — and the image leaves the set while the
@@ -189,6 +194,9 @@ fn a_marker_reaches_a_former_object_row() {
             (
                 "grackle.toml",
                 b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                  [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+                  [[collections.rules]]\n\
+                  match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
                   [routes.hidden_probe]\npath = \"/hidden.xml\"\n\
                   shell = \"sitemap\"\nwhere = 'hidden'\n",
             ),
@@ -239,7 +247,9 @@ fn a_marker_reaches_a_former_object_row() {
 ///
 /// Both halves are here because the skip has to be about pictures and not about
 /// the site: the `.md` beside it IS the French edition, at the prefixed URL,
-/// under the same config.
+/// under the same config. The fixture routes its own images (I11: the base no
+/// longer does), because "the image keeps the name it was given" is a claim
+/// about an address and an unrouted asset has none to keep.
 ///
 /// Mutation: drop the `object_shaped` arm so every row goes through
 /// `cfg.i18n.split` — the image is republished at `/fr/gallery/photo.png` and
@@ -253,6 +263,9 @@ fn an_image_is_not_a_translation_of_itself() {
             (
                 "grackle.toml",
                 b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+                  [[collections]]\nname = \"objects\"\nkind = \"objects\"\n\
+                  [[collections.rules]]\n\
+                  match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
                   [i18n]\nlocales = [\"en\", \"fr\"]\ndefault = \"en\"\n\n\
                   [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
             ),

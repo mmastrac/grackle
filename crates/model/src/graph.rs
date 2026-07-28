@@ -35,9 +35,21 @@
 //! rule: the sitemap reads facts, so it may list fold products; search reads
 //! content, so it sees only content-bearing outputs). [`Graph::check_acyclic`]
 //! looks at the content subgraph alone, and it is armed rather than
-//! decorative: I11's renditions and I12's transforms are outputs derived from
-//! *other outputs' bytes*, which is the first content edge that can point
-//! output → output, and the first way a config could describe a cycle.
+//! decorative: a transform that derives an output from *another output's
+//! bytes* is the first content edge that can point output → output, and the
+//! first way a config could describe a cycle.
+//!
+//! **I11 did not bring one, and that was measured rather than hoped**
+//! (IO.md §4a). A strong address publishes an INPUT's bytes at a hash of those
+//! bytes: the output it mints carries `inputs = [that row]`, so its content
+//! edge runs input → output like every other, and the untransformed twin adds
+//! a second input to one output rather than an output to an output. The
+//! bipartite argument therefore still holds whole, the fast path below still
+//! returns on one linear scan, and the unit-level fixture that hands
+//! `from_edges` a real output → output cycle remains the only place the
+//! detector can be seen to fire. **I12's renditions** are the item that
+//! changes this — a rendition reads the bytes an earlier transform produced —
+//! and it is the item that owes the live fixture through `Config::load`.
 
 use crate::{Key, SiteDb};
 use std::collections::{HashMap, HashSet};
@@ -292,7 +304,7 @@ impl Graph {
     /// that cannot fire: content edges run input → output, inputs have no
     /// incoming edges, and a graph whose every source is on one side of a
     /// bipartition has no cycle to find. It is here because the day that stops
-    /// being true is I11/I12 — a rendition is an output derived from another
+    /// being true is I12 — a rendition is an output derived from another
     /// output's bytes — and a check written then is a check written after the
     /// first render surprise.
     ///
@@ -304,7 +316,7 @@ impl Graph {
         // input has no incoming edge of any kind, so one linear scan settles
         // the whole question and the sort below never runs on a corpus site.
         // This is the doc comment's claim as a fast path rather than beside
-        // one — when it stops being true (I11's renditions), the scan finds
+        // one — when it stops being true (I12's renditions), the scan finds
         // the edge and the real check takes over.
         if !self
             .edges
@@ -431,7 +443,7 @@ mod tests {
 
     /// The tripwire, armed. The engine cannot describe this today — content
     /// edges run input → output — so the edge list is built by hand, which is
-    /// exactly what a check for a shape I11/I12 will introduce needs.
+    /// exactly what a check for a shape I12 will introduce needs.
     #[test]
     fn a_content_cycle_between_outputs_is_named() {
         let g = Graph::from_edges([

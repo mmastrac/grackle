@@ -92,6 +92,16 @@ pub struct Config {
     /// carries the default locale and nothing changes.
     #[serde(default)]
     pub i18n: I18nCfg,
+    /// `[embeds]` (IO.md §4a, I11): the embed policy — what an EMBEDDED
+    /// citation of an asset no rule routed resolves to.
+    ///
+    /// The base ships it on, so a site needs no entry. The table exists for
+    /// the two answers a site can give that the default cannot: **off** (an
+    /// unrouted asset is then a load error, because nothing would address it),
+    /// and **a subset** (the policy publishes only what its globs admit, and
+    /// the rest is that same error).
+    #[serde(default)]
+    pub embeds: EmbedsCfg,
     /// Enum records (§6f, generalized from tag records at Matt's ask):
     /// `[records.<field>.<id>]` declares the value domain of a grouped
     /// field — tags, courses, any typed field a view groups by. A value
@@ -242,6 +252,7 @@ fn every_config_key_has_a_law(c: Config) {
         widgets: _,
         shells: _,
         i18n: _,
+        embeds: _,
         records: _,
         profiles: _,
         links: _,
@@ -312,6 +323,7 @@ impl Shaped for Config {
             field("widgets", |c: &Config| &c.widgets),
             field("shells", |c: &Config| &c.shells),
             field("i18n", |c: &Config| &c.i18n),
+            field("embeds", |c: &Config| &c.embeds),
             field("records", |c: &Config| &c.records),
             field("profiles", |c: &Config| &c.profiles),
             field("links", |c: &Config| &c.links),
@@ -350,6 +362,10 @@ const PROJECTABLE: &[&str] = &[
 /// profiles, so the overlay is one layer and not a ladder.
 const NOT_PROJECTABLE: &[&str] = &[
     "collections",
+    // The embed policy decides ADDRESSES, and an address is a load fact: turn
+    // the policy off in a projection and half the assets stop having one,
+    // which is a different database rather than a different view of it.
+    "embeds",
     "schema",
     "markers",
     "root",
@@ -475,6 +491,16 @@ impl Shaped for I18nCfg {
             field("selector", |i: &I18nCfg| &i.selector),
             field("names", |i: &I18nCfg| &i.names),
             field("strings", |i: &I18nCfg| &i.strings),
+        ])
+    }
+}
+
+impl Shaped for EmbedsCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            field("enabled", |e: &EmbedsCfg| &e.enabled),
+            // TOML's name, not Rust's: the merge keys on what a site writes.
+            field("match", |e: &EmbedsCfg| &e.patterns),
         ])
     }
 }
@@ -1006,6 +1032,68 @@ pub struct ShellDef {
     pub command: String,
 }
 
+/// `[embeds]`: the embed policy (IO.md §4a, I11).
+///
+/// A rule saying [`Rule::embed`] declines to route its rows; this says what
+/// happens to them. On (the default, shipped by the base), such a row gets a
+/// `strong_url` under `/static/` and publishes when something embeds it. Off,
+/// or outside `match`, it gets no address at all — which is a load error
+/// naming the asset, because a claimed row that lands nowhere and can be
+/// reached by nothing is the config forgetting, not the config deciding.
+///
+/// **The prefix is not a key.** `/static/` is one directory the engine owns
+/// and has published derived assets under since §6b; making it configurable
+/// would be a second name for a place two mints already share, and neither
+/// mint asked.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmbedsCfg {
+    /// Publish embed-addressed rows at all. Off, a rule that declines to route
+    /// is a rule with no answer, and every row it claims is a load error.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// The subset the policy admits, as path globs over the row's
+    /// root-relative path. Empty — the default — is every row a rule marked,
+    /// which is the honest default because the RULE already selected by shape:
+    /// this key is for a site that wants to narrow that selection site-wide
+    /// without editing rules it inherited.
+    #[serde(default, rename = "match", deserialize_with = "one_or_many_string")]
+    pub patterns: Vec<String>,
+}
+
+impl Default for EmbedsCfg {
+    fn default() -> Self {
+        EmbedsCfg {
+            enabled: true,
+            patterns: Vec::new(),
+        }
+    }
+}
+
+impl EmbedsCfg {
+    /// The `match` globs, compiled once per load. `None` is "no subset
+    /// declared", which admits everything — distinct from an empty `GlobSet`,
+    /// which admits nothing.
+    ///
+    /// Case-insensitive, for the reason every rule glob is (IO.md I7a): the
+    /// shift key is not part of a file's kind.
+    pub fn compiled(&self) -> Result<Option<globset::GlobSet>> {
+        if self.patterns.is_empty() {
+            return Ok(None);
+        }
+        let mut b = globset::GlobSetBuilder::new();
+        for p in &self.patterns {
+            b.add(
+                globset::GlobBuilder::new(p)
+                    .case_insensitive(true)
+                    .build()
+                    .with_context(|| format!("bad [embeds] match glob {p:?}"))?,
+            );
+        }
+        Ok(Some(b.build()?))
+    }
+}
+
 /// The locale axis (§6f). The *path selector* assigns each row its locale
 /// at load: `suffix` reads `dal.fr.md`, `prefix` reads `fr/recipes/dal.md`.
 /// Everything downstream — rules, globs, route tokens, schema resolution —
@@ -1491,6 +1579,30 @@ pub struct Rule {
     /// sit above an on-demand `**/*` catch-all.
     #[serde(default)]
     pub on_demand: Option<bool>,
+    /// This rule's rows have **no canonical address**: the embed policy gives
+    /// them one (IO.md §4a, I11).
+    ///
+    /// The other half of `route`, and declared for the same reason `route` is
+    /// — "a rule that claims a file must say where it lands" stays the law,
+    /// and this is one of the two answers rather than the absence of both.
+    /// Which is what keeps *no rule supplies a route* the error it has always
+    /// been: a rule that says neither has forgotten, and a rule that says this
+    /// has decided.
+    ///
+    /// What the row gets instead is a `strong_url` — `/static/{hash}.{ext}`,
+    /// the content store made public — which an EMBEDDED citation (`<img>`,
+    /// `<iframe>`, a generated affordance) resolves to and an authored link
+    /// refuses to, because a bookmarkable address exists on purpose and this
+    /// is not one. Nothing publishes until something embeds it: the pull model
+    /// is the garbage collector.
+    ///
+    /// Site-wide, `[embeds]` decides whether the policy runs at all and over
+    /// what; a rule marked here whose row the policy declines is a load error
+    /// naming the asset. Declaring it beside `route` is a config error — an
+    /// address is one decision — and so is declaring it beside `on_demand`,
+    /// which defers a ROUTE that this rule does not mint.
+    #[serde(default)]
+    pub embed: Option<bool>,
     /// Key extraction from a file's stem, for the rows this rule governs
     /// (IO.md I6). Tried in order; the first format that describes the stem
     /// supplies its tokens (`{year}`, `{month}`, `{day}`, `{slug}`) to this
@@ -2170,6 +2282,7 @@ impl Config {
         cfg.check_collection_kinds()?;
         cfg.check_scope_content_keys()?;
         cfg.check_objects_rule_gate()?;
+        cfg.check_rule_address()?;
         if let Some(name) = profile {
             // Rung 0, lifted out of the profile so the loader can reach it
             // without knowing about profiles (§2, MERGE.md E1).
@@ -2486,6 +2599,60 @@ impl Config {
                     describe_collection(name, c),
                     r.pattern,
                 );
+            }
+        }
+        Ok(())
+    }
+
+    /// A rule decides an address ONCE (IO.md §4a, I11).
+    ///
+    /// `route` and `embed` are the two answers to "where does a row this rule
+    /// claims land", and they are not layers: a routed output wins, so a rule
+    /// declaring both has written a fallback that can never be reached and a
+    /// reader cannot tell which half is the mistake. The routed+strong twin —
+    /// one output at a canonical URL that ALSO publishes its hash address, for
+    /// an affordance to expand into — is a real shape and is I12's; it is not
+    /// this line, which would give it no way to say which address a citation
+    /// takes.
+    ///
+    /// `on_demand` beside `embed` is the I7b dead-key family: it defers a
+    /// ROUTE, and an embed rule mints none. Every embed-addressed row is
+    /// already published on demand — that is what the policy is — so the key
+    /// configures nothing here.
+    ///
+    /// Config time, like `check_objects_rule_gate`: it is a question about the
+    /// rule's own text, so no walk and no file can change the answer, and every
+    /// declared profile is projected through the same deserializer.
+    fn check_rule_address(&self) -> Result<()> {
+        for (name, c) in &self.collections {
+            for r in &c.rules {
+                if r.embed != Some(true) {
+                    continue;
+                }
+                if !r.route.is_empty() {
+                    anyhow::bail!(
+                        "collection {}: rule `match = {:?}` declares both `route` \
+                         and `embed = true`. A rule decides an address once: \
+                         `route` mints a canonical URL and a routed output WINS, \
+                         so the embed policy beneath it could never be reached. \
+                         Keep the route, or delete it and let `/static/` address \
+                         these rows (IO.md §4a).",
+                        describe_collection(name, c),
+                        r.pattern,
+                    );
+                }
+                if r.on_demand == Some(true) {
+                    anyhow::bail!(
+                        "collection {}: rule `match = {:?}` declares `on_demand` \
+                         beside `embed = true`, and `on_demand` defers a ROUTE \
+                         this rule does not mint — so it configures nothing. An \
+                         embed-addressed row publishes when something embeds it, \
+                         which is the whole of the policy (IO.md §4a). Delete the \
+                         line.",
+                        describe_collection(name, c),
+                        r.pattern,
+                    );
+                }
             }
         }
         Ok(())
@@ -3995,8 +4162,11 @@ mod tests {
             "{e}"
         );
         assert!(
-            e.contains("\"objects\" (no `source`; rules \"**/*.{png,jpg"),
-            "the base's globs are what identify it now: {e}"
+            e.contains(
+                "\"objects\" (no `source`; rules \"favicon.{svg,png,webp,gif}\", \"**/*.{png,jpg"
+            ),
+            "the base's globs are what identify it now — BOTH of them, since \
+             I11 split the site icon out of the embed rule: {e}"
         );
         assert!(e.contains("`name = \"objects\"`"), "the fix: {e}");
     }
