@@ -29,7 +29,7 @@ pub struct Ctx<'a> {
     /// deliberately no default-theme handle here, because reaching for one
     /// is how a route ends up rendered by two themes at once.
     pub themes: &'a theme::Themes,
-    pub thumbs: &'a HashMap<String, crate::thumbs::Thumb>,
+    pub thumbs: &'a crate::thumbs::Renditions,
     /// Post bodies, held from the loader; tree bodies are re-read into
     /// `page_bodies`. A listing over tree rows finds them there.
     pub bodies: &'a HashMap<&'a grackle_db::Key, Doc>,

@@ -17,7 +17,7 @@
 use crate::db::SiteDb;
 use crate::render::Site;
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
+use grackle_model::Rendition;
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -29,11 +29,13 @@ pub struct Ctx<'a> {
     /// Where `{% include %}` resolves names. None disables the tag.
     pub includes: Option<PathBuf>,
     pub site: Option<&'a Site<'a>>,
-    /// `{% image %}` source path -> its generated thumbnail (§6b): the
-    /// published URL, and the dimensions that let the tag emit `width`/
-    /// `height` so a body image reserves its space (q26). When absent,
-    /// `{% image %}` falls back to linking the original at full size.
-    pub thumbs: Option<&'a HashMap<String, crate::thumbs::Thumb>>,
+    /// One demand — a source path and the rendition it asked for — to the
+    /// output the pre-pass materialized for it (§6b, IO.md §4a): the published
+    /// URL, and the dimensions that let the tag emit `width`/`height` so a body
+    /// image reserves its space (q26). Keyed by the whole ASK, because two asks
+    /// for one image are two outputs. When absent, `{% image %}` falls back to
+    /// linking the original at full size.
+    pub thumbs: Option<&'a crate::thumbs::Renditions>,
     /// The theme, for embedded views ({% view %}) that render through
     /// fragments. None disables embedding.
     pub theme: Option<&'a crate::theme::Theme>,
@@ -69,22 +71,81 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// The source path in `{% image [left|right|inline] SRC %}`, mode stripped.
-/// The one place the mode-or-source parse lives, shared by rendering and the
-/// thumbnail pre-pass so the two cannot disagree on what a source is.
-fn image_src(arg: &str) -> Option<&str> {
-    let mut parts = arg.split_whitespace();
-    let first = parts.next()?;
-    let src = match first {
-        "left" | "right" | "inline" => parts.next()?,
-        other => other,
-    };
-    (!src.is_empty()).then_some(src)
+/// What one `{% image %}` demands: a float mode, a source, and the rendition
+/// parameters the citation asked for.
+///
+/// **This struct is IO.md §4a's "the citing edge carries the parameters"** —
+/// the ask, as it is written. The one place the parse lives, shared by
+/// rendering and the rendition pre-pass so the two cannot disagree about what
+/// was asked for.
+pub struct ImageTag {
+    pub mode: &'static str,
+    pub src: String,
+    pub rendition: Rendition,
 }
 
-/// Every `{% image %}` source in a body, for the thumbnail pre-pass (build.rs).
+/// Parse `{% image [left|right|inline] SRC [width=N] %}`.
+///
+/// `Err` carries the complaint without file context, because the two callers
+/// have different ones: `image` names the source file it is rendering, and the
+/// pre-pass has no message to give (the render pass will reach the same tag and
+/// say so properly).
+fn image_tag(arg: &str) -> Result<ImageTag, String> {
+    let mut parts = arg.split_whitespace();
+    let first = parts.next().unwrap_or_default();
+    let (mode, src) = match first {
+        "left" => ("floatleft", parts.next().unwrap_or_default()),
+        "right" => ("floatright", parts.next().unwrap_or_default()),
+        "inline" => ("inline", parts.next().unwrap_or_default()),
+        other => ("standard", other),
+    };
+    if src.is_empty() {
+        return Err("{% image %} with no source".into());
+    }
+    // The ask. Absent, a citation gets the engine's default rendition, which
+    // is what every one of the corpus's 194 uses does and why they all keep
+    // their addresses.
+    let mut rendition = Rendition::THUMB;
+    for tok in parts {
+        // A bare trailing token used to be ignored silently; an ask is a
+        // parameter and a misspelt parameter must not read as "no ask" —
+        // that would publish a different rendition than the author wrote.
+        let Some((key, value)) = tok.split_once('=') else {
+            return Err(format!(
+                "{{% image %}}: {tok:?} is not a parameter — the form is `width=N`"
+            ));
+        };
+        match key {
+            "width" => {
+                let w: u32 = value
+                    .parse()
+                    .map_err(|_| format!("{{% image %}}: width={value:?} is not a pixel count"))?;
+                if w == 0 {
+                    return Err("{% image %}: width=0 asks for nothing".into());
+                }
+                rendition = Rendition::width(w);
+            }
+            other => {
+                return Err(format!(
+                    "{{% image %}}: unknown parameter {other:?} — known: width"
+                ))
+            }
+        }
+    }
+    Ok(ImageTag {
+        mode,
+        src: src.to_string(),
+        rendition,
+    })
+}
+
+/// Every rendition one body demands, for the pre-pass (build.rs): the source
+/// and the parameters each `{% image %}` asked for.
+///
 /// Mirrors `expand`'s tag scan so it sees exactly the tags rendering will.
-pub fn image_sources(body: &str) -> Vec<String> {
+/// Unparseable tags are skipped rather than reported — `image` reaches the same
+/// tag with the file name in hand and bails there.
+pub fn image_asks(body: &str) -> Vec<crate::thumbs::Ask> {
     let mut out = Vec::new();
     let mut rest = body;
     while let Some(i) = rest.find("{%") {
@@ -95,8 +156,8 @@ pub fn image_sources(body: &str) -> Vec<String> {
             .strip_prefix("image")
             .filter(|a| a.starts_with(char::is_whitespace))
         {
-            if let Some(src) = image_src(arg.trim()) {
-                out.push(src.to_string());
+            if let Ok(t) = image_tag(arg.trim()) {
+                out.push((t.src, t.rendition));
             }
         }
         rest = &after[end + 2..];
@@ -104,24 +165,19 @@ pub fn image_sources(body: &str) -> Vec<String> {
     out
 }
 
-/// `{% image [left|right|inline] path %}`
+/// `{% image [left|right|inline] path [width=N] %}`
 ///
-/// The anchor links the full-size original; the `<img>` shows the thumbnail
-/// (§6b) when the pre-pass generated one, else the original. The mode maps to a
-/// float class, which is the contract the theme styles against (§5a).
+/// The anchor links the full-size original; the `<img>` shows the rendition
+/// (§6b, §4a) the pre-pass materialized for this exact ask, else the original.
+/// The mode maps to a float class, which is the contract the theme styles
+/// against (§5a).
 fn image(arg: &str, cx: &Ctx) -> Result<String> {
-    let mut parts = arg.split_whitespace();
-    let first = parts.next().unwrap_or_default();
-    let (mode, src) = match first {
-        "left" => ("floatleft", parts.next().unwrap_or_default()),
-        "right" => ("floatright", parts.next().unwrap_or_default()),
-        "inline" => ("inline", parts.next().unwrap_or_default()),
-        other => ("standard", other),
-    };
-    if src.is_empty() {
-        bail!("{}: {{% image %}} with no source", cx.source);
-    }
-    let thumb = cx.thumbs.and_then(|t| t.get(src));
+    let t = image_tag(arg).map_err(|e| anyhow::anyhow!("{}: {e}", cx.source))?;
+    let (mode, src) = (t.mode, t.src.as_str());
+    // The lookup is keyed by the WHOLE ask, so a page asking 256 and a page
+    // asking 512 of one image reach two different outputs (IO.md §4a: an
+    // image's rendition set is the union of its consumers' asks).
+    let thumb = cx.thumbs.and_then(|m| m.get(&(t.src.clone(), t.rendition)));
     // IO.md §4a's lightbox chain, as far as I11 takes it. The `<a>` is an
     // EXPANSION AFFORDANCE — markup this expander generates, not a link a
     // human wrote — so it is entitled to the strong address, which is exactly
@@ -129,10 +185,12 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
     // routed asset keeps its canonical address here, byte for byte, because a
     // routed output wins; only a row no rule routed reaches for the hash.
     //
-    // What waits for I12: the THIRD URL. The example wants a download link at
-    // the canonical route beside the expansion, and `{% image %}` emits one
-    // element with one href — a second address needs a second affordance, and
-    // renditions are the item that gives affordances parameters to carry.
+    // The THIRD URL still waits, and I12 measured why rather than inheriting
+    // the note: the example wants a download link at the canonical route
+    // BESIDE the expansion, and that is a second element on 194 corpus tags —
+    // a byte change on every post that shows a picture, which is Matt's call
+    // and not a consequence of renditions. What renditions owed was the
+    // parameters an affordance carries, and those landed: the ask above.
     let full = match cx.links.and_then(|s| s.strong_of_source(src)) {
         // No `baseurl` prefix, deliberately: a strong address is a published
         // address like `Row.url`, and `Row.url` carries none either. The two
@@ -220,9 +278,13 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
             let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
                 return Ok(String::new());
             };
-            let thumb = p
-                .hero_source()
-                .and_then(|s| cx.thumbs.and_then(|t| t.get(s)));
+            // A card's hero takes the engine's default rendition: the ask is
+            // the tag's to write, and a layout that places an image places it
+            // at whatever size the theme styles it to.
+            let thumb = p.hero_source().and_then(|s| {
+                cx.thumbs
+                    .and_then(|t| t.get(&(s.to_string(), Rendition::THUMB)))
+            });
             let c = crate::parts::Preview {
                 title: Some(p.title.clone().unwrap_or_default()),
                 url: Some(p.url.clone()),
@@ -384,6 +446,7 @@ pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn ctx(db: &SiteDb) -> Ctx<'_> {
         Ctx::new(db, "", "test.md")
@@ -429,7 +492,7 @@ mod tests {
         let db = SiteDb::default();
         let mut map = HashMap::new();
         map.insert(
-            "a/b.png".to_string(),
+            ("a/b.png".to_string(), Rendition::THUMB),
             thumb("/static/deadbeef.jpg", Some((640, 480))),
         );
         let c = Ctx {
@@ -444,13 +507,14 @@ mod tests {
         assert!(out.contains("width='640' height='480'"), "{out}");
     }
 
-    /// A `Thumb` standing in for the thumb pass's output.
+    /// A `Thumb` standing in for the rendition pass's output.
     fn thumb(url: &str, dims: Option<(u32, u32)>) -> crate::thumbs::Thumb {
         crate::thumbs::Thumb {
             cache_path: std::path::PathBuf::new(),
+            address: url.to_string(),
             url: url.to_string(),
-            rel: String::new(),
             dims,
+            rendition: Rendition::THUMB,
         }
     }
 
@@ -458,7 +522,10 @@ mod tests {
     fn image_omits_dimensions_when_the_thumb_pass_could_not_measure() {
         let db = SiteDb::default();
         let mut map = HashMap::new();
-        map.insert("a/b.png".to_string(), thumb("/static/deadbeef.jpg", None));
+        map.insert(
+            ("a/b.png".to_string(), Rendition::THUMB),
+            thumb("/static/deadbeef.jpg", None),
+        );
         let c = Ctx {
             thumbs: Some(&map),
             ..Ctx::new(&db, "", "t")
@@ -470,9 +537,80 @@ mod tests {
     }
 
     #[test]
-    fn image_sources_finds_every_tag_and_strips_mode() {
+    fn image_asks_finds_every_tag_and_strips_mode() {
         let body = "x {% image a.png %} y {% image left dir/b.jpg %} z {% image inline c.gif %}";
-        assert_eq!(image_sources(body), vec!["a.png", "dir/b.jpg", "c.gif"]);
+        assert_eq!(
+            image_asks(body),
+            vec![
+                ("a.png".to_string(), Rendition::THUMB),
+                ("dir/b.jpg".to_string(), Rendition::THUMB),
+                ("c.gif".to_string(), Rendition::THUMB),
+            ]
+        );
+    }
+
+    /// **The citing edge carries the parameters** (IO.md §4a): the ask is
+    /// written where the citation is, and two pages asking different widths of
+    /// one image are two demands rather than one.
+    ///
+    /// The pre-pass and the renderer read the SAME parse, which is what keeps
+    /// them from materializing one rendition and embedding another.
+    #[test]
+    fn an_image_tag_carries_its_ask() {
+        assert_eq!(
+            image_asks("{% image right cover.png width=256 %}"),
+            vec![("cover.png".to_string(), Rendition::width(256))]
+        );
+        // Two asks of one source: a set of two, which is the demand union.
+        assert_eq!(
+            image_asks("{% image a.png width=256 %} {% image a.png width=512 %}").len(),
+            2
+        );
+
+        // …and the renderer reaches the output made for its own ask.
+        let db = SiteDb::default();
+        let mut map = HashMap::new();
+        map.insert(
+            ("a.png".to_string(), Rendition::width(256)),
+            thumb("/static/small.jpg", None),
+        );
+        map.insert(
+            ("a.png".to_string(), Rendition::THUMB),
+            thumb("/static/big.jpg", None),
+        );
+        let c = Ctx {
+            thumbs: Some(&map),
+            ..Ctx::new(&db, "", "t")
+        };
+        assert!(expand("{% image a.png width=256 %}", &c)
+            .unwrap()
+            .contains("src='/static/small.jpg'"));
+        assert!(expand("{% image a.png %}", &c)
+            .unwrap()
+            .contains("src='/static/big.jpg'"));
+    }
+
+    /// A misspelt ask must not read as "no ask": that would silently publish
+    /// and embed a rendition the author did not write. The trailing token used
+    /// to be ignored, and this is the refusal that replaced the silence.
+    ///
+    /// Mutation, red and restored: return `Ok` from the `split_once('=')` arm
+    /// (ignore the token, as before) → all three cases render a default
+    /// thumbnail without complaint.
+    #[test]
+    fn an_unparseable_ask_is_an_error_naming_the_file() {
+        let db = SiteDb::default();
+        let c = ctx(&db);
+        for (tag, want) in [
+            ("{% image a.png 256 %}", "not a parameter"),
+            ("{% image a.png height=90 %}", "unknown parameter"),
+            ("{% image a.png width=wide %}", "not a pixel count"),
+            ("{% image a.png width=0 %}", "asks for nothing"),
+        ] {
+            let e = expand(tag, &c).unwrap_err().to_string();
+            assert!(e.contains(want), "{tag}: {e}");
+            assert!(e.contains("test.md"), "{tag}: {e}");
+        }
     }
 
     #[test]

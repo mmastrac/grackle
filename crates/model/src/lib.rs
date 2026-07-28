@@ -9,8 +9,10 @@
 use grackle_db::{filter, Keyed, Table};
 
 pub mod graph;
+pub mod rendition;
 
 pub use grackle_db::Key;
+pub use rendition::Rendition;
 
 use anyhow::{bail, Result};
 use chrono::NaiveDate;
@@ -482,7 +484,16 @@ pub struct Route {
     /// of it.
     #[serde(skip)]
     pub fields: BTreeMap<String, filter::Value>,
-    /// For a `*` view: the ROUTES it selected.
+    /// **The outputs this output reads the FACTS of** — the output→output half
+    /// of the graph, and `graph::Demand::Facts` is what the column means.
+    ///
+    /// Two populations, and they are the same relation rather than two:
+    ///
+    /// - for a `*` view, the ROUTES it selected (I9);
+    /// - for any output whose finished bytes embed a rendition, that rendition
+    ///   (I12) — the citing edge of IO.md §4a. It is a facts edge because what
+    ///   the page read is the rendition's *address*, and the hashing law makes
+    ///   an address a planning fact.
     ///
     /// Separate from `members` rather than sharing it, because the two name
     /// rows in different stores and a caller cannot tell which from the
@@ -519,6 +530,20 @@ pub struct Route {
     /// behind them.
     #[serde(skip)]
     pub inputs: Vec<Key>,
+    /// IO.md §4a, I12: this output is a **rendition** — a transform of its
+    /// `inputs` — and these are the transform's parameters.
+    ///
+    /// **The home demand-carried parameters got** (review I-D's question).
+    /// They are not on the edge: a rendition's address hashes the input bytes
+    /// *plus* these, so every content edge arriving here carries the same
+    /// parameters by construction, and a slot on the edge would hold N copies
+    /// of one value with nothing keeping them equal. `rendition::Rendition`'s
+    /// module doc carries the argument.
+    ///
+    /// `None` for every output that is not a transform of something — which is
+    /// every output the corpus had before this item.
+    #[serde(skip)]
+    pub rendition: Option<Rendition>,
 }
 
 impl Route {
@@ -545,6 +570,7 @@ impl Route {
             members: Vec::new(),
             route_members: Vec::new(),
             inputs: Vec::new(),
+            rendition: None,
         }
     }
 

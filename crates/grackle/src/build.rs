@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::{Config, Kind, View};
-use crate::db::{Route, RouteKind, Row, SiteDb};
+use crate::db::{Rendition, Route, RouteKind, Row, SiteDb};
 use crate::markdown::Doc;
 use crate::parts;
 use crate::render::{self, Site, Theme};
@@ -431,8 +431,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // the pass generated one, else the original under baseurl. This is the
     // presentation `fill_from_fields` delegates so it need not know either.
     let resolve_asset = |src: &str| -> String {
-        thumbs
-            .get(src)
+        crate::thumbs::default_of(&thumbs, src)
             .map(|t| t.url.clone())
             .unwrap_or_else(|| asset_url(&cfg.site.baseurl, src))
     };
@@ -1059,7 +1058,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 // The hero (q23): an image-typed schema field, thumbnailed,
                 // dimension facts attached.
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
-                    let t = thumbs.get(s);
+                    let t = crate::thumbs::default_of(&thumbs, s);
                     let full = asset_url(&cfg.site.baseurl, s);
                     parts::preview(parts::Preview {
                         title: Some(title.clone()),
@@ -1267,6 +1266,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // IO.md §2: the half of `output.inputs` that only content can answer.
     join_citations(db, &cited);
 
+    // IO.md §4a: the renditions this build materialized, entered as outputs
+    // with their parameters and their edges. After `join_citations` because it
+    // reads the same one scan of the finished output, and because a citing
+    // route has to exist before it can gain an edge.
+    join_renditions(db, &thumbs, &cited);
+
     // The §6g splice markers have done their two jobs — fencing the citation
     // scan (backlinks) while on-demand publishing above read past them — so
     // strip them before the bytes ship. Last pass, after every scanner.
@@ -1372,63 +1377,203 @@ fn strip_view_markers(out: &mut SiteOutput) {
     }
 }
 
-/// Thumbnails (§6b): derive images once, publish under `/static/`, and hand
-/// back `{% image %}` source → published URL for the render passes to look
-/// up. Sources come from post bodies and rendered page bodies alike
-/// (`code/legacy/*` pages use the tag too). The cache is content-addressed,
-/// so a warm build only reads and hashes each source; a cold one decodes,
-/// resizes and re-encodes.
+/// **Renditions** (§6b, IO.md §4a): collect the DEMAND, run the transform once
+/// per distinct ask, publish under `/static/`, and hand the render passes a map
+/// from ask → output so each citation reaches the rendition it asked for.
+///
+/// The asks come from citations, which is the model's whole claim about
+/// renditions: `{% image %}` in post bodies and in rendered page bodies alike
+/// (`code/legacy/*` pages use the tag too), image-typed schema fields, and the
+/// members a gallery arranges. Nothing is declared and nothing is eager — an
+/// image nothing cites gets no rendition, and an image two pages cite at two
+/// widths gets two.
+///
+/// The cache is content-addressed by the same law the address is (input bytes +
+/// parameters), so a warm build only reads and hashes each source; a cold one
+/// decodes, resizes and re-encodes.
 fn thumbs_pass(
     cfg: &Config,
     db: &SiteDb,
     root: &Path,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
-) -> Result<HashMap<String, crate::thumbs::Thumb>> {
-    let mut img_sources: Vec<String> = Vec::new();
+) -> Result<crate::thumbs::Renditions> {
+    let mut asks: Vec<crate::thumbs::Ask> = Vec::new();
     for p in db.posts() {
-        img_sources.extend(tags::image_sources(&crate::store::read_body(&p.path)?));
+        asks.extend(tags::image_asks(&crate::store::read_body(&p.path)?));
     }
-    // Image-typed schema fields (§5b) — covers and the like — thumbnail
-    // too: they are what heroes and cards render (q23).
+    // Image-typed schema fields (§5b) — covers and the like — render too:
+    // they are what heroes and cards show (q23). No tag wrote these, so they
+    // ask for the engine's default rendition.
     for p in db.pages() {
         // An absolute url names something outside the site (load.rs leaves it
-        // alone for the same reason): there is no file here to thumbnail.
-        img_sources.extend(p.images.values().filter(|s| !is_absolute_url(s)).cloned());
+        // alone for the same reason): there is no file here to transform.
+        asks.extend(
+            p.images
+                .values()
+                .filter(|s| !is_absolute_url(s))
+                .map(|s| (s.clone(), Rendition::THUMB)),
+        );
     }
     for r in &db.routes {
         if r.kind == RouteKind::Page {
             if let Some(src) = &r.source {
                 if let Ok(text) = std::fs::read_to_string(src) {
                     let (_, body) = split_front_matter(&text);
-                    img_sources.extend(tags::image_sources(body));
+                    asks.extend(tags::image_asks(body));
                 }
             }
         }
-        // Gallery members (object-backed views) thumbnail too — the gallery
-        // pass shows thumbs and links originals, same as {% image %}.
+        // Gallery members (object-backed views) render too — the gallery pass
+        // shows renditions and links originals, same as {% image %}.
         if let Some(view) = &r.view {
             if view_base_kind(cfg, view) == Some(Kind::Objects) {
                 for k in &r.members {
                     if let Some(o) = db.rows.get(k) {
-                        img_sources.push(o.rel.to_string_lossy().to_string());
+                        asks.push((o.rel.to_string_lossy().to_string(), Rendition::THUMB));
                     }
                 }
             }
         }
     }
     let cache_dir = root.join("_cache/thumbs");
-    let thumbs = crate::thumbs::generate(root, &cache_dir, &cfg.site.baseurl, &img_sources)?;
+    let thumbs = crate::thumbs::generate(root, &cache_dir, &cfg.site.baseurl, &asks)?;
     let mut published: HashSet<String> = HashSet::new();
     for t in thumbs.values() {
-        if published.insert(t.rel.clone()) {
+        // Two asks that produced identical bytes share one address and one
+        // artifact — the untransformed-twin rule, one transform along.
+        if published.insert(t.address.clone()) {
             let bytes = std::fs::read(&t.cache_path)
                 .with_context(|| format!("reading thumb {}", t.cache_path.display()))?;
-            out_map.insert(format!("/{}", t.rel), bytes);
+            out_map.insert(t.address.clone(), bytes);
             stats.thumbs += 1;
         }
     }
     Ok(thumbs)
+}
+
+/// **Renditions as outputs** (IO.md §4a, I12): the artifacts `thumbs_pass`
+/// published, entered into the outputs database with the edges and the
+/// parameters that say what they are.
+///
+/// Two halves, and the pair is the whole model:
+///
+/// 1. **A rendition is an output of its input.** One `Route` per distinct
+///    address, carrying `inputs` — the rows whose bytes fed the transform —
+///    and `rendition`, the parameters it was made with. That pair is the
+///    reproduction recipe: read those bytes, run `thumbs::render` with those
+///    parameters, get these bytes back. The edge runs **input → output**,
+///    because the transform reads the INPUT's bytes and never the original
+///    output's; see `graph.rs` for what that answers.
+/// 2. **The citing edge names it.** An output whose finished bytes embed a
+///    rendition address gains a FACTS edge to it (`route_members`) — it read
+///    the rendition's *url*, which the hashing law makes knowable at planning,
+///    and not its content — plus the CONTENT edges to the rows behind it,
+///    because those bytes are what its address is a function of.
+///
+/// The second half's content edges are load-bearing where an affordance shows
+/// a rendition and links nothing else: a LISTING with a hero picture cites only
+/// `/static/{hash}`, so without this its `inputs` would lose the image and
+/// editing that image would ship a stale listing. `{% image %}` happens to link
+/// the original beside its thumbnail, which is why the same edge arrives twice
+/// on a post page and exactly once here.
+///
+/// Runs at build, like `materialize_referenced` and for the same reason: a
+/// rendition exists because a citation asked for it, and citations live in
+/// finished bytes. So the CLI's load-only surfaces (`explain`, `query pull`)
+/// do not see these outputs, which is what they already do for on-demand ones.
+fn join_renditions(
+    db: &mut SiteDb,
+    thumbs: &crate::thumbs::Renditions,
+    cited: &[(String, Vec<String>)],
+) {
+    if thumbs.is_empty() {
+        return;
+    }
+    // Rung 0 reaches this seam too (IO.md I10's law, stated at load.rs's
+    // `force_route_fields`): minting an output is the graph event, so a seam
+    // that mints applies the profile's forced fields. I11 added a shape to an
+    // existing seam; this is the third seam, and the law is why it is one line
+    // rather than a rediscovery.
+    let forced: Vec<(String, grackle_db::filter::Value)> = db
+        .forced_fields
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    // One output per address; its inputs are every source whose bytes landed
+    // there. The union is over ROWS, so a source no rule admitted contributes
+    // an artifact with no edge rather than a dangling key.
+    let mut by_address: BTreeMap<String, (grackle_model::Rendition, Vec<grackle_db::Key>)> =
+        BTreeMap::new();
+    for ((src, ask), t) in thumbs {
+        let e = by_address
+            .entry(t.address.clone())
+            .or_insert_with(|| (*ask, Vec::new()));
+        let key = grackle_db::Key::new(src);
+        if db.rows.get(&key).is_some() {
+            e.1.push(key);
+        }
+    }
+    for (address, (rendition, inputs)) in &mut by_address {
+        inputs.sort();
+        inputs.dedup();
+        if db.routes.get(&grackle_db::Key::new(address)).is_some() {
+            continue;
+        }
+        let mut route = Route {
+            // A rendition's canonical address IS its strong address: no rule
+            // minted it, the content store did (I11's reading, one transform
+            // along).
+            strong_url: Some(address.clone()),
+            inputs: inputs.clone(),
+            rendition: Some(*rendition),
+            ..Route::new(address.clone(), RouteKind::Object)
+        };
+        for (name, value) in &forced {
+            route.fields.insert(name.clone(), value.clone());
+        }
+        db.routes.push(route);
+    }
+
+    // The citing edges. A citation writes the baseurl-bearing URL while an
+    // output's key does not carry one, so both spellings are indexed — the
+    // same seam `Row.url` has, answered here rather than left.
+    let mut addr_of: HashMap<&str, &String> = HashMap::new();
+    for t in thumbs.values() {
+        addr_of.insert(t.address.as_str(), &t.address);
+        addr_of.insert(t.url.as_str(), &t.address);
+    }
+    let mut found: Vec<(grackle_db::Key, Vec<grackle_db::Key>, Vec<grackle_db::Key>)> = Vec::new();
+    for (url, urls) in cited {
+        let mut facts: Vec<grackle_db::Key> = Vec::new();
+        let mut content: Vec<grackle_db::Key> = Vec::new();
+        for u in urls {
+            let Some(address) = addr_of.get(u.as_str()) else {
+                continue;
+            };
+            let key = grackle_db::Key::new(address);
+            if let Some((_, inputs)) = by_address.get(*address) {
+                content.extend(inputs.iter().cloned());
+            }
+            facts.push(key);
+        }
+        if facts.is_empty() {
+            continue;
+        }
+        found.push((grackle_db::Key::new(url), facts, content));
+    }
+    for (route, facts, content) in found {
+        let Some(r) = db.routes.get_mut(&route) else {
+            continue;
+        };
+        r.route_members.extend(facts);
+        r.route_members.sort();
+        r.route_members.dedup();
+        r.inputs.extend(content);
+        r.inputs.sort();
+        r.inputs.dedup();
+    }
 }
 
 /// ONE render per post (§6d). Expand + parse once; the same parse yields the
@@ -1439,7 +1584,7 @@ fn thumbs_pass(
 fn render_bodies<'a>(
     cfg: &Config,
     db: &'a SiteDb,
-    thumbs: &HashMap<String, crate::thumbs::Thumb>,
+    thumbs: &crate::thumbs::Renditions,
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<&'a grackle_db::Key, Doc>> {
     let root = cfg.root();
@@ -1501,7 +1646,7 @@ fn render_page_bodies(
     db: &SiteDb,
     site: &Site,
     themes: &theme::Themes,
-    thumbs: &HashMap<String, crate::thumbs::Thumb>,
+    thumbs: &crate::thumbs::Renditions,
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<String, PageBody>> {
     let mut out = HashMap::new();
@@ -2606,9 +2751,9 @@ fn intro_html(
 /// — an object has no date, tags or prose to answer with.
 pub(crate) fn object_preview<'a>(
     o: &crate::db::Row,
-    thumbs: &HashMap<String, crate::thumbs::Thumb>,
+    thumbs: &crate::thumbs::Renditions,
 ) -> parts::Preview<'a> {
-    let t = thumbs.get(&o.rel.to_string_lossy().to_string());
+    let t = crate::thumbs::default_of(thumbs, &o.rel.to_string_lossy());
     parts::Preview {
         title: Some(
             o.rel
@@ -2647,11 +2792,13 @@ pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
 pub(crate) fn row_preview<'a>(
     cfg: &Config,
     p: &'a crate::db::Row,
-    thumbs: &HashMap<String, crate::thumbs::Thumb>,
+    thumbs: &crate::thumbs::Renditions,
     content: Option<String>,
     truncated: bool,
 ) -> parts::Preview<'a> {
-    let t = p.hero_source().and_then(|s| thumbs.get(s));
+    let t = p
+        .hero_source()
+        .and_then(|s| crate::thumbs::default_of(thumbs, s));
     parts::Preview {
         row: Some(p),
         content,

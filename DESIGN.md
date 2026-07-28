@@ -1694,7 +1694,7 @@ It preserves discipline: `filter.rs` is typed with load-time checking and "did y
 
 | construct | uses at the port | note |
 |---|---|---|
-| `{% image %}` | 194 | §6a |
+| `{% image %}` | 194 | §6a, §6b |
 | `{{ site.baseurl }}` and its `prepend:` form | 12 | whole shapes, not a filter pipeline |
 | `{% view %}` | 1 | §5c |
 | `{% include %}` | 1 | parameterless only |
@@ -2272,12 +2272,19 @@ undifferentiated graph, every such site would stop loading; the mutation that
 labels `route_members` as content is exactly that, and it is the measurement
 the split rests on. The detector is armed rather than decorative: **a transform
 that derives an output from another output's bytes** is the first content edge
-that can point output → output. **I11 was not it, measured rather than
-assumed**: a strong address (§5k) publishes an INPUT's bytes at a hash of those
-bytes, so the output it mints carries `inputs = [that row]` and its content
-edge runs input → output like every other; the untransformed twin adds a second
-input to one output, never an output to an output. I12's renditions are the
-item that changes this, and the item that owes the live fixture.
+that can point output → output. **Nothing has been it yet, measured rather
+than assumed.** A strong address (§5k) publishes an INPUT's bytes at a hash of
+those bytes, so the output it mints carries `inputs = [that row]` and its
+content edge runs input → output like every other; the untransformed twin adds
+a second input to one output, never an output to an output (I11). And a
+**rendition** (§6b) is a transform of an input, so it reads the input's bytes
+too — while the page that EMBEDS a rendition reads only its address, which the
+hashing law makes a planning fact, so the citing edge is `Facts` (I12). That is
+the law doing load-bearing work: **hashing inputs+parameters is exactly what
+keeps the demand edge a facts edge**, and an address computed from a
+transform's output would turn it into a content edge and make the first cycle
+describable. The live fixture is therefore owed by no item — it is not
+expressible until something consumes an output's bytes, and nothing does.
 
 **Four features are views of it**, and the honest state of each:
 
@@ -2301,7 +2308,9 @@ an output is a graph event, so the forced values are typed once at load
 today; closed because I11 and I12 each add a minting seam. **I11 added a shape
 to the existing seam rather than a second seam** — its strong mint sits inside
 `materialize_referenced`'s own loop, under the same `forced` list — which is
-the cheapest possible way to stay inside the law.
+the cheapest possible way to stay inside the law. **I12 added the third seam**
+(`build::join_renditions`), and because the law was already stated at the seam
+rather than at a pass, staying inside it cost one loop.
 
 ## 5k. Two address slots: the embed policy and strong URLs *(IO.md §4a; built I11, 2026-07-27)*
 
@@ -2342,10 +2351,16 @@ would be a different database rather than a different view of it.
 spent. It is what keeps §1's *facts at planning; content at materialization*
 true of an output whose whole address is a hash: an address computed from what
 a transform produced could not exist until after the transform ran. The
-thumbnail cache (`blake3(image bytes + variant)`) has obeyed the same law since
-§6b and is deliberately **not** routed through here yet — its variant, its
-extension contest and its cache layout are I12's to unify, and the addresses it
-mints today must not move.
+thumbnail cache has obeyed the same law since §6b, and **I12 unified the two
+mints**: `thumbs.rs` now calls `strong::digest` and `strong::at`, so `/static/`
+is one constant and the digest is one function. The arithmetic was already
+identical, which is why no published address moved.
+
+**One measured exception, stated rather than glossed**: a rendition's
+*extension* is decided by the transform's size contest, so it is a fact about
+the output. The digest — the part that makes the address immutable, and the part
+the law is about — is not, which is why `at(digest, ext)` takes them separately
+and `at(digest, "")` is the address a planner can name.
 
 **Untransformed twins fall out of it.** `strong::IDENTITY` is the parameter set
 of the transform that does nothing, so an untransformed embed's address is a
@@ -2372,14 +2387,16 @@ through it: `materialize_referenced` (the pull, which publishes the bytes) and
 embedding page's `inputs` silently loses the asset — the stale page an
 incremental rebuild would ship.
 
-### What waits for I12
+### The worked example's third leg, and who owns it
 
 The worked example in IO.md §4a is a chain of three URLs — thumbnail
 (rendition) → full-size expansion (the original's strong URL) → download (the
-canonical route) — and I11 landed the addresses and two of the three legs.
-`{% image %}` emits one element with one href, so the third leg needs a second
-affordance, and an affordance that carries transform parameters is what
-renditions are. Thumb addressing is untouched by design.
+canonical route) — and I11 landed the addresses and two of the three legs. I12
+gave affordances the parameters they carry (§6b's ask) and **measured that the
+third leg is not a consequence of them**: `{% image %}` emits one element with
+one href, so a download link beside the expansion is a second element on all 194
+corpus tags — a byte change on every post that shows a picture. That is Matt's
+call, not renditions'.
 
 ## 6a. Object references: paths and names
 
@@ -2458,7 +2475,7 @@ An earlier version of this section claimed "bare names work for posts today, wit
 
 Do **both**, but let the reference form decide:
 
-- `{% image %}` stays — 194 uses need it, and it carries the `left`/`right`/`inline` mode that markdown image syntax can't express. Its `<a>` is an **affordance**, not an authored link, which is why it may take a strong address where a link to the same row is refused (§5k).
+- `{% image %}` stays — 194 uses need it, and it carries the `left`/`right`/`inline` mode that markdown image syntax can't express. Its `<a>` is an **affordance**, not an authored link, which is why it may take a strong address where a link to the same row is refused (§5k). Since I12 it also carries the **ask** (`width=N`): the tag is the citing edge, so it is where a rendition's parameters are written (§6b).
 - A **post-render `lol_html` pass** rewrites `<img src>` and `<iframe src>` **only when the src is a bare name**. Anything containing `/` or `://` passes through untouched. *(The bare-name half is still parked. What DID land, at I11: `img`/`iframe`/`video`/`audio`/`source` `src` attributes are offered to the resolver as **embeds**, in raw HTML and in markdown alike — the AST pass now visits `Image` nodes too — and the resolver rewrites exactly one case, a target no rule routed. Everything else is handed back untouched, which is why the corpus did not move.)*
 - This makes plain markdown `![alt](foo.png)` work with no new tag, and gives `<iframe src="demo.html">` the same treatment.
 - The same pass is where `feed_images` already lives and where `<style>` extraction happens (§6c).
@@ -2511,6 +2528,48 @@ policy's own table is `[embeds]`, and it configures the policy rather than the
 location.
 
 **Cache is keyed by content, not by path**, which means a renamed post keeps its embedding, a moved image keeps its thumbnail, and the drafts profile shares every entry with the public profile.
+
+### Renditions: demand-driven outputs *(IO.md §4a; built I12, 2026-07-28)*
+
+A **rendition** — a resize, a re-encode — is not a special kind of thing. It is
+**another output of the same input**, the way a listing is an output of the rows
+it arranges, with one difference: it is transform-bearing, and a transform has
+parameters. IO.md §4a says where the parameters come from, and it is the whole
+model in one word: **demand.**
+
+- **The citing edge carries the ask.** `{% image cover.png width=256 %}` is
+  where a rendition's parameters are written. The pre-pass collects every ask a
+  build's citations make, runs the transform once per distinct ask, and an
+  image's rendition set is **the union of its consumers' asks** — two pages
+  asking two widths of one image are two outputs and one input. An image nothing
+  cites gets no rendition at all: the pull is the collector.
+- **No rendition surface**, which settles IO.md §9's q7 by what got built. Not a
+  parameterized shell (`image:256w`), not a transform stage upstream of `raw` —
+  the demand is edge-carried and named nowhere else. `width=N` is the only ask
+  today; a misspelt one is a load-time refusal rather than a silent default,
+  because publishing a size the author did not write is worse than complaining.
+- **The parameters live on the OUTPUT** (`Route.rendition`), not on the edge.
+  A rendition's address hashes the input bytes plus the parameters, so every
+  content edge arriving at one rendition output carries the same parameters by
+  construction; a slot on the edge would be N copies of one value with nothing
+  keeping them equal, and `graph::Graph` would stop being a pure view of the
+  join. `inputs` + `rendition` is the **reproduction recipe**: read those bytes,
+  run `thumbs::render` with those parameters, get these bytes back.
+- **Two edges, two demands** (§5j). Input → rendition is **content**: the
+  transform reads the input's bytes. Rendition → citing output is **facts**: the
+  page read the rendition's *address*, which the hashing law makes knowable at
+  planning, so a page materializes before its thumbnails exist.
+- **And the facts edge is not the whole story for invalidation**, which is a
+  defect this item closed rather than a feature it added. An affordance that
+  shows a rendition and links nothing else — a card that IS its picture — used
+  to leave the image out of the citing output's `inputs` entirely, because
+  `/static/{hash}` resolved to nothing. Editing that image moves the card's
+  bytes; `join_renditions` gives the citing output the content edges to the rows
+  behind the rendition, so `fanout` reaches it.
+
+The transform is unchanged (§6b's contest), the cache is unchanged, and every
+published address is unchanged — the item is a formalization, and the parity run
+over grack.com's 260 thumbnails is what says so.
 
 ### What moving to `/static/` buys (now that image URLs are free to change)
 
@@ -3225,7 +3284,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 
     **The four answers.**
 
-    1. **Which rows multiply** — those a `match` glob selects, and only *rendered* rows. An axis publishes alternative forms of a document; a static file or an image has one form, its bytes. (A thumbnail is an axis in spirit but it is the image pipeline's, keyed by size and content-addressed.)
+    1. **Which rows multiply** — those a `match` glob selects, and only *rendered* rows. An axis publishes alternative forms of a document; a static file or an image has one form, its bytes. (A thumbnail is an axis in spirit but it is not one: since I12 it is a *rendition*, an output of the image keyed by the ask that demanded it — §6b.)
     2. **Identity across members** — one row, N routes, via `Route.row`. This is what the prerequisite bought: before it, a route's row was recovered as `by_url.get(r.url)`, which answers "one" by construction and could never have seen the second.
     3. **The canonical member** — the first declared, and it **keeps the row's own URL**; only alternates are templated. Exactly the shape the default locale has in sitting above the selector with no `/fr/`. Every member's `rel="canonical"` and `og:url` name the canonical form, because the head describes the *document* rather than the form. And an all-outputs fold sees canonical members only: listing every member in the sitemap or search index would ask a crawler to treat six renderings of one document as six documents, which is what `rel="canonical"` exists to deny.
     4. **Composition** *(built 2026-07)* — axes over one row compose into the cartesian product rather than colliding. The constraint keys on the member-**tuple**, not one member, so a row (or a view) that spends `{palette}` and `{flavor}` lands at `/plain/sweet/…` through `/fancy/salty/…`, one route per tuple; `Route.axis`/`Row.axis` grew from one member to the list, and spending is per-axis — each must have its own segment or its members collide. Canonical is the tuple of first-declared members, and an all-outputs fold sees a route only when EVERY member in its tuple is canonical.

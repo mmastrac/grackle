@@ -39,17 +39,34 @@
 //! bytes* is the first content edge that can point output → output, and the
 //! first way a config could describe a cycle.
 //!
-//! **I11 did not bring one, and that was measured rather than hoped**
-//! (IO.md §4a). A strong address publishes an INPUT's bytes at a hash of those
-//! bytes: the output it mints carries `inputs = [that row]`, so its content
-//! edge runs input → output like every other, and the untransformed twin adds
-//! a second input to one output rather than an output to an output. The
-//! bipartite argument therefore still holds whole, the fast path below still
+//! **Neither I11 nor I12 brought one, and both were measured rather than
+//! hoped** (IO.md §4a). A strong address publishes an INPUT's bytes at a hash
+//! of those bytes: the output it mints carries `inputs = [that row]`, so its
+//! content edge runs input → output like every other, and the untransformed
+//! twin adds a second input to one output rather than an output to an output.
+//!
+//! **I12's renditions were expected to be the exception and are not, and the
+//! reason is the hashing law.** A rendition is a transform of an input, and the
+//! transform reads the INPUT's bytes — `thumbs::render` is a function of the
+//! source file and the ask — so its content edge runs input → output too. The
+//! citing page is the other candidate, and it is a [`Demand::Facts`] edge: a
+//! page embeds a rendition's *address*, and because that address hashes the
+//! inputs plus the parameters (never the output bytes) it is knowable at
+//! planning, so the page can materialize before the transform has run. That is
+//! §1's law doing load-bearing work rather than describing itself: **the
+//! hashing law is exactly what keeps the demand edge a facts edge**, and an
+//! address computed from what a transform produced would turn it into a content
+//! edge and make the first cycle describable.
+//!
+//! So the bipartite argument still holds whole, the fast path below still
 //! returns on one linear scan, and the unit-level fixture that hands
 //! `from_edges` a real output → output cycle remains the only place the
-//! detector can be seen to fire. **I12's renditions** are the item that
-//! changes this — a rendition reads the bytes an earlier transform produced —
-//! and it is the item that owes the live fixture through `Config::load`.
+//! detector can be seen to fire. **The live fixture through `Config::load` is
+//! not owed by any item on the ledger** — it is not expressible until something
+//! in the engine consumes an OUTPUT's bytes to make another output, and nothing
+//! does. Manufacturing one would test the fixture rather than the engine.
+//! `io_renditions.rs` asserts the predicate over a whole built site, which is
+//! the honest form of the claim.
 
 use crate::{Key, SiteDb};
 use std::collections::{HashMap, HashSet};
@@ -125,7 +142,9 @@ impl Graph {
     ///   members, the rows behind a fold's selected routes, and — after the
     ///   write pass — every row the finished bytes cite);
     /// - `Route.route_members` gives the **facts** edges, the output→output
-    ///   half a pool fold arranges.
+    ///   half: the routes a pool fold arranged, and (I12) the renditions an
+    ///   output's finished bytes embedded — both cases where one output reads
+    ///   another's planning facts and none of its content.
     ///
     /// Nothing is recomputed and nothing is looked up: both columns already
     /// hold keys, which is what I9 bought and why this costs one pass.
@@ -303,10 +322,11 @@ impl Graph {
     /// never a render surprise", the relations precedent) and, today, a check
     /// that cannot fire: content edges run input → output, inputs have no
     /// incoming edges, and a graph whose every source is on one side of a
-    /// bipartition has no cycle to find. It is here because the day that stops
-    /// being true is I12 — a rendition is an output derived from another
-    /// output's bytes — and a check written then is a check written after the
-    /// first render surprise.
+    /// bipartition has no cycle to find. I12 measured the case this comment
+    /// used to name — a rendition derives from its INPUT's bytes, not from
+    /// another output's — so the check is still armed and still unfireable, and
+    /// the day that changes is the day something consumes an output's bytes.
+    /// A check written then is a check written after the first render surprise.
     ///
     /// Returns the cycle in dependency order when there is one, which is what
     /// makes the error a diagnosis rather than a complaint.
@@ -316,8 +336,10 @@ impl Graph {
         // input has no incoming edge of any kind, so one linear scan settles
         // the whole question and the sort below never runs on a corpus site.
         // This is the doc comment's claim as a fast path rather than beside
-        // one — when it stops being true (I12's renditions), the scan finds
-        // the edge and the real check takes over.
+        // one — when it stops being true, the scan finds the edge and the real
+        // check takes over. (I12 was the item expected to make it stop being
+        // true, and measured otherwise: a rendition reads its INPUT's bytes,
+        // and the page that embeds it reads only its address.)
         if !self
             .edges
             .iter()
@@ -442,8 +464,11 @@ mod tests {
     }
 
     /// The tripwire, armed. The engine cannot describe this today — content
-    /// edges run input → output — so the edge list is built by hand, which is
-    /// exactly what a check for a shape I12 will introduce needs.
+    /// edges run input → output, renditions included (I12, measured) — so the
+    /// edge list is built by hand. That remains the honest place for it: a
+    /// detector for a shape nothing can build is tested where the shape can be
+    /// built, and manufacturing the shape in a live site would test the fixture
+    /// rather than the engine.
     #[test]
     fn a_content_cycle_between_outputs_is_named() {
         let g = Graph::from_edges([

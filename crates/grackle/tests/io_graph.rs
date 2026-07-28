@@ -311,10 +311,13 @@ fn the_pull_orders_dependencies_before_dependents() {
 /// for a structural reason rather than by luck: content edges run input →
 /// output, and an input has no incoming edge, so the content subgraph is
 /// bipartite and has no cycle to find. The detector itself is exercised where
-/// a cycle can actually be built — `graph.rs`'s unit tests, which hand it the
-/// output→output content edge I12's renditions will introduce. (I11 did not:
-/// a strong address hashes an INPUT's bytes, so its edge runs input →
-/// output like every other one — measured, and recorded in `graph.rs`.)
+/// a cycle can actually be built — `graph.rs`'s unit tests, which hand it an
+/// output→output content edge by hand. **Nothing on the ledger introduced one**:
+/// a strong address hashes an INPUT's bytes (I11), and so does a rendition's
+/// transform (I12) — while the page that EMBEDS a rendition reads only its
+/// address, which the hashing law makes a planning fact, so that edge is
+/// `Facts`. Both measured; `graph.rs` carries the argument and
+/// `io_renditions.rs` asserts the predicate over a whole built site.
 ///
 /// Mutations, each red and each restored:
 ///
