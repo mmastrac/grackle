@@ -26,7 +26,7 @@ source = "."
 [routes.everything]
 path = "/all/"
 from = ["posts", "recent"]
-layout = "listing"
+layout = "card"
 
 [sets.recent]
 from = "posts"

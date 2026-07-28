@@ -43,7 +43,7 @@ order_by = "-date"
 [routes.plain]
 path = "/plain/"
 from = "published"
-layout = "listing"
+layout = "card"
 title = "Plain"
 
 # The same rows, wearing a theme the route chose. Subtheme tokens ride along
@@ -51,6 +51,6 @@ title = "Plain"
 [routes.loud]
 path = "/loud/"
 from = "published"
-layout = "listing"
+layout = "card"
 theme = "loud:dark"
 title = "Loud"

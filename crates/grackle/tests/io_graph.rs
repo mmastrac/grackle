@@ -82,7 +82,7 @@ source = "."
 path = "/list/"
 from = "entries"
 where = 'shell == "html"'
-layout = "listing"
+layout = "card"
 title = "List"
 
 # A fold over the output pool with no `where`: it selects every route,

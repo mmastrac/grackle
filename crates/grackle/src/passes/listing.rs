@@ -1,6 +1,9 @@
-//! `layout = "listing"`: N rows, previewed.
+//! Aggregate pages: N rows, previewed (THEME.md §3).
+//!
+//! `layout` / `variant` only pick the member face; any layout the theme
+//! ships a `row--*` face for is valid.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::{Ctx, Pass};
 use crate::assemble::chain;
@@ -16,10 +19,6 @@ use crate::render;
 pub struct Listing;
 
 impl Pass for Listing {
-    fn layout(&self) -> &'static str {
-        "listing"
-    }
-
     fn render(
         &self,
         ctx: &Ctx,
@@ -51,12 +50,18 @@ impl Pass for Listing {
             }
         });
         let row_thm = ctx.themes.get(theme_name)?;
-        let content = chain::concat_rows(
+        let layout = v
+            .layout
+            .as_deref()
+            .context("listing pass only sees layouted views")?;
+        let content = chain::member_faces(
             &row_thm.fragments,
-            parts::member_face("listing", v.variant.as_deref()),
+            layout,
+            v.variant.as_deref(),
             items,
             v.featured,
-        );
+        )
+        .with_context(|| format!("view {view}"))?;
         let main = row_thm.fragments.render(&parts::page_row(
             &title,
             &r.url,

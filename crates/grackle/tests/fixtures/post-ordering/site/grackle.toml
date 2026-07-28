@@ -28,14 +28,14 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 [routes.by_path]
 path = "/by-path/"
 from = "notes"
-layout = "listing"
+layout = "card"
 title = "By path"
 
 [routes.by_date_desc]
 path = "/by-date-desc/"
 from = "notes"
 order_by = "-date"
-layout = "listing"
+layout = "card"
 title = "By date, newest first"
 
 # `path` is the last key, always — so `b` and `c`, which declare no `order`
@@ -45,5 +45,5 @@ title = "By date, newest first"
 path = "/by-order/"
 from = "notes"
 order_by = "order"
-layout = "listing"
+layout = "card"
 title = "By declared order"

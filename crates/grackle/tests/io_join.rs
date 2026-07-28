@@ -132,7 +132,7 @@ source = "."
 path = "/things/"
 from = "entries"
 where = 'glob(path, "notes/*.md")'
-layout = "listing"
+layout = "card"
 content = "landing.md"
 title = "Things"
 "#;
@@ -334,7 +334,7 @@ source = "."
 path = "/{group:key}/"
 from = "posts"
 group_by = "topic"
-layout = "listing"
+layout = "card"
 content = "{group:key}/index.md"
 title = "{group:key}"
 
@@ -342,7 +342,7 @@ title = "{group:key}"
 [routes.everything]
 path = "/everything/"
 from = "posts"
-layout = "listing"
+layout = "card"
 content = "everything.md"
 title = "Everything"
 
@@ -353,7 +353,7 @@ title = "Everything"
 path = "/landed/"
 from = "entries"
 where = "output"
-layout = "listing"
+layout = "card"
 title = "Landed"
 "#,
             ),
@@ -487,7 +487,7 @@ source = "."
 [routes.blog]
 path = "/blog/"
 from = "posts"
-layout = "listing"
+layout = "card"
 title = "Blog"
 "#,
             ),

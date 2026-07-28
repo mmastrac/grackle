@@ -46,9 +46,9 @@ fn site(who: &str) -> PathBuf {
               [[collections]]\nname = \"objects\"\n\n  \
               [[collections.rules]]\n  match = \"**/*.png\"\n  route = \"/{path}\"\n\n\
               [routes.tags]\npath = \"/tags/{group:key}/\"\nfrom = \"posts\"\n\
-              group_by = \"tags\"\nlayout = \"listing\"\n\n\
+              group_by = \"tags\"\nlayout = \"card\"\n\n\
               [routes.paged]\npaths = [\"/journal/\", \"/journal/page/{n}/\"]\n\
-              from = \"posts\"\nlayout = \"listing\"\npaginate = 1\n\n\
+              from = \"posts\"\nlayout = \"card\"\npaginate = 1\n\n\
               [routes.everything]\npath = \"/everything.xml\"\nshell = \"sitemap\"\n\n\
               [routes.blog_corpus]\npath = \"/blog-corpus.xml\"\nshell = \"sitemap\"\n\
               where = 'kind == \"post\"'\n",

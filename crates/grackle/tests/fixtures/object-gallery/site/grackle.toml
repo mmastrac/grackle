@@ -41,5 +41,5 @@ path = "/photos/"
 from = "objects"
 where = 'glob(path, "photos/**")'
 order_by = "name"
-layout = "listing"
+layout = "card"
 title = "Photos"

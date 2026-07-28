@@ -126,7 +126,7 @@ fn pools_site(who: &str) -> PathBuf {
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
              [profiles.drafts.force]\nnoindex = true\n\n\
              [routes.row_probe]\npath = \"/row-probe/\"\nfrom = \"published\"\n\
-             where = \"!noindex\"\nlayout = \"listing\"\ntitle = \"Row probe\"\n\n\
+             where = \"!noindex\"\nlayout = \"card\"\ntitle = \"Row probe\"\n\n\
              [routes.pool_probe]\npath = \"/pool-probe.xml\"\n\
              shell = \"sitemap\"\nwhere = '!noindex && (dir || ext == \"html\")'\n",
         ),

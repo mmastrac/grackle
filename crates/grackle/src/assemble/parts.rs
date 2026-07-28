@@ -912,16 +912,28 @@ pub fn page_row(
     m
 }
 
-/// Layout sugar → member face name (THEME.md §3 / §7).
-pub fn member_face<'a>(layout: &str, variant: Option<&'a str>) -> &'a str {
-    if let Some(v) = variant {
-        return v;
+/// Face for a view's members: `variant` if set, else `layout`.
+pub fn member_face<'a>(layout: &'a str, variant: Option<&'a str>) -> &'a str {
+    variant.unwrap_or(layout)
+}
+
+/// Bail unless the theme ships `row--{face}`.
+pub fn require_face<'a>(
+    fragments: &crate::assemble::binder::Fragments,
+    face: &'a str,
+) -> anyhow::Result<&'a str> {
+    if fragments.has_face(face) {
+        return Ok(face);
     }
-    match layout {
-        "link_list" => "link",
-        "card" | "listing" => "card",
-        _ => "card",
-    }
+    let known = fragments.faces();
+    anyhow::bail!(
+        "no row face {face:?} — theme has: {}",
+        if known.is_empty() {
+            "(none)".to_string()
+        } else {
+            known.join(", ")
+        }
+    )
 }
 
 /// §5d's one genuine component, as data: prev/next (absent at the ends) and

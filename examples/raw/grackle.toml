@@ -157,7 +157,7 @@ order_by = "-date"
 path = "/"
 from = "published"
 limit = 10
-layout = "listing"
+layout = "card"
 default_content = "index.{md,html}"
 title = "@home"
 
@@ -165,7 +165,7 @@ title = "@home"
 paths = ["/blog/", "/blog/page/{n}/"]
 from = "published"
 paginate = 10
-layout = "listing"
+layout = "card"
 title = "@blog"
 
 [routes.feed]

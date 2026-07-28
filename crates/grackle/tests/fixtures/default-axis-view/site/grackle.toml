@@ -23,7 +23,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 [routes.hub]
 from = "posts"
-layout = "listing"
+layout = "card"
 axis = "look"
 paths = ["/{look}/all/", "/all/"]
 title = "All"

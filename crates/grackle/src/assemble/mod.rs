@@ -12,7 +12,7 @@ pub mod theme;
 
 pub use binder::Fragments;
 pub use parts::{
-    document, document_tree, fill_from_fields, member_face, page_row, preview, raw, row, Part,
-    PartMap, PartType, Preview, Schemas, tree_trail,
+    document, document_tree, fill_from_fields, member_face, page_row, preview, raw, require_face,
+    row, Part, PartMap, PartType, Preview, Schemas, tree_trail,
 };
 pub use theme::{Theme, Themes};

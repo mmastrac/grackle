@@ -239,7 +239,7 @@ fn absent_from_without_a_fold_is_a_load_error() {
     let base = std::fs::read_to_string(&cfg).expect("the fixture wrote it");
     std::fs::write(
         &cfg,
-        format!("{base}\n[routes.orphan]\npath = \"/orphan/\"\nlayout = \"listing\"\n"),
+        format!("{base}\n[routes.orphan]\npath = \"/orphan/\"\nlayout = \"card\"\n"),
     )
     .unwrap();
     let e = format!(

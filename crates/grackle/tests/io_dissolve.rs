@@ -107,7 +107,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
                   [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
                   [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{path}\"\n\n\
                   [routes.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
-                  order_by = \"path\"\nlayout = \"listing\"\ntitle = \"Photos\"\n",
+                  order_by = \"path\"\nlayout = \"card\"\ntitle = \"Photos\"\n",
             ),
             ("gallery/a/shot.png", PNG),
             ("gallery/b/shot.png", PNG),

@@ -222,6 +222,7 @@ fn insert_routeless(
         ViewRows {
             layout: v.layout.clone(),
             variant: v.variant.clone(),
+            featured: v.featured,
             rows: members.len(),
             members,
         },
@@ -909,7 +910,7 @@ mod object_view_tests {
     fn an_object_view_scopes_itself_with_a_path_glob() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\n\
              where = 'glob(path, \"photos/**\")'\n\
-             order_by = \"name\"\npath = \"/p/\"\nlayout = \"listing\"\n");
+             order_by = \"name\"\npath = \"/p/\"\nlayout = \"card\"\n");
         build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema()))
             .expect("a path glob is object vocabulary");
     }
@@ -960,7 +961,7 @@ mod posts_order_tests {
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"notes\"\nsource = \"_posts\"\n\
              filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
-             [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"listing\"\n{clauses}"
+             [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"card\"\n{clauses}"
         );
         Config::from_toml(&src).expect("test config parses")
     }

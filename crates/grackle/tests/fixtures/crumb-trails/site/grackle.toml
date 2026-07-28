@@ -60,14 +60,14 @@ order_by = "-date"
 paths = ["/blog/", "/blog/page/{n}/"]
 from = "published"
 paginate = 5
-layout = "listing"
+layout = "card"
 title = "Blog"
 
 [routes.yearly_archive]
 path = "/blog/{year}/"
 from = "published"
 group_by = "date.year"
-layout = "listing"
+layout = "card"
 title = "{year}"
 
 # A titleless listing: no `title`, so the heading resolves to "" through the
@@ -77,4 +77,4 @@ title = "{year}"
 path = "/uncharted/"
 from = "published"
 limit = 5
-layout = "listing"
+layout = "card"

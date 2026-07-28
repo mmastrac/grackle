@@ -1,10 +1,8 @@
 //! Rendering passes over the route table.
 //!
-//! One walk of `db.routes`, dispatching each route to the pass that claims it.
-//! A pass is two questions: does this route belong to me, and what bytes does
-//! it produce. Everything a pass may read is in [`Ctx`], which is built once
-//! and borrowed immutably, so passes cannot see each other's work and their
-//! order cannot matter.
+//! One walk of `db.routes`. Aggregate (layouted, non-landing) routes go through
+//! the listing pass; `layout` / `variant` only pick the member face. Everything
+//! a pass may read is in [`Ctx`], which is built once and borrowed immutably.
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -78,13 +76,8 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// One rendering pass.
+/// One rendering pass over aggregate (layouted, non-landing) routes.
 pub trait Pass {
-    /// The `layout` this pass renders. A route claims it when its view
-    /// declares this layout and does not claim a content row — a claimed view
-    /// renders in the landing pass, which owns the arrangement (§5h).
-    fn layout(&self) -> &'static str;
-
     fn render(
         &self,
         ctx: &Ctx,
@@ -96,13 +89,13 @@ pub trait Pass {
     ) -> Result<()>;
 }
 
-/// Every layout-dispatched pass, in no significant order — a route matches at
-/// most one, so the order is not a precedence.
 pub fn all() -> Vec<Box<dyn Pass>> {
     vec![Box::new(listing::Listing)]
 }
 
-/// Walk the route table once, dispatching to whichever pass claims each route.
+/// Walk the route table once. Every layouted route that is not a landing
+/// goes to the aggregate pass — `layout` / `variant` only pick the member
+/// face the theme must ship.
 pub fn run(
     ctx: &Ctx,
     passes: &[Box<dyn Pass>],
@@ -122,14 +115,11 @@ pub fn run(
         if v.content.is_some() || r.content.is_some() {
             continue;
         }
-        let Some(layout) = v.layout.as_deref() else {
+        if v.layout.is_none() {
             continue;
-        };
+        }
         for p in passes {
-            if p.layout() == layout {
-                p.render(ctx, r, view, v, out, stats)?;
-                break;
-            }
+            p.render(ctx, r, view, v, out, stats)?;
         }
     }
     Ok(())

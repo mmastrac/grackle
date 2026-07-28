@@ -63,13 +63,11 @@ HTML strings concatenated. Page furniture lives on the **wrapper** row:
 
 A materialized view is a synthetic row:
 
-- **Unclaimed** (`layout` used to say `listing`): wrapper `row.html` whose
-  `content` is concat of members through the view's face (`variant` or a
-  default of `card`). Config may still say `layout = "listing"` meaning
-  "this route is an aggregate page"; that is pass dispatch, not a fragment.
+- **Unclaimed** (has `layout`): wrapper `row.html` whose `content` is concat
+  of members through that face (`variant` overrides `layout` when set).
 - **Claimed** (q45): real row owns the page; body places
   `{% view <self> %}` (optional `| face`); embed is route-aware.
-- **Embed-only** faces (`link`, `card`): concat (or one card) with **no**
+- **Embed-only** faces (`link`, `card`, …): concat (or one card) with **no**
   wrapper furniture — the splice *is* the content contribution.
 
 Fold shells (`atom` / `sitemap` / `search` / script) stay serializations.
@@ -96,8 +94,8 @@ Engine part vocabulary is the static `ENGINE` table in `assemble/parts.rs`
 |---|---|
 | `document` / `summary` / `link` kinds | `row` + faces |
 | `listing` / `link_list` kinds + templates | concat of row faces; furniture on wrapper `row` |
-| `layout = "card"` / `"link_list"` | member face `card` / `link` |
-| `layout = "listing"` + `variant` | aggregate page; members use `variant` as face |
+| `layout = "card"` / `"link"` / … | member face of that name (`row--{face}`) |
+| `variant` | overrides `layout` as the member face |
 | `listing--gallery.html` etc. | `row--gallery.html` (member face) |
 | site `[[parts]]` | theme `.schema.toml` |
 | `data-slot="main"` | `data-slot="content"` |
@@ -106,5 +104,5 @@ Engine part vocabulary is the static `ENGINE` table in `assemble/parts.rs`
 
 - **q-theme-a:** fold `light_html` into the chain
 - **q50:** deliberate vs forgotten omitted slots
-- Config spellings: keep accepting `layout = "listing"|"link_list"|"card"` as
-  sugar for aggregate vs face while corpora migrate to an explicit `face =`
+- Whether `variant` stays as an override, or config collapses to one `layout`
+  / `face` key once corpora no longer need both.

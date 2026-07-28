@@ -1344,12 +1344,6 @@ pub struct Site {
     pub noindex: bool,
 }
 
-/// The arrangements a view can ask for. `listing` is the routed one — a
-/// gallery and a card list are listings whose previews hold pictures, told
-/// apart by `variant`, not by layout. `link_list` and `card` are what an
-/// embedded view renders as.
-pub const LAYOUTS: &[&str] = &["listing", "link_list", "card"];
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Collection {
@@ -2736,18 +2730,10 @@ impl Config {
             );
         }
         for (vname, v) in &cfg.views {
-            // §5a: `layout` names the arrangement the engine builds — which
-            // parts a view produces, not which fragment dresses them (that
-            // is `variant`). Closed vocabulary: an unknown name would
-            // otherwise be inert, falling back to canonical rendering.
-            if let Some(l) = v.layout.as_deref() {
-                if !LAYOUTS.contains(&l) {
-                    anyhow::bail!(
-                        "view {vname}: layout {l:?} is not a layout — expected {}",
-                        LAYOUTS.join(", ")
-                    );
-                }
-            }
+            // §5a / THEME.md §3: `layout` (or `variant`) names the member face
+            // the theme must ship as `row--{face}`. No closed vocabulary —
+            // themes invent faces by shipping fragments; missing faces bail
+            // at render / embed time.
             // §7 q5 / MERGE.md F3: a set's `theme` can never apply, so declaring
             // one is declared-and-ignored. A set does not materialize, so there
             // is no document for a theme to dress; embedded, it is content
@@ -3776,19 +3762,14 @@ mod tests {
         assert!(e.contains("resolve to the name"), "{e}");
     }
 
-    /// A layout outside the vocabulary would otherwise be inert — no
-    /// fragment matches, the theme silently falls back to canonical
-    /// rendering.
+    /// Layout names are open: themes invent faces by shipping `row--*`.
+    /// Config only records the name; missing faces bail at render time.
     #[test]
-    fn a_layout_outside_the_vocabulary_is_a_load_error() {
-        let src = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-                   [[collections]]\nsource = \"_posts\"\n\
-                   filename_formats = [\"{slug}\"]\n\
-                   [routes.x]\npath = \"/x/\"\nfrom = \"posts\"\nlayout = \"tag_index\"\n";
-        let c = Config::from_toml(src).expect("it parses; validation is the gate");
-        let e = format!("{:#}", c.validate().unwrap_err());
-        assert!(e.contains("layout \"tag_index\" is not a layout"), "{e}");
-        assert!(e.contains("listing, link_list, card"), "{e}");
+    fn an_unknown_layout_name_is_accepted_at_config_time() {
+        let c = cfg(
+            "[routes.x]\npath = \"/x/\"\nfrom = \"blog\"\nlayout = \"tag_index\"\n",
+        );
+        assert_eq!(c.views["x"].layout.as_deref(), Some("tag_index"));
     }
 
     /// §7 q5 / MERGE.md F3: a set's `theme` can never apply — a set never
@@ -3803,17 +3784,17 @@ mod tests {
     fn a_set_may_not_declare_a_theme() {
         let e = cfg_err(
             "[sets.latest]\nfrom = \"blog\"\nlimit = 3\n\
-             layout = \"link_list\"\ntheme = \"loud\"\n",
+             layout = \"link\"\ntheme = \"loud\"\n",
         );
         assert!(e.contains("[sets.latest] declares a theme"), "{e}");
         assert!(e.contains("never lands"), "{e}");
 
         let c = cfg("[routes.blog_index]\npath = \"/blog/\"\nfrom = \"blog\"\n\
-             layout = \"listing\"\ntheme = \"loud\"\n\
+             layout = \"card\"\ntheme = \"loud\"\n\
              [sets.latest]\nfrom = \"blog\"\nlimit = 3\n\
-             layout = \"link_list\"\nvariant = \"compact\"\n");
+             layout = \"link\"\nvariant = \"compact\"\n");
         assert_eq!(c.views["blog_index"].theme.as_deref(), Some("loud"));
-        assert_eq!(c.views["latest"].layout.as_deref(), Some("link_list"));
+        assert_eq!(c.views["latest"].layout.as_deref(), Some("link"));
         assert_eq!(c.views["latest"].variant.as_deref(), Some("compact"));
     }
 
@@ -3870,8 +3851,8 @@ mod tests {
                     [[collections]]\nsource = \"_posts\"\n\
                     filename_formats = [\"{slug}\"]\n";
         let c = Config::from_toml(&format!(
-            "{head}[routes.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"listing\"\n\
-             [routes.tag_index]\npath = \"/t/\"\nfrom = \"posts\"\nlayout = \"listing\"\n\
+            "{head}[routes.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
+             [routes.tag_index]\npath = \"/t/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
              noindex = true\n"
         ))
         .unwrap();
@@ -4236,7 +4217,7 @@ mod tests {
     fn a_trail_over_nothing_grouped_is_a_load_error() {
         let e = cfg_err(
             "trail = \"flat\"\n\
-             [routes.flat]\npath = \"/flat/\"\nfrom = \"blog\"\nlayout = \"listing\"\ntitle = \"F\"\n",
+             [routes.flat]\npath = \"/flat/\"\nfrom = \"blog\"\nlayout = \"card\"\ntitle = \"F\"\n",
         );
         assert!(e.contains("subdivision chain"), "{e}");
         assert!(e.contains("Grouped views: "), "the knowns are listed: {e}");
@@ -4268,13 +4249,13 @@ mod tests {
          path = \"/blog/{year}/\"\n\
          from = \"blog\"\n\
          group_by = \"date.year\"\n\
-         layout = \"listing\"\n\
+         layout = \"card\"\n\
          title = \"{year}\"\n\
          [routes.monthly_archive]\n\
          path = \"/blog/{year}/{month:02}/\"\n\
          from = \"yearly_archive\"\n\
          group_by = \"date.month\"\n\
-         layout = \"listing\"\n\
+         layout = \"card\"\n\
          crumb = \"{month_name}\"\n";
 
     /// The field names serde accepts for `T`, read out of its own
@@ -4674,7 +4655,7 @@ mod tests {
     /// lands, and a route that does.
     const PROFILE_VIEWS: &str = "[schema]\nhidden = { type = \"bool\" }\n\
          [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
-         [routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"listing\"\n";
+         [routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"card\"\n";
 
     /// MERGE.md E2, the fence — §4a's iron law made checkable. A profile may
     /// touch what a projection SAYS and SELECTS and never what LOADS, and the
@@ -5030,7 +5011,7 @@ mod tests {
             &format!(
                 "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
                  [profiles.p.routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\n\
-                 layout = \"listing\"\nwhere = 'title != \"\"'\n"
+                 layout = \"card\"\nwhere = 'title != \"\"'\n"
             ),
             "p",
         )
@@ -5045,7 +5026,7 @@ mod tests {
             "{:#}",
             Config::from_toml(&cfg_source(&format!(
                 "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\npath = \"/blog/\"\n\
-                 from = \"published\"\nlayout = \"listing\"\nwhere = \"!hidden\"\n"
+                 from = \"published\"\nlayout = \"card\"\nwhere = \"!hidden\"\n"
             )))
             .expect_err("`blog_index` is already a route")
         );
@@ -5167,7 +5148,7 @@ mod tests {
     #[test]
     fn a_declined_default_content_route_is_still_a_route() {
         let mut c = cfg_raw(
-            "[routes.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"listing\"\n\
+            "[routes.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"card\"\n\
              default_content = \"index.md\"\n",
         );
         // What `resolve_default_content` does to a route whose offered row

@@ -8,8 +8,8 @@
 //!
 //! `{% view %}` and `{% include %}` are grackle's own, added for `/` (§5c).
 //! Each is a whole recognised construct rather than a step toward a template
-//! language: `{% include %}` refuses parameters, and `{% view %}` dispatches to
-//! a layout kind rather than exposing rows for a template to iterate.
+//! language: `{% include %}` refuses parameters, and `{% view %}` concatenates
+//! member faces for a routeless view (THEME.md §3).
 //!
 //! Anything unrecognised is emitted verbatim, so an unimplemented construct
 //! shows up in the output instead of silently evaluating to nothing.
@@ -226,9 +226,9 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
     Ok(format!("<!--grackle:view-->{html}<!--/grackle:view-->"))
 }
 
-/// The splice itself. The view owns the query and names a layout kind; this
-/// only looks the rows up and dispatches. Nothing here knows what "latest"
-/// means — change the filter in `grackle.toml` and this code does not move.
+/// The splice itself. The view owns the query and names a face (`layout`, or
+/// `variant` when set); this looks the rows up and concatenates member faces
+/// (THEME.md §3). The host theme must ship `row--{face}`.
 fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
     let mut name = name.trim();
     let mut layout_override: Option<&str> = None;
@@ -262,51 +262,34 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
                 cx.source
             )
         })?;
-    match layout {
-        "link_list" => {
-            let items: Vec<_> = v
-                .members
-                .iter()
-                .filter_map(|k| cx.db.rows.get(k))
-                .map(|p| crate::parts::Preview {
-                    title: Some(p.title.clone().unwrap_or_default()),
-                    url: Some(p.url.clone()),
-                    ..Default::default()
-                })
-                .collect();
-            Ok(crate::assemble::chain::concat_rows(
-                &theme.fragments,
-                crate::parts::member_face(layout, None),
-                items,
-                false,
-            ))
-        }
-        "card" => {
-            let Some(p) = v.members.first().and_then(|k| cx.db.rows.get(k)) else {
-                return Ok(String::new());
-            };
-            let thumb = p.hero_source().and_then(|s| {
-                cx.thumbs
-                    .and_then(|t| t.get(&(s.to_string(), Rendition::THUMB)))
-            });
-            let face = crate::parts::member_face(layout, v.variant.as_deref());
-            Ok(theme.fragments.render_with(
-                &crate::parts::preview(crate::parts::Preview {
-                    title: Some(p.title.clone().unwrap_or_default()),
-                    url: Some(p.url.clone()),
-                    src: thumb.map(|t| t.url.clone()),
-                    dims: thumb.and_then(|t| t.dims),
-                    note: p.description.clone(),
-                    ..Default::default()
-                }),
-                Some(face),
-            ))
-        }
-        other => bail!(
-            "{}: view {name} has layout {other:?}, which is not embeddable",
-            cx.source
-        ),
-    }
+    let none = crate::thumbs::Renditions::new();
+    let thumbs = cx.thumbs.unwrap_or(&none);
+    let items: Vec<_> = v
+        .members
+        .iter()
+        .filter_map(|k| cx.db.rows.get(k))
+        .map(|p| {
+            let t = p
+                .hero_source()
+                .and_then(|s| crate::thumbs::default_of(thumbs, s));
+            crate::parts::Preview {
+                title: Some(p.title.clone().unwrap_or_default()),
+                url: Some(p.url.clone()),
+                src: t.map(|t| t.url.clone()),
+                dims: t.and_then(|t| t.dims),
+                note: p.description.clone(),
+                ..Default::default()
+            }
+        })
+        .collect();
+    crate::assemble::chain::member_faces(
+        &theme.fragments,
+        layout,
+        v.variant.as_deref(),
+        items,
+        v.featured,
+    )
+    .with_context(|| format!("{}: view {name}", cx.source))
 }
 
 /// `{% include social.html %}` — parameterless only.

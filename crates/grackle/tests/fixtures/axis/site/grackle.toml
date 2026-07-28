@@ -77,7 +77,7 @@ field = "shell"
 path = "/{theme}/all/"
 from = "entries"
 where = "!draft && !hidden"
-layout = "listing"
+layout = "card"
 axis = "theme"
 title = "All"
 

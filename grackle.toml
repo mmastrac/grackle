@@ -342,7 +342,7 @@ order_by = "-date"
 [sets.latest]
 from = "published"
 limit = 3
-layout = "link_list"
+layout = "link"
 
 # ---------------------------------------------------------------- routes
 #
@@ -354,7 +354,7 @@ layout = "link_list"
 paths = ["/blog/", "/blog/page/{n}/"]
 from = "published"
 paginate = 5
-layout = "listing"
+layout = "card"
 title = "Blog"
 
 [routes.feed]
@@ -416,7 +416,7 @@ where = '!draft && !hidden && (dir || ext == "html" || ext == "pdf")'
 path = "/blog/tags/{key}/"
 from = "published"
 group_by = "tags"
-layout = "listing"
+layout = "card"
 noindex = true
 title = "Posts Tagged “{key}”"
 crumb = "{key}"
@@ -427,7 +427,7 @@ crumb = "{key}"
 path = "/blog/{year}/"
 from = "published"
 group_by = "date.year"
-layout = "listing"
+layout = "card"
 noindex = true
 title = "{year}"
 
@@ -440,7 +440,7 @@ title = "{year}"
 path = "/blog/{year}/{month:02}/"
 from = "yearly_archive"
 group_by = "date.month"
-layout = "listing"
+layout = "card"
 noindex = true
 title = "{year} {month_name}"
 crumb = "{month_name}"

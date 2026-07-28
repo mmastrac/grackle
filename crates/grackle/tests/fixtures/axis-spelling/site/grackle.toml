@@ -47,7 +47,7 @@ source = "."
 
 [routes.hub]
 from = "entries"
-layout = "listing"
+layout = "card"
 axis = "look"
 paths = ["/{axis:look}/all/", "/all/"]
 title = "All"

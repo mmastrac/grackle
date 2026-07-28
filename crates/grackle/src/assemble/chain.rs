@@ -106,9 +106,22 @@ pub fn light_page(
     )
 }
 
+/// Resolve `layout`/`variant` to a theme face and concatenate member rows
+/// (THEME.md §3). Callers attach view context on the error.
+pub fn member_faces(
+    fragments: &Fragments,
+    layout: &str,
+    variant: Option<&str>,
+    items: Vec<Preview<'_>>,
+    featured: bool,
+) -> Result<String> {
+    let face = parts::require_face(fragments, parts::member_face(layout, variant))?;
+    Ok(concat_rows(fragments, face, items, featured))
+}
+
 /// Concatenate member row faces (THEME.md §3). When `featured`, the first
 /// member prefers face `featured` if the theme ships it.
-pub fn concat_rows(
+fn concat_rows(
     fragments: &Fragments,
     face: &str,
     items: Vec<Preview<'_>>,

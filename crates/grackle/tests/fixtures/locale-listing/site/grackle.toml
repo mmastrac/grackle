@@ -28,5 +28,5 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 [routes.blog]
 path = "/blog/"
 from = "posts"
-layout = "listing"
+layout = "card"
 title = "Blog"

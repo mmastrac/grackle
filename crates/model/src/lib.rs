@@ -940,6 +940,8 @@ pub struct ViewRows {
     pub layout: Option<String>,
     /// Fragment variant (q24), for embedded rendering.
     pub variant: Option<String>,
+    /// Prefer `row--featured` for the first member when the theme ships it.
+    pub featured: bool,
     pub rows: usize,
     #[serde(skip)]
     pub members: Vec<Key>,
@@ -950,6 +952,7 @@ impl Default for ViewRows {
         ViewRows {
             layout: None,
             variant: None,
+            featured: false,
             rows: 0,
             members: Vec::new(),
         }

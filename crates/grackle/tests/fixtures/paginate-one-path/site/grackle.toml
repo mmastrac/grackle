@@ -35,4 +35,4 @@ source = "."
 path = "/blog/"
 from = "posts"
 paginate = 1
-layout = "listing"
+layout = "card"

@@ -571,11 +571,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         stats.posts += 1;
     }
 
-    // ---- one walk of the route table, dispatched by layout (§9b).
+    // ---- one walk of the route table for aggregates (§9b).
     //
-    // Each pass lives in `passes/` and states which layout it renders; a route
-    // matches at most one. Passes read `Ctx` and cannot see each other's
-    // output, so their order carries no meaning.
+    // Layouted non-landing routes go through the listing pass; `layout` /
+    // `variant` only pick the member face the theme must ship.
     {
         let ctx = crate::passes::Ctx {
             metas: &metas,
@@ -655,12 +654,17 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 themes.resolve(row.theme.as_deref())
             });
         let row_thm = themes.get(theme_name)?;
-        let mut embed_html = chain::concat_rows(
+        let layout = v.layout.as_deref().with_context(|| {
+            format!("view {view}: landing embed needs a layout (member face)")
+        })?;
+        let mut embed_html = chain::member_faces(
             &row_thm.fragments,
-            parts::member_face(v.layout.as_deref().unwrap_or("listing"), v.variant.as_deref()),
+            layout,
+            v.variant.as_deref(),
             items,
             v.featured,
-        );
+        )
+        .with_context(|| format!("view {view}"))?;
         if let Some(p) = pagination_parts(db, view, v, r)? {
             embed_html.push_str(&row_thm.fragments.render(&p));
         }

@@ -950,7 +950,7 @@ mod tests {
              [i18n]\nlocales = [\"fr\"]\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
-             path = \"/blog/tags/{key}/\"\nlayout = \"listing\"\n",
+             path = \"/blog/tags/{key}/\"\nlayout = \"card\"\n",
         )
         .unwrap();
         let mut db = SiteDb::default();
@@ -999,7 +999,7 @@ mod axis_tests {
              [axes.look]\nvalues = [\"plain\", \"fancy\"]\nfield = \"look\"\n\
              [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n\
              [sets.published]\nfrom = \"blog\"\n\
-             [routes.hub]\nfrom = \"published\"\nlayout = \"listing\"\naxis = \"look\"\n\
+             [routes.hub]\nfrom = \"published\"\nlayout = \"card\"\naxis = \"look\"\n\
              paths = [\"/{{{spell}}}/all/\", \"/all/\"]\n"
         ))
         .unwrap()

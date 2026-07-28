@@ -50,5 +50,5 @@ from = "objects"
 group_by = "ext"
 paginate = 2
 order_by = "name"
-layout = "listing"
+layout = "card"
 title = "Media: {key}"

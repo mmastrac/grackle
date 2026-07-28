@@ -102,6 +102,22 @@ impl Fragments {
     pub fn has(&self, name: &str) -> bool {
         self.map.contains_key(name)
     }
+
+    /// Whether `row--{face}` is present.
+    pub fn has_face(&self, face: &str) -> bool {
+        self.has(&format!("row--{face}"))
+    }
+
+    /// Member face names shipped as `row--*` fragments (sorted).
+    pub fn faces(&self) -> Vec<&str> {
+        let mut faces: Vec<&str> = self
+            .map
+            .keys()
+            .filter_map(|n| n.strip_prefix("row--"))
+            .collect();
+        faces.sort_unstable();
+        faces
+    }
 }
 
 /// `row--card` → the `row` schema.
