@@ -632,7 +632,7 @@ I-C: **most-specific-source ordering** and **a scope owns its source**
   reverse two scopes, delete the punch-through (every post vanishes),
   minimal-site control.
 
-- [ ] **I7e. Objects dissolve; the Null shape collapses.** One row
+- [x] **I7e. Objects dissolve; the Null shape collapses.** One row
   constructor for every row: former-object rows take rule/marker
   defaults and schema validation (propose-and-flag: markers DO reach
   them — refusing would re-mint the origin distinction; measured
@@ -2576,3 +2576,173 @@ globs still answer two questions before the sequence runs** (the peek, the
 locale axis); it is I7a's `is_obj` unchanged, but it is the one place where
 "the sequence decides membership" is not the whole truth, and I7e is where the
 object constructor it feeds gets folded in.
+
+**2026-07-27 — I7e.** Landed as one commit. The branch that went was thirty
+lines; what it was hiding was that **a row's origin decided what a row could
+carry**, and the census is how you see it — 862 rows across three sites
+resolved no shell at all, not because anyone declared one and not because
+anyone declined to, but because nothing ever asked them.
+
+*The census, and the one row that was a finding.* Rows per site, exported and
+counted before and after, never reasoned about:
+
+| site | before | after |
+|---|---|---|
+| `examples/minimal` | 3 html | unmoved (no objects) |
+| `examples/raw` | 3 html | unmoved (no objects) |
+| `theme-preview` | 15 html / **9 Null** | 15 html / 9 raw |
+| `examples/field-notes` | 26 html / 1 raw / **15 Null** | 26 html / 16 raw |
+| grack.com | 370 html / 1 light_html / 187 raw / **838 Null** | 370 / 1 / 1025 / **0** |
+| grack.com `--profile drafts` | as above | as above |
+
+Zero Null anywhere. The brief said any row that is not `raw` after the collapse
+is a finding, and on the first run there was exactly one:
+**`resource/favicon/favicon.ico`**. The base's objects glob names six
+extensions; grack.com's three rules add a seventh (`ico`), and I7a's declared
+consequence — a site's rules ADD to the base's, they cannot narrow them — means
+the seventh extension had no rule beneath it carrying a default. So the one row
+whose membership came from the site alone was the one row the base could not
+answer for. Its three rules now declare `shell = "raw"` themselves, with the
+reason at the line: **a scope that widens the base's membership owns the
+defaults for what it widened it by.** It is a two-line config fix and a real
+hole in how inheritance and defaults compose; a reviewer may want it generalized
+(there is no check that a rule's glob is covered by *some* rule declaring the
+engine-read keys, and there could not easily be one — silence is legal).
+
+*The config migration was measured first, with the binary held still.* I7c's
+method: `base.toml`, `examples/raw`, `theme-preview` and grack.com took their
+`defaults = { shell = "raw" }` lines and were built with the **unchanged HEAD
+binary** against the same content trees — byte-identical but for the wall-clock
+feeds, stderr and URL sets identical on all six. That separates "the config
+moved bytes" from "the code did", and I2 had already predicted the answer: its
+`an_object_row_answers_no_shell_at_all` recorded that adding that very line
+"moves nothing", because nobody read it. This item is what makes it read.
+
+*What survives of "object", and I7d's flag 5 answered.* The extension fact:
+the objects scopes' globs, asked on their own — I7a's `is_obj`, unchanged in
+what it computes. I7d flagged that these globs "still answer two questions
+before the sequence runs" and called it the one place where *the sequence
+decides membership* is not the whole truth. The honest resolution turned out
+not to be removing the pre-answer but **noticing it was never a pre-answer**:
+the sequence answers *which scope claims this row*, and the globs answer *is
+this row a picture*. Two questions, two answers, and the second one now keys
+the three things that were ever really about pictures — `object_ix`, `by_name`,
+and the header read that fills `width`/`height` — where before they keyed off
+which vector the loader pushed the row into. `RouteKind::Object` still derives
+from the index, so no route-kind filter moved (`query stats`: objects 838,
+distinct names 812, ambiguous 26, route kind `object` 631 — every number
+unmoved). The three readers were verified one at a time: the listing pass's
+`ctx.objects` picture preview (asserted and mutated in `io_dissolve.rs`), the
+gallery thumbnail eligibility in `thumbs_pass` (which keys on the VIEW's base
+kind, not on the index — field-notes' `/photos/` and grack.com's mindstorms
+gallery byte-identical, 260 thumbs both sides), and the narrow `object_schema`
+dispatch in `views::Base::resolve` and `relations.rs` (which keys on the
+collection kind — `where = "draft"` on a gallery is still a load error).
+
+**The one corner where the two questions could disagree**, stated at the code
+rather than guarded: an objects rule gated `front_matter = true` would be
+claimed by whichever scope came next while still being indexed as a picture.
+No site writes one, and I7a recorded that such a rule claimed nothing before
+either.
+
+***[decided]* Markers reach a former-object row.** The propose-and-flag call,
+and the argument is that the only available reason to refuse is *which
+constructor built the row* — which is the distinction this item exists to
+delete. A `.hidden` beside a gallery means what it says. Measured byte-inert
+rather than assumed: `query stats` reports **0 marker files on all five
+sites**, so no image in the corpus sits under one. The guard is a fold over the
+ROUTE pool (`where = 'hidden'` selects the image's URL), because a marker that
+wrote a field nothing could read would be the declared-and-ignored disease with
+extra steps.
+
+***[decided]* The locale selector still does not run on one, and it is pinned
+both ways.** One picture serves every locale (§6f), so `photo.fr.png` is a file
+whose name carries a dot rather than the French edition of `photo.png`. Letting
+the selector run is byte-inert on the corpus **today** — no `.fr.`-infixed image
+exists on any of the six trees — and latent forever after, which is what earns
+it a test rather than a note: measured on the mutant, the image is republished
+at `/fr/gallery/photo.png` and its literal path leaves the URL set. Localized
+images are a feature to ask for, not one to acquire the first time somebody
+names a file that way; the reverse mutation (always take the object arm) is in
+the test's doc too, because it costs the `.md` beside it its French edition.
+
+*What the constructor gave the rows it used to skip, beyond the shell.* Each
+was checked for a byte consequence rather than assumed inert: declared fields
+and `images` (from rule and marker defaults — empty on the corpus), rung 0's
+forced fields (the drafts profile's `noindex`, which object ROUTES already
+carried via R6's `force_route_fields`), `logical` (read only by `by_logical`,
+which gates on `rendered`), `route_templates`/`axis` (the route constructor
+gives an unrendered row no axes), and the q45 claim check (an image cannot be a
+view's content — it has no front matter, so the check that used to be skipped
+now produces the better error). `body_bytes` stays 0 and `title` stays None,
+both by the laws I7c wrote rather than by an arm of their own.
+
+***NOT taken, stated.*** The sitemap and search filter migrations are reachable
+now — the column is total, so `shell == "raw"` and `shell == "html"` finally
+mean something on every row. They are a byte change to two live artifacts and
+they stay Matt's call per §3's shipped/pending marker. DESIGN.md §4e records
+that the first of I2's two Null shapes is closed and that the migration was
+declined here rather than forgotten.
+
+*Four mutations, each red alone and each restored* (`crates/grackle/tests/
+io_dissolve.rs`, plus I2's remainder inverted in `io_shell.rs`). (1) The
+partition keyed off the fact — send former-object rows to `pages` instead: the
+gallery keeps its three members and loses every one of its links, because a
+picture answers `title` with nothing and rule 2 deletes the `<a>` with its empty
+label; `by_name` goes to 0 distinct / 0 ambiguous; the header read never runs.
+The MEMBERSHIP half deliberately survives that mutation (the row's `collection`
+is still the objects scope's), which is what makes the test about the index
+rather than about the query. (2) Markers refused when `object_shaped` — the
+origin distinction re-minted in one line — and the image leaves the hidden set
+while the `.md` beside it stays. (3) The locale selector, mutated in both
+directions, above. (4) The constructor restored, and separately the base rule's
+`defaults` line deleted: Null returns either way, which is the two halves of
+"the gap was in the loader" and "the fix is declared in config".
+
+*Parity [required, absolute].* Five sites plus grack.com `--profile drafts`,
+HEAD's binary built in a `git worktree` against this one, into separate trees
+from the same content with caches seeded — **byte-identical but for the six
+wall-clock `<updated>` lines** (4 diff lines per feed, 2 of them the timestamp
+itself, 0 anything else; theme-preview identical outright, having no feed),
+**stderr identical on all six**, file counts 8 / 8 / 242 / 83 / 1828 / 1829 and
+the **`grackle urls` set-diff EMPTY on all six** (7 / 7 / 222 / 63 / 1372 /
+1373), both unmoved since IR1. Stdout differs on the four small sites by one
+line — `embedding N changed posts…` — which is cache warmth in the two trees
+and not the binary: the outputs it produces are byte-identical. `cargo test`
+green (25 result lines); `cargo fmt --check` clean under the pin; **clippy's
+warning set byte-identical** to HEAD's rebuilt in the worktree; **zero
+re-blessing** — no fixture and no `expected-error` moved.
+
+*Docs.* DESIGN.md §3 loses its **origins table** and gains a **key-list table**
+(what puts a row in each list, and what each buys) plus the sentence that says
+a gallery selects by SCOPE while the index selects by the extension fact, and
+where they could disagree; §3's objects bullet; §4e's I2 paragraph (the first
+Null shape closed, the sitemap migration declined rather than forgotten); §5g's
+tier table gains the amendment that `object` is not a fourth exit but the `raw`
+one taken by an unrendered row — the two lines differ in `rendered`, and the
+question *"aren't `shell: raw` rows just objects?"* used to be answerable by
+reading `shell` and now is not; §9b's **objects dispatch** entry is struck
+through with the record of both halves (the view half at the materializer
+merge — its last sentence, "`group_by`/`paginate` still bail there", had been
+false since — and the load half here), and §9b's single-tree entry says the
+TABLE half is built and only the join remains. `crates/model`'s doc comments
+for `object_ix`, `objects()` and `insert_rows` say facts instead of origins.
+`manual/OUTLINE.md` untouched per §4, and checked rather than assumed: it
+teaches neither the objects table nor `shell` on an image, so this is the sixth
+change in the sequence that leaves that file honest.
+
+*For batch review I-C.* Five things. (i) **The two rulings** (markers reach;
+the locale selector does not) are the calls to weigh, and each is one line to
+reverse. (ii) **The `.ico` finding** is the shape worth a second opinion: a
+site that widens the base's membership silently inherits no defaults for what it
+widened by, and the only reason it was visible is that the census demanded every
+row answer. (iii) **The partition still passes three vectors to `insert_rows`**,
+which is I7d's interface kept on purpose (ordering-derived bytes); the vectors
+are keyed off facts now, so what is left is a shape rather than a decision —
+I9's join is where it either becomes a query or stays. (iv) **`explain` moves
+for ~60% of grack.com's rows** (`shell -` → `shell raw`), declared and outside
+the byte gate. (v) **The one corner where the extension fact and the sequence
+could disagree** (an objects rule gating on front matter) is stated in code and
+guarded by nothing; it has now been recorded three items running (I7a, I7d,
+here), which is either the right amount of honesty or a sign it should be a
+load error.
