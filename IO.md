@@ -267,6 +267,16 @@ outputs — and the model already has the law for that (a form is an output):
   materializes exactly the renditions citations request, and an image's
   rendition set is the union of its consumers' asks. No config surface;
   eager rendition sets (srcset defaults) are a future opt-in on top.
+  *(Built at I12, with two things the design did not say and the build had
+  to decide. **The parameters live on the OUTPUT, not on the edge** — every
+  content edge arriving at one rendition carries the same ones, because the
+  address hashes inputs+parameters, so an edge slot would be N copies of one
+  value; the citing edge carries the ask by NAMING the rendition. And the
+  two edges have different demands: input → rendition is **content**, the
+  transform reads the input's bytes; rendition → citing output is **facts**,
+  the page read an address the hashing law made knowable at planning. That
+  second half is why the bipartite argument survived renditions and why §5's
+  cycle is still not expressible.)*
 - **The description page**: an image with a sidecar has identity, so it can
   wear an html output too — the "object's description page" from the old
   axis notes, landing free.
@@ -278,7 +288,13 @@ outputs — and the model already has the law for that (a form is an output):
 honest): a content-hashed URL hashes the **inputs plus the transform
 parameters, never the output bytes** — the address must be computable at
 planning, before any transform runs. Today's thumbnail cache already obeys
-this (`blake3(image bytes + variant)`); the law codifies it.
+this (`blake3(image bytes + variant)`); the law codifies it. *(Pinned in code
+at I12, and the law turned out to be doing structural work rather than
+housekeeping: it is exactly what keeps a citing page's edge to a rendition a
+FACTS edge, so a page can materialize before its thumbnails exist. One
+measured exception, recorded rather than glossed: a rendition's **extension**
+is the transform's size contest and so a fact about the output — the digest,
+which is the part the law is about, is not.)*
 
 ## 5. The graph — **shipped, I10**
 
@@ -449,11 +465,18 @@ one thing in the whole system: the serialization a route leaves through.
    for precedence, the stamped root attribute for scope; both emitter-side,
    both inert until merging is built).
 5. ~~this document's name~~ — settled by use: `IO.md`.
-7. **[shape]** renditions in the shell axis: a transform-bearing output
+7. ~~**[shape]** renditions in the shell axis: a transform-bearing output
    (resize, re-encode) is map-shell-shaped but parameterized — whether
    that's a parameterized shell (`image:256w`), a distinct transform stage
    upstream of `raw`, or purely edge-carried demand with no named surface
-   at all (the §4a lean) wants one decision when the migration reaches it.
+   at all (the §4a lean) wants one decision when the migration reaches it.~~
+   — settled at I12: **purely edge-carried demand, no named surface**, the
+   lean taken and taken by what got built. A rendition wears no shell (it is
+   a byte publish, `raw`'s job) and no stage was added; the ask is written at
+   the citation (`{% image … width=N %}`) and nowhere else, and the output
+   carries the parameters it was made with. The two rejected spellings both
+   name a rendition somewhere other than where it is demanded, which is the
+   one thing §4a's model says not to do.
 
 ## 10. The ledger
 
@@ -820,7 +843,7 @@ Two follow-up items, run before I9:
   (inputs + parameters, never output bytes) stated in code. Parity for
   grack.com by its declared rule; minimal/examples adopt the new default.
 
-- [ ] **I12. Renditions formalized as demand-driven outputs** —
+- [x] **I12. Renditions formalized as demand-driven outputs** —
   **amendments from review I-D**: `graph::Edge` carries no parameter
   slot; demand-carried rendition parameters need a home (extend Edge,
   or a demands table keyed off the edge) — decide, record. The
@@ -4231,3 +4254,189 @@ One observation for the census — `Row.strong_url` and `Route.strong_url` join
 pre-existing seam for strong addresses that it has for row URLs; nothing in
 the corpus sets one, and closing it is a question about `baseurl` rather than
 about addresses.
+
+**2026-07-28 — I12.** Landed as one commit. The item's whole content is one
+sentence the design did not know it had written: **the hashing law is what keeps
+a citing page's edge to a rendition a FACTS edge.** Everything else follows —
+the parameter home, the edge direction, the surviving bipartite argument — and
+the reason it matters is that the law had looked like housekeeping (make the
+address stable) and turns out to be structural (make the address a *planning
+fact*, so a page can materialize before its thumbnails exist).
+
+***[decided]* The parameters live on the OUTPUT, not on the edge** — review
+I-D's question, and the third answer rather than either offered one. `Route`
+gains `rendition: Option<Rendition>`; `graph::Edge` is untouched. The argument
+is the hashing law read as arithmetic: a rendition's address is
+`hash(input bytes + parameters)`, so **every content edge arriving at one
+rendition output carries the same parameters by construction** — two different
+asks are two different addresses and therefore two different outputs, and the
+only way several inputs share one rendition is the untransformed-twin case
+(identical bytes, identical ask). A slot on the edge would hold N copies of one
+value with nothing keeping them equal; a demands table keyed off the edge would
+hold the same copies one indirection away. The output is where the value is
+single, and it is what keeps `Graph` what I10 made it — a view of the join that
+adds no facts of its own. The citing edge still carries the ask in the only
+sense available: it NAMES the rendition, and following the edge one step is how
+a pull gets from "this page wants 256px" to "run this transform on these bytes".
+
+***[decided]* The edge direction, and the answer the item was told to measure:
+input → output, and the live cycle fixture is STILL not expressible.** I10
+armed the detector expecting renditions to bring the first output→output content
+edge; I11 confirmed it had not brought one; I12 was named as the item that would.
+It does not, and there are two halves to that. (i) The transform reads the
+**input's** bytes — `thumbs::render(source bytes, ask)` — so the rendition's
+content edge runs input → output like every other. (ii) The citing page reads
+the rendition's **address**, which the law makes knowable at planning, so that
+edge is `Demand::Facts`. So the content subgraph is bipartite, `check_acyclic`'s
+fast path still returns on one linear scan, and I10's +1.5 ms is unchanged in
+kind. **The pointer at `graph.rs` and `io_graph.rs` is corrected rather than
+moved to I13**: the fixture is owed by no item, because it is not expressible
+until something in the engine consumes an OUTPUT's bytes to make another output,
+and nothing does. Manufacturing one would test the fixture rather than the
+engine. What landed instead is the predicate asserted over a whole BUILT site
+(`io_renditions.rs`): no content edge anywhere leaves an output. The unit-level
+coverage in `graph.rs` stands as it was, and its doc now says why hand-built
+edges are the honest place for it rather than an interim one.
+
+***[decided]* §9's q7: purely edge-carried demand, no named surface** — the
+§4a lean, taken because it is what the build wanted. A rendition wears no shell
+(it is a byte publish; `raw` already does that job) and no transform stage was
+added upstream of anything. The ask is written at the citation
+(`{% image cover.png width=256 %}`) and nowhere else. Both rejected spellings —
+a parameterized shell `image:256w`, a stage — name a rendition somewhere other
+than where it is demanded, which is the one move §4a's model forbids.
+
+***The ask is a real parameter, and a misspelt one is a refusal.***
+`{% image %}` gained `width=N`, which is what makes "the union of its consumers'
+asks" a set of more than one and what makes the demand-union test a
+measurement. The default is `Rendition::THUMB` (`fit640x600-jpg85-pngbest-v1`,
+**frozen with a literal test**, because that string is the address of 260
+published thumbnails), so all 194 corpus tags keep their addresses without
+knowing anything happened. The new refusal is the interesting half: a trailing
+token used to be **ignored silently**, and an ignored ask would publish and
+embed a rendition the author did not write — so `{% image a.png 256 %}`,
+`height=90` and `width=wide` are all errors naming the file. Mutation: restore
+the silence and all three render a default thumbnail without complaint.
+
+***The unification, and the seam it exposed.*** `strong::PREFIX` and
+`thumbs.rs` had been spelling `/static/` independently and hashing
+`blake3(bytes + variant)[..32]` independently — I11's flag 5. `strong` now
+exposes `digest` and `at`, `address` is the two composed, and `thumbs` calls
+them: one prefix, one digest, one address shape. The arithmetic was already
+identical, which is the whole reason 260 addresses did not move. **One measured
+exception is recorded rather than glossed**: a rendition's *extension* is the
+size contest's answer and so a fact about the OUTPUT, which means a rendition
+address is computable at planning only up to its extension. `at(digest, "")` is
+the part a planner can name, the pin asserts that half, and the two ways to
+close it — drop the extension (260 addresses move) or make the output format a
+declared parameter instead of a contest (a byte change) — are both Matt's call.
+One small behaviour fix fell out: an extensionless cache entry used to be
+indexed under nothing and so never warmed, and used to publish at `{hash}.`
+rather than `{hash}`. No corpus source is extensionless.
+
+***A live defect closed, and it is the item's most useful output.*** An
+affordance that shows a rendition and links **nothing else** — the base's
+`summary--figure`, a card that IS its picture — cited the image only through
+`/static/{hash}`, which resolved in neither address index. So the citing
+output's `inputs` lost the image entirely, and editing that image moved the
+card's bytes while the graph said it could not have: the stale page I10's
+consistency guard exists to catch, sitting in the corpus's own fragment set.
+`join_renditions`' second half gives a citing output both edges — the facts edge
+to the rendition, and the content edges to the rows behind it — and the fanout
+test is written on exactly that shape. Worth recording that `{% image %}` does
+**not** go red on that mutation: it links the original beside its thumbnail, so
+`join_citations` re-derives the same edge from the anchor. The card is the shape
+with no anchor to fall back on, which is why the fixture uses one.
+
+***Rung 0, at the third seam.*** I10 put the law at every minting seam rather
+than at the pass that ran first, and warned the hole grows once per seam; I11
+added a shape to the existing seam. I12 adds the seam (`join_renditions`), and
+because the law was already stated there it cost one loop over
+`SiteDb::forced_fields`. Byte-inert, like the others, and mutation-checked.
+
+***What did NOT move, deliberately.*** The transform, the cache layout, the
+`{% image %}` markup for every existing tag, and the worked example's third leg
+— a download link at the canonical route beside the expansion. I11 filed that
+under "renditions give affordances parameters to carry"; the parameters landed
+and the leg still does not, because it is a second element on 194 corpus tags,
+i.e. a byte change on every post that shows a picture. That is Matt's call, and
+DESIGN §5k now says so instead of pointing at an item.
+
+*Twelve tests, twelve mutations, each red alone and each restored*
+(`crates/grackle/tests/io_renditions.rs` — six; plus `rendition.rs`, `thumbs.rs`
+and `tags.rs` module tests). The fixture is one site with every rendition shape
+beside each other: one image cited by two pages at two widths (the union), one
+image reachable from a listing card *only* through its rendition address (the
+fanout pin), one image nothing cites at all (the collector), and a `[profiles.hide]`
+forcing a field. The mutations: the minted route's `rendition` dropped; its
+`inputs` dropped; `join_renditions` not called; the parsed ask ignored; the
+citing edge pushed into `inputs` instead of `route_members`; the
+`route_members` half dropped; the content half dropped; the `forced` loop
+dropped; the mint hashing the transform's OUTPUT; an unparseable ask ignored;
+`render` ignoring its ask; the frozen variant literal bumped.
+
+*Parity [required].* Five sites plus grack.com `--profile drafts`, HEAD's
+release binary built in a `git worktree` against this one over the same content
+trees, into separate trees — **byte-identical but for the six wall-clock
+`<updated>` lines** (theme-preview identical outright), **stderr identical on
+all six**, file counts 8 / 8 / 83 / 242 / 1828 / 1829 and `grackle query urls`
+set-diffs **empty** on all six (7 / 7 / 63 / 222 / 1372 / 1373), both unmoved
+since IR1 — **and grack.com's 260 `/static/` addresses byte-identical as a
+set**, which is the parity claim this item actually had to make. `cargo test`
+green (30 result lines, one more than I11's 29 — the new file); `cargo fmt
+--check` clean under the pin; **clippy's warning set byte-identical** to HEAD's
+rebuilt in the worktree (49 lines). Cost: **nothing at load** (nothing this item
+added runs there — 87–90 ms both binaries, five interleaved) and **inside
+variance at build** (three interleaved full builds each way, 722–859 ms both).
+Re-blessing: **none of expectations**; the edits to existing tests are call-site
+updates for a renamed and retyped API (`best_variant` → `render`,
+`image_sources` → `image_asks`, the thumb map keyed by the ask), each asserting
+the same thing about the same values. No fixture and no `expected-error` moved.
+
+*Docs.* DESIGN.md gains **§6b's *Renditions: demand-driven outputs*** (the
+demand model, the settled surface, the parameter home with its argument, the
+two edges and their demands, and the invalidation defect it closed); §5j's cycle
+paragraph rewritten (nothing has brought the edge, and the hashing law is why —
+the live fixture is owed by no item); §5j's rung-0 paragraph names the third
+seam; §5k's hashing-law paragraph records the unification and the extension
+exception; §5k's *What waits for I12* becomes *The worked example's third leg,
+and who owns it*; §6a's `{% image %}` bullet and the tag census note the ask;
+q53's parenthetical stops calling a thumbnail "an axis in spirit". IO.md §4a's
+rendition bullet and hashing-law paragraph carry the two decisions, and §9's q7
+is struck. **`manual/OUTLINE.md` untouched per MERGE.md §4, and checked rather
+than assumed** — and it is one spelling staler, like I10's and I11's. Nothing
+in it became FALSE, but ch. 33e line 299 writes the tag's form out in full,
+`{% image [left|right|inline] ref %}`, and that form is now missing its
+optional `[width=N]`. Matt's pen, and the ask deserves it: it is the first
+parameter any tag in this system takes.
+
+*For the final IO review.* Five things. (i) **`width=N` is a new authoring
+surface** — small, but it is the first parameter any tag in this engine accepts,
+and `{% include %}` refuses parameters on principle a hundred lines away. The
+distinction is real (an include's parameters are a template engine; an image's
+are the demand the model is built on) and it is stated at both sites, but a
+reviewer may want the spelling changed or the surface deferred until a real
+site asks. (ii) **A rendition's extension is not computable at planning**, above
+— the one place §1's law is honestly incomplete, with both fixes priced.
+(iii) **`route_members` widened** from "the routes a `*` view selected" to "the
+outputs whose FACTS this output reads". That is the general reading of
+`Demand::Facts` and the column doc now says both populations, but it is a
+column changing meaning rather than gaining a row. (iv) **Renditions are minted
+at BUILD**, so the load-only CLI surfaces (`explain`, `query pull`) never see
+them — the same limitation on-demand routes have had since I10, now on 260 more
+outputs; the day `query pull` is meant to answer for an asset, the answer is to
+give the CLI a build rather than to move the mint. (v) **The demand union is
+unbounded by construction**: N distinct asks for one image are N transforms and
+N artifacts, with nothing capping N. That is the model working as designed and
+also the one way a page could make a build expensive on purpose, and no site can
+do it today because only `{% image %}` writes an ask.
+
+*Proposed items* (out of scope here, per §10's no-chips rule): two, neither
+blocking. (a) **The rendition-address extension** (ii above) — a small item to
+either drop the extension or declare the output format, both of which move
+addresses and so want Matt's call first. (b) **Eager rendition sets (srcset)**,
+which §4a already names as a future opt-in and which now has everything it needs
+underneath it: the ask type, the union, and the output row. One observation for
+the census: I7e's description-page refusal ("one line to delete when I11/I12
+lands") is still standing — I12's brief did not include it, and it is now the
+only place the ledger points at an item that has landed.
