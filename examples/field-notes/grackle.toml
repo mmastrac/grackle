@@ -35,7 +35,10 @@ file = ["{year}-{month}-{day}-{slug}.{axis:locale}", "{year}-{month}-{day}-{slug
   # through to the tree.
   [[collections.rules]]
   match = "**/*.{md,markdown}"
-  route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
+  route = [
+    "/{axis:locale}/blog/{year}/{month:02}/{day:02}/{slug}/",
+    "/blog/{year}/{month:02}/{day:02}/{slug}/",
+  ]
 
   # Related notes (§6g). No recency penalty here (a small corpus), just the
   # embedding order with a floor — the mechanical migration of the old
@@ -86,12 +89,12 @@ file = ["{stem}.{axis:locale}", "{stem}"]
 
   [[collections.rules]]
   match = "**/index.{html,md}"
-  route = "/{dir}/"
+  route = ["/{axis:locale}/{dir}/", "/{dir}/"]
 
   [[collections.rules]]
   match = "**/*.{html,md}"
   front_matter = true
-  route = "/{dir}/{stem}/"
+  route = ["/{axis:locale}/{dir}/{stem}/", "/{dir}/{stem}/"]
 
   [[collections.rules]]
   match = "**/*"
@@ -227,14 +230,19 @@ variant = "card"
 # Every URL this site emits from a query. `path` is what makes it a route.
 
 [routes.blog_index]
-paths = ["/blog/", "/blog/page/{n}/"]
+paths = [
+  "/{axis:locale}/blog/",
+  "/blog/",
+  "/{axis:locale}/blog/page/{n}/",
+  "/blog/page/{n}/",
+]
 from = "published"
 paginate = 5
 layout = "card"
 title = { en = "Notes", fr = "Carnet" }
 
 [routes.tag_index]
-path = "/blog/tags/{key}/"
+paths = ["/{axis:locale}/blog/tags/{key}/", "/blog/tags/{key}/"]
 from = "published"
 group_by = "tags"
 # §6f: locale-parallel materialization is DEFAULT-ON — /fr/blog/tags/…
@@ -250,7 +258,7 @@ title = "@tagged"
 crumb = "{key}"
 
 [routes.feed]
-path = "/atom.xml"
+paths = ["/{axis:locale}/atom.xml", "/atom.xml"]
 from = "published"
 limit = 20
 # `shell` is the serialization, declared rather than inferred from a
@@ -267,7 +275,7 @@ shell = "atom"
 command = "python3 shells/llms.py"
 
 [routes.llms]
-path = "/llms.txt"
+paths = ["/{axis:locale}/llms.txt", "/llms.txt"]
 from = "published"
 shell = "llms"
 
@@ -308,7 +316,7 @@ title = "Photos"
 # different fragments.
 
 [routes.books_index]
-path = "/books/"
+paths = ["/{axis:locale}/books/", "/books/"]
 from = "books"
 layout = "card"
 variant = "cards"
@@ -327,7 +335,7 @@ intro = { en = "One book a month, argued with, shelved beside the [notes](view:b
 # row leaves every query structurally.
 
 [routes.recipes_index]
-path = "/recipes/"
+paths = ["/{axis:locale}/recipes/", "/recipes/"]
 from = "recipes"
 layout = "card"
 content = "recipes/index.md"
@@ -342,7 +350,7 @@ title = { en = "Recipes", fr = "Recettes" }
 # course record's localized name; the URL wears its slug.
 
 [routes.recipes_by_course]
-path = "/recipes/courses/{key}/"
+paths = ["/{axis:locale}/recipes/courses/{key}/", "/recipes/courses/{key}/"]
 from = "recipes"
 group_by = "course"
 layout = "card"

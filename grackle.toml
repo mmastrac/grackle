@@ -1,19 +1,11 @@
 # Paths are relative to this file's directory.
 root = ".."
 
-# Marker files declare defaults for their directory and everything below it
-# (DESIGN.md §4b). The config says what a marker means; the tree says where.
-# Precedence: front matter > nearest marker > rule.
-# The two head tags that were compiled into the engine as grack.com's own
-# (§4e): a site's branding, in the site's config, where it always belonged.
-#
-# The two favicon `<link>`s that sat beside them are GONE for now rather than
-# moved: they carry `sizes` and `type`, and `[html.head.link]` is a rel->href
-# map. Browsers fall back to /favicon.ico. They come back when a link entry
-# can be a table rather than a bare expression.
 [html.head.meta]
 apple-mobile-web-app-title = 'site.title'
 application-name = 'site.title'
+
+# Marker files declare defaults for their directory and everything below it.
 
 [markers]
 ".noindex" = { noindex = true }
@@ -36,9 +28,7 @@ source = "_posts"
 # not declared here: the post's URL nests under /blog/, and the trail
 # climbs to the landing that owns it (q46).
 trail = "monthly_archive"
-# Tried in order. Measured: all 327 posts use the first form; the legacy
-# MM-DD-YYYY form that legacy_post_filename_dates.rb exists for is unused
-# in _posts, but the format list costs nothing to keep.
+# Only the first one is currently used
 file = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
 
   # A defaults-only rule scoping a directory, so it names no extension: what it
@@ -55,15 +45,7 @@ file = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
   match = "**/*.{md,markdown}"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
 
-  # Related posts (§6g). Embedding cosine, minus a small recency penalty —
-  # a 2004 post is probably not relevant on this 27-year blog (min_rank drops
-  # what stays weak after the adjustment). Where drops the neighbours already
-  # on the page (Earlier/Later) and anything this post already links, so
-  # Related never just restates the rest of the footer. `earlier`/`later`/
-  # `linked_from` come from the engine defaults, unstated. What this dissolved:
-  # the old `adjacency = "published"` key and the whole `[related]` block —
-  # `limit`/`min_score`/`year_penalty` were three knobs of a formula the rank
-  # expression now spells out.
+  # Related posts. Embedding cosine, minus a small recency penalty.
   [collections.relations.related]
   from     = "published"
   where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
@@ -107,29 +89,7 @@ file = ["{slug}"]
 
 # ---------------------------------------------------------------- objects
 
-# Claimed by these rules' globs anywhere in the walk. This scope has no
-# `source`, so it selects by shape rather than by place — which is what puts it
-# ABOVE the tree in the one ordered rule sequence (DESIGN.md §3, IO.md I7d) and
-# is why these never collide with the tree's passthrough rule. It sits BELOW
-# `_posts` and `_drafts` for the same reason, from the other side: those scopes
-# name a directory, and a more specific source wins. That is what keeps
-# `_drafts/caret/`'s images out of here.
-#
-# The extension list that used to sit here is now part of every glob below
-# (IO.md I7a) — one mechanism decides both what this scope claims and where
-# the claim lands. The base contributes its own six-extension rule after
-# these three, which is why `ico` had to be spelled here and nowhere else.
-# Globs compile case-insensitively, which is what keeps
-# `assets/2004/06/after-theme-hack.PNG` an object.
-#
-# All three declare `shell = "raw"` even though the base's rule declares it
-# too, and the seventh extension is exactly why (IO.md I7e): rule defaults
-# accumulate from every MATCHING rule, so a `.png` here would take `raw` from
-# the base's inherited rule whether or not these said so — but the base's glob
-# names six extensions and `favicon.ico` matches none of them, so that one row
-# resolved NO shell at all once the object constructor started reading rule
-# defaults. A scope that widens the base's membership owns the defaults for
-# what it widened it by.
+# Claimed by these rules' globs anywhere in the walk.
 [[collections]]
 name = "objects"
 
@@ -167,27 +127,11 @@ name = "objects"
 [[collections]]
 source = "."
 
-# Three layers, each doing what only it can:
-#
-#   1. .gitignore (top-level `gitignore = true`) covers every build artifact —
-#      _site*, _log*, vendor, _cache, grackle/target, .jekyll-cache, workspace,
-#      _tools/converter/target. All 10 verified already listed there, and they
-#      are exactly the expensive subtrees. Self-maintaining: add a line to
-#      .gitignore and grackle stops seeing it.
-#      This list also governs `_posts` and `_drafts` now that there is one walk
-#      (IO.md I7d) — and a pattern that named either of them would be a load
-#      error, because a declared `source` is content by declaration.
-#   2. Jekyll's implicit dot/underscore skip covers _layouts, _sass, _hidden,
-#      _includes, _tools, ... — everything no scope declares as its `source`.
-#      `_posts` and `_drafts` punch through it because the two collections
-#      above name them, which is why neither needs an entry in the list below.
-#   3. This list, for what is tracked on purpose but still isn't content.
-#      Nothing here is gitignored, so nothing here is a duplicate.
 exclude = [
   "docker/**", "scripts/**", "CHANGES/**", "grackle/**", "node_modules/**", "themes/**",
   "Gemfile*", "*.sh", "TODO", "*.yml", "*.toml", "Rakefile", "LICENSE*",
 ]
-# Re-added despite the dotfile rule (matches `include:` in _config.yml).
+# Re-added despite the dotfile rule
 include = [".well-known/**", ".htaccess"]
 
   # An index file is served as its directory, whether it is rendered or static.
@@ -228,31 +172,8 @@ callout = """
 
 # --------------------------------------------------------------- profiles
 
-# A profile is a different PROJECTION of the same database (§4a), never a
-# different database: drafts load either way, and a profile only decides
-# which views admit them, what URL space the output is addressed in, and
-# what marker themes may style on. `dev` needs no entry — undeclared it
-# changes nothing, which is what `serve` defaults to.
-#
-# v1 has no `baseurl`: it prefixes assets but not routes, so setting it per
-# profile would relocate the stylesheet and leave every canonical URL
-# pointing at the real site. That half of the address axis is punted.
-#
-# Deliberately NOT here, and not Jekyll's five configs: `exclude` (§4c owns
-# what is content), per-profile `defaults` (collection rules own those),
-# and a "fast" profile that skipped `code/` and `writing/` — that one
-# existed because Jekyll took 38s, and a 0.4s build deleted its reason to
-# exist rather than porting it.
-
 [profiles.drafts]
 
-  # Rung 0 (MERGE.md E1): the projection's veto. `noindex` is an ordinary
-  # declared field, and forcing it here writes it onto every row and every
-  # route above front matter, markers and rules — so the site's own
-  # `[html.head.meta] robots` expression (`noindex ? "noindex,follow" : ""`)
-  # evaluates it on documents and listings alike. Nothing overwrites the
-  # declaration: a site with a different robots expression keeps it and gets
-  # its own answer to the same fact.
   [profiles.drafts.force]
   noindex = true
 
@@ -261,12 +182,7 @@ callout = """
   # `published`.
   #
   # Both entries below are FULL RESTATEMENTS of the definitions further down
-  # this file, with one clause changed — that is the overlay law, not a style
-  # (MERGE.md E2). A view is a definition, and a definition is an atom: you
-  # never inherit half of one, here or in `extends`, so the profile's entry
-  # replaces the site's entire. Drop `order_by` below and this projection
-  # silently lists by path; the two blocks have to be read together, which is
-  # the price of one law instead of two.
+  # this file.
   [profiles.drafts.sets.published]
   from = ["posts", "drafts"]
   where = "!hidden"
@@ -275,15 +191,6 @@ callout = """
     [profiles.drafts.sets.published.fields.summary]
     truncate = { max_blocks = 4, max_chars = 700 }
 
-  # The searchable set too, or the projection would ship a search index that
-  # disagrees with the pages beside it.
-  #
-  # `kind == "post"` here for the same reason it survives below, and with the
-  # same expiry: it means SCOPE MEMBERSHIP, and this profile is the projection
-  # where that shows — `_drafts/caret/…` is a post with no front-matter block,
-  # so `front_mattered` would drop it from this index while `kind` keeps it.
-  # These two lines are the whole reason IO.md I13 could not delete the
-  # column; the unlock is written out at the site's own [routes.search].
   [profiles.drafts.routes.search]
   path = "/search.bin"
   shell = "search"
@@ -291,29 +198,8 @@ callout = """
 
 # ------------------------------------------------------------------ sets
 #
-# A query that never lands. `from` names a collection, another set, or a
-# route (composing over a routed, grouped query is SUBDIVISION, §5c — the
-# engine derives which from what the name refers to, so there is one
-# keyword and one namespace).
 
-# The one named set. Jekyll had five hand-written `{% unless %}` clauses that
-# had drifted into three different opinions: atom.xml excluded only `hidden`
-# (so the feed shipped drafts), blog/index.html and tag_index.html excluded only
-# `draft` (so both listed hidden posts), and only monthly_archive.html and
-# index.html excluded both. Nobody decided that; it accreted. Transcribing it
-# faithfully also meant transcribing a bug — this file had monthly_archive as
-# `!draft`, dropping the `!hidden` its template actually had.
-#
-# Free to correct: the corpus has 0 drafts and 0 hidden posts, so no output
-# moves today. It moves the first time a draft exists, which is the point.
-#
-# `from` names BOTH sources: `_posts` and `_drafts` are two collections of one
-# corpus (§4), and a `from` scopes to the collections it names (§5c). This used
-# to read `from = "posts"` and mean both anyway, because naming a collection
-# quietly meant every collection of its KIND — which is why the union is written
-# out now rather than kept by the engine. The `where` below is what hides the
-# drafts; the drafts PROFILE relaxes it, and that only works if they are in the
-# set to begin with.
+# The one named set.
 [sets.published]
 from = ["posts", "drafts"]
 where = "!draft && !hidden"
@@ -357,53 +243,18 @@ from = "published"
 limit = 20
 shell = "atom"
 
-# The searchable set is a query (§5g): the same shape as the sitemap — a
-# fold shell with no `from`, so it reads every output (IO.md §4) —
-# serialized as the postcard index /search.js consumes. Posts only for now —
-# adding `|| kind == "page"` would make /code/ and /writing/ searchable, but
-# that's a deliberate index change, not a mechanism default.
-#
-# The `kind ==` this corpus kept (IO.md I1), and deliberately: unlike the
-# example sites, this filter does not mean "the documents" — it means "the
-# blog corpus", which is SCOPE membership, and the output side has no column
-# for that. `front_mattered` is the wrong migration twice over: it would admit
-# every page under /code/ and /writing/, and it would drop `_drafts/caret/…`,
-# a post whose file carries no block. The column is domain-checked, so the
-# plural typo that used to match nothing forever is a load error while this
-# waits.
-#
-# It waited through the join (I9 landed `output`/`viewed_by`/`inputs` and none
-# of them says which SCOPE admitted a row) and through I13, the item that was
-# supposed to delete the column — this line and its twin in [profiles.drafts]
-# are why it did not. Two things unlock it, in order: an expressibility item
-# putting scope membership on the output pool, and then Matt's call, because
-# whatever replaces this moves /search.bin.
+# The searchable set is a query: the same shape as the sitemap.
 [routes.search]
 path = "/search.bin"
 shell = "search"
 where = 'kind == "post" && !draft && !hidden'
 
-# No source file: jekyll-sitemap generates this one outright.
-#
-# The filter is derived from the reference build, not from what jekyll-sitemap
-# looks like it should do. Measured over its 556 URLs: 524 pretty dirs, 30
-# .html, 2 .pdf — and nothing else. Specifically it does NOT respect `noindex`
-# (the noindex'd tag pages are listed) and does NOT drop paginated pages (all
-# 64 are listed), so keying on output type alone is the whole rule. Images,
-# .css, .txt and .xml fall out by extension, which is also what keeps
-# /atom.xml and /sitemap.xml itself off the list.
-#
 # `dir` is distinct from `ext == ""`: a directory URL outputs an index.html,
 # whereas an extensionless *file* (code/legacy/nnet/nnet) outputs itself and is
 # not a page. Keying on ext alone let four such binaries into the sitemap.
 [routes.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
-# `!draft && !hidden` closes the leak §4a flagged: without it a future draft —
-# routed into the main build today — lands in the most public URL there is,
-# which is exactly the crawling problem this project exists to fix. Latent now
-# (0 drafts/hidden), armed the moment one is written. `draft`/`hidden` are
-# carried onto every Route (false for non-posts) so the filter can say this.
 where = '!draft && !hidden && (dir || ext == "html" || ext == "pdf")'
 
 [routes.tag_index]
@@ -415,8 +266,6 @@ noindex = true
 title = "Posts Tagged “{key}”"
 crumb = "{key}"
 
-# Year archives are new with grackle — the Jekyll site only ever had months,
-# so `/blog/2010/` was a 404 between `/blog/` and `/blog/2010/01/`.
 [routes.yearly_archive]
 path = "/blog/{year}/"
 from = "published"
@@ -425,11 +274,7 @@ layout = "card"
 noindex = true
 title = "{year}"
 
-# Subdivision (§5c): `from` a grouped ROUTE refines its partition, so this is
-# GROUP BY year, month — the year key comes from the parent, and provenance
-# for breadcrumb chains comes free: trails render as 2022 > December with the
-# year linked to its own archive. One keyword, because what `from` names is
-# what decides: a set selects, a grouped route subdivides.
+# Subdivision.
 [routes.monthly_archive]
 path = "/blog/{year}/{month:02}/"
 from = "yearly_archive"
