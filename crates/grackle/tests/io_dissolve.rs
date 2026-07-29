@@ -263,6 +263,9 @@ fn an_image_is_not_a_translation_of_itself() {
                   match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
                   [[collections]]\nsource = \".\"\n\
                   file = [\"{stem}.{axis:locale}\", \"{stem}\"]\n\n\
+                  [[collections.rules]]\n\
+                  match = \"**/*.{html,md}\"\nfront_matter = true\n\
+                  route = [\"/{axis:locale}/{dir}/{stem}/\", \"/{dir}/{stem}/\"]\n\n\
                   [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n\
                   [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
             ),

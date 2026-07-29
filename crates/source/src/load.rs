@@ -635,15 +635,14 @@ pub struct Coord<'a> {
 /// Pick the shortest template whose spent axes cover every NON-canonical coord,
 /// and fill it (§6f, the default-axis case). A canonical coord's segment drops
 /// when a shorter template omits it — `["/{theme}/{axis:locale}/", "/{theme}/",
-/// "/"]` lands the all-canonical member at `/`. Locale that no template spends
-/// falls back to a prefix, which is the behavior a config without `{axis:locale}`
-/// has always had. Errors only if no template covers a required set, which the
-/// fullest template always does unless the templates are pathologically split.
+/// "/"]` lands the all-canonical member at `/`. Locale is not special: a
+/// non-canonical locale must be spent by a template, same as any other axis.
+/// Errors only if no template covers a required set, which the fullest
+/// template always does unless the templates are pathologically split.
 pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
-    let loc_spendable = templates.iter().any(|t| spends(t, "locale"));
     let required: Vec<&str> = coords
         .iter()
-        .filter(|c| !c.canonical && (c.axis != "locale" || loc_spendable))
+        .filter(|c| !c.canonical)
         .map(|c| c.axis)
         .collect();
     // The shortest template that still spends everything required; ties keep
@@ -661,11 +660,6 @@ pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
     let mut url = tmpl.clone();
     for c in coords.iter().filter(|c| spends(tmpl, c.axis)) {
         url = fill_axis(&url, c.axis, c.value);
-    }
-    if let Some(loc) = coords.iter().find(|c| c.axis == "locale") {
-        if !loc.canonical && !spends(tmpl, "locale") {
-            url = format!("/{}{url}", loc.value);
-        }
     }
     Ok(tidy(url))
 }
@@ -1089,8 +1083,7 @@ fn under_themes(rel: &Path) -> bool {
 
 /// The canonical address of one row: every axis at its canonical value, the
 /// row's own locale (§6f). `select_path` drops a canonical segment where a
-/// shorter template allows, and applies the locale prefix when no template
-/// spends locale.
+/// shorter template allows.
 fn canonical_url(
     cfg: &Config,
     templates: &[String],
@@ -2731,11 +2724,7 @@ mod cascade_tests {
         );
     }
 
-    /// The engine's own cascade types are not a site's to choose: declaring
-    /// `theme` an int would type a rule's value one way and have `cascade`
-    /// read it the other — silence again, one rung further out.
-    ///
-    /// Mutation check: drop the `ty != engine` test inside `parse_fields`'
+    /// Engine-owned fields keep a fixed type: declaring `theme` an int would
     /// `cascade_type` arm and the retype is accepted.
     #[test]
     fn a_cascade_key_may_not_be_redeclared_at_another_type() {

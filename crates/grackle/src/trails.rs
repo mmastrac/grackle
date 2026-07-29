@@ -22,15 +22,21 @@ fn crumb_tmpl(v: &View) -> Option<&crate::config::LocalizedStr> {
     v.crumb.as_ref().or(v.title.as_ref())
 }
 
-/// The URL "Home" means for a locale (§6f): the locale's own homepage
-/// when a translated index exists (`index.fr.html` → `/fr/`), else the
-/// site root. Existence-checked, not assumed — a locale with translated
-/// posts but no translated homepage keeps linking `/`.
+/// The URL "Home" means for a locale (§6f): the locale's own homepage when a
+/// translated root index exists, else the site root. Existence-checked, not
+/// assumed — a locale with translated posts but no translated homepage keeps
+/// linking `/`.
 pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
     if locale != cfg.i18n.default {
-        let prefixed = format!("/{locale}/");
-        if db.rows.iter().any(|p| p.rendered && p.url == prefixed) {
-            return prefixed;
+        if let Some(p) = db.rows.iter().find(|p| {
+            p.rendered
+                && p.locale == locale
+                && matches!(
+                    p.logical.as_str(),
+                    "index.md" | "index.html" | "index.markdown"
+                )
+        }) {
+            return p.url.clone();
         }
     }
     "/".to_string()

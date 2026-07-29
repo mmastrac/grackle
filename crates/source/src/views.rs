@@ -687,8 +687,7 @@ fn build_view(
             };
             // This cell's coordinates: the axis member-tuple, plus the row set's
             // locale. `select_path` picks the shortest template covering the
-            // non-canonical ones and applies the locale prefix when no template
-            // spends it (the shape a view without `{axis:locale}` always had).
+            // non-canonical ones.
             let coords: Vec<crate::load::Coord> = axis_members
                 .iter()
                 .map(|m| crate::load::Coord {

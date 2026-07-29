@@ -210,10 +210,10 @@ pub struct Row {
     #[serde(skip)]
     pub axis: Vec<RowAxis>,
     /// The rule's route template(s), rendered (path/group tokens filled, axis and
-    /// locale placeholders preserved), locale prefix NOT applied. One in the
-    /// ordinary case; a list for the default-axis case (§6f), where a member at
-    /// its canonical value drops its segment by falling to a shorter template.
-    /// The materializer selects among these per member-tuple.
+    /// locale placeholders preserved). One in the ordinary case; a list for the
+    /// default-axis case (§6f), where a member at its canonical value drops its
+    /// segment by falling to a shorter template. The materializer selects among
+    /// these per member-tuple.
     #[serde(skip)]
     pub route_templates: Vec<String>,
 }

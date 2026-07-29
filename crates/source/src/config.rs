@@ -3467,22 +3467,46 @@ impl Config {
     }
 
     /// A tag's archive URL for a row's locale (q32 + §6f): the owning
-    /// view's route template rendered with the tag's slug, locale-prefixed
-    /// when that view materializes per locale. None = no tag archive
-    /// exists, and the pill renders unlinked.
+    /// view's route template(s) via [`crate::load::select_path`], so locale
+    /// is spent where the view declares it. None = no tag archive exists,
+    /// and the pill renders unlinked.
     pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
         let (_, v) = self.tags_view()?;
-        let tmpl = v.route.as_deref()?;
-        let url =
-            grackle_db::template::render(tmpl, |tok| match grackle_db::template::classify(tok) {
-                (None | Some("group"), "key" | "tags") => Some(self.tag_slug(id).to_string()),
-                _ => None,
-            })
-            .ok()?;
-        if locale != self.i18n.default && v.locales.as_deref() != Some("default") {
-            return Some(format!("/{locale}{url}"));
+        let tmpls: Vec<&str> = if !v.routes.is_empty() {
+            v.routes.iter().map(String::as_str).collect()
+        } else {
+            v.route.iter().map(String::as_str).collect()
+        };
+        if tmpls.is_empty() {
+            return None;
         }
-        Some(url)
+        let slug = self.tag_slug(id).to_string();
+        let rendered: Result<Vec<String>, _> = tmpls
+            .iter()
+            .map(|tmpl| {
+                grackle_db::template::render(tmpl, |tok| {
+                    let (ns, k) = grackle_db::template::classify(tok);
+                    match ns {
+                        Some("axis") => Some(format!("{{{tok}}}")),
+                        None if k == "locale" && self.locale_enabled() => {
+                            Some("{locale}".to_string())
+                        }
+                        None | Some("group") if matches!(k, "key" | "tags") => Some(slug.clone()),
+                        _ => None,
+                    }
+                })
+            })
+            .collect();
+        let rendered = rendered.ok()?;
+        crate::load::select_path(
+            &rendered,
+            &[crate::load::Coord {
+                axis: "locale",
+                value: locale,
+                canonical: locale == self.i18n.default,
+            }],
+        )
+        .ok()
     }
 }
 

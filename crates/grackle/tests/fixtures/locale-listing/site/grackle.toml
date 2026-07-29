@@ -23,10 +23,10 @@ file = ["{year}-{month}-{day}-{slug}.{axis:locale}", "{year}-{month}-{day}-{slug
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"
-  route = "/blog/{slug}/"
+  route = ["/{axis:locale}/blog/{slug}/", "/blog/{slug}/"]
 
 [routes.blog]
-path = "/blog/"
+paths = ["/{axis:locale}/blog/", "/blog/"]
 from = "posts"
 layout = "card"
 title = "Blog"

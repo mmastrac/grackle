@@ -25,7 +25,7 @@ file = ["{stem}.{axis:locale}", "{stem}"]
   [[collections.rules]]
   match = "**/*.md"
   front_matter = true
-  route = "/{dir}/{stem}/"
+  route = ["/{axis:locale}/{dir}/{stem}/", "/{dir}/{stem}/"]
 
   [[collections.rules]]
   match = "**/*"

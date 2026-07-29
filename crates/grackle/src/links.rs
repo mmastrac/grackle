@@ -23,7 +23,7 @@ use crate::db::SiteDb;
 // The materializer's own path selection (§6f, the default-axis case). Shared
 // rather than restated: a link that builds a URL by a rule of its own is a link
 // that can name a URL the build never issued.
-use grackle_source::load::{select_path, Coord};
+use grackle_source::load::{select_path, spends, Coord};
 
 /// Which FORM of citation is asking (IO.md §4a, I11).
 ///
@@ -574,15 +574,8 @@ pub fn resolve(
                      route for that member"
                 );
             }
-            // §6f, same invariant as view links: a translated row's source
-            // link lands in its own locale's variant when that variant
-            // materialized, and falls back to the target row's own URL.
-            if locale != cfg.i18n.default && !url.starts_with(&format!("/{locale}/")) {
-                let prefixed = format!("/{locale}{url}");
-                if space.routes.contains(&prefixed) {
-                    return Ok(Some(format!("{prefixed}{suffix}")));
-                }
-            }
+            // Hold every other axis at the current member (q53). `Row.url`
+            // already spent locale when the templates declare it.
             return Ok(Some(format!("{url}{suffix}")));
         }
     }
@@ -780,19 +773,24 @@ fn view_link(
         })
         .collect::<Result<_>>()?;
     let pick = |loc: &str| -> Result<String> {
-        let coords: Vec<Coord> = pinned
+        let mut coords: Vec<Coord> = pinned
             .iter()
             .map(|(axis, value, canonical)| Coord {
                 axis,
                 value,
                 canonical: *canonical,
             })
-            .chain(std::iter::once(Coord {
+            .collect();
+        // Locale is a coord only when a template spends it (same law as
+        // select_path). A gallery at `/photos/` is one URL in every language;
+        // inventing a required locale would refuse the link.
+        if rendered.iter().any(|t| spends(t, "locale")) {
+            coords.push(Coord {
                 axis: "locale",
                 value: loc,
                 canonical: loc == cfg.i18n.default,
-            }))
-            .collect();
+            });
+        }
         select_path(&rendered, &coords)
     };
     // Locale-parallel views (§6f): a translated row links into its own
@@ -947,7 +945,7 @@ mod tests {
              [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
-             path = \"/blog/tags/{key}/\"\nlayout = \"card\"\n",
+             paths = [\"/{axis:locale}/blog/tags/{key}/\", \"/blog/tags/{key}/\"]\nlayout = \"card\"\n",
         )
         .unwrap();
         let mut db = SiteDb::default();

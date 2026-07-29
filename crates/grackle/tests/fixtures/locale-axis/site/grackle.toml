@@ -29,7 +29,7 @@ file = ["{stem}.{axis:locale}", "{stem}"]
   [[collections.rules]]
   match = "note*.md"
   front_matter = true
-  route = "/{look}/note/"
+  route = ["/{axis:locale}/{look}/note/", "/{look}/note/"]
 
   [[collections.rules]]
   match = "**/*"
