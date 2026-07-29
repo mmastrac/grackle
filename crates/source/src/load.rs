@@ -2730,8 +2730,8 @@ mod cascade_tests {
         );
     }
 
-    /// Engine-owned fields keep a fixed type: declaring `theme` an int would
-    /// type a rule's value one way and have `cascade` read it the other.
+    /// Cascade keys keep a fixed type: declaring `theme` an int would type a
+    /// rule's value one way and have `cascade` read it the other.
     #[test]
     fn a_cascade_key_may_not_be_redeclared_at_another_type() {
         let mut s = schema::Schemas::new(grackle_model::row_schema());
@@ -2739,12 +2739,9 @@ mod cascade_tests {
             .set_site("theme = { type = \"int\" }".parse().unwrap(), "[schema]")
             .unwrap_err()
             .to_string();
-        assert!(e.contains("engine-owned"), "{e}");
+        assert!(e.contains("cascade"), "{e}");
         assert!(e.contains("declared string"), "{e}");
         s.set_site("theme = { type = \"string\" }".parse().unwrap(), "[schema]")
-            .unwrap();
-        // Restating tags at list type is also legal: that is what base does.
-        s.set_site("tags = { type = \"list\" }".parse().unwrap(), "[schema]")
             .unwrap();
     }
 }

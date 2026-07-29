@@ -90,16 +90,6 @@ pub const CASCADE: &[(&str, FieldType)] = &[
     ("slot", FieldType::Str),
 ];
 
-/// Engine-owned names a site may restate in `[schema]`, only at this type.
-/// Cascade keys plus `tags`: still a row column, but declared and coerced
-/// like any other list so front matter does not need a private deserializer.
-pub(crate) fn engine_field_type(name: &str) -> Option<FieldType> {
-    cascade_type(name).or(match name {
-        "tags" => Some(FieldType::List),
-        _ => None,
-    })
-}
-
 /// The type the engine reads this cascade key at, if it is one of its own.
 pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
     CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
@@ -407,14 +397,15 @@ fn parse_fields(
                  \"bool\" | \"list\" | \"image\""
             );
         };
-        // Engine-owned names (cascade keys, tags) are declarable at the type
-        // the engine reads them at — restating is fine; a different type would
-        // be typed one way and read another.
-        if let Some(engine) = engine_field_type(&name) {
+        // Cascade keys are declarable at the type the engine reads them at:
+        // restating is fine; a different type would be typed one way and read
+        // another.
+        if let Some(engine) = cascade_type(&name) {
             if ty != engine {
                 bail!(
-                    "{whose}: field {name:?} is engine-owned: it reads {name:?} \
-                     off every row, so it must be declared {} or not at all",
+                    "{whose}: field {name:?} is one of the engine's own cascade \
+                     keys: it reads {name:?} off every row, so it must be \
+                     declared {} or not at all",
                     engine.name()
                 );
             }
@@ -977,6 +968,10 @@ mod tests {
                 Path::new("books/.schema.toml"),
             )
             .is_err());
+
+        // Tags is an ordinary list declaration (base ships it), not reserved.
+        s.set_site("tags = { type = \"list\" }\n".parse().unwrap(), "[schema]")
+            .unwrap();
     }
 
     /// The declaration table is closed, like every other config table. A

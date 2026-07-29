@@ -984,7 +984,6 @@ pub fn row_schema() -> filter::Schema {
     s.insert("day", Int);
     s.insert("body_bytes", Int);
     s.insert("order", Int);
-    s.insert("tags", List);
     s.insert("rendered", Bool);
     // IO.md §3: has identity — the row's file carried a front-matter block
     // (and, from I8, a sidecar counts). Distinct from `rendered`, which says
@@ -1421,6 +1420,18 @@ mod row_column_tests {
             row("a/README").field("ext"),
             filter::Value::Str(String::new())
         );
+    }
+
+    /// Tags is a declared list (base), not a built-in filter column; `Row.tags`
+    /// remains for chrome and indexes.
+    #[test]
+    fn tags_is_not_a_built_in_row_field() {
+        assert!(!row_schema().contains_key("tags"));
+        let r = Row {
+            tags: vec!["x".into()],
+            ..Default::default()
+        };
+        assert_eq!(r.field("tags"), filter::Value::List(vec!["x".into()]));
     }
 
     /// The collection is what a set will name once `from` stops naming a
