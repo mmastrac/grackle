@@ -1664,10 +1664,10 @@ fn walk_site(
             description: fm.description,
             order: fm.order,
             date,
-            // Lifted out of `fields` so `tag_stream` owns the chrome and a
-            // generic list stream does not also emit it.
-            tags: match checked.values.remove("tags") {
-                Some(filter::Value::List(t)) => t,
+            // Copied into the column for indexes; left in `fields` too so
+            // filters and fill see the declared list.
+            tags: match checked.values.get("tags") {
+                Some(filter::Value::List(t)) => t.clone(),
                 _ => Vec::new(),
             },
             theme: worn.theme,

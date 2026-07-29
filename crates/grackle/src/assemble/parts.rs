@@ -533,21 +533,22 @@ pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
     Part::Stream(trail.into_iter().map(|(l, u)| crumb(l, u)).collect())
 }
 
-pub(crate) fn tag_stream(cfg: &crate::config::Config, p: &Row) -> Option<Part> {
-    if p.tags.is_empty() {
-        return None;
-    }
-    let v = p
-        .tags
+/// Linked pills for one list field: display name from `[records]`, URL from
+/// the field's archive view when one exists.
+pub(crate) fn pill_stream(cfg: &crate::config::Config, p: &Row, field: &str) -> Option<Part> {
+    let ids = match grackle_db::filter::Row::field(p, field) {
+        grackle_db::Value::List(v) if !v.is_empty() => v,
+        _ => return None,
+    };
+    let v = ids
         .iter()
-        .map(|t| {
-            // Tag records: display name follows the row's locale (§6f);
-            // the URL comes from the OWNING VIEW's route template (q32
-            // settled — config can move the archive and pills follow).
-            // A site with no tag archive gets unlinked pills.
+        .map(|id| {
             let mut m = PartMap::new("tag");
-            m.set("name", Part::Text(cfg.tag_name(t, &p.locale).to_string()));
-            if let Some(url) = cfg.tag_url(t, &p.locale) {
+            m.set(
+                "name",
+                Part::Text(cfg.record_name(field, id, &p.locale).to_string()),
+            );
+            if let Some(url) = cfg.archive_url(field, id, &p.locale) {
                 m.set("url", Part::Text(url));
             }
             m
@@ -694,7 +695,7 @@ pub fn document(
         false,
         trail,
         None,
-        tag_stream(cfg, p),
+        pill_stream(cfg, p, "tags"),
         Vec::new(),
         outline,
         content,
@@ -801,20 +802,9 @@ pub fn fill_from_fields(
                 let shape = schemas.get(child).unwrap_or(&[]);
                 let label = match shape {
                     [(label, PartType::Text)] => *label,
-                    _ => anyhow::bail!(
-                        "{}: field `{name}` is a list, so kind `{child}` must declare \
-                         exactly one text part to receive it — `{child}` declares {}",
-                        row.rel.display(),
-                        if shape.is_empty() {
-                            "nothing".to_string()
-                        } else {
-                            shape
-                                .iter()
-                                .map(|(n, t)| format!("{n}: {}", t.spelling()))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        }
-                    ),
+                    // Archive pills (`tag`: name + url) are filled by
+                    // `pill_stream`, not here: skip rather than refuse.
+                    _ => continue,
                 };
                 Part::Stream(
                     items
@@ -1112,7 +1102,7 @@ mod tests {
                     canonical(&preview(Preview {
                         row: Some(p),
                         content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
-                        tags: tag_stream(&cfg, p),
+                        tags: pill_stream(&cfg, p, "tags"),
                         ..Default::default()
                     }))
                 })

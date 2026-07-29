@@ -411,7 +411,7 @@ impl Shaped for Collection {
             // in the file, first to claim a key.
             annotated("rules", |c: &Collection| &c.rules, Law::Prepend),
             field("trail", |c: &Collection| &c.trail),
-            field("tags", |c: &Collection| &c.tags),
+            field("archives", |c: &Collection| &c.archives),
             field("relations", |c: &Collection| &c.relations),
             field("schema", |c: &Collection| &c.schema),
             // `inherited` is `#[serde(skip)]`: it has no TOML name and so no
@@ -1353,11 +1353,12 @@ pub struct Collection {
     /// Declared, not derived: the chain renders from a row's group keys,
     /// which no URL walk can recover.
     pub trail: Option<String>,
-    /// The view that owns this collection's tag routes (q32): tag pills
-    /// render their URLs from ITS route template, so config can move the
-    /// archive and the chrome follows. Optional — a unique tags-grouped
-    /// view is found on its own; no tags view at all = unlinked pills.
-    pub tags: Option<String>,
+    /// Views that own archive routes for list fields (q32): pills for a
+    /// field render URLs from that view's route template. Key = field name
+    /// (`tags`, `course`, ...); value = view name. Optional: a unique view
+    /// grouped by the field is found on its own; none at all = unlinked pills.
+    #[serde(default)]
+    pub archives: BTreeMap<String, String>,
     /// This collection's neighbour queries (§6g, q52). Each `[collections.
     /// relations.NAME]` is a small row-relative query — `from` (candidate
     /// pool), `where` (a predicate over the two-row `self`/`candidate`
@@ -2798,56 +2799,103 @@ impl Config {
                 );
             }
         }
-        // q32: the tag-route owner must be resolvable and renderable at
-        // load — tag pills render URLs from its route template, and a
-        // template that can't render from a tag key would 404 the chrome.
+        // q32: each archives entry must name a view grouped by that field,
+        // with a route that fills from the group key. Absent a declaration,
+        // a unique view grouped by the field is enough; more than one is a
+        // load error naming how to disambiguate.
         {
-            let declared = cfg
-                .collections
-                .values()
-                .find_map(|c| c.tags.as_deref());
-            if let Some(name) = declared {
-                let Some(v) = cfg.views.get(name) else {
-                    anyhow::bail!("collection tags view {name:?} is not a declared view");
-                };
-                if v.group_by.as_deref().map(grackle_model::spec_field) != Some("tags") {
-                    anyhow::bail!("collection tags view {name:?} is not grouped by tags");
-                }
-                if v.route.is_none() {
-                    anyhow::bail!("collection tags view {name:?} has no route");
-                }
-            } else {
-                let tag_views: Vec<&str> = cfg
-                    .views
-                    .iter()
-                    .filter(|(_, v)| {
-                        v.group_by.as_deref().map(grackle_model::spec_field) == Some("tags")
-                    })
-                    .map(|(n, _)| n.as_str())
-                    .collect();
-                if tag_views.len() > 1 {
-                    anyhow::bail!(
-                        "multiple views group by tags ({}) — declare which owns \
-                         tag routes: [collections.<posts>] tags = \"<view>\"",
-                        tag_views.join(", ")
-                    );
+            let mut declared: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
+            for (cname, c) in &cfg.collections {
+                for (field, view) in &c.archives {
+                    declared
+                        .entry(field.as_str())
+                        .or_default()
+                        .push((cname.as_str(), view.as_str()));
                 }
             }
-            if let Some((name, v)) = cfg.tags_view() {
-                if let Some(tmpl) = v.route.as_deref() {
-                    grackle_db::template::render(tmpl, |tok| match grackle_db::template::classify(
-                        tok,
-                    ) {
-                        (None | Some("group"), "key" | "tags") => Some("probe".to_string()),
-                        _ => None,
+            for (field, owners) in &declared {
+                for (cname, vname) in owners {
+                    let Some(v) = cfg.views.get(*vname) else {
+                        anyhow::bail!(
+                            "collection {cname}: archives.{field} = {vname:?} \
+                             is not a declared view"
+                        );
+                    };
+                    if v.group_by.as_deref().map(grackle_model::spec_field) != Some(field) {
+                        anyhow::bail!(
+                            "collection {cname}: archives.{field} view {vname:?} \
+                             is not grouped by {field}"
+                        );
+                    }
+                    if v.route.is_none() && v.routes.is_empty() {
+                        anyhow::bail!(
+                            "collection {cname}: archives.{field} view {vname:?} \
+                             has no route"
+                        );
+                    }
+                }
+            }
+            // Ambiguous auto-discover for tags only (historical pill chrome).
+            // Other group_by fields (year, month, course) are not pill archives
+            // unless named in `archives`.
+            let tag_views: Vec<&str> = cfg
+                .views
+                .iter()
+                .filter(|(_, v)| {
+                    v.group_by.as_deref().map(grackle_model::spec_field) == Some("tags")
+                })
+                .map(|(n, _)| n.as_str())
+                .collect();
+            if !declared.contains_key("tags") && tag_views.len() > 1 {
+                anyhow::bail!(
+                    "multiple views group by tags ({}) — declare which owns \
+                     archive routes: [collections.<name>] archives = {{ tags = \
+                     \"<view>\" }}",
+                    tag_views.join(", ")
+                );
+            }
+            // Probe route templates for fields that own pill chrome: explicit
+            // archives entries, plus tags when uniquely discovered.
+            let mut probe: BTreeMap<&str, &str> = BTreeMap::new();
+            for (field, owners) in &declared {
+                if let Some((_, vname)) = owners.first() {
+                    probe.insert(field, vname);
+                }
+            }
+            if !probe.contains_key("tags") {
+                if let Some((name, _)) = cfg.archive_view("tags") {
+                    probe.insert("tags", name);
+                }
+            }
+            for (field, name) in probe {
+                let Some(v) = cfg.views.get(name) else {
+                    continue;
+                };
+                let tmpls: Vec<&str> = if !v.routes.is_empty() {
+                    v.routes.iter().map(String::as_str).collect()
+                } else {
+                    v.route.iter().map(String::as_str).collect()
+                };
+                for tmpl in tmpls {
+                    grackle_db::template::render(tmpl, |tok| {
+                        let (ns, k) = grackle_db::template::classify(tok);
+                        match ns {
+                            None | Some("group") if k == "key" || k == field => {
+                                Some("probe".to_string())
+                            }
+                            _ => None,
+                        }
                     })
                     .with_context(|| {
-                        format!("view {name}: tag route template needs more than {{key}}")
+                        format!(
+                            "view {name}: archive route for {field} needs more \
+                             than {{key}}"
+                        )
                     })?;
                 }
             }
         }
-        // `trail` is the same shape of reference as `tags` — a collection
+        // `trail` is the same shape of reference as `archives` — a collection
         // naming a view — and until MERGE.md C3 it was the only one nothing
         // checked: `chain` stops at an unknown name and `post_trail` walks an
         // empty chain, so `trail = "montly_archive"` produced no trail and
@@ -3420,17 +3468,6 @@ impl Config {
             .unwrap_or(id)
     }
 
-    /// The slug a tag uses in routes (§6f). Defaults to the id.
-    pub fn tag_slug<'a>(&'a self, id: &'a str) -> &'a str {
-        self.record_slug("tags", id)
-    }
-
-    /// The display name a tag wears for a locale — `record_name` for the
-    /// `tags` field, kept named because pills call it everywhere.
-    pub fn tag_name<'a>(&'a self, id: &'a str, locale: &str) -> &'a str {
-        self.record_name("tags", id, locale)
-    }
-
     /// Content-claimed rows: logical source path → the owning view.
     /// Uniqueness is a validate() invariant, so a map is honest.
     pub fn content_claims(&self) -> BTreeMap<&str, &str> {
@@ -3443,22 +3480,23 @@ impl Config {
             .collect()
     }
 
-    /// The view that owns tag routes: the first collection's declared `tags`
-    /// view, else the unique view grouped by tags. Ambiguity without a
-    /// declaration is a load error, so None means "no tag archive".
-    pub fn tags_view(&self) -> Option<(&str, &View)> {
+    /// The view that owns archive routes for a list field: a collection's
+    /// `archives` entry, else the unique view grouped by that field. Ambiguity
+    /// without a declaration is a load error, so None means "no archive".
+    pub fn archive_view(&self, field: &str) -> Option<(&str, &View)> {
         if let Some(name) = self
             .collections
             .values()
-            .find_map(|c| c.tags.as_deref())
+            .find_map(|c| c.archives.get(field))
+            .map(|s| s.as_str())
         {
             return self.views.get(name).map(|v| (name, v));
         }
         let mut found = None;
         for (name, v) in &self.views {
-            if v.group_by.as_deref().map(grackle_model::spec_field) == Some("tags") {
+            if v.group_by.as_deref().map(grackle_model::spec_field) == Some(field) {
                 if found.is_some() {
-                    return None; // ambiguous — validation already errored
+                    return None;
                 }
                 found = Some((name.as_str(), v));
             }
@@ -3466,12 +3504,11 @@ impl Config {
         found
     }
 
-    /// A tag's archive URL for a row's locale (q32 + §6f): the owning
-    /// view's route template(s) via [`crate::load::select_path`], so locale
-    /// is spent where the view declares it. None = no tag archive exists,
-    /// and the pill renders unlinked.
-    pub fn tag_url(&self, id: &str, locale: &str) -> Option<String> {
-        let (_, v) = self.tags_view()?;
+    /// An archive URL for a list-field value in a locale (q32 + §6f): the
+    /// owning view's route template(s) via [`crate::load::select_path`].
+    /// None = no archive, and the pill renders unlinked.
+    pub fn archive_url(&self, field: &str, id: &str, locale: &str) -> Option<String> {
+        let (_, v) = self.archive_view(field)?;
         let tmpls: Vec<&str> = if !v.routes.is_empty() {
             v.routes.iter().map(String::as_str).collect()
         } else {
@@ -3480,7 +3517,7 @@ impl Config {
         if tmpls.is_empty() {
             return None;
         }
-        let slug = self.tag_slug(id).to_string();
+        let slug = self.record_slug(field, id).to_string();
         let rendered: Result<Vec<String>, _> = tmpls
             .iter()
             .map(|tmpl| {
@@ -3491,7 +3528,7 @@ impl Config {
                         None if k == "locale" && self.locale_enabled() => {
                             Some("{locale}".to_string())
                         }
-                        None | Some("group") if matches!(k, "key" | "tags") => Some(slug.clone()),
+                        None | Some("group") if k == "key" || k == field => Some(slug.clone()),
                         _ => None,
                     }
                 })
@@ -5433,12 +5470,12 @@ mod tests {
             "[records.tags.contes]\nslug = \"fairy-tales\"\nname = { en = \"Fairy tales\", fr = \"Contes\" }\n\n\
              [records.course.dinner]\nintro = \"Sure to please!\"\n\n[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
         );
-        assert_eq!(c.tag_slug("contes"), "fairy-tales");
-        assert_eq!(c.tag_slug("rust"), "rust");
-        assert_eq!(c.tag_name("contes", "fr"), "Contes");
-        assert_eq!(c.tag_name("contes", "en"), "Fairy tales");
-        assert_eq!(c.tag_name("contes", "de"), "Fairy tales");
-        assert_eq!(c.tag_name("rust", "fr"), "rust");
+        assert_eq!(c.record_slug("tags", "contes"), "fairy-tales");
+        assert_eq!(c.record_slug("tags", "rust"), "rust");
+        assert_eq!(c.record_name("tags", "contes", "fr"), "Contes");
+        assert_eq!(c.record_name("tags", "contes", "en"), "Fairy tales");
+        assert_eq!(c.record_name("tags", "contes", "de"), "Fairy tales");
+        assert_eq!(c.record_name("tags", "rust", "fr"), "rust");
         assert_eq!(c.record_slug("course", "dinner"), "dinner");
         assert_eq!(c.record_name("course", "dinner", "fr"), "dinner");
         let i = c

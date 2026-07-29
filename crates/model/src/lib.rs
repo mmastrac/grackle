@@ -1423,7 +1423,7 @@ mod row_column_tests {
     }
 
     /// Tags is a declared list (base), not a built-in filter column; `Row.tags`
-    /// remains for chrome and indexes.
+    /// mirrors it for indexes.
     #[test]
     fn tags_is_not_a_built_in_row_field() {
         assert!(!row_schema().contains_key("tags"));

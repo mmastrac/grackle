@@ -2741,7 +2741,7 @@ pub(crate) fn row_preview<'a>(
         truncated,
         src: t.map(|t| t.url.clone()),
         dims: t.and_then(|t| t.dims),
-        tags: parts::tag_stream(cfg, p),
+        tags: parts::pill_stream(cfg, p, "tags"),
         ..Default::default()
     }
 }
