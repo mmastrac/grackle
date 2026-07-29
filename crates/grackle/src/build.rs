@@ -874,12 +874,17 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .iter()
             .filter_map(|k| db.rows.get(k))
             .map(|p| {
+                let fields: serde_json::Map<String, serde_json::Value> = p
+                    .fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), field_json(v)))
+                    .collect();
                 serde_json::json!({
                     "url": p.url,
                     "title": p.title,
                     "date": p.date.map(crate::db::iso_date),
                     "date_pretty": p.date.map(crate::db::pretty_date),
-                    "tags": p.list("tags"),
+                    "fields": fields,
                     "html": row_body_html(p, &bodies, &page_bodies).unwrap_or(""),
                 })
             })
@@ -2131,6 +2136,19 @@ pub fn search_docs(
             }
         })
         .collect()
+}
+
+/// A declared field as JSON for the script-shell row projection.
+fn field_json(v: &crate::filter::Value) -> serde_json::Value {
+    use crate::filter::Value as V;
+    match v {
+        V::Str(s) => serde_json::json!(s),
+        V::Int(i) => serde_json::json!(i),
+        V::Double(d) => serde_json::json!(d),
+        V::Bool(b) => serde_json::json!(b),
+        V::List(items) => serde_json::json!(items),
+        V::Null => serde_json::Value::Null,
+    }
 }
 
 /// Run a registered script shell (§5g): `sh -c command` from the site root,

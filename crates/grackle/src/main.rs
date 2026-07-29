@@ -344,18 +344,15 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             let shared: Vec<_> = db.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
             println!("posts           {}", db.rows.len());
             println!("  dated         {}", dated);
-            println!(
-                "  tagged        {}",
-                db.rows.iter().filter(|r| !r.list("tags").is_empty()).count()
-            );
-            // One line per declared bool the site actually uses — `drafts`
-            // and `hidden` used to be two hardcoded counts, which meant a
-            // site's own flags were invisible here (§4e).
+            // One line per declared bool/list the site actually uses (§4e).
             for (name, ty) in &db.declared {
-                if *ty != filter::Type::Bool {
-                    continue;
-                }
-                let n = db.rows.iter().filter(|r| r.flag(name)).count();
+                let n = match ty {
+                    filter::Type::Bool => db.rows.iter().filter(|r| r.flag(name)).count(),
+                    filter::Type::List => {
+                        db.rows.iter().filter(|r| !r.list(name).is_empty()).count()
+                    }
+                    _ => continue,
+                };
                 if n > 0 {
                     println!("  {name:<13} {n}");
                 }
