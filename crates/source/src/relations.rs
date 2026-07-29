@@ -166,7 +166,7 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
                     // `@@literal` escapes to a literal leading `@`.
                     RelLabel::Text(s.strip_prefix('@').unwrap_or(s).to_string())
                 }
-                LocalizedStr::PerLocale(m) => RelLabel::PerLocale(m.clone()),
+                LocalizedStr::PerMember(m) => RelLabel::PerMember(m.clone()),
             },
         },
     }

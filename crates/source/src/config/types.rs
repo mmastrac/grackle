@@ -1354,18 +1354,18 @@ pub struct RecordCfg {
 }
 
 /// THE shape for display names (§6f): any human-facing string the config
-/// authors is either a bare string, a per-locale map, or a REFERENCE
+/// authors is either a bare string, a per-member map, or a REFERENCE
 /// (`"@key"`) into the global `[i18n.strings]` map. The hierarchy is
 /// inline beats global beats engine built-in: write a value at the site
 /// to be surgical, name a shared string to say one thing everywhere.
-/// Validated at load: per-locale maps name only declared locales and
-/// include the default locale (resolution is total); references must
+/// Validated at load: per-member maps name only declared pairing-axis
+/// members and include the canonical (resolution is total); references must
 /// resolve; `"@@…"` escapes a literal leading `@`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum LocalizedStr {
     One(String),
-    PerLocale(BTreeMap<String, String>),
+    PerMember(BTreeMap<String, String>),
 }
 
 impl LocalizedStr {
@@ -1373,20 +1373,20 @@ impl LocalizedStr {
     pub fn reference(&self) -> Option<&str> {
         match self {
             LocalizedStr::One(s) => s.strip_prefix('@').filter(|rest| !rest.starts_with('@')),
-            LocalizedStr::PerLocale(_) => None,
+            LocalizedStr::PerMember(_) => None,
         }
     }
 
-    /// Exact locale, else the default locale's entry (validated present;
+    /// Exact member, else the canonical member's entry (validated present;
     /// the empty-string fallback is unreachable on a loaded config).
     /// Reference-blind — resolution with the global map is `I18nCfg::text`.
-    pub fn get<'a>(&'a self, locale: &str, default: &str) -> &'a str {
+    pub fn get<'a>(&'a self, member: &str, canonical: &str) -> &'a str {
         match self {
             // "@@literal" -> "@literal"
             LocalizedStr::One(s) => s.strip_prefix('@').unwrap_or(s),
-            LocalizedStr::PerLocale(m) => m
-                .get(locale)
-                .or_else(|| m.get(default))
+            LocalizedStr::PerMember(m) => m
+                .get(member)
+                .or_else(|| m.get(canonical))
                 .map(String::as_str)
                 .unwrap_or(""),
         }
@@ -1587,7 +1587,7 @@ pub struct RelationCfg {
     /// The window size. Defaults to a handful; `earlier`/`later` set 1.
     pub limit: Option<usize>,
     /// The group's heading, an `@ref` into `[i18n.strings]` (defaulting to
-    /// `@NAME`). A per-locale map carries the language axis, like `title`.
+    /// `@NAME`). A per-member map carries the pairing axis, like `title`.
     pub label: Option<LocalizedStr>,
 }
 
@@ -1883,7 +1883,7 @@ pub struct View {
     /// language as routes, same load-time discipline.
     pub title: Option<LocalizedStr>,
     /// What this view contributes to descendants' breadcrumb trails.
-    /// Defaults to `title`. Per-locale maps carry the lang axis (§6f).
+    /// Defaults to `title`. Per-member maps carry the pairing axis (§6f).
     pub crumb: Option<LocalizedStr>,
     /// q45 mode A: prose the view owns — rendered as markdown through the
     /// locale-aware link resolver into the listing layout's `intro` slot.

@@ -380,7 +380,7 @@ impl<'a> Engine<'a> {
         match label {
             RelLabel::Key(k) => self.cfg.i18n_string(k, member).to_string(),
             RelLabel::Text(t) => t.clone(),
-            RelLabel::PerLocale(m) => m
+            RelLabel::PerMember(m) => m
                 .get(member)
                 .or_else(|| self.cfg.pairing_canonical().and_then(|c| m.get(c)))
                 .cloned()

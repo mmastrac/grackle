@@ -539,7 +539,7 @@ impl Config {
                 };
             let known_set = &known;
             let check = |what: &str, s: &LocalizedStr| -> Result<()> {
-                let LocalizedStr::PerLocale(m) = s else {
+                let LocalizedStr::PerMember(m) = s else {
                     return Ok(());
                 };
                 let Some(canon) = canon else {

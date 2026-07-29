@@ -185,18 +185,18 @@ pub enum Pool {
     Derived(String),
 }
 
-/// A relation group's heading. Resolved at render for the row's i18n member: a
-/// `Key` reads `[i18n.strings]` (defaulting to the relation's own name), the
-/// other two are used verbatim. Kept free of the config's `LocalizedStr` so
-/// the model owns no config types.
+/// A relation group's heading. Resolved at render for the row's pairing-axis
+/// member: a `Key` reads `[i18n.strings]` (defaulting to the relation's own
+/// name), the other two are used verbatim. Kept free of the config's
+/// `LocalizedStr` so the model owns no config types.
 #[derive(Debug, Clone)]
 pub enum RelLabel {
     /// An `@ref` into the string table (or the default, the relation name).
     Key(String),
-    /// A single literal, for a monolingual site.
+    /// A single literal, for a site with one pairing member (or none).
     Text(String),
     /// A per-member literal map.
-    PerLocale(BTreeMap<String, String>),
+    PerMember(BTreeMap<String, String>),
 }
 
 /// The row field a group-by spec names. `date.year` is a spelling of the
