@@ -329,25 +329,24 @@ impl Config {
                     })?;
             }
         }
-        cfg.sync_i18n()?;
+        cfg.check_pairing_axis()?;
         Ok(cfg)
     }
 
-    /// Fill [`I18nCfg::default`] from the axis named by [`I18nCfg::axis`].
-    pub fn sync_i18n(&mut self) -> Result<()> {
-        let Some(name) = self.i18n.axis.clone() else {
+    /// When `[i18n] axis` names a declared axis, that axis must list at least
+    /// the canonical member. Identity lives on the axis — not a cached copy.
+    pub fn check_pairing_axis(&self) -> Result<()> {
+        let Some(name) = self.i18n.axis.as_deref() else {
             return Ok(());
         };
-        let Some(a) = self.axes.get(&name) else {
-            // Axis name is aspirational until `[axes.*]` declares it —
-            // monolingual sites inherit `axis = "locale"` from defaults.
+        let Some(a) = self.axes.get(name) else {
+            // Axis name is aspirational until `[axes.*]` declares it.
             return Ok(());
         };
         anyhow::ensure!(
             !a.values.is_empty(),
             "[axes.{name}]: values must list at least the canonical member"
         );
-        self.i18n.default = a.values[0].clone();
         Ok(())
     }
 
@@ -357,6 +356,11 @@ impl Config {
     pub fn pairing_axis(&self) -> Option<(&str, &Axis)> {
         let name = self.i18n.axis.as_deref()?;
         self.axes.get(name).map(|a| (name, a))
+    }
+
+    /// The pairing axis's canonical member (`values[0]`), when declared.
+    pub fn pairing_canonical(&self) -> Option<&str> {
+        self.pairing_axis().and_then(|(_, a)| a.canonical())
     }
 
     /// Whether any collection `file` pattern spends this axis (a file axis
@@ -426,14 +430,24 @@ impl Config {
 
     /// The configured pairing axis's member on `row` — LocalizedStr keys,
     /// HTML `lang`, twin pivots. Composed from [`pairing_axis`] + [`axis_on`];
-    /// without a pairing axis, [`I18nCfg::default`].
+    /// without a pairing axis, empty.
     pub fn pairing_member(&self, row: &(impl grackle_db::filter::Row + ?Sized)) -> String {
         match self.pairing_axis() {
-            Some((n, _)) => self
-                .axis_on(row, n)
-                .unwrap_or_else(|| self.i18n.default.clone()),
-            None => self.i18n.default.clone(),
+            Some((n, _)) => self.axis_on(row, n).unwrap_or_default(),
+            None => String::new(),
         }
+    }
+
+    /// [`I18nCfg::string`] with the pairing axis's canonical as fallback.
+    pub fn i18n_string<'a>(&'a self, key: &str, member: &str) -> &'a str {
+        let canon = self.pairing_canonical().unwrap_or(member);
+        self.i18n.string(key, member, canon)
+    }
+
+    /// [`I18nCfg::text`] with the pairing axis's canonical as fallback.
+    pub fn i18n_text<'a>(&'a self, s: &'a LocalizedStr, member: &str) -> &'a str {
+        let canon = self.pairing_canonical().unwrap_or(member);
+        self.i18n.text(s, member, canon)
     }
 
     /// Axis values a `{axis:NAME}` file token may capture (skip canonical).
@@ -919,7 +933,7 @@ impl Config {
     /// global), else the id itself.
     pub fn record_name<'a>(&'a self, field: &str, id: &'a str, locale: &str) -> &'a str {
         match self.record(field, id).and_then(|r| r.name.as_ref()) {
-            Some(n) => self.i18n.text(n, locale),
+            Some(n) => self.i18n_text(n, locale),
             None => id,
         }
     }

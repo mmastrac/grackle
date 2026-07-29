@@ -127,7 +127,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     {
         let locales: Vec<&str> = match cfg.pairing_axis() {
             Some((_, a)) => a.values.iter().map(String::as_str).collect(),
-            None => vec![cfg.i18n.default.as_str()],
+            None => Vec::new(),
         };
         for w in crate::slots::unknown_stems(themes.fills(), &themes.identity_slots(), &locales) {
             eprintln!("grackle: {w}");

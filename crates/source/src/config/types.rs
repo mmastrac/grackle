@@ -85,8 +85,8 @@ pub struct Config {
     /// its stdout bytes land at the view's route verbatim.
     #[serde(default)]
     pub shells: BTreeMap<String, ShellDef>,
-    /// i18n (§6f): the locale axis. Absent = a monolingual site; every row
-    /// carries the default locale and nothing changes.
+    /// i18n (§6f): display strings for the pairing axis. Absent `[i18n]` still
+    /// points at axis `"locale"`; membership lives on `[axes.*]`.
     #[serde(default)]
     pub i18n: I18nCfg,
     /// `[embeds]` (IO.md §4a, I11): the embed policy — what an EMBEDDED
@@ -1077,10 +1077,7 @@ impl EmbedsCfg {
 
 /// Display strings for the i18n axis (§6f). Member identity lives on the
 /// axis named by [`I18nCfg::axis`]; this table is only names and shared strings.
-///
-/// `default` is filled from that axis's canonical member at load (or `"en"`
-/// when the axis is undeclared) so `LocalizedStr` resolution keeps a single
-/// fallback without restating the axis.
+/// Canonical membership is [`Axis::canonical`] on that axis — not cached here.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct I18nCfg {
@@ -1090,9 +1087,6 @@ pub struct I18nCfg {
     /// under `[axes.*]`.
     #[serde(default = "default_i18n_axis")]
     pub axis: Option<String>,
-    /// Canonical member, synced from the i18n axis (see [`Config::sync_i18n`]).
-    #[serde(skip, default = "default_locale")]
-    pub default: String,
     /// Display names for axis members (`fr = "Français"`); a missing entry
     /// falls back to the member code. Keyed by member, so every key must be a
     /// declared axis member — a name for an undeclared member labels nothing,
@@ -1107,6 +1101,18 @@ pub struct I18nCfg {
     /// accidental unused string. Values are literal (no reference chains).
     #[serde(default)]
     pub strings: BTreeMap<String, LocalizedStr>,
+}
+
+impl Default for I18nCfg {
+    fn default() -> Self {
+        Self {
+            // Same as `#[serde(default = "default_i18n_axis")]` — Config's
+            // `#[serde(default)]` on `i18n` calls this when `[i18n]` is absent.
+            axis: default_i18n_axis(),
+            names: BTreeMap::new(),
+            strings: BTreeMap::new(),
+        }
+    }
 }
 
 /// The engine's display vocabulary: every string the engine emits into
@@ -1128,23 +1134,8 @@ pub const ENGINE_STRINGS: &[(&str, &str)] = &[
     ("page", "Page {n}"),
 ];
 
-fn default_locale() -> String {
-    "en".to_string()
-}
-
 fn default_i18n_axis() -> Option<String> {
     Some("locale".to_string())
-}
-
-impl Default for I18nCfg {
-    fn default() -> Self {
-        I18nCfg {
-            axis: default_i18n_axis(),
-            default: default_locale(),
-            names: BTreeMap::new(),
-            strings: BTreeMap::new(),
-        }
-    }
 }
 
 impl I18nCfg {
@@ -1153,12 +1144,12 @@ impl I18nCfg {
         self.names.get(locale).map(String::as_str).unwrap_or(locale)
     }
 
-    /// A named string (§6f), for a locale: the global `[i18n.strings]`
-    /// entry if declared, else the engine built-in. This is the FALLBACK
-    /// half of the hierarchy; `text` adds the inline-beats-global half.
-    pub fn string<'a>(&'a self, key: &str, locale: &str) -> &'a str {
+    /// A named string (§6f) for a member: the global `[i18n.strings]` entry
+    /// if declared, else the engine built-in. `canonical` is the pairing
+    /// axis's first member — the fallback key for a per-member map.
+    pub fn string<'a>(&'a self, key: &str, member: &str, canonical: &str) -> &'a str {
         if let Some(s) = self.strings.get(key) {
-            return s.get(locale, &self.default);
+            return s.get(member, canonical);
         }
         ENGINE_STRINGS
             .iter()
@@ -1171,10 +1162,10 @@ impl I18nCfg {
     /// an `"@key"` reference falls back to the global map (which itself
     /// falls back to engine built-ins). Load validation guarantees every
     /// reference resolves.
-    pub fn text<'a>(&'a self, s: &'a LocalizedStr, locale: &str) -> &'a str {
+    pub fn text<'a>(&'a self, s: &'a LocalizedStr, member: &str, canonical: &str) -> &'a str {
         match s.reference() {
-            Some(key) => self.string(key, locale),
-            None => s.get(locale, &self.default),
+            Some(key) => self.string(key, member, canonical),
+            None => s.get(member, canonical),
         }
     }
 }

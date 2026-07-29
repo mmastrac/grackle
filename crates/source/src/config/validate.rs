@@ -525,19 +525,28 @@ impl Config {
         }
         // §6f: every LocalizedStr in the config obeys ONE rule — a
         // per-member map may only name declared pairing-axis members, and must
-        // include the canonical member so resolution is total.
+        // include the canonical member so resolution is total. Without a
+        // pairing axis, only bare strings are legal.
         {
-            let (axis_label, known): (String, Vec<&str>) = match cfg.pairing_axis() {
-                Some((n, a)) => (
-                    format!("[axes.{n}]"),
-                    a.values.iter().map(String::as_str).collect(),
-                ),
-                None => ("[i18n]".into(), vec![cfg.i18n.default.as_str()]),
-            };
+            let (axis_label, known, canon): (String, Vec<&str>, Option<&str>) =
+                match cfg.pairing_axis() {
+                    Some((n, a)) => (
+                        format!("[axes.{n}]"),
+                        a.values.iter().map(String::as_str).collect(),
+                        a.canonical(),
+                    ),
+                    None => ("[i18n]".into(), Vec::new(), None),
+                };
             let known_set = &known;
             let check = |what: &str, s: &LocalizedStr| -> Result<()> {
                 let LocalizedStr::PerLocale(m) = s else {
                     return Ok(());
+                };
+                let Some(canon) = canon else {
+                    anyhow::bail!(
+                        "{what}: a per-member map needs a declared pairing axis \
+                         ([i18n] axis → [axes.*]); use a bare string instead"
+                    );
                 };
                 for loc in m.keys() {
                     if !known_set.contains(&loc.as_str()) {
@@ -547,11 +556,10 @@ impl Config {
                         );
                     }
                 }
-                if !m.contains_key(&cfg.i18n.default) {
+                if !m.contains_key(canon) {
                     anyhow::bail!(
                         "{what}: a per-member name must include the canonical \
-                         member ({:?})",
-                        cfg.i18n.default
+                         member ({canon:?})"
                     );
                 }
                 Ok(())

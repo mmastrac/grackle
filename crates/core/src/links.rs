@@ -752,7 +752,7 @@ fn view_link(
         // inventing a required member would refuse the link.
         if let Some((axis_name, axis)) = cfg.pairing_axis() {
             if rendered.iter().any(|t| spends(t, axis_name)) {
-                let canon = axis.canonical().unwrap_or(cfg.i18n.default.as_str());
+                let canon = axis.canonical().unwrap_or("");
                 coords.push(Coord {
                     axis: axis_name,
                     value: loc,
@@ -765,10 +765,7 @@ fn view_link(
     // Pairing-axis-parallel views (§6f): a twin row links into its own
     // member's archive when that variant materialized, and falls back to the
     // canonical one when it did not.
-    let canon = cfg
-        .pairing_axis()
-        .and_then(|(_, a)| a.canonical())
-        .unwrap_or(cfg.i18n.default.as_str());
+    let canon = cfg.pairing_canonical().unwrap_or("");
     let url = pick(locale)?;
     let url = if locale != canon && !space.routes.contains(&url) {
         pick(canon)?

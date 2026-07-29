@@ -723,7 +723,7 @@ pub fn tree_trail(
     ancestors: &[(String, String)],
 ) -> Vec<(String, Option<String>)> {
     let mut v = vec![(
-        cfg.i18n.string("home", locale).to_string(),
+        cfg.i18n_string("home", locale).to_string(),
         Some(home.to_string()),
     )];
     for (u, t) in ancestors {

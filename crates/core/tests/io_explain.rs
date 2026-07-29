@@ -272,15 +272,16 @@ fn explain_prints_each_cascade_key_exactly_once() {
 
     assert_eq!(
         fields("/blog/2020/01/01/hello/"),
-        "slot        -\ntheme       ledger\nminutes     4\ntoc         true\n",
+        "slot        -\ntheme       ledger\nlocale      en\nminutes     4\ntoc         true\n",
         "a row that resolved theme (slot absent): one named line each, and the \
-         dump still carries ordinary fields including toc"
+         dump still carries ordinary fields including toc; base's monolingual \
+         pairing axis stamps locale"
     );
     assert_eq!(
         fields("/notes.txt"),
-        "slot        -\ntheme       -\n",
-        "a row that resolved none: without a declared pairing axis nothing is \
-         auto-stamped, so the named cascade lines are still the answer"
+        "slot        -\ntheme       -\nlocale      en\n",
+        "a row that resolved no cascade keys: base still stamps the pairing \
+         axis, so locale appears beside the named cascade dashes"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

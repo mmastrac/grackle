@@ -135,7 +135,7 @@ pub(crate) fn render_page_bodies(
             .unwrap_or_default();
         let locale_owned = row
             .map(|p| cfg.pairing_member(p))
-            .unwrap_or_else(|| cfg.i18n.default.clone());
+            .unwrap_or_default();
         let locale = locale_owned.as_str();
         let rel = row
             .map(|p| p.rel.to_string_lossy().to_string())

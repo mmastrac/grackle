@@ -271,7 +271,7 @@ impl<'a> Engine<'a> {
     fn twin<'r>(&'r self, cand: &'r Row, member: &str) -> Option<&'r Row> {
         let matches = |r: &Row| match self.cfg.pairing_axis() {
             Some((_, axis)) => r.string(&axis.field) == Some(member),
-            None => member == self.cfg.i18n.default,
+            None => member.is_empty(),
         };
         if matches(cand) {
             return Some(cand);
@@ -378,11 +378,11 @@ impl<'a> Engine<'a> {
     /// string table (defaulting to the relation name); the others are literal.
     fn label(&self, label: &RelLabel, member: &str, name: &str) -> String {
         match label {
-            RelLabel::Key(k) => self.cfg.i18n.string(k, member).to_string(),
+            RelLabel::Key(k) => self.cfg.i18n_string(k, member).to_string(),
             RelLabel::Text(t) => t.clone(),
             RelLabel::PerLocale(m) => m
                 .get(member)
-                .or_else(|| m.get(&self.cfg.i18n.default))
+                .or_else(|| self.cfg.pairing_canonical().and_then(|c| m.get(c)))
                 .cloned()
                 .unwrap_or_else(|| name.to_string()),
         }

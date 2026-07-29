@@ -199,9 +199,9 @@ fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> 
 /// the canonical (config key kept — base/sites already spell it).
 fn partition_values<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
     match (v.locales.as_deref(), cfg.pairing_axis()) {
-        (_, None) => vec![cfg.i18n.default.as_str()],
+        (_, None) => vec![""],
         (Some("default"), Some((_, axis))) => {
-            vec![axis.canonical().unwrap_or(cfg.i18n.default.as_str())]
+            vec![axis.canonical().unwrap_or("")]
         }
         (_, Some((_, axis))) => axis.values.iter().map(String::as_str).collect(),
     }
@@ -584,9 +584,7 @@ fn build_view(
     };
 
     if !v.is_materialized() {
-        let canon = pairing
-            .and_then(|(_, a)| a.canonical())
-            .unwrap_or(cfg.i18n.default.as_str());
+        let canon = pairing.and_then(|(_, a)| a.canonical()).unwrap_or("");
         let members: Vec<grackle_db::Key> = rows_for(canon)
             .into_iter()
             .take(v.limit.unwrap_or(usize::MAX))
@@ -601,7 +599,7 @@ fn build_view(
     let axis_values = if parsed {
         partition_values(cfg, v)
     } else {
-        vec![cfg.i18n.default.as_str()]
+        vec![""]
     };
 
     // Every template this view lands on. `path` and `paths` are one list here:
@@ -662,9 +660,7 @@ fn build_view(
     };
 
     let pairing = cfg.pairing_axis();
-    let pairing_canon = pairing
-        .and_then(|(_, a)| a.canonical())
-        .unwrap_or(cfg.i18n.default.as_str());
+    let pairing_canon = pairing.and_then(|(_, a)| a.canonical()).unwrap_or("");
     for axis_value in &axis_values {
         let row_ix = rows_for(axis_value);
         let cells = if chain.is_empty() {

@@ -144,7 +144,7 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
                 .collect();
             if let Some(g) = parts::axis_group(
                 name,
-                cfg.i18n.string("translations", &cur_pairing),
+                cfg.i18n_string("translations", &cur_pairing),
                 members,
             ) {
                 groups.push(g);
@@ -430,7 +430,7 @@ fn render_config_prose(
     source: &str,
     text: &crate::config::LocalizedStr,
 ) -> Result<Option<String>> {
-    let text = cfg.i18n.text(text, locale);
+    let text = cfg.i18n_text(text, locale);
     let doc = crate::markdown::render_doc_with(text, &|form, href| {
         crate::links::resolve(
             cfg,

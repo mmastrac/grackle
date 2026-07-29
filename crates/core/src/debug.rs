@@ -283,9 +283,9 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             url: &cfg.site.url,
             locales: match cfg.pairing_axis() {
                 Some((_, a)) => a.values.iter().map(String::as_str).collect(),
-                None => vec![cfg.i18n.default.as_str()],
+                None => Vec::new(),
             },
-            default_locale: &cfg.i18n.default,
+            default_locale: cfg.pairing_canonical().unwrap_or(""),
         },
         stats: Stats {
             posts: db.post_ix.len(),

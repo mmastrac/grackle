@@ -2,8 +2,8 @@ use super::*;
 use crate::shape::{Law, Shape};
 
 fn cfg(views: &str) -> Config {
-    let mut c = cfg_raw(views);
-    c.sync_i18n().expect("i18n axis syncs");
+    let c = cfg_raw(views);
+    c.check_pairing_axis().expect("i18n axis ok");
     c.validate().expect("test config should validate");
     c
 }
@@ -1833,17 +1833,17 @@ fn cyclic_chain_terminates() {
     assert!(e.contains("cyclic"), "unexpected error: {e}");
 }
 
-/// The i18n axis syncs the display-string default; absent means monolingual `en`.
+/// The pairing axis's canonical is `values[0]`; without a declared axis, none.
 #[test]
 fn axes_locale_syncs_the_display_default() {
     let c = cfg("[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n");
-    assert_eq!(c.i18n.default, "en");
+    assert_eq!(c.pairing_canonical(), Some("en"));
     let (name, axis) = c.pairing_axis().expect("locale axis");
     assert_eq!(name, "locale");
     assert_eq!(axis.values, ["en", "fr"]);
 
     let off = cfg("");
-    assert_eq!(off.i18n.default, "en");
+    assert_eq!(off.pairing_canonical(), None);
     assert!(off.pairing_axis().is_none());
 }
 
@@ -1856,7 +1856,7 @@ fn i18n_axis_need_not_be_named_locale() {
     let (name, axis) = c.pairing_axis().expect("lang axis");
     assert_eq!(name, "lang");
     assert_eq!(axis.field, "lang");
-    assert_eq!(c.i18n.default, "en");
+    assert_eq!(c.pairing_canonical(), Some("en"));
     assert_eq!(axis.values, ["en", "fr"]);
 }
 
@@ -1870,15 +1870,15 @@ fn string_hierarchy_resolves() {
              [i18n.strings]\nkitchen = { en = \"Kitchen\", fr = \"Cuisine\" }\n\
              home = { en = \"Home\", fr = \"Accueil\" }\n");
     let t = c.views["a"].title.as_ref().unwrap();
-    assert_eq!(c.i18n.text(t, "en"), "Kitchen");
-    assert_eq!(c.i18n.text(t, "fr"), "Cuisine");
+    assert_eq!(c.i18n_text(t, "en"), "Kitchen");
+    assert_eq!(c.i18n_text(t, "fr"), "Cuisine");
     let t = c.views["b"].title.as_ref().unwrap();
-    assert_eq!(c.i18n.text(t, "fr"), "Inline wins");
+    assert_eq!(c.i18n_text(t, "fr"), "Inline wins");
     let t = c.views["b"].crumb.as_ref().unwrap();
-    assert_eq!(c.i18n.text(t, "en"), "@literal-at");
+    assert_eq!(c.i18n_text(t, "en"), "@literal-at");
     // Global overrides the engine built-in; absent key keeps it.
-    assert_eq!(c.i18n.string("home", "fr"), "Accueil");
-    assert_eq!(c.i18n.string("related", "fr"), "Related");
+    assert_eq!(c.i18n_string("home", "fr"), "Accueil");
+    assert_eq!(c.i18n_string("related", "fr"), "Related");
 }
 
 /// §6f: a dangling reference and an unused global string are both load
@@ -1914,10 +1914,10 @@ fn an_i18n_name_must_name_a_declared_locale() {
     assert!(e.contains("fr_CA"), "{e}");
     assert!(e.contains("\"en\""), "the default is named: {e}");
     assert!(e.contains("\"fr\""), "the knowns are named: {e}");
-    // …and with no locale axis, only the synced default may be named.
+    // …and with no locale axis, no member may be named.
     let e = cfg_err("[i18n.names]\nfr = \"Français\"\n");
     assert!(e.contains("\"fr\""), "{e}");
-    assert!(e.contains("[\"en\"]"), "only the default is known: {e}");
+    assert!(e.contains("[]"), "no axis ⇒ no known members: {e}");
 }
 
 /// §6f enum records: slug and display names default to the id; a
@@ -1944,7 +1944,7 @@ fn enum_records_default_to_id() {
         .intro
         .as_ref()
         .unwrap();
-    assert_eq!(c.i18n.text(i, "en"), "Sure to please!");
+    assert_eq!(c.i18n_text(i, "en"), "Sure to please!");
 }
 
 /// A multi-locale archive route spends `{axis:locale}` beside `{key}`;

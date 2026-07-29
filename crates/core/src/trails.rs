@@ -28,9 +28,7 @@ fn crumb_tmpl(v: &View) -> Option<&crate::config::LocalizedStr> {
 /// linking `/`.
 pub fn home_url(cfg: &Config, db: &SiteDb, member: &str) -> String {
     let pairing = cfg.pairing_axis();
-    let canon = pairing
-        .and_then(|(_, a)| a.canonical())
-        .unwrap_or(cfg.i18n.default.as_str());
+    let canon = pairing.and_then(|(_, a)| a.canonical()).unwrap_or("");
     if member != canon {
         if let Some((_, axis)) = pairing {
             if let Some(p) = db.rows.iter().find(|p| {
@@ -58,7 +56,7 @@ pub fn home_url(cfg: &Config, db: &SiteDb, member: &str) -> String {
 /// than built by string-prefixing a configured index.
 pub fn trail_root(cfg: &Config, db: &SiteDb, member: &str) -> Vec<(String, Option<String>)> {
     vec![(
-        cfg.i18n.string("home", member).to_string(),
+        cfg.i18n_string("home", member).to_string(),
         Some(home_url(cfg, db, member)),
     )]
 }
@@ -107,7 +105,7 @@ pub fn listing_title_and_trail(
             None => Some(raw),
         }
     };
-    let text = |t: &crate::config::LocalizedStr| cfg.i18n.text(t, loc).to_string();
+    let text = |t: &crate::config::LocalizedStr| cfg.i18n_text(t, loc).to_string();
     let title = match &v.title {
         Some(t) => crate::template::render(&text(t), param)
             .with_context(|| format!("view {view}: title"))?,
@@ -119,7 +117,7 @@ pub fn listing_title_and_trail(
         None => r
             .key
             .clone()
-            .unwrap_or_else(|| cfg.i18n.string(view, loc).to_string()),
+            .unwrap_or_else(|| cfg.i18n_string(view, loc).to_string()),
     };
     let tail = match r.page {
         // Paginated trails keep the engine's `page` string for now — crumb
@@ -127,7 +125,7 @@ pub fn listing_title_and_trail(
         // (pagination × subdivision). Page *one* is not a page-of, though:
         // it is the view's root, so it names itself in the tail the way
         // every other listing does.
-        Some(p) if p > 1 => Some(cfg.i18n.string("page", loc).replace("{n}", &p.to_string())),
+        Some(p) if p > 1 => Some(cfg.i18n_string("page", loc).replace("{n}", &p.to_string())),
         _ => match crumb_tmpl(v) {
             Some(t) => Some(
                 crate::template::render(&text(t), param)
@@ -207,7 +205,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
                 }
             };
             if let (Some(tm), Some(rt)) = (crumb_tmpl(v), v.route.as_deref()) {
-                let tm = cfg.i18n.text(tm, loc);
+                let tm = cfg.i18n_text(tm, loc);
                 if let (Ok(label), Ok(url)) = (
                     crate::template::render(tm, get),
                     crate::template::render(rt, get),
@@ -284,7 +282,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
                 if let Some(t) = crumb_tmpl(v) {
                     let loc_owned = cfg.pairing_member(r);
-                    out.push((parent, cfg.i18n.text(t, &loc_owned).to_string()));
+                    out.push((parent, cfg.i18n_text(t, &loc_owned).to_string()));
                 }
             }
         }

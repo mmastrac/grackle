@@ -1099,10 +1099,7 @@ fn canonical_url(
         .collect();
     if let Some((axis_name, _)) = cfg.pairing_axis() {
         if templates.iter().any(|t| spends(t, axis_name)) {
-            let canon = cfg
-                .pairing_axis()
-                .and_then(|(_, a)| a.canonical())
-                .unwrap_or(cfg.i18n.default.as_str());
+            let canon = cfg.pairing_canonical().unwrap_or("");
             coords.push(Coord {
                 axis: axis_name,
                 value: pairing_value,
@@ -1216,10 +1213,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
 
     let t_index = std::time::Instant::now();
     let dated_keep = cfg.pairing_axis().map(|(_, a)| {
-        (
-            a.field.as_str(),
-            a.canonical().unwrap_or(cfg.i18n.default.as_str()),
-        )
+        (a.field.as_str(), a.canonical().unwrap_or(""))
     });
     db.insert_rows(
         sort_posts(post_rows),
@@ -1330,10 +1324,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         let pairing = cfg.pairing_axis();
         let pairing_value = pairing
             .and_then(|(n, _)| cfg.axis_on(p, n))
-            .unwrap_or_else(|| cfg.i18n.default.clone());
-        let pairing_canon = pairing
-            .and_then(|(_, a)| a.canonical())
-            .unwrap_or(cfg.i18n.default.as_str());
+            .unwrap_or_default();
+        let pairing_canon = pairing.and_then(|(_, a)| a.canonical()).unwrap_or("");
         for tuple in tuples {
             let url = {
                 let mut coords: Vec<Coord> = tuple

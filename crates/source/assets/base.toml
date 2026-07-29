@@ -134,9 +134,14 @@ icon = 'site.icon'
 # a monolingual page yields one member and emits nothing.
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
 
+# Monolingual pairing axis. Sites that want translations redeclare with a
+# fuller `values` list; `[i18n] axis` points here until a site renames it.
+[axes.locale]
+values = ["en"]
+field = "locale"
+
 # Which declared axis drives pairing, the switcher, and single-locale indexes.
-# Sites that rename the axis (`[axes.lang]`) set this to match. Inert until
-# that axis exists under `[axes.*]`.
+# Sites that rename the axis (`[axes.lang]`) set this to match.
 [i18n]
 axis = "locale"
 

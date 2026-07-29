@@ -22,7 +22,6 @@ use crate::theme;
 /// (a theme member) carries none, being the same representation elsewhere.
 ///
 /// Empty for a row on no axis, so a page with one form announces nothing.
-/// Locale hreflang is a declared expand (`[html.head.link] alternate`), not here.
 pub(crate) fn axis_alternates(
     db: &SiteDb,
     site_url: &str,

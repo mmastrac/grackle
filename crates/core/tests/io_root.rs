@@ -168,7 +168,7 @@ fn the_body_wrapper_is_optional_and_inert() {
     );
     // The engine still owns <html> — and the stamp is `root` now.
     assert!(
-        html.contains("<html lang=\"en\" data-kind=\"root\">"),
+        html.contains("<html data-kind=\"root\" lang=\"en\">"),
         "{html}"
     );
 }
@@ -524,7 +524,7 @@ fn nothing_may_sit_beside_a_roots_head_and_body() {
 /// Mutation: delete the `Node::Element(el) if el.tag == "html"` arm in
 /// `split_root`'s first loop. Measured on the mutant, not reasoned — this
 /// exact site builds CLEAN, and the post's page comes out as the engine's
-/// document (doctype, `<html lang="en" data-kind="root">`, the computed head
+/// document (doctype, `<html data-kind="root" lang="en">`, the computed head
 /// with `<title>Hello</title>` and the one stylesheet link) whose `<body>`
 /// then opens `<html>`, `<head>`, `<title>My Theme</title>`, `<meta
 /// name="description" content="themed">`, `</head>`, `<body>` — a second

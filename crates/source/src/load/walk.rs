@@ -291,7 +291,7 @@ pub(crate) fn walk_site(
         let pairing = cfg.pairing_axis();
         let pairing_default = pairing
             .and_then(|(_, a)| a.canonical().map(str::to_owned))
-            .unwrap_or_else(|| cfg.i18n.default.clone());
+            .unwrap_or_default();
         let (logical_rel, pairing_value) = match &extracted {
             Some(m) => {
                 let value = pairing

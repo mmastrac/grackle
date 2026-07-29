@@ -115,6 +115,10 @@ icon = 'site.icon'
 # `from = "axis.<name>"` expands over any declared axis's include-self pool.
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
 
+[axes.locale]
+values = ["en"]
+field = "locale"
+
 [i18n]
 axis = "locale"
 

@@ -212,10 +212,7 @@ pub(crate) fn run(
             .filter_map(|k| db.rows.get(k))
             .find(|p| cfg.pairing_member(*p) == loc)
             .or_else(|| {
-                let canon = cfg
-                    .pairing_axis()
-                    .and_then(|(_, a)| a.canonical())
-                    .unwrap_or(cfg.i18n.default.as_str());
+                let canon = cfg.pairing_canonical().unwrap_or("");
                 sibs.iter()
                     .filter_map(|k| db.rows.get(k))
                     .find(|p| cfg.pairing_member(*p) == canon)
@@ -323,10 +320,7 @@ pub(crate) fn run(
         // computed per route by `axes_part` — a landing per locale IS the
         // translation set (a fallback landing is still the French landing).
         let dated_keep = cfg.pairing_axis().map(|(_, a)| {
-            (
-                a.field.as_str(),
-                a.canonical().unwrap_or(cfg.i18n.default.as_str()),
-            )
+            (a.field.as_str(), a.canonical().unwrap_or(""))
         });
         let section = section_parts(db, &mut section_trees, &row.rel, &r.url, dated_keep);
         let groups = parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
@@ -562,10 +556,7 @@ pub(crate) fn run(
                 };
 
                 let dated_keep = cfg.pairing_axis().map(|(_, a)| {
-                    (
-                        a.field.as_str(),
-                        a.canonical().unwrap_or(cfg.i18n.default.as_str()),
-                    )
+                    (a.field.as_str(), a.canonical().unwrap_or(""))
                 });
                 let section = row
                     .map(|p| {
@@ -618,7 +609,7 @@ pub(crate) fn run(
                 };
                 let lang = row
                     .map(|p| cfg.pairing_member(p))
-                    .unwrap_or_else(|| cfg.i18n.default.clone());
+                    .unwrap_or_default();
                 let lang = lang.as_str();
                 let attr_row: &dyn crate::filter::Row = match row {
                     Some(p) => p,
