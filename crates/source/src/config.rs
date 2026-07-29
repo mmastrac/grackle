@@ -1317,8 +1317,9 @@ pub struct Collection {
     // unchanged and comes back with page bundles (§5b).
     /// The extractor's **default for this collection's rules** (§4). Same list
     /// law as `route`: patterns tried in order; `{axis:NAME}` spends a
-    /// declared axis into the stem; a shorter pattern without that token is
-    /// the canonical member. Date tokens ride the same matcher.
+    /// declared axis into the path (suffix `{stem}.{axis:locale}` or prefix
+    /// `{axis:locale}/{stem}`); a shorter pattern without that token is the
+    /// canonical member. Date tokens ride the same matcher.
     ///
     /// A rule declaring its own list overrides this for the rows it governs.
     #[serde(default)]

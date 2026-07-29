@@ -1,0 +1,26 @@
+# Locale as a directory prefix: `fr/recipes/dal.md` is the French member of
+# `recipes/dal.md`. Same `file =` list law as the suffix form — the pattern
+# spends the axis; rules match the logical path after the strip.
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Locale prefix"
+author = "Tester"
+
+[axes.locale]
+values = ["en", "fr"]
+field = "locale"
+
+[[collections]]
+source = "."
+file = ["{axis:locale}/{stem}", "{stem}"]
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = "/{dir}/{stem}/"
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"

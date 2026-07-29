@@ -316,13 +316,25 @@ fn apply_rules<'a>(
     let mut on_demand = false;
     let mut on_demand_cover: Vec<&str> = Vec::new();
     let mut defaults: BTreeMap<&str, &toml::Value> = BTreeMap::new();
+    let path_key = path_key(rel);
     for rule in rules {
         if let Some(want) = rule.front_matter {
             if want != has_front_matter {
                 continue;
             }
         }
-        if !rule.matcher.is_match(rel) {
+        // Globs see the logical path: strip spent file axes first so a prefix
+        // locale (`fr/recipes/dal.md`) still matches `recipes/**`.
+        let rule_formats = if rule.formats.is_empty() {
+            collection_formats
+        } else {
+            rule.formats.as_slice()
+        };
+        let match_rel = match filename::extract(rule_formats, &path_key) {
+            Some(m) => with_logical(rel, &m.logical_stem),
+            None => rel.to_path_buf(),
+        };
+        if !rule.matcher.is_match(&match_rel) {
             continue;
         }
         // Past both gates: this rule governs this row, whether or not it is
@@ -1026,11 +1038,35 @@ fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows
 }
 
-/// Replace the file stem, keeping the extension.
-fn with_stem(path: &Path, stem: &str) -> PathBuf {
-    let mut out = path.to_path_buf();
+/// Collection-relative path with the extension removed, `/`-separated.
+/// The subject `file` patterns match against.
+fn path_key(rel: &Path) -> String {
+    let s = rel.to_string_lossy();
+    let s = match rel.extension().and_then(|e| e.to_str()) {
+        Some(ext) => s
+            .strip_suffix(ext)
+            .and_then(|h| h.strip_suffix('.'))
+            .unwrap_or(&s),
+        None => &s,
+    };
+    s.replace('\\', "/")
+}
+
+/// Rebuild a path from a logical path key, keeping the physical extension.
+///
+/// A logical key with `/` replaces the whole relative path (prefix strip).
+/// A bare filename key only replaces the final component (suffix / dated).
+fn with_logical(physical: &Path, logical: &str) -> PathBuf {
+    if logical.contains('/') {
+        let mut out = PathBuf::from(logical);
+        if let Some(e) = physical.extension() {
+            out.set_extension(e);
+        }
+        return out;
+    }
+    let mut out = physical.to_path_buf();
     let ext = out.extension().map(|e| e.to_os_string());
-    out.set_file_name(stem);
+    out.set_file_name(logical);
     if let Some(e) = ext {
         out.set_extension(e);
     }
@@ -1339,8 +1375,8 @@ fn walk_site(
             // that claimed first, or an owner that already stopped the search,
             // means the scopes below never saw the file at all.
             s.offered.set(s.offered.get() + 1);
-            // Match the physical path. `file` patterns then strip spent axes
-            // to a logical stem — the old global locale selector, per rule.
+            // Match on the logical path: `file` patterns strip spent axes
+            // (suffix or prefix) before the glob sees the path.
             let r = apply_rules(&s.rules, &s.formats, &scope_rel, has_identity);
             if r.claimed.is_some() {
                 claim = Some((s, r, scope_rel));
@@ -1361,11 +1397,7 @@ fn walk_site(
             }
             bail!("no rule supplies a route for {}", f.path.display());
         };
-        let physical_stem = scope_rel
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let extracted = filename::extract(routing.formats, &physical_stem);
+        let extracted = filename::extract(routing.formats, &path_key(&scope_rel));
         let (logical_rel, locale) = match &extracted {
             Some(m) => {
                 let loc = m
@@ -1373,7 +1405,7 @@ fn walk_site(
                     .get("locale")
                     .cloned()
                     .unwrap_or_else(|| cfg.i18n.default.clone());
-                (with_stem(&scope_rel, &m.logical_stem), loc)
+                (with_logical(&scope_rel, &m.logical_stem), loc)
             }
             None => (scope_rel.clone(), cfg.i18n.default.clone()),
         };

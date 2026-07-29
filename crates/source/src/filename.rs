@@ -1,12 +1,14 @@
-//! File patterns: extract identity (and spent axes) from a file stem.
+//! File patterns: extract identity (and spent axes) from a path.
 //!
 //! Config data, not code (DESIGN.md §4). The routing half — key -> URL —
 //! is the database's, in `grackle_db::route`.
 //!
 //! A pattern is declared per RULE as `file = [...]`, falling back to its
 //! collection's own list. Same list law as `route = [...]`: try in order;
-//! the first match wins. `{axis:NAME}` spends a declared axis into the
-//! filename (suffix form today); a shorter pattern without that token is
+//! the first match wins. The subject is the collection-relative path without
+//! its extension (`recipes/dal.fr`, `fr/recipes/dal`). `{axis:NAME}` spends
+//! a declared axis as a suffix (`{stem}.{axis:locale}`) or a directory
+//! prefix (`{axis:locale}/{stem}`); a shorter pattern without that token is
 //! the canonical member. Date tokens (`{year}`, …) are the same matcher —
 //! there is one extractor, not two.
 
@@ -14,11 +16,12 @@ use anyhow::{anyhow, bail, Context, Result};
 use regex::Regex;
 use std::collections::BTreeMap;
 
-/// A compiled `file` entry, e.g. `{year}-{month}-{day}-{slug}.{axis:locale}`.
+/// A compiled `file` entry, e.g. `{year}-{month}-{day}-{slug}.{axis:locale}`
+/// or `{axis:locale}/{stem}`.
 #[derive(Debug)]
 pub struct FilePattern {
     /// Pattern text with `{axis:…}` segments removed — filled to build the
-    /// logical stem after a match.
+    /// logical path (no extension) after a match.
     logical: String,
     re: Regex,
     /// Axis name -> regex capture name (`_axis_locale`).
@@ -33,13 +36,14 @@ impl FilePattern {
 }
 
 /// What a file pattern yields: date/slug tokens, spent axis values, and the
-/// stem everything downstream treats as identity.
+/// path (no extension) everything downstream treats as identity.
 #[derive(Debug, Clone, Default)]
 pub struct FileMatch {
     pub key: FileKey,
     /// Axis name -> member value. Absent axes default to canonical at the
     /// call site.
     pub axes: BTreeMap<String, String>,
+    /// Logical path without extension; may contain `/` after a prefix strip.
     pub logical_stem: String,
 }
 
@@ -105,24 +109,31 @@ impl FilePattern {
                 re.push_str(&alts.join("|"));
                 re.push(')');
                 axis_caps.push((name.to_string(), cap));
-                // Logical stem drops the axis segment and a preceding `.` or `/`
-                // that only existed to attach it.
+                // Logical path drops the `.` or `/` that only attached the
+                // axis; the regex still needs that separator.
+                let mut next = &rest[close + 1..];
                 if logical.ends_with('.') || logical.ends_with('/') {
                     logical.pop();
+                } else if next.starts_with('.') || next.starts_with('/') {
+                    re.push_str(&regex::escape(&next[..1]));
+                    next = &next[1..];
                 }
-            } else {
-                logical.push('{');
-                logical.push_str(token);
-                logical.push('}');
-                re.push_str(match token {
-                    "year" => r"(?P<year>\d{4})",
-                    "month" => r"(?P<month>\d{1,2})",
-                    "day" => r"(?P<day>\d{1,2})",
-                    "slug" => r"(?P<slug>.+)",
-                    "stem" => r"(?P<stem>.+)",
-                    other => bail!("unknown token {{{other}}} in file pattern {fmt:?}"),
-                });
+                rest = next;
+                continue;
             }
+            logical.push('{');
+            logical.push_str(token);
+            logical.push('}');
+            re.push_str(match token {
+                "year" => r"(?P<year>\d{4})",
+                "month" => r"(?P<month>\d{1,2})",
+                "day" => r"(?P<day>\d{1,2})",
+                // One path segment: drafts and dated names. `{stem}` may span
+                // `/` so a prefix pattern can keep the rest of the path.
+                "slug" => r"(?P<slug>[^/]+)",
+                "stem" => r"(?P<stem>.+)",
+                other => bail!("unknown token {{{other}}} in file pattern {fmt:?}"),
+            });
             rest = &rest[close + 1..];
         }
         re.push_str(&regex::escape(rest));
@@ -135,8 +146,8 @@ impl FilePattern {
         })
     }
 
-    pub fn parse(&self, stem: &str) -> Option<FileMatch> {
-        let c = self.re.captures(stem)?;
+    pub fn parse(&self, subject: &str) -> Option<FileMatch> {
+        let c = self.re.captures(subject)?;
         let key = FileKey {
             year: c.name("year").and_then(|m| m.as_str().parse().ok()),
             month: c.name("month").and_then(|m| m.as_str().parse().ok()),
@@ -178,9 +189,24 @@ fn fill_logical(template: &str, c: &regex::Captures<'_>) -> String {
     out
 }
 
-/// The first pattern that describes this stem, in declared order.
-pub fn extract(patterns: &[FilePattern], stem: &str) -> Option<FileMatch> {
-    patterns.iter().find_map(|f| f.parse(stem))
+/// The first pattern that describes this path key, in declared order.
+///
+/// `path_key` is the collection-relative path with its extension removed
+/// (`recipes/dal.fr`, `fr/recipes/dal`, `1998/1998-08-15-hello`). Each
+/// pattern is tried against the whole key first, then against the final
+/// filename — so a prefix (`{axis:locale}/{stem}`) and a nested path share
+/// one matcher, while dated posts may still live in year subdirectories.
+pub fn extract(patterns: &[FilePattern], path_key: &str) -> Option<FileMatch> {
+    let name = path_key.rsplit('/').next().unwrap_or(path_key);
+    patterns.iter().find_map(|f| {
+        f.parse(path_key).or_else(|| {
+            if name != path_key {
+                f.parse(name)
+            } else {
+                None
+            }
+        })
+    })
 }
 
 #[cfg(test)]
@@ -265,5 +291,42 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("no declared axis"), "{e}");
+    }
+
+    #[test]
+    fn axis_prefix_strips_to_logical_path() {
+        let axes = locale_axis();
+        let patterns = [
+            FilePattern::compile("{axis:locale}/{stem}", &axes).unwrap(),
+            FilePattern::compile("{stem}", &axes).unwrap(),
+        ];
+        let fr = extract(&patterns, "fr/recipes/dal").unwrap();
+        assert_eq!(fr.logical_stem, "recipes/dal");
+        assert_eq!(fr.axes.get("locale").map(String::as_str), Some("fr"));
+
+        let en = extract(&patterns, "recipes/dal").unwrap();
+        assert_eq!(en.logical_stem, "recipes/dal");
+        assert!(en.axes.is_empty());
+    }
+
+    #[test]
+    fn suffix_on_a_nested_path() {
+        let axes = locale_axis();
+        let patterns = [
+            FilePattern::compile("{stem}.{axis:locale}", &axes).unwrap(),
+            FilePattern::compile("{stem}", &axes).unwrap(),
+        ];
+        let fr = extract(&patterns, "recipes/dal.fr").unwrap();
+        assert_eq!(fr.logical_stem, "recipes/dal");
+        assert_eq!(fr.axes.get("locale").map(String::as_str), Some("fr"));
+    }
+
+    #[test]
+    fn dated_in_a_subdirectory() {
+        let axes = BTreeMap::new();
+        let patterns = [FilePattern::compile("{year}-{month}-{day}-{slug}", &axes).unwrap()];
+        let k = extract(&patterns, "1998/1998-08-15-hello").unwrap();
+        assert_eq!(k.key.ymd(), Some((1998, 8, 15)));
+        assert_eq!(k.key.slug.as_deref(), Some("hello"));
     }
 }
