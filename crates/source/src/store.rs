@@ -26,8 +26,6 @@ pub struct FrontMatter {
     /// Cut point in the render chain (THEME.md §4). `root` skips document furniture.
     pub slot: Option<String>,
     pub permalink: Option<String>,
-    #[serde(default, deserialize_with = "string_or_seq")]
-    pub tags: Vec<String>,
     /// `YYYY-MM-DD`. A post's date comes from its filename (§3), so this is
     /// the override there and the ONLY source on a tree page — which is
     /// what makes "has a date" a property of the row's data rather than of
@@ -45,30 +43,10 @@ pub struct FrontMatter {
     /// `theme`.
     pub shell: Option<String>,
     /// Everything else: captured for schema validation (§5b). `draft`,
-    /// `hidden`, `noindex` and `toc` arrive here — declared fields the base
-    /// config ships (§4e), not names this struct knows.
+    /// `hidden`, `noindex`, `toc` and `tags` arrive here — declared fields
+    /// the base config ships (§4e), not names this struct knows.
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
-}
-
-/// `tags:` is a YAML sequence in all 44 posts that have it, but Jekyll also
-/// permits a whitespace-separated string. Accept both rather than fail loudly
-/// on a form the old site would have taken.
-fn string_or_seq<'de, D>(d: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum V {
-        S(String),
-        Seq(Vec<String>),
-    }
-    Ok(match Option::<V>::deserialize(d)? {
-        Some(V::S(s)) => s.split_whitespace().map(String::from).collect(),
-        Some(V::Seq(v)) => v,
-        None => Vec::new(),
-    })
 }
 
 /// The body of a source file, read from disk. No row holds its body: the
@@ -544,20 +522,5 @@ mod tests {
         let (yaml, body) = split_front_matter("---\na: 1\n---\nx\n\n---\n\ny\n");
         assert_eq!(yaml, "a: 1\n");
         assert_eq!(body, "x\n\n---\n\ny\n");
-    }
-
-    #[test]
-    fn tags_accepts_seq_and_string() {
-        #[derive(Deserialize)]
-        struct T {
-            #[serde(default, deserialize_with = "string_or_seq")]
-            tags: Vec<String>,
-        }
-        let a: T = serde_yaml_ng::from_str("tags:\n  - x\n  - y\n").unwrap();
-        assert_eq!(a.tags, vec!["x", "y"]);
-        let b: T = serde_yaml_ng::from_str("tags: x y\n").unwrap();
-        assert_eq!(b.tags, vec!["x", "y"]);
-        let c: T = serde_yaml_ng::from_str("title: z\n").unwrap();
-        assert!(c.tags.is_empty());
     }
 }

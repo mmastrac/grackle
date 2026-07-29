@@ -90,7 +90,17 @@ pub const CASCADE: &[(&str, FieldType)] = &[
     ("slot", FieldType::Str),
 ];
 
-/// The type the engine reads this name at, if it is one of its own.
+/// Engine-owned names a site may restate in `[schema]`, only at this type.
+/// Cascade keys plus `tags`: still a row column, but declared and coerced
+/// like any other list so front matter does not need a private deserializer.
+pub(crate) fn engine_field_type(name: &str) -> Option<FieldType> {
+    cascade_type(name).or(match name {
+        "tags" => Some(FieldType::List),
+        _ => None,
+    })
+}
+
+/// The type the engine reads this cascade key at, if it is one of its own.
 pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
     CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
 }
@@ -397,17 +407,14 @@ fn parse_fields(
                  \"bool\" | \"list\" | \"image\""
             );
         };
-        // The engine's own cascade keys are declarable — that declaration is
-        // what types their cascade — but only at the type the engine reads
-        // them at. For these three that is not a shadowing: the value goes
-        // into the row's named field (or `fields` for `slot`), so `Row::field`
-        // answers the same thing the declaration typed.
-        if let Some(engine) = cascade_type(&name) {
+        // Engine-owned names (cascade keys, tags) are declarable at the type
+        // the engine reads them at — restating is fine; a different type would
+        // be typed one way and read another.
+        if let Some(engine) = engine_field_type(&name) {
             if ty != engine {
                 bail!(
-                    "{whose}: field {name:?} is one of the engine's own cascade \
-                     keys — it reads {name:?} off every row, so it must be \
-                     declared {} or not at all",
+                    "{whose}: field {name:?} is engine-owned: it reads {name:?} \
+                     off every row, so it must be declared {} or not at all",
                     engine.name()
                 );
             }
@@ -569,6 +576,13 @@ fn write_typed(
     Ok(())
 }
 
+/// Coerce a whitespace-separated string into a list of items. Shared by the
+/// YAML front-matter path and the TOML defaults path so a `type = "list"`
+/// field accepts `a b c` or a YAML sequence.
+pub(crate) fn list_from_words(s: &str) -> Vec<String> {
+    s.split_whitespace().map(String::from).collect()
+}
+
 /// One TOML value read at its declared type — see [`write_typed`], and
 /// [`crate::config::Config::check_profiles`], which type-checks a `force`
 /// block through this without a row to write into.
@@ -585,6 +599,7 @@ pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> 
                 })
                 .collect::<Result<_>>()?,
         ),
+        (FieldType::List, toml::Value::String(s)) => Value::List(list_from_words(s)),
         (ty, other) => bail!(
             "{whose} sets {name:?} to {other}, but it is declared {}",
             ty.name()
@@ -630,6 +645,9 @@ pub fn validate(
                     })
                     .collect::<Result<_>>()?,
             ),
+            (FieldType::List, Y::String(s)) => Value::List(list_from_words(s)),
+            // `tags:` with no value: a form the corpus still carries.
+            (FieldType::List, Y::Null) => Value::List(vec![]),
             (ty, other) => bail!(
                 "{}: field {name:?} is declared {}, but the front matter has {other:?}",
                 path.display(),
@@ -881,6 +899,55 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("declared string"), "{e}");
+    }
+
+    /// A `type = "list"` field accepts a whitespace-separated string as well
+    /// as a sequence.
+    #[test]
+    fn a_list_field_coerces_a_whitespace_separated_string() {
+        let mut s = schemas();
+        s.set_site(
+            "keywords = { type = \"list\" }\n".parse().unwrap(),
+            "[schema]",
+        )
+        .unwrap();
+        let schema = s.resolve("entries", Path::new("books"));
+
+        let mut extra = BTreeMap::new();
+        extra.insert(
+            "keywords".to_string(),
+            serde_yaml_ng::Value::String("rust c  meta".into()),
+        );
+        let fields = validate(&schema, &extra, Path::new("books/j.md")).unwrap();
+        assert_eq!(
+            fields.values["keywords"],
+            Value::List(vec!["rust".into(), "c".into(), "meta".into()])
+        );
+
+        let mut extra = BTreeMap::new();
+        extra.insert(
+            "keywords".to_string(),
+            serde_yaml_ng::Value::Sequence(vec![
+                serde_yaml_ng::Value::String("rust".into()),
+                serde_yaml_ng::Value::String("c".into()),
+            ]),
+        );
+        let fields = validate(&schema, &extra, Path::new("books/j.md")).unwrap();
+        assert_eq!(
+            fields.values["keywords"],
+            Value::List(vec!["rust".into(), "c".into()])
+        );
+
+        let words = toml::Value::String("alpha beta".into());
+        assert_eq!(
+            typed(FieldType::List, "keywords", &words, "the profile").unwrap(),
+            Value::List(vec!["alpha".into(), "beta".into()])
+        );
+        let empty = toml::Value::String("".into());
+        assert_eq!(
+            typed(FieldType::List, "keywords", &empty, "the profile").unwrap(),
+            Value::List(vec![])
+        );
     }
 
     /// A declaration that collides with a base row field parsed, validated

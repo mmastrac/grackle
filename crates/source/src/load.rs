@@ -11,6 +11,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use grackle_db::filter;
 use grackle_db::template;
 use grackle_model::{AxisMember, Route, RouteKind, Row, SiteDb};
 
@@ -1663,7 +1664,12 @@ fn walk_site(
             description: fm.description,
             order: fm.order,
             date,
-            tags: fm.tags,
+            // Lifted out of `fields` so `tag_stream` owns the chrome and a
+            // generic list stream does not also emit it.
+            tags: match checked.values.remove("tags") {
+                Some(filter::Value::List(t)) => t,
+                _ => Vec::new(),
+            },
             theme: worn.theme,
             shell: worn.shell,
             fields: checked.values,
@@ -2725,7 +2731,7 @@ mod cascade_tests {
     }
 
     /// Engine-owned fields keep a fixed type: declaring `theme` an int would
-    /// `cascade_type` arm and the retype is accepted.
+    /// type a rule's value one way and have `cascade` read it the other.
     #[test]
     fn a_cascade_key_may_not_be_redeclared_at_another_type() {
         let mut s = schema::Schemas::new(grackle_model::row_schema());
@@ -2733,10 +2739,12 @@ mod cascade_tests {
             .set_site("theme = { type = \"int\" }".parse().unwrap(), "[schema]")
             .unwrap_err()
             .to_string();
-        assert!(e.contains("cascade key"), "{e}");
+        assert!(e.contains("engine-owned"), "{e}");
         assert!(e.contains("declared string"), "{e}");
-        // Restating the engine's own line is legal — that is what `raw` does.
         s.set_site("theme = { type = \"string\" }".parse().unwrap(), "[schema]")
+            .unwrap();
+        // Restating tags at list type is also legal: that is what base does.
+        s.set_site("tags = { type = \"list\" }".parse().unwrap(), "[schema]")
             .unwrap();
     }
 }

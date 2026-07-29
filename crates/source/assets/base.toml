@@ -40,6 +40,9 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
 toc = { type = "bool" }
+# Declared so front matter uses the ordinary list path (sequence or
+# whitespace-separated string). Base mints no tag routes.
+tags = { type = "list" }
 
 # The three the engine still reads off a row BY NAME — which theme renders it
 # (§5a), which shell wraps it (§5g), which slot cuts the render chain. Declared
