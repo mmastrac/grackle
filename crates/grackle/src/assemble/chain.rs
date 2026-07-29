@@ -8,7 +8,6 @@ use anyhow::Result;
 use grackle_model::AxisMember;
 use std::path::Path;
 
-use super::binder::Fragments;
 use super::parts::{self, PartMap, Preview};
 use super::theme::Theme;
 use crate::db::Row;
@@ -72,6 +71,7 @@ pub fn wrap(page: Page<'_>, inner: String) -> Result<String> {
 /// Render a row-shaped page: honor `slot`, then wrap.
 pub fn document_page(
     page: Page<'_>,
+    cfg: &crate::config::Config,
     row: Option<&Row>,
     doc: PartMap,
     body: &str,
@@ -79,7 +79,7 @@ pub fn document_page(
 ) -> Result<String> {
     let mut doc = doc;
     if let Some(row) = row {
-        parts::fill_from_fields(&mut doc, row, page.theme.schemas(), resolve_asset)?;
+        parts::fill_from_fields(cfg, &mut doc, row, page.theme.schemas(), resolve_asset)?;
     }
     let inner = match Slot::of_row(row) {
         Slot::Root => body.to_string(),
@@ -107,17 +107,25 @@ pub fn light_page(
 }
 
 /// Resolve `layout`/`variant` to a theme face and concatenate member rows
-/// (THEME.md §3). Callers attach view context on the error.
+/// (THEME.md §3). Callers attach view context on the error. List-field pills
+/// fill from the row via [`parts::fill_from_fields`].
 pub fn member_faces(
-    fragments: &Fragments,
+    cfg: &crate::config::Config,
+    theme: &Theme,
+    resolve_asset: &dyn Fn(&str) -> String,
     layout: &str,
     variant: Option<&str>,
     items: Vec<Preview<'_>>,
 ) -> Result<String> {
-    let face = parts::member_face(fragments, layout, variant)?;
+    let face = parts::member_face(&theme.fragments, layout, variant)?;
     let mut out = String::new();
     for p in items {
-        out.push_str(&fragments.render_with(&parts::preview(p), Some(face)));
+        let row = p.row;
+        let mut m = parts::preview(p);
+        if let Some(row) = row {
+            parts::fill_from_fields(cfg, &mut m, row, theme.schemas(), resolve_asset)?;
+        }
+        out.push_str(&theme.fragments.render_with(&m, Some(face)));
     }
     Ok(out)
 }

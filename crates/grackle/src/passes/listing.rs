@@ -55,7 +55,13 @@ impl Pass for Listing {
             .as_deref()
             .context("listing pass only sees layouted views")?;
         let content = chain::member_faces(
-            &row_thm.fragments,
+            cfg,
+            row_thm,
+            &|src| {
+                crate::thumbs::default_of(ctx.thumbs, src)
+                    .map(|t| t.url.clone())
+                    .unwrap_or_else(|| crate::build::asset_url(&cfg.site.baseurl, src))
+            },
             layout,
             v.variant.as_deref(),
             items,

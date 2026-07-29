@@ -535,7 +535,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 .extend(axis_alternates(db, &cfg.site.url, r));
             let groups =
                 parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
-            let doc = parts::document(cfg, p, whole, trail, groups, outline);
+            let doc = parts::document(p, whole, trail, groups, outline);
             let dir = p.path.parent().unwrap_or(&root);
             let (theme_name, subtheme) = resolve_theme(&themes, r, p.theme.as_deref());
             let row_thm = themes.get(theme_name)?;
@@ -555,6 +555,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     axis: &r.axis,
                     axes: axes_part(cfg, db, r),
                 },
+                cfg,
                 Some(p),
                 doc,
                 whole,
@@ -655,7 +656,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             format!("view {view}: landing embed needs a layout (member face)")
         })?;
         let mut embed_html = chain::member_faces(
-            &row_thm.fragments,
+            cfg,
+            row_thm,
+            &resolve_asset,
             layout,
             v.variant.as_deref(),
             items,
@@ -692,6 +695,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             thumbs: Some(&thumbs),
             theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
+            cfg: Some(cfg),
             links: Some(&linkspace),
             embed: Some((view.as_str(), SENTINEL)),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
@@ -767,6 +771,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                 axis: &r.axis,
                 axes: axes_part(cfg, db, r),
             },
+            cfg,
             Some(row),
             doc,
             &frag,
@@ -1051,6 +1056,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                                 axis: &r.axis,
                                 axes: axes_part(cfg, db, r),
                             },
+                            cfg,
                             row,
                             doc,
                             frag,
@@ -1450,6 +1456,7 @@ fn render_bodies<'a>(
             let cx = tags::Ctx {
                 thumbs: Some(thumbs),
                 widgets: Some(&cfg.widgets),
+                cfg: Some(cfg),
                 links: Some(linkspace),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
@@ -1529,6 +1536,7 @@ fn render_page_bodies(
             thumbs: Some(thumbs),
             theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
+            cfg: Some(cfg),
             links: Some(linkspace),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
@@ -2699,7 +2707,7 @@ pub(crate) fn member_previews<'a>(
                     false,
                 ),
             };
-            row_preview(cfg, p, thumbs, Some(html), truncated)
+            row_preview(p, thumbs, Some(html), truncated)
         })
         .collect()
 }
@@ -2748,7 +2756,6 @@ pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
 /// deletes the rest. `content` is the body already truncated by the view's
 /// `summary` field (§6d), or `None` where the caller shows no prose.
 pub(crate) fn row_preview<'a>(
-    cfg: &Config,
     p: &'a crate::db::Row,
     thumbs: &crate::thumbs::Renditions,
     content: Option<String>,
@@ -2763,7 +2770,6 @@ pub(crate) fn row_preview<'a>(
         truncated,
         src: t.map(|t| t.url.clone()),
         dims: t.and_then(|t| t.dims),
-        tags: parts::pill_stream(cfg, p, "tags"),
         ..Default::default()
     }
 }

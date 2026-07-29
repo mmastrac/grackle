@@ -535,26 +535,47 @@ pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
 
 /// Linked pills for one list field: display name from `[records]`, URL from
 /// the field's archive view when one exists.
-pub(crate) fn pill_stream(cfg: &crate::config::Config, p: &Row, field: &str) -> Option<Part> {
+fn pill_stream(
+    cfg: &crate::config::Config,
+    p: &Row,
+    field: &str,
+    child: &'static str,
+    name_key: &'static str,
+    url_key: &'static str,
+) -> Part {
     let ids = match grackle_db::filter::Row::field(p, field) {
-        grackle_db::Value::List(v) if !v.is_empty() => v,
-        _ => return None,
+        grackle_db::Value::List(v) => v,
+        _ => Vec::new(),
     };
     let v = ids
         .iter()
         .map(|id| {
-            let mut m = PartMap::new("tag");
-            m.set(
-                "name",
+            let mut m = PartMap::new_declared(child);
+            m.set_declared(
+                name_key,
                 Part::Text(cfg.record_name(field, id, &p.locale).to_string()),
             );
             if let Some(url) = cfg.archive_url(field, id, &p.locale) {
-                m.set("url", Part::Text(url));
+                m.set_declared(url_key, Part::Text(url));
             }
             m
         })
         .collect();
-    Some(Part::Stream(v))
+    Part::Stream(v)
+}
+
+/// `(Text, Url)` child shape — archive pills (`tag`: name + url).
+fn pill_keys(shape: &[(&'static str, PartType)]) -> Option<(&'static str, &'static str)> {
+    if shape.len() != 2 {
+        return None;
+    }
+    let (a, ta) = shape[0];
+    let (b, tb) = shape[1];
+    match (ta, tb) {
+        (PartType::Text, PartType::Url) => Some((a, b)),
+        (PartType::Url, PartType::Text) => Some((b, a)),
+        _ => None,
+    }
 }
 
 /// One neighbor: the shape every relation yields, dated or not.
@@ -642,14 +663,14 @@ pub fn axis_group(
 }
 
 /// One row's part map (THEME.md §2). Callers differ in what they supply —
-/// crumbs, hero, relations — not in kind.
+/// crumbs, hero, relations — not in kind. List-field pills (`tags`, …) are
+/// filled later by [`fill_from_fields`].
 pub fn row(
     title: String,
     url: String,
     tree: bool,
     crumbs: Vec<(String, Option<String>)>,
     hero: Option<PartMap>,
-    tags: Option<Part>,
     section: Vec<PartMap>,
     outline: Vec<PartMap>,
     content: &str,
@@ -665,9 +686,6 @@ pub fn row(
     if let Some(h) = hero {
         m.set("hero", Part::Map(h));
     }
-    if let Some(t) = tags {
-        m.set("tags", t);
-    }
     if !section.is_empty() {
         m.set("section", Part::Stream(section));
     }
@@ -682,7 +700,6 @@ pub fn row(
 }
 
 pub fn document(
-    cfg: &crate::config::Config,
     p: &Row,
     content: &str,
     trail: Vec<(String, Option<String>)>,
@@ -695,7 +712,6 @@ pub fn document(
         false,
         trail,
         None,
-        pill_stream(cfg, p, "tags"),
         Vec::new(),
         outline,
         content,
@@ -741,7 +757,6 @@ pub fn document_tree(
         true,
         tree_trail(cfg, locale, home, title, ancestors),
         hero,
-        None,
         section,
         outline,
         content,
@@ -750,6 +765,7 @@ pub fn document_tree(
 }
 
 /// A row as the view sees it. Optional fields are presence-driven (q36).
+/// List-field pills land via [`fill_from_fields`] after this is built.
 #[derive(Default)]
 pub struct Preview<'a> {
     pub row: Option<&'a Row>,
@@ -760,12 +776,13 @@ pub struct Preview<'a> {
     pub title: Option<String>,
     pub url: Option<String>,
     pub note: Option<String>,
-    pub tags: Option<Part>,
 }
 
 /// One presence-driven kind; faces select variants. Fill undeclared parts from
-/// row fields when types line up (§5e).
+/// row fields when types line up (§5e). List fields whose child kind is
+/// `(Text, Url)` become archive pills (`record_name` + `archive_url`).
 pub fn fill_from_fields(
+    cfg: &crate::config::Config,
     m: &mut PartMap,
     row: &Row,
     schemas: &Schemas,
@@ -799,23 +816,28 @@ pub fn fill_from_fields(
                 Part::Flag(true)
             }
             (V::List(items), PartType::Stream(child)) => {
+                if items.is_empty() {
+                    continue;
+                }
                 let shape = schemas.get(child).unwrap_or(&[]);
-                let label = match shape {
-                    [(label, PartType::Text)] => *label,
-                    // Archive pills (`tag`: name + url) are filled by
-                    // `pill_stream`, not here: skip rather than refuse.
-                    _ => continue,
-                };
-                Part::Stream(
-                    items
-                        .iter()
-                        .map(|s| {
-                            let mut cm = PartMap::new_declared(child);
-                            cm.set_declared(label, Part::Text(s.clone()));
-                            cm
-                        })
-                        .collect(),
-                )
+                if let Some((name_key, url_key)) = pill_keys(shape) {
+                    pill_stream(cfg, row, name, child, name_key, url_key)
+                } else {
+                    let label = match shape {
+                        [(label, PartType::Text)] => *label,
+                        _ => continue,
+                    };
+                    Part::Stream(
+                        items
+                            .iter()
+                            .map(|s| {
+                                let mut cm = PartMap::new_declared(child);
+                                cm.set_declared(label, Part::Text(s.clone()));
+                                cm
+                            })
+                            .collect(),
+                    )
+                }
             }
             (V::Null, _) => continue,
             (v, ty) => anyhow::bail!(
@@ -868,9 +890,6 @@ pub fn preview(p: Preview) -> PartMap {
     }
     if p.truncated {
         m.set("truncated", Part::Flag(true));
-    }
-    if let Some(t) = p.tags {
-        m.set("tags", t);
     }
     if let Some(c) = &p.content {
         m.set("content", Part::Html(c.clone()));
@@ -1085,7 +1104,7 @@ mod tests {
                 (p.title.clone().unwrap_or_default(), None),
             ];
             let body = crate::store::read_body(&p.path).unwrap_or_default();
-            let m = document(&cfg, p, &body, trail, Vec::new(), Vec::new());
+            let m = document(p, &body, trail, Vec::new(), Vec::new());
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -1099,12 +1118,14 @@ mod tests {
                 .iter()
                 .filter_map(|k| db.rows.get(k))
                 .map(|p| {
-                    canonical(&preview(Preview {
+                    let mut m = preview(Preview {
                         row: Some(p),
                         content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
-                        tags: pill_stream(&cfg, p, "tags"),
                         ..Default::default()
-                    }))
+                    });
+                    fill_from_fields(&cfg, &mut m, p, &Schemas::engine_only(), &|s| s.to_string())
+                        .unwrap();
+                    canonical(&m)
                 })
                 .collect::<String>();
             let m = page_row(

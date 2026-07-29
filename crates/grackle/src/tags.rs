@@ -42,6 +42,8 @@ pub struct Ctx<'a> {
     /// Custom block widgets: `name → wrapper template with a {body} hole`
     /// (§5d). None disables paired tags.
     pub widgets: Option<&'a std::collections::BTreeMap<String, String>>,
+    /// Site config — archive pills and `{% view %}` member fill need it.
+    pub cfg: Option<&'a crate::config::Config>,
     /// IO.md §4a: the address book, for the affordances this expander
     /// generates. None leaves `{% image %}` with the source path it was given,
     /// which is what every caller that has no `LinkSpace` (the unit tests) is
@@ -65,6 +67,7 @@ impl<'a> Ctx<'a> {
             thumbs: None,
             theme: None,
             widgets: None,
+            cfg: None,
             links: None,
             embed: None,
         }
@@ -273,6 +276,7 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
                 .hero_source()
                 .and_then(|s| crate::thumbs::default_of(thumbs, s));
             crate::parts::Preview {
+                row: Some(p),
                 title: Some(p.title.clone().unwrap_or_default()),
                 url: Some(p.url.clone()),
                 src: t.map(|t| t.url.clone()),
@@ -282,8 +286,21 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
             }
         })
         .collect();
+    let Some(cfg) = cx.cfg else {
+        bail!(
+            "{}: {{% view {name} %}} needs a config context for member fill",
+            cx.source
+        );
+    };
+    let resolve_asset = |src: &str| -> String {
+        crate::thumbs::default_of(thumbs, src)
+            .map(|t| t.url.clone())
+            .unwrap_or_else(|| crate::build::asset_url(cx.baseurl, src))
+    };
     crate::assemble::chain::member_faces(
-        &theme.fragments,
+        cfg,
+        theme,
+        &resolve_asset,
         layout,
         v.variant.as_deref(),
         items,
