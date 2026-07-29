@@ -112,15 +112,23 @@ enum Query {
     },
     /// List posts, newest first.
     Posts {
-        #[arg(long)]
-        tag: Option<String>,
+        /// Keep rows whose list field contains a value (`field=value`).
+        #[arg(long = "has")]
+        has: Option<String>,
         #[arg(long)]
         year: Option<i32>,
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-    /// Tags with post counts.
-    Tags,
+    /// Values of a list field with row counts (`by_multi_key`).
+    ///
+    /// Absent a field name, every indexed list field is printed. `tags` is a
+    /// visible alias for the same command.
+    #[command(visible_alias = "tags")]
+    Values {
+        /// List field to dump (e.g. `tags`). Absent = every indexed list field.
+        field: Option<String>,
+    },
     /// Search the TF-IDF index the site ships (§6b) — same code the browser runs.
     Search {
         query: Vec<String>,
@@ -421,7 +429,11 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("{}", r.url);
             }
         }
-        Query::Posts { tag, year, limit } => {
+        Query::Posts { has, year, limit } => {
+            let has = has
+                .as_deref()
+                .map(parse_has)
+                .transpose()?;
             let mut n = 0;
             // Newest first, default locale — the table carries no ordering
             // index of its own.
@@ -431,8 +443,8 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             ix.sort_by(|&a, &b| views::chronological(&db.rows, a, b));
             for &i in &ix {
                 let r = &db.rows[i];
-                if let Some(t) = &tag {
-                    if !r.list("tags").iter().any(|x| x == t) {
+                if let Some((field, value)) = &has {
+                    if !r.list(field).iter().any(|x| x == value) {
                         continue;
                     }
                 }
@@ -486,15 +498,39 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 );
             }
         }
-        Query::Tags => {
-            let mut tags: Vec<(&String, usize)> = db
-                .by_multi_key
-                .get("tags")
-                .map(|m| m.iter().map(|(t, v)| (t, v.len())).collect())
-                .unwrap_or_default();
-            tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-            for (t, n) in tags {
-                println!("{n:4}  {t}");
+        Query::Values { field } => {
+            let fields: Vec<&str> = match field.as_deref() {
+                Some(f) => {
+                    if !db.by_multi_key.contains_key(f) {
+                        let known: Vec<&str> =
+                            db.by_multi_key.keys().map(String::as_str).collect();
+                        anyhow::bail!(
+                            "no by_multi_key index for {f:?} — indexed list fields: {}",
+                            if known.is_empty() {
+                                "(none)".into()
+                            } else {
+                                known.join(", ")
+                            }
+                        );
+                    }
+                    vec![f]
+                }
+                None => db.by_multi_key.keys().map(String::as_str).collect(),
+            };
+            let header = fields.len() > 1;
+            for f in fields {
+                if header {
+                    println!("{f}");
+                }
+                let mut vals: Vec<(&String, usize)> = db
+                    .by_multi_key
+                    .get(f)
+                    .map(|m| m.iter().map(|(t, v)| (t, v.len())).collect())
+                    .unwrap_or_default();
+                vals.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+                for (t, n) in vals {
+                    println!("{n:4}  {t}");
+                }
             }
         }
         Query::Archives => {
@@ -585,6 +621,17 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         }
     }
     Ok(())
+}
+
+/// `--has field=value` for `query posts`.
+fn parse_has(spec: &str) -> Result<(String, String)> {
+    let Some((field, value)) = spec.split_once('=') else {
+        anyhow::bail!("--has expects field=value (e.g. tags=rust), got {spec:?}");
+    };
+    if field.is_empty() || value.is_empty() {
+        anyhow::bail!("--has expects field=value (e.g. tags=rust), got {spec:?}");
+    }
+    Ok((field.to_string(), value.to_string()))
 }
 
 fn fmt_date(p: &db::Row) -> String {
