@@ -15,6 +15,8 @@ use crate::config::Config;
 use crate::model::Row;
 use std::fmt::Write as _;
 
+pub use grackle_model::{Alternate, Tag};
+
 pub fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for c in s.chars() {
@@ -56,15 +58,6 @@ pub struct Head {
     /// shape is the "variable-length head entries" residue (§4e): a name→string
     /// map cannot repeat a `rel`, nor carry a second attribute beside it.
     pub alternates: Vec<Alternate>,
-}
-
-/// One `rel="alternate"` entry: an absolute URL, and at most one qualifier —
-/// `hreflang` for a translation, `media_type` for a different-format form.
-#[derive(Debug, Default)]
-pub struct Alternate {
-    pub href: String,
-    pub hreflang: Option<String>,
-    pub media_type: Option<String>,
 }
 
 pub struct Site<'a> {
@@ -127,16 +120,6 @@ pub struct Decl {
     pub tag: Tag,
     pub key: String,
     pub expr: crate::filter::Text,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tag {
-    /// `<meta name=… content=…>`
-    Meta,
-    /// `<meta property=… content=…>`
-    Property,
-    /// `<link rel=… href=…>`
-    Link,
 }
 
 /// The row a head expression actually reads: the row itself, plus `site.*`.

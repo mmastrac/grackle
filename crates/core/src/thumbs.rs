@@ -33,16 +33,13 @@
 
 use anyhow::{Context, Result};
 use grackle_model::Rendition;
+
+pub use grackle_model::Ask;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 const JPEG_QUALITY: u8 = 85;
-
-/// One demand: a source path as written in a citation, and the rendition it
-/// asked for. The map's key, so two asks for one image are two entries and one
-/// ask from two pages is one.
-pub type Ask = (String, Rendition);
 
 /// Every rendition one build materialized, by the demand that asked for it.
 pub type Renditions = HashMap<Ask, Thumb>;
@@ -53,7 +50,7 @@ pub type Renditions = HashMap<Ask, Thumb>;
 /// goes through — heroes, cards, gallery members. `{% image %}` does not use
 /// it: a tag carries its own ask, which is the whole point.
 pub fn default_of<'a>(r: &'a Renditions, src: &str) -> Option<&'a Thumb> {
-    r.get(&(src.to_string(), Rendition::THUMB))
+    r.get(&Ask::thumb(src))
 }
 
 /// A generated rendition: where it is cached, how it is published, and what it
@@ -116,7 +113,7 @@ pub fn generate(
         .map(|ask| -> Result<(Ask, Thumb)> {
             Ok((
                 (*ask).clone(),
-                one(root, cache_dir, baseurl, &ask.0, ask.1, &existing)?,
+                one(root, cache_dir, baseurl, &ask.src, ask.rendition, &existing)?,
             ))
         })
         .collect::<Result<_>>()?;

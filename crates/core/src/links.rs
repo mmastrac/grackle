@@ -34,9 +34,9 @@ use grackle_source::load::{select_path, spends, Coord};
 /// when the target has no route, and is not held to the link policy at all:
 /// half the `src`s on a finished page are engine-derived (`/static/` thumbs,
 /// the stylesheet) and were never anybody's source path.
-/// Link vs embed. Defined in [`crate::markup`] so the AST pass does not
-/// depend on this module; re-exported here because resolution policy lives here.
-pub use crate::markup::Cite;
+/// Link vs embed. Defined in [`grackle_model::Cite`]; re-exported here because
+/// resolution policy lives in this module.
+pub use grackle_model::Cite;
 
 /// Everything link resolution needs, computed once per build.
 pub struct LinkSpace {

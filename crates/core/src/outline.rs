@@ -11,21 +11,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::markdown::Heading;
 use crate::model::SiteDb;
 use crate::parts::{Part, PartMap};
+use grackle_model::Heading;
 
-/// One entry in a section tree, source-shaped (parts come later so the
-/// same tree renders once per page with only `current` moving).
-#[derive(Debug)]
-pub struct Node {
-    pub label: String,
-    /// None = an index-less directory: a label, deliberately unlinked
-    /// (linking it would 404 — q27).
-    pub url: Option<String>,
-    pub order: Option<i64>,
-    pub children: Vec<Node>,
-}
+pub use grackle_model::OutlineNode as Node;
 
 /// The nearest section root governing `rel`, if any — the same
 /// nearest-wins ascent as markers, buckets and slot fills.

@@ -68,57 +68,10 @@
 //! `io_renditions.rs` asserts the predicate over a whole built site, which is
 //! the honest form of the claim.
 
-use crate::{Key, SiteDb};
+pub use crate::{Demand, Edge, Node};
+
+use crate::SiteDb;
 use std::collections::{HashMap, HashSet};
-
-/// A node: one row of the inputs database, or one row of the outputs database.
-///
-/// Two variants rather than one key space, because the two stores key
-/// differently — an input by its source path, an output by its URL — and a
-/// bare key cannot say which table it came from. The graph's whole job is to
-/// hold both at once.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Node {
-    Input(Key),
-    Output(Key),
-}
-
-impl Node {
-    pub fn key(&self) -> &Key {
-        match self {
-            Node::Input(k) | Node::Output(k) => k,
-        }
-    }
-
-    /// How a node prints in a diagnostic: the key, tagged with its side.
-    pub fn label(&self) -> String {
-        match self {
-            Node::Input(k) => format!("input {k}"),
-            Node::Output(k) => format!("output {k}"),
-        }
-    }
-}
-
-/// What a dependent demands of a dependency — §1's law, as an edge label.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Demand {
-    /// The dependent's **bytes** read the dependency. Its content stage has to
-    /// be forced before this output can materialize, so this is the edge that
-    /// orders work — and the only kind a cycle could ever be made of.
-    Content,
-    /// The dependent reads the dependency's **planning facts** only (url,
-    /// shell, declared fields). Complete for every output before any content
-    /// exists, so it orders nothing.
-    Facts,
-}
-
-/// One edge, dependency → dependent.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Edge {
-    pub from: Node,
-    pub to: Node,
-    pub demand: Demand,
-}
 
 /// The dependency graph of one planned site.
 #[derive(Debug, Default)]
@@ -436,6 +389,7 @@ pub fn describe_cycle(cycle: &[Node]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Key;
 
     fn out(u: &str) -> Node {
         Node::Output(Key::new(u))

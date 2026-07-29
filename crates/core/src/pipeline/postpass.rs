@@ -162,11 +162,11 @@ pub(crate) fn join_renditions(
     // an artifact with no edge rather than a dangling key.
     let mut by_address: BTreeMap<String, (grackle_model::Rendition, Vec<grackle_db::Key>)> =
         BTreeMap::new();
-    for ((src, ask), t) in thumbs {
+    for (ask, t) in thumbs {
         let e = by_address
             .entry(t.address.clone())
-            .or_insert_with(|| (*ask, Vec::new()));
-        let key = grackle_db::Key::new(src);
+            .or_insert_with(|| (ask.rendition, Vec::new()));
+        let key = grackle_db::Key::new(&ask.src);
         if db.rows.get(&key).is_some() {
             e.1.push(key);
         }

@@ -255,15 +255,8 @@ fn text_len(html: &str) -> usize {
     n
 }
 
-/// One heading of a rendered document — §6e's heading axis.
-#[derive(Debug, PartialEq)]
-pub struct Heading {
-    pub level: u8,
-    /// The anchor target comrak emitted on the element.
-    pub id: String,
-    /// The heading's visible text, entities folded back.
-    pub text: String,
-}
+/// One heading of a rendered document — defined in [`grackle_model::Heading`].
+pub use grackle_model::Heading;
 
 impl Doc {
     /// The document's headings, extracted from the same rendered bytes

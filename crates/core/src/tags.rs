@@ -9,7 +9,7 @@ use crate::markup::scan;
 use crate::model::SiteDb;
 use crate::render::Site;
 use anyhow::{bail, Context, Result};
-use grackle_model::Rendition;
+use grackle_model::{Ask, Rendition};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -66,18 +66,8 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// What one `{% image %}` demands: a float mode, a source, and the rendition
-/// parameters the citation asked for.
-///
-/// **This struct is IO.md §4a's "the citing edge carries the parameters"** —
-/// the ask, as it is written. The one place the parse lives, shared by
-/// rendering and the rendition pre-pass so the two cannot disagree about what
-/// was asked for.
-pub struct ImageTag {
-    pub mode: &'static str,
-    pub src: String,
-    pub rendition: Rendition,
-}
+/// What one `{% image %}` demands — defined in [`grackle_model::ImageTag`].
+pub use grackle_model::ImageTag;
 
 /// Parse `{% image [left|right|inline] SRC [width=N] %}`.
 ///
@@ -140,7 +130,7 @@ fn image_tag(arg: &str) -> Result<ImageTag, String> {
 /// Mirrors `expand`'s tag scan so it sees exactly the tags rendering will.
 /// Unparseable tags are skipped rather than reported — `image` reaches the same
 /// tag with the file name in hand and bails there.
-pub fn image_asks(body: &str) -> Vec<crate::thumbs::Ask> {
+pub fn image_asks(body: &str) -> Vec<Ask> {
     let mut out = Vec::new();
     let mut rest = body;
     while let Some(i) = rest.find("{%") {
@@ -152,7 +142,7 @@ pub fn image_asks(body: &str) -> Vec<crate::thumbs::Ask> {
             .filter(|a| a.starts_with(char::is_whitespace))
         {
             if let Ok(t) = image_tag(arg.trim()) {
-                out.push((t.src, t.rendition));
+                out.push(t.ask());
             }
         }
         rest = &after[end + 2..];
@@ -172,7 +162,7 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
     // The lookup is keyed by the WHOLE ask, so a page asking 256 and a page
     // asking 512 of one image reach two different outputs (IO.md §4a: an
     // image's rendition set is the union of its consumers' asks).
-    let thumb = cx.thumbs.and_then(|m| m.get(&(t.src.clone(), t.rendition)));
+    let thumb = cx.thumbs.and_then(|m| m.get(&t.ask()));
     // IO.md §4a's lightbox chain, as far as I11 takes it. The `<a>` is an
     // EXPANSION AFFORDANCE — markup this expander generates, not a link a
     // human wrote — so it is entitled to the strong address, which is exactly
@@ -418,7 +408,7 @@ mod tests {
         let db = SiteDb::default();
         let mut map = HashMap::new();
         map.insert(
-            ("a/b.png".to_string(), Rendition::THUMB),
+            Ask::thumb("a/b.png"),
             thumb("/static/deadbeef.jpg", Some((640, 480))),
         );
         let c = Ctx {
@@ -448,10 +438,7 @@ mod tests {
     fn image_omits_dimensions_when_the_thumb_pass_could_not_measure() {
         let db = SiteDb::default();
         let mut map = HashMap::new();
-        map.insert(
-            ("a/b.png".to_string(), Rendition::THUMB),
-            thumb("/static/deadbeef.jpg", None),
-        );
+        map.insert(Ask::thumb("a/b.png"), thumb("/static/deadbeef.jpg", None));
         let c = Ctx {
             thumbs: Some(&map),
             ..Ctx::new(&db, "", "t")
@@ -468,9 +455,9 @@ mod tests {
         assert_eq!(
             image_asks(body),
             vec![
-                ("a.png".to_string(), Rendition::THUMB),
-                ("dir/b.jpg".to_string(), Rendition::THUMB),
-                ("c.gif".to_string(), Rendition::THUMB),
+                Ask::thumb("a.png"),
+                Ask::thumb("dir/b.jpg"),
+                Ask::thumb("c.gif"),
             ]
         );
     }
@@ -485,7 +472,7 @@ mod tests {
     fn an_image_tag_carries_its_ask() {
         assert_eq!(
             image_asks("{% image right cover.png width=256 %}"),
-            vec![("cover.png".to_string(), Rendition::width(256))]
+            vec![Ask::new("cover.png", Rendition::width(256))]
         );
         // Two asks of one source: a set of two, which is the demand union.
         assert_eq!(
@@ -497,13 +484,10 @@ mod tests {
         let db = SiteDb::default();
         let mut map = HashMap::new();
         map.insert(
-            ("a.png".to_string(), Rendition::width(256)),
+            Ask::new("a.png", Rendition::width(256)),
             thumb("/static/small.jpg", None),
         );
-        map.insert(
-            ("a.png".to_string(), Rendition::THUMB),
-            thumb("/static/big.jpg", None),
-        );
+        map.insert(Ask::thumb("a.png"), thumb("/static/big.jpg", None));
         let c = Ctx {
             thumbs: Some(&map),
             ..Ctx::new(&db, "", "t")

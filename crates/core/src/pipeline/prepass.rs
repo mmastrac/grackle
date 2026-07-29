@@ -6,12 +6,11 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::markdown::Doc;
-use crate::model::{Rendition, Route, RouteKind, SiteDb};
+use crate::model::{Ask, Route, RouteKind, SiteDb};
 use crate::passes::preview::{is_absolute_url, view_base_collection};
 use crate::pipeline::bodies::row_body_html;
 use crate::pipeline::postpass::cited_urls_cited;
 use crate::pipeline::types::{Backlink, PageBody, SiteOutput, Stats};
-use crate::render;
 use crate::store::split_front_matter;
 use crate::tags;
 use crate::theme;
@@ -26,11 +25,11 @@ pub(crate) fn locale_alternates(
     self_locale: &str,
     self_url: &str,
     twins: &[(String, String)],
-) -> Vec<render::Alternate> {
+) -> Vec<crate::model::Alternate> {
     if twins.is_empty() {
         return Vec::new();
     }
-    let one = |loc: &str, url: &str| render::Alternate {
+    let one = |loc: &str, url: &str| crate::model::Alternate {
         href: format!("{site_url}{url}"),
         hreflang: Some(loc.to_string()),
         media_type: None,
@@ -47,7 +46,11 @@ pub(crate) fn locale_alternates(
 /// (a theme member) carries none, being the same representation elsewhere.
 ///
 /// Empty for a row on no axis, so a page with one form announces nothing.
-pub(crate) fn axis_alternates(db: &SiteDb, site_url: &str, r: &Route) -> Vec<render::Alternate> {
+pub(crate) fn axis_alternates(
+    db: &SiteDb,
+    site_url: &str,
+    r: &Route,
+) -> Vec<crate::model::Alternate> {
     let Some(row) = &r.row else {
         return Vec::new();
     };
@@ -57,7 +60,7 @@ pub(crate) fn axis_alternates(db: &SiteDb, site_url: &str, r: &Route) -> Vec<ren
     db.routes
         .iter()
         .filter(|o| o.row.as_ref() == Some(row) && o.url != r.url)
-        .map(|o| render::Alternate {
+        .map(|o| crate::model::Alternate {
             href: format!("{site_url}{}", o.url),
             hreflang: None,
             // `type` only when the form's media type is not the ordinary HTML —
@@ -166,7 +169,7 @@ pub(crate) fn thumbs_pass(
     out_map: &mut SiteOutput,
     stats: &mut Stats,
 ) -> Result<crate::thumbs::Renditions> {
-    let mut asks: Vec<crate::thumbs::Ask> = Vec::new();
+    let mut asks: Vec<Ask> = Vec::new();
     for p in db.posts() {
         asks.extend(tags::image_asks(&crate::store::read_body(&p.path)?));
     }
@@ -180,7 +183,7 @@ pub(crate) fn thumbs_pass(
             p.images
                 .values()
                 .filter(|s| !is_absolute_url(s))
-                .map(|s| (s.clone(), Rendition::THUMB)),
+                .map(|s| Ask::thumb(s.clone())),
         );
     }
     for r in &db.routes {
@@ -204,7 +207,7 @@ pub(crate) fn thumbs_pass(
             if view_base_collection(cfg, view).is_some_and(|c| c.is_objects()) {
                 for k in &r.members {
                     if let Some(o) = db.rows.get(k) {
-                        asks.push((o.rel.to_string_lossy().to_string(), Rendition::THUMB));
+                        asks.push(Ask::thumb(o.rel.to_string_lossy().to_string()));
                     }
                 }
             }
