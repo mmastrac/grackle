@@ -31,8 +31,8 @@ author = ""
 # below is a load error naming the knowns, and that is the point:
 # `extends = "none"` means the site owns its whole vocabulary.
 #
-# The three below them are the ones the engine still READS by name — theme,
-# shell, slot — declared so that a marker or a rule setting one is
+# The ones below the flags are what the engine still READS by name — theme,
+# shell, slot, locale — declared so that a marker or a rule setting one is
 # type-checked like every other key (MERGE.md C1). Undeclared, they are not
 # silently accepted either: front matter naming one, or a rule defaulting
 # one, is a load error naming the knowns. Their types are the engine's, so
@@ -48,6 +48,9 @@ tags = { type = "list" }
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
+# Always stamped at load (default when no file pattern matched). Shares its
+# name with `[axes.locale] field = "locale"`.
+locale = { type = "string" }
 
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"

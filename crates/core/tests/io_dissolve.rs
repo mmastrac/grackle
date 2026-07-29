@@ -299,7 +299,7 @@ fn an_image_is_not_a_translation_of_itself() {
         .iter()
         .find(|o| o.rel.to_string_lossy() == "gallery/photo.fr.png")
         .expect("the image is a row");
-    assert_eq!(img.locale, "en", "an image carries the default locale");
+    assert_eq!(img.locale(), "en", "an image carries the default locale");
 }
 
 // ---------------------------------------------------------------------------

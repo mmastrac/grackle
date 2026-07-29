@@ -1276,7 +1276,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             };
             // Locale is a declared field (base.toml), not an engine column —
             // stamp the non-default the same way `Route::locale` used to.
-            r.set_locale(route_locale(&p.locale));
+            r.set_locale(route_locale(p.locale()));
             r
         };
         // The row's own rule decided this (q53 step 2): a route template that
@@ -1322,8 +1322,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                     })
                     .chain(std::iter::once(Coord {
                         axis: "locale",
-                        value: &p.locale,
-                        canonical: p.locale == cfg.i18n.default,
+                        value: p.locale(),
+                        canonical: p.locale() == cfg.i18n.default,
                     }))
                     .collect();
                 select_path(&p.route_templates, &coords)?
@@ -1527,7 +1527,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 .find(|r| {
                     r.view.is_some()
                         && r.content.as_deref() == Some(p.logical.as_str())
-                        && r.locale() == route_locale(&p.locale).as_deref()
+                        && r.locale() == route_locale(p.locale()).as_deref()
                 })
                 .map(|r| r.url.clone())
                 .or_else(|| {
@@ -1536,7 +1536,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                         .iter()
                         .find(|r| {
                             r.view.as_deref() == Some(owner)
-                                && r.locale() == route_locale(&p.locale).as_deref()
+                                && r.locale() == route_locale(p.locale()).as_deref()
                                 && r.key.is_none()
                                 && r.page.is_none_or(|n| n == 1)
                         })

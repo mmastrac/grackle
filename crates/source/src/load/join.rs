@@ -104,7 +104,7 @@ pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
             // same spelling `route_locale` writes.
             for k in db.by_logical.get(&logical).into_iter().flatten() {
                 let matches = db.rows.get(k).is_some_and(|row| {
-                    let want = (row.locale != cfg.i18n.default).then_some(row.locale.as_str());
+                    let want = (row.locale() != cfg.i18n.default).then_some(row.locale());
                     r.locale() == want
                 });
                 if matches {

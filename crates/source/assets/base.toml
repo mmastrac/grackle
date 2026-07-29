@@ -44,15 +44,19 @@ toc = { type = "bool" }
 # whitespace-separated string). Base mints no tag routes.
 tags = { type = "list" }
 
-# The three the engine still reads off a row BY NAME — which theme renders it
-# (§5a), which shell wraps it (§5g), which slot cuts the render chain. Declared
-# here so a marker or a rule setting one goes through `schema::apply_defaults`
-# like every other key (MERGE.md C1). Their types are the engine's: restating
-# a line below is fine; declaring one at another type is a load error. A site
-# that declines the base declares whatever its rows and rules actually use.
+# Fields the engine still reads off a row BY NAME — which theme renders it
+# (§5a), which shell wraps it (§5g), which slot cuts the render chain, and
+# which locale the row is (§6f). Declared here so a marker or a rule setting
+# one goes through `schema::apply_defaults` like every other key (MERGE.md C1).
+# Their types are the engine's: restating a line below is fine; declaring one
+# at another type is a load error. A site that declines the base declares
+# whatever its rows and rules actually use.
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
+# Always stamped at load (default when no file pattern matched). Shares its
+# name with `[axes.locale] field = "locale"`.
+locale = { type = "string" }
 
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"

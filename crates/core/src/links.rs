@@ -152,7 +152,7 @@ impl LinkSpace {
                 source_to_axis.insert(rel.clone(), p.axis.clone());
             }
             source_to_logical.insert(rel, p.logical.clone());
-            sibling.insert((p.logical.clone(), p.locale.clone()), p.url.clone());
+            sibling.insert((p.logical.clone(), p.locale().to_owned()), p.url.clone());
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
@@ -876,9 +876,11 @@ mod tests {
             date: None,
             theme: None,
             shell: None,
-            fields: Default::default(),
+            fields: std::collections::BTreeMap::from([(
+                "locale".into(),
+                grackle_db::Value::Str("en".into()),
+            )]),
             images: Default::default(),
-            locale: "en".into(),
             logical: "writing/saturn/index".into(),
             claimed: false,
             ..Default::default()
@@ -1038,7 +1040,10 @@ mod axis_tests {
             rel: PathBuf::from("note.md"),
             url: "/note/".into(),
             rendered: true,
-            locale: "en".into(),
+            fields: std::collections::BTreeMap::from([(
+                "locale".into(),
+                grackle_db::Value::Str("en".into()),
+            )]),
             logical: "note".into(),
             axis: vec![grackle_model::RowAxis {
                 name: "look".into(),
@@ -1069,7 +1074,10 @@ mod axis_tests {
             rel: PathBuf::from("flat.md"),
             url: "/flat/".into(),
             rendered: true,
-            locale: "en".into(),
+            fields: std::collections::BTreeMap::from([(
+                "locale".into(),
+                grackle_db::Value::Str("en".into()),
+            )]),
             logical: "flat".into(),
             ..Default::default()
         });
@@ -1090,7 +1098,10 @@ mod axis_tests {
             url: "/later/".into(),
             rendered: true,
             on_demand: true,
-            locale: "en".into(),
+            fields: std::collections::BTreeMap::from([(
+                "locale".into(),
+                grackle_db::Value::Str("en".into()),
+            )]),
             logical: "later".into(),
             axis: vec![grackle_model::RowAxis {
                 name: "look".into(),
@@ -1190,7 +1201,10 @@ mod axis_tests {
             rel: PathBuf::from("page.md"),
             url: "/plain/sweet/page/".into(),
             rendered: true,
-            locale: "en".into(),
+            fields: std::collections::BTreeMap::from([(
+                "locale".into(),
+                grackle_db::Value::Str("en".into()),
+            )]),
             logical: "page".into(),
             axis: ["look", "flavor"]
                 .into_iter()

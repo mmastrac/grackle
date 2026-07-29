@@ -68,8 +68,6 @@ pub struct Row {
     /// this is what a view sorts on when it says so — see `order_by` in
     /// `build_views`.
     pub order: Option<i64>,
-    /// The locale axis (§6f): assigned from a rule's `file` patterns at load.
-    pub locale: String,
     /// The locale-stripped identity shared by a row and its translations
     /// (collection-relative, no extension). Pairing key for `by_logical`.
     #[serde(skip)]
@@ -204,6 +202,22 @@ impl Row {
         self.date.map(|d| (d.year(), d.month()))
     }
 
+    /// The row's locale (§6f), stamped into [`fields`] at load (the site
+    /// default when no file axis matched). Weak: sites that decline the base
+    /// and never declare `locale` simply have none.
+    pub fn locale(&self) -> &str {
+        match self.fields.get("locale") {
+            Some(filter::Value::Str(s)) => s.as_str(),
+            _ => "",
+        }
+    }
+
+    /// Stamp the locale into [`fields`].
+    pub fn set_locale(&mut self, locale: impl Into<String>) {
+        self.fields
+            .insert("locale".into(), filter::Value::Str(locale.into()));
+    }
+
     /// A declared `bool` field, false when absent or unset (§4e).
     ///
     /// Site vocabulary, not engine columns: prefer a head expression or a
@@ -273,7 +287,6 @@ impl filter::Row for Row {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
             ),
-            "locale" => V::Str(self.locale.clone()),
             "collection" => V::Str(self.collection.clone()),
             "name" => self
                 .rel

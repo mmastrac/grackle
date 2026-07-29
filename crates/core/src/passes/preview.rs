@@ -52,7 +52,7 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
             .filter(|s| !s.url.is_empty())
             .map(|s| {
                 (
-                    cfg.i18n.name_of(&s.locale).to_string(),
+                    cfg.i18n.name_of(s.locale()).to_string(),
                     s.url.clone(),
                     Some(&s.key) == r.row.as_ref(),
                 )

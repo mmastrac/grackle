@@ -562,9 +562,15 @@ pub(crate) fn walk_site(
             date,
             theme: worn.theme,
             shell: worn.shell,
-            fields: checked.values,
+            fields: {
+                // §6f: stamp after schema validation so the file axis (or the
+                // site default) wins over any front-matter `locale:` — the
+                // filename is which locale the file IS.
+                let mut values = checked.values;
+                values.insert("locale".into(), grackle_db::Value::Str(locale));
+                values
+            },
             images: checked.images,
-            locale,
             logical,
             claimed,
             // IO.md §2's join: filled by `join_outputs`/`join_arrangement`

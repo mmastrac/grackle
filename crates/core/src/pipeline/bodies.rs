@@ -60,7 +60,7 @@ pub(crate) fn render_bodies<'a>(
                     linkspace,
                     &dir,
                     &p.url,
-                    &p.locale,
+                    p.locale(),
                     &p.rel.to_string_lossy(),
                     form,
                     href,
@@ -133,7 +133,7 @@ pub(crate) fn render_page_bodies(
         let dir = row
             .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
             .unwrap_or_default();
-        let locale = row.map(|p| p.locale.as_str()).unwrap_or(&cfg.i18n.default);
+        let locale = row.map(|p| p.locale()).unwrap_or(&cfg.i18n.default);
         let rel = row
             .map(|p| p.rel.to_string_lossy().to_string())
             .unwrap_or_default();

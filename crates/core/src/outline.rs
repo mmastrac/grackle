@@ -85,7 +85,7 @@ pub fn section_tree(db: &SiteDb, root: &Path, default_locale: &str) -> Vec<Node>
     for p in db
         .rows
         .iter()
-        .filter(|p| p.rendered && p.locale == default_locale)
+        .filter(|p| p.rendered && p.locale() == default_locale)
     {
         let Ok(rest) = p.rel.strip_prefix(root) else {
             continue;
@@ -193,7 +193,7 @@ mod tests {
     use crate::model::Row;
 
     fn page(rel: &str, url: &str, title: Option<&str>, order: Option<i64>) -> Row {
-        Row {
+        let mut r = Row {
             path: PathBuf::from(rel),
             rel: PathBuf::from(rel),
             version: 0,
@@ -208,11 +208,12 @@ mod tests {
             shell: None,
             fields: Default::default(),
             images: Default::default(),
-            locale: "en".into(),
             logical: rel.to_string(),
             claimed: false,
             ..Default::default()
-        }
+        };
+        r.set_locale("en");
+        r
     }
 
     fn db(pages: Vec<Row>) -> SiteDb {

@@ -248,8 +248,8 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
 
 /// IO.md IR3: a cascade key is a named field on `Row` AND a declared column in
 /// `Row.fields`, so `explain` printed cascade keys twice for every row that
-/// had one. Each of `slot`/`theme` lives on exactly one line here; `toc` is an
-/// ordinary declared field and appears only in the dump when set.
+/// had one. Each of `slot`/`theme` lives on exactly one line here; ordinary
+/// declared fields (`toc`, `locale`, …) appear only in the dump when set.
 ///
 /// Mutations, each red: drop the `CASCADE` skip in `row_fields` and the post
 /// grows a second `slot`/`theme` from the dump; drop any named line and the
@@ -272,15 +272,15 @@ fn explain_prints_each_cascade_key_exactly_once() {
 
     assert_eq!(
         fields("/blog/2020/01/01/hello/"),
-        "slot        -\ntheme       ledger\nminutes     4\ntoc         true\n",
+        "slot        -\ntheme       ledger\nlocale      en\nminutes     4\ntoc         true\n",
         "a row that resolved theme (slot absent): one named line each, and the \
-         dump still carries ordinary fields including toc"
+         dump still carries ordinary fields including locale and toc"
     );
     assert_eq!(
         fields("/notes.txt"),
-        "slot        -\ntheme       -\n",
-        "a row that resolved none: the dump would have printed nothing at all, \
-         so the named lines are the only answer"
+        "slot        -\ntheme       -\nlocale      en\n",
+        "a row that resolved none: the dump would have printed nothing but the \
+         always-stamped locale, so the named cascade lines are still the answer"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

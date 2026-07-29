@@ -436,7 +436,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
             // Newest first, default locale — the table carries no ordering
             // index of its own.
             let mut ix: Vec<usize> = (0..db.rows.len())
-                .filter(|&i| db.rows[i].locale == cfg.i18n.default)
+                .filter(|&i| db.rows[i].locale() == cfg.i18n.default)
                 .collect();
             ix.sort_by(|&a, &b| views::chronological(&db.rows, a, b));
             for &i in &ix {

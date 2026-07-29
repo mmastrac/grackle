@@ -89,7 +89,7 @@ pub(crate) fn run(
             };
             let translations = locale_twins(db, p);
             head.alternates =
-                prepass::locale_alternates(&cfg.site.url, &p.locale, &p.url, &translations);
+                prepass::locale_alternates(&cfg.site.url, p.locale(), &p.url, &translations);
             head.alternates
                 .extend(prepass::axis_alternates(db, &cfg.site.url, r));
             let groups =
@@ -107,8 +107,8 @@ pub(crate) fn run(
                     ),
                     site_title: &cfg.site.title,
                     source_dir: dir,
-                    locale: &p.locale,
-                    resolve_link: &preview::fill_link_resolver(cfg, linkspace, &p.locale),
+                    locale: p.locale(),
+                    resolve_link: &preview::fill_link_resolver(cfg, linkspace, p.locale()),
                     subtheme: subtheme.as_deref(),
                     profile,
                     axis: &r.axis,
@@ -184,11 +184,11 @@ pub(crate) fn run(
         let row = sibs
             .iter()
             .filter_map(|k| db.rows.get(k))
-            .find(|p| p.locale == loc)
+            .find(|p| p.locale() == loc)
             .or_else(|| {
                 sibs.iter()
                     .filter_map(|k| db.rows.get(k))
-                    .find(|p| p.locale == cfg.i18n.default)
+                    .find(|p| p.locale() == cfg.i18n.default)
             });
         let Some(row) = row else { continue }; // existence-checked at load
         let src = &row.path;
@@ -571,9 +571,7 @@ pub(crate) fn run(
                     Some("light_html") => Theme::Light,
                     _ => Theme::Default,
                 };
-                let row_locale = row
-                    .map(|p| p.locale.as_str())
-                    .unwrap_or(cfg.i18n.default.as_str());
+                let row_locale = row.map(|p| p.locale()).unwrap_or(cfg.i18n.default.as_str());
                 let html = match tier {
                     Theme::Light => chain::light_page(&head, row_locale, profile, &r.axis, frag),
                     Theme::Default => {
@@ -713,7 +711,7 @@ pub(crate) fn locale_twins(db: &SiteDb, p: &Row) -> Vec<(String, String)> {
             sibs.iter()
                 .filter_map(|k| db.rows.get(k))
                 .filter(|s| s.url != p.url)
-                .map(|s| (s.locale.clone(), s.url.clone()))
+                .map(|s| (s.locale().to_owned(), s.url.clone()))
                 .collect()
         })
         .unwrap_or_default()

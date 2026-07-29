@@ -88,9 +88,8 @@ pub struct Route {
     /// A map rather than the two named bools it replaces, because the flag
     /// family is ordinary declared schema now (§4e): whatever a site declares
     /// is what an all-outputs fold may filter on, and the engine names none
-    /// of it. **Locale** is stamped here when non-default (§6f) — not an engine
-    /// column; [`Route::locale`] reads it weakly so alternates and
-    /// locale-parallel views keep working until the row-side built-in dissolves.
+    /// of it. **Locale** is stamped here when non-default (§6f); the default
+    /// stays absent so filters see Null. [`Route::locale`] reads it.
     #[serde(skip)]
     pub fields: BTreeMap<String, filter::Value>,
     /// **The outputs this output reads the FACTS of** — the output→output half
@@ -189,9 +188,8 @@ impl Route {
     }
 
     /// The route's locale, when a non-default one was stamped into [`fields`]
-    /// (§6f). Weak: the engine does not own the name — sites that decline the
-    /// base and never declare `locale` simply have none. Alternates and
-    /// locale-parallel views read through this.
+    /// (§6f). Weak: sites that decline the base and never declare `locale`
+    /// simply have none. Alternates and locale-parallel views read through this.
     pub fn locale(&self) -> Option<&str> {
         match self.fields.get("locale") {
             Some(filter::Value::Str(s)) => Some(s.as_str()),
@@ -199,8 +197,8 @@ impl Route {
         }
     }
 
-    /// Stamp a non-default locale into [`fields`]. No-op for the default, so
-    /// filters keep seeing Null there.
+    /// Stamp a non-default locale into [`fields`]. `None` clears it, so
+    /// filters keep seeing Null for the default.
     pub fn set_locale(&mut self, locale: Option<String>) {
         match locale {
             Some(l) => {

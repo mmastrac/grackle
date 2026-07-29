@@ -282,11 +282,6 @@ pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     // thing at both layers (e.g. keeping listing-shaped index pages out
     // of a search shell's row set).
     s.insert("stem", Str);
-    // §6f locale: not a Route column anymore (lives in `fields` when stamped),
-    // but filters still name it — a weak binding until `Row.locale` dissolves
-    // and base.toml can declare the field without colliding with a built-in.
-    // Absent / default → Null, same as the old `Option` column.
-    s.insert("locale", Str);
     s
 }
 
@@ -395,8 +390,6 @@ pub fn row_schema() -> filter::Schema {
     // build, would be able to read it, and get it the day something needs it.
     s.insert("path", Str);
     s.insert("dir", Str);
-    // §6f: the row's locale, always set (the default when no `file` axis matched).
-    s.insert("locale", Str);
     // Which collection claimed the file. Queryable so that a set can name
     // its rows without `from` naming a table — the thing standing between
     // one row store and one `published` set over all of it.

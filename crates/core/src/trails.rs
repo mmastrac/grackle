@@ -30,7 +30,7 @@ pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
     if locale != cfg.i18n.default {
         if let Some(p) = db.rows.iter().find(|p| {
             p.rendered
-                && p.locale == locale
+                && p.locale() == locale
                 && matches!(
                     p.logical.as_str(),
                     "index.md" | "index.html" | "index.markdown"
@@ -166,7 +166,7 @@ pub fn listing_title_and_trail(
 /// URL (it renders each level from the post's own group keys, not from
 /// path segments).
 pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<String>)> {
-    let loc = p.locale.as_str();
+    let loc = p.locale();
     let mut t = trail_root(cfg, db, loc);
     for (url, label) in ancestors(cfg, db, &p.url) {
         t.push((label, Some(url)));

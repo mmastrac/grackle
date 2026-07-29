@@ -310,7 +310,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas)
             .iter()
             .filter(|p| p.collection == *cname)
             // §6f: single-locale — a row's neighbours are in its own language.
-            .filter(|p| p.locale == cfg.i18n.default)
+            .filter(|p| p.locale() == cfg.i18n.default)
             .map(|p| p.key.clone())
             .collect();
         let seq = grackle_db::View::all().order(newest_first());
@@ -570,7 +570,7 @@ fn build_view(
     let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
             .iter()
-            .filter(|p| !parsed || (p.rendered && !p.claimed && p.locale == locale))
+            .filter(|p| !parsed || (p.rendered && !p.claimed && p.locale() == locale))
             .map(|p| p.key.clone())
             .collect();
         rows.view_within(&eligible, &view)
@@ -939,14 +939,11 @@ mod posts_order_tests {
     use grackle_model::Row;
 
     fn post(url: &str, date: &str, order: Option<i64>) -> Row {
-        Row {
+        let mut r = Row {
             collection: "notes".into(),
             url: url.into(),
             date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
             order,
-            // The view filters on locale, so a fixture row must carry the
-            // default locale to be visible at all.
-            locale: "en".into(),
             slug: url.trim_matches('/').into(),
             // A row's key is its path, so fixtures need distinct ones or
             // they are all the same row as far as the table is concerned.
@@ -955,7 +952,11 @@ mod posts_order_tests {
             // eligibility is a predicate, so the fixture must say so.
             rendered: true,
             ..Row::default()
-        }
+        };
+        // The view filters on locale, so a fixture row must carry the
+        // default locale to be visible at all.
+        r.set_locale("en");
+        r
     }
 
     fn db() -> SiteDb {
@@ -1129,11 +1130,11 @@ mod grouping_tests {
             shell: None,
             fields: Default::default(),
             images: Default::default(),
-            locale: "en".into(),
             logical: "recipes/carbonara.md".into(),
             claimed: false,
             ..Default::default()
         };
+        p.set_locale("en");
         p.fields
             .insert("course".into(), filter::Value::Str("dinner".into()));
         let combos = key_combos(&p, &["course".into()]);
@@ -1190,7 +1191,7 @@ mod adjacency_tests {
     use grackle_model::Row;
 
     fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {
-        Row {
+        let mut r = Row {
             rel: std::path::PathBuf::from(format!(
                 "{collection}/{}.md",
                 url.trim_matches('/').replace('/', "-")
@@ -1202,9 +1203,10 @@ mod adjacency_tests {
             // A flag is a declared field now (§4e), so a fixture sets one the
             // way a row carries one.
             fields: BTreeMap::from([("draft".to_string(), grackle_db::Value::Bool(draft))]),
-            locale: "en".into(),
             ..Row::default()
-        }
+        };
+        r.set_locale("en");
+        r
     }
 
     fn db_with(rows: Vec<Row>) -> SiteDb {

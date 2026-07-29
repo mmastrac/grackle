@@ -148,7 +148,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             layout: None,
             shell: None,
             theme: None,
-            locale: p.locale.clone(),
+            locale: p.locale().to_owned(),
             rendered: true,
             claimed: false,
             fields: p
@@ -172,7 +172,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             layout: None,
             shell: p.shell.clone(),
             theme: p.theme.clone(),
-            locale: p.locale.clone(),
+            locale: p.locale().to_owned(),
             rendered: p.rendered,
             claimed: p.claimed,
             fields: p

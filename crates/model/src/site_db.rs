@@ -281,7 +281,7 @@ impl SiteDb {
         // Membership, not arithmetic: nothing here may depend on posts being
         // laid down first.
         let posts: std::collections::HashSet<&Key> = self.post_ix.iter().collect();
-        let dated = |p: &Row| posts.contains(&p.key) && p.locale == default_locale;
+        let dated = |p: &Row| posts.contains(&p.key) && p.locale() == default_locale;
 
         // A claimed row serves a landing and has no route (q45), so it holds
         // no URL to index.

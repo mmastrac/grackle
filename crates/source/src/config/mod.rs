@@ -338,8 +338,9 @@ impl Config {
         if let Some(a) = self.axes.get("locale") {
             anyhow::ensure!(
                 a.field == "locale",
-                "[axes.locale]: field must be \"locale\" (got {:?}) — the row \
-                 column is fixed so filters and head expressions share one name",
+                "[axes.locale]: field must be \"locale\" (got {:?}) — the \
+                 declared field name is fixed so filters and head expressions \
+                 share one name",
                 a.field
             );
             anyhow::ensure!(

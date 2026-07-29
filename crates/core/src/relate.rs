@@ -162,7 +162,7 @@ impl<'a> Engine<'a> {
                 .collect();
             groups.push(Group {
                 name: rel.name.clone(),
-                label: self.label(&rel.label, &row.locale, &rel.name),
+                label: self.label(&rel.label, row.locale(), &rel.name),
                 items,
             });
         }
@@ -240,7 +240,7 @@ impl<'a> Engine<'a> {
         let mut siblings = Vec::new();
         let mut descendants = Vec::new();
         for r in self.db.rows.iter() {
-            if !r.rendered || r.url == row.url || r.locale != row.locale {
+            if !r.rendered || r.url == row.url || r.locale() != row.locale() {
                 continue;
             }
             if self_url.ends_with('/') && r.url.starts_with(self_url) {
@@ -263,7 +263,7 @@ impl<'a> Engine<'a> {
     /// pool holds — pivoted through `by_logical`, dropped where no variant
     /// exists. Without this a translated page's every relation is a desert.
     fn localize<'r>(&'r self, cand: &'r Row, locale: &str) -> Option<&'r Row> {
-        if cand.locale == locale {
+        if cand.locale() == locale {
             return Some(cand);
         }
         self.db
@@ -271,7 +271,7 @@ impl<'a> Engine<'a> {
             .get(&cand.logical)?
             .iter()
             .filter_map(|k| self.db.rows.get(k))
-            .find(|r| r.locale == locale)
+            .find(|r| r.locale() == locale)
     }
 
     /// Walk one relation's candidates: pool → localized to self → self-excluded
@@ -290,7 +290,7 @@ impl<'a> Engine<'a> {
         for cand in pool {
             // Pivot into self's locale; two pool members can pivot to one
             // variant, so dedup.
-            let Some(cand) = self.localize(cand, &row.locale) else {
+            let Some(cand) = self.localize(cand, row.locale()) else {
                 continue;
             };
             // Self is never a candidate — a mechanism rule, not a per-site
@@ -438,17 +438,18 @@ mod tests {
     use grackle_model::{Row, SiteDb};
 
     fn tree_row(url: &str) -> Row {
-        Row {
+        let mut r = Row {
             rel: std::path::PathBuf::from(format!(
                 "{}.md",
                 url.trim_matches('/').replace('/', "-")
             )),
             url: url.to_string(),
             rendered: true,
-            locale: "en".into(),
             collection: "pages".into(),
             ..Row::default()
-        }
+        };
+        r.set_locale("en");
+        r
     }
 
     fn cfg() -> Config {
@@ -494,7 +495,7 @@ mod tests {
         let mut en = tree_row("/post/");
         en.logical = "post".into();
         let mut fr = tree_row("/fr/post/");
-        fr.locale = "fr".into();
+        fr.set_locale("fr");
         fr.logical = "post".into();
         let mut lone = tree_row("/lone/");
         lone.logical = "lone".into();
