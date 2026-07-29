@@ -3069,7 +3069,7 @@ The gutter draws current selection's correspondence with up/down arrows for scro
 
 🟡 **built 2026-07-25.** An audit found ~17 tests hand-building what the loader produces. A test testing a *site* belongs in a fixture; a test testing a *function* does not.
 
-`crates/grackle/tests/fixtures/<name>/` is `site/` (real `grackle.toml` + content) and either `out/` (expected tree, in git) or `expected-error` (substring on load failure). One `#[test]` walks all and collects every problem before panicking. `UPDATE_EXPECT=1` re-blesses.
+`crates/core/tests/fixtures/<name>/` is `site/` (real `grackle.toml` + content) and either `out/` (expected tree, in git) or `expected-error` (substring on load failure). One `#[test]` walks all and collects every problem before panicking. `UPDATE_EXPECT=1` re-blesses.
 
 **One finding:** a fixture's `crumb-trails` revealed a real route behaviour — a post from a collection declaring NO `trail` still gets a year crumb, because every `kind = "posts"` collection feeds one table and the archive claims it.
 
@@ -3129,11 +3129,46 @@ Related and still true: **`_site-prod` can no longer be regenerated** (§5c) —
 
 A cargo workspace of six members under `crates/`. The split is one dependency direction; **`grackle-db` depends on nothing in the workspace.**
 
-`model -> db`. `source -> model, db`. `grackle -> all`. Nothing points back. ~17.5k lines across the workspace, ~216 tests.
+`model -> db`. `source -> model, db`. `grackle -> all`. Nothing points back.
+
+### Module map *(2026-07-29)*
+
+The crate DAG held; gravity wells inside `source` and the engine were split along
+the pipeline stages §0 names. The engine package is now `grackle-core`
+(`crates/core`); the `grackle` binary lives in `crates/cli` and calls into it.
+Body markup has a thin seam at `markup::scan` (tag/var walk + widgets) with
+engine handlers remaining in `tags`.
+
+```
+file → row → query → doc → parts → slots → CSS → URL
+```
+
+| Crate | Modules (functional) |
+|---|---|
+| **grackle-db** | Generic storage: `filter`, `table`, `key`, `view` |
+| **grackle-model** | Domain `Row` / `Route` / `SiteDb`, `graph`, `rendition` |
+| **grackle-source** | `config/{types,merge,validate,effective}` · `load/{walk,join}` · `store` · `views` · `schema` · … |
+| **grackle-core** | `pipeline/*` · `passes/*` · `assemble/*` · `markup/{scan}` · `links` · … |
+| **grackle** (cli) | Binary only — clap + calls into `grackle-core` |
+| **search-core / search-wasm** | TF-IDF index (unchanged side strip) |
+
+`render_site` in `pipeline/mod.rs` is thin glue: prepass → bodies → emit → search/css → citations. Listing helpers live in `passes/preview` so passes do not reach upward into the pipeline.
+
+In the engine crate, `crate::model` is `grackle-model` (historically aliased `db`). `crate::filter` is `grackle-db`'s filter language. Do not confuse them.
+
+### Layered vocabulary
+
+The same English word means different types at different layers; the layer is the disambiguator:
+
+| Word | `grackle-db` | `grackle-source` | `grackle-model` |
+|---|---|---|---|
+| **Row** | `filter::Row` trait | — | `Row` struct (one content input) |
+| **View** | `view::View` (select/sort/limit) | `config::View` (authored set/route) | `ViewRows` (resolved members) |
+| **Schema** | `filter::Schema` (column types) | `schema::Schemas` (`.schema.toml`) | `row_schema` / `route_schema` helpers |
 
 ### Why `db` is a crate and not a module
 
-The boundary is worth paying for. **`grackle-db` cannot name a `Row`**, so a filter feature cannot quietly become a blog feature. It holds a mini database: rows answerable by `filter::Row`, keys stable across reloads, functions as extension points, views as values.
+The boundary is worth paying for. **`grackle-db` cannot name a domain `Row`**, so a filter feature cannot quietly become a blog feature. It holds a mini database: rows answerable by `filter::Row`, keys stable across reloads, functions as extension points, views as values.
 
 ### The ordering rule *(2026-07)*
 
@@ -3171,7 +3206,7 @@ Taken after refactoring, with the whole codebase freshly re-read. Verdict: **the
 
 ### What holds
 
-The pipeline's layer per module is real: config declares, `db` resolves and constrains, `views` materializes, `parts` produce, binder + theme arrange, CSS does geometry, `build` orchestrates, `serve` hosts. Recent features entered without bending anything — relations arrived as one more producer push, and summaries arrived as a config field.
+The pipeline's layer per module is real: config declares, the model DB resolves and constrains, `views` materializes, `parts` produce, binder + theme arrange, CSS does geometry, `pipeline` orchestrates, `serve` hosts. Recent features entered without bending anything — relations arrived as one more producer push, and summaries arrived as a config field.
 
 The predictor of this health: **everything declared is load-checked** (filters, fragments, fields, widgets, slots), so a responsibility placed in config stays there.
 
@@ -3205,6 +3240,7 @@ Three merges unified distinctions that were never real: two row flows became one
 - Seams audit post-landings, records, links and i18n: `build.rs` gravity well (~1,800 lines); trail family evicted to `trails.rs`; semantic drift in main config.
 - Seams audit post-crate split: revisit boundary declarations as workspace grows.
 - Seams audit post-merge passes: monitor kind branches and positional assumptions.
+- ~~Seams audit post-pipeline split (2026-07-29):~~ **done** — `build.rs` became `pipeline/{prepass,bodies,emit,postpass}`; listing helpers moved to `passes/preview`; `source` config/load split into directories. Cross-crate DAG unchanged. Watch: `config/types.rs` still mixes authored types with merge helpers (Shaped needs private fields); `load/mod.rs` still holds rule helpers beside `load()`.
 
 ### Still owed
 

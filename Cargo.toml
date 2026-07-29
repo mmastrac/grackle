@@ -2,7 +2,8 @@
 resolver = "2"
 members = ["crates/*"]
 default-members = [
-    "crates/grackle",
+    "crates/cli",
+    "crates/core",
     "crates/db",
     "crates/model",
     "crates/source",
@@ -11,6 +12,7 @@ default-members = [
 
 # Versions live here so five manifests cannot drift apart on one dependency.
 [workspace.dependencies]
+grackle-core = { path = "crates/core" }
 grackle-db = { path = "crates/db" }
 grackle-model = { path = "crates/model" }
 grackle-search-core = { path = "crates/search-core" }

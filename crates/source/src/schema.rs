@@ -839,9 +839,14 @@ mod tests {
 
         let one = toml::Value::Integer(1);
         let defaults = BTreeMap::from([("theme", &one)]);
-        let e = apply_defaults(&schema, &defaults, &mut Fields::default(), Path::new("x.md"))
-            .unwrap_err()
-            .to_string();
+        let e = apply_defaults(
+            &schema,
+            &defaults,
+            &mut Fields::default(),
+            Path::new("x.md"),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(e.contains("x.md"), "{e}");
         assert!(e.contains("declared string"), "{e}");
 

@@ -933,7 +933,7 @@ pub fn intern(s: String) -> &'static str {
 }
 
 /// A routeless view's resolved rows.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct ViewRows {
     /// None means query-only: a named set, not something renderable.
     pub layout: Option<String>,
@@ -942,17 +942,6 @@ pub struct ViewRows {
     pub rows: usize,
     #[serde(skip)]
     pub members: Vec<Key>,
-}
-
-impl Default for ViewRows {
-    fn default() -> Self {
-        ViewRows {
-            layout: None,
-            variant: None,
-            rows: 0,
-            members: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -1454,10 +1443,8 @@ mod row_column_tests {
     fn tags_is_not_a_built_in_row_field() {
         assert!(!row_schema().contains_key("tags"));
         let mut r = Row::default();
-        r.fields.insert(
-            "tags".into(),
-            filter::Value::List(vec!["x".into()]),
-        );
+        r.fields
+            .insert("tags".into(), filter::Value::List(vec!["x".into()]));
         assert_eq!(r.field("tags"), filter::Value::List(vec!["x".into()]));
         assert_eq!(r.list("tags"), vec!["x".to_string()]);
     }

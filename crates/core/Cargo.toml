@@ -1,0 +1,30 @@
+[package]
+name = "grackle-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+grackle-db = { workspace = true }
+grackle-model = { workspace = true }
+grackle-search-core = { workspace = true }
+grackle-source = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+walkdir = { workspace = true }
+blake3 = "1"
+comrak = "0.54"
+fastembed = "5.17.3"
+grass = "0.13"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+image = "0.25"
+keepcalm = "0.6.0"
+notify = "8"
+serde_json = "1"
+toml = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "sync", "time"] }
+lol_html = "3.0.0"

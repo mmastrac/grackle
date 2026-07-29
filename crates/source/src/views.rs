@@ -161,6 +161,7 @@ struct Cell {
 /// composite group key, in key order. Shared by every base table: grouping
 /// never cared what a post or a page was.
 fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> Vec<Cell> {
+    #[allow(clippy::type_complexity)]
     let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> =
         BTreeMap::new();
     for (i, row) in rows {
@@ -209,12 +210,7 @@ fn stamp(cfg: &Config, locale: &str) -> Option<String> {
 }
 
 /// A view with no route: one row set, and nowhere to hang it but the view.
-fn insert_routeless(
-    db: &mut SiteDb,
-    name: &str,
-    v: &View,
-    members: Vec<grackle_db::Key>,
-) {
+fn insert_routeless(db: &mut SiteDb, name: &str, v: &View, members: Vec<grackle_db::Key>) {
     db.views.insert(
         name.to_string(),
         ViewRows {
@@ -324,10 +320,7 @@ fn view_fields(
         let ty = schema.get(name.as_str()).copied().with_context(|| {
             format!("view route field {name:?} was not validated against [schema]")
         })?;
-        f.insert(
-            name.clone(),
-            crate::schema::typed(ty, name, raw, "view")?,
-        );
+        f.insert(name.clone(), crate::schema::typed(ty, name, raw, "view")?);
     }
     // IO.md §3: `shell` is "the serialization it left through", a fact about
     // the OUTPUT — so a view route answers the same column a row route does,
@@ -516,6 +509,7 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
     Ok(combos)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Materialize a view — one flow for every base.
 ///
 /// A view differs from another only in which index list it starts from: a set,
@@ -677,7 +671,9 @@ fn build_view(
                         // selection below, not filled from group params here.
                         Some("axis") => Some(format!("{{{tok}}}")),
                         None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                        None if k == "locale" && cfg.locale_enabled() => Some("{locale}".to_string()),
+                        None if k == "locale" && cfg.locale_enabled() => {
+                            Some("{locale}".to_string())
+                        }
                         None | Some("group") => {
                             template::param(&cell.params, k).map(|val| route_value(k, &val))
                         }
@@ -895,7 +891,7 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
 // Membership, scoping and ordering moved to fixture tests (§7d): they
 // hand-built `Row`s and wired `object_ix` themselves, so they could not have
 // caught a bug in the loader they were imitating. See
-// `crates/grackle/tests/fixtures/{object-gallery,post-ordering}`.
+// `crates/core/tests/fixtures/{object-gallery,post-ordering}`.
 mod object_view_tests {
     use super::*;
 
@@ -973,7 +969,7 @@ mod posts_order_tests {
 
     /// A view with no `order_by` orders by PATH — not newest-first. A posts
     /// collection asks for dates.
-
+    ///
     /// `where` reads declared `.schema.toml` fields, like `order_by`,
     /// `group_by` and a relation's `rank` already did. It was the one consumer
     /// parsing against the bare row schema, so a site could declare a bool,

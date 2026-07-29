@@ -1233,9 +1233,20 @@ name = "grackle"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
+ "grackle-core",
+ "grackle-search-core",
+ "grackle-source",
+ "serde_json",
+]
+
+[[package]]
+name = "grackle-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "blake3",
  "chrono",
- "clap",
  "comrak",
  "fastembed",
  "grackle-db",

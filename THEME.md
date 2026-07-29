@@ -1,7 +1,7 @@
 # Theme: one recursive content chain, and layout as a row face
 
 **Status: in progress (2026-07-28).** Assembly lives in
-`crates/grackle/src/assemble/`. Byte-exactness is not required.
+`crates/core/src/assemble/`. Byte-exactness is not required.
 
 ## Law
 

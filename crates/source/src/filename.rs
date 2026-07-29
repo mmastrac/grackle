@@ -215,8 +215,7 @@ mod tests {
 
     fn locale_axis() -> BTreeMap<&'static str, &'static [String]> {
         // leaked for test statics — fine in tests
-        let vals: &'static [String] =
-            Box::leak(vec!["en".into(), "fr".into()].into_boxed_slice());
+        let vals: &'static [String] = Box::leak(vec!["en".into(), "fr".into()].into_boxed_slice());
         BTreeMap::from([("locale", vals)])
     }
 

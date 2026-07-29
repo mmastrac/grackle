@@ -316,10 +316,7 @@ mod tests {
                 url: "/c/".into(),
                 title: "Unrelated".into(),
                 date: "3 March 2020".into(),
-                streams: vec![
-                    (5, "Unrelated".into()),
-                    (1, "nothing relevant here".into()),
-                ],
+                streams: vec![(5, "Unrelated".into()), (1, "nothing relevant here".into())],
             },
         ]
     }
