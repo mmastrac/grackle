@@ -282,9 +282,10 @@ pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     // thing at both layers (e.g. keeping listing-shaped index pages out
     // of a search shell's row set).
     s.insert("stem", Str);
-    // §6f: the row's locale for translation routes; Null for the default
-    // locale (and every sourceless route). `locale != "fr"` keeps French
-    // rows out of an all-outputs fold; Null passes `!=` by the filter's rule.
+    // §6f locale: not a Route column anymore (lives in `fields` when stamped),
+    // but filters still name it — a weak binding until `Row.locale` dissolves
+    // and base.toml can declare the field without colliding with a built-in.
+    // Absent / default → Null, same as the old `Option` column.
     s.insert("locale", Str);
     s
 }

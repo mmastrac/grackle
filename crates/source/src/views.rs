@@ -204,9 +204,24 @@ fn locales_for<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
 }
 
 /// What a route in one locale records as its own. `None` for the default,
-/// which is what `Route.locale` means (§6f) and what filters see as Null.
+/// which is what [`Route::locale`] means (§6f) and what filters see as Null.
 fn stamp(cfg: &Config, locale: &str) -> Option<String> {
     (locale != cfg.i18n.default).then(|| locale.to_string())
+}
+
+/// View route fields plus a stamped non-default locale (declared field, not
+/// an engine column).
+fn view_fields_at(
+    v: &View,
+    route_schema: &BTreeMap<String, crate::schema::FieldType>,
+    cfg: &Config,
+    locale: &str,
+) -> anyhow::Result<BTreeMap<String, filter::Value>> {
+    let mut fields = view_fields(v, route_schema)?;
+    if let Some(l) = stamp(cfg, locale) {
+        fields.insert("locale".into(), filter::Value::Str(l));
+    }
+    Ok(fields)
 }
 
 /// A view with no route: one row set, and nowhere to hang it but the view.
@@ -718,7 +733,7 @@ fn build_view(
                             .cloned()
                             .collect();
                         db.routes.push(Route {
-                            fields: view_fields(v, route_schema)?,
+                            fields: view_fields_at(v, route_schema, cfg, locale)?,
                             axis: axis_members.clone(),
                             view: Some(name.to_string()),
                             // A grouped page keeps its GROUP key — `{key}` in a
@@ -729,7 +744,6 @@ fn build_view(
                             page: Some(n),
                             params: cell.params.clone(),
                             members: page,
-                            locale: stamp(cfg, locale),
                             ..Route::new(url, RouteKind::View)
                         });
                     }
@@ -749,14 +763,13 @@ fn build_view(
                         false => cell.rows.clone(),
                     };
                     db.routes.push(Route {
-                        fields: view_fields(v, route_schema)?,
+                        fields: view_fields_at(v, route_schema, cfg, locale)?,
                         axis: axis_members.clone(),
                         view: Some(name.to_string()),
                         key: cell.key.clone(),
                         rows: Some(members.len()),
                         params: cell.params.clone(),
                         members,
-                        locale: stamp(cfg, locale),
                         ..Route::new(pick(&page1, None)?, RouteKind::View)
                     });
                 }

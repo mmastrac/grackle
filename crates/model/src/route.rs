@@ -80,10 +80,6 @@ pub struct Route {
     /// the view's `title`/`crumb` templates from these.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<(String, String)>,
-    /// §6f: set only for non-default-locale rows (a translation's route);
-    /// None means the default locale, and filters see Null.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub locale: Option<String>,
     /// The source row's DECLARED fields, carried onto the route so a `*` view
     /// (the sitemap) can select on them. Without this the sitemap's filter
     /// language has no way to say "not a draft" and a future draft would leak
@@ -92,7 +88,9 @@ pub struct Route {
     /// A map rather than the two named bools it replaces, because the flag
     /// family is ordinary declared schema now (§4e): whatever a site declares
     /// is what an all-outputs fold may filter on, and the engine names none
-    /// of it.
+    /// of it. **Locale** is stamped here when non-default (§6f) — not an engine
+    /// column; [`Route::locale`] reads it weakly so alternates and
+    /// locale-parallel views keep working until the row-side built-in dissolves.
     #[serde(skip)]
     pub fields: BTreeMap<String, filter::Value>,
     /// **The outputs this output reads the FACTS of** — the output→output half
@@ -182,12 +180,35 @@ impl Route {
             rows: None,
             page: None,
             params: Vec::new(),
-            locale: None,
             fields: BTreeMap::new(),
             members: Vec::new(),
             route_members: Vec::new(),
             inputs: Vec::new(),
             rendition: None,
+        }
+    }
+
+    /// The route's locale, when a non-default one was stamped into [`fields`]
+    /// (§6f). Weak: the engine does not own the name — sites that decline the
+    /// base and never declare `locale` simply have none. Alternates and
+    /// locale-parallel views read through this.
+    pub fn locale(&self) -> Option<&str> {
+        match self.fields.get("locale") {
+            Some(filter::Value::Str(s)) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Stamp a non-default locale into [`fields`]. No-op for the default, so
+    /// filters keep seeing Null there.
+    pub fn set_locale(&mut self, locale: Option<String>) {
+        match locale {
+            Some(l) => {
+                self.fields.insert("locale".into(), filter::Value::Str(l));
+            }
+            None => {
+                self.fields.remove("locale");
+            }
         }
     }
 
@@ -241,21 +262,18 @@ impl filter::Row for Route {
                     // §6f: the logical stem — a suffix-selected locale is
                     // not part of a row's identity (`index.fr` is `index`).
                     let s = s.to_string_lossy();
-                    let logical = match &self.locale {
+                    let logical = match self.locale() {
                         Some(l) => s
-                            .strip_suffix(l.as_str())
+                            .strip_suffix(l)
                             .and_then(|rest| rest.strip_suffix('.'))
                             .unwrap_or(s.as_ref()),
                         None => s.as_ref(),
                     };
                     V::Str(logical.to_owned())
                 }),
-            "locale" => match &self.locale {
-                Some(l) => V::Str(l.clone()),
-                None => V::Null,
-            },
             // Declared fields carried from the source row (§4e) — the same
-            // fallthrough `Row` has, so `draft` reads the same at both layers.
+            // fallthrough `Row` has, so `draft` / `locale` read the same at
+            // both layers.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
     }

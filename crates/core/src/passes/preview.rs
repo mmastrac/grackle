@@ -23,7 +23,7 @@ use crate::theme;
 /// member. A group with fewer than two members is no switcher and drops out.
 pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::PartMap> {
     let default = cfg.i18n.default.as_str();
-    let cur_locale = r.locale.as_deref().unwrap_or(default);
+    let cur_locale = r.locale().unwrap_or(default);
     let mut groups = Vec::new();
 
     // The routes that are THIS page in another form: a row's own routes, or the
@@ -65,7 +65,7 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
             .iter()
             .filter(|o| in_scope(o) && o.axis == r.axis)
             .map(|o| {
-                let loc = o.locale.as_deref().unwrap_or(default);
+                let loc = o.locale().unwrap_or(default);
                 (
                     cfg.i18n.name_of(loc).to_string(),
                     o.url.clone(),
@@ -95,7 +95,7 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
                     .iter()
                     .find(|o| {
                         in_scope(o)
-                            && o.locale == r.locale
+                            && o.locale() == r.locale()
                             && o.axis.len() == r.axis.len()
                             && r.axis.iter().all(|rm| {
                                 let want = if rm.axis == m.axis { v } else { &rm.value };
@@ -221,7 +221,7 @@ pub(crate) fn pagination_parts(
         .routes
         .iter()
         .filter(|x| {
-            x.view == r.view && x.page.is_some() && x.locale == r.locale && x.params == r.params
+            x.view == r.view && x.page.is_some() && x.locale() == r.locale() && x.params == r.params
         })
         .collect();
     siblings.sort_by_key(|x| x.page);

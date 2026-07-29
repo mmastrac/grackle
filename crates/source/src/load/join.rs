@@ -105,7 +105,7 @@ pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
             for k in db.by_logical.get(&logical).into_iter().flatten() {
                 let matches = db.rows.get(k).is_some_and(|row| {
                     let want = (row.locale != cfg.i18n.default).then_some(row.locale.as_str());
-                    r.locale.as_deref() == want
+                    r.locale() == want
                 });
                 if matches {
                     ins.push(k.clone());

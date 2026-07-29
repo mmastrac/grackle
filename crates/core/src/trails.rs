@@ -71,7 +71,7 @@ pub fn listing_title_and_trail(
 ) -> Result<(String, Vec<(String, Option<String>)>)> {
     // Listings render at the view's locale (§6f): the route carries it
     // for locale-parallel materializations; absent = the default.
-    let loc = r.locale.as_deref().unwrap_or(cfg.i18n.default.as_str());
+    let loc = r.locale().unwrap_or(cfg.i18n.default.as_str());
     // §6f enum records: a grouped param renders its record's localized
     // NAME — "méta" on the French tag page, "Dinner" for a course —
     // while routes keep slugs and keys/params keep ids.
@@ -273,7 +273,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             // claimed row matched above, and the row's title wins).
             if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
                 if let Some(t) = crumb_tmpl(v) {
-                    let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+                    let loc = r.locale().unwrap_or(&cfg.i18n.default);
                     out.push((parent, cfg.i18n.text(t, loc).to_string()));
                 }
             }

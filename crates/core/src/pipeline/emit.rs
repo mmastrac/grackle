@@ -176,7 +176,7 @@ pub(crate) fn run(
         // (A `kind != View` guard stood here and was DELETED at I13, not
         // respelled: the `let Some(view)` four lines up already asked it —
         // "is this a view route" is the `view` column being non-empty.)
-        let loc = r.locale.as_deref().unwrap_or(&cfg.i18n.default);
+        let loc = r.locale().unwrap_or(&cfg.i18n.default);
 
         // The claimed row, in the route's locale — else the default's
         // prose (the same fallback slot fills use).

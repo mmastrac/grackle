@@ -52,7 +52,7 @@ impl<'a> Ctx<'a> {
 
     /// The route's locale, or the site default.
     pub fn locale_of<'r>(&'r self, r: &'r Route) -> &'r str {
-        r.locale.as_deref().unwrap_or(&self.cfg.i18n.default)
+        r.locale().unwrap_or(&self.cfg.i18n.default)
     }
 
     pub fn root_path(&self) -> &Path {

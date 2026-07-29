@@ -1249,29 +1249,35 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         } else {
             RouteKind::Static
         };
-        let one = |url: String, axis: Vec<AxisMember>| Route {
-            row: Some(p.key.clone()),
-            source: Some(p.path.clone()),
-            locale: route_locale(&p.locale),
-            // The row's fields, with one correction: a member of an axis over
-            // `shell` IS a different serialization of the same row (q53's md
-            // twin), so THIS output left through the member's shell, not the
-            // row's. Only `shell` is corrected — it is the column IO.md §3
-            // puts on the output side, and the axis's other field (`theme`) has
-            // no reader on the route pool to lie to.
-            fields: {
+        let one = |url: String, axis: Vec<AxisMember>| {
+            let fields = {
                 let mut f = p.fields.clone();
                 for m in axis.iter().filter(|m| m.field == "shell") {
                     f.insert("shell".to_string(), grackle_db::Value::Str(m.value.clone()));
                 }
                 f
-            },
-            axis,
-            // The row's identity fact, carried to the output side (IO.md §3)
-            // for the same reason `fields` is: a fold over the route pool can
-            // only filter on what the route answers.
-            front_mattered: p.front_mattered,
-            ..Route::new(url, kind)
+            };
+            let mut r = Route {
+                row: Some(p.key.clone()),
+                source: Some(p.path.clone()),
+                // The row's fields, with one correction: a member of an axis over
+                // `shell` IS a different serialization of the same row (q53's md
+                // twin), so THIS output left through the member's shell, not the
+                // row's. Only `shell` is corrected — it is the column IO.md §3
+                // puts on the output side, and the axis's other field (`theme`) has
+                // no reader on the route pool to lie to.
+                fields,
+                axis,
+                // The row's identity fact, carried to the output side (IO.md §3)
+                // for the same reason `fields` is: a fold over the route pool can
+                // only filter on what the route answers.
+                front_mattered: p.front_mattered,
+                ..Route::new(url, kind)
+            };
+            // Locale is a declared field (base.toml), not an engine column —
+            // stamp the non-default the same way `Route::locale` used to.
+            r.set_locale(route_locale(&p.locale));
+            r
         };
         // The row's own rule decided this (q53 step 2): a route template that
         // spends `{theme}` opted its rows in. Only a RENDERED row multiplies —
@@ -1521,7 +1527,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 .find(|r| {
                     r.view.is_some()
                         && r.content.as_deref() == Some(p.logical.as_str())
-                        && r.locale == route_locale(&p.locale)
+                        && r.locale() == route_locale(&p.locale).as_deref()
                 })
                 .map(|r| r.url.clone())
                 .or_else(|| {
@@ -1530,7 +1536,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                         .iter()
                         .find(|r| {
                             r.view.as_deref() == Some(owner)
-                                && r.locale == route_locale(&p.locale)
+                                && r.locale() == route_locale(&p.locale).as_deref()
                                 && r.key.is_none()
                                 && r.page.is_none_or(|n| n == 1)
                         })

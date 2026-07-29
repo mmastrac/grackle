@@ -253,7 +253,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             view: r.view.clone(),
             key: r.key.clone(),
             page: r.page,
-            locale: r.locale.clone(),
+            locale: r.locale().map(str::to_owned),
             params: r.params.clone(),
             members: member_urls(r),
         })
