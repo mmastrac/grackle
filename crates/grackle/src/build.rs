@@ -879,7 +879,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
                     "title": p.title,
                     "date": p.date.map(crate::db::iso_date),
                     "date_pretty": p.date.map(crate::db::pretty_date),
-                    "tags": p.tags,
+                    "tags": p.list("tags"),
                     "html": row_body_html(p, &bodies, &page_bodies).unwrap_or(""),
                 })
             })
@@ -2124,7 +2124,7 @@ pub fn search_docs(
             title: p.title.clone().unwrap_or_else(|| p.url.clone()),
             date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
             html: html_of(p),
-            tags: p.tags.clone(),
+            tags: p.list("tags"),
         })
         .collect()
 }
@@ -2211,7 +2211,7 @@ fn search_pass(
                                 .get(&p.key)
                                 .map(|d| d.whole.clone())
                                 .unwrap_or_default(),
-                            tags: p.tags.clone(),
+                            tags: p.list("tags"),
                         }
                     })
                 }
@@ -2231,7 +2231,7 @@ fn search_pass(
                             .as_ref()
                             .map(|d| d.whole.clone())
                             .unwrap_or_else(|| pb.frag.clone()),
-                        tags: p.tags.clone(),
+                        tags: p.list("tags"),
                     })
                 }
                 _ => None,

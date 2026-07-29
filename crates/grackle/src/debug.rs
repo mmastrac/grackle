@@ -147,7 +147,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             path: rel_to_root(&p.path),
             title: p.title.clone(),
             date: p.date.map(|d| d.to_string()),
-            tags: p.tags.clone(),
+            tags: p.list("tags"),
             layout: None,
             shell: None,
             theme: None,
@@ -160,6 +160,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             fields: p
                 .fields
                 .iter()
+                .filter(|(k, _)| k.as_str() != "tags")
                 .map(|(k, v)| (k.clone(), value_text(v)))
                 .collect(),
             size: None,

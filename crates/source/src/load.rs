@@ -11,7 +11,6 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use grackle_db::filter;
 use grackle_db::template;
 use grackle_model::{AxisMember, Route, RouteKind, Row, SiteDb};
 
@@ -1664,12 +1663,6 @@ fn walk_site(
             description: fm.description,
             order: fm.order,
             date,
-            // Copied into the column for indexes; left in `fields` too so
-            // filters and fill see the declared list.
-            tags: match checked.values.get("tags") {
-                Some(filter::Value::List(t)) => t.clone(),
-                _ => Vec::new(),
-            },
             theme: worn.theme,
             shell: worn.shell,
             fields: checked.values,

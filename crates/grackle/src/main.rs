@@ -346,7 +346,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             println!("  dated         {}", dated);
             println!(
                 "  tagged        {}",
-                db.rows.iter().filter(|r| !r.tags.is_empty()).count()
+                db.rows.iter().filter(|r| !r.list("tags").is_empty()).count()
             );
             // One line per declared bool the site actually uses — `drafts`
             // and `hidden` used to be two hardcoded counts, which meant a
@@ -435,7 +435,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             for &i in &ix {
                 let r = &db.rows[i];
                 if let Some(t) = &tag {
-                    if !r.tags.iter().any(|x| x == t) {
+                    if !r.list("tags").iter().any(|x| x == t) {
                         continue;
                     }
                 }
@@ -517,12 +517,13 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("source      {}  (embedding cache key)", r.rel.display());
                 println!("title       {}", r.title.as_deref().unwrap_or("-"));
                 print!("{}", debug::row_fields(r));
+                let tags = r.list("tags");
                 println!(
                     "tags        {}",
-                    if r.tags.is_empty() {
+                    if tags.is_empty() {
                         "-".into()
                     } else {
-                        r.tags.join(", ")
+                        tags.join(", ")
                     }
                 );
                 println!("body        {} bytes", r.body_bytes);

@@ -71,14 +71,14 @@ pub struct Row {
     /// let one row type serve both (q51).
     pub title: Option<String>,
     pub description: Option<String>,
-    pub tags: Vec<String>,
     /// Which theme renders this row, and how much wrapper it wears (§5a,
     /// §5g).
     pub theme: Option<String>,
     pub shell: Option<String>,
     /// Typed extra fields, validated against the governing `.schema.toml`
     /// (§5b). Declarations come from a root-wide walk, so they are visible
-    /// to every row whatever loader filled it.
+    /// to every row whatever loader filled it. List fields such as `tags`
+    /// live here — there is no parallel column.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, filter::Value>,
     /// The image-typed subset of `fields`: field name -> the value, kept
@@ -1076,7 +1076,6 @@ impl filter::Row for Row {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
             ),
-            "tags" => V::List(self.tags.clone()),
             "locale" => V::Str(self.locale.clone()),
             "collection" => V::Str(self.collection.clone()),
             "name" => self
@@ -1092,6 +1091,16 @@ impl filter::Row for Row {
             // Schema fields (§5b) resolve after the base names — the same
             // fallthrough a page has had.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
+        }
+    }
+}
+
+impl Row {
+    /// Values of a declared list field, or empty when absent / not a list.
+    pub fn list(&self, name: &str) -> Vec<String> {
+        match filter::Row::field(self, name) {
+            filter::Value::List(v) => v,
+            _ => Vec::new(),
         }
     }
 }
@@ -1440,16 +1449,17 @@ mod row_column_tests {
         );
     }
 
-    /// Tags is a declared list (base), not a built-in filter column; `Row.tags`
-    /// mirrors it for indexes.
+    /// Tags is a declared list in `fields`, not a built-in row column.
     #[test]
     fn tags_is_not_a_built_in_row_field() {
         assert!(!row_schema().contains_key("tags"));
-        let r = Row {
-            tags: vec!["x".into()],
-            ..Default::default()
-        };
+        let mut r = Row::default();
+        r.fields.insert(
+            "tags".into(),
+            filter::Value::List(vec!["x".into()]),
+        );
         assert_eq!(r.field("tags"), filter::Value::List(vec!["x".into()]));
+        assert_eq!(r.list("tags"), vec!["x".to_string()]);
     }
 
     /// The collection is what a set will name once `from` stops naming a

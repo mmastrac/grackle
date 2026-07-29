@@ -1027,11 +1027,17 @@ mod grouping_tests {
     use grackle_model::Row;
 
     fn post(date: Option<&str>, tags: &[&str]) -> Row {
-        Row {
+        let mut r = Row {
             date: date.map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap()),
-            tags: tags.iter().map(|t| t.to_string()).collect(),
             ..Row::default()
+        };
+        if !tags.is_empty() {
+            r.fields.insert(
+                "tags".into(),
+                grackle_db::Value::List(tags.iter().map(|t| t.to_string()).collect()),
+            );
         }
+        r
     }
 
     #[test]
@@ -1110,7 +1116,6 @@ mod grouping_tests {
             description: None,
             order: None,
             date: None,
-            tags: Vec::new(),
             theme: None,
             shell: None,
             fields: Default::default(),

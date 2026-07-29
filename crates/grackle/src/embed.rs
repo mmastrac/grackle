@@ -58,7 +58,7 @@ pub fn text_of(p: &crate::db::Row, body: &str) -> String {
     format!(
         "title: {}\ntags: {}\nbody: {}",
         p.title.as_deref().unwrap_or_default(),
-        p.tags.join(", "),
+        p.list("tags").join(", "),
         body.trim()
     )
 }
@@ -298,7 +298,11 @@ mod tests {
     fn embed_text_carries_title_and_tags() {
         let p = Row {
             title: Some("T".into()),
-            tags: vec!["a".into(), "b".into()],
+            fields: [(
+                "tags".into(),
+                grackle_db::Value::List(vec!["a".into(), "b".into()]),
+            )]
+            .into(),
             ..Row::default()
         };
         assert_eq!(text_of(&p, "hello"), "title: T\ntags: a, b\nbody: hello");
