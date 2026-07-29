@@ -66,12 +66,11 @@ pub struct Config {
     /// rather than compiled in. Today one table — `[html.head.meta]`.
     #[serde(default)]
     pub html: HtmlCfg,
-    /// `[schema]` (§5b, third axis): typed fields every row of the site has.
-    /// `.schema.toml` says *where* a field applies; this says *always*. The
-    /// base config uses it for the flag family (§4d/§4e), which are properties
-    /// of a row rather than of a directory.
+    /// `[schema]` (§5b): typed fields every row has, plus how embeddings and
+    /// search read those fields. Field declarations are the flatten; the two
+    /// named subtables are engine consumers of the vocabulary, not fields.
     #[serde(default)]
-    pub schema: toml::Table,
+    pub schema: SchemaBag,
     /// Custom block widgets (§5d): `{% name %}…{% endname %}` expands to the
     /// wrapper template with the markdown body spliced at `{body}`. Adding a
     /// widget is one config entry, no code.
@@ -1150,6 +1149,50 @@ impl I18nCfg {
     }
 }
 
+
+/// `[schema]` (§5b): field declarations plus the two engine consumers that
+/// name those fields — embeddings text and search indexing.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SchemaBag {
+    #[serde(default)]
+    pub embeddings: EmbeddingsSchema,
+    #[serde(default)]
+    pub search: SearchSchema,
+    /// `draft = { type = "bool" }`, `tags = { type = "list" }`, …
+    #[serde(flatten)]
+    pub fields: toml::Table,
+}
+
+/// `[schema.embeddings]`: the text a row embeds as. `{body}` is the markdown
+/// body; every other `{name}` is a row field (lists join with `", "`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddingsSchema {
+    #[serde(default)]
+    pub string: String,
+}
+
+impl Default for EmbeddingsSchema {
+    fn default() -> Self {
+        Self {
+            string: String::new(),
+        }
+    }
+}
+
+/// `[schema.search]`: which row fields (plus `title` / `body`) feed the
+/// search index. List fields contribute each value; scalars contribute once.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SearchSchema {
+    #[serde(default)]
+    pub fields: Vec<String>,
+}
+
+impl crate::shape::Shaped for SchemaBag {
+    fn shape() -> crate::shape::Shape {
+        // Same merge law the bare table had: per-key atom replace under [schema].
+        crate::shape::Shape::Map(Box::new(crate::shape::Shape::Atom))
+    }
+}
 
 /// `[html]` (§4e): the parts of the document head that are a site's decision
 /// rather than the engine's.
@@ -2531,7 +2574,8 @@ impl Config {
     fn config_declared_schema(&self) -> grackle_db::filter::Schema {
         let mut s = grackle_db::filter::Schema::new();
         let tables =
-            std::iter::once(&self.schema).chain(self.collections.values().map(|c| &c.schema));
+            std::iter::once(&self.schema.fields)
+                .chain(self.collections.values().map(|c| &c.schema));
         for t in tables {
             for (name, v) in t {
                 let ty = v
@@ -2610,7 +2654,7 @@ impl Config {
         // the parser `Schemas::set_site` uses, so the two cannot come to
         // different verdicts about what a declaration says. A positional
         // `.schema.toml` is deliberately NOT in it — see `schema::site_fields`.
-        let declared = crate::schema::site_fields(&self.schema, "grackle.toml [schema]")?;
+        let declared = crate::schema::site_fields(&self.schema.fields, "grackle.toml [schema]")?;
         let field_knowns = || {
             let mut names: Vec<&str> = declared.keys().map(String::as_str).collect();
             names.sort_unstable();
@@ -2702,7 +2746,22 @@ impl Config {
             );
         }
         let declared_route =
-            crate::schema::site_fields(&cfg.schema, "grackle.toml [schema]")?;
+            crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
+        {
+            let row = grackle_model::row_schema();
+            for f in &cfg.schema.search.fields {
+                if f == "body" || f == "title" {
+                    continue;
+                }
+                if declared_route.contains_key(f) || row.contains_key(f.as_str()) {
+                    continue;
+                }
+                anyhow::bail!(
+                    "[schema.search]: field {f:?} is not a row field — \
+                     declare it in [schema] or use \"title\" / \"body\""
+                );
+            }
+        }
         for (vname, v) in &cfg.views {
             // §5a / THEME.md §3: `layout` (or `variant`) names the member face
             // the theme must ship as `row--{face}`. No closed vocabulary —
@@ -3544,6 +3603,67 @@ impl Config {
             }],
         )
         .ok()
+    }
+
+    /// The text a row embeds as (`[schema.embeddings].string`). `{body}` is
+    /// the markdown body; every other hole is a row field (lists join with
+    /// `", "`). Empty template → empty text (nothing to embed).
+    pub fn embedding_text(&self, p: &grackle_model::Row, body: &str) -> Result<String> {
+        let tmpl = &self.schema.embeddings.string;
+        if tmpl.is_empty() {
+            return Ok(String::new());
+        }
+        grackle_db::template::render(tmpl, |tok| {
+            Some(match tok {
+                "body" => body.trim().to_string(),
+                "title" => p.title.clone().unwrap_or_default(),
+                other => match grackle_db::filter::Row::field(p, other) {
+                    grackle_db::Value::List(v) => v.join(", "),
+                    grackle_db::Value::Str(s) => s,
+                    grackle_db::Value::Int(n) => n.to_string(),
+                    grackle_db::Value::Bool(b) => b.to_string(),
+                    grackle_db::Value::Double(d) => d.to_string(),
+                    grackle_db::Value::Null => String::new(),
+                },
+            })
+        })
+    }
+
+    /// Weighted plain-text streams for the search index (`[schema.search].fields`).
+    /// `title` and list/scalar fields boost; `body` is the caller's body text
+    /// at weight 1 (HTML already stripped, or markdown for the CLI).
+    pub fn search_streams(&self, p: &grackle_model::Row, body: &str) -> Vec<(u32, String)> {
+        const BOOST: u32 = 5;
+        const BODY: u32 = 1;
+        let mut out = Vec::new();
+        for f in &self.schema.search.fields {
+            match f.as_str() {
+                "body" => {
+                    if !body.is_empty() {
+                        out.push((BODY, body.to_string()));
+                    }
+                }
+                "title" => {
+                    if let Some(t) = p.title.as_deref().filter(|s| !s.is_empty()) {
+                        out.push((BOOST, t.to_string()));
+                    }
+                }
+                other => match grackle_db::filter::Row::field(p, other) {
+                    grackle_db::Value::List(v) => {
+                        for s in v {
+                            if !s.is_empty() {
+                                out.push((BOOST, s));
+                            }
+                        }
+                    }
+                    grackle_db::Value::Str(s) if !s.is_empty() => out.push((BOOST, s)),
+                    grackle_db::Value::Int(n) => out.push((BOOST, n.to_string())),
+                    grackle_db::Value::Bool(b) => out.push((BOOST, b.to_string())),
+                    _ => {}
+                },
+            }
+        }
+        out
     }
 }
 

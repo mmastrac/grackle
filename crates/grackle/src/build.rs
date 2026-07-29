@@ -287,7 +287,7 @@ pub fn build(cfg: &Config, db: &mut SiteDb, out: &Path) -> Result<Stats> {
     // AOT builds publish, so they wait for fresh embeddings: bring the cache
     // current first, then render once with nothing pending.
     let cache = cfg.root().join("_cache/embeddings");
-    if let Ok(l) = crate::embed::load(db, &cache) {
+    if let Ok(l) = crate::embed::load(db, cfg, &cache) {
         if !l.pending.is_empty() {
             println!("grackle: embedding {} changed posts…", l.pending.len());
             if let Err(e) = crate::embed::embed_pending(&cache, &l.pending) {
@@ -457,7 +457,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // before rendering (published output is always fresh), `serve` embeds
     // on a background thread and re-renders on completion. Ranking policy
     // ([related]: min score, year penalty/cap) is config.
-    let loaded = match crate::embed::load(db, &root.join("_cache/embeddings")) {
+    let loaded = match crate::embed::load(db, cfg, &root.join("_cache/embeddings")) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("grackle: embeddings unavailable, skipping related posts: {e:#}");
@@ -2115,16 +2115,20 @@ fn backlinks_map(
 /// markdown. The SHIPPED index is not this: it is the `shell = "search"`
 /// view's serialization (see `search_pass`), which may span tables.
 pub fn search_docs(
+    cfg: &Config,
     db: &SiteDb,
     html_of: impl Fn(&Row) -> String,
 ) -> Vec<grackle_search_core::SearchDoc> {
     db.posts()
-        .map(|p| grackle_search_core::SearchDoc {
-            url: p.url.clone(),
-            title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-            date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
-            html: html_of(p),
-            tags: p.list("tags"),
+        .map(|p| {
+            let html = html_of(p);
+            let body = grackle_search_core::strip_tags(&html);
+            grackle_search_core::SearchDoc {
+                url: p.url.clone(),
+                title: p.title.clone().unwrap_or_else(|| p.url.clone()),
+                date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
+                streams: cfg.search_streams(p, &body),
+            }
         })
         .collect()
 }
@@ -2203,35 +2207,35 @@ fn search_pass(
             .filter_map(|r| match r.kind {
                 crate::db::RouteKind::Post => {
                     r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| {
+                        let html = bodies
+                            .get(&p.key)
+                            .map(|d| d.whole.as_str())
+                            .unwrap_or("");
+                        let body = grackle_search_core::strip_tags(html);
                         grackle_search_core::SearchDoc {
                             url: p.url.clone(),
                             title: p.title.clone().unwrap_or_else(|| p.url.clone()),
                             date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
-                            html: bodies
-                                .get(&p.key)
-                                .map(|d| d.whole.clone())
-                                .unwrap_or_default(),
-                            tags: p.list("tags"),
+                            streams: cfg.search_streams(p, &body),
                         }
                     })
                 }
                 crate::db::RouteKind::Page => {
                     let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
                     let p = r.row.as_ref().and_then(|k| db.rows.get(k))?;
+                    let html = pb
+                        .doc
+                        .as_ref()
+                        .map(|d| d.whole.as_str())
+                        .unwrap_or(pb.frag.as_str());
+                    let body = grackle_search_core::strip_tags(html);
                     Some(grackle_search_core::SearchDoc {
                         url: p.url.clone(),
                         // A titleless page is still searchable by body; its
                         // URL is the only honest label a hit can wear.
                         title: p.title.clone().unwrap_or_else(|| p.url.clone()),
                         date: p.date.map(crate::db::pretty_date).unwrap_or_default(),
-                        // Markdown pages searched from the same bytes that
-                        // ship; raw-HTML pages from their body fragment.
-                        html: pb
-                            .doc
-                            .as_ref()
-                            .map(|d| d.whole.clone())
-                            .unwrap_or_else(|| pb.frag.clone()),
-                        tags: p.list("tags"),
+                        streams: cfg.search_streams(p, &body),
                     })
                 }
                 _ => None,

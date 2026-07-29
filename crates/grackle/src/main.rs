@@ -455,7 +455,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
         Query::Search { query, limit } => {
             // The CLI runs no render pass, so the raw markdown stands in for
             // the rendered body — a smoke query over the same projection.
-            let docs = build::search_docs(db, |p| store::read_body(&p.path).unwrap_or_default());
+            let docs = build::search_docs(cfg, db, |p| store::read_body(&p.path).unwrap_or_default());
             let (index, _) = grackle_search_core::build_index(&docs);
             let q = query.join(" ");
             for (url, title, date) in index.search(&q, limit) {
@@ -463,7 +463,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             }
         }
         Query::Similar { url, limit } => {
-            let vectors = embed::fresh(db, &cfg.root().join("_cache/embeddings"))?;
+            let vectors = embed::fresh(db, cfg, &cfg.root().join("_cache/embeddings"))?;
             // The raw embedding order (no recency shaping) — the diagnostic
             // that shows what `embedding_similarity` sees before a relation's
             // `where`/`rank` narrows it.

@@ -54,6 +54,12 @@ theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
 
+[schema.embeddings]
+string = "title: {title} tags: {tags} body: {body}"
+
+[schema.search]
+fields = ["title", "tags", "body"]
+
 # What the engine puts in the head, declared rather than compiled in (§4e).
 #
 # Each value is a §5f text expression over the row — or, for a listing, over

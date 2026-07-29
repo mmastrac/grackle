@@ -351,7 +351,7 @@ fn view_fields(
 }
 
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
-    let route_schema = crate::schema::site_fields(&cfg.schema, "grackle.toml [schema]")?;
+    let route_schema = crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
         // A fold with no `from` reads every output (IO.md §4) — at this stage
         // the finished route set — so it runs in a second pass (see
@@ -807,7 +807,7 @@ fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<fil
 /// through `build_views` with its rows, and the join makes that selection
 /// output-mediated at I9.
 pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
-    let route_schema = crate::schema::site_fields(&cfg.schema, "grackle.toml [schema]")?;
+    let route_schema = crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
         if !v.reads_all_outputs() {
             continue;

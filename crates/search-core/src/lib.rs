@@ -128,9 +128,9 @@ pub struct SearchDoc {
     pub url: String,
     pub title: String,
     pub date: String,
-    /// Rendered body HTML (tags are stripped here).
-    pub html: String,
-    pub tags: Vec<String>,
+    /// Weighted plain-text streams from `[schema.search].fields` — `(boost, text)`.
+    /// The caller decides which fields and weights; this crate only tokenizes.
+    pub streams: Vec<(u32, String)>,
 }
 
 pub struct IndexStats {
@@ -139,9 +139,6 @@ pub struct IndexStats {
     pub postings: usize,
 }
 
-/// Title and tag hits matter more than body mentions.
-const TITLE_BOOST: u32 = 5;
-const TAG_BOOST: u32 = 5;
 /// Postings per term are capped: for a common term only the strongest docs
 /// matter, and the tail is index weight with no ranking power.
 const MAX_POSTINGS: usize = 40;
@@ -152,16 +149,10 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
         .iter()
         .map(|d| {
             let mut tf: HashMap<String, u32> = HashMap::new();
-            for t in tokenize(&d.title) {
-                *tf.entry(t).or_default() += TITLE_BOOST;
-            }
-            for tag in &d.tags {
-                for t in tokenize(tag) {
-                    *tf.entry(t).or_default() += TAG_BOOST;
+            for (boost, text) in &d.streams {
+                for t in tokenize(text) {
+                    *tf.entry(t).or_default() += boost;
                 }
-            }
-            for t in tokenize(&strip_tags(&d.html)) {
-                *tf.entry(t).or_default() += 1;
             }
             tf
         })
@@ -187,7 +178,7 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
     }
     let mut postings = 0;
     for list in terms.values_mut() {
-        list.sort_by(|a, b| b.1.cmp(&a.1));
+        list.sort_by_key(|b| std::cmp::Reverse(b.1));
         list.truncate(MAX_POSTINGS);
         postings += list.len();
     }
@@ -305,22 +296,30 @@ mod tests {
                 url: "/a/".into(),
                 title: "Hacking Bluetooth to Brew Coffee".into(),
                 date: "1 January 2012".into(),
-                html: "<p>an espresso machine speaks bluetooth now</p>".into(),
-                tags: vec!["hardware".into()],
+                streams: vec![
+                    (5, "Hacking Bluetooth to Brew Coffee".into()),
+                    (5, "hardware".into()),
+                    (1, "an espresso machine speaks bluetooth now".into()),
+                ],
             },
             SearchDoc {
                 url: "/b/".into(),
                 title: "Rust linkers".into(),
                 date: "2 June 2026".into(),
-                html: "<p>bluetooth mentioned once, in passing</p>".into(),
-                tags: vec!["rust".into()],
+                streams: vec![
+                    (5, "Rust linkers".into()),
+                    (5, "rust".into()),
+                    (1, "bluetooth mentioned once, in passing".into()),
+                ],
             },
             SearchDoc {
                 url: "/c/".into(),
                 title: "Unrelated".into(),
                 date: "3 March 2020".into(),
-                html: "<p>nothing relevant here</p>".into(),
-                tags: vec![],
+                streams: vec![
+                    (5, "Unrelated".into()),
+                    (1, "nothing relevant here".into()),
+                ],
             },
         ]
     }
@@ -361,8 +360,7 @@ mod tests {
                 url: format!("/{i}/"),
                 title: "x".into(),
                 date: String::new(),
-                html: "<p>common word here</p>".into(),
-                tags: vec![],
+                streams: vec![(1, "common word here".into())],
             })
             .collect();
         let (idx, stats) = build_index(&docs);

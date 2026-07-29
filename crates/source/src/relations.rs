@@ -340,7 +340,7 @@ mod tests {
         let mut db = SiteDb::seed(vec![], true);
         // What `load` does: the config axes go in before anything resolves.
         let mut schemas = Schemas::new(row_schema());
-        schemas.set_site(cfg.schema.clone(), "[schema]")?;
+        schemas.set_site(cfg.schema.fields.clone(), "[schema]")?;
         crate::views::build_views(&cfg, &mut db, &schemas)?;
         build_relations(&cfg, &mut db, &schemas)?;
         Ok(db.relations.remove("posts").unwrap_or_default())

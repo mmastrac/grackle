@@ -1,10 +1,10 @@
 //! Embeddings → related posts (DESIGN §6b: "this retires LSI").
 //!
-//! Each post embeds as `title: … \n tags: … \n body: …` — the title and tags
-//! carry real signal, so they are part of the text, and therefore part of
-//! the **cache key** (retitling a post re-embeds it, on purpose). Vectors
-//! cache by content hash; an `index.json` maps post name → current hash so a
-//! post whose text changed can keep serving its **stale** vector until the
+//! Each post embeds as the text `[schema.embeddings].string` renders over the
+//! row (plus `{body}`) — so which fields carry signal is config, and a change
+//! to that string re-embeds (it is part of the cache key). Vectors cache by
+//! content hash; an `index.json` maps post name → current hash so a post
+//! whose text changed can keep serving its **stale** vector until the
 //! background pass re-embeds it — stale-while-revalidate, the resident
 //! database's move (§7). Similarity is brute-force cosine over ~327 vectors;
 //! a vector index at this scale would be the classic mistake.
@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::config::Config;
 use crate::db::SiteDb;
 
 const DIM: usize = 384;
@@ -53,14 +54,9 @@ pub fn cache_key(p: &crate::db::Row) -> String {
     p.rel.to_string_lossy().to_string()
 }
 
-/// The text a post embeds as. Title and tags are signal, not metadata.
-pub fn text_of(p: &crate::db::Row, body: &str) -> String {
-    format!(
-        "title: {}\ntags: {}\nbody: {}",
-        p.title.as_deref().unwrap_or_default(),
-        p.list("tags").join(", "),
-        body.trim()
-    )
+/// The text a post embeds as — `[schema.embeddings].string` over the row.
+pub fn text_of(cfg: &Config, p: &crate::db::Row, body: &str) -> Result<String> {
+    cfg.embedding_text(p, body)
 }
 
 /// A post whose embedding is out of date (or absent): what the background
@@ -80,14 +76,14 @@ pub struct Loaded {
     pub pending: Vec<Pending>,
 }
 
-pub fn load(db: &SiteDb, cache_dir: &Path) -> Result<Loaded> {
+pub fn load(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
     std::fs::create_dir_all(cache_dir)?;
     let index = read_index(cache_dir);
     let mut vectors = Vec::with_capacity(db.post_ix.len());
     let mut pending = Vec::new();
 
     for p in db.posts() {
-        let text = text_of(p, &crate::store::read_body(&p.path)?);
+        let text = text_of(cfg, p, &crate::store::read_body(&p.path)?)?;
         if text.trim().is_empty() {
             vectors.push(None);
             continue;
@@ -138,13 +134,13 @@ pub fn embed_pending(cache_dir: &Path, pending: &[Pending]) -> Result<()> {
 
 /// Load, embed whatever is pending (blocking), and reload — the "fresh now"
 /// path: AOT builds and CLI queries.
-pub fn fresh(db: &SiteDb, cache_dir: &Path) -> Result<Vec<Option<Vector>>> {
-    let l = load(db, cache_dir)?;
+pub fn fresh(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Vec<Option<Vector>>> {
+    let l = load(db, cfg, cache_dir)?;
     if l.pending.is_empty() {
         return Ok(l.vectors);
     }
     embed_pending(cache_dir, &l.pending)?;
-    Ok(load(db, cache_dir)?.vectors)
+    Ok(load(db, cfg, cache_dir)?.vectors)
 }
 
 /// Related-posts table: post index → top-N (index, adjusted score), best
@@ -294,6 +290,17 @@ mod tests {
         crate::db::Key::new(format!("{title}.md"))
     }
 
+    fn embed_cfg() -> crate::config::Config {
+        crate::config::Config::from_toml(
+            "extends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
+             [[collections]]\nsource=\"_posts\"\n\
+             [[collections.rules]]\nmatch=\"**\"\nroute=\"/{slug}/\"\n\
+             [schema.embeddings]\n\
+             string = \"title: {title} tags: {tags} body: {body}\"\n",
+        )
+        .unwrap()
+    }
+
     #[test]
     fn embed_text_carries_title_and_tags() {
         let p = Row {
@@ -305,7 +312,10 @@ mod tests {
             .into(),
             ..Row::default()
         };
-        assert_eq!(text_of(&p, "hello"), "title: T\ntags: a, b\nbody: hello");
+        assert_eq!(
+            text_of(&embed_cfg(), &p, "hello").unwrap(),
+            "title: T tags: a, b body: hello"
+        );
     }
 
     #[test]
@@ -411,7 +421,7 @@ mod tests {
             title: Some("old title".into()),
             ..Row::default()
         };
-        let old_hash = blake3::hash(text_of(&p, "body").as_bytes())
+        let old_hash = blake3::hash(text_of(&embed_cfg(), &p, "body").unwrap().as_bytes())
             .to_hex()
             .to_string();
         let v: Vec<f32> = (0..DIM).map(|i| i as f32).collect();
@@ -421,7 +431,7 @@ mod tests {
         // …then edited: load serves the stale vector and queues a re-embed.
         p.title = Some("new title".into());
         let db = mkdb(vec![p]);
-        let loaded = load(&db, &dir).unwrap();
+        let loaded = load(&db, &embed_cfg(), &dir).unwrap();
         assert_eq!(
             loaded.vectors[0].as_ref().unwrap(),
             &v,

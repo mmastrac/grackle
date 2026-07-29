@@ -1957,7 +1957,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut schemas = Schemas::new(grackle_model::row_schema());
     // The config axes first, so a positional `.schema.toml` is the NEAREST
     // declaration and wins per name (§5b).
-    schemas.set_site(cfg.schema.clone(), "grackle.toml [schema]")?;
+    schemas.set_site(cfg.schema.fields.clone(), "grackle.toml [schema]")?;
     for (cname, c) in &cfg.collections {
         schemas.add_collection(
             cname,

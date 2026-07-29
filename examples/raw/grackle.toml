@@ -42,9 +42,18 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
 toc = { type = "bool" }
+# Declared so front matter uses the ordinary list path (sequence or
+# whitespace-separated string). Base mints no tag routes.
+tags = { type = "list" }
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
+
+[schema.embeddings]
+string = "title: {title} tags: {tags} body: {body}"
+
+[schema.search]
+fields = ["title", "tags", "body"]
 
 # The head, declared rather than compiled in (§4e). Every tag below is one
 # the engine used to emit from Rust.
