@@ -741,8 +741,10 @@ pub struct SiteDb {
     /// Non-unique: slug -> rows. Informational; see `by_key` for identity.
     #[serde(skip)]
     pub by_slug: BTreeMap<String, Vec<Key>>,
+    /// List-field value → rows, nested by field name. One map per declared
+    /// `type = "list"` field (tags, course, ...); within-key order is table order.
     #[serde(skip)]
-    pub by_tag: BTreeMap<String, Vec<Key>>,
+    pub by_multi_key: BTreeMap<String, BTreeMap<String, Vec<Key>>>,
     #[serde(skip)]
     pub by_year_month: BTreeMap<(i32, u32), Vec<Key>>,
     #[serde(skip)]
@@ -1175,7 +1177,7 @@ impl SiteDb {
     /// - A query returns a set; this hands over a SEQUENCE. `post_ix`'s order
     ///   is load order after `sort_posts`, and it is load-bearing: `embed`'s
     ///   vectors are parallel to it, `relate` reads them by that position, and
-    ///   `by_tag`/`by_year_month`/`by_slug` take their within-key order from
+    ///   `by_multi_key`/`by_year_month`/`by_slug` take their within-key order from
     ///   the table's. Ordering-derived bytes, and no predicate carries an
     ///   order.
     ///
@@ -1265,9 +1267,25 @@ impl SiteDb {
             .rows
             .multi_index(|p| p.rendered.then(|| p.logical.clone()));
         let by_slug = self.rows.multi_index(|p| dated(p).then(|| p.slug.clone()));
-        let by_tag = self
-            .rows
-            .multi_index(|p| if dated(p) { p.tags.clone() } else { Vec::new() });
+        let mut by_multi_key = BTreeMap::new();
+        for (field, ty) in &self.declared {
+            if *ty != filter::Type::List {
+                continue;
+            }
+            let field = *field;
+            by_multi_key.insert(
+                field.to_string(),
+                self.rows.multi_index(|p| {
+                    if !dated(p) {
+                        return Vec::new();
+                    }
+                    match filter::Row::field(p, field) {
+                        filter::Value::List(v) => v,
+                        _ => Vec::new(),
+                    }
+                }),
+            );
+        }
         let by_year_month = self
             .rows
             .multi_index(|p| dated(p).then(|| p.year_month()).flatten());
@@ -1278,7 +1296,7 @@ impl SiteDb {
         self.by_strong = by_strong;
         self.by_logical = by_logical;
         self.by_slug = by_slug;
-        self.by_tag = by_tag;
+        self.by_multi_key = by_multi_key;
         self.by_year_month = by_year_month;
         self.by_url =
             by_url.map_err(|c| self.collision(&format!("route collision at {}:", c.key), c))?;

@@ -380,7 +380,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 db.by_slug.len(),
                 shared.len()
             );
-            println!("  by_tag        {}", db.by_tag.len());
+            for (field, idx) in &db.by_multi_key {
+                println!("  by_multi_key.{field:<12} {}", idx.len());
+            }
             println!("  by_year_month {}", db.by_year_month.len());
             println!(
                 "markers         {}  files found ({:.1}ms scan)",
@@ -488,8 +490,11 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
             }
         }
         Query::Tags => {
-            let mut tags: Vec<(&String, usize)> =
-                db.by_tag.iter().map(|(t, v)| (t, v.len())).collect();
+            let mut tags: Vec<(&String, usize)> = db
+                .by_multi_key
+                .get("tags")
+                .map(|m| m.iter().map(|(t, v)| (t, v.len())).collect())
+                .unwrap_or_default();
             tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
             for (t, n) in tags {
                 println!("{n:4}  {t}");
