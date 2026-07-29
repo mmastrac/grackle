@@ -2894,36 +2894,46 @@ impl Config {
                     }
                 }
             }
-            // Ambiguous auto-discover for tags only (historical pill chrome).
-            // Other group_by fields (year, month, course) are not pill archives
+            // Ambiguous auto-discover / route probe for list fields that can
+            // own pill chrome. Declared `archives` entries are always probed;
+            // a unique view grouped by a list field is enough without one.
+            // Date specs (`date.year`) are not list fields and stay out
             // unless named in `archives`.
-            let tag_views: Vec<&str> = cfg
-                .views
+            let list_fields: Vec<&str> = declared_route
                 .iter()
-                .filter(|(_, v)| {
-                    v.group_by.as_deref().map(grackle_model::spec_field) == Some("tags")
-                })
+                .filter(|(_, ty)| **ty == crate::schema::FieldType::List)
                 .map(|(n, _)| n.as_str())
                 .collect();
-            if !declared.contains_key("tags") && tag_views.len() > 1 {
-                anyhow::bail!(
-                    "multiple views group by tags ({}) — declare which owns \
-                     archive routes: [collections.<name>] archives = {{ tags = \
-                     \"<view>\" }}",
-                    tag_views.join(", ")
-                );
+            for field in &list_fields {
+                let views: Vec<&str> = cfg
+                    .views
+                    .iter()
+                    .filter(|(_, v)| {
+                        v.group_by.as_deref().map(grackle_model::spec_field) == Some(field)
+                    })
+                    .map(|(n, _)| n.as_str())
+                    .collect();
+                if !declared.contains_key(field) && views.len() > 1 {
+                    anyhow::bail!(
+                        "multiple views group by {field} ({}) — declare which \
+                         owns archive routes: [collections.<name>] archives = \
+                         {{ {field} = \"<view>\" }}",
+                        views.join(", ")
+                    );
+                }
             }
-            // Probe route templates for fields that own pill chrome: explicit
-            // archives entries, plus tags when uniquely discovered.
             let mut probe: BTreeMap<&str, &str> = BTreeMap::new();
             for (field, owners) in &declared {
                 if let Some((_, vname)) = owners.first() {
                     probe.insert(field, vname);
                 }
             }
-            if !probe.contains_key("tags") {
-                if let Some((name, _)) = cfg.archive_view("tags") {
-                    probe.insert("tags", name);
+            for field in &list_fields {
+                if probe.contains_key(field) {
+                    continue;
+                }
+                if let Some((name, _)) = cfg.archive_view(field) {
+                    probe.insert(field, name);
                 }
             }
             for (field, name) in probe {
