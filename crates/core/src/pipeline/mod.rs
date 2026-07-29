@@ -89,8 +89,9 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         icon: &icon,
     };
     let profile = cfg.profile.as_deref();
-    // `[html.head.meta]` (§4e), compiled once against both surfaces.
+    // `[html.head.meta]` / `[html.*.attribute]` (§4e), compiled once.
     let metas = render::compile_metas(cfg, &db.declared)?;
+    let attrs = render::compile_attrs(cfg, &db.declared)?;
     let mut stats = Stats::default();
 
     let root = cfg.root();
@@ -124,7 +125,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // world through this function on every change, so a fixed name stops
     // being reported on the next save (C3's convention, one crate over).
     {
-        let locales = cfg.locales();
+        let locales: Vec<&str> = match cfg.pairing_axis() {
+            Some((_, a)) => a.values.iter().map(String::as_str).collect(),
+            None => vec![cfg.i18n.default.as_str()],
+        };
         for w in crate::slots::unknown_stems(themes.fills(), &themes.identity_slots(), &locales) {
             eprintln!("grackle: {w}");
             db.warnings.push(w);
@@ -180,6 +184,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         db,
         &site,
         &metas,
+        &attrs,
         &themes,
         &thumbs,
         &bodies,

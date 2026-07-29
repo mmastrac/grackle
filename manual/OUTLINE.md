@@ -722,9 +722,10 @@ ch. 18 a route owns a URL, ch. 19 how much wrapper a row wears, and now —
   - **A `field` no render path consults multiplies URLs without changing
     bytes** — only `theme` and `shell` are wired; a made-up field is a
     silent footgun that *should* be a load error and isn't yet.
-  - **No `rel="alternate"` for axis members** yet (only the locale axis
-    fills `Head.alternates`), and the `light` tier's minimal head carries
-    no canonical at all — an alternate there advertises nothing.
+  - **`rel="alternate"` for axes** is config: `from = "axis.<name>"` expands
+    over any declared axis's include-self pool (base ships the i18n hreflang
+    expand). The `light` tier's minimal head still carries no canonical — an
+    alternate there advertises nothing.
 
 *Exit check for Part II: a theme of your own, with cards, a nav, a landing
 page — and, if you want it, the same content under two looks.*

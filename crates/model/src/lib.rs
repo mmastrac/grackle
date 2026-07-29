@@ -185,7 +185,7 @@ pub enum Pool {
     Derived(String),
 }
 
-/// A relation group's heading. Resolved at render into the row's locale: a
+/// A relation group's heading. Resolved at render for the row's i18n member: a
 /// `Key` reads `[i18n.strings]` (defaulting to the relation's own name), the
 /// other two are used verbatim. Kept free of the config's `LocalizedStr` so
 /// the model owns no config types.
@@ -195,7 +195,7 @@ pub enum RelLabel {
     Key(String),
     /// A single literal, for a monolingual site.
     Text(String),
-    /// A per-locale literal map.
+    /// A per-member literal map.
     PerLocale(BTreeMap<String, String>),
 }
 

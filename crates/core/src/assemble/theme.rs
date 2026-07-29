@@ -306,14 +306,16 @@ impl Theme {
     /// is the row's `theme:` colon suffix, if any.
     /// `resolve_link` sees every markdown link in a fill, with the fill's
     /// OWNER directory as its relative base (§6a) — this is how one nav.md
-    /// with `view:` links serves every locale: resolution runs per page.
+    /// with `view:` links serves every pairing member: resolution runs per page.
     pub fn page(
         &self,
         head_html: String,
         site_title: &str,
         main: String,
         source_dir: &Path,
-        locale: &str,
+        lang: &str,
+        html_attrs: &[(String, String)],
+        body_attrs: &[(String, String)],
         resolve_link: &dyn Fn(crate::links::Cite, &Path, &str) -> Result<Option<String>>,
         subtheme: Option<&str>,
         profile: Option<&str>,
@@ -326,7 +328,7 @@ impl Theme {
             m.set("axes", Part::Stream(axes));
         }
         for (name, phrasing) in &self.identity {
-            if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, locale) {
+            if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, lang) {
                 let rendered = fill.render(&|form, href| resolve_link(form, &fill.owner, href))?;
                 let html = if *phrasing {
                     SlotFills::inline_or_err(&rendered)?.to_string()
@@ -339,7 +341,13 @@ impl Theme {
         m.set("content", Part::Html(main));
         let body = self.fragments.render_body(&m);
         Ok(crate::render::root_shell(
-            &head_html, locale, subtheme, profile, axis, &body,
+            &head_html,
+            html_attrs,
+            body_attrs,
+            subtheme,
+            profile,
+            axis,
+            &body,
         ))
     }
 }

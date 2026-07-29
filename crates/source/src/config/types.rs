@@ -64,8 +64,8 @@ pub struct Config {
     /// type to say so.
     #[serde(default)]
     pub markers: BTreeMap<String, MarkerDef>,
-    /// `[html]` (§4e): what the engine puts in the document's head, declared
-    /// rather than compiled in. Today one table — `[html.head.meta]`.
+    /// `[html]` (§4e): what the engine puts on the document — head tags and
+    /// root-element attributes — declared rather than compiled in.
     #[serde(default)]
     pub html: HtmlCfg,
     /// `[schema]` (§5b): typed fields every row has, plus how embeddings and
@@ -436,7 +436,11 @@ impl Shaped for Site {
 
 impl Shaped for HtmlCfg {
     fn shape() -> Shape {
-        Shape::Struct(vec![field("head", |h: &HtmlCfg| &h.head)])
+        Shape::Struct(vec![
+            field("head", |h: &HtmlCfg| &h.head),
+            field("html", |h: &HtmlCfg| &h.html),
+            field("body", |h: &HtmlCfg| &h.body),
+        ])
     }
 }
 
@@ -450,9 +454,16 @@ impl Shaped for HeadCfg {
     }
 }
 
+impl Shaped for AttrCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![field("attribute", |a: &AttrCfg| &a.attribute)])
+    }
+}
+
 impl Shaped for I18nCfg {
     fn shape() -> Shape {
         Shape::Struct(vec![
+            field("axis", |i: &I18nCfg| &i.axis),
             field("names", |i: &I18nCfg| &i.names),
             field("strings", |i: &I18nCfg| &i.strings),
         ])
@@ -1064,22 +1075,28 @@ impl EmbedsCfg {
     }
 }
 
-/// Display strings for the locale axis (§6f). Member identity lives on
-/// `[axes.locale]`; this table is only names and shared strings.
+/// Display strings for the i18n axis (§6f). Member identity lives on the
+/// axis named by [`I18nCfg::axis`]; this table is only names and shared strings.
 ///
-/// `default` is filled from the canonical locale axis member at load (or
-/// `"en"` when no locale axis is declared) so `LocalizedStr` resolution keeps
-/// a single fallback without restating the axis.
+/// `default` is filled from that axis's canonical member at load (or `"en"`
+/// when the axis is undeclared) so `LocalizedStr` resolution keeps a single
+/// fallback without restating the axis.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct I18nCfg {
-    /// Canonical locale, synced from `[axes.locale]` (see [`Config::sync_locale`]).
+    /// Which declared axis drives pairing, hreflang, switcher, and
+    /// single-locale indexes. Default `"locale"` matches base.toml; a site
+    /// that renames the axis sets this to match. Inert until that axis exists
+    /// under `[axes.*]`.
+    #[serde(default = "default_i18n_axis")]
+    pub axis: Option<String>,
+    /// Canonical member, synced from the i18n axis (see [`Config::sync_i18n`]).
     #[serde(skip, default = "default_locale")]
     pub default: String,
-    /// Display names for the translations axis (`fr = "Français"`);
-    /// a missing entry falls back to the locale code. Keyed by LOCALE, so
-    /// every key must be a declared locale-axis member — a name for an
-    /// undeclared locale labels nothing, and is a load error (C4a).
+    /// Display names for axis members (`fr = "Français"`); a missing entry
+    /// falls back to the member code. Keyed by member, so every key must be a
+    /// declared axis member — a name for an undeclared member labels nothing,
+    /// and is a load error (C4a).
     #[serde(default)]
     pub names: BTreeMap<String, String>,
     /// The GLOBAL string map (§6f): the fallback layer of the display-name
@@ -1115,9 +1132,14 @@ fn default_locale() -> String {
     "en".to_string()
 }
 
+fn default_i18n_axis() -> Option<String> {
+    Some("locale".to_string())
+}
+
 impl Default for I18nCfg {
     fn default() -> Self {
         I18nCfg {
+            axis: default_i18n_axis(),
             default: default_locale(),
             names: BTreeMap::new(),
             strings: BTreeMap::new(),
@@ -1193,13 +1215,93 @@ impl crate::shape::Shaped for SchemaBag {
     }
 }
 
-/// `[html]` (§4e): the parts of the document head that are a site's decision
-/// rather than the engine's.
+/// `[html]` (§4e): the parts of the document skeleton that are a site's
+/// decision rather than the engine's — head tags and attributes on `<html>` /
+/// `<body>`.
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HtmlCfg {
     #[serde(default)]
     pub head: HeadCfg,
+    /// `<html …>` attributes (`[html.html.attribute]`). Document language
+    /// lives here (`lang = 'locale'`), not as engine vocabulary.
+    #[serde(default)]
+    pub html: AttrCfg,
+    /// `<body …>` attributes (`[html.body.attribute]`).
+    #[serde(default)]
+    pub body: AttrCfg,
+}
+
+/// One element's attribute map: name → §5f text expression. Empty result
+/// omits the attribute (§5e rule 2 one layer up), same as a head meta.
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AttrCfg {
+    #[serde(default)]
+    pub attribute: BTreeMap<String, String>,
+}
+
+/// One `[html.head.*]` value: a single CEL text expression, or an expand that
+/// emits one tag per member of a candidate pool (§4e's variable-length residue).
+///
+/// ```toml
+/// canonical = 'site.url + url'                          # single
+/// alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
+/// ```
+///
+/// `from` is the same word a relation spells: a pool name. Attributes beside
+/// it are CEL expressions evaluated once per member. A table-spelled atom so
+/// Descend(3) replaces the whole entry rather than composing its fields.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum HeadEntry {
+    Expr(String),
+    Expand(HeadExpand),
+}
+
+impl HeadEntry {
+    /// The single-expression form, when this is not an expand.
+    pub fn as_expr(&self) -> Option<&str> {
+        match self {
+            HeadEntry::Expr(s) => Some(s.as_str()),
+            HeadEntry::Expand(_) => None,
+        }
+    }
+}
+
+impl PartialEq<&str> for HeadEntry {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_expr() == Some(*other)
+    }
+}
+
+impl PartialEq<str> for HeadEntry {
+    fn eq(&self, other: &str) -> bool {
+        self.as_expr() == Some(other)
+    }
+}
+
+impl PartialEq<String> for HeadEntry {
+    fn eq(&self, other: &String) -> bool {
+        self.as_expr() == Some(other.as_str())
+    }
+}
+
+/// An expand: one tag per member of `from`, attributes evaluated as CEL.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HeadExpand {
+    /// Candidate pool — relation/`axis.*` name, same vocabulary as a
+    /// relation's `from`.
+    pub from: String,
+    /// Attribute → CEL text expression (`href`, `hreflang`, `type`, …).
+    #[serde(flatten)]
+    pub attrs: BTreeMap<String, String>,
+}
+
+impl Shaped for HeadEntry {
+    fn shape() -> Shape {
+        Shape::TableAtom
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1214,17 +1316,19 @@ pub struct HeadCfg {
     /// used to read `Row.noindex` and decide to emit a robots meta. Now it
     /// evaluates whatever the config declares and knows none of the names.
     #[serde(default)]
-    pub meta: BTreeMap<String, String>,
+    pub meta: BTreeMap<String, HeadEntry>,
     /// `<meta property="KEY" content="…">`. A separate table because the
     /// ATTRIBUTE is different, not the mechanism: Open Graph and the
     /// `article:*` family are `property=`, and folding them into `meta` would
     /// mean the engine deciding which name takes which attribute — the exact
     /// kind of knowledge §4e is removing.
     #[serde(default)]
-    pub property: BTreeMap<String, String>,
-    /// `<link rel="KEY" href="…">`. Same shape one element over.
+    pub property: BTreeMap<String, HeadEntry>,
+    /// `<link rel="KEY" href="…">`. Same shape one element over. An expand
+    /// under a key (typically `alternate`) emits one link per pool member,
+    /// which is how hreflang left the engine (§4e residue).
     #[serde(default)]
-    pub link: BTreeMap<String, String>,
+    pub link: BTreeMap<String, HeadEntry>,
 }
 
 /// Internal-link policy (§6a).
@@ -1767,12 +1871,12 @@ pub struct View {
     /// wear their own. Nearest wins: the view beats member unanimity, which
     /// beats `[site] theme`.
     pub theme: Option<String>,
-    /// §6f locale-parallel materialization, DEFAULT-ON: a materializing
-    /// row-query view partitions per declared locale (each locale's rows,
-    /// locale-prefixed routes, titles resolved per locale; a locale with
-    /// no rows materializes nothing). `"default"` opts out; `"*"` states
-    /// the default explicitly. Star views never multiply (filter on
-    /// `locale`); embedded views follow their embedding page (pending).
+    /// §6f i18n-axis partition, DEFAULT-ON: a materializing row-query view
+    /// partitions per member of the i18n axis (each member's rows, member-
+    /// prefixed routes when templates spend the axis; a member with no rows
+    /// materializes nothing). `"default"` opts out; `"*"` states the default
+    /// explicitly. Star views never multiply; embedded views follow their
+    /// embedding page (pending).
     pub locales: Option<String>,
     /// The view's outermost serialization (Matt, 2026-07): `"atom"` and
     /// `"sitemap"` are built-in XML shells, `"search"` is the postcard

@@ -3,7 +3,7 @@ use crate::shape::{Law, Shape};
 
 fn cfg(views: &str) -> Config {
     let mut c = cfg_raw(views);
-    c.sync_locale().expect("locale axis syncs");
+    c.sync_i18n().expect("i18n axis syncs");
     c.validate().expect("test config should validate");
     c
 }
@@ -827,6 +827,7 @@ fn the_shape_covers_the_config_surface() {
         ("Site", Site::shape(), serde_keys::<Site>()),
         ("HtmlCfg", HtmlCfg::shape(), serde_keys::<HtmlCfg>()),
         ("HeadCfg", HeadCfg::shape(), serde_keys::<HeadCfg>()),
+        ("AttrCfg", AttrCfg::shape(), serde_keys::<AttrCfg>()),
         ("I18nCfg", I18nCfg::shape(), serde_keys::<I18nCfg>()),
         ("LinksCfg", LinksCfg::shape(), serde_keys::<LinksCfg>()),
     ] {
@@ -892,11 +893,12 @@ fn table_as_depths_fall_out_of_the_types() {
     assert_eq!(law("schema"), Law::Descend(1));
     // `[records.<field>.<id>]`: map → map → `RecordCfg`, a definition.
     assert_eq!(law("records"), Law::Descend(2));
-    // `[i18n]`: the bag, then `names`/`strings` by key. Two of `I18nCfg`'s
-    // five fields are maps and the deepest governs; the scalars beside
-    // them are unharmed, since no descent can split a string.
+    // `[i18n]`: the bag, then `names`/`strings` by key. `axis` is a scalar
+    // beside the maps and is unharmed — no descent can split a string.
+    // (`default` is serde-skipped; synced from the pairing axis at load.)
     assert_eq!(law("i18n"), Law::Descend(2));
-    // `[html.head.meta.<name>]`: struct → struct → map → the expression.
+    // `[html]`: head tables and element attribute maps. Descend(3) reaches
+    // the expression (head.meta.robots, html.attribute.lang, …).
     assert_eq!(law("html"), Law::Descend(3));
     // `[markers.<filename>]`: a map whose value is a `MarkerDef` — a
     // definition under the marker's own filename, so what a marker MEANS
@@ -1831,18 +1833,31 @@ fn cyclic_chain_terminates() {
     assert!(e.contains("cyclic"), "unexpected error: {e}");
 }
 
-/// `[axes.locale]` syncs the display-string default; absent means monolingual `en`.
+/// The i18n axis syncs the display-string default; absent means monolingual `en`.
 #[test]
 fn axes_locale_syncs_the_display_default() {
     let c = cfg("[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n");
     assert_eq!(c.i18n.default, "en");
-    assert_eq!(c.locales(), vec!["en", "fr"]);
-    assert!(c.locale_enabled());
+    let (name, axis) = c.pairing_axis().expect("locale axis");
+    assert_eq!(name, "locale");
+    assert_eq!(axis.values, ["en", "fr"]);
 
     let off = cfg("");
     assert_eq!(off.i18n.default, "en");
-    assert_eq!(off.locales(), vec!["en"]);
-    assert!(!off.locale_enabled());
+    assert!(off.pairing_axis().is_none());
+}
+
+/// A site may name the i18n axis anything; the engine follows `[i18n] axis`.
+#[test]
+fn i18n_axis_need_not_be_named_locale() {
+    let c = cfg(
+        "[i18n]\naxis = \"lang\"\n\n[axes.lang]\nvalues = [\"en\", \"fr\"]\nfield = \"lang\"\n",
+    );
+    let (name, axis) = c.pairing_axis().expect("lang axis");
+    assert_eq!(name, "lang");
+    assert_eq!(axis.field, "lang");
+    assert_eq!(c.i18n.default, "en");
+    assert_eq!(axis.values, ["en", "fr"]);
 }
 
 /// §6f display-name hierarchy: inline beats global beats built-in;

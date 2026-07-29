@@ -16,6 +16,16 @@ url = "https://example.com"
 title = "Default axis"
 author = "Tester"
 
+
+[schema]
+locale = { type = "string" }
+
+[html.head.link]
+alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
+
+[html.html.attribute]
+lang = 'locale'
+
 [axes.locale]
 values = ["en", "fr"]
 field = "locale"

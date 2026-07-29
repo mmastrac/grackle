@@ -1,0 +1,39 @@
+# The i18n axis need not be named `locale`. `[axes.lang]` + `[i18n] axis =
+# "lang"` drives pairing, hreflang expand, and single-locale indexes with no
+# engine spelling of "locale".
+extends = "none"
+
+[site]
+url = "https://example.com"
+title = "Renamed i18n axis"
+author = "Tester"
+
+[schema]
+lang = { type = "string" }
+
+[i18n]
+axis = "lang"
+
+[html.head.link]
+alternate = { from = "axis.lang", hreflang = 'lang', href = 'site.url + url' }
+canonical = 'site.url + url'
+
+[html.html.attribute]
+lang = 'lang'
+
+[axes.lang]
+values = ["en", "fr"]
+field = "lang"
+
+[[collections]]
+source = "."
+file = ["{axis:lang}/{stem}", "{stem}"]
+
+  [[collections.rules]]
+  match = "**/*.md"
+  front_matter = true
+  route = ["/{axis:lang}/{dir}/{stem}/", "/{dir}/{stem}/"]
+
+  [[collections.rules]]
+  match = "**/*"
+  route = "/{path}"

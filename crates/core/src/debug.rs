@@ -65,7 +65,6 @@ struct Row {
     shell: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     theme: Option<String>,
-    locale: String,
     /// A tree row with no front matter is copied, not rendered.
     rendered: bool,
     /// q45: a claimed row has no route of its own — its landing owns the URL.
@@ -89,8 +88,6 @@ struct Route {
     key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     page: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    locale: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     params: Vec<(String, String)>,
     /// Member row URLs, in the order the view materialized them.
@@ -148,7 +145,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             layout: None,
             shell: None,
             theme: None,
-            locale: p.locale().to_owned(),
             rendered: true,
             claimed: false,
             fields: p
@@ -172,7 +168,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             layout: None,
             shell: p.shell.clone(),
             theme: p.theme.clone(),
-            locale: p.locale().to_owned(),
             rendered: p.rendered,
             claimed: p.claimed,
             fields: p
@@ -195,7 +190,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             layout: None,
             shell: None,
             theme: None,
-            locale: String::new(),
             rendered: false,
             claimed: false,
             fields: Vec::new(),
@@ -253,7 +247,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             view: r.view.clone(),
             key: r.key.clone(),
             page: r.page,
-            locale: r.locale().map(str::to_owned),
             params: r.params.clone(),
             members: member_urls(r),
         })
@@ -288,7 +281,10 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         site: Site {
             title: &cfg.site.title,
             url: &cfg.site.url,
-            locales: cfg.locales().into_iter().collect(),
+            locales: match cfg.pairing_axis() {
+                Some((_, a)) => a.values.iter().map(String::as_str).collect(),
+                None => vec![cfg.i18n.default.as_str()],
+            },
             default_locale: &cfg.i18n.default,
         },
         stats: Stats {

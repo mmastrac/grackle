@@ -329,45 +329,111 @@ impl Config {
                     })?;
             }
         }
-        cfg.sync_locale()?;
+        cfg.sync_i18n()?;
         Ok(cfg)
     }
 
-    /// Fill [`I18nCfg::default`] from `[axes.locale]`'s canonical member.
-    pub fn sync_locale(&mut self) -> Result<()> {
-        if let Some(a) = self.axes.get("locale") {
-            anyhow::ensure!(
-                a.field == "locale",
-                "[axes.locale]: field must be \"locale\" (got {:?}) — the \
-                 declared field name is fixed so filters and head expressions \
-                 share one name",
-                a.field
-            );
-            anyhow::ensure!(
-                !a.values.is_empty(),
-                "[axes.locale]: values must list at least the canonical locale"
-            );
-            self.i18n.default = a.values[0].clone();
-        }
+    /// Fill [`I18nCfg::default`] from the axis named by [`I18nCfg::axis`].
+    pub fn sync_i18n(&mut self) -> Result<()> {
+        let Some(name) = self.i18n.axis.clone() else {
+            return Ok(());
+        };
+        let Some(a) = self.axes.get(&name) else {
+            // Axis name is aspirational until `[axes.*]` declares it —
+            // monolingual sites inherit `axis = "locale"` from defaults.
+            return Ok(());
+        };
+        anyhow::ensure!(
+            !a.values.is_empty(),
+            "[axes.{name}]: values must list at least the canonical member"
+        );
+        self.i18n.default = a.values[0].clone();
         Ok(())
     }
 
-    /// True when `[axes.locale]` is declared — file patterns may spend it and
-    /// views multiply by its members.
-    pub fn locale_enabled(&self) -> bool {
-        self.axes.contains_key("locale")
+    /// The axis `[i18n] axis` names, when that axis is declared. Sites pick
+    /// which file axis drives pairing, view partition, and display-string
+    /// keys; the engine only follows the pointer.
+    pub fn pairing_axis(&self) -> Option<(&str, &Axis)> {
+        let name = self.i18n.axis.as_deref()?;
+        self.axes.get(name).map(|a| (name, a))
     }
 
-    /// Every locale-axis member, or just the synced default when none.
-    pub fn locales(&self) -> Vec<&str> {
-        match self.axes.get("locale") {
-            Some(a) => a.values.iter().map(|s| s.as_str()).collect(),
-            None => vec![self.i18n.default.as_str()],
+    /// Whether any collection `file` pattern spends this axis (a file axis
+    /// pairs siblings via `by_logical`; a route axis multiplies one row).
+    pub fn is_file_axis(&self, name: &str) -> bool {
+        let bare = format!("{{{name}}}");
+        let namespaced = format!("{{axis:{name}}}");
+        self.collections
+            .values()
+            .any(|c| c.file.iter().any(|f| f.contains(&bare) || f.contains(&namespaced)))
+    }
+
+    /// A row's value for an axis's declared field, or that axis's canonical
+    /// when the field is unstamped / empty.
+    pub fn axis_on(&self, row: &(impl grackle_db::filter::Row + ?Sized), axis_name: &str) -> Option<String> {
+        let axis = self.axes.get(axis_name)?;
+        Some(match row.field(&axis.field) {
+            grackle_db::Value::Str(s) if !s.is_empty() => s,
+            _ => axis.canonical()?.to_owned(),
+        })
+    }
+
+    /// True when the row sits at an axis's canonical member (or the axis is
+    /// absent / the field unstamped).
+    pub fn on_canonical(&self, row: &impl grackle_db::filter::Row, axis_name: &str) -> bool {
+        let Some(axis) = self.axes.get(axis_name) else {
+            return true;
+        };
+        let Some(canon) = axis.canonical() else {
+            return true;
+        };
+        match row.field(&axis.field) {
+            grackle_db::Value::Str(s) if !s.is_empty() => s == canon,
+            _ => true,
         }
     }
 
-    pub fn is_locale(&self, loc: &str) -> bool {
-        self.locales().contains(&loc)
+    /// Stamp a non-canonical axis field into route fields; clear for canonical.
+    pub fn stamp_axis_field(
+        &self,
+        fields: &mut std::collections::BTreeMap<String, grackle_db::Value>,
+        axis_name: &str,
+        value: &str,
+    ) {
+        let Some(axis) = self.axes.get(axis_name) else {
+            return;
+        };
+        if axis.canonical() == Some(value) {
+            fields.remove(&axis.field);
+        } else {
+            fields.insert(
+                axis.field.clone(),
+                grackle_db::Value::Str(value.to_string()),
+            );
+        }
+    }
+
+    /// Whether two rows share a value on `axis` (both resolve via [`axis_on`]).
+    pub fn same_on(
+        &self,
+        a: &impl grackle_db::filter::Row,
+        b: &impl grackle_db::filter::Row,
+        axis: &str,
+    ) -> bool {
+        self.axis_on(a, axis) == self.axis_on(b, axis)
+    }
+
+    /// The configured pairing axis's member on `row` — LocalizedStr keys,
+    /// HTML `lang`, twin pivots. Composed from [`pairing_axis`] + [`axis_on`];
+    /// without a pairing axis, [`I18nCfg::default`].
+    pub fn pairing_member(&self, row: &(impl grackle_db::filter::Row + ?Sized)) -> String {
+        match self.pairing_axis() {
+            Some((n, _)) => self
+                .axis_on(row, n)
+                .unwrap_or_else(|| self.i18n.default.clone()),
+            None => self.i18n.default.clone(),
+        }
     }
 
     /// Axis values a `{axis:NAME}` file token may capture (skip canonical).
@@ -903,10 +969,11 @@ impl Config {
         found
     }
 
-    /// An archive URL for a list-field value in a locale (q32 + §6f): the
-    /// owning view's route template(s) via [`crate::load::select_path`].
-    /// None = no archive, and the pill renders unlinked.
-    pub fn archive_url(&self, field: &str, id: &str, locale: &str) -> Option<String> {
+    /// An archive URL for a list-field value under a pairing-axis member
+    /// (q32 + §6f): the owning view's route template(s) via
+    /// [`crate::load::select_path`]. None = no archive, and the pill renders
+    /// unlinked.
+    pub fn archive_url(&self, field: &str, id: &str, axis_value: &str) -> Option<String> {
         let (_, v) = self.archive_view(field)?;
         let tmpls: Vec<&str> = if !v.routes.is_empty() {
             v.routes.iter().map(String::as_str).collect()
@@ -917,21 +984,23 @@ impl Config {
             return None;
         }
         let slug = self.record_slug(field, id).to_string();
-        let locale_on = self.locale_enabled();
+        let pairing = self.pairing_axis().map(|(n, _)| n).unwrap_or("");
         let rendered: Result<Vec<String>, _> = tmpls
             .iter()
-            .map(|tmpl| archive_route_fill(tmpl, field, &slug, locale_on))
+            .map(|tmpl| archive_route_fill(tmpl, field, &slug, pairing))
             .collect();
         let rendered = rendered.ok()?;
-        crate::load::select_path(
-            &rendered,
-            &[crate::load::Coord {
-                axis: "locale",
-                value: locale,
-                canonical: locale == self.i18n.default,
-            }],
-        )
-        .ok()
+        let mut coords = Vec::new();
+        if let Some((axis, a)) = self.pairing_axis() {
+            if rendered.iter().any(|t| crate::load::spends(t, axis)) {
+                coords.push(crate::load::Coord {
+                    axis,
+                    value: axis_value,
+                    canonical: a.canonical() == Some(axis_value),
+                });
+            }
+        }
+        crate::load::select_path(&rendered, &coords).ok()
     }
 
     /// The text a row embeds as (`[schema.embeddings].string`). `{body}` is
@@ -998,19 +1067,21 @@ impl Config {
 
 /// Fill an archive route template for probing or pill URLs. The group key
 /// (or field name) takes `key`; `{axis:…}` tokens stay placeholders for
-/// [`crate::load::select_path`]. A bare `{locale}` is the retired spelling
-/// of `{axis:locale}` while sites still migrate.
+/// [`crate::load::select_path`]. A bare `{name}` for the pairing axis is kept
+/// when that axis is set.
 pub(crate) fn archive_route_fill(
     tmpl: &str,
     field: &str,
     key: &str,
-    locale_enabled: bool,
+    pairing_axis: &str,
 ) -> anyhow::Result<String> {
     grackle_db::template::render(tmpl, |tok| {
         let (ns, k) = grackle_db::template::classify(tok);
         match ns {
             Some("axis") => Some(format!("{{{tok}}}")),
-            None if k == "locale" && locale_enabled => Some("{locale}".to_string()),
+            None if !pairing_axis.is_empty() && k == pairing_axis => {
+                Some(format!("{{{pairing_axis}}}"))
+            }
             None | Some("group") if k == "key" || k == field => Some(key.to_string()),
             _ => None,
         }

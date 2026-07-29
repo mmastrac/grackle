@@ -41,9 +41,9 @@ impl Pass for Listing {
             |k| ctx.objects.contains(k),
         );
         let (title, trail) = crate::trails::listing_title_and_trail(cfg, ctx.db, view, v, r)?;
-        let pagination = pagination_parts(ctx.db, view, v, r)?;
-        let loc = ctx.locale_of(r);
-        let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc)?;
+        let pagination = pagination_parts(cfg, ctx.db, view, v, r)?;
+        let loc = ctx.pairing_member(r);
+        let intro = route_intro(cfg, v, view, r, ctx.linkspace, loc.as_str())?;
         let (theme_name, subtheme) = resolve_view_theme(ctx.themes, r, v.theme.as_deref(), || {
             match ctx.unanimous_theme(r) {
                 Some(n) => (Some(n), None),
@@ -72,14 +72,18 @@ impl Pass for Listing {
             &title, &r.url, trail, intro, content, pagination,
         ));
         let head = render::head_for(&title, &r.url, ctx.site, ctx.metas, r);
-        let resolve = fill_link_resolver(cfg, ctx.linkspace, loc);
+        let resolve = fill_link_resolver(cfg, ctx.linkspace, loc.as_str());
+        let html_attrs = render::eval_attrs(&ctx.attrs.html, cfg, r, ctx.site, &title, &r.url);
+        let body_attrs = render::eval_attrs(&ctx.attrs.body, cfg, r, ctx.site, &title, &r.url);
         let html = chain::wrap(
             chain::Page {
                 theme: row_thm,
                 head_html: render::head_html(&head, &ctx.css_of(theme_name)),
                 site_title: &cfg.site.title,
                 source_dir: ctx.root_path(),
-                locale: loc,
+                lang: loc.as_str(),
+                html_attrs,
+                body_attrs,
                 resolve_link: &resolve,
                 subtheme: subtheme.as_deref(),
                 profile: ctx.profile,

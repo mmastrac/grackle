@@ -68,7 +68,7 @@ pub struct Row {
     /// this is what a view sorts on when it says so — see `order_by` in
     /// `build_views`.
     pub order: Option<i64>,
-    /// The locale-stripped identity shared by a row and its translations
+    /// Logical identity shared by a row and its file-axis twins
     /// (collection-relative, no extension). Pairing key for `by_logical`.
     #[serde(skip)]
     pub logical: String,
@@ -181,8 +181,8 @@ pub struct Row {
     /// product of routes rather than a collision. The names drive the product.
     #[serde(skip)]
     pub axis: Vec<RowAxis>,
-    /// The rule's route template(s), rendered (path/group tokens filled, axis and
-    /// locale placeholders preserved). One in the ordinary case; a list for the
+    /// The rule's route template(s), rendered (path/group tokens filled, axis
+    /// placeholders preserved). One in the ordinary case; a list for the
     /// default-axis case (§6f), where a member at its canonical value drops its
     /// segment by falling to a shorter template. The materializer selects among
     /// these per member-tuple.
@@ -202,22 +202,6 @@ impl Row {
         self.date.map(|d| (d.year(), d.month()))
     }
 
-    /// The row's locale (§6f), stamped into [`fields`] at load (the site
-    /// default when no file axis matched). Weak: sites that decline the base
-    /// and never declare `locale` simply have none.
-    pub fn locale(&self) -> &str {
-        match self.fields.get("locale") {
-            Some(filter::Value::Str(s)) => s.as_str(),
-            _ => "",
-        }
-    }
-
-    /// Stamp the locale into [`fields`].
-    pub fn set_locale(&mut self, locale: impl Into<String>) {
-        self.fields
-            .insert("locale".into(), filter::Value::Str(locale.into()));
-    }
-
     /// A declared `bool` field, false when absent or unset (§4e).
     ///
     /// Site vocabulary, not engine columns: prefer a head expression or a
@@ -225,6 +209,14 @@ impl Row {
     /// building the heading tree is work, not a string the head can emit.
     pub fn flag(&self, name: &str) -> bool {
         matches!(self.fields.get(name), Some(filter::Value::Bool(true)))
+    }
+
+    /// A declared string field, or None when absent / not a string.
+    pub fn string(&self, name: &str) -> Option<&str> {
+        match self.fields.get(name) {
+            Some(filter::Value::Str(s)) => Some(s.as_str()),
+            _ => None,
+        }
     }
 }
 

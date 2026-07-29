@@ -146,7 +146,7 @@ pub(crate) fn walk_site(
         .collect();
 
     // q45: rows named by a view's `content` — claimed landings. Matched
-    // by logical identity so every locale variant is claimed with its
+    // by logical identity so every file-axis twin is claimed with its
     // original.
     let claims = cfg.content_claims();
 
@@ -161,8 +161,8 @@ pub(crate) fn walk_site(
     //   - the PEEK. Whether a file was peeked is what the front-matter gate
     //     reads, so it cannot itself be gated. Skipping the ~800 binaries is
     //     what keeps the peek off the build's critical path.
-    //   - the LOCALE axis. An image is shared across locales (§6f), so an
-    //     objects rule does not spend `{axis:locale}` in `file`. Pinned in
+    //   - the i18n file axis. An image is shared across members (§6f), so an
+    //     objects rule does not spend that axis in `file`. Pinned in
     //     both directions by `io_dissolve.rs` — a `photo.fr.png` keeps its
     //     literal name while a `notes.fr.md` beside it is the French variant.
     //   - the OBJECTS index (I7e). `object_ix`, `by_name` and the header read
@@ -207,9 +207,9 @@ pub(crate) fn walk_site(
         // The extension fact (above), asked once per file and read twice: by
         // the peek that already ran, and by the partition at the bottom of
         // this loop. Locale is not special here — a rule's `file` patterns
-        // either spend `{axis:locale}` or they don't. An objects rule that
+        // either spend the i18n file axis or they don't. An objects rule that
         // does not leaves `photo.fr.png` as a literal name (one picture
-        // serves every locale; `io_dissolve.rs` pins both halves).
+        // serves every i18n member; `io_dissolve.rs` pins both halves).
         let object_shaped = is_obj(&f.rel);
 
         // **Identity: a block, or a sidecar** (IO.md §1, I8). The two are peers
@@ -288,16 +288,18 @@ pub(crate) fn walk_site(
             bail!("no rule supplies a route for {}", f.path.display());
         };
         let extracted = filename::extract(routing.formats, &path_key(&scope_rel));
-        let (logical_rel, locale) = match &extracted {
+        let pairing = cfg.pairing_axis();
+        let pairing_default = pairing
+            .and_then(|(_, a)| a.canonical().map(str::to_owned))
+            .unwrap_or_else(|| cfg.i18n.default.clone());
+        let (logical_rel, pairing_value) = match &extracted {
             Some(m) => {
-                let loc = m
-                    .axes
-                    .get("locale")
-                    .cloned()
-                    .unwrap_or_else(|| cfg.i18n.default.clone());
-                (with_logical(&scope_rel, &m.logical_stem), loc)
+                let value = pairing
+                    .and_then(|(n, _)| m.axes.get(n).cloned())
+                    .unwrap_or_else(|| pairing_default.clone());
+                (with_logical(&scope_rel, &m.logical_stem), value)
             }
-            None => (scope_rel.clone(), cfg.i18n.default.clone()),
+            None => (scope_rel.clone(), pairing_default.clone()),
         };
         // Root-relative again for everything that is about the FILE rather
         // than about a rule: schema governance, `logical` identity, the claim.
@@ -475,7 +477,7 @@ pub(crate) fn walk_site(
         }
         // A `permalink` is a literal URL, spending no axis; otherwise each of
         // the rule's template(s) is rendered by the one supplier — path tokens,
-        // the extractor's, axis and locale placeholders preserved for
+        // the extractor's, axis placeholders preserved for
         // per-member selection.
         let route_templates: Vec<String> = if let Some(p) = &fm.permalink {
             vec![p.clone()]
@@ -502,11 +504,11 @@ pub(crate) fn walk_site(
         // gets the honest answer rather than a hash dressed as a route.
         let url = match route_templates.is_empty() {
             true => String::new(),
-            false => canonical_url(cfg, &route_templates, &locale, routing.formats)?,
+            false => canonical_url(cfg, &route_templates, &pairing_value, routing.formats)?,
         };
 
         let logical = logical_root.to_string_lossy().to_string();
-        // q45: a row named by some view's `content` is claimed — every locale
+        // q45: a row named by some view's `content` is claimed — every logical twin
         // variant of it (the claim is on the logical identity).
         let claimed = claims.contains_key(logical.as_str());
         if claimed && !f.has_front_matter {
@@ -563,11 +565,25 @@ pub(crate) fn walk_site(
             theme: worn.theme,
             shell: worn.shell,
             fields: {
-                // §6f: stamp after schema validation so the file axis (or the
-                // site default) wins over any front-matter `locale:` — the
-                // filename is which locale the file IS.
+                // §6f: stamp file-axis fields after schema validation so the
+                // filename wins over any front-matter for those axes — the
+                // file is which member the row IS.
                 let mut values = checked.values;
-                values.insert("locale".into(), grackle_db::Value::Str(locale));
+                if let Some(m) = &extracted {
+                    for (axis_name, value) in &m.axes {
+                        if let Some(axis) = cfg.axes.get(axis_name) {
+                            values.insert(
+                                axis.field.clone(),
+                                grackle_db::Value::Str(value.clone()),
+                            );
+                        }
+                    }
+                }
+                if let Some((_, axis)) = pairing {
+                    values
+                        .entry(axis.field.clone())
+                        .or_insert_with(|| grackle_db::Value::Str(pairing_value.clone()));
+                }
                 values
             },
             images: checked.images,

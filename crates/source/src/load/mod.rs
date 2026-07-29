@@ -327,7 +327,7 @@ fn apply_rules<'a>(
             }
         }
         // Globs see the logical path: strip spent file axes first so a prefix
-        // locale (`fr/recipes/dal.md`) still matches `recipes/**`.
+        // i18n prefix (`fr/recipes/dal.md`) still matches `recipes/**`.
         let rule_formats = if rule.formats.is_empty() {
             collection_formats
         } else {
@@ -605,7 +605,6 @@ fn row_axes(
 }
 
 /// Whether a template spends an axis: `{name}` or the namespaced `{axis:name}`.
-/// Locale also answers to bare `{locale}`.
 ///
 /// **The one spend test.** Every reader of a route template asks this question —
 /// the materializer, the view loader's declared-but-never-spent check, the link
@@ -614,9 +613,7 @@ fn row_axes(
 /// fail in another (MERGE.md C5). `pub` for that reason: a second spelling of
 /// this predicate is the bug, not the convenience.
 pub fn spends(tmpl: &str, axis: &str) -> bool {
-    tmpl.contains(&format!("{{{axis}}}"))
-        || tmpl.contains(&format!("{{axis:{axis}}}"))
-        || (axis == "locale" && tmpl.contains("{locale}"))
+    tmpl.contains(&format!("{{{axis}}}")) || tmpl.contains(&format!("{{axis:{axis}}}"))
 }
 
 /// Spend one axis's segment: the dual of `spends`, and it must accept exactly
@@ -639,7 +636,7 @@ pub struct Coord<'a> {
 /// and fill it (§6f, the default-axis case). A canonical coord's segment drops
 /// when a shorter template omits it — `["/{theme}/{axis:locale}/", "/{theme}/",
 /// "/"]` lands the all-canonical member at `/`. Locale is not special: a
-/// non-canonical locale must be spent by a template, same as any other axis.
+/// non-canonical i18n member must be spent by a template, same as any other axis.
 /// Errors only if no template covers a required set, which the fullest
 /// template always does unless the templates are pathologically split.
 pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
@@ -781,9 +778,7 @@ impl RouteTokens<'_> {
             // An axis placeholder is spent per member, not here (q53).
             k => {
                 let (_, bare) = template::classify(k);
-                (self.cfg.axes.contains_key(bare)
-                    || (bare == "locale" && self.cfg.locale_enabled()))
-                .then(|| format!("{{{k}}}"))
+                self.cfg.axes.contains_key(bare).then(|| format!("{{{k}}}"))
             }
         }
     }
@@ -1084,29 +1079,37 @@ fn under_themes(rel: &Path) -> bool {
     parts.next().is_some_and(|c| c.as_os_str() == store::THEMES) && parts.next().is_some()
 }
 
-/// The canonical address of one row: every axis at its canonical value, the
-/// row's own locale (§6f). `select_path` drops a canonical segment where a
-/// shorter template allows.
+/// The canonical address of one row: every route axis at its canonical value,
+/// plus the i18n member when templates spend that axis (§6f). `select_path`
+/// drops a canonical segment where a shorter template allows.
 fn canonical_url(
     cfg: &Config,
     templates: &[String],
-    locale: &str,
+    pairing_value: &str,
     file: &[filename::FilePattern],
 ) -> Result<String> {
     let row_axis = row_axes(cfg, templates, file);
-    let coords: Vec<Coord> = row_axis
+    let mut coords: Vec<Coord> = row_axis
         .iter()
         .map(|ra| Coord {
             axis: &ra.name,
             value: cfg.axes[&ra.name].canonical().unwrap_or_default(),
             canonical: true,
         })
-        .chain(std::iter::once(Coord {
-            axis: "locale",
-            value: locale,
-            canonical: locale == cfg.i18n.default,
-        }))
         .collect();
+    if let Some((axis_name, _)) = cfg.pairing_axis() {
+        if templates.iter().any(|t| spends(t, axis_name)) {
+            let canon = cfg
+                .pairing_axis()
+                .and_then(|(_, a)| a.canonical())
+                .unwrap_or(cfg.i18n.default.as_str());
+            coords.push(Coord {
+                axis: axis_name,
+                value: pairing_value,
+                canonical: pairing_value == canon,
+            });
+        }
+    }
     select_path(templates, &coords)
 }
 
@@ -1212,13 +1215,23 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     let t_index = std::time::Instant::now();
-    db.insert_rows(sort_posts(post_rows), page_rows, objects, &cfg.i18n.default)?;
+    let dated_keep = cfg.pairing_axis().map(|(_, a)| {
+        (
+            a.field.as_str(),
+            a.canonical().unwrap_or(cfg.i18n.default.as_str()),
+        )
+    });
+    db.insert_rows(
+        sort_posts(post_rows),
+        page_rows,
+        objects,
+        dated_keep,
+    )?;
     walk::resolve_image_fields(&db, &schemas)?;
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
     // Unified route list.
     let t = std::time::Instant::now();
-    let route_locale = |l: &str| (l != cfg.i18n.default).then(|| l.to_string());
     // `RouteKind::Post` survives because a ROUTE kind is real: it is the
     // vocabulary route-pool filters use (`kind == "post"`). Membership, not
     // arithmetic — position in the store carries no meaning.
@@ -1250,14 +1263,21 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             RouteKind::Static
         };
         let one = |url: String, axis: Vec<AxisMember>| {
-            let fields = {
+            let mut fields = {
                 let mut f = p.fields.clone();
                 for m in axis.iter().filter(|m| m.field == "shell") {
                     f.insert("shell".to_string(), grackle_db::Value::Str(m.value.clone()));
                 }
                 f
             };
-            let mut r = Route {
+            // Rows keep every axis field; routes leave the pairing axis's
+            // canonical unstamped so filters see Null (same as other axes).
+            if let Some((name, _)) = cfg.pairing_axis() {
+                if let Some(value) = cfg.axis_on(p, name) {
+                    cfg.stamp_axis_field(&mut fields, name, &value);
+                }
+            }
+            Route {
                 row: Some(p.key.clone()),
                 source: Some(p.path.clone()),
                 // The row's fields, with one correction: a member of an axis over
@@ -1273,11 +1293,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 // only filter on what the route answers.
                 front_mattered: p.front_mattered,
                 ..Route::new(url, kind)
-            };
-            // Locale is a declared field (base.toml), not an engine column —
-            // stamp the non-default the same way `Route::locale` used to.
-            r.set_locale(route_locale(p.locale()));
-            r
+            }
         };
         // The row's own rule decided this (q53 step 2): a route template that
         // spends `{theme}` opted its rows in. Only a RENDERED row multiplies —
@@ -1290,7 +1306,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         }
         // The cartesian product of the axes' values: one route per member-tuple.
         // A single axis is the degenerate product of one. Each tuple picks its
-        // template (locale a coordinate beside the theme members) so a canonical
+        // template (i18n a coordinate beside the theme members) so a canonical
         // member drops its segment where a shorter template allows.
         let mut tuples: Vec<Vec<AxisMember>> = vec![Vec::new()];
         for ra in axes {
@@ -1311,21 +1327,32 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 })
                 .collect();
         }
+        let pairing = cfg.pairing_axis();
+        let pairing_value = pairing
+            .and_then(|(n, _)| cfg.axis_on(p, n))
+            .unwrap_or_else(|| cfg.i18n.default.clone());
+        let pairing_canon = pairing
+            .and_then(|(_, a)| a.canonical())
+            .unwrap_or(cfg.i18n.default.as_str());
         for tuple in tuples {
             let url = {
-                let coords: Vec<Coord> = tuple
+                let mut coords: Vec<Coord> = tuple
                     .iter()
                     .map(|m| Coord {
                         axis: &m.axis,
                         value: &m.value,
                         canonical: m.canonical,
                     })
-                    .chain(std::iter::once(Coord {
-                        axis: "locale",
-                        value: p.locale(),
-                        canonical: p.locale() == cfg.i18n.default,
-                    }))
                     .collect();
+                if let Some((axis_name, _)) = pairing {
+                    if p.route_templates.iter().any(|t| spends(t, axis_name)) {
+                        coords.push(Coord {
+                            axis: axis_name,
+                            value: pairing_value.as_str(),
+                            canonical: pairing_value == pairing_canon,
+                        });
+                    }
+                }
                 select_path(&p.route_templates, &coords)?
             };
             new_routes.push(one(url, tuple));
@@ -1447,7 +1474,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             set_content.push((r.id.clone(), cp));
         }
         if !errors.is_empty() {
-            // A promise route repeats per locale/page, so the same message can
+            // A promise route repeats per i18n member/page, so the same message can
             // arrive several times.
             errors.sort();
             errors.dedup();
@@ -1503,8 +1530,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // q45: a claimed row's URL becomes its landing's — so source-path links and
     // the ancestors walk see the landing, not the retired standalone URL. A
     // TEMPLATED claim points at the specific route that embeds it (the one whose
-    // resolved `content` is this row's logical path, in this locale); a LITERAL
-    // one points at its owner view's bare route. A locale variant whose partition
+    // resolved `content` is this row's logical path, for this i18n member); a LITERAL
+    // one points at its owner view's bare route. A twin whose partition
     // didn't materialize keeps no URL (nothing may link it).
     {
         let claims = cfg.content_claims();
@@ -1527,7 +1554,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 .find(|r| {
                     r.view.is_some()
                         && r.content.as_deref() == Some(p.logical.as_str())
-                        && r.locale() == route_locale(p.locale()).as_deref()
+                        && match cfg.pairing_axis() {
+                            Some((n, _)) => cfg.same_on(*r, p, n),
+                            None => true,
+                        }
                 })
                 .map(|r| r.url.clone())
                 .or_else(|| {
@@ -1536,7 +1566,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                         .iter()
                         .find(|r| {
                             r.view.as_deref() == Some(owner)
-                                && r.locale() == route_locale(p.locale()).as_deref()
+                                && match cfg.pairing_axis() {
+                                    Some((n, _)) => cfg.same_on(*r, p, n),
+                                    None => true,
+                                }
                                 && r.key.is_none()
                                 && r.page.is_none_or(|n| n == 1)
                         })
@@ -1582,7 +1615,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     // A row is rendered at exactly one route, and the three legal counts are
     // 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand
     // and unreferenced), 1 (everything else), and N **only along an axis**
-    // (q53: locales, and whatever follows them). Nothing produces N today, so
+    // (q53: i18n members, and whatever follows them). Nothing produces N today, so
     // this cannot currently fire from any config; it is stated now because the
     // axis is the feature that will make it reachable, and a contract written
     // before its first violation is a design decision rather than a patch.

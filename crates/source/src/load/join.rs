@@ -99,14 +99,15 @@ pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
             (!crate::config::is_templated(c)).then(|| c.to_string())
         });
         if let Some(logical) = claimed {
-            // §6f: a landing route is per locale, and so is the row it claims.
-            // The route's `locale` is None for the default one, which is the
-            // same spelling `route_locale` writes.
+            // §6f: a landing route is per pairing-axis member, and so is the row it claims.
             for k in db.by_logical.get(&logical).into_iter().flatten() {
-                let matches = db.rows.get(k).is_some_and(|row| {
-                    let want = (row.locale() != cfg.i18n.default).then_some(row.locale());
-                    r.locale() == want
-                });
+                let matches = db
+                    .rows
+                    .get(k)
+                    .is_some_and(|row| match cfg.pairing_axis() {
+                        Some((n, _)) => cfg.same_on(row, r, n),
+                        None => true,
+                    });
                 if matches {
                     ins.push(k.clone());
                 }

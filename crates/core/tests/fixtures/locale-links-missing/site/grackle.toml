@@ -14,6 +14,13 @@ author = "Tester"
 [links]
 policy = "strict"
 
+
+[schema]
+locale = { type = "string" }
+
+[html.head.link]
+alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
+
 [axes.locale]
 values = ["en", "fr"]
 field = "locale"

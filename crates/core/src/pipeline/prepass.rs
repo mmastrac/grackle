@@ -15,30 +15,6 @@ use crate::store::split_front_matter;
 use crate::tags;
 use crate::theme;
 
-/// q53: the locale axis as head alternates. Every version lists every
-/// version, ITSELF INCLUDED, which is what `hreflang` asks for — a page
-/// that omits itself is a common and quiet mistake.
-///
-/// Empty when the row has no twins, so a monolingual site emits nothing.
-pub(crate) fn locale_alternates(
-    site_url: &str,
-    self_locale: &str,
-    self_url: &str,
-    twins: &[(String, String)],
-) -> Vec<crate::model::Alternate> {
-    if twins.is_empty() {
-        return Vec::new();
-    }
-    let one = |loc: &str, url: &str| crate::model::Alternate {
-        href: format!("{site_url}{url}"),
-        hreflang: Some(loc.to_string()),
-        media_type: None,
-    };
-    let mut v = vec![one(self_locale, self_url)];
-    v.extend(twins.iter().map(|(loc, url)| one(loc, url)));
-    v
-}
-
 /// A row's OTHER axis forms as `rel="alternate"` (q53). One entry per member
 /// route of the same row that is NOT this route — a member points at its
 /// siblings, `rel="canonical"` names the one that counts. A form whose URL has a
@@ -46,6 +22,7 @@ pub(crate) fn locale_alternates(
 /// (a theme member) carries none, being the same representation elsewhere.
 ///
 /// Empty for a row on no axis, so a page with one form announces nothing.
+/// Locale hreflang is a declared expand (`[html.head.link] alternate`), not here.
 pub(crate) fn axis_alternates(
     db: &SiteDb,
     site_url: &str,
@@ -292,29 +269,6 @@ pub(crate) fn backlinks_map(
 #[cfg(test)]
 mod alternates_tests {
     use super::*;
-
-    #[test]
-    fn a_row_with_no_twins_announces_nothing() {
-        assert!(locale_alternates("https://s", "en", "/a/", &[]).is_empty());
-    }
-
-    #[test]
-    fn every_version_lists_itself_and_its_twins() {
-        let twins = vec![("fr".to_string(), "/fr/a/".to_string())];
-        let alts = locale_alternates("https://s", "en", "/a/", &twins);
-        let got: Vec<(Option<String>, String)> = alts
-            .iter()
-            .map(|a| (a.hreflang.clone(), a.href.clone()))
-            .collect();
-        assert_eq!(
-            got,
-            vec![
-                (Some("en".to_string()), "https://s/a/".to_string()),
-                (Some("fr".to_string()), "https://s/fr/a/".to_string()),
-            ]
-        );
-        assert!(alts.iter().all(|a| a.media_type.is_none()));
-    }
 
     #[test]
     fn alt_media_type_names_only_non_html_forms() {

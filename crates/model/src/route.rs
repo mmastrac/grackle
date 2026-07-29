@@ -88,8 +88,8 @@ pub struct Route {
     /// A map rather than the two named bools it replaces, because the flag
     /// family is ordinary declared schema now (§4e): whatever a site declares
     /// is what an all-outputs fold may filter on, and the engine names none
-    /// of it. **Locale** is stamped here when non-default (§6f); the default
-    /// stays absent so filters see Null. [`Route::locale`] reads it.
+    /// of it. The i18n-axis field is stamped here when non-default (§6f); the
+    /// canonical member stays absent so filters see Null.
     #[serde(skip)]
     pub fields: BTreeMap<String, filter::Value>,
     /// **The outputs this output reads the FACTS of** — the output→output half
@@ -187,29 +187,6 @@ impl Route {
         }
     }
 
-    /// The route's locale, when a non-default one was stamped into [`fields`]
-    /// (§6f). Weak: sites that decline the base and never declare `locale`
-    /// simply have none. Alternates and locale-parallel views read through this.
-    pub fn locale(&self) -> Option<&str> {
-        match self.fields.get("locale") {
-            Some(filter::Value::Str(s)) => Some(s.as_str()),
-            _ => None,
-        }
-    }
-
-    /// Stamp a non-default locale into [`fields`]. `None` clears it, so
-    /// filters keep seeing Null for the default.
-    pub fn set_locale(&mut self, locale: Option<String>) {
-        match locale {
-            Some(l) => {
-                self.fields.insert("locale".into(), filter::Value::Str(l));
-            }
-            None => {
-                self.fields.remove("locale");
-            }
-        }
-    }
-
     /// Served as a directory (URL ends in `/`), so its output is an index.html.
     fn is_dir(&self) -> bool {
         self.url.ends_with('/')
@@ -257,21 +234,26 @@ impl filter::Row for Route {
                 .as_deref()
                 .and_then(|p| p.file_stem())
                 .map_or(V::Null, |s| {
-                    // §6f: the logical stem — a suffix-selected locale is
-                    // not part of a row's identity (`index.fr` is `index`).
+                    // §6f: the logical stem — a file-axis suffix is not part
+                    // of a row's identity (`index.fr` is `index`). Strip any
+                    // stamped i18n-field value used as a filename suffix.
                     let s = s.to_string_lossy();
-                    let logical = match self.locale() {
-                        Some(l) => s
-                            .strip_suffix(l)
-                            .and_then(|rest| rest.strip_suffix('.'))
-                            .unwrap_or(s.as_ref()),
-                        None => s.as_ref(),
-                    };
-                    V::Str(logical.to_owned())
+                    let logical = self
+                        .fields
+                        .iter()
+                        .find_map(|(_, v)| match v {
+                            filter::Value::Str(l) => s
+                                .strip_suffix(l.as_str())
+                                .and_then(|rest| rest.strip_suffix('.'))
+                                .map(|stem| stem.to_owned()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| s.into_owned());
+                    V::Str(logical)
                 }),
             // Declared fields carried from the source row (§4e) — the same
-            // fallthrough `Row` has, so `draft` / `locale` read the same at
-            // both layers.
+            // fallthrough `Row` has, so `draft` / the i18n field read the same
+            // at both layers.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
         }
     }

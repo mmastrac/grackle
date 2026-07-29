@@ -544,9 +544,12 @@ fn pill_stream(
             let mut m = PartMap::new_declared(child);
             m.set_declared(
                 name_key,
-                Part::Text(cfg.record_name(field, id, p.locale()).to_string()),
+                Part::Text(
+                    cfg.record_name(field, id, &cfg.pairing_member(p))
+                        .to_string(),
+                ),
             );
-            if let Some(url) = cfg.archive_url(field, id, p.locale()) {
+            if let Some(url) = cfg.archive_url(field, id, &cfg.pairing_member(p)) {
                 m.set_declared(url_key, Part::Text(url));
             }
             m
@@ -1140,7 +1143,7 @@ mod tests {
             let title = pg.title.clone().unwrap_or_default();
             let m = document_tree(
                 &cfg,
-                pg.locale(),
+                &cfg.pairing_member(pg),
                 "/",
                 &title,
                 &pg.url,

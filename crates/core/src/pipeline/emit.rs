@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::assemble::chain;
 use crate::config::Config;
 use crate::markdown::Doc;
-use crate::model::{Route, RouteKind, Row, SiteDb};
+use crate::model::{Route, RouteKind, SiteDb};
 use crate::parts;
 use crate::passes::preview;
 use crate::pipeline::bodies;
@@ -26,6 +26,7 @@ pub(crate) fn run(
     db: &SiteDb,
     site: &Site<'_>,
     metas: &render::Metas,
+    attrs: &render::HtmlAttrs,
     themes: &theme::Themes,
     thumbs: &crate::thumbs::Renditions,
     bodies: &HashMap<&grackle_db::Key, Doc>,
@@ -43,6 +44,13 @@ pub(crate) fn run(
             .map(|t| t.url.clone())
             .unwrap_or_else(|| preview::asset_url(&cfg.site.baseurl, src))
     };
+    let eval_page_attrs =
+        |row: &dyn crate::filter::Row, title: &str, url: &str| -> (Vec<(String, String)>, Vec<(String, String)>) {
+            (
+                render::eval_attrs(&attrs.html, cfg, row, site, title, url),
+                render::eval_attrs(&attrs.body, cfg, row, site, title, url),
+            )
+        };
     // ---- posts: document parts -> theme fragments -> shell
     //
     // Driven by the ROUTE table, like the `RouteKind::Page` arm below. It used
@@ -87,9 +95,21 @@ pub(crate) fn run(
             } else {
                 Vec::new()
             };
-            let translations = locale_twins(db, p);
-            head.alternates =
-                prepass::locale_alternates(&cfg.site.url, p.locale(), &p.url, &translations);
+            head.alternates = render::eval_expands(metas, site, &head.title, cfg, |name| {
+                let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
+                    .into_iter()
+                    .map(|m| render::ExpandMember {
+                        row: m.row,
+                        // Self must name THIS route (hreflang lists the page you
+                        // are on); twins keep the row's canonical URL.
+                        url: if m.current { r.url.as_str() } else { m.url },
+                        member: m.member,
+                    })
+                    .collect();
+                // Self first, then twins.
+                members.sort_by_key(|m| m.url != r.url.as_str());
+                members
+            });
             head.alternates
                 .extend(prepass::axis_alternates(db, &cfg.site.url, r));
             let groups =
@@ -98,6 +118,8 @@ pub(crate) fn run(
             let dir = p.path.parent().unwrap_or(root);
             let (theme_name, subtheme) = preview::resolve_theme(themes, r, p.theme.as_deref());
             let row_thm = themes.get(theme_name)?;
+            let lang = cfg.pairing_member(p);
+            let (html_attrs, body_attrs) = eval_page_attrs(p, &head.title, &p.url);
             let html = chain::document_page(
                 chain::Page {
                     theme: row_thm,
@@ -107,8 +129,10 @@ pub(crate) fn run(
                     ),
                     site_title: &cfg.site.title,
                     source_dir: dir,
-                    locale: p.locale(),
-                    resolve_link: &preview::fill_link_resolver(cfg, linkspace, p.locale()),
+                    lang: lang.as_str(),
+                    html_attrs,
+                    body_attrs,
+                    resolve_link: &preview::fill_link_resolver(cfg, linkspace, lang.as_str()),
                     subtheme: subtheme.as_deref(),
                     profile,
                     axis: &r.axis,
@@ -135,6 +159,7 @@ pub(crate) fn run(
     {
         let ctx = crate::passes::Ctx {
             metas,
+            attrs,
             cfg,
             db,
             site,
@@ -176,7 +201,8 @@ pub(crate) fn run(
         // (A `kind != View` guard stood here and was DELETED at I13, not
         // respelled: the `let Some(view)` four lines up already asked it —
         // "is this a view route" is the `view` column being non-empty.)
-        let loc = r.locale().unwrap_or(&cfg.i18n.default);
+        let loc_owned = cfg.pairing_member(r);
+        let loc = loc_owned.as_str();
 
         // The claimed row, in the route's locale — else the default's
         // prose (the same fallback slot fills use).
@@ -184,11 +210,15 @@ pub(crate) fn run(
         let row = sibs
             .iter()
             .filter_map(|k| db.rows.get(k))
-            .find(|p| p.locale() == loc)
+            .find(|p| cfg.pairing_member(*p) == loc)
             .or_else(|| {
+                let canon = cfg
+                    .pairing_axis()
+                    .and_then(|(_, a)| a.canonical())
+                    .unwrap_or(cfg.i18n.default.as_str());
                 sibs.iter()
                     .filter_map(|k| db.rows.get(k))
-                    .find(|p| p.locale() == cfg.i18n.default)
+                    .find(|p| cfg.pairing_member(*p) == canon)
             });
         let Some(row) = row else { continue }; // existence-checked at load
         let src = &row.path;
@@ -224,7 +254,7 @@ pub(crate) fn run(
             items,
         )
         .with_context(|| format!("view {view}"))?;
-        if let Some(p) = preview::pagination_parts(db, view, v, r)? {
+        if let Some(p) = preview::pagination_parts(cfg, db, view, v, r)? {
             embed_html.push_str(&row_thm.fragments.render(&p));
         }
 
@@ -292,7 +322,13 @@ pub(crate) fn run(
         // The landing's locale switcher and any axis are the `axes` slot now,
         // computed per route by `axes_part` — a landing per locale IS the
         // translation set (a fallback landing is still the French landing).
-        let section = section_parts(db, &mut section_trees, &row.rel, &r.url, &cfg.i18n.default);
+        let dated_keep = cfg.pairing_axis().map(|(_, a)| {
+            (
+                a.field.as_str(),
+                a.canonical().unwrap_or(cfg.i18n.default.as_str()),
+            )
+        });
+        let section = section_parts(db, &mut section_trees, &row.rel, &r.url, dated_keep);
         let groups = parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
         let doc = parts::document_tree(
             cfg,
@@ -309,13 +345,16 @@ pub(crate) fn run(
         );
         let head = render::head_for(&title, &r.url, site, metas, r);
         let dir = src.parent().unwrap_or(root);
+        let (html_attrs, body_attrs) = eval_page_attrs(row, &title, &r.url);
         let html = chain::document_page(
             chain::Page {
                 theme: row_thm,
                 head_html: render::head_html(&head, &theme::css_url(&cfg.site.baseurl, theme_name)),
                 site_title: &cfg.site.title,
                 source_dir: dir,
-                locale: loc,
+                lang: loc,
+                html_attrs,
+                body_attrs,
                 resolve_link: &preview::fill_link_resolver(cfg, linkspace, loc),
                 subtheme: subtheme.as_deref(),
                 profile,
@@ -522,9 +561,15 @@ pub(crate) fn run(
                     _ => Vec::new(),
                 };
 
+                let dated_keep = cfg.pairing_axis().map(|(_, a)| {
+                    (
+                        a.field.as_str(),
+                        a.canonical().unwrap_or(cfg.i18n.default.as_str()),
+                    )
+                });
                 let section = row
                     .map(|p| {
-                        section_parts(db, &mut section_trees, &p.rel, &r.url, &cfg.i18n.default)
+                        section_parts(db, &mut section_trees, &p.rel, &r.url, dated_keep)
                     })
                     .unwrap_or_default();
 
@@ -571,27 +616,42 @@ pub(crate) fn run(
                     Some("light_html") => Theme::Light,
                     _ => Theme::Default,
                 };
-                let row_locale = row.map(|p| p.locale()).unwrap_or(cfg.i18n.default.as_str());
+                let lang = row
+                    .map(|p| cfg.pairing_member(p))
+                    .unwrap_or_else(|| cfg.i18n.default.clone());
+                let lang = lang.as_str();
+                let attr_row: &dyn crate::filter::Row = match row {
+                    Some(p) => p,
+                    None => r,
+                };
+                let (html_attrs, body_attrs) = eval_page_attrs(attr_row, &title, &r.url);
                 let html = match tier {
-                    Theme::Light => chain::light_page(&head, row_locale, profile, &r.axis, frag),
+                    Theme::Light => {
+                        chain::light_page(&head, &html_attrs, &body_attrs, profile, &r.axis, frag)
+                    }
                     Theme::Default => {
                         let groups = parts::relation_groups(
                             rel_groups.get(&r.url).cloned().unwrap_or_default(),
                         );
-                        let translations = row.map(|p| locale_twins(db, p)).unwrap_or_default();
                         let mut head = head;
-                        head.alternates = prepass::locale_alternates(
-                            &cfg.site.url,
-                            row_locale,
-                            &r.url,
-                            &translations,
-                        );
+                        head.alternates = render::eval_expands(metas, site, &title, cfg, |name| {
+                            let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
+                                .into_iter()
+                                .map(|m| render::ExpandMember {
+                                    row: m.row,
+                                    url: if m.current { r.url.as_str() } else { m.url },
+                                    member: m.member,
+                                })
+                                .collect();
+                            members.sort_by_key(|m| m.url != r.url.as_str());
+                            members
+                        });
                         head.alternates
                             .extend(prepass::axis_alternates(db, &cfg.site.url, r));
                         let doc = parts::document_tree(
                             cfg,
-                            row_locale,
-                            &crate::trails::home_url(cfg, db, row_locale),
+                            lang,
+                            &crate::trails::home_url(cfg, db, lang),
                             &title,
                             &r.url,
                             &crate::trails::ancestors(cfg, db, &r.url),
@@ -608,10 +668,10 @@ pub(crate) fn run(
                                 head_html: render::head_html(&head, &row_css),
                                 site_title: &cfg.site.title,
                                 source_dir: dir,
-                                locale: row_locale,
-                                resolve_link: &preview::fill_link_resolver(
-                                    cfg, linkspace, row_locale,
-                                ),
+                                lang,
+                                html_attrs,
+                                body_attrs,
+                                resolve_link: &preview::fill_link_resolver(cfg, linkspace, lang),
                                 subtheme: subtheme.as_deref(),
                                 profile,
                                 axis: &r.axis,
@@ -691,28 +751,14 @@ pub(crate) fn section_parts(
     section_trees: &mut HashMap<PathBuf, Vec<crate::outline::Node>>,
     rel: &Path,
     page_url: &str,
-    default_locale: &str,
+    dated_keep: Option<(&str, &str)>,
 ) -> Vec<parts::PartMap> {
     crate::outline::nearest(&db.sections, rel)
         .map(|sec| {
             let tree = section_trees
                 .entry(sec.to_path_buf())
-                .or_insert_with(|| crate::outline::section_tree(db, sec, default_locale));
+                .or_insert_with(|| crate::outline::section_tree(db, sec, dated_keep));
             crate::outline::to_parts(tree, page_url)
-        })
-        .unwrap_or_default()
-}
-
-/// Locale twins of `row` (other locales, labelled by language).
-pub(crate) fn locale_twins(db: &SiteDb, p: &Row) -> Vec<(String, String)> {
-    db.by_logical
-        .get(&p.logical)
-        .map(|sibs| {
-            sibs.iter()
-                .filter_map(|k| db.rows.get(k))
-                .filter(|s| s.url != p.url)
-                .map(|s| (s.locale().to_owned(), s.url.clone()))
-                .collect()
         })
         .unwrap_or_default()
 }

@@ -85,14 +85,14 @@ impl SlotFills {
 
     /// Resolve a slot for a row whose source lives in `dir`: nearest
     /// `.slots/<name>.*` ascending from `dir` to the root wins. Within a
-    /// directory, the row's locale wins (§6f): `nav.fr.md` beside `nav.md`
-    /// is the same suffix convention rows use, needing no config — the
-    /// dotted stem simply IS the localized slot name. The base file is the
-    /// default locale, so a page's chrome follows its language exactly as
-    /// its trail does, and a locale with no localized fill inherits the
-    /// default one.
-    pub fn resolve(&self, root: &Path, dir: &Path, slot: &str, locale: &str) -> Option<&Fill> {
-        let localized = format!("{slot}.{locale}");
+    /// directory, the pairing-axis member wins (§6f): `nav.fr.md` beside
+    /// `nav.md` is the same suffix convention rows use, needing no config —
+    /// the dotted stem simply IS the localized slot name. The base file is
+    /// the canonical member, so a page's chrome follows its language exactly
+    /// as its trail does, and a member with no localized fill inherits the
+    /// canonical one.
+    pub fn resolve(&self, root: &Path, dir: &Path, slot: &str, lang: &str) -> Option<&Fill> {
+        let localized = format!("{slot}.{lang}");
         let mut cur = dir;
         loop {
             if let Some(m) = self.by_dir.get(cur) {

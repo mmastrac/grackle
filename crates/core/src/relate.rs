@@ -162,7 +162,7 @@ impl<'a> Engine<'a> {
                 .collect();
             groups.push(Group {
                 name: rel.name.clone(),
-                label: self.label(&rel.label, row.locale(), &rel.name),
+                label: self.label(&rel.label, &self.cfg.pairing_member(row), &rel.name),
                 items,
             });
         }
@@ -240,7 +240,13 @@ impl<'a> Engine<'a> {
         let mut siblings = Vec::new();
         let mut descendants = Vec::new();
         for r in self.db.rows.iter() {
-            if !r.rendered || r.url == row.url || r.locale() != row.locale() {
+            if !r.rendered
+                || r.url == row.url
+                || match self.cfg.pairing_axis() {
+                    Some((n, _)) => !self.cfg.same_on(r, row, n),
+                    None => false,
+                }
+            {
                 continue;
             }
             if self_url.ends_with('/') && r.url.starts_with(self_url) {
@@ -258,12 +264,16 @@ impl<'a> Engine<'a> {
         (children, siblings, descendants)
     }
 
-    /// The candidate as `self` should see it (§6f): a pool is default-locale,
-    /// so a French page's neighbours are the French *variants* of what the
+    /// The candidate as `self` should see it (§6f): a pool is i18n-canonical,
+    /// so a French page's neighbours are the French *twins* of what the
     /// pool holds — pivoted through `by_logical`, dropped where no variant
     /// exists. Without this a translated page's every relation is a desert.
-    fn localize<'r>(&'r self, cand: &'r Row, locale: &str) -> Option<&'r Row> {
-        if cand.locale() == locale {
+    fn twin<'r>(&'r self, cand: &'r Row, member: &str) -> Option<&'r Row> {
+        let matches = |r: &Row| match self.cfg.pairing_axis() {
+            Some((_, axis)) => r.string(&axis.field) == Some(member),
+            None => member == self.cfg.i18n.default,
+        };
+        if matches(cand) {
             return Some(cand);
         }
         self.db
@@ -271,7 +281,7 @@ impl<'a> Engine<'a> {
             .get(&cand.logical)?
             .iter()
             .filter_map(|k| self.db.rows.get(k))
-            .find(|r| r.locale() == locale)
+            .find(|r| matches(r))
     }
 
     /// Walk one relation's candidates: pool → localized to self → self-excluded
@@ -288,9 +298,9 @@ impl<'a> Engine<'a> {
         let mut scored: Vec<(String, Option<f64>, Option<chrono::NaiveDate>)> = Vec::new();
         let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for cand in pool {
-            // Pivot into self's locale; two pool members can pivot to one
+            // Pivot into self's i18n member; two pool members can pivot to one
             // variant, so dedup.
-            let Some(cand) = self.localize(cand, row.locale()) else {
+            let Some(cand) = self.twin(cand, &self.cfg.pairing_member(row)) else {
                 continue;
             };
             // Self is never a candidate — a mechanism rule, not a per-site
@@ -364,14 +374,14 @@ impl<'a> Engine<'a> {
         }
     }
 
-    /// Resolve a relation's label into the row's locale. A `Key` reads the
+    /// Resolve a relation's label for the row's i18n member. A `Key` reads the
     /// string table (defaulting to the relation name); the others are literal.
-    fn label(&self, label: &RelLabel, locale: &str, name: &str) -> String {
+    fn label(&self, label: &RelLabel, member: &str, name: &str) -> String {
         match label {
-            RelLabel::Key(k) => self.cfg.i18n.string(k, locale).to_string(),
+            RelLabel::Key(k) => self.cfg.i18n.string(k, member).to_string(),
             RelLabel::Text(t) => t.clone(),
             RelLabel::PerLocale(m) => m
-                .get(locale)
+                .get(member)
                 .or_else(|| m.get(&self.cfg.i18n.default))
                 .cloned()
                 .unwrap_or_else(|| name.to_string()),
@@ -448,14 +458,16 @@ mod tests {
             collection: "pages".into(),
             ..Row::default()
         };
-        r.set_locale("en");
+        r.fields
+            .insert("locale".into(), grackle_db::Value::Str("en".into()));
         r
     }
 
     fn cfg() -> Config {
         Config::from_toml(
             "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource=\".\"\n",
+             [[collections]]\nsource=\".\"\n\
+             [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
         )
         .unwrap()
     }
@@ -491,11 +503,12 @@ mod tests {
     }
 
     #[test]
-    fn localize_pivots_a_candidate_into_selfs_locale() {
+    fn twin_pivots_a_candidate_into_selfs_member() {
         let mut en = tree_row("/post/");
         en.logical = "post".into();
         let mut fr = tree_row("/fr/post/");
-        fr.set_locale("fr");
+        fr.fields
+            .insert("locale".into(), grackle_db::Value::Str("fr".into()));
         fr.logical = "post".into();
         let mut lone = tree_row("/lone/");
         lone.logical = "lone".into();
@@ -511,10 +524,10 @@ mod tests {
         let eng = Engine::new(&cfg, &db, &[], &links, &backlinks);
 
         let en_post = db.row_by_url("/post/").unwrap();
-        assert_eq!(eng.localize(en_post, "fr").unwrap().url, "/fr/post/");
-        assert_eq!(eng.localize(en_post, "en").unwrap().url, "/post/");
-        // A row with no variant in the target locale drops out.
+        assert_eq!(eng.twin(en_post, "fr").unwrap().url, "/fr/post/");
+        assert_eq!(eng.twin(en_post, "en").unwrap().url, "/post/");
+        // A row with no twin for the target member drops out.
         let lone = db.row_by_url("/lone/").unwrap();
-        assert!(eng.localize(lone, "fr").is_none());
+        assert!(eng.twin(lone, "fr").is_none());
     }
 }

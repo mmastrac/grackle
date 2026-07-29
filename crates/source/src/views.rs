@@ -194,32 +194,29 @@ fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> 
         .collect()
 }
 
-/// Which locales a materializing view partitions into (§6f). Default-on:
-/// every locale, unless the view opts out with `locales = "default"`.
-fn locales_for<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
-    match v.locales.as_deref() {
-        Some("default") => vec![cfg.i18n.default.as_str()],
-        _ => cfg.locales(),
+/// Which pairing-axis values a materializing view partitions into (§6f).
+/// Default-on: every member of `[i18n] axis`; `locales = "default"` keeps only
+/// the canonical (config key kept — base/sites already spell it).
+fn partition_values<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
+    match (v.locales.as_deref(), cfg.pairing_axis()) {
+        (_, None) => vec![cfg.i18n.default.as_str()],
+        (Some("default"), Some((_, axis))) => {
+            vec![axis.canonical().unwrap_or(cfg.i18n.default.as_str())]
+        }
+        (_, Some((_, axis))) => axis.values.iter().map(String::as_str).collect(),
     }
 }
 
-/// What a route in one locale records as its own. `None` for the default,
-/// which is what [`Route::locale`] means (§6f) and what filters see as Null.
-fn stamp(cfg: &Config, locale: &str) -> Option<String> {
-    (locale != cfg.i18n.default).then(|| locale.to_string())
-}
-
-/// View route fields plus a stamped non-default locale (declared field, not
-/// an engine column).
+/// View route fields plus a stamped non-canonical pairing-axis field.
 fn view_fields_at(
     v: &View,
     route_schema: &BTreeMap<String, crate::schema::FieldType>,
     cfg: &Config,
-    locale: &str,
+    axis_value: &str,
 ) -> anyhow::Result<BTreeMap<String, filter::Value>> {
     let mut fields = view_fields(v, route_schema)?;
-    if let Some(l) = stamp(cfg, locale) {
-        fields.insert("locale".into(), filter::Value::Str(l));
+    if let Some((name, _)) = cfg.pairing_axis() {
+        cfg.stamp_axis_field(&mut fields, name, axis_value);
     }
     Ok(fields)
 }
@@ -295,7 +292,7 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
 }
 
 /// The chronological sequence the `grackle explain` diagnostic reports as a
-/// row's newer/older neighbours, one per posts collection, default locale,
+/// row's newer/older neighbours, one per posts collection, i18n canonical,
 /// newest first.
 ///
 /// This is no longer what a rendered page's "earlier/later post" steps — those
@@ -309,8 +306,11 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas)
             .rows
             .iter()
             .filter(|p| p.collection == *cname)
-            // §6f: single-locale — a row's neighbours are in its own language.
-            .filter(|p| p.locale() == cfg.i18n.default)
+            // §6f: dated adjacency keeps the pairing axis's canonical only.
+            .filter(|p| match cfg.pairing_axis() {
+                Some((name, _)) => cfg.on_canonical(*p, name),
+                None => true,
+            })
             .map(|p| p.key.clone())
             .collect();
         let seq = grackle_db::View::all().order(newest_first());
@@ -381,7 +381,7 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             .is_some_and(|c| c.is_objects());
         let base = Base::resolve(schemas, name, &q, base_is_objects)?;
         // q53: the axis is the OUTERMOST dimension — a view on one materializes
-        // once per member, and everything below it (locale, grouping,
+        // once per member, and everything below it (i18n partition, grouping,
         // pagination) happens within each. Ordering it outermost is what keeps
         // the branches below a substitution rather than a rewrite.
         for members in axis_member_combos(cfg, name, v)? {
@@ -424,9 +424,9 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
 struct Base {
     schema: filter::Schema,
     membership: filter::Filter,
-    /// `rendered`, `claimed` and `locale` are properties of a parsed row. An
+    /// `rendered`, `claimed` and the i18n field are properties of a parsed row. An
     /// object is never rendered, cannot be a view's claimed content (q45) and
-    /// carries no locale (§6f) — so row eligibility, applied to objects, would
+    /// carries no i18n field (§6f) — so row eligibility, applied to objects, would
     /// exclude every one of them.
     parsed: bool,
 }
@@ -446,7 +446,7 @@ impl Base {
             schema: schemas.row_filter_schema(),
             membership,
             // Objects are never rendered, never a view's claimed content and
-            // carry no locale, so row eligibility would exclude every one of
+            // carry no i18n field, so row eligibility would exclude every one of
             // them — the one place the base's role still bends the flow.
             parsed: !is_objects,
         })
@@ -528,7 +528,7 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
 /// Materialize a view — one flow for every base.
 ///
 /// A view differs from another only in which index list it starts from: a set,
-/// not a shape. Ordering, `limit`, grouping, pagination and the locale axis
+/// not a shape. Ordering, `limit`, grouping, pagination and the i18n axis
 /// are one rule each, applied here for every base.
 fn build_view(
     cfg: &Config,
@@ -545,10 +545,10 @@ fn build_view(
         membership,
         parsed,
     } = base;
-    // §6f: objects carry no locale, so an object view that declares them is a
+    // §6f: objects are not file-axis content, so a partition opt-in is a
     // config error rather than a silent ignore.
     if !parsed && v.locales.is_some() {
-        bail!("view {name}: objects carry no locale; object views cannot declare locales");
+        bail!("view {name}: objects have no pairing axis; object views cannot declare locales");
     }
     // Parsed and type-checked once per view, not per row: a bad filter is a
     // startup error naming the view.
@@ -563,21 +563,31 @@ fn build_view(
         });
     let rows = &db.rows;
 
-    // One row set per locale (§6f), the default included — it is not special.
-    //
-    // `rendered` and `!claimed` are no-ops on the posts side: every post is
-    // parsed, and only a tree row can be a view's claimed content (q45).
-    let rows_for = |locale: &str| -> Vec<grackle_db::Key> {
+    // One row set per pairing-axis value (§6f). Without a pairing axis there
+    // is a single cell. `rendered` / `!claimed` are no-ops on the posts side.
+    let pairing = cfg.pairing_axis();
+    let rows_for = |axis_value: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
             .iter()
-            .filter(|p| !parsed || (p.rendered && !p.claimed && p.locale() == locale))
+            .filter(|p| {
+                !parsed
+                    || (p.rendered
+                        && !p.claimed
+                        && match pairing {
+                            Some((_, axis)) => p.string(&axis.field) == Some(axis_value),
+                            None => true,
+                        })
+            })
             .map(|p| p.key.clone())
             .collect();
         rows.view_within(&eligible, &view)
     };
 
     if !v.is_materialized() {
-        let members: Vec<grackle_db::Key> = rows_for(&cfg.i18n.default)
+        let canon = pairing
+            .and_then(|(_, a)| a.canonical())
+            .unwrap_or(cfg.i18n.default.as_str());
+        let members: Vec<grackle_db::Key> = rows_for(canon)
             .into_iter()
             .take(v.limit.unwrap_or(usize::MAX))
             .collect();
@@ -585,12 +595,11 @@ fn build_view(
         return Ok(());
     }
 
-    // §6f locale-parallel views, DEFAULT-ON (Matt): a materializing row-query
-    // view partitions by locale unless it opts out with `locales = "default"`.
-    // A locale with no rows materializes nothing: the partition is real, not
-    // mirrored. An object view has one locale because an object has none.
-    let locales = if parsed {
-        locales_for(cfg, v)
+    // Partition DEFAULT-ON over the pairing axis; `locales = "default"` opts
+    // out. A value with no rows materializes nothing. Objects (unparsed) stay
+    // a single cell.
+    let axis_values = if parsed {
+        partition_values(cfg, v)
     } else {
         vec![cfg.i18n.default.as_str()]
     };
@@ -608,7 +617,7 @@ fn build_view(
         bail!("view {name} needs a route");
     }
     // The route templates split by pagination: those WITHOUT `{n}` are page-1 /
-    // default-variant candidates, those WITH it paginate. Axis and locale are no
+    // default-variant candidates, those WITH it paginate. Axes are no
     // longer spent up front — each cell selects among the candidates by which
     // non-canonical axes it must show (§6f, the default-axis case), so a member
     // at its canonical value can drop its segment to a shorter template.
@@ -627,7 +636,7 @@ fn build_view(
     // ONE materialization, over the product of the view's dimensions.
     //
     // These used to be three branches — grouped, paginated, single — each with
-    // its own loop over locales and its own idea of how a route is built, and
+    // its own loop over i18n members and its own idea of how a route is built, and
     // the grouped one carried a second copy of the pagination loop. They are
     // one shape: partition, slice, emit. An ungrouped view is a grouped one
     // with a single cell; a single-page view is a paginated one whose slice is
@@ -652,13 +661,17 @@ fn build_view(
         }
     };
 
-    for locale in &locales {
-        let row_ix = rows_for(locale);
+    let pairing = cfg.pairing_axis();
+    let pairing_canon = pairing
+        .and_then(|(_, a)| a.canonical())
+        .unwrap_or(cfg.i18n.default.as_str());
+    for axis_value in &axis_values {
+        let row_ix = rows_for(axis_value);
         let cells = if chain.is_empty() {
-            // No rows in this locale = no page (the partition is real, §6f).
+            // No rows for this member = no page (the partition is real, §6f).
             // A GROUPED view needs no such rule: a group with no rows is a
             // group that does not exist.
-            if row_ix.is_empty() && *locale != cfg.i18n.default {
+            if row_ix.is_empty() && *axis_value != pairing_canon {
                 continue;
             }
             vec![Cell {
@@ -675,20 +688,16 @@ fn build_view(
         };
 
         for cell in cells {
-            // Render a candidate: group params and `{n}` filled, axis and locale
+            // Render a candidate: group params and `{n}` filled, axis
             // placeholders PRESERVED for `select_path` to spend per member.
             let render = |tmpl: &str, n: Option<usize>| -> Result<String> {
                 template::render(tmpl, |tok| {
                     let (ns, k) = template::classify(tok);
                     match ns {
                         None if k == "n" => n.map(|n| n.to_string()),
-                        // Preserve an axis or locale token — it is spent by the
-                        // selection below, not filled from group params here.
+                        // Preserve an axis token — spent by selection below.
                         Some("axis") => Some(format!("{{{tok}}}")),
                         None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                        None if k == "locale" && cfg.locale_enabled() => {
-                            Some("{locale}".to_string())
-                        }
                         None | Some("group") => {
                             template::param(&cell.params, k).map(|val| route_value(k, &val))
                         }
@@ -696,22 +705,30 @@ fn build_view(
                     }
                 })
             };
-            // This cell's coordinates: the axis member-tuple, plus the row set's
-            // locale. `select_path` picks the shortest template covering the
-            // non-canonical ones.
-            let coords: Vec<crate::load::Coord> = axis_members
+            // Coordinates: spent route axes, plus the pairing axis when
+            // templates spend it. `select_path` picks the shortest covering
+            // template.
+            let mut coords: Vec<crate::load::Coord> = axis_members
                 .iter()
                 .map(|m| crate::load::Coord {
                     axis: &m.axis,
                     value: &m.value,
                     canonical: m.canonical,
                 })
-                .chain(std::iter::once(crate::load::Coord {
-                    axis: "locale",
-                    value: locale,
-                    canonical: *locale == cfg.i18n.default,
-                }))
                 .collect();
+            if let Some((axis_name, _)) = pairing {
+                if page1
+                    .iter()
+                    .chain(paged.iter())
+                    .any(|t| crate::load::spends(t, axis_name))
+                {
+                    coords.push(crate::load::Coord {
+                        axis: axis_name,
+                        value: axis_value,
+                        canonical: *axis_value == pairing_canon,
+                    });
+                }
+            }
             let pick = |cands: &[&String], n: Option<usize>| -> Result<String> {
                 let rendered: Vec<String> =
                     cands.iter().map(|t| render(t, n)).collect::<Result<_>>()?;
@@ -733,7 +750,7 @@ fn build_view(
                             .cloned()
                             .collect();
                         db.routes.push(Route {
-                            fields: view_fields_at(v, route_schema, cfg, locale)?,
+                            fields: view_fields_at(v, route_schema, cfg, axis_value)?,
                             axis: axis_members.clone(),
                             view: Some(name.to_string()),
                             // A grouped page keeps its GROUP key — `{key}` in a
@@ -763,7 +780,7 @@ fn build_view(
                         false => cell.rows.clone(),
                     };
                     db.routes.push(Route {
-                        fields: view_fields_at(v, route_schema, cfg, locale)?,
+                        fields: view_fields_at(v, route_schema, cfg, axis_value)?,
                         axis: axis_members.clone(),
                         view: Some(name.to_string()),
                         key: cell.key.clone(),
@@ -953,9 +970,10 @@ mod posts_order_tests {
             rendered: true,
             ..Row::default()
         };
-        // The view filters on locale, so a fixture row must carry the
-        // default locale to be visible at all.
-        r.set_locale("en");
+        // The view partitions by i18n member, so a fixture row must carry the
+        // canonical value to be visible at all.
+        r.fields
+            .insert("locale".into(), grackle_db::Value::Str("en".into()));
         r
     }
 
@@ -1134,7 +1152,8 @@ mod grouping_tests {
             claimed: false,
             ..Default::default()
         };
-        p.set_locale("en");
+        p.fields
+            .insert("locale".into(), grackle_db::Value::Str("en".into()));
         p.fields
             .insert("course".into(), filter::Value::Str("dinner".into()));
         let combos = key_combos(&p, &["course".into()]);
@@ -1205,7 +1224,8 @@ mod adjacency_tests {
             fields: BTreeMap::from([("draft".to_string(), grackle_db::Value::Bool(draft))]),
             ..Row::default()
         };
-        r.set_locale("en");
+        r.fields
+            .insert("locale".into(), grackle_db::Value::Str("en".into()));
         r
     }
 

@@ -6,13 +6,21 @@
 # the look the inner, and a translation is just the fr member owning its file.
 extends = "none"
 
+[schema]
+locale = { type = "string" }
+
 [html.head.link]
+alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
+
 canonical = 'site.url + url'
 
 [site]
 url = "https://example.com"
 title = "Locale x axis"
 author = "Tester"
+
+[html.html.attribute]
+lang = 'locale'
 
 [axes.locale]
 values = ["en", "fr"]

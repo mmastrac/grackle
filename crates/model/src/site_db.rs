@@ -57,7 +57,7 @@ pub struct SiteDb {
     /// collision; a multi-index calls it dedupe, which is what it is.
     #[serde(skip)]
     pub by_strong: BTreeMap<String, Vec<Key>>,
-    /// §6f: logical identity -> every locale variant (default included).
+    /// §6f: logical identity → every file-axis twin (canonical included).
     /// Safe to share across both origins now that `logical` is
     /// root-relative on each.
     #[serde(skip)]
@@ -94,7 +94,7 @@ pub struct SiteDb {
     pub sections: Vec<PathBuf>,
     /// The sequence `next`/`previous` step through, per posts collection
     /// (q51). Built from the collection's declared `adjacency` set, or —
-    /// unset — every row of the collection in the default locale, newest
+    /// unset — every row of the collection on the i18n canonical, newest
     /// first.
     #[serde(skip)]
     pub adjacency: BTreeMap<String, Vec<Key>>,
@@ -214,17 +214,16 @@ impl SiteDb {
     /// decides order, the database owns identity and the indexes, and the
     /// three lists are the handover.
     ///
-    /// `default_locale` is the only configuration fact the database needs,
-    /// for one rule (§6f): the dated indexes are single-locale, because a
-    /// translation shares its original's `(date, slug)` by design. Passed
-    /// rather than read, so the database keeps no opinion about where
-    /// configuration lives.
+    /// `dated_keep` is `(field, canonical)` for the pairing axis when a site
+    /// has one: dated indexes keep that axis's canonical only, because a
+    /// twin shares its original's `(date, slug)` by design (§6f). `None`
+    /// when there is no pairing axis (monolingual / no `[i18n] axis`).
     pub fn insert_rows(
         &mut self,
         mut posts: Vec<Row>,
         mut pages: Vec<Row>,
         mut objects: Vec<Row>,
-        default_locale: &str,
+        dated_keep: Option<(&str, &str)>,
     ) -> Result<()> {
         // Keys are assigned here, where rows stop being the loader's and
         // become the database's. A row's key is its source file.
@@ -250,7 +249,7 @@ impl SiteDb {
         self.rows = Table::new(posts);
         self.rows.extend(pages);
         self.rows.extend(objects);
-        self.index_rows(default_locale)
+        self.index_rows(dated_keep)
     }
 
     /// Every index, built once over the whole row store — which is what makes
@@ -259,7 +258,7 @@ impl SiteDb {
     /// Each index is its key function: what a row contributes, and what it
     /// means for a row to contribute nothing. `grackle_db::index` owns the
     /// rest — the collision rule and the grouping.
-    fn index_rows(&mut self, default_locale: &str) -> Result<()> {
+    fn index_rows(&mut self, dated_keep: Option<(&str, &str)>) -> Result<()> {
         // Identity first: two rows sharing a key is a corpus that cannot be
         // indexed by key at all, and the table would silently resolve one of
         // them. Checked before anything depends on it.
@@ -275,13 +274,19 @@ impl SiteDb {
             }
         }
 
-        // Posts-only and single-locale (§6f): a translation shares its
+        // Posts-only, pairing-axis canonical (§6f): a twin shares its
         // original's (date, slug) by design.
         //
         // Membership, not arithmetic: nothing here may depend on posts being
         // laid down first.
         let posts: std::collections::HashSet<&Key> = self.post_ix.iter().collect();
-        let dated = |p: &Row| posts.contains(&p.key) && p.locale() == default_locale;
+        let dated = |p: &Row| {
+            posts.contains(&p.key)
+                && match dated_keep {
+                    Some((field, canon)) => p.string(field) == Some(canon),
+                    None => true,
+                }
+        };
 
         // A claimed row serves a landing and has no route (q45), so it holds
         // no URL to index.

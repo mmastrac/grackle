@@ -52,11 +52,9 @@ pub struct Head {
     /// theme member — carries neither: it is the same representation at another
     /// URL, and `rel="canonical"` already names the one that counts.
     ///
-    /// A relation points at other rows and renders in the body; an axis points
-    /// at other forms of THIS row and renders here, as `rel="alternate"` — which
-    /// is why translations belong on this axis and not among the relations. The
-    /// shape is the "variable-length head entries" residue (§4e): a name→string
-    /// map cannot repeat a `rel`, nor carry a second attribute beside it.
+    /// Locale hreflang comes from a declared expand (`[html.head.link]
+    /// alternate = { from = "axis.locale", … }`); other axis forms still land
+    /// here from the engine until they get their own expands.
     pub alternates: Vec<Alternate>,
 }
 
@@ -113,13 +111,31 @@ pub fn head_for_post(p: &Row, site: &Site) -> Head {
 #[derive(Debug, Default)]
 pub struct Metas(pub Vec<Decl>);
 
-/// One declared head tag: which element it is, its key, and the expression
-/// that fills it.
+/// Declared `[html.html.attribute]` / `[html.body.attribute]` expressions,
+/// compiled once (§4e).
+#[derive(Debug, Default)]
+pub struct HtmlAttrs {
+    pub html: Vec<(String, crate::filter::Text)>,
+    pub body: Vec<(String, crate::filter::Text)>,
+}
+
+/// One declared head tag: a single expression, or an expand over a pool.
 #[derive(Debug)]
-pub struct Decl {
-    pub tag: Tag,
-    pub key: String,
-    pub expr: crate::filter::Text,
+#[allow(clippy::large_enum_variant)] // `Text` is the CEL payload; boxing it would cost a hop on every tag.
+pub enum Decl {
+    /// One tag whose value is a CEL text expression.
+    Single {
+        tag: Tag,
+        key: String,
+        expr: crate::filter::Text,
+    },
+    /// One tag per member of `from`; attributes are CEL text expressions.
+    Expand {
+        tag: Tag,
+        key: String,
+        from: String,
+        attrs: Vec<(String, crate::filter::Text)>,
+    },
 }
 
 /// The row a head expression actually reads: the row itself, plus `site.*`.
@@ -128,7 +144,7 @@ pub struct Decl {
 /// the absolute URL a canonical link is built from — and none of that is a
 /// row field. Rather than teach the evaluator about config, the environment
 /// grows three names and the row answers them.
-struct HeadRow<'a, R: crate::filter::Row> {
+struct HeadRow<'a, R: crate::filter::Row + ?Sized> {
     row: &'a R,
     site: &'a Site<'a>,
     /// The two the head knows for itself. A listing's title is computed, not a
@@ -139,7 +155,7 @@ struct HeadRow<'a, R: crate::filter::Row> {
     url: &'a str,
 }
 
-impl<R: crate::filter::Row> crate::filter::Row for HeadRow<'_, R> {
+impl<R: crate::filter::Row + ?Sized> crate::filter::Row for HeadRow<'_, R> {
     fn field(&self, name: &str) -> crate::filter::Value {
         use crate::filter::Value as V;
         match name {
@@ -154,6 +170,49 @@ impl<R: crate::filter::Row> crate::filter::Row for HeadRow<'_, R> {
     }
 }
 
+/// Attribute expressions share the head vocabulary, plus pairing-axis
+/// fallback so an unstamped canonical member still resolves.
+struct AttrRow<'a, R: crate::filter::Row + ?Sized> {
+    row: &'a R,
+    cfg: &'a Config,
+    site: &'a Site<'a>,
+    title: &'a str,
+    url: &'a str,
+}
+
+impl<R: crate::filter::Row + ?Sized> crate::filter::Row for AttrRow<'_, R> {
+    fn field(&self, name: &str) -> crate::filter::Value {
+        use crate::filter::Value as V;
+        match name {
+            "site.url" => V::Str(self.site.url.to_string()),
+            "site.title" => V::Str(self.site.title.to_string()),
+            "site.author" => V::Str(self.site.author.to_string()),
+            "site.icon" => V::Str(self.site.icon.to_string()),
+            "title" => V::Str(self.title.to_string()),
+            "url" => V::Str(self.url.to_string()),
+            other => {
+                let v = self.row.field(other);
+                let empty = match &v {
+                    V::Null => true,
+                    V::Str(s) if s.is_empty() => true,
+                    _ => false,
+                };
+                if empty {
+                    let pairing_field = self
+                        .cfg
+                        .pairing_axis()
+                        .map(|(_, a)| a.field.as_str())
+                        .or(self.cfg.i18n.axis.as_deref());
+                    if pairing_field == Some(other) {
+                        return V::Str(self.cfg.pairing_member(self.row));
+                    }
+                }
+                v
+            }
+        }
+    }
+}
+
 /// The `site.*` names, added to whichever schema a head expression is
 /// checked against.
 fn with_site(mut s: crate::filter::Schema) -> crate::filter::Schema {
@@ -164,6 +223,7 @@ fn with_site(mut s: crate::filter::Schema) -> crate::filter::Schema {
 }
 
 pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<Metas> {
+    use crate::config::HeadEntry;
     let mut env = grackle_model::row_schema();
     for (k, t) in declared {
         env.insert(k, *t);
@@ -177,21 +237,99 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
         (Tag::Link, "[html.head.link]", &h.link),
     ];
     for (tag, whose, table) in tables {
-        for (key, src) in table {
-            let expr =
-                crate::filter::Text::parse(src, &env).with_context(|| format!("{whose} {key}"))?;
-            out.push(Decl {
-                tag,
-                key: key.clone(),
-                expr,
-            });
+        for (key, entry) in table {
+            match entry {
+                HeadEntry::Expr(src) => {
+                    let expr = crate::filter::Text::parse(src, &env)
+                        .with_context(|| format!("{whose} {key}"))?;
+                    out.push(Decl::Single {
+                        tag,
+                        key: key.clone(),
+                        expr,
+                    });
+                }
+                HeadEntry::Expand(exp) => {
+                    anyhow::ensure!(
+                        !exp.attrs.is_empty(),
+                        "{whose} {key}: an expand needs at least one attribute \
+                         expression (e.g. href)"
+                    );
+                    anyhow::ensure!(
+                        exp.attrs.contains_key("href"),
+                        "{whose} {key}: an expand needs an href expression"
+                    );
+                    let mut attrs = Vec::new();
+                    for (attr, src) in &exp.attrs {
+                        let expr = crate::filter::Text::parse(src, &env)
+                            .with_context(|| format!("{whose} {key}.{attr}"))?;
+                        attrs.push((attr.clone(), expr));
+                    }
+                    out.push(Decl::Expand {
+                        tag,
+                        key: key.clone(),
+                        from: exp.from.clone(),
+                        attrs,
+                    });
+                }
+            }
         }
     }
     Ok(Metas(out))
 }
 
-/// Evaluate the declared metas, dropping the empty ones — §5e's rule 2 one
-/// layer up: an empty value emits no tag.
+/// Compile `[html.html.attribute]` / `[html.body.attribute]` (§4e).
+pub fn compile_attrs(cfg: &Config, declared: &crate::filter::Schema) -> Result<HtmlAttrs> {
+    let mut env = grackle_model::row_schema();
+    for (k, t) in declared {
+        env.insert(k, *t);
+    }
+    let env = with_site(env);
+    let compile = |whose: &str, table: &std::collections::BTreeMap<String, String>| {
+        table
+            .iter()
+            .map(|(key, src)| {
+                let expr = crate::filter::Text::parse(src, &env)
+                    .with_context(|| format!("{whose} {key}"))?;
+                Ok((key.clone(), expr))
+            })
+            .collect::<Result<Vec<_>>>()
+    };
+    Ok(HtmlAttrs {
+        html: compile("[html.html.attribute]", &cfg.html.html.attribute)?,
+        body: compile("[html.body.attribute]", &cfg.html.body.attribute)?,
+    })
+}
+
+/// Evaluate a compiled attribute table, dropping empties. The pairing-axis
+/// field (or the aspirational `[i18n] axis` name when that axis is not yet
+/// declared) resolves through [`Config::pairing_member`] so a canonical /
+/// monolingual page still yields `lang="en"` for `lang = 'locale'`.
+pub fn eval_attrs(
+    attrs: &[(String, crate::filter::Text)],
+    cfg: &Config,
+    row: &(impl crate::filter::Row + ?Sized),
+    site: &Site,
+    title: &str,
+    url: &str,
+) -> Vec<(String, String)> {
+    let env = AttrRow {
+        row,
+        cfg,
+        site,
+        title,
+        url,
+    };
+    attrs
+        .iter()
+        .filter_map(|(key, expr)| {
+            let v = expr.eval(&env);
+            (!v.is_empty()).then(|| (key.clone(), v))
+        })
+        .collect()
+}
+
+/// Evaluate the single-expression metas, dropping the empty ones — §5e's
+/// rule 2 one layer up: an empty value emits no tag.
 pub fn eval_metas(
     metas: &Metas,
     row: &impl crate::filter::Row,
@@ -208,11 +346,107 @@ pub fn eval_metas(
     metas
         .0
         .iter()
-        .filter_map(|d| {
-            let v = d.expr.eval(&env);
-            (!v.is_empty()).then(|| (d.tag, d.key.clone(), v))
+        .filter_map(|d| match d {
+            Decl::Single { tag, key, expr } => {
+                let v = expr.eval(&env);
+                (!v.is_empty()).then(|| (*tag, key.clone(), v))
+            }
+            Decl::Expand { .. } => None,
         })
         .collect()
+}
+
+/// Evaluate expand declarations: `from = "axis.<name>"` resolves a member pool
+/// per expand via `pool_for`. Attributes become an [`Alternate`]: `href`
+/// required, `hreflang` / `type` optional. A pool of fewer than two members
+/// emits nothing — the monolingual case.
+pub fn eval_expands<'a>(
+    metas: &Metas,
+    site: &Site,
+    title: &str,
+    cfg: &crate::config::Config,
+    mut pool_for: impl FnMut(&str) -> Vec<ExpandMember<'a>>,
+) -> Vec<Alternate> {
+    let mut out = Vec::new();
+    for d in &metas.0 {
+        let Decl::Expand { from, attrs, .. } = d else {
+            continue;
+        };
+        let Some(axis_name) = from.strip_prefix("axis.") else {
+            continue;
+        };
+        let Some(axis) = cfg.axes.get(axis_name) else {
+            continue;
+        };
+        let field = axis.field.as_str();
+        let members = pool_for(axis_name);
+        if members.len() < 2 {
+            continue;
+        }
+        for m in &members {
+            let row = MemberRow {
+                inner: m.row,
+                field,
+                member: m.member.as_str(),
+            };
+            let env = HeadRow {
+                row: &row,
+                site,
+                title,
+                url: m.url,
+            };
+            let mut href = String::new();
+            let mut hreflang = None;
+            let mut media_type = None;
+            for (attr, expr) in attrs {
+                let v = expr.eval(&env);
+                if v.is_empty() {
+                    continue;
+                }
+                match attr.as_str() {
+                    "href" => href = v,
+                    "hreflang" => hreflang = Some(v),
+                    "type" => media_type = Some(v),
+                    _ => {}
+                }
+            }
+            if href.is_empty() {
+                continue;
+            }
+            out.push(Alternate {
+                href,
+                hreflang,
+                media_type,
+            });
+        }
+    }
+    out
+}
+
+/// One member of an expand pool.
+pub struct ExpandMember<'a> {
+    pub row: &'a dyn crate::filter::Row,
+    pub url: &'a str,
+    /// Axis member code — Route fields omit the default, so the pool carries
+    /// it explicitly for expressions like `hreflang = 'locale'`.
+    pub member: String,
+}
+
+/// Injects the expand axis field over an inner row so expressions see it even
+/// when the underlying Route left the default unstamped.
+struct MemberRow<'a> {
+    inner: &'a dyn crate::filter::Row,
+    field: &'a str,
+    member: &'a str,
+}
+
+impl crate::filter::Row for MemberRow<'_> {
+    fn field(&self, name: &str) -> crate::filter::Value {
+        if name == self.field {
+            return crate::filter::Value::Str(self.member.to_owned());
+        }
+        self.inner.field(name)
+    }
 }
 
 impl Head {
@@ -260,7 +494,8 @@ pub enum Theme {
 /// (null) theme still produces a valid document.
 pub fn root_shell(
     head: &str,
-    locale: &str,
+    html_attrs: &[(String, String)],
+    body_attrs: &[(String, String)],
     subtheme: Option<&str>,
     profile: Option<&str>,
     axis: &[grackle_model::AxisMember],
@@ -294,13 +529,18 @@ pub fn root_shell(
             format!("{attrs} style=\"{styles}\"")
         }
     };
-    // §6f: a French row wears French labels and a French URL, so the
-    // skeleton around it must not claim `en` to screen readers and
-    // crawlers. i18n off means every row carries the default locale, so
-    // a site without translations is unaffected.
-    let lang = esc(locale);
+    // Declared attributes (§4e): `[html.html.attribute]` / `[html.body.attribute]`.
+    // Engine stamps (`data-kind`, subtheme, profile, axis) stay beside them.
+    let declared = |attrs: &[(String, String)]| -> String {
+        attrs
+            .iter()
+            .map(|(k, v)| format!(" {}=\"{}\"", esc(k), esc(v)))
+            .collect()
+    };
+    let html_a = declared(html_attrs);
+    let body_a = declared(body_attrs);
     format!(
-        "<!doctype html>\n<html lang=\"{lang}\" data-kind=\"root\"{sub}{prof}{ax}>\n<head>{head}</head>\n<body>\n{}\n</body>\n</html>\n",
+        "<!doctype html>\n<html data-kind=\"root\"{html_a}{sub}{prof}{ax}>\n<head>{head}</head>\n<body{body_a}>\n{}\n</body>\n</html>\n",
         body.trim_end()
     )
 }
@@ -369,11 +609,9 @@ pub fn head_html(head: &Head, css: &str) -> String {
     let mut h = String::with_capacity(2048);
     let _ = write!(h, "\n\t<title>{}</title>", esc(&head.title));
     h.push_str(&meta_tags(head));
-    // q53: the axes in the head, each an alternate FORM of this row. The locale
-    // axis carries `hreflang` (self included, as the spec asks — every version
-    // lists every version); a different-format axis carries `type`; a restyle
-    // carries neither. NOT a declared tag: a variable-length LIST, where
-    // `[html.head.*]` is a name-to-string map. See §4e's residue.
+    // q53: the axes in the head, each an alternate FORM of this row. Locale
+    // hreflang comes from a declared expand; other axis forms still land here
+    // from the engine. NOT a single declared tag: a variable-length LIST.
     for a in &head.alternates {
         h.push_str("\n\t<link rel=\"alternate\"");
         if let Some(lang) = &a.hreflang {
@@ -683,6 +921,61 @@ mod meta_tests {
         let e = format!("{:#}", compile_metas(&c, &declared()).unwrap_err());
         assert!(e.contains("[html.head.meta] x"), "{e}");
         assert!(e.contains("unknown field `nope`"), "{e}");
+    }
+
+    #[test]
+    fn an_expand_emits_one_alternate_per_pool_member() {
+        let c = Config::from_toml(
+            "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [schema]\nlocale = { type = \"string\" }\n\
+             [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
+             [html.head.link]\nalternate = { from = \"axis.locale\", hreflang = 'locale', href = 'site.url + url' }\n",
+        )
+        .unwrap();
+        let mut decl = declared();
+        decl.insert("locale", crate::filter::Type::Str);
+        let m = compile_metas(&c, &decl).unwrap();
+        let mut en = grackle_model::Row::default();
+        en.fields
+            .insert("locale".into(), crate::filter::Value::Str("en".into()));
+        en.url = "/a/".into();
+        let mut fr = grackle_model::Row::default();
+        fr.fields
+            .insert("locale".into(), crate::filter::Value::Str("fr".into()));
+        fr.url = "/fr/a/".into();
+        let alts = eval_expands(&m, &site(), "T", &c, |_| {
+            vec![
+                ExpandMember {
+                    row: &en,
+                    url: "/a/",
+                    member: "en".into(),
+                },
+                ExpandMember {
+                    row: &fr,
+                    url: "/fr/a/",
+                    member: "fr".into(),
+                },
+            ]
+        });
+        let got: Vec<_> = alts
+            .iter()
+            .map(|a| (a.hreflang.clone(), a.href.clone()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (Some("en".into()), "https://e.com/a/".into()),
+                (Some("fr".into()), "https://e.com/fr/a/".into()),
+            ]
+        );
+        assert!(eval_expands(&m, &site(), "T", &c, |_| {
+            vec![ExpandMember {
+                row: &en,
+                url: "/a/",
+                member: "en".into(),
+            }]
+        })
+        .is_empty());
     }
 
     #[test]

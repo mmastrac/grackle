@@ -48,8 +48,9 @@ tags = { type = "list" }
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
-# Always stamped at load (default when no file pattern matched). Shares its
-# name with `[axes.locale] field = "locale"`.
+# Always stamped at load when the i18n axis is declared (default when no
+# file pattern matched). Shares its name with `[axes.locale] field` in the
+# usual spelling; a site that renames the axis declares that field instead.
 locale = { type = "string" }
 
 [schema.embeddings]
@@ -66,15 +67,26 @@ fields = ["title", "tags", "body"]
 # emits no tag, which is §5e's "an empty part deletes its element" one layer
 # up, and is how every conditional here is spelled.
 #
-# Three tables because there are three elements, not three mechanisms:
+# A value may also be an *expand*: `{ from = "…", attr = 'expr', … }` emits
+# one tag per member of a candidate pool (`from` is the same word a relation
+# spells). That is how a variable-length list — `rel="alternate" hreflang` ×
+# n — folds into the same tables (§4e residue).
+#
+# Three tables because there are three head elements, not three mechanisms:
 #   [html.head.meta]      <meta name="K" content="V">
 #   [html.head.property]  <meta property="K" content="V">   (Open Graph)
 #   [html.head.link]      <link rel="K" href="V">
+# Plus attribute maps on the skeleton (§4e):
+#   [html.html.attribute] <html K="V">
+#   [html.body.attribute] <body K="V">
 #
 # `noindex ? …` is CEL's own conditional, which is why it is spelled with `?`
 # rather than an `if_else()` the engine would have to register. §5d's
 # no-control-flow rule governs TEMPLATES; this is the expression surface, and
 # "which string does this meta take" has no fact-shaped spelling.
+
+[html.html.attribute]
+lang = 'locale'
 
 [html.head.meta]
 description = 'description'
@@ -99,7 +111,12 @@ canonical = 'site.url + url'
 # under baseurl. No file ⇒ empty ⇒ neither tag is emitted.
 icon = 'site.icon'
 "shortcut icon" = 'site.icon'
+# Locale twins as hreflang alternates (self included). See base.toml.
+# `from = "axis.<name>"` expands over any declared axis's include-self pool.
+alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
 
+[i18n]
+axis = "locale"
 
 [markers]
 ".draft" = { draft = true }

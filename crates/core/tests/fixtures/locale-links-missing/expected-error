@@ -1,1 +1,1 @@
-selects locale "fr", but "index.md" has no such translation
+selects locale="fr", but "index.md" has no such sibling

@@ -2,7 +2,7 @@
 //! provenance, §5h the landing chain).
 //!
 //! One family, five entry points, all answering the same question in
-//! different currencies: `home_url` (the locale's root), `trail_root`
+//! different currencies: `home_url` (the i18n member's root), `trail_root`
 //! (Home), `ancestors` (what the URL nests under),
 //! `listing_title_and_trail` (a view route's own naming), `post_trail`
 //! (a row's archive chain).
@@ -22,38 +22,44 @@ fn crumb_tmpl(v: &View) -> Option<&crate::config::LocalizedStr> {
     v.crumb.as_ref().or(v.title.as_ref())
 }
 
-/// The URL "Home" means for a locale (§6f): the locale's own homepage when a
+/// The URL "Home" means for an i18n member (§6f): that member's homepage when a
 /// translated root index exists, else the site root. Existence-checked, not
-/// assumed — a locale with translated posts but no translated homepage keeps
+/// assumed — a member with translated posts but no translated homepage keeps
 /// linking `/`.
-pub fn home_url(cfg: &Config, db: &SiteDb, locale: &str) -> String {
-    if locale != cfg.i18n.default {
-        if let Some(p) = db.rows.iter().find(|p| {
-            p.rendered
-                && p.locale() == locale
-                && matches!(
-                    p.logical.as_str(),
-                    "index.md" | "index.html" | "index.markdown"
-                )
-        }) {
-            return p.url.clone();
+pub fn home_url(cfg: &Config, db: &SiteDb, member: &str) -> String {
+    let pairing = cfg.pairing_axis();
+    let canon = pairing
+        .and_then(|(_, a)| a.canonical())
+        .unwrap_or(cfg.i18n.default.as_str());
+    if member != canon {
+        if let Some((_, axis)) = pairing {
+            if let Some(p) = db.rows.iter().find(|p| {
+                p.rendered
+                    && p.string(&axis.field) == Some(member)
+                    && matches!(
+                        p.logical.as_str(),
+                        "index.md" | "index.html" | "index.markdown"
+                    )
+            }) {
+                return p.url.clone();
+            }
         }
     }
     "/".to_string()
 }
 
 /// Every trail roots the same way (§5c provenance): Home, resolved per
-/// locale (§6f) — the engine's "home" string, and a home URL that is
+/// i18n member (§6f) — the engine's "home" string, and a home URL that is
 /// existence-checked rather than assumed.
 ///
 /// Home is *all* the root is (q46, §5h): every crumb between it and the
 /// current page comes from climbing the URL through [`ancestors`], so a
 /// collection never names itself. `/fr/blog/` is found that way rather
 /// than built by string-prefixing a configured index.
-pub fn trail_root(cfg: &Config, db: &SiteDb, locale: &str) -> Vec<(String, Option<String>)> {
+pub fn trail_root(cfg: &Config, db: &SiteDb, member: &str) -> Vec<(String, Option<String>)> {
     vec![(
-        cfg.i18n.string("home", locale).to_string(),
-        Some(home_url(cfg, db, locale)),
+        cfg.i18n.string("home", member).to_string(),
+        Some(home_url(cfg, db, member)),
     )]
 }
 
@@ -69,9 +75,10 @@ pub fn listing_title_and_trail(
     v: &View,
     r: &Route,
 ) -> Result<(String, Vec<(String, Option<String>)>)> {
-    // Listings render at the view's locale (§6f): the route carries it
-    // for locale-parallel materializations; absent = the default.
-    let loc = r.locale().unwrap_or(cfg.i18n.default.as_str());
+    // Listings render at the view's i18n member (§6f): the route carries it
+    // for partitioned materializations; absent = the canonical.
+    let loc_owned = cfg.pairing_member(r);
+    let loc = loc_owned.as_str();
     // §6f enum records: a grouped param renders its record's localized
     // NAME — "méta" on the French tag page, "Dinner" for a course —
     // while routes keep slugs and keys/params keep ids.
@@ -166,7 +173,8 @@ pub fn listing_title_and_trail(
 /// URL (it renders each level from the post's own group keys, not from
 /// path segments).
 pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<String>)> {
-    let loc = p.locale();
+    let loc_owned = cfg.pairing_member(p);
+    let loc = loc_owned.as_str();
     let mut t = trail_root(cfg, db, loc);
     for (url, label) in ancestors(cfg, db, &p.url) {
         t.push((label, Some(url)));
@@ -237,11 +245,13 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             break;
         }
         let parent = format!("{cur}/");
-        // §6f/q45: the locale prefix makes the homepage look like a
+        // §6f/q45: an i18n-axis URL prefix makes the homepage look like a
         // directory ancestor of every /fr/… URL — but Home is the trail
         // root's job, so skip it here or it doubles.
-        if cfg.locales().iter().any(|l| parent == format!("/{l}/")) {
-            continue;
+        if let Some((_, axis)) = cfg.pairing_axis() {
+            if axis.values.iter().any(|l| parent == format!("/{l}/")) {
+                continue;
+            }
         }
         if let Some(p) = db
             .by_url
@@ -269,12 +279,12 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             // above this URL is an ancestor like any index page — /books/
             // lists the books, so a book's trail climbs through it. The
             // crumb is the view's own (crumb, else title), resolved at the
-            // route's locale; a mode-B landing never reaches here (its
+            // route's i18n member; a mode-B landing never reaches here (its
             // claimed row matched above, and the row's title wins).
             if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
                 if let Some(t) = crumb_tmpl(v) {
-                    let loc = r.locale().unwrap_or(&cfg.i18n.default);
-                    out.push((parent, cfg.i18n.text(t, loc).to_string()));
+                    let loc_owned = cfg.pairing_member(r);
+                    out.push((parent, cfg.i18n.text(t, &loc_owned).to_string()));
                 }
             }
         }

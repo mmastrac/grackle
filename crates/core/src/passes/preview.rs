@@ -12,100 +12,153 @@ use crate::parts;
 use crate::pipeline::types::PageBody;
 use crate::theme;
 
-/// The axis slot (q47, §6f): every axis THIS route is a member of, each a group
-/// of member links with the current one flagged — the switcher a theme renders,
-/// for a row page or a listing view alike. Supersedes the `translations`
-/// relation: the locale axis is one group here.
-///
-/// The locale group comes from `by_logical` (a row's translation files) or the
-/// same view route in other locales; a declared axis (theme, …) from the sibling
-/// routes that differ in exactly that axis, other axes held at the current
-/// member. A group with fewer than two members is no switcher and drops out.
-pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::PartMap> {
-    let default = cfg.i18n.default.as_str();
-    let cur_locale = r.locale().unwrap_or(default);
-    let mut groups = Vec::new();
+/// One member of an axis pool for a route: the row/route expressions read,
+/// its published URL, the member code, and whether it is the current page.
+pub(crate) struct AxisPoolMember<'a> {
+    pub row: &'a dyn crate::filter::Row,
+    pub url: &'a str,
+    pub member: String,
+    pub current: bool,
+}
 
-    // The routes that are THIS page in another form: a row's own routes, or the
-    // same view route (same group key and page).
-    //
-    // "Is this a view route" is the `view` column being non-empty (IO.md §3,
-    // I13) — the three sites that mint one all set it, and nothing else does.
-    // The `is_some` is not implied by the equality below: a route with no row
-    // and no view is a shape this seam must not treat as a view's twin.
+/// Include-self siblings of this route on a declared axis (§6f / hreflang).
+///
+/// A **file axis** pivots through translation files (`by_logical`); a **route
+/// axis** (or a view) through sibling routes that differ in exactly that axis.
+/// Self is included — `hreflang` asks every version to list every version, and
+/// the axis switcher flags the current one.
+pub(crate) fn axis_pool<'a>(
+    cfg: &Config,
+    db: &'a SiteDb,
+    r: &'a Route,
+    axis_name: &str,
+) -> Vec<AxisPoolMember<'a>> {
+    let Some(axis) = cfg.axes.get(axis_name) else {
+        return Vec::new();
+    };
+    let field = axis.field.as_str();
+    let member_of = |row: &dyn crate::filter::Row| -> String {
+        match row.field(field) {
+            crate::filter::Value::Str(s) if !s.is_empty() => s,
+            _ => axis.canonical().unwrap_or("").to_owned(),
+        }
+    };
+
+    if cfg.is_file_axis(axis_name) {
+        if let Some(k) = &r.row {
+            return db
+                .rows
+                .get(k)
+                .and_then(|p| db.by_logical.get(&p.logical))
+                .into_iter()
+                .flatten()
+                .filter_map(|sk| db.rows.get(sk))
+                .filter(|s| !s.url.is_empty())
+                .map(|s| AxisPoolMember {
+                    row: s,
+                    url: s.url.as_str(),
+                    member: member_of(s),
+                    current: Some(&s.key) == r.row.as_ref(),
+                })
+                .collect();
+        }
+        // View on a file axis: hold route-axis members fixed, vary this field.
+        let in_scope = |o: &Route| -> bool {
+            o.view.is_some() && o.view == r.view && o.key == r.key && o.page == r.page
+        };
+        return db
+            .routes
+            .iter()
+            .filter(|o| in_scope(o) && o.axis == r.axis)
+            .map(|o| AxisPoolMember {
+                row: o,
+                url: o.url.as_str(),
+                member: member_of(o),
+                current: o.url == r.url,
+            })
+            .collect();
+    }
+
+    // Route axis: pivot one member, hold the rest (and pairing axis) fixed.
     let in_scope = |o: &Route| -> bool {
         match &r.row {
             Some(k) => o.row.as_ref() == Some(k),
             None => o.view.is_some() && o.view == r.view && o.key == r.key && o.page == r.page,
         }
     };
+    let cur_pairing = cfg.pairing_member(r);
+    axis.values
+        .iter()
+        .filter_map(|v| {
+            db.routes
+                .iter()
+                .find(|o| {
+                    in_scope(o)
+                        && cfg.pairing_member(*o) == cur_pairing
+                        && o.axis.len() == r.axis.len()
+                        && r.axis.iter().all(|rm| {
+                            let want = if rm.axis == axis_name {
+                                v.as_str()
+                            } else {
+                                rm.value.as_str()
+                            };
+                            o.axis
+                                .iter()
+                                .any(|om| om.axis == rm.axis && om.value == want)
+                        })
+                })
+                .map(|o| AxisPoolMember {
+                    row: o,
+                    url: o.url.as_str(),
+                    member: v.clone(),
+                    current: o.url == r.url,
+                })
+        })
+        .collect()
+}
 
-    // Locale axis. A row pivots through its translation files (by_logical); a
-    // view through its own routes in other locales.
-    let loc_members: Vec<(String, String, bool)> = if let Some(k) = &r.row {
-        db.rows
-            .get(k)
-            .and_then(|p| db.by_logical.get(&p.logical))
-            .into_iter()
-            .flatten()
-            .filter_map(|sk| db.rows.get(sk))
-            .filter(|s| !s.url.is_empty())
-            .map(|s| {
-                (
-                    cfg.i18n.name_of(s.locale()).to_string(),
-                    s.url.clone(),
-                    Some(&s.key) == r.row.as_ref(),
-                )
-            })
-            .collect()
-    } else {
-        // Vary ONLY locale: hold the axis members fixed, or a view on another
-        // axis would list its axis siblings as if they were translations.
-        db.routes
-            .iter()
-            .filter(|o| in_scope(o) && o.axis == r.axis)
-            .map(|o| {
-                let loc = o.locale().unwrap_or(default);
-                (
-                    cfg.i18n.name_of(loc).to_string(),
-                    o.url.clone(),
-                    o.url == r.url,
-                )
-            })
-            .collect()
-    };
-    if let Some(g) = parts::axis_group(
-        "locale",
-        cfg.i18n.string("translations", cur_locale),
-        loc_members,
-    ) {
-        groups.push(g);
+/// The axis slot (q47, §6f): every axis THIS route is a member of, each a group
+/// of member links with the current one flagged — the switcher a theme renders,
+/// for a row page or a listing view alike.
+///
+/// File-axis members come from [`axis_pool`] / `by_logical`; route-axis members
+/// from sibling routes. A group with fewer than two members drops out.
+pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::PartMap> {
+    let mut groups = Vec::new();
+    let cur_pairing = cfg.pairing_member(r);
+    let mut seen = std::collections::BTreeSet::new();
+
+    // Pairing / file axis first (by_logical pool), then each route-axis member.
+    if let Some((name, _)) = cfg.pairing_axis() {
+        if cfg.is_file_axis(name) {
+            seen.insert(name.to_string());
+            let members: Vec<(String, String, bool)> = axis_pool(cfg, db, r, name)
+                .into_iter()
+                .map(|m| {
+                    (
+                        cfg.i18n.name_of(&m.member).to_string(),
+                        m.url.to_string(),
+                        m.current,
+                    )
+                })
+                .collect();
+            if let Some(g) = parts::axis_group(
+                name,
+                cfg.i18n.string("translations", &cur_pairing),
+                members,
+            ) {
+                groups.push(g);
+            }
+        }
     }
 
-    // Declared axes: pivot one, hold the rest (and locale) at the current member.
     for m in &r.axis {
-        let Some(axis) = cfg.axes.get(&m.axis) else {
+        if !seen.insert(m.axis.clone()) {
             continue;
-        };
-        let members: Vec<(String, String, bool)> = axis
-            .values
-            .iter()
-            .filter_map(|v| {
-                db.routes
-                    .iter()
-                    .find(|o| {
-                        in_scope(o)
-                            && o.locale() == r.locale()
-                            && o.axis.len() == r.axis.len()
-                            && r.axis.iter().all(|rm| {
-                                let want = if rm.axis == m.axis { v } else { &rm.value };
-                                o.axis
-                                    .iter()
-                                    .any(|om| om.axis == rm.axis && om.value == *want)
-                            })
-                    })
-                    .map(|o| (v.clone(), o.url.clone(), v == &m.value))
-            })
+        }
+        let members: Vec<(String, String, bool)> = axis_pool(cfg, db, r, &m.axis)
+            .into_iter()
+            .map(|m| (m.member, m.url.to_string(), m.current))
             .collect();
         if let Some(g) = parts::axis_group(&m.axis, &m.axis, members) {
             groups.push(g);
@@ -208,20 +261,27 @@ pub(crate) fn resolve_view_theme<'a>(
 /// prefix. Pages are only created where rows exist, so the sibling list is
 /// exactly the pages there are.
 pub(crate) fn pagination_parts(
+    cfg: &Config,
     db: &SiteDb,
     _view: &str,
     _v: &View,
     r: &Route,
 ) -> Result<Option<parts::PartMap>> {
     let Some(cur) = r.page else { return Ok(None) };
-    // Same view, same locale, same GROUP: pagination is per partition, and two
+    // Same view, same i18n member, same GROUP: pagination is per partition, and two
     // routes of one view are in the same partition when their group params
     // agree (empty for an ungrouped view, so it degenerates correctly).
     let mut siblings: Vec<&Route> = db
         .routes
         .iter()
         .filter(|x| {
-            x.view == r.view && x.page.is_some() && x.locale() == r.locale() && x.params == r.params
+            x.view == r.view
+                && x.page.is_some()
+                && match cfg.pairing_axis() {
+                    Some((n, _)) => cfg.same_on(*x, r, n),
+                    None => true,
+                }
+                && x.params == r.params
         })
         .collect();
     siblings.sort_by_key(|x| x.page);

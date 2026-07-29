@@ -75,18 +75,24 @@ impl Dir {
 /// root's own index first, then the nested pages and directories beneath.
 /// Derived once per section per build; `current` moves per page in
 /// `to_parts`.
-pub fn section_tree(db: &SiteDb, root: &Path, default_locale: &str) -> Vec<Node> {
+pub fn section_tree(
+    db: &SiteDb,
+    root: &Path,
+    dated_keep: Option<(&str, &str)>,
+) -> Vec<Node> {
     let mut top = Dir::default();
     let mut root_index: Option<Node> = None;
 
-    // §6f: a section tree is single-locale like every other derived set —
-    // a translation shares its original's logical rel and would otherwise
-    // collide with it node-for-node.
-    for p in db
-        .rows
-        .iter()
-        .filter(|p| p.rendered && p.locale() == default_locale)
-    {
+    // §6f: a section tree keeps the pairing-axis canonical like every other
+    // derived set — a twin shares its original's logical rel and would
+    // otherwise collide with it node-for-node.
+    for p in db.rows.iter().filter(|p| {
+        p.rendered
+            && match dated_keep {
+                Some((field, canon)) => p.string(field) == Some(canon),
+                None => true,
+            }
+    }) {
         let Ok(rest) = p.rel.strip_prefix(root) else {
             continue;
         };
@@ -212,7 +218,8 @@ mod tests {
             claimed: false,
             ..Default::default()
         };
-        r.set_locale("en");
+        r.fields
+            .insert("locale".into(), grackle_db::Value::Str("en".into()));
         r
     }
 
@@ -226,7 +233,7 @@ mod tests {
             page("m/index.md", "/m/", Some("M"), None),
             page("m/a/x.md", "/m/a/x/", Some("X"), None),
         ]);
-        let t = section_tree(&db, Path::new("m"), "en");
+        let t = section_tree(&db, Path::new("m"), Some(("locale", "en")));
         let parts = to_parts(&t, "/m/a/x/");
         // The dir node "a" carries X as a child; X is current.
         let a = &parts[1];

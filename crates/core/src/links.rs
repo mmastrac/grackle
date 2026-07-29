@@ -72,13 +72,12 @@ pub struct LinkSpace {
     /// one bad link in a template-shared fragment would otherwise say it once
     /// per page.
     warnings: Mutex<BTreeSet<String>>,
-    /// q53 locale axis: source path → the row's logical identity, and
-    /// (logical, locale) → URL. A `?locale=` selector picks a SIBLING row — a
-    /// different file, not a restyle of the same one — so it resolves through
-    /// `by_logical`, not through a template. This is the file-axis half of the
-    /// abstraction: a member may add its own content file.
+    /// q53 file axis: source path → the row's logical identity, and
+    /// (logical, axis_name, member) → URL. A `?axis=` selector on a file axis
+    /// picks a SIBLING row — a different file, not a restyle of the same one —
+    /// so it resolves through `by_logical`, not through a template.
     source_to_logical: HashMap<String, String>,
-    sibling: HashMap<(String, String), String>,
+    sibling: HashMap<(String, String, String), String>,
     /// IO.md §4a: root-relative source path → the row's STRONG address, for
     /// the rows a rule declined to route (`embed = true`).
     ///
@@ -122,12 +121,18 @@ impl LinkSpace {
         self.warnings.lock().unwrap().insert(w);
     }
 
-    pub fn new(_cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
+    pub fn new(cfg: &Config, db: &SiteDb, root: &Path) -> LinkSpace {
         let mut source_to_url = HashMap::new();
         let mut source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>> = HashMap::new();
         let mut source_to_logical = HashMap::new();
         let mut sibling = HashMap::new();
         let mut source_to_strong = HashMap::new();
+        let file_axes: Vec<(&str, &str)> = cfg
+            .axes
+            .iter()
+            .filter(|(n, _)| cfg.is_file_axis(n))
+            .map(|(n, a)| (n.as_str(), a.field.as_str()))
+            .collect();
         // A row that publishes on demand (§4) is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
@@ -152,7 +157,19 @@ impl LinkSpace {
                 source_to_axis.insert(rel.clone(), p.axis.clone());
             }
             source_to_logical.insert(rel, p.logical.clone());
-            sibling.insert((p.logical.clone(), p.locale().to_owned()), p.url.clone());
+            for &(axis_name, field) in &file_axes {
+                let member = match p.string(field) {
+                    Some(s) if !s.is_empty() => s.to_owned(),
+                    _ => match cfg.axes.get(axis_name).and_then(|a| a.canonical()) {
+                        Some(c) => c.to_owned(),
+                        None => continue,
+                    },
+                };
+                sibling.insert(
+                    (p.logical.clone(), axis_name.to_string(), member),
+                    p.url.clone(),
+                );
+            }
         }
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
@@ -264,14 +281,7 @@ fn closest_source<'a>(space: &'a LinkSpace, wanted: &str) -> Option<&'a str> {
 /// A pure function, so the sentence is testable without a site — `slots.rs`'s
 /// `unknown_stems` is the precedent.
 pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Option<String> {
-    // `locale` is an axis only where i18n is on; elsewhere it is an ordinary
-    // query key and must not be suggested.
-    let names: Vec<&str> = cfg
-        .axes
-        .keys()
-        .map(String::as_str)
-        .chain(cfg.locale_enabled().then_some("locale"))
-        .collect();
+    let names: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
     if names.contains(&key) {
         return None; // a selector, not a miss — the caller already handled it
     }
@@ -389,40 +399,16 @@ pub fn resolve(
     // Only a DECLARED axis name is read this way. Any other `?k=v` stays the
     // literal suffix it has always been, so this cannot change what an existing
     // link means.
-    let axis_sel: Option<(&crate::config::Axis, &str)> = suffix
+    let axis_sel: Option<(&str, &crate::config::Axis, &str)> = suffix
         .strip_prefix('?')
         .and_then(|q| q.split_once('='))
-        .and_then(|(k, v)| cfg.axes.get(k).map(|a| (a, v)));
-    if let Some((axis, value)) = axis_sel {
+        .and_then(|(k, v)| cfg.axes.get(k).map(|a| (k, a, v)));
+    if let Some((_, axis, value)) = axis_sel {
         if !axis.values.iter().any(|x| x == value) {
             bail!(
                 "{source}: link {href:?} names no member of that axis\n  \
                  members: {}",
                 axis.values.join(", ")
-            );
-        }
-    }
-    // q53 locale axis: `?locale=fr` picks a SIBLING row — a translation, a
-    // different file, not a restyle — the same spelling `?theme=` uses. The
-    // filename suffix (`index.fr.md`) gives the implicit value; the selector
-    // overrides it, so `index.md?locale=fr` and `index.fr.md` name one member,
-    // and `index.fr.md?locale=en` names the base. Read only when i18n is on, so
-    // `?locale=` on a monolingual site stays the literal suffix it always was.
-    let locale_sel: Option<&str> = cfg
-        .locale_enabled()
-        .then(|| {
-            suffix
-                .strip_prefix('?')
-                .and_then(|q| q.split_once('='))
-                .filter(|(k, _)| *k == "locale")
-                .map(|(_, v)| v)
-        })
-        .flatten();
-    if let Some(v) = locale_sel {
-        if !cfg.is_locale(v) {
-            bail!(
-                "{source}: link {href:?} names no locale {v:?}\n  declared: {}",
-                cfg.locales().join(" ")
             );
         }
     }
@@ -432,7 +418,7 @@ pub fn resolve(
     // a key that is a declared axis's name in the wrong case, a typo one or two
     // edits away from one, or the axis's FIELD rather than the axis. Behaviour
     // is unchanged; the link still ships literally, and `?utm=x` says nothing.
-    if axis_sel.is_none() && locale_sel.is_none() {
+    if axis_sel.is_none() {
         if let Some(k) = suffix.strip_prefix('?').and_then(|q| q.split_once('=')) {
             if let Some(w) = misspelled_axis(cfg, source, href, k.0) {
                 space.warn(w);
@@ -449,9 +435,7 @@ pub fn resolve(
                                                           // resolves to the linking row itself, so the `?axis=` branch below pivots the
                                                           // source rather than a directory index. Only when a selector is present, so a
                                                           // plain `.` still means the directory.
-    if (path_part.is_empty() || path_part == "." || path_part == "./")
-        && (locale_sel.is_some() || axis_sel.is_some())
-    {
+    if (path_part.is_empty() || path_part == "." || path_part == "./") && axis_sel.is_some() {
         candidates.push((source.to_string(), false));
     }
     if !path_part.starts_with('/') {
@@ -505,38 +489,24 @@ pub fn resolve(
                     return Ok(None); // the browser already gets it right
                 }
             }
-            // q53 locale axis: resolve to the sibling row for the named locale,
-            // via by_logical rather than a template — the member is a different
-            // file (a file axis, where the theme axis reuses one row). No such
-            // sibling is the untranslated case: a member with no file does not
-            // materialize, so this is a link to nothing, held to the same
-            // standard as every other selector.
-            if let Some(v) = locale_sel {
-                let url = space
-                    .source_to_logical
-                    .get(c)
-                    .and_then(|lg| space.sibling.get(&(lg.clone(), v.to_string())));
-                match url {
-                    Some(u) => return Ok(Some(u.clone())),
-                    None => bail!(
-                        "{source}: link {href:?} selects locale {v:?}, but {c:?} \
-                         has no such translation"
-                    ),
+            // q53: the selector picks a member. A **file axis** resolves to a
+            // sibling row via by_logical; a **route axis** looks up the
+            // materialized member URL for the same row.
+            if let Some((sel_name, _axis, value)) = axis_sel {
+                if cfg.is_file_axis(sel_name) {
+                    let url = space.source_to_logical.get(c).and_then(|lg| {
+                        space
+                            .sibling
+                            .get(&(lg.clone(), sel_name.to_string(), value.to_string()))
+                    });
+                    match url {
+                        Some(u) => return Ok(Some(u.clone())),
+                        None => bail!(
+                            "{source}: link {href:?} selects {sel_name}={value:?}, but {c:?} \
+                             has no such sibling"
+                        ),
+                    }
                 }
-            }
-            // q53: the selector picks a member of the row's axis, and the answer
-            // is LOOKED UP in the materialized routes rather than rebuilt from a
-            // template (MERGE.md C5c). The reconstruction that used to live here
-            // chose the first of the rule's path list — an arbitrary member of
-            // it — so a rule written `route = ["/{look}/{axis:locale}/",
-            // "/{look}/", "/"]` produced a URL `select_path` never issued, and
-            // then blamed the rule for not spending a segment it plainly spent.
-            if let Some((_axis, value)) = axis_sel {
-                let sel_name = suffix
-                    .strip_prefix('?')
-                    .and_then(|q| q.split_once('='))
-                    .map(|(k, _)| k)
-                    .unwrap_or_default();
                 // Two failures, two sentences. Whether the row's RULE spends the
                 // axis is the row's own property and the honest thing to blame;
                 // whether that member MATERIALIZED is a different question, and
@@ -572,7 +542,7 @@ pub fn resolve(
                 );
             }
             // Hold every other axis at the current member (q53). `Row.url`
-            // already spent locale when the templates declare it.
+            // already spent file axes when the templates declare them.
             return Ok(Some(format!("{url}{suffix}")));
         }
     }
@@ -762,7 +732,6 @@ fn view_link(
                 match ns {
                     Some("axis") => Some(format!("{{{tok}}}")),
                     None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                    None if k == "locale" && cfg.locale_enabled() => Some("{locale}".to_string()),
                     None | Some("group") => crate::template::param(&params, k),
                     _ => None,
                 }
@@ -778,24 +747,31 @@ fn view_link(
                 canonical: *canonical,
             })
             .collect();
-        // Locale is a coord only when a template spends it (same law as
+        // Pairing axis is a coord only when a template spends it (same law as
         // select_path). A gallery at `/photos/` is one URL in every language;
-        // inventing a required locale would refuse the link.
-        if rendered.iter().any(|t| spends(t, "locale")) {
-            coords.push(Coord {
-                axis: "locale",
-                value: loc,
-                canonical: loc == cfg.i18n.default,
-            });
+        // inventing a required member would refuse the link.
+        if let Some((axis_name, axis)) = cfg.pairing_axis() {
+            if rendered.iter().any(|t| spends(t, axis_name)) {
+                let canon = axis.canonical().unwrap_or(cfg.i18n.default.as_str());
+                coords.push(Coord {
+                    axis: axis_name,
+                    value: loc,
+                    canonical: loc == canon,
+                });
+            }
         }
         select_path(&rendered, &coords)
     };
-    // Locale-parallel views (§6f): a translated row links into its own
-    // locale's archive when that variant materialized, and falls back to the
-    // default one when it did not.
+    // Pairing-axis-parallel views (§6f): a twin row links into its own
+    // member's archive when that variant materialized, and falls back to the
+    // canonical one when it did not.
+    let canon = cfg
+        .pairing_axis()
+        .and_then(|(_, a)| a.canonical())
+        .unwrap_or(cfg.i18n.default.as_str());
     let url = pick(locale)?;
-    let url = if locale != cfg.i18n.default && !space.routes.contains(&url) {
-        pick(&cfg.i18n.default)?
+    let url = if locale != canon && !space.routes.contains(&url) {
+        pick(canon)?
     } else {
         url
     };

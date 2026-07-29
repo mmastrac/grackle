@@ -165,9 +165,17 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RankPolicy) -> Relate
             .iter()
             .enumerate()
             .filter(|(j, vj)| *j != i && vj.is_some())
-            // §6f: similarity stays within a locale — a translation is the
-            // SAME text, so it would otherwise top its original's list.
-            .filter(|(j, _)| row(*j).map(|r| r.locale()) == row(i).map(|r| r.locale()))
+            // q53: similarity does not cross an axis. Twins of this row
+            // (translation, other file-axis form) share a non-empty `logical`
+            // and nearly identical text — they would otherwise top the list.
+            // Route-only axes (theme, …) are the same row, already excluded by
+            // `j != i`. Empty logical means no pairing (fixture / monolingual).
+            .filter(|(j, _)| match (row(i), row(*j)) {
+                (Some(a), Some(b)) => {
+                    a.logical.is_empty() || b.logical.is_empty() || a.logical != b.logical
+                }
+                _ => false,
+            })
             .filter_map(|(j, vj)| {
                 let gap = match (year(i), year(j)) {
                     (Some(a), Some(b)) => (a - b).abs(),
@@ -389,6 +397,26 @@ mod tests {
             key("b"),
             "the twin ranks; the self does not"
         );
+    }
+
+    #[test]
+    fn axis_twins_do_not_rank_each_other() {
+        // Same logical identity, identical vectors: the translation would be
+        // cosine 1.0 if the axis gate ever regressed.
+        let v = vec![1.0, 0.0];
+        let (mut en, v0) = post("a", 2020, Some(v.clone()));
+        en.logical = "a".into();
+        let (mut fr, v1) = post("a.fr", 2020, Some(v.clone()));
+        fr.logical = "a".into();
+        let (other, v2) = post("b", 2020, Some(v));
+        let db = mkdb(vec![en, fr, other]);
+        let r = rank(&db, &[v0, v1, v2], &RankPolicy::default());
+        let en_hits = &r.by_post[&key("a")];
+        assert!(
+            en_hits.iter().all(|(k, _)| k != &key("a.fr")),
+            "a translation must not rank: {en_hits:?}"
+        );
+        assert_eq!(en_hits[0].0, key("b"));
     }
 
     #[test]

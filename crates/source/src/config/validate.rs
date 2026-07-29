@@ -442,9 +442,14 @@ impl Config {
                 for tmpl in tmpls {
                     // Same token law as `archive_url`: `{key}` / the field
                     // name are the group; axes stay placeholders for
-                    // `select_path`. A bare `{locale}` is the retired spelling
-                    // of `{axis:locale}` while sites still migrate.
-                    archive_route_fill(tmpl, field, "probe", cfg.locale_enabled()).with_context(
+                    // `select_path`. A bare `{name}` for the i18n axis stays a placeholder for `select_path`.
+                    archive_route_fill(
+                        tmpl,
+                        field,
+                        "probe",
+                        cfg.pairing_axis().map(|(n, _)| n).unwrap_or(""),
+                    )
+                    .with_context(
                         || {
                             format!(
                                 "view {name}: archive route for {field} needs more \
@@ -519,36 +524,43 @@ impl Config {
             }
         }
         // §6f: every LocalizedStr in the config obeys ONE rule — a
-        // per-locale map may only name declared locale-axis members, and must
-        // include the canonical locale so resolution is total.
+        // per-member map may only name declared pairing-axis members, and must
+        // include the canonical member so resolution is total.
         {
-            let known = cfg.locales();
+            let (axis_label, known): (String, Vec<&str>) = match cfg.pairing_axis() {
+                Some((n, a)) => (
+                    format!("[axes.{n}]"),
+                    a.values.iter().map(String::as_str).collect(),
+                ),
+                None => ("[i18n]".into(), vec![cfg.i18n.default.as_str()]),
+            };
+            let known_set = &known;
             let check = |what: &str, s: &LocalizedStr| -> Result<()> {
                 let LocalizedStr::PerLocale(m) = s else {
                     return Ok(());
                 };
                 for loc in m.keys() {
-                    if !cfg.is_locale(loc) {
+                    if !known_set.contains(&loc.as_str()) {
                         anyhow::bail!(
-                            "{what}: declares locale {loc:?}, which is not in \
-                             [axes.locale] values {known:?}"
+                            "{what}: declares member {loc:?}, which is not in \
+                             {axis_label} values {known_set:?}"
                         );
                     }
                 }
                 if !m.contains_key(&cfg.i18n.default) {
                     anyhow::bail!(
-                        "{what}: a per-locale name must include the canonical \
-                         locale ({:?})",
+                        "{what}: a per-member name must include the canonical \
+                         member ({:?})",
                         cfg.i18n.default
                     );
                 }
                 Ok(())
             };
             for loc in cfg.i18n.names.keys() {
-                if !cfg.is_locale(loc) {
+                if !known_set.contains(&loc.as_str()) {
                     anyhow::bail!(
-                        "i18n.names: names locale {loc:?}, which is not in \
-                         [axes.locale] values {known:?} — nothing would ever read it"
+                        "i18n.names: names member {loc:?}, which is not in \
+                         {axis_label} values {known_set:?} — nothing would ever read it"
                     );
                 }
             }
@@ -573,7 +585,7 @@ impl Config {
                     check(&format!("view {name}: intro"), i)?;
                 }
             }
-            // The global map: same locale rule; values are literal (a
+            // The global map: same member rule; values are literal (a
             // reference chain would make resolution non-total).
             for (key, s) in &cfg.i18n.strings {
                 check(&format!("i18n.strings.{key}"), s)?;
@@ -693,15 +705,15 @@ impl Config {
                 if !matches!(l, "*" | "default") {
                     anyhow::bail!(
                         "view {vname}: locales must be \"*\" (every declared \
-                         locale — the default) or \"default\" (opt out of \
-                         locale-parallel materialization, §6f)"
+                         i18n member — the default) or \"default\" (opt out of \
+                         i18n-parallel materialization, §6f)"
                     );
                 }
                 if v.reads_all_outputs() {
                     anyhow::bail!(
                         "view {vname}: a fold over every output serializes the \
-                         whole route set and never materializes per locale — \
-                         filter on `locale` instead (§6f)"
+                         whole route set and never materializes per i18n member — \
+                         filter on the i18n field instead (§6f)"
                     );
                 }
             }

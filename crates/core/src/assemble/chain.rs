@@ -44,7 +44,11 @@ pub struct Page<'a> {
     pub head_html: String,
     pub site_title: &'a str,
     pub source_dir: &'a Path,
-    pub locale: &'a str,
+    /// Pairing-axis member for `.slots/<name>.{member}` resolution.
+    pub lang: &'a str,
+    /// Evaluated `[html.html.attribute]` / `[html.body.attribute]`.
+    pub html_attrs: Vec<(String, String)>,
+    pub body_attrs: Vec<(String, String)>,
     #[allow(clippy::type_complexity)]
     pub resolve_link: &'a dyn Fn(crate::links::Cite, &Path, &str) -> Result<Option<String>>,
     pub subtheme: Option<&'a str>,
@@ -60,7 +64,9 @@ pub fn wrap(page: Page<'_>, inner: String) -> Result<String> {
         page.site_title,
         inner,
         page.source_dir,
-        page.locale,
+        page.lang,
+        &page.html_attrs,
+        &page.body_attrs,
         page.resolve_link,
         page.subtheme,
         page.profile,
@@ -92,14 +98,16 @@ pub fn document_page(
 /// Light tier: minimal head, no theme chrome.
 pub fn light_page(
     head: &render::Head,
-    locale: &str,
+    html_attrs: &[(String, String)],
+    body_attrs: &[(String, String)],
     profile: Option<&str>,
     axis: &[AxisMember],
     body: &str,
 ) -> String {
     render::root_shell(
         &render::light_head(head),
-        locale,
+        html_attrs,
+        body_attrs,
         None,
         profile,
         axis,

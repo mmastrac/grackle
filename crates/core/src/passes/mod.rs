@@ -39,6 +39,8 @@ pub struct Ctx<'a> {
     pub profile: Option<&'a str>,
     /// `[html.head.meta]`, compiled once (§4e).
     pub metas: &'a crate::render::Metas,
+    /// `[html.html.attribute]` / `[html.body.attribute]`, compiled once (§4e).
+    pub attrs: &'a crate::render::HtmlAttrs,
     /// `db.object_ix` as a set: a listing asks per member whether the row IS
     /// the picture, and the membership list is a Vec.
     pub objects: std::collections::HashSet<&'a crate::model::Key>,
@@ -50,9 +52,9 @@ impl<'a> Ctx<'a> {
         crate::theme::css_url(&self.cfg.site.baseurl, theme)
     }
 
-    /// The route's locale, or the site default.
-    pub fn locale_of<'r>(&'r self, r: &'r Route) -> &'r str {
-        r.locale().unwrap_or(&self.cfg.i18n.default)
+    /// The route's pairing-axis member, or the site default.
+    pub fn pairing_member(&self, r: &Route) -> String {
+        self.cfg.pairing_member(r)
     }
 
     pub fn root_path(&self) -> &Path {
