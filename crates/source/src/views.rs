@@ -195,10 +195,10 @@ fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> 
 }
 
 /// Which pairing-axis values a materializing view partitions into (§6f).
-/// Default-on: every member of `[i18n] axis`; `locales = "default"` keeps only
-/// the canonical (config key kept — base/sites already spell it).
+/// Default-on: every member of `[i18n] axis`; `partition = "default"` keeps
+/// only the canonical.
 fn partition_values<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
-    match (v.locales.as_deref(), cfg.pairing_axis()) {
+    match (v.partition.as_deref(), cfg.pairing_axis()) {
         (_, None) => vec![""],
         (Some("default"), Some((_, axis))) => {
             vec![axis.canonical().unwrap_or("")]
@@ -547,8 +547,8 @@ fn build_view(
     } = base;
     // §6f: objects are not file-axis content, so a partition opt-in is a
     // config error rather than a silent ignore.
-    if !parsed && v.locales.is_some() {
-        bail!("view {name}: objects have no pairing axis; object views cannot declare locales");
+    if !parsed && v.partition.is_some() {
+        bail!("view {name}: objects have no pairing axis; object views cannot declare partition");
     }
     // Parsed and type-checked once per view, not per row: a bad filter is a
     // startup error naming the view.
@@ -593,7 +593,7 @@ fn build_view(
         return Ok(());
     }
 
-    // Partition DEFAULT-ON over the pairing axis; `locales = "default"` opts
+    // Partition DEFAULT-ON over the pairing axis; `partition = "default"` opts
     // out. A value with no rows materializes nothing. Objects (unparsed) stay
     // a single cell.
     let axis_values = if parsed {

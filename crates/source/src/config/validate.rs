@@ -709,19 +709,19 @@ impl Config {
             }
         }
         for (vname, v) in &cfg.views {
-            if let Some(l) = v.locales.as_deref() {
+            if let Some(l) = v.partition.as_deref() {
                 if !matches!(l, "*" | "default") {
                     anyhow::bail!(
-                        "view {vname}: locales must be \"*\" (every declared \
-                         i18n member — the default) or \"default\" (opt out of \
-                         i18n-parallel materialization, §6f)"
+                        "view {vname}: partition must be \"*\" (every declared \
+                         pairing-axis member — the default) or \"default\" (opt \
+                         out of pairing-parallel materialization, §6f)"
                     );
                 }
                 if v.reads_all_outputs() {
                     anyhow::bail!(
                         "view {vname}: a fold over every output serializes the \
-                         whole route set and never materializes per i18n member — \
-                         filter on the i18n field instead (§6f)"
+                         whole route set and never materializes per pairing-axis \
+                         member — filter on the axis field instead (§6f)"
                     );
                 }
             }

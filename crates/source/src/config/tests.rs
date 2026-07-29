@@ -1907,7 +1907,7 @@ fn an_i18n_name_must_name_a_declared_locale() {
     );
     assert_eq!(c.i18n.name_of("fr"), "Français");
     assert_eq!(c.i18n.name_of("en"), "English");
-    // The default locale needs no `locales` entry, and a name for it is
+    // The canonical member needs no `names` entry, and a name for it is
     // the shape every live site uses.
     let e =
             cfg_err("[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n[i18n.names]\nfr_CA = \"Français canadien\"\n");

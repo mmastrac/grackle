@@ -1862,13 +1862,13 @@ pub struct View {
     /// wear their own. Nearest wins: the view beats member unanimity, which
     /// beats `[site] theme`.
     pub theme: Option<String>,
-    /// §6f i18n-axis partition, DEFAULT-ON: a materializing row-query view
-    /// partitions per member of the i18n axis (each member's rows, member-
+    /// §6f pairing-axis partition, DEFAULT-ON: a materializing row-query view
+    /// partitions per member of `[i18n] axis` (each member's rows, member-
     /// prefixed routes when templates spend the axis; a member with no rows
-    /// materializes nothing). `"default"` opts out; `"*"` states the default
-    /// explicitly. Star views never multiply; embedded views follow their
-    /// embedding page (pending).
-    pub locales: Option<String>,
+    /// materializes nothing). `"default"` opts out (canonical only); `"*"`
+    /// states the default explicitly. Star views never multiply; embedded
+    /// views follow their embedding page (pending).
+    pub partition: Option<String>,
     /// The view's outermost serialization (Matt, 2026-07): `"atom"` and
     /// `"sitemap"` are built-in XML shells, `"search"` is the postcard
     /// index /search.js consumes — the feed is not a special pass, it is

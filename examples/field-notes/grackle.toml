@@ -245,10 +245,11 @@ title = { en = "Notes", fr = "Carnet" }
 paths = ["/{axis:locale}/blog/tags/{key}/", "/blog/tags/{key}/"]
 from = "published"
 group_by = "tags"
-# §6f: locale-parallel materialization is DEFAULT-ON — /fr/blog/tags/…
+# §6f: pairing-axis partition is DEFAULT-ON — /fr/blog/tags/…
 # holds the French rows, titled from @tagged's fr entry, with no
-# annotation here. A view that should stay single-locale opts out with
-# locales = "default". A tag with no French rows has no French page.
+# annotation here. A view that should stay on the canonical member
+# opts out with partition = "default". A tag with no French rows has
+# no French page.
 layout = "card"
 noindex = true
 # A "@key" reference into [i18n.strings] — the title is declared once,
