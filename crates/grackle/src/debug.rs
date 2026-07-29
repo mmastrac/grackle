@@ -59,8 +59,6 @@ struct Row {
     title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     date: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     layout: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -147,20 +145,15 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             path: rel_to_root(&p.path),
             title: p.title.clone(),
             date: p.date.map(|d| d.to_string()),
-            tags: p.list("tags"),
             layout: None,
             shell: None,
             theme: None,
             locale: p.locale.clone(),
             rendered: true,
             claimed: false,
-            // The diagnosis flags used to be three named bools here; they are
-            // declared fields now (§4e), so they arrive with everything else
-            // a site declared and the inspector names none of them.
             fields: p
                 .fields
                 .iter()
-                .filter(|(k, _)| k.as_str() != "tags")
                 .map(|(k, v)| (k.clone(), value_text(v)))
                 .collect(),
             size: None,
@@ -176,7 +169,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             path: p.rel.to_string_lossy().to_string(),
             title: p.title.clone(),
             date: None,
-            tags: Vec::new(),
             layout: None,
             shell: p.shell.clone(),
             theme: p.theme.clone(),
@@ -200,7 +192,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             path: o.rel.to_string_lossy().to_string(),
             title: None,
             date: None,
-            tags: Vec::new(),
             layout: None,
             shell: None,
             theme: None,
@@ -351,6 +342,7 @@ pub fn value_text(v: &crate::filter::Value) -> String {
         V::Str(s) => s.clone(),
         V::Int(i) => i.to_string(),
         V::Bool(b) => b.to_string(),
+        V::List(items) => items.join(", "),
         V::Null => String::new(),
         other => serde_json::to_string(other).unwrap_or_default(),
     }

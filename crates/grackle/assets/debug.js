@@ -91,6 +91,14 @@ function flagsOf(row) {
 	return f;
 }
 
+function fieldOf(row, name) {
+	if (!row.fields) return "";
+	for (var i = 0; i < row.fields.length; i++) {
+		if (row.fields[i][0] === name) return row.fields[i][1] || "";
+	}
+	return "";
+}
+
 function flagSpan(f) {
 	var s = el("span", "flag" + (f[1] ? " " + f[1] : ""), f[0]);
 	return s;
@@ -344,7 +352,7 @@ var COLS = {
 
 function cellText(row, col) {
 	if (col === "flags") return "";
-	if (col === "tags") return (row.tags || []).join(" ");
+	if (col === "tags") return fieldOf(row, "tags");
 	if (col === "size") return row.size == null ? "" : String(row.size);
 	return row[col] == null ? "" : String(row[col]);
 }
@@ -585,7 +593,6 @@ function detailRow(row) {
 		["url", row.url],
 		["locale", row.locale],
 		["date", row.date],
-		["tags", (row.tags || []).join(", ")],
 		["layout", row.layout],
 		["shell", row.shell],
 		["theme", row.theme],

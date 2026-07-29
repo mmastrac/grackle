@@ -517,15 +517,6 @@ fn run_query(q: Query, cfg: &config::Config, db: &db::SiteDb, total_ms: f64) -> 
                 println!("source      {}  (embedding cache key)", r.rel.display());
                 println!("title       {}", r.title.as_deref().unwrap_or("-"));
                 print!("{}", debug::row_fields(r));
-                let tags = r.list("tags");
-                println!(
-                    "tags        {}",
-                    if tags.is_empty() {
-                        "-".into()
-                    } else {
-                        tags.join(", ")
-                    }
-                );
                 println!("body        {} bytes", r.body_bytes);
                 let seq = db
                     .adjacency
