@@ -1,8 +1,8 @@
-//! One dependency edge in the site graph.
+//! One dependency edge.
 
 use crate::{Demand, Node};
 
-/// One edge, dependency → dependent.
+/// Edge from dependency to dependent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     pub from: Node,

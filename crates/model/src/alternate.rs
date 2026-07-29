@@ -1,7 +1,6 @@
 //! One `rel="alternate"` head entry.
 
-/// An absolute URL, and at most one qualifier — `hreflang` for a translation,
-/// `media_type` for a different-format form.
+/// Alternate URL, with at most one of `hreflang` or `media_type`.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Alternate {
     pub href: String,

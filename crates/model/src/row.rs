@@ -1,4 +1,4 @@
-//! Input-side row: one content file in the site database.
+//! One content file in the site database.
 
 use crate::{Key, RowAxis};
 use chrono::NaiveDate;
@@ -9,183 +9,77 @@ use std::path::PathBuf;
 
 #[derive(Debug, Default, Serialize)]
 pub struct Row {
-    /// What this row IS, as opposed to where it currently sits. Assigned by
-    /// `insert_rows` from `rel`, because a row's source file is the one thing
-    /// about it that survives a rebuild.
+    /// Stable identity: the source path.
     pub key: Key,
-    /// The collection whose source claimed this file. Relations anchor to
-    /// it, not to the table: two dated collections in one table interleave,
-    /// making a blog post's "later post" a note.
+    /// Collection whose source claimed this file.
     pub collection: String,
-    /// The `match` glob of the rule that CLAIMED this row — the first rule of
-    /// the first eligible scope that wanted it (IO.md I7d).
-    ///
-    /// Membership is an answer the ordered rule sequence gives per file, so
-    /// something has to be able to say which rule gave it: `collection` names
-    /// the scope and this names the rule inside it, and `grackle explain`
-    /// prints the pair. An ordering law nobody can observe is an ordering law
-    /// nobody can debug.
-    ///
-    /// Distinct from the rule that ROUTED the row, which may be a later one:
-    /// a defaults-only rule claims files it does not land.
+    /// `match` glob of the rule that claimed this file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<String>,
+    /// Absolute path on disk.
     pub path: PathBuf,
+    /// Path relative to the site root.
     pub rel: PathBuf,
     #[serde(serialize_with = "hex")]
     pub version: u64,
     pub date: Option<NaiveDate>,
     pub slug: String,
-    /// Filename without extension — unique, because it carries the date.
+    /// Filename without extension.
     pub stem: String,
-    /// `Option` because a PAGE may genuinely have none — a titleless page
-    /// is searchable by body and wears its URL as the only honest label.
-    /// A post's loader always fills it (front matter, else the slug read
-    /// as words), so this is `Some` for every post; the option exists to
-    /// let one row type serve both (q51).
+    /// Absent on a titleless page; posts always have one.
     pub title: Option<String>,
     pub description: Option<String>,
-    /// Which theme renders this row, and how much wrapper it wears (§5a,
-    /// §5g).
+    /// Theme that renders this row.
     pub theme: Option<String>,
+    /// Serialization shell (`html`, `raw`, …).
     pub shell: Option<String>,
-    /// Typed extra fields, validated against the governing `.schema.toml`
-    /// (§5b). Declarations come from a root-wide walk, so they are visible
-    /// to every row whatever loader filled it. List fields such as `tags`
-    /// live here — there is no parallel column.
+    /// Declared schema fields (lists, flags, strings, …).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, filter::Value>,
-    /// The image-typed subset of `fields`: field name -> the value, kept
-    /// apart because only the loader knows which fields `.schema.toml`
-    /// declared as images and the renderer still has to find them.
-    ///
-    /// Each value is checked at load to name a row of this site, or to be an
-    /// absolute url naming something outside it (`resolve_image_fields`) — so
-    /// a relative one here is a reference that resolves, not a hopeful string.
+    /// Image-typed fields: name -> resolved source (site row or absolute URL).
     #[serde(skip)]
     pub images: BTreeMap<String, String>,
-    /// Declared position (§6e). A post's *table* order is chronological;
-    /// this is what a view sorts on when it says so — see `order_by` in
-    /// `build_views`.
+    /// Author-declared sort position when a view asks for it.
     pub order: Option<i64>,
-    /// Logical identity shared by a row and its file-axis twins
-    /// (collection-relative, no extension). Pairing key for `by_logical`.
+    /// Shared identity for file-axis twins (root-relative, no extension).
     #[serde(skip)]
     pub logical: String,
+    /// Canonical published URL, empty when unrouted.
     pub url: String,
-    /// IO.md §4a's second address slot: the **hash address** the embed policy
-    /// published for this row, `/static/{hash}.{ext}`.
-    ///
-    /// `url` is the canonical address — where a rule said the row lands, what
-    /// an authored link resolves to, what `rel=canonical` names. This is the
-    /// content store made public: what an EMBEDDED citation resolves to when
-    /// no rule routed the row. `Some` exactly when a rule said `embed = true`
-    /// and the policy admitted the row, and then `url` is empty — the two
-    /// slots are not alternatives on one row today, because a routed output
-    /// wins and I12 owns the twin that carries both.
-    ///
-    /// Computed at LOAD, from the input bytes and the transform parameters and
-    /// from nothing else (`strong::address`) — the hashing law, which is what
-    /// keeps §1's "facts at planning" true of an output whose whole address is
-    /// a hash.
+    /// Hash address (`/static/{hash}.{ext}`) when the embed policy published one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strong_url: Option<String>,
-    /// Measured at load, when the body is briefly in hand. The body itself
-    /// is not kept — every consumer re-reads it (§2).
+    /// Body size in bytes (body itself is not kept).
     pub body_bytes: usize,
-    /// Tree heritage: a rendered row (front matter) vs a static file copied
-    /// verbatim. Always true for a row that came from a posts collection —
-    /// a post with no front matter is still parsed.
+    /// Parsed through the document pipeline (vs copied as bytes).
     pub rendered: bool,
-    /// IO.md §3: this row's file carried a front-matter block.
-    ///
-    /// Not the same bit as `rendered`, and the difference is the whole reason
-    /// it is a separate one: `rendered` says the pipeline parsed this row,
-    /// which a posts scope grants unconditionally, while this says the author
-    /// wrote identity into the file. They agree everywhere except a `.md` in
-    /// a posts scope with no block — grack.com has exactly one — where
-    /// `rendered` is true and this is false.
-    ///
-    /// Sidecars (IO.md I8) widen the fact rather than change it: identity
-    /// comes from a block **or** a sidecar file, and this is the column that
-    /// answers "either". Which of the two is `sidecar`, below.
+    /// File carried front matter (block or sidecar).
     pub front_mattered: bool,
-    /// IO.md I8: this row's identity arrived from a **sidecar** rather than
-    /// from a block in the file. `front_mattered` is then true while the
-    /// row's own bytes were never parsed — which is the split sidecars exist
-    /// for, and the one shape where `rendered` does not follow from
-    /// `front_mattered`.
-    ///
-    /// A bool rather than the sidecar's path, because the path is the row's
-    /// own `rel` plus `.toml` by construction — there is exactly one name a
-    /// sidecar can have. `grackle explain` prints it as the provenance of the
-    /// identity fact.
+    /// Identity came from a sidecar `.toml`, not an in-file block.
     pub sidecar: bool,
-    /// §4: this row's route rule was `on_demand`, so it publishes only when
-    /// something references it. The URL is computed either way — what is
-    /// deferred is whether a `Route` exists — which is what lets a link
-    /// resolve to a row nothing has materialized yet.
+    /// Publishes only when something references it.
     pub on_demand: bool,
-    /// IO.md §2, the join's input side: this row's **canonical** output, keyed
-    /// by its URL, or `None` when the row lands nowhere.
-    ///
-    /// The route table's shadow, not a second opinion: `load` fills it from
-    /// the routes it minted, so `output` is `Some` exactly when a `Route`
-    /// names this row. That is what makes the three shapes with no output
-    /// sayable rather than structural — a **claimed** row (its landing owns
-    /// the URL, q45), an **on-demand** row nobody has referenced yet (§4 — the
-    /// pull model, so the answer becomes `Some` at `materialize_referenced`
-    /// and not before), and a row a rule declined to route at all.
-    ///
-    /// A key rather than a `String` because a route's key IS its URL: the
-    /// join's three fields are all key lists, which is what lets I10's graph
-    /// read them as edges without a lookup table.
+    /// Canonical output route, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<Key>,
-    /// IO.md §2: this row's NON-canonical outputs — the `rel="alternate"` set
-    /// (q53's axis), keyed by URL, sorted.
-    ///
-    /// "A form is an output" made literal: the axis design's sentence — this
-    /// route points at other forms of THIS row — is a field rather than a
-    /// scan of the route table. Empty for a row published once, which is
-    /// almost every row.
+    /// Non-canonical outputs (`rel="alternate"`), by URL.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub alternates: Vec<Key>,
-    /// IO.md §2: every output that carries this row as a **member** — the
-    /// listings, archives and feeds that arrange it, keyed by URL, sorted.
-    ///
-    /// **Arrangement, not citation.** `linked_from` is the citation half (a
-    /// human wrote a link); this is the arrangement half (a query put the row
-    /// in a list). The backlink scanner learned that distinction the hard way
-    /// — a listing that carries a row is not a page that cites it — and this
-    /// is the second of its two clients, now with a name of its own.
-    ///
-    /// Not a filter column, deliberately: see `row_schema`.
+    /// Listing / archive / feed routes that include this row.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub viewed_by: Vec<Key>,
     pub size: u64,
-    /// An object's pixel shape, header-read at load beside `size` (§6b's
-    /// dimension facts, q26). A file property like any other, so a view can
-    /// ask for it: `where = "width > height"` selects the landscape ones.
-    /// `None` for a row that is not an image, or one whose header would not
-    /// parse.
+    /// Pixel width when this is an image.
     pub width: Option<u32>,
+    /// Pixel height when this is an image.
     pub height: Option<u32>,
-    /// q45: this row is a landing view's content — no standalone route,
-    /// excluded from every query structurally.
+    /// Owned by a landing view; no standalone route.
     #[serde(skip)]
     pub claimed: bool,
-    /// q53: the axes this row's route rule spends. Empty for a row published
-    /// once; more than one when the route template names more than one axis
-    /// placeholder, which is what makes two axes over one row a cartesian
-    /// product of routes rather than a collision. The names drive the product.
+    /// Axes the route rule spends.
     #[serde(skip)]
     pub axis: Vec<RowAxis>,
-    /// The rule's route template(s), rendered (path/group tokens filled, axis
-    /// placeholders preserved). One in the ordinary case; a list for the
-    /// default-axis case (§6f), where a member at its canonical value drops its
-    /// segment by falling to a shorter template. The materializer selects among
-    /// these per member-tuple.
+    /// Route templates with path tokens filled and axis tokens left.
     #[serde(skip)]
     pub route_templates: Vec<String>,
 }
@@ -202,33 +96,33 @@ impl Row {
         self.date.map(|d| (d.year(), d.month()))
     }
 
-    /// A declared `bool` field, false when absent or unset (§4e).
-    ///
-    /// Site vocabulary, not engine columns: prefer a head expression or a
-    /// generic field dump. The outline pass still spells `toc` here because
-    /// building the heading tree is work, not a string the head can emit.
+    /// Declared bool field; false when absent.
     pub fn flag(&self, name: &str) -> bool {
         matches!(self.fields.get(name), Some(filter::Value::Bool(true)))
     }
 
-    /// A declared string field, or None when absent / not a string.
+    /// Declared string field, if present.
     pub fn string(&self, name: &str) -> Option<&str> {
         match self.fields.get(name) {
             Some(filter::Value::Str(s)) => Some(s.as_str()),
             _ => None,
         }
     }
-}
 
-impl Row {
-    /// The hero image source (q23): the explicit `cover:` field beats
-    /// `image:`; both must be image-typed schema fields (§5b). The
-    /// first-image-block fallback remains open.
+    /// Cover or image field, for the hero.
     pub fn hero_source(&self) -> Option<&str> {
         self.images
             .get("cover")
             .or_else(|| self.images.get("image"))
             .map(String::as_str)
+    }
+
+    /// Declared list field values, or empty.
+    pub fn list(&self, name: &str) -> Vec<String> {
+        match filter::Row::field(self, name) {
+            filter::Value::List(v) => v,
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -261,17 +155,12 @@ impl filter::Row for Row {
             "order" => self.order.map_or(V::Null, V::Int),
             "rendered" => V::Bool(self.rendered),
             "front_mattered" => V::Bool(self.front_mattered),
-            // The join (IO.md §2). Bare `output` is the record's existence;
-            // `output.url` is its one projected field, Null when there is no
-            // record to project — never the empty string, because "lands at
-            // nowhere" and "lands at ''" are different claims.
             "output" => V::Bool(self.output.is_some()),
             "output.url" => self
                 .output
                 .as_ref()
                 .map_or(V::Null, |k| V::Str(k.to_string())),
             "alternates" => V::List(self.alternates.iter().map(|k| k.to_string()).collect()),
-            // `rel` is root-relative for every row, whatever its origin.
             "path" => V::Str(self.rel.to_string_lossy().to_string()),
             "dir" => V::Str(
                 self.rel
@@ -290,19 +179,7 @@ impl filter::Row for Row {
             "size" => V::Int(self.size as i64),
             "width" => self.width.map_or(V::Null, |w| V::Int(w as i64)),
             "height" => self.height.map_or(V::Null, |h| V::Int(h as i64)),
-            // Schema fields (§5b) resolve after the base names — the same
-            // fallthrough a page has had.
             other => self.fields.get(other).cloned().unwrap_or(V::Null),
-        }
-    }
-}
-
-impl Row {
-    /// Values of a declared list field, or empty when absent / not a list.
-    pub fn list(&self, name: &str) -> Vec<String> {
-        match filter::Row::field(self, name) {
-            filter::Value::List(v) => v,
-            _ => Vec::new(),
         }
     }
 }

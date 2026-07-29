@@ -1,10 +1,8 @@
-//! Demand: a source path and the rendition a citation asked for (IO.md §4a).
+//! A citation's demand: source path plus rendition parameters.
 
 use crate::Rendition;
 
-/// One demand: a source path as written in a citation, and the rendition it
-/// asked for. Two asks for one image are two entries; one ask from two pages
-/// is one.
+/// One ask from a citation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ask {
     pub src: String,
@@ -19,7 +17,7 @@ impl Ask {
         }
     }
 
-    /// The engine's default thumb ask for `src`.
+    /// Default thumbnail ask for `src`.
     pub fn thumb(src: impl Into<String>) -> Self {
         Self::new(src, Rendition::THUMB)
     }

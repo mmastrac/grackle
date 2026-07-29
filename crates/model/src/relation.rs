@@ -1,20 +1,15 @@
-//! A compiled neighbour query (§6g).
+//! A compiled neighbour query.
 
 use crate::{Pool, RelLabel};
 use grackle_db::filter;
 
-/// A compiled relation (§6g): a neighbour query over the two-row environment.
-/// The expression ASTs are parsed and type-checked at load; the engine walks
-/// candidates through `from → where → rank (+min_rank) → limit` per row.
+/// Neighbour query over the two-row environment.
 #[derive(Debug, Clone)]
 pub struct Relation {
     pub name: String,
-    /// The candidate pool. A set/collection is row-independent; a derived
-    /// name (`linked_from`) is row-relative — the difference the engine
-    /// resolves per row.
+    /// Candidate pool (set, collection, or derived name).
     pub pool: Pool,
-    /// Which `self` rows carry this relation (the `scope` glob), already
-    /// compiled. `None` = every row of the collection.
+    /// Which `self` rows carry this relation; `None` means all.
     pub scope: Option<globset::GlobMatcher>,
     pub filter: filter::Filter,
     pub rank: Option<filter::Rank>,

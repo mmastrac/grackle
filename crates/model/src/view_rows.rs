@@ -1,14 +1,14 @@
-//! A routeless view's resolved rows.
+//! Resolved rows for a routeless view.
 
 use crate::Key;
 use serde::Serialize;
 
-/// A routeless view's resolved rows.
+/// Members of a named set or embed-only view.
 #[derive(Debug, Default, Serialize)]
 pub struct ViewRows {
-    /// None means query-only: a named set, not something renderable.
+    /// Layout when renderable; `None` for query-only sets.
     pub layout: Option<String>,
-    /// Fragment variant (q24), for embedded rendering.
+    /// Fragment variant for embeds.
     pub variant: Option<String>,
     pub rows: usize,
     #[serde(skip)]

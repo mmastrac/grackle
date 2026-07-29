@@ -1,13 +1,11 @@
-//! Load-phase census and timings.
+//! Load-phase counts and timings.
 
 use serde::Serialize;
 
 #[derive(Debug, Default, Serialize)]
 pub struct LoadStats {
     pub markers: usize,
-    /// Sidecar files found (IO.md I8) — a census beside the marker one, and
-    /// for the same reason: a declaration family whose whole effect is on
-    /// other files needs a count somebody can read.
+    /// Sidecar `.toml` files found.
     pub sidecars: usize,
     pub markers_ms: f64,
     pub read_ms: f64,

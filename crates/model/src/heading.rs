@@ -1,10 +1,10 @@
-//! One heading of a rendered document (§6e).
+//! One heading in a rendered document.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
     pub level: u8,
-    /// The anchor target emitted on the element.
+    /// Anchor id on the element.
     pub id: String,
-    /// The heading's visible text, entities folded back.
+    /// Visible text.
     pub text: String,
 }

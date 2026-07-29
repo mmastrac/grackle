@@ -1,106 +1,26 @@
-//! IO.md §5: **the graph** — the two databases, joined, read as nodes and edges.
+//! Dependency graph over inputs and outputs.
 //!
-//! The site is inputs and outputs (IO.md §1); I9 gave each side the columns
-//! that name the other (`Route.inputs`, `Route.route_members`). This module is
-//! those columns read as a graph, and it adds no facts of its own: it is a
-//! *view* of the join, constructed at planning time from a finished `SiteDb`,
-//! and every edge in it is a key already sitting in a column. That is what
-//! makes it cheap enough to build on every load and impossible to drift.
-//!
-//! **One graph, two edge kinds** (IO.md I9's flag 5, decided here). The two
-//! columns name keys in different stores — `inputs` names rows, `route_members`
-//! names routes — but they are the same graph, because the pull that
-//! materializes a fold has to traverse both: `/sitemap.xml` reads the routes it
-//! selected, and the rows behind them. Two graphs would mean two traversals
-//! that must agree, which is the shape a join exists to delete. So the edges
-//! are labelled instead, and what the label says is the law of §1:
-//!
-//! > **Facts at planning; content at materialization.**
-//!
-//! A [`Demand::Content`] edge says the dependent's *bytes* read the
-//! dependency — so the dependency's content stage must be forced first, and
-//! order matters. A [`Demand::Facts`] edge says the dependent reads only what
-//! planning already knows (url, shell, flags) — so it constrains nothing,
-//! because facts are complete for every output before any content exists.
-//!
-//! **Which is why a cycle cannot be expressed today, and the check is still
-//! here.** Content edges run input → output only: an output's bytes are read
-//! by nobody, because nothing in the engine yet derives an output from another
-//! output's *content*. The content subgraph is therefore bipartite, and a
-//! bipartite graph with all its sources on one side has no cycles to find.
-//! Facts edges are the ones that can loop — measured, not reasoned: a pool
-//! fold with no `where` selects its own route, so `/all.xml` is genuinely its
-//! own `route_members` member — and that is legal precisely because a facts
-//! edge demands nothing that has to be produced first (IO.md §4's column
-//! rule: the sitemap reads facts, so it may list fold products; search reads
-//! content, so it sees only content-bearing outputs). [`Graph::check_acyclic`]
-//! looks at the content subgraph alone, and it is armed rather than
-//! decorative: a transform that derives an output from *another output's
-//! bytes* is the first content edge that can point output → output, and the
-//! first way a config could describe a cycle.
-//!
-//! **Neither I11 nor I12 brought one, and both were measured rather than
-//! hoped** (IO.md §4a). A strong address publishes an INPUT's bytes at a hash
-//! of those bytes: the output it mints carries `inputs = [that row]`, so its
-//! content edge runs input → output like every other, and the untransformed
-//! twin adds a second input to one output rather than an output to an output.
-//!
-//! **I12's renditions were expected to be the exception and are not, and the
-//! reason is the hashing law.** A rendition is a transform of an input, and the
-//! transform reads the INPUT's bytes — `thumbs::render` is a function of the
-//! source file and the ask — so its content edge runs input → output too. The
-//! citing page is the other candidate, and it is a [`Demand::Facts`] edge: a
-//! page embeds a rendition's *address*, and because that address hashes the
-//! inputs plus the parameters (never the output bytes) it is knowable at
-//! planning, so the page can materialize before the transform has run. That is
-//! §1's law doing load-bearing work rather than describing itself: **the
-//! hashing law is exactly what keeps the demand edge a facts edge**, and an
-//! address computed from what a transform produced would turn it into a content
-//! edge and make the first cycle describable.
-//!
-//! So the bipartite argument still holds whole, the fast path below still
-//! returns on one linear scan, and the unit-level fixture that hands
-//! `from_edges` a real output → output cycle remains the only place the
-//! detector can be seen to fire. **The live fixture through `Config::load` is
-//! not owed by any item on the ledger** — it is not expressible until something
-//! in the engine consumes an OUTPUT's bytes to make another output, and nothing
-//! does. Manufacturing one would test the fixture rather than the engine.
-//! `io_renditions.rs` asserts the predicate over a whole built site, which is
-//! the honest form of the claim.
+//! Built from `Route.inputs` (content) and `Route.route_members` (facts). Adds
+//! no facts of its own.
 
 pub use crate::{Demand, Edge, Node};
 
 use crate::SiteDb;
 use std::collections::{HashMap, HashSet};
 
-/// The dependency graph of one planned site.
+/// Dependency graph of a planned site.
 #[derive(Debug, Default)]
 pub struct Graph {
     edges: Vec<Edge>,
-    /// Edge indices by dependent — "what does this node need".
+    /// Incoming edges by dependent.
     into: HashMap<Node, Vec<usize>>,
-    /// Edge indices by dependency — "what needs this node".
+    /// Outgoing edges by dependency.
     from: HashMap<Node, Vec<usize>>,
     nodes: HashSet<Node>,
 }
 
 impl Graph {
-    /// Build the graph of a planned site: nodes from facts-at-planning, edges
-    /// from the join's columns.
-    ///
-    /// - every row is an `Input` node, every route an `Output` node — the two
-    ///   databases, whether or not anything joins them;
-    /// - `Route.inputs` gives the **content** edges (IO.md I9's full row-level
-    ///   closure: the row a route renders, a landing's claimed body, a view's
-    ///   members, the rows behind a fold's selected routes, and — after the
-    ///   write pass — every row the finished bytes cite);
-    /// - `Route.route_members` gives the **facts** edges, the output→output
-    ///   half: the routes a pool fold arranged, and (I12) the renditions an
-    ///   output's finished bytes embedded — both cases where one output reads
-    ///   another's planning facts and none of its content.
-    ///
-    /// Nothing is recomputed and nothing is looked up: both columns already
-    /// hold keys, which is what I9 bought and why this costs one pass.
+    /// Graph from a finished `SiteDb`.
     pub fn of(db: &SiteDb) -> Graph {
         let mut g = Graph::default();
         for row in db.rows.iter() {
@@ -119,12 +39,7 @@ impl Graph {
         g
     }
 
-    /// Build a graph from an explicit edge list. The construction the engine
-    /// cannot yet describe — an output whose *content* is another output's —
-    /// is reachable only this way, which is how [`check_acyclic`] is tested at
-    /// all.
-    ///
-    /// [`check_acyclic`]: Graph::check_acyclic
+    /// Graph from an explicit edge list (for tests).
     pub fn from_edges(edges: impl IntoIterator<Item = (Node, Node, Demand)>) -> Graph {
         let mut g = Graph::default();
         for (from, to, demand) in edges {
@@ -154,7 +69,7 @@ impl Graph {
         self.nodes.contains(n)
     }
 
-    /// What this node needs — its incoming edges, in construction order.
+    /// Edges this node needs.
     pub fn needs(&self, n: &Node) -> impl Iterator<Item = &Edge> {
         self.into
             .get(n)
@@ -164,7 +79,7 @@ impl Graph {
             .map(|i| &self.edges[*i])
     }
 
-    /// What needs this node — its outgoing edges, in construction order.
+    /// Edges that need this node.
     pub fn needed_by(&self, n: &Node) -> impl Iterator<Item = &Edge> {
         self.from
             .get(n)
@@ -174,20 +89,7 @@ impl Graph {
             .map(|i| &self.edges[*i])
     }
 
-    /// **Invalidation, as a traversal** (IO.md §5's first view): every output
-    /// whose bytes could move because this node changed, transitively, over
-    /// CONTENT edges.
-    ///
-    /// This is the set the incremental machinery's typed `Row(path)` keys have
-    /// been curating by hand — DESIGN §2 — said once, as a walk of the join.
-    /// Facts edges are deliberately not followed: a pool fold that arranged an
-    /// output already holds the rows behind it in its own `inputs` (that is
-    /// what `join_arrangement` means by following the edge one step further
-    /// into the inputs database), so following the facts edge as well would
-    /// count the same dependency twice without adding one.
-    ///
-    /// Sorted, so a caller comparing two fanouts compares sets rather than
-    /// walk orders.
+    /// Outputs whose content may change if `n` changes (content edges only).
     pub fn fanout(&self, n: &Node) -> Vec<Node> {
         let mut seen: HashSet<Node> = HashSet::new();
         let mut stack = vec![n.clone()];
@@ -206,34 +108,13 @@ impl Graph {
         out
     }
 
-    /// **The pull** (IO.md §1: build is "pull every output", serve is "pull
-    /// this one"): the work of materializing one output, dependencies before
-    /// dependents, the output itself last.
+    /// Materialization order for one output: dependencies first, target last.
     ///
-    /// A **content** edge recurses — the dependency's own content has to exist
-    /// first, so its own dependencies come before it. A **facts** edge does
-    /// not: the label says the dependent reads planning facts, and those are
-    /// complete for every output before the pull starts, so the member appears
-    /// as a prerequisite and the walk stops there. That keeps a fold's pull
-    /// linear in its member count rather than in the closure behind them.
-    ///
-    /// **Recorded rather than pinned** (io_graph.rs): recursing into facts
-    /// edges too produces the same order on every shape the engine can build,
-    /// because a fold's `inputs` already holds the rows behind its members —
-    /// the recursion would re-find exactly what the content edges named. So
-    /// the non-recursion is what the label MEANS here; where it is observable
-    /// is [`Graph::check_acyclic`], which is why a pool fold selecting itself
-    /// is a legal site.
-    ///
-    /// Returns the empty vector for a node the graph does not hold, so a
-    /// caller asking about a URL that is not an output gets an answer rather
-    /// than a panic.
+    /// Content edges recurse; facts edges are leaves (planning already has them).
     pub fn pull(&self, target: &Node) -> Vec<Node> {
         if !self.has(target) {
             return Vec::new();
         }
-        // Iterative post-order DFS: push a node, then its unvisited content
-        // dependencies; emit when its dependencies have all been emitted.
         let mut out: Vec<Node> = Vec::new();
         let mut done: HashSet<Node> = HashSet::new();
         let mut open: HashSet<Node> = HashSet::new();
@@ -251,11 +132,9 @@ impl Graph {
             stack.push((n.clone(), true));
             for e in self.needs(&n) {
                 if e.from == n || done.contains(&e.from) {
-                    continue; // a self-edge is not a prerequisite of itself
+                    continue;
                 }
                 match e.demand {
-                    // A facts prerequisite is a leaf: planning already
-                    // finished it, so it needs nothing of its own here.
                     Demand::Facts => {
                         if !done.contains(&e.from) && !open.contains(&e.from) {
                             done.insert(e.from.clone());
@@ -269,30 +148,9 @@ impl Graph {
         out
     }
 
-    /// The tripwire: no output's CONTENT may depend, transitively, on its own.
-    ///
-    /// Checked at load (IO.md §5's "cycle detection at load — a config error,
-    /// never a render surprise", the relations precedent) and, today, a check
-    /// that cannot fire: content edges run input → output, inputs have no
-    /// incoming edges, and a graph whose every source is on one side of a
-    /// bipartition has no cycle to find. I12 measured the case this comment
-    /// used to name — a rendition derives from its INPUT's bytes, not from
-    /// another output's — so the check is still armed and still unfireable, and
-    /// the day that changes is the day something consumes an output's bytes.
-    /// A check written then is a check written after the first render surprise.
-    ///
-    /// Returns the cycle in dependency order when there is one, which is what
-    /// makes the error a diagnosis rather than a complaint.
+    /// Error if any content edge forms a cycle. Facts cycles are allowed.
     pub fn check_acyclic(&self) -> Result<(), Vec<Node>> {
-        // **The bipartite argument, executable.** A cycle needs a content edge
-        // leaving an output; today every content edge leaves an INPUT, and an
-        // input has no incoming edge of any kind, so one linear scan settles
-        // the whole question and the sort below never runs on a corpus site.
-        // This is the doc comment's claim as a fast path rather than beside
-        // one — when it stops being true, the scan finds the edge and the real
-        // check takes over. (I12 was the item expected to make it stop being
-        // true, and measured otherwise: a rendition reads its INPUT's bytes,
-        // and the page that embeds it reads only its address.)
+        // Fast path: content edges only leave inputs today.
         if !self
             .edges
             .iter()
@@ -300,10 +158,6 @@ impl Graph {
         {
             return Ok(());
         }
-        // A self-edge is its own cycle, and Kahn cannot see one — it never
-        // raises anything's in-degree — so it is asked first rather than
-        // after, which is where the first draft had it and where the unit
-        // test caught it.
         if let Some(e) = self
             .edges
             .iter()
@@ -311,8 +165,6 @@ impl Graph {
         {
             return Err(vec![e.from.clone()]);
         }
-        // Kahn over the content subgraph: whatever never reaches in-degree
-        // zero is in (or downstream of) a cycle. Then one walk to name it.
         let mut indeg: HashMap<&Node, usize> = self.nodes.iter().map(|n| (n, 0)).collect();
         for e in &self.edges {
             if e.demand == Demand::Content && e.from != e.to {
@@ -344,8 +196,6 @@ impl Graph {
         Err(self.name_a_cycle(&indeg))
     }
 
-    /// Walk the unsettled nodes until one repeats: the cycle, in dependency
-    /// order, first node repeated only implicitly.
     fn name_a_cycle(&self, indeg: &HashMap<&Node, usize>) -> Vec<Node> {
         let stuck = |n: &Node| indeg.get(n).is_some_and(|d| *d > 0);
         let start = self
@@ -369,21 +219,19 @@ impl Graph {
                 .min();
             match next {
                 Some(n) => cur = n,
-                // Unreachable while `stuck` means "downstream of a cycle", but
-                // a walk that cannot continue must still terminate.
                 None => return path,
             }
         }
     }
 }
 
-/// The cycle as one sentence, for the load error.
+/// Cycle as a readable sentence for errors.
 pub fn describe_cycle(cycle: &[Node]) -> String {
     let mut names: Vec<String> = cycle.iter().map(|n| n.label()).collect();
     if let Some(first) = cycle.first() {
         names.push(first.label());
     }
-    names.join(" → ")
+    names.join(" -> ")
 }
 
 #[cfg(test)]
@@ -398,11 +246,6 @@ mod tests {
         Node::Input(Key::new(p))
     }
 
-    /// A facts cycle is legal, and this is the shape the corpus actually
-    /// ships: a pool fold with no `where` selects its own route, so
-    /// `/all.xml` is its own `route_members` member (io_folds.rs asserts the
-    /// `<loc>` list that proves it). If the check looked at every edge instead
-    /// of at content edges, every such site would fail to load.
     #[test]
     fn a_facts_cycle_is_legal_because_facts_are_complete_at_planning() {
         let g = Graph::from_edges([
@@ -411,18 +254,10 @@ mod tests {
             (inp("a.md"), out("/a/"), Demand::Content),
         ]);
         assert!(g.check_acyclic().is_ok());
-        // And the pull terminates rather than chasing the self-edge: the fold
-        // needs its member's facts, and nothing else.
         let order = g.pull(&out("/all.xml"));
         assert_eq!(order, vec![out("/a/"), out("/all.xml")]);
     }
 
-    /// The tripwire, armed. The engine cannot describe this today — content
-    /// edges run input → output, renditions included (I12, measured) — so the
-    /// edge list is built by hand. That remains the honest place for it: a
-    /// detector for a shape nothing can build is tested where the shape can be
-    /// built, and manufacturing the shape in a live site would test the fixture
-    /// rather than the engine.
     #[test]
     fn a_content_cycle_between_outputs_is_named() {
         let g = Graph::from_edges([
@@ -435,22 +270,16 @@ mod tests {
         let said = describe_cycle(&cycle);
         assert!(said.contains("/a.png"), "{said}");
         assert!(said.contains("/b.png"), "{said}");
-        // Named in dependency order and closed, so the sentence reads as a
-        // loop rather than as a list.
         assert_eq!(said.matches("/a.png").count(), 2, "{said}");
     }
 
-    /// One output deriving from its own bytes — the degenerate cycle Kahn
-    /// cannot see, because a self-edge never raises anything's in-degree.
     #[test]
     fn a_content_self_edge_is_a_cycle_too() {
         let g = Graph::from_edges([(out("/x.png"), out("/x.png"), Demand::Content)]);
         let cycle = g.check_acyclic().expect_err("a self-edge is a cycle");
-        assert_eq!(describe_cycle(&cycle), "output /x.png → output /x.png");
+        assert_eq!(describe_cycle(&cycle), "output /x.png -> output /x.png");
     }
 
-    /// The pull's ordering claim, on a chain the engine cannot build either:
-    /// dependencies before dependents, the target last.
     #[test]
     fn the_pull_puts_dependencies_first() {
         let g = Graph::from_edges([
