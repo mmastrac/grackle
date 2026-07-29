@@ -2946,21 +2946,17 @@ impl Config {
                     v.route.iter().map(String::as_str).collect()
                 };
                 for tmpl in tmpls {
-                    grackle_db::template::render(tmpl, |tok| {
-                        let (ns, k) = grackle_db::template::classify(tok);
-                        match ns {
-                            None | Some("group") if k == "key" || k == field => {
-                                Some("probe".to_string())
-                            }
-                            _ => None,
-                        }
-                    })
-                    .with_context(|| {
-                        format!(
-                            "view {name}: archive route for {field} needs more \
-                             than {{key}}"
-                        )
-                    })?;
+                    // Same token law as `archive_url`: `{key}` / the field
+                    // name are the group; axes stay placeholders for
+                    // `select_path`. A bare `{locale}` is the retired spelling
+                    // of `{axis:locale}` while sites still migrate.
+                    archive_route_fill(tmpl, field, "probe", cfg.locale_enabled())
+                        .with_context(|| {
+                            format!(
+                                "view {name}: archive route for {field} needs more \
+                                 than {{key}}"
+                            )
+                        })?;
                 }
             }
         }
@@ -3587,21 +3583,10 @@ impl Config {
             return None;
         }
         let slug = self.record_slug(field, id).to_string();
+        let locale_on = self.locale_enabled();
         let rendered: Result<Vec<String>, _> = tmpls
             .iter()
-            .map(|tmpl| {
-                grackle_db::template::render(tmpl, |tok| {
-                    let (ns, k) = grackle_db::template::classify(tok);
-                    match ns {
-                        Some("axis") => Some(format!("{{{tok}}}")),
-                        None if k == "locale" && self.locale_enabled() => {
-                            Some("{locale}".to_string())
-                        }
-                        None | Some("group") if k == "key" || k == field => Some(slug.clone()),
-                        _ => None,
-                    }
-                })
-            })
+            .map(|tmpl| archive_route_fill(tmpl, field, &slug, locale_on))
             .collect();
         let rendered = rendered.ok()?;
         crate::load::select_path(
@@ -3675,6 +3660,27 @@ impl Config {
         }
         out
     }
+}
+
+/// Fill an archive route template for probing or pill URLs. The group key
+/// (or field name) takes `key`; `{axis:…}` tokens stay placeholders for
+/// [`crate::load::select_path`]. A bare `{locale}` is the retired spelling
+/// of `{axis:locale}` while sites still migrate.
+fn archive_route_fill(
+    tmpl: &str,
+    field: &str,
+    key: &str,
+    locale_enabled: bool,
+) -> anyhow::Result<String> {
+    grackle_db::template::render(tmpl, |tok| {
+        let (ns, k) = grackle_db::template::classify(tok);
+        match ns {
+            Some("axis") => Some(format!("{{{tok}}}")),
+            None if k == "locale" && locale_enabled => Some("{locale}".to_string()),
+            None | Some("group") if k == "key" || k == field => Some(key.to_string()),
+            _ => None,
+        }
+    })
 }
 
 #[cfg(test)]
@@ -5615,6 +5621,28 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(c.i18n.text(i, "en"), "Sure to please!");
+    }
+
+    /// A multi-locale archive route spends `{axis:locale}` beside `{key}`;
+    /// validate and pill URLs must accept the axis the same way materialize does.
+    #[test]
+    fn an_archive_route_may_spend_an_axis() {
+        let c = cfg(
+            "[[collections.rules]]\nmatch = \"**\"\nroute = \"/{slug}/\"\n\
+             [schema]\ntags = { type = \"list\" }\n\
+             [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
+             [routes.tag_index]\n\
+             paths = [\"/{axis:locale}/blog/tags/{key}/\", \"/blog/tags/{key}/\"]\n\
+             from = \"blog\"\ngroup_by = \"tags\"\nlayout = \"card\"\n",
+        );
+        assert_eq!(
+            c.archive_url("tags", "rust", "fr").as_deref(),
+            Some("/fr/blog/tags/rust/")
+        );
+        assert_eq!(
+            c.archive_url("tags", "rust", "en").as_deref(),
+            Some("/blog/tags/rust/")
+        );
     }
 
     // ------------------------------------------- `config --effective` (B3)
