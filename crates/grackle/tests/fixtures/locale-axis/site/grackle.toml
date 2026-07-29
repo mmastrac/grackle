@@ -14,9 +14,9 @@ url = "https://example.com"
 title = "Locale x axis"
 author = "Tester"
 
-[i18n]
-default = "en"
-locales = ["fr"]
+[axes.locale]
+values = ["en", "fr"]
+field = "locale"
 
 [axes.look]
 values = ["plain", "fancy"]
@@ -24,9 +24,10 @@ field = "look"
 
 [[collections]]
 source = "."
+file = ["{stem}.{axis:locale}", "{stem}"]
 
   [[collections.rules]]
-  match = "note.md"
+  match = "note*.md"
   front_matter = true
   route = "/{look}/note/"
 

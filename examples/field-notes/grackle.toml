@@ -27,7 +27,7 @@ theme = "almanac"
 [[collections]]
 name = "notes"
 source = "_posts"
-filename_formats = ["{year}-{month}-{day}-{slug}"]
+file = ["{year}-{month}-{day}-{slug}.{axis:locale}", "{year}-{month}-{day}-{slug}"]
 
   # The glob names what this scope claims — markdown, and only markdown. A
   # scope owns its source (IO.md I7d), so what no rule here claims is not
@@ -76,6 +76,7 @@ source = "."
 # page and served llms.py to the public. `*.toml` used to be here for the
 # config file itself; the engine excludes that by identity now.
 exclude = ["themes/**", "shells/**"]
+file = ["{stem}.{axis:locale}", "{stem}"]
 
   # Theme is chosen per row (§5a); a rule default restyles a subtree —
   # the recipes section deliberately looks nothing like the rest.
@@ -122,15 +123,13 @@ exclude = ["themes/**", "shells/**"]
 # so this site declares no [links] block at all. `policy = "loose"` is the
 # escape hatch for importing a corpus that has not been converted yet.
 
-# ---------------------------------------------------------------- i18n
+# ---------------------------------------------------------------- locale
 
-# The locale axis (§6f). The suffix selector reads `dal.fr.md`: same rules,
-# same schema, same theme as the original — the URL gains /fr/, the pair
-# links through the `translations` relations axis, and every listing, feed
-# and archive stays default-locale by construction.
-[i18n]
-default = "en"
-locales = ["fr"]
+# Locale is an ordinary axis. Rules spend it into `file =` (suffix form) and
+# into routes; missing translation files simply do not materialize.
+[axes.locale]
+values = ["en", "fr"]
+field = "locale"
 
 [i18n.names]
 en = "English"

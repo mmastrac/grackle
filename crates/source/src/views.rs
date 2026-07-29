@@ -198,9 +198,7 @@ fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> 
 fn locales_for<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
     match v.locales.as_deref() {
         Some("default") => vec![cfg.i18n.default.as_str()],
-        _ => std::iter::once(cfg.i18n.default.as_str())
-            .chain(cfg.i18n.locales.iter().map(String::as_str))
-            .collect(),
+        _ => cfg.locales(),
     }
 }
 
@@ -679,7 +677,7 @@ fn build_view(
                         // selection below, not filled from group params here.
                         Some("axis") => Some(format!("{{{tok}}}")),
                         None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                        None if k == "locale" && cfg.i18n.enabled() => Some("{locale}".to_string()),
+                        None if k == "locale" && cfg.locale_enabled() => Some("{locale}".to_string()),
                         None | Some("group") => {
                             template::param(&cell.params, k).map(|val| route_value(k, &val))
                         }
@@ -968,7 +966,7 @@ mod posts_order_tests {
         let src = format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"notes\"\nsource = \"_posts\"\n\
-             filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
+             file = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
              [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"card\"\n{clauses}"
         );
         Config::from_toml(&src).expect("test config parses")
@@ -1204,7 +1202,7 @@ mod adjacency_tests {
         Config::from_toml(&format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
-             filename_formats = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
+             file = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
         ))
         .expect("test config parses")
     }
@@ -1223,7 +1221,7 @@ mod adjacency_tests {
     #[test]
     fn each_collection_gets_its_own_sequence() {
         let c = cfg("[[collections]]\nname = \"notes\"\n\
-                     source = \"_notes\"\nfilename_formats = [\"{year}-{month}-{day}-{slug}\"]\n");
+                     source = \"_notes\"\nfile = [\"{year}-{month}-{day}-{slug}\"]\n");
         let mut db = db_with(vec![
             post("posts", "/blog/jan/", Some("2026-01-01"), false),
             post("notes", "/notes/feb/", Some("2026-02-01"), false),

@@ -98,7 +98,7 @@ fn a_posts_scope_routes_by_path_tokens() {
 /// **The token set per rule, in one template.** A route spending a path token
 /// and an extractor token together is the statement that there is one supply,
 /// not two that alternate: `{dir}` comes from the walk, `{year}` and `{slug}`
-/// from the rule's `filename_formats`, and they meet in one URL.
+/// from the rule's `file`, and they meet in one URL.
 ///
 /// The same site pins the other half of the shape — that the extractor is the
 /// RULE's: `legacy/**` declares the MM-DD-YYYY form and its row routes by it,
@@ -114,9 +114,9 @@ fn one_template_spends_both_suppliers_and_the_rule_owns_the_extractor() {
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                  [[collections]]\nsource = \"_posts\"\n\
-                 filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\n\
+                 file = [\"{year}-{month}-{day}-{slug}\"]\n\n\
                  [[collections.rules]]\nmatch = \"legacy/**\"\n\
-                 filename_formats = [\"{month}-{day}-{year}-{slug}\"]\n\
+                 file = [\"{month}-{day}-{year}-{slug}\"]\n\
                  route = \"/{dir}/{year}/{slug}/\"\n\n\
                  [[collections.rules]]\nmatch = \"rust/**\"\n\
                  route = \"/{dir}/{year}/{slug}/\"\n",
@@ -155,7 +155,7 @@ fn one_template_spends_both_suppliers_and_the_rule_owns_the_extractor() {
 }
 
 /// **The extractor is no longer a posts-only mechanism.** A TREE rule naming
-/// `filename_formats` routes a dated tree page by its filename — the second
+/// `file` routes a dated tree page by its filename — the second
 /// half of "extractors move to rules", and the shape that says the key moved
 /// rather than being copied.
 #[test]
@@ -168,7 +168,7 @@ fn an_extractor_reaches_a_tree_rule() {
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                  [[collections]]\nsource = \".\"\n\n\
                  [[collections.rules]]\nmatch = \"notes/**\"\nfront_matter = true\n\
-                 filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\
+                 file = [\"{year}-{month}-{day}-{slug}\"]\n\
                  route = \"/{year}/{slug}/\"\n",
             ),
             (
@@ -220,7 +220,7 @@ fn an_undated_row_under_a_dated_template_names_the_file_and_the_rule() {
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                  [[collections]]\nsource = \"_posts\"\n\
-                 filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\n\
+                 file = [\"{year}-{month}-{day}-{slug}\"]\n\n\
                  [[collections.rules]]\nmatch = \"notes/**\"\n\
                  route = \"/blog/{year}/{slug}/\"\n",
             ),
@@ -265,7 +265,7 @@ fn a_token_nothing_supplies_lists_what_a_route_may_spend() {
 }
 
 /// **A posts collection may declare no extractor at all**, which is the
-/// pre-I6 refusal (*"kind=posts but no filename_formats"*) retired: the
+/// pre-I6 refusal (*"kind=posts but no file"*) retired: the
 /// requirement was never about the collection, it was about whether a
 /// template spends a date, and that is asked per row now.
 #[test]

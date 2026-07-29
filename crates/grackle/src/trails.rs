@@ -233,7 +233,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
         // §6f/q45: the locale prefix makes the homepage look like a
         // directory ancestor of every /fr/… URL — but Home is the trail
         // root's job, so skip it here or it doubles.
-        if cfg.i18n.locales.iter().any(|l| parent == format!("/{l}/")) {
+        if cfg.locales().iter().any(|l| parent == format!("/{l}/")) {
             continue;
         }
         if let Some(p) = db

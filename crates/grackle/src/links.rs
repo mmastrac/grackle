@@ -274,7 +274,7 @@ pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Opt
         .axes
         .keys()
         .map(String::as_str)
-        .chain(cfg.i18n.enabled().then_some("locale"))
+        .chain(cfg.locale_enabled().then_some("locale"))
         .collect();
     if names.contains(&key) {
         return None; // a selector, not a miss — the caller already handled it
@@ -412,8 +412,7 @@ pub fn resolve(
     // and `index.fr.md?locale=en` names the base. Read only when i18n is on, so
     // `?locale=` on a monolingual site stays the literal suffix it always was.
     let locale_sel: Option<&str> = cfg
-        .i18n
-        .enabled()
+        .locale_enabled()
         .then(|| {
             suffix
                 .strip_prefix('?')
@@ -423,11 +422,10 @@ pub fn resolve(
         })
         .flatten();
     if let Some(v) = locale_sel {
-        if v != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == v) {
+        if !cfg.is_locale(v) {
             bail!(
-                "{source}: link {href:?} names no locale {v:?}\n  declared: {} {}",
-                cfg.i18n.default,
-                cfg.i18n.locales.join(" ")
+                "{source}: link {href:?} names no locale {v:?}\n  declared: {}",
+                cfg.locales().join(" ")
             );
         }
     }
@@ -774,7 +772,7 @@ fn view_link(
                 match ns {
                     Some("axis") => Some(format!("{{{tok}}}")),
                     None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
-                    None if k == "locale" && cfg.i18n.enabled() => Some("{locale}".to_string()),
+                    None if k == "locale" && cfg.locale_enabled() => Some("{locale}".to_string()),
                     None | Some("group") => crate::template::param(&params, k),
                     _ => None,
                 }
@@ -946,7 +944,7 @@ mod tests {
         let cfg: Config = Config::from_toml(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n\
-             [i18n]\nlocales = [\"fr\"]\n\
+             [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
              [sets.published]\nfrom = \"blog\"\n\
              [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
              path = \"/blog/tags/{key}/\"\nlayout = \"card\"\n",
@@ -1305,7 +1303,7 @@ mod axis_tests {
         let mono = Config::from_toml(head).unwrap();
         assert_eq!(misspelled_axis(&mono, "p.md", "x?locle=fr", "locle"), None);
 
-        let multi = Config::from_toml(&format!("{head}[i18n]\nlocales = [\"fr\"]\n")).unwrap();
+        let multi = Config::from_toml(&format!("{head}[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n")).unwrap();
         assert!(misspelled_axis(&multi, "p.md", "x?locle=fr", "locle")
             .unwrap()
             .contains("did you mean `?locale=`"));

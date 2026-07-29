@@ -15,7 +15,7 @@ use grackle_db::template;
 use grackle_model::{AxisMember, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
-use crate::filename::{self, FileKey, FilenameFormat};
+use crate::filename::{self, FileKey};
 use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
 use crate::sidecar::Sidecars;
@@ -47,7 +47,7 @@ struct CompiledRule<'a> {
     /// This rule's own extractors, compiled. Empty means "the collection's",
     /// which [`apply_rules`] resolves — the rule holds what it DECLARED, so
     /// first-writer-wins can tell silence from a list.
-    formats: Vec<FilenameFormat>,
+    formats: Vec<filename::FilePattern>,
     defaults: &'a BTreeMap<String, toml::Value>,
     /// From the base config rather than the site's own file (§4d).
     inherited: bool,
@@ -58,7 +58,10 @@ struct CompiledRule<'a> {
     governed: Cell<bool>,
 }
 
-fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
+fn compile_rules<'a>(
+    c: &'a Collection,
+    axes: &filename::AxisValues<'_>,
+) -> Result<Vec<CompiledRule<'a>>> {
     c.rules
         .iter()
         .map(|r| {
@@ -79,7 +82,7 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
                 on_demand: r.on_demand.unwrap_or(false),
                 embed: r.embed.unwrap_or(false),
                 pattern: r.pattern.as_str(),
-                formats: compile_formats(&r.filename_formats)?,
+                formats: compile_formats(&r.file, axes)?,
                 defaults: &r.defaults,
                 inherited: r.inherited,
                 governed: Cell::new(false),
@@ -88,10 +91,16 @@ fn compile_rules(c: &Collection) -> Result<Vec<CompiledRule<'_>>> {
         .collect()
 }
 
-/// One declared `filename_formats` list, compiled. Once per rule (and once
-/// per collection, for the default), never per row.
-fn compile_formats(formats: &[String]) -> Result<Vec<FilenameFormat>> {
-    formats.iter().map(|f| FilenameFormat::compile(f)).collect()
+/// One declared `file` list, compiled. Once per rule (and once per
+/// collection, for the default), never per row.
+fn compile_formats(
+    formats: &[String],
+    axes: &filename::AxisValues<'_>,
+) -> Result<Vec<filename::FilePattern>> {
+    formats
+        .iter()
+        .map(|f| filename::FilePattern::compile(f, axes))
+        .collect()
 }
 
 /// The site's own rules that governed no row — DESIGN.md §4's promised
@@ -260,7 +269,7 @@ struct Routing<'a> {
     pattern: &'a str,
     /// The extractors in force for this row: the first matching rule that
     /// declared any, else the collection's own list.
-    formats: &'a [FilenameFormat],
+    formats: &'a [filename::FilePattern],
     /// The rule that decided the address said `embed = true` (IO.md §4a):
     /// there is no route to render, and the embed policy supplies a
     /// `strong_url` instead.
@@ -288,16 +297,16 @@ struct Routing<'a> {
 /// claims.
 fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
-    // The collection's own `filename_formats`: the default its rules inherit,
+    // The collection's own `file`: the default its rules inherit,
     // read only where no matching rule declared a list of its own (§4).
-    collection_formats: &'a [FilenameFormat],
+    collection_formats: &'a [filename::FilePattern],
     rel: &Path,
     has_front_matter: bool,
 ) -> Routing<'a> {
     let mut claimed: Option<&str> = None;
     let mut templates: &[String] = &[];
     let mut pattern: &str = "";
-    let mut formats: Option<&[FilenameFormat]> = None;
+    let mut formats: Option<&[filename::FilePattern]> = None;
     let mut embed = false;
     // The address question is answered ONCE, by the first rule past both gates
     // that answers it either way (IO.md §4a). `templates.is_empty()` used to
@@ -337,7 +346,7 @@ fn apply_rules<'a>(
             addressed = true;
         }
         // First writer wins here too, and deliberately independent of which
-        // rule won the ROUTE: `filename_formats` is a key like any other, so a
+        // rule won the ROUTE: `file` is a key like any other, so a
         // rule that names the extractor for a subtree governs it whether or
         // not it is also the rule that says where those rows land.
         if formats.is_none() && !rule.formats.is_empty() {
@@ -562,14 +571,20 @@ fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Resul
 }
 
 /// The axes a rule's template(s) opt a row into (q53 step 2): a `{theme}` (or
-/// `{axis:theme}`) segment is what spends the theme axis, and locale via
-/// `{axis:locale}`. A rule that writes the segment decides the row lands there,
-/// so `[axes.*]` declares only values and a field. The names drive the product;
-/// locale is excluded here (it is the row's own, not a product dimension).
-fn row_axes(cfg: &Config, templates: &[String]) -> Vec<grackle_model::RowAxis> {
+/// `{axis:theme}`) segment is what spends the theme axis. Axes spent by the
+/// rule's `file` patterns are FILE axes — each member owns a content file —
+/// so they are the row's own coordinate, not a product dimension.
+fn row_axes(
+    cfg: &Config,
+    templates: &[String],
+    file: &[filename::FilePattern],
+) -> Vec<grackle_model::RowAxis> {
+    let file_spent: std::collections::HashSet<&str> =
+        file.iter().flat_map(|p| p.spent_axes()).collect();
     cfg.axes
         .keys()
         .filter(|n| templates.iter().any(|t| spends(t, n)))
+        .filter(|n| !file_spent.contains(n.as_str()))
         .map(|name| grackle_model::RowAxis { name: name.clone() })
         .collect()
 }
@@ -681,7 +696,7 @@ const PATH_TOKENS: &[&str] = &["path", "dir", "stem", "name", "ext"];
 ///   relative to what the rule's own glob matches (collection-relative, so
 ///   `match = "rust/**"` and `route = "/{dir}/{stem}/"` read the same words
 ///   in `_posts` as they do in the tree);
-/// - **the extractor**, where a `filename_formats` entry described the stem —
+/// - **the extractor**, where a `file` entry described the stem —
 ///   `{year}`, `{month}`, `{day}`, `{slug}`, or whichever of them the format
 ///   named;
 /// - **the axes**, which are not filled here at all: a declared axis (and
@@ -757,7 +772,8 @@ impl RouteTokens<'_> {
             // An axis placeholder is spent per member, not here (q53).
             k => {
                 let (_, bare) = template::classify(k);
-                (self.cfg.axes.contains_key(bare) || (bare == "locale" && self.cfg.i18n.enabled()))
+                (self.cfg.axes.contains_key(bare)
+                    || (bare == "locale" && self.cfg.locale_enabled()))
                     .then(|| format!("{{{k}}}"))
             }
         }
@@ -818,7 +834,7 @@ impl RouteTokens<'_> {
         if dated.len() == unfillable.len() {
             bail!(
                 "{} has no date (its filename matches none of the \
-                 filename_formats in force, and it declares no `date:`), but the \
+                 `file` patterns in force, and it declares no `date:`), but the \
                  rule `match = {pattern:?}` routes it to {tmpl:?}, which requires \
                  {{{}}}",
                 path.display(),
@@ -846,7 +862,7 @@ impl RouteTokens<'_> {
              spends {{{}}} — nothing supplies that token. A route may spend the \
              path tokens ({}), the row's {{slug}}, `{{hash}}` (the content \
              hash), the date tokens (year, month, day) wherever \
-             `filename_formats` or a `date:` gives the row a date{axes}.",
+             `file` or a `date:` gives the row a date{axes}.",
             path.display(),
             unfillable.join("}, {"),
             PATH_TOKENS.join(", ")
@@ -898,9 +914,9 @@ struct Scope<'a> {
     ///   [`walk_site`]).
     source: Option<PathBuf>,
     rules: Vec<CompiledRule<'a>>,
-    /// The collection-level `filename_formats` (IO.md I6): the default its
-    /// rules inherit, read where no matching rule declared a list.
-    formats: Vec<FilenameFormat>,
+    /// The collection-level `file` list: the default its rules inherit, read
+    /// where no matching rule declared a list.
+    formats: Vec<filename::FilePattern>,
     /// How many rows this scope claimed — `dead_rules`' `found`. A `Cell`
     /// because the walk holds the scope list by shared reference, which is
     /// also why a rule's `governed` flag is one.
@@ -961,6 +977,7 @@ impl Scope<'_> {
 /// whatever the declaration order — **theme-preview declares its tree FIRST**,
 /// and under declaration order alone that tree would eat its own posts.
 fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
+    let axes = cfg.axis_values_for_file();
     let mut out: Vec<Scope> = Vec::new();
     for (name, c) in &cfg.collections {
         // The source IS the role now (`kind` is gone): a sourceless scope is
@@ -976,8 +993,8 @@ fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
         out.push(Scope {
             name,
             source,
-            rules: compile_rules(c)?,
-            formats: compile_formats(&c.filename_formats)?,
+            rules: compile_rules(c, &axes)?,
+            formats: compile_formats(&c.file, &axes)?,
             found: Cell::new(0),
             offered: Cell::new(0),
         });
@@ -1009,6 +1026,17 @@ fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows
 }
 
+/// Replace the file stem, keeping the extension.
+fn with_stem(path: &Path, stem: &str) -> PathBuf {
+    let mut out = path.to_path_buf();
+    let ext = out.extension().map(|e| e.to_os_string());
+    out.set_file_name(stem);
+    if let Some(e) = ext {
+        out.set_extension(e);
+    }
+    out
+}
+
 /// Is `rel` (root-relative) *inside* the site's `themes/` directory?
 ///
 /// The directory itself, were a site ever to hold a root-level FILE by that
@@ -1027,8 +1055,13 @@ fn under_themes(rel: &Path) -> bool {
 /// row's own locale (§6f). `select_path` drops a canonical segment where a
 /// shorter template allows, and applies the locale prefix when no template
 /// spends locale.
-fn canonical_url(cfg: &Config, templates: &[String], locale: &str) -> Result<String> {
-    let row_axis = row_axes(cfg, templates);
+fn canonical_url(
+    cfg: &Config,
+    templates: &[String],
+    locale: &str,
+    file: &[filename::FilePattern],
+) -> Result<String> {
+    let row_axis = row_axes(cfg, templates, file);
     let coords: Vec<Coord> = row_axis
         .iter()
         .map(|ra| Coord {
@@ -1203,7 +1236,7 @@ fn walk_site(
     //     reads, so it cannot itself be gated. Skipping the ~800 binaries is
     //     what keeps the peek off the build's critical path.
     //   - the LOCALE axis. An image is shared across locales (§6f), so an
-    //     object's path does not go through the locale selector. Pinned in
+    //     objects rule does not spend `{axis:locale}` in `file`. Pinned in
     //     both directions by `io_dissolve.rs` — a `photo.fr.png` keeps its
     //     literal name while a `notes.fr.md` beside it is the French variant.
     //   - the OBJECTS index (I7e). `object_ix`, `by_name` and the header read
@@ -1245,21 +1278,12 @@ fn walk_site(
     let mut objects: Vec<Row> = Vec::new();
 
     for f in files {
-        // The extension fact (above), asked once per file and read three times:
-        // by the peek that already ran, by the locale selector just below, and
-        // by the partition at the bottom of this loop.
-        //
-        // §6f: the path selector strips the locale first, so filename parsing,
-        // rules and routing all see the logical path — a translation rides the
-        // same machinery as its original. An IMAGE does not go through it:
-        // `photo.fr.png` is a file whose name happens to carry a dot, not the
-        // French edition of `photo.png`, because one picture serves every
-        // locale. **Decided at I7e and left where it was**: the alternative
-        // (let the selector run, so an image could be localized like a page)
-        // is byte-inert on the corpus today — no `.fr.`-infixed image exists —
-        // but it would mint `/fr/…` URLs for files nobody translated the day
-        // one appeared. Localized images are a feature to ask for, not one to
-        // acquire by accident; `io_dissolve.rs` pins both halves.
+        // The extension fact (above), asked once per file and read twice: by
+        // the peek that already ran, and by the partition at the bottom of
+        // this loop. Locale is not special here — a rule's `file` patterns
+        // either spend `{axis:locale}` or they don't. An objects rule that
+        // does not leaves `photo.fr.png` as a literal name (one picture
+        // serves every locale; `io_dissolve.rs` pins both halves).
         let object_shaped = is_obj(&f.rel);
 
         // **Identity: a block, or a sidecar** (IO.md §1, I8). The two are peers
@@ -1288,7 +1312,7 @@ fn walk_site(
         // **The ordered rule sequence, first rule wins.** Every scope in turn,
         // each reading the path its own source makes of the file, until one of
         // their rules claims it.
-        let mut claim: Option<(&Scope, Routing, PathBuf, String)> = None;
+        let mut claim: Option<(&Scope, Routing, PathBuf)> = None;
         // Set when a scope that OWNS this path has been asked and passed. What
         // it means is "not content" — see this function's doc — and the loop
         // keeps going only for the scopes that share that same source, because
@@ -1315,20 +1339,18 @@ fn walk_site(
             // that claimed first, or an owner that already stopped the search,
             // means the scopes below never saw the file at all.
             s.offered.set(s.offered.get() + 1);
-            let (logical_rel, locale) = match object_shaped {
-                true => (scope_rel, cfg.i18n.default.clone()),
-                false => cfg.i18n.split(&scope_rel),
-            };
-            let r = apply_rules(&s.rules, &s.formats, &logical_rel, has_identity);
+            // Match the physical path. `file` patterns then strip spent axes
+            // to a logical stem — the old global locale selector, per rule.
+            let r = apply_rules(&s.rules, &s.formats, &scope_rel, has_identity);
             if r.claimed.is_some() {
-                claim = Some((s, r, logical_rel, locale));
+                claim = Some((s, r, scope_rel));
                 break;
             }
             if let Some(o) = s.owned() {
                 owner_passed = Some(o);
             }
         }
-        let Some((scope, routing, logical_rel, locale)) = claim else {
+        let Some((scope, routing, scope_rel)) = claim else {
             // A scope owns its source: what its rules did not claim is not
             // content, and it leaves without a word — that silence is
             // `load_dir`'s extension filter, which never said anything either.
@@ -1338,6 +1360,22 @@ fn walk_site(
                 continue;
             }
             bail!("no rule supplies a route for {}", f.path.display());
+        };
+        let physical_stem = scope_rel
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let extracted = filename::extract(routing.formats, &physical_stem);
+        let (logical_rel, locale) = match &extracted {
+            Some(m) => {
+                let loc = m
+                    .axes
+                    .get("locale")
+                    .cloned()
+                    .unwrap_or_else(|| cfg.i18n.default.clone());
+                (with_stem(&scope_rel, &m.logical_stem), loc)
+            }
+            None => (scope_rel.clone(), cfg.i18n.default.clone()),
         };
         // Root-relative again for everything that is about the FILE rather
         // than about a rule: schema governance, `logical` identity, the claim.
@@ -1357,10 +1395,7 @@ fn walk_site(
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
-        // The extractor, wherever a rule (or this scope) named one — run after
-        // the rules, because they are what says which extractor this row has
-        // (IO.md I6).
-        let key = filename::extract(routing.formats, &stem);
+        let key = extracted.as_ref().map(|m| m.key.clone());
         let from_name = match key.as_ref().and_then(|k| k.ymd()) {
             Some((y, m, d)) => Some(NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
                 format!(
@@ -1545,7 +1580,7 @@ fn walk_site(
         // gets the honest answer rather than a hash dressed as a route.
         let url = match route_templates.is_empty() {
             true => String::new(),
-            false => canonical_url(cfg, &route_templates, &locale)?,
+            false => canonical_url(cfg, &route_templates, &locale, routing.formats)?,
         };
 
         let logical = logical_root.to_string_lossy().to_string();
@@ -1560,7 +1595,7 @@ fn walk_site(
             );
         }
         let row = Row {
-            axis: row_axes(cfg, &route_templates),
+            axis: row_axes(cfg, &route_templates, routing.formats),
             route_templates,
             width: None,
             height: None,

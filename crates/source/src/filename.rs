@@ -1,30 +1,52 @@
-//! Filename formats: key extraction from a file stem.
+//! File patterns: extract identity (and spent axes) from a file stem.
 //!
 //! Config data, not code (DESIGN.md §4). The routing half — key -> URL —
 //! is the database's, in `grackle_db::route`.
 //!
-//! A format is declared per RULE, falling back to its collection's own list
-//! (IO.md I6): the extractor is one half of the route-token supply, and the
-//! other half — the path tokens — has always been the rule's.
+//! A pattern is declared per RULE as `file = [...]`, falling back to its
+//! collection's own list. Same list law as `route = [...]`: try in order;
+//! the first match wins. `{axis:NAME}` spends a declared axis into the
+//! filename (suffix form today); a shorter pattern without that token is
+//! the canonical member. Date tokens (`{year}`, …) are the same matcher —
+//! there is one extractor, not two.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use regex::Regex;
+use std::collections::BTreeMap;
 
-/// A compiled `filename_formats` entry, e.g. `{year}-{month}-{day}-{slug}`.
+/// A compiled `file` entry, e.g. `{year}-{month}-{day}-{slug}.{axis:locale}`.
 #[derive(Debug)]
-pub struct FilenameFormat {
+pub struct FilePattern {
+    /// Pattern text with `{axis:…}` segments removed — filled to build the
+    /// logical stem after a match.
+    logical: String,
     re: Regex,
+    /// Axis name -> regex capture name (`_axis_locale`).
+    axes: Vec<(String, String)>,
+}
+
+impl FilePattern {
+    /// Axes this pattern spends into the stem.
+    pub fn spent_axes(&self) -> impl Iterator<Item = &str> + '_ {
+        self.axes.iter().map(|(n, _)| n.as_str())
+    }
+}
+
+/// What a file pattern yields: date/slug tokens, spent axis values, and the
+/// stem everything downstream treats as identity.
+#[derive(Debug, Clone, Default)]
+pub struct FileMatch {
+    pub key: FileKey,
+    /// Axis name -> member value. Absent axes default to canonical at the
+    /// call site.
+    pub axes: BTreeMap<String, String>,
+    pub logical_stem: String,
 }
 
 /// What a filename format yields: **whatever the format named**, and nothing
 /// else. Every field is optional because a format need not name every token —
 /// `{slug}` alone is a legal format (grack.com's `_drafts` writes exactly
-/// that) and used to match NOTHING, since a key was only ever built when all
-/// four captures were present. That silence was survivable only by accident:
-/// the slug fell back to the whole stem, which is what `{slug}` captures
-/// anyway. A format with a literal (`notes-{slug}`) would have fallen back to
-/// the same whole stem — the prefix silently kept — which is the failure this
-/// shape refuses.
+/// that).
 #[derive(Debug, Clone, Default)]
 pub struct FileKey {
     pub year: Option<i32>,
@@ -42,94 +64,206 @@ impl FileKey {
     }
 }
 
-impl FilenameFormat {
-    pub fn compile(fmt: &str) -> Result<Self> {
+/// Non-canonical members of a declared axis — the values a spent `{axis:N}`
+/// may capture. Canonical is the pattern that omits the token.
+pub type AxisValues<'a> = BTreeMap<&'a str, &'a [String]>;
+
+impl FilePattern {
+    pub fn compile(fmt: &str, axes: &AxisValues<'_>) -> Result<Self> {
         let mut re = String::from("^");
+        let mut logical = String::new();
         let mut rest = fmt;
+        let mut axis_caps = Vec::new();
         while let Some(open) = rest.find('{') {
-            re.push_str(&regex::escape(&rest[..open]));
+            let lit = &rest[..open];
+            re.push_str(&regex::escape(lit));
+            logical.push_str(lit);
             let close = rest[open..]
                 .find('}')
-                .ok_or_else(|| anyhow!("unclosed '{{' in filename format {fmt:?}"))?
+                .ok_or_else(|| anyhow!("unclosed '{{' in file pattern {fmt:?}"))?
                 + open;
             let token = &rest[open + 1..close];
-            re.push_str(match token {
-                "year" => r"(?P<year>\d{4})",
-                "month" => r"(?P<month>\d{1,2})",
-                "day" => r"(?P<day>\d{1,2})",
-                "slug" => r"(?P<slug>.+)",
-                other => bail!("unknown token {{{other}}} in filename format {fmt:?}"),
-            });
+            if let Some(name) = token.strip_prefix("axis:") {
+                let values = axes.get(name).with_context(|| {
+                    format!(
+                        "file pattern {fmt:?}: {{axis:{name}}} names no declared \
+                         axis — declare [axes.{name}] or drop the token"
+                    )
+                })?;
+                // Non-canonical only: the bare pattern is the canonical member.
+                let alts: Vec<&str> = values.iter().skip(1).map(String::as_str).collect();
+                if alts.is_empty() {
+                    bail!(
+                        "file pattern {fmt:?}: {{axis:{name}}} needs a non-canonical \
+                         member on [axes.{name}] — a one-value axis has nothing to spend"
+                    );
+                }
+                let cap = format!("_axis_{name}");
+                re.push_str("(?P<");
+                re.push_str(&cap);
+                re.push('>');
+                re.push_str(&alts.join("|"));
+                re.push(')');
+                axis_caps.push((name.to_string(), cap));
+                // Logical stem drops the axis segment and a preceding `.` or `/`
+                // that only existed to attach it.
+                if logical.ends_with('.') || logical.ends_with('/') {
+                    logical.pop();
+                }
+            } else {
+                logical.push('{');
+                logical.push_str(token);
+                logical.push('}');
+                re.push_str(match token {
+                    "year" => r"(?P<year>\d{4})",
+                    "month" => r"(?P<month>\d{1,2})",
+                    "day" => r"(?P<day>\d{1,2})",
+                    "slug" => r"(?P<slug>.+)",
+                    "stem" => r"(?P<stem>.+)",
+                    other => bail!("unknown token {{{other}}} in file pattern {fmt:?}"),
+                });
+            }
             rest = &rest[close + 1..];
         }
         re.push_str(&regex::escape(rest));
+        logical.push_str(rest);
         re.push('$');
         Ok(Self {
+            logical,
             re: Regex::new(&re)?,
+            axes: axis_caps,
         })
     }
 
-    /// Parse a file stem (basename without extension). `None` is "this format
-    /// does not describe this name"; a match yields only the tokens the format
-    /// actually named.
-    pub fn parse(&self, stem: &str) -> Option<FileKey> {
+    pub fn parse(&self, stem: &str) -> Option<FileMatch> {
         let c = self.re.captures(stem)?;
-        // A named group that matched must parse — the pattern for each is
-        // digits — so a parse failure is a bug rather than a non-match.
-        Some(FileKey {
+        let key = FileKey {
             year: c.name("year").and_then(|m| m.as_str().parse().ok()),
             month: c.name("month").and_then(|m| m.as_str().parse().ok()),
             day: c.name("day").and_then(|m| m.as_str().parse().ok()),
             slug: c.name("slug").map(|m| m.as_str().to_string()),
+        };
+        let mut axes = BTreeMap::new();
+        for (name, cap) in &self.axes {
+            if let Some(m) = c.name(cap) {
+                axes.insert(name.clone(), m.as_str().to_string());
+            }
+        }
+        let logical_stem = if let Some(s) = c.name("stem") {
+            s.as_str().to_string()
+        } else {
+            fill_logical(&self.logical, &c)
+        };
+        Some(FileMatch {
+            key,
+            axes,
+            logical_stem,
         })
     }
 }
 
-/// The first format that describes this stem, in declared order.
-pub fn extract(formats: &[FilenameFormat], stem: &str) -> Option<FileKey> {
-    formats.iter().find_map(|f| f.parse(stem))
+fn fill_logical(template: &str, c: &regex::Captures<'_>) -> String {
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let close = rest[open..].find('}').unwrap() + open;
+        let token = &rest[open + 1..close];
+        if let Some(m) = c.name(token) {
+            out.push_str(m.as_str());
+        }
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The first pattern that describes this stem, in declared order.
+pub fn extract(patterns: &[FilePattern], stem: &str) -> Option<FileMatch> {
+    patterns.iter().find_map(|f| f.parse(stem))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn locale_axis() -> BTreeMap<&'static str, &'static [String]> {
+        // leaked for test statics — fine in tests
+        let vals: &'static [String] =
+            Box::leak(vec!["en".into(), "fr".into()].into_boxed_slice());
+        BTreeMap::from([("locale", vals)])
+    }
+
     #[test]
     fn parses_standard_post_filename() {
-        let f = FilenameFormat::compile("{year}-{month}-{day}-{slug}").unwrap();
+        let axes = BTreeMap::new();
+        let f = FilePattern::compile("{year}-{month}-{day}-{slug}", &axes).unwrap();
         let k = f.parse("2014-12-06-the-next-decade-part-2").unwrap();
-        assert_eq!(k.ymd(), Some((2014, 12, 6)));
-        assert_eq!(k.slug.as_deref(), Some("the-next-decade-part-2"));
+        assert_eq!(k.key.ymd(), Some((2014, 12, 6)));
+        assert_eq!(k.key.slug.as_deref(), Some("the-next-decade-part-2"));
+        assert_eq!(k.logical_stem, "2014-12-06-the-next-decade-part-2");
     }
 
     #[test]
     fn legacy_format_does_not_match_standard_names() {
-        // Guards ordering: the MM-DD-YYYY form must not swallow YYYY-MM-DD names.
-        let legacy = FilenameFormat::compile("{month}-{day}-{year}-{slug}").unwrap();
+        let axes = BTreeMap::new();
+        let legacy = FilePattern::compile("{month}-{day}-{year}-{slug}", &axes).unwrap();
         assert!(legacy.parse("2014-12-06-the-next-decade").is_none());
     }
 
-    /// A format yields what it names, and a partial date is not a date —
-    /// which is what lets `{slug}` be an extractor rather than a no-op.
     #[test]
     fn a_format_yields_only_the_tokens_it_names() {
-        let slug_only = FilenameFormat::compile("{slug}").unwrap();
+        let axes = BTreeMap::new();
+        let slug_only = FilePattern::compile("{slug}", &axes).unwrap();
         let k = slug_only.parse("caret").unwrap();
-        assert_eq!(k.slug.as_deref(), Some("caret"));
-        assert_eq!(k.ymd(), None);
+        assert_eq!(k.key.slug.as_deref(), Some("caret"));
+        assert_eq!(k.key.ymd(), None);
 
-        // The literal is honoured, which is the half the all-or-nothing key
-        // could not express: pre-I6 this returned `None` and the caller kept
-        // the whole stem, prefix included.
-        let prefixed = FilenameFormat::compile("notes-{slug}").unwrap();
-        assert_eq!(
-            prefixed.parse("notes-hello").unwrap().slug.as_deref(),
-            Some("hello")
-        );
-        assert!(prefixed.parse("hello").is_none());
+        let with_lit = FilePattern::compile("notes-{slug}", &axes).unwrap();
+        let k = with_lit.parse("notes-caret").unwrap();
+        assert_eq!(k.key.slug.as_deref(), Some("caret"));
+        assert_eq!(k.logical_stem, "notes-caret");
+    }
 
-        let yearly = FilenameFormat::compile("{year}-{slug}").unwrap();
-        let k = yearly.parse("2020-hello").unwrap();
-        assert_eq!(k.year, Some(2020));
-        assert_eq!(k.ymd(), None);
+    #[test]
+    fn axis_suffix_strips_to_logical_stem() {
+        let axes = locale_axis();
+        let patterns = [
+            FilePattern::compile("{stem}.{axis:locale}", &axes).unwrap(),
+            FilePattern::compile("{stem}", &axes).unwrap(),
+        ];
+        let fr = extract(&patterns, "dal.fr").unwrap();
+        assert_eq!(fr.logical_stem, "dal");
+        assert_eq!(fr.axes.get("locale").map(String::as_str), Some("fr"));
+
+        let en = extract(&patterns, "dal").unwrap();
+        assert_eq!(en.logical_stem, "dal");
+        assert!(en.axes.is_empty());
+    }
+
+    #[test]
+    fn dated_axis_suffix() {
+        let axes = locale_axis();
+        let patterns = [
+            FilePattern::compile("{year}-{month}-{day}-{slug}.{axis:locale}", &axes).unwrap(),
+            FilePattern::compile("{year}-{month}-{day}-{slug}", &axes).unwrap(),
+        ];
+        let fr = extract(&patterns, "2026-01-01-hello.fr").unwrap();
+        assert_eq!(fr.logical_stem, "2026-01-01-hello");
+        assert_eq!(fr.key.slug.as_deref(), Some("hello"));
+        assert_eq!(fr.axes.get("locale").map(String::as_str), Some("fr"));
+
+        let en = extract(&patterns, "2026-01-01-hello").unwrap();
+        assert_eq!(en.logical_stem, "2026-01-01-hello");
+        assert!(en.axes.is_empty());
+    }
+
+    #[test]
+    fn unknown_axis_is_a_load_error() {
+        let axes = BTreeMap::new();
+        let e = FilePattern::compile("{stem}.{axis:locale}", &axes)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("no declared axis"), "{e}");
     }
 }

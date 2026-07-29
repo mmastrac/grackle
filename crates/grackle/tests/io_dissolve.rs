@@ -235,26 +235,21 @@ fn a_marker_reaches_a_former_object_row() {
     );
 }
 
-/// **The locale selector does not run on a former-object row**, and the
-/// decision is pinned in both directions (IO.md I7e).
+/// **An objects rule does not spend locale in `file`**, so `photo.fr.png` keeps
+/// the dots it was given (IO.md I7e / §6f). One picture serves every locale; a
+/// name that happens to carry `.fr.` is not a translation unless a `file`
+/// pattern says so.
 ///
-/// One picture serves every locale (§6f), so `photo.fr.png` is a file whose
-/// name carries a dot rather than the French edition of `photo.png`. Letting
-/// the selector run is byte-inert on the corpus TODAY — no `.fr.`-infixed image
-/// exists on any of the six trees — and latent forever after, which is what
-/// earns it a test rather than a note: the day someone names a file that way it
-/// would silently mint `/fr/…` and drop `.fr.` from the address.
-///
-/// Both halves are here because the skip has to be about pictures and not about
-/// the site: the `.md` beside it IS the French edition, at the prefixed URL,
-/// under the same config. The fixture routes its own images (I11: the base no
+/// Both halves are here because the claim is about the RULE, not the site: the
+/// `.md` beside it declares `{stem}.{axis:locale}` and IS the French edition,
+/// at the prefixed URL. The fixture routes its own images (I11: the base no
 /// longer does), because "the image keeps the name it was given" is a claim
 /// about an address and an unrouted asset has none to keep.
 ///
-/// Mutation: drop the `object_shaped` arm so every row goes through
-/// `cfg.i18n.split` — the image is republished at `/fr/gallery/photo.png` and
-/// its literal path disappears from the URL set. (The reverse mutation, always
-/// taking the object arm, takes the French page's URL with it.)
+/// Mutation: put `file = ["{stem}.{axis:locale}", "{stem}"]` on the objects
+/// rule — the image is republished at `/fr/gallery/photo.png` and its literal
+/// path disappears from the URL set. (The reverse mutation, omitting `file`
+/// on the tree, takes the French page's URL with it.)
 #[test]
 fn an_image_is_not_a_translation_of_itself() {
     let dir = site(
@@ -266,7 +261,9 @@ fn an_image_is_not_a_translation_of_itself() {
                   [[collections]]\nname = \"objects\"\n\
                   [[collections.rules]]\n\
                   match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
-                  [i18n]\nlocales = [\"en\", \"fr\"]\ndefault = \"en\"\n\n\
+                  [[collections]]\nsource = \".\"\n\
+                  file = [\"{stem}.{axis:locale}\", \"{stem}\"]\n\n\
+                  [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n\
                   [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
             ),
             ("gallery/photo.fr.png", PNG),

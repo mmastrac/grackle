@@ -39,7 +39,7 @@ trail = "monthly_archive"
 # Tried in order. Measured: all 327 posts use the first form; the legacy
 # MM-DD-YYYY form that legacy_post_filename_dates.rb exists for is unused
 # in _posts, but the format list costs nothing to keep.
-filename_formats = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
+file = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
 
   # A defaults-only rule scoping a directory, so it names no extension: what it
   # says is about where a file sits, not what kind it is. (It still CLAIMS what
@@ -82,7 +82,7 @@ source = "_drafts"
 # `{slug}` is the honest format rather than a date the file does not carry.
 # It is the DEFAULT for this collection's rules (§4, IO.md I6) — a rule of its
 # own may name another, and none here does.
-filename_formats = ["{slug}"]
+file = ["{slug}"]
 
   # The rule's glob names the extensions this scope claims, and here that is
   # load-bearing rather than tidy: `_drafts/caret/` holds a draft and eighteen
@@ -194,12 +194,6 @@ include = [".well-known/**", ".htaccess"]
   [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
-
-  # No sass rule. Jekyll's compiled `css/main.scss` did not survive the port:
-  # the theme owns the stylesheet now (§5e), `css/` holds only `fonts/`, and
-  # every remaining .scss in the tree is under `themes/` or `grackle/` —
-  # both excluded above. The rule this replaces was a faithful transcription
-  # that governed zero rows from the day it was written (MERGE.md C3/D1).
 
   # Front matter is what makes a file a *page* in Jekyll; those get pretty
   # URLs. Measured: index.html and blog/index.html have front matter, while

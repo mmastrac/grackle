@@ -36,7 +36,7 @@ author = "Tester"
 
 [[collections]]
 source = "_drafts"
-filename_formats = ["{year}-{month}-{day}-{slug}"]
+file = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"
@@ -44,7 +44,7 @@ filename_formats = ["{year}-{month}-{day}-{slug}"]
 
 [[collections]]
 source = "_posts"
-filename_formats = ["{year}-{month}-{day}-{slug}"]
+file = ["{year}-{month}-{day}-{slug}"]
 trail = "yearly_archive"
 
   [[collections.rules]]

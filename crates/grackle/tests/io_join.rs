@@ -301,7 +301,7 @@ topic = { type = "string" }
 [[collections]]
 name = "posts"
 source = "_posts"
-filename_formats = ["{year}-{month}-{day}-{slug}"]
+file = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"
@@ -463,7 +463,7 @@ shell = { type = "string" }
 [[collections]]
 name = "posts"
 source = "_posts"
-filename_formats = ["{year}-{month}-{day}-{slug}"]
+file = ["{year}-{month}-{day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"

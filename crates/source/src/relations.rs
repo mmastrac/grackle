@@ -334,7 +334,7 @@ mod tests {
             "root=\".\"\nextends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
              [schema]\ndraft={{type=\"bool\"}}\nhidden={{type=\"bool\"}}\n\
              [[collections]]\nname=\"posts\"\nsource=\"_posts\"\n\
-             filename_formats=[\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
+             file=[\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
         );
         let cfg = Config::from_toml(&toml)?;
         let mut db = SiteDb::seed(vec![], true);

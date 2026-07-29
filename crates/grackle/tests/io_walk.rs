@@ -37,7 +37,7 @@ fn config(scopes: &str) -> String {
 /// rules do not claim is not content at all.
 const POSTS: &str = "[[collections]]\n\
      name = \"posts\"\nsource = \"_posts\"\n\
-     filename_formats = [\"{year}-{month}-{day}-{slug}\"]\n\n  \
+     file = [\"{year}-{month}-{day}-{slug}\"]\n\n  \
      [[collections.rules]]\n  match = \"**/*.{md,markdown}\"\n  \
      route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
 
@@ -46,7 +46,7 @@ const POSTS: &str = "[[collections]]\n\
 /// exists for.
 const DRAFTS: &str = "[[collections]]\n\
      name = \"drafts\"\nsource = \"_drafts\"\n\
-     filename_formats = [\"{slug}\"]\n\n  \
+     file = [\"{slug}\"]\n\n  \
      [[collections.rules]]\n  match = \"**/*.{md,markdown}\"\n  \
      route = \"/drafts/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
 

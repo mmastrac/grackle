@@ -94,7 +94,7 @@ pub struct Row {
     /// this is what a view sorts on when it says so — see `order_by` in
     /// `build_views`.
     pub order: Option<i64>,
-    /// The locale axis (§6f): assigned by the path selector at load.
+    /// The locale axis (§6f): assigned from a rule's `file` patterns at load.
     pub locale: String,
     /// The locale-stripped identity shared by a row and its translations
     /// (collection-relative, no extension). Pairing key for `by_logical`.
@@ -1017,7 +1017,7 @@ pub fn row_schema() -> filter::Schema {
     // build, would be able to read it, and get it the day something needs it.
     s.insert("path", Str);
     s.insert("dir", Str);
-    // §6f: the row's locale, always set (the default when no selector fired).
+    // §6f: the row's locale, always set (the default when no `file` axis matched).
     s.insert("locale", Str);
     // Which collection claimed the file. Queryable so that a set can name
     // its rows without `from` naming a table — the thing standing between

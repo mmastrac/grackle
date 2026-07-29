@@ -296,7 +296,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         site: Site {
             title: &cfg.site.title,
             url: &cfg.site.url,
-            locales: cfg.i18n.locales.iter().map(String::as_str).collect(),
+            locales: cfg.locales().into_iter().collect(),
             default_locale: &cfg.i18n.default,
         },
         stats: Stats {

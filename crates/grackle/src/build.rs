@@ -433,9 +433,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // world through this function on every change, so a fixed name stops
     // being reported on the next save (C3's convention, one crate over).
     {
-        let locales: Vec<&str> = std::iter::once(cfg.i18n.default.as_str())
-            .chain(cfg.i18n.locales.iter().map(String::as_str))
-            .collect();
+        let locales = cfg.locales();
         for w in crate::slots::unknown_stems(themes.fills(), &themes.identity_slots(), &locales) {
             eprintln!("grackle: {w}");
             db.warnings.push(w);

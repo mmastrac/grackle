@@ -403,7 +403,7 @@ impl Shaped for Collection {
         Shape::Struct(vec![
             field("name", |c: &Collection| &c.name),
             field("source", |c: &Collection| &c.source),
-            field("filename_formats", |c: &Collection| &c.filename_formats),
+            field("file", |c: &Collection| &c.file),
             field("exclude", |c: &Collection| &c.exclude),
             field("include", |c: &Collection| &c.include),
             // The other half of §1's annotation: the site's rules go FIRST,
@@ -452,9 +452,6 @@ impl Shaped for HeadCfg {
 impl Shaped for I18nCfg {
     fn shape() -> Shape {
         Shape::Struct(vec![
-            field("default", |i: &I18nCfg| &i.default),
-            field("locales", |i: &I18nCfg| &i.locales),
-            field("selector", |i: &I18nCfg| &i.selector),
             field("names", |i: &I18nCfg| &i.names),
             field("strings", |i: &I18nCfg| &i.strings),
         ])
@@ -486,7 +483,7 @@ macro_rules! enums_are_atoms {
     })* };
 }
 
-enums_are_atoms![Selector, LinkPolicy];
+enums_are_atoms![LinkPolicy];
 
 /// `LocalizedStr` is the atom spelled as a TABLE. `{ en = "Home", fr =
 /// "Accueil" }` is one value with one authority — §3 table D's "the atom is
@@ -1060,25 +1057,22 @@ impl EmbedsCfg {
     }
 }
 
-/// The locale axis (§6f). The *path selector* assigns each row its locale
-/// at load: `suffix` reads `dal.fr.md`, `prefix` reads `fr/recipes/dal.md`.
-/// Everything downstream — rules, globs, route tokens, schema resolution —
-/// sees the LOGICAL path (locale stripped), so a translation rides the same
-/// rule as its original and lands at the locale-prefixed URL.
+/// Display strings for the locale axis (§6f). Member identity lives on
+/// `[axes.locale]`; this table is only names and shared strings.
+///
+/// `default` is filled from the canonical locale axis member at load (or
+/// `"en"` when no locale axis is declared) so `LocalizedStr` resolution keeps
+/// a single fallback without restating the axis.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct I18nCfg {
-    #[serde(default = "default_locale")]
+    /// Canonical locale, synced from `[axes.locale]` (see [`Config::sync_locale`]).
+    #[serde(skip, default = "default_locale")]
     pub default: String,
-    /// Non-default locales a path may declare. Empty = i18n off.
-    #[serde(default)]
-    pub locales: Vec<String>,
-    #[serde(default)]
-    pub selector: Selector,
     /// Display names for the translations axis (`fr = "Français"`);
     /// a missing entry falls back to the locale code. Keyed by LOCALE, so
-    /// every key must be the default locale or one of `locales` — a name for
-    /// an undeclared locale labels nothing, and is a load error (C4a).
+    /// every key must be a declared locale-axis member — a name for an
+    /// undeclared locale labels nothing, and is a load error (C4a).
     #[serde(default)]
     pub names: BTreeMap<String, String>,
     /// The GLOBAL string map (§6f): the fallback layer of the display-name
@@ -1118,57 +1112,13 @@ impl Default for I18nCfg {
     fn default() -> Self {
         I18nCfg {
             default: default_locale(),
-            locales: Vec::new(),
-            selector: Selector::default(),
             names: BTreeMap::new(),
             strings: BTreeMap::new(),
         }
     }
 }
 
-#[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Selector {
-    #[default]
-    Suffix,
-    Prefix,
-}
-
 impl I18nCfg {
-    pub fn enabled(&self) -> bool {
-        !self.locales.is_empty()
-    }
-
-    /// Split a collection-relative path into (logical path, locale).
-    pub fn split(&self, rel: &Path) -> (PathBuf, String) {
-        if self.enabled() {
-            match self.selector {
-                Selector::Suffix => {
-                    if let Some(stem) = rel.file_stem().and_then(|s| s.to_str()) {
-                        if let Some((base, loc)) = stem.rsplit_once('.') {
-                            if loc != self.default && self.locales.iter().any(|l| l == loc) {
-                                let fname = match rel.extension().and_then(|e| e.to_str()) {
-                                    Some(ext) => format!("{base}.{ext}"),
-                                    None => base.to_string(),
-                                };
-                                return (rel.with_file_name(fname), loc.to_string());
-                            }
-                        }
-                    }
-                }
-                Selector::Prefix => {
-                    let mut it = rel.iter();
-                    if let Some(first) = it.next().and_then(|c| c.to_str()) {
-                        if first != self.default && self.locales.iter().any(|l| l == first) {
-                            return (it.as_path().to_path_buf(), first.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        (rel.to_path_buf(), self.default.clone())
-    }
-
     /// The label a locale wears in the translations axis.
     pub fn name_of<'a>(&'a self, locale: &'a str) -> &'a str {
         self.names.get(locale).map(String::as_str).unwrap_or(locale)
@@ -1365,13 +1315,14 @@ pub struct Collection {
     // stayed as configuration that configures nothing. `deny_unknown_fields`
     // above is what makes a leftover declaration say so. The design is
     // unchanged and comes back with page bundles (§5b).
-    /// The extractor's **default for this collection's rules** (§4, IO.md I6).
-    /// The key that reads a file's stem lives on a [`Rule`] now, because the
-    /// other half of route-token supply — the path tokens — always did; this
-    /// is the bag key that feeds the rules, exactly as `[site]` feeds a page.
+    /// The extractor's **default for this collection's rules** (§4). Same list
+    /// law as `route`: patterns tried in order; `{axis:NAME}` spends a
+    /// declared axis into the stem; a shorter pattern without that token is
+    /// the canonical member. Date tokens ride the same matcher.
+    ///
     /// A rule declaring its own list overrides this for the rows it governs.
     #[serde(default)]
-    pub filename_formats: Vec<String>,
+    pub file: Vec<String>,
     /// What the site walk does NOT read, and what re-admits it — read from the
     /// `tree` collection only (§4c, IO.md I7b). `load` compiles these two lists
     /// into the one [`crate::store::NotContent`] the tree, marker and
@@ -1551,22 +1502,16 @@ pub struct Rule {
     /// which defers a ROUTE that this rule does not mint.
     #[serde(default)]
     pub embed: Option<bool>,
-    /// Key extraction from a file's stem, for the rows this rule governs
-    /// (IO.md I6). Tried in order; the first format that describes the stem
-    /// supplies its tokens (`{year}`, `{month}`, `{day}`, `{slug}`) to this
-    /// rule's `route`, and the row's `date` and `slug` with it.
+    /// Key extraction from a file's stem, for the rows this rule governs.
+    /// Tried in order; the first pattern that describes the stem supplies its
+    /// tokens (`{year}`, `{slug}`, `{stem}`, `{axis:NAME}`, …) and the
+    /// logical stem everything downstream treats as identity.
     ///
-    /// It is a rule's key because routing is: path tokens have always come
-    /// from the rule's own template, and an extractor is the second supplier
-    /// of the same table. Absent, the collection's
-    /// [`Collection::filename_formats`] is the default — first writer wins per
-    /// key across the matching rules, like `defaults`, then the collection.
-    ///
-    /// A rule needs none: a route spending only path tokens (`/{dir}/{stem}/`)
-    /// works in a posts scope exactly as it does in the tree, which is the
-    /// whole of what one supplier means.
+    /// Absent, the collection's [`Collection::file`] is the default. A rule
+    /// needs none: a route spending only path tokens (`/{dir}/{stem}/`) works
+    /// without an extractor.
     #[serde(default)]
-    pub filename_formats: Vec<String>,
+    pub file: Vec<String>,
     #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
     /// True when this rule came from the base config rather than the site's
@@ -2268,7 +2213,52 @@ impl Config {
                     })?;
             }
         }
+        cfg.sync_locale()?;
         Ok(cfg)
+    }
+
+    /// Fill [`I18nCfg::default`] from `[axes.locale]`'s canonical member.
+    pub fn sync_locale(&mut self) -> Result<()> {
+        if let Some(a) = self.axes.get("locale") {
+            anyhow::ensure!(
+                a.field == "locale",
+                "[axes.locale]: field must be \"locale\" (got {:?}) — the row \
+                 column is fixed so filters and head expressions share one name",
+                a.field
+            );
+            anyhow::ensure!(
+                !a.values.is_empty(),
+                "[axes.locale]: values must list at least the canonical locale"
+            );
+            self.i18n.default = a.values[0].clone();
+        }
+        Ok(())
+    }
+
+    /// True when `[axes.locale]` is declared — file patterns may spend it and
+    /// views multiply by its members.
+    pub fn locale_enabled(&self) -> bool {
+        self.axes.contains_key("locale")
+    }
+
+    /// Every locale-axis member, or just the synced default when none.
+    pub fn locales(&self) -> Vec<&str> {
+        match self.axes.get("locale") {
+            Some(a) => a.values.iter().map(|s| s.as_str()).collect(),
+            None => vec![self.i18n.default.as_str()],
+        }
+    }
+
+    pub fn is_locale(&self, loc: &str) -> bool {
+        self.locales().iter().any(|l| *l == loc)
+    }
+
+    /// Axis values a `{axis:NAME}` file token may capture (skip canonical).
+    pub fn axis_values_for_file(&self) -> crate::filename::AxisValues<'_> {
+        self.axes
+            .iter()
+            .map(|(n, a)| (n.as_str(), a.values.as_slice()))
+            .collect()
     }
 
     /// Settle every `default_content` offer against the tree (§4d). A
@@ -2920,47 +2910,36 @@ impl Config {
             }
         }
         // §6f: every LocalizedStr in the config obeys ONE rule — a
-        // per-locale map may only name declared locales, and must include
-        // the default locale so resolution is total. A typo'd locale key
-        // is a load error, not a silently unused name.
+        // per-locale map may only name declared locale-axis members, and must
+        // include the canonical locale so resolution is total.
         {
+            let known = cfg.locales();
             let check = |what: &str, s: &LocalizedStr| -> Result<()> {
                 let LocalizedStr::PerLocale(m) = s else {
                     return Ok(());
                 };
                 for loc in m.keys() {
-                    if *loc != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == loc) {
+                    if !cfg.is_locale(loc) {
                         anyhow::bail!(
-                            "{what}: declares locale {loc:?}, which is neither the \
-                             default ({:?}) nor in i18n.locales {:?}",
-                            cfg.i18n.default,
-                            cfg.i18n.locales
+                            "{what}: declares locale {loc:?}, which is not in \
+                             [axes.locale] values {known:?}"
                         );
                     }
                 }
                 if !m.contains_key(&cfg.i18n.default) {
                     anyhow::bail!(
-                        "{what}: a per-locale name must include the default locale ({:?})",
+                        "{what}: a per-locale name must include the canonical \
+                         locale ({:?})",
                         cfg.i18n.default
                     );
                 }
                 Ok(())
             };
-            // `[i18n.names]` obeys the same rule one level out (MERGE.md C4a).
-            // It is the one localized string `check` cannot see: its LOCALES
-            // are keys, not the keys of a `LocalizedStr` value, so nothing
-            // above ever looked at them. `names = { fr_CA = "…" }` on a site
-            // declaring `locales = ["fr"]` labels a member of the translations
-            // axis that will never exist — `name_of` is only ever asked about
-            // a locale a path may declare, and only a declared locale is one.
             for loc in cfg.i18n.names.keys() {
-                if *loc != cfg.i18n.default && !cfg.i18n.locales.iter().any(|l| l == loc) {
+                if !cfg.is_locale(loc) {
                     anyhow::bail!(
-                        "i18n.names: names locale {loc:?}, which is neither the \
-                         default ({:?}) nor in i18n.locales {:?} — nothing would \
-                         ever read it",
-                        cfg.i18n.default,
-                        cfg.i18n.locales
+                        "i18n.names: names locale {loc:?}, which is not in \
+                         [axes.locale] values {known:?} — nothing would ever read it"
                     );
                 }
             }
@@ -3511,7 +3490,8 @@ mod tests {
     use super::*;
 
     fn cfg(views: &str) -> Config {
-        let c = cfg_raw(views);
+        let mut c = cfg_raw(views);
+        c.sync_locale().expect("locale axis syncs");
         c.validate().expect("test config should validate");
         c
     }
@@ -3859,7 +3839,7 @@ mod tests {
         let head = "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
                     [schema]\nnoindex = { type = \"bool\" }\n\
                     [[collections]]\nsource = \"_posts\"\n\
-                    filename_formats = [\"{slug}\"]\n";
+                    file = [\"{slug}\"]\n";
         let c = Config::from_toml(&format!(
             "{head}[routes.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
              [routes.tag_index]\npath = \"/t/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
@@ -3927,7 +3907,7 @@ mod tests {
         );
         // Not restated, so it comes from the base.
         assert_eq!(
-            c.collections["posts"].filename_formats,
+            c.collections["posts"].file,
             vec!["{year}-{month}-{day}-{slug}".to_string()]
         );
     }
@@ -5344,54 +5324,20 @@ mod tests {
         assert!(e.contains("cyclic"), "unexpected error: {e}");
     }
 
-    /// §6f: the path selector assigns locales; everything else sees the
-    /// logical path. Disabled i18n must be a perfect no-op.
+    /// `[axes.locale]` syncs the display-string default; absent means monolingual `en`.
     #[test]
-    fn i18n_selectors_split_paths() {
-        use std::path::Path;
-        let mut i = I18nCfg {
-            locales: vec!["fr".into()],
-            ..Default::default()
-        };
+    fn axes_locale_syncs_the_display_default() {
+        let c = cfg(
+            "[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
+        );
+        assert_eq!(c.i18n.default, "en");
+        assert_eq!(c.locales(), vec!["en", "fr"]);
+        assert!(c.locale_enabled());
 
-        // suffix: dal.fr.md -> (dal.md, fr); dal.md untouched.
-        let (l, loc) = i.split(Path::new("recipes/dal.fr.md"));
-        assert_eq!(
-            (l.to_str().unwrap(), loc.as_str()),
-            ("recipes/dal.md", "fr")
-        );
-        let (l, loc) = i.split(Path::new("recipes/dal.md"));
-        assert_eq!(
-            (l.to_str().unwrap(), loc.as_str()),
-            ("recipes/dal.md", "en")
-        );
-        // an undeclared locale-looking suffix is just a dotted filename
-        let (l, loc) = i.split(Path::new("a/jquery.min.js"));
-        assert_eq!(
-            (l.to_str().unwrap(), loc.as_str()),
-            ("a/jquery.min.js", "en")
-        );
-
-        // prefix: fr/recipes/dal.md -> (recipes/dal.md, fr).
-        i.selector = Selector::Prefix;
-        let (l, loc) = i.split(Path::new("fr/recipes/dal.md"));
-        assert_eq!(
-            (l.to_str().unwrap(), loc.as_str()),
-            ("recipes/dal.md", "fr")
-        );
-        let (l, loc) = i.split(Path::new("recipes/dal.md"));
-        assert_eq!(
-            (l.to_str().unwrap(), loc.as_str()),
-            ("recipes/dal.md", "en")
-        );
-
-        // i18n off (locales empty): the selector never fires.
-        let off = I18nCfg::default();
-        let (l, loc) = off.split(Path::new("recipes/dal.fr.md"));
-        assert_eq!(
-            (l.to_str().unwrap(), loc.as_str()),
-            ("recipes/dal.fr.md", "en")
-        );
+        let off = cfg("");
+        assert_eq!(off.i18n.default, "en");
+        assert_eq!(off.locales(), vec!["en"]);
+        assert!(!off.locale_enabled());
     }
 
     /// §6f display-name hierarchy: inline beats global beats built-in;
@@ -5400,7 +5346,7 @@ mod tests {
     fn string_hierarchy_resolves() {
         let c = cfg("[sets.a]\nfrom = \"posts\"\ntitle = \"@kitchen\"\n\n\
              [sets.b]\nfrom = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
-             [i18n]\nlocales = [\"fr\"]\n\n\
+             [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n\
              [i18n.strings]\nkitchen = { en = \"Kitchen\", fr = \"Cuisine\" }\n\
              home = { en = \"Home\", fr = \"Accueil\" }\n");
         let t = c.views["a"].title.as_ref().unwrap();
@@ -5435,21 +5381,21 @@ mod tests {
     /// like every other locale error in this block.
     #[test]
     fn an_i18n_name_must_name_a_declared_locale() {
-        let c = cfg("[i18n]\nlocales = [\"fr\"]\n\n\
+        let c = cfg("[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n\
              [i18n.names]\nen = \"English\"\nfr = \"Français\"\n");
         assert_eq!(c.i18n.name_of("fr"), "Français");
         assert_eq!(c.i18n.name_of("en"), "English");
         // The default locale needs no `locales` entry, and a name for it is
         // the shape every live site uses.
         let e =
-            cfg_err("[i18n]\nlocales = [\"fr\"]\n\n[i18n.names]\nfr_CA = \"Français canadien\"\n");
+            cfg_err("[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n[i18n.names]\nfr_CA = \"Français canadien\"\n");
         assert!(e.contains("fr_CA"), "{e}");
         assert!(e.contains("\"en\""), "the default is named: {e}");
         assert!(e.contains("\"fr\""), "the knowns are named: {e}");
-        // …and with i18n off, only the default locale may be named.
+        // …and with no locale axis, only the synced default may be named.
         let e = cfg_err("[i18n.names]\nfr = \"Français\"\n");
         assert!(e.contains("\"fr\""), "{e}");
-        assert!(e.contains("[]"), "the empty locale set is shown: {e}");
+        assert!(e.contains("[\"en\"]"), "only the default is known: {e}");
     }
 
     /// §6f enum records: slug and display names default to the id; a
@@ -5460,7 +5406,7 @@ mod tests {
     fn enum_records_default_to_id() {
         let c = cfg(
             "[records.tags.contes]\nslug = \"fairy-tales\"\nname = { en = \"Fairy tales\", fr = \"Contes\" }\n\n\
-             [records.course.dinner]\nintro = \"Sure to please!\"\n\n[i18n]\nlocales = [\"fr\"]\n",
+             [records.course.dinner]\nintro = \"Sure to please!\"\n\n[axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
         );
         assert_eq!(c.tag_slug("contes"), "fairy-tales");
         assert_eq!(c.tag_slug("rust"), "rust");
@@ -5650,9 +5596,9 @@ mod tests {
              [collections.schema]\ncover = { type = \"image\" }\n\
              [[collections.rules]]\nmatch = \"**\"\ndefaults = { layout = \"post\" }\n\
              [collections.relations.related]\nfrom = \"published\"\nlimit = 3\n\
-             [axes.locale]\nfield = \"locale\"\ntemplate = \"/{locale}{path}\"\n\
+             [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
              [html.head.meta]\n\"apple-title\" = 'site.title'\n\
-             [i18n]\nlocales = [\"fr\"]\n[i18n.strings]\nhome = { en = \"Home\", fr = \"Accueil\" }\n\
+             [i18n.strings]\nhome = { en = \"Home\", fr = \"Accueil\" }\n\
              [records.course.dinner]\nname = { en = \"Dinner\", fr = \"Dîner\" }\n\
              [widgets]\nnote = \"<aside>{body}</aside>\"\n",
         ] {
