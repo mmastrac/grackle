@@ -248,7 +248,6 @@ pub fn row_schema() -> filter::Schema {
     s.insert("title", Str);
     s.insert("slug", Str);
     s.insert("stem", Str);
-    s.insert("description", Str);
     s.insert("url", Str);
     s.insert("date", Str);
     s.insert("year", Int);

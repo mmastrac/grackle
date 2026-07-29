@@ -28,7 +28,6 @@ pub struct Row {
     pub stem: String,
     /// Absent on a titleless page; posts always have one.
     pub title: Option<String>,
-    pub description: Option<String>,
     /// Theme that renders this row.
     pub theme: Option<String>,
     /// Serialization shell (`html`, `raw`, …).
@@ -143,7 +142,6 @@ impl filter::Row for Row {
             "slug" => V::Str(self.slug.clone()),
             "stem" => V::Str(self.stem.clone()),
             "url" => V::Str(self.url.clone()),
-            "description" => opt_str(&self.description),
             "date" => match self.date {
                 Some(d) => V::Str(d.format("%Y-%m-%d").to_string()),
                 None => V::Null,

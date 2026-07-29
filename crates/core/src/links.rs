@@ -844,7 +844,6 @@ mod tests {
             rendered: true,
             size: 0,
             title: None,
-            description: None,
             order: None,
             date: None,
             theme: None,

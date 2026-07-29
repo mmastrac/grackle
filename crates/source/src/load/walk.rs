@@ -559,7 +559,6 @@ pub(crate) fn walk_site(
             sidecar: sidecar.is_some(),
             size: f.size,
             title,
-            description: fm.description,
             order: fm.order,
             date,
             theme: worn.theme,

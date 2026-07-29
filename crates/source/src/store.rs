@@ -22,7 +22,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct FrontMatter {
     pub title: Option<String>,
-    pub description: Option<String>,
     /// Cut point in the render chain (THEME.md §4). `root` skips document furniture.
     pub slot: Option<String>,
     pub permalink: Option<String>,
@@ -43,8 +42,8 @@ pub struct FrontMatter {
     /// `theme`.
     pub shell: Option<String>,
     /// Everything else: captured for schema validation (§5b). `draft`,
-    /// `hidden`, `noindex`, `toc` and `tags` arrive here — declared fields
-    /// the base config ships (§4e), not names this struct knows.
+    /// `hidden`, `noindex`, `toc`, `tags`, and `description` arrive here —
+    /// declared fields the base config ships (§4e), not names this struct knows.
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }

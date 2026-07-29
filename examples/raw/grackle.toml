@@ -45,6 +45,7 @@ toc = { type = "bool" }
 # Declared so front matter uses the ordinary list path (sequence or
 # whitespace-separated string). Base mints no tag routes.
 tags = { type = "list" }
+description = { type = "string" }
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }

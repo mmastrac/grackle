@@ -207,7 +207,6 @@ mod tests {
             rendered: true,
             size: 0,
             title: title.map(String::from),
-            description: None,
             order,
             date: None,
             theme: None,

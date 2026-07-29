@@ -261,7 +261,7 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
                 url: Some(p.url.clone()),
                 src: t.map(|t| t.url.clone()),
                 dims: t.and_then(|t| t.dims),
-                note: p.description.clone(),
+                note: p.string("description").map(str::to_owned),
                 ..Default::default()
             }
         })

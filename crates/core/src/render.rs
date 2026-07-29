@@ -86,7 +86,7 @@ pub fn head_for_post(p: &Row, site: &Site) -> Head {
             json_str(&format!("{}/", site.url)),
             json_str(site.author),
         );
-        if let Some(d) = &p.description {
+        if let Some(d) = p.string("description") {
             let _ = write!(j, r#","description":{}"#, json_str(d));
         }
         j.push('}');
@@ -907,11 +907,18 @@ mod meta_tests {
     }
 
     /// A row-only name reads Null elsewhere, which yields empty, which emits
-    /// no tag — the `if let Some(description)` that used to live in Rust.
+    /// An empty / missing description yields no tag.
     #[test]
     fn a_name_the_row_cannot_answer_emits_nothing() {
-        let c = cfg("description = 'description'\n");
-        let m = compile_metas(&c, &declared()).unwrap();
+        let c = Config::from_toml(
+            "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [schema]\ndescription = { type = \"string\" }\n\
+             [html.head.meta]\ndescription = 'description'\n",
+        )
+        .expect("config parses");
+        let mut decl = declared();
+        decl.insert("description", crate::filter::Type::Str);
+        let m = compile_metas(&c, &decl).unwrap();
         assert!(eval(&m, &row(false)).is_empty());
     }
 

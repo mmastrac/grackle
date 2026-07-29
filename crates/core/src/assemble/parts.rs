@@ -880,7 +880,7 @@ pub fn preview(p: Preview) -> PartMap {
     if let Some(n) = p
         .note
         .clone()
-        .or_else(|| row.and_then(|r| r.description.clone()))
+        .or_else(|| row.and_then(|r| r.string("description").map(str::to_owned)))
     {
         m.set("note", Part::Text(n));
     }
