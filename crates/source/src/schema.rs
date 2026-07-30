@@ -30,7 +30,7 @@ pub enum FieldType {
 }
 
 impl FieldType {
-    pub(crate) fn parse(s: &str) -> Option<FieldType> {
+    pub fn parse(s: &str) -> Option<FieldType> {
         Some(match s {
             "string" => FieldType::Str,
             "int" => FieldType::Int,

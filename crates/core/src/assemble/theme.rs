@@ -28,7 +28,7 @@ use crate::slots::SlotFills;
 
 pub struct Theme {
     pub fragments: Fragments,
-    /// Part vocabulary for this theme: engine ∪ `.schema.toml`.
+    /// Part vocabulary for this theme: derived from fragments + field schemas.
     schemas: Schemas,
     fills: SlotFills,
     root: PathBuf,
@@ -78,7 +78,7 @@ impl Themes {
     pub fn load_all(
         themes_dir: &Path,
         site_root: &Path,
-        schemas: &super::parts::Schemas,
+        fields: &[(String, grackle_source::schema::FieldType)],
         site_theme: Option<&str>,
     ) -> Result<Themes> {
         let mut map = std::collections::BTreeMap::new();
@@ -89,7 +89,7 @@ impl Themes {
                 // convention `_posts` and `_includes` already use — room for
                 // a site to keep working files beside its themes.
                 if e.path().is_dir() && !name.starts_with('_') {
-                    map.insert(name, Theme::load(&e.path(), site_root, schemas)?);
+                    map.insert(name, Theme::load(&e.path(), site_root, fields)?);
                 }
             }
         }
@@ -116,7 +116,7 @@ impl Themes {
         };
         Ok(Themes {
             map,
-            null: Theme::null(site_root, schemas)?,
+            null: Theme::null(site_root, fields)?,
             site_name,
             site_sub,
         })
@@ -204,11 +204,18 @@ impl Theme {
     /// The null theme as a value — which is the BASE theme, not an empty one.
     /// A site with no `themes/` directory renders through the fragments the
     /// engine carries, so "no theme" means plain, never broken.
-    pub fn null(site_root: &Path, schemas: &Schemas) -> Result<Theme> {
-        Theme::from_sources(Vec::new(), site_root, schemas.clone(), "the base theme")
+    pub fn null(
+        site_root: &Path,
+        fields: &[(String, grackle_source::schema::FieldType)],
+    ) -> Result<Theme> {
+        Theme::from_sources(Vec::new(), site_root, fields, None, "the base theme")
     }
 
-    pub fn load(theme_dir: &Path, site_root: &Path, schemas: &Schemas) -> Result<Theme> {
+    pub fn load(
+        theme_dir: &Path,
+        site_root: &Path,
+        fields: &[(String, grackle_source::schema::FieldType)],
+    ) -> Result<Theme> {
         if theme_dir.join("shell.html").exists() && !theme_dir.join("root.html").exists() {
             anyhow::bail!(
                 "{}: `shell.html` is `root.html` now (IO.md §6) — the chrome part kind \
@@ -217,11 +224,10 @@ impl Theme {
                 theme_dir.display()
             );
         }
-        let schemas = schemas.extend_theme_dir(theme_dir)?;
         let own = binder::dir_sources(theme_dir)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;
         let what = theme_dir.display().to_string();
-        Theme::from_sources(own, site_root, schemas, &what)
+        Theme::from_sources(own, site_root, fields, Some(theme_dir), &what)
     }
 
     pub fn schemas(&self) -> &Schemas {
@@ -231,7 +237,8 @@ impl Theme {
     fn from_sources(
         mut own: Vec<(String, String, String)>,
         site_root: &Path,
-        schemas: Schemas,
+        fields: &[(String, grackle_source::schema::FieldType)],
+        theme_dir: Option<&Path>,
         what: &str,
     ) -> Result<Theme> {
         let mut style = String::new();
@@ -253,8 +260,14 @@ impl Theme {
             .map(|(n, src)| (n.to_string(), src.to_string(), format!("<base>/{n}.html")))
             .collect();
         sources.extend(own);
-        let fragments =
-            Fragments::load(sources, &schemas).with_context(|| format!("loading theme {what}"))?;
+        let fragments = Fragments::parse(sources).with_context(|| format!("parsing theme {what}"))?;
+        let mut schemas = Schemas::derive(&fragments, fields);
+        if let Some(dir) = theme_dir {
+            schemas = schemas.extend_theme_dir(dir)?;
+        }
+        fragments
+            .validate_against(&schemas)
+            .with_context(|| format!("loading theme {what}"))?;
         let fills = SlotFills::load(site_root)?;
         let engine = ["content"];
         let mut identity = Vec::new();
@@ -355,7 +368,7 @@ impl Theme {
 #[cfg(test)]
 mod tests {
     use super::{split_spec, Theme, Themes};
-    use crate::parts::{first_dropped, Schemas};
+    use crate::parts::first_dropped;
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -376,14 +389,14 @@ mod tests {
     // `[site] theme`: row-less resolve rewrites; tokens stay with the named theme.
     #[test]
     fn site_theme_resolve() {
-        let schemas = Schemas::engine_only();
         let root = crate::workspace_root();
+        let fields: &[(String, grackle_source::schema::FieldType)] = &[];
 
-        let none = Themes::load_all(&gallery(), &root, &schemas, None).unwrap();
+        let none = Themes::load_all(&gallery(), &root, fields, None).unwrap();
         assert_eq!(none.resolve(None), (None, None));
         assert_eq!(none.site_default(), (None, None));
 
-        let site = Themes::load_all(&gallery(), &root, &schemas, Some("ledger:dark")).unwrap();
+        let site = Themes::load_all(&gallery(), &root, fields, Some("ledger:dark")).unwrap();
         assert_eq!(site.resolve(None), (Some("ledger"), Some("dark".into())));
         assert!(std::ptr::eq(
             site.get(site.resolve(None).0).unwrap(),
@@ -395,17 +408,17 @@ mod tests {
             (Some("terminal"), Some("wide".into()))
         );
 
-        let err = Themes::load_all(&gallery(), &root, &schemas, Some("legder"))
+        let err = Themes::load_all(&gallery(), &root, fields, Some("legder"))
             .map(|_| ())
             .expect_err("misspelled site theme")
             .to_string();
         assert!(err.contains("legder") && err.contains("ledger"), "{err}");
 
         let empty = root.join("themes-that-do-not-exist");
-        let base = Themes::load_all(&empty, &root, &schemas, Some("default")).unwrap();
+        let base = Themes::load_all(&empty, &root, fields, Some("default")).unwrap();
         assert_eq!(base.resolve(None), (Some("default"), None));
         base.get(Some("default")).expect("base answers");
-        let err = Themes::load_all(&empty, &root, &schemas, Some("ledger"))
+        let err = Themes::load_all(&empty, &root, fields, Some("ledger"))
             .map(|_| ())
             .expect_err("no directory")
             .to_string();
@@ -466,8 +479,8 @@ mod tests {
             ("neighbor", "content", "relation face is a link, not a body"),
         ];
 
-        let schemas = Schemas::engine_only();
-        let thm = Theme::null(&crate::workspace_root(), &schemas).expect("base loads");
+        let thm = Theme::null(&crate::workspace_root(), &[]).expect("base loads");
+        let schemas = thm.schemas();
         for kind in schemas.kind_names() {
             // `root` is filled by `Theme::page`, not by a kind renderer.
             if kind == "root" {
@@ -499,9 +512,9 @@ mod tests {
     /// anyone would write, so it is worth failing the build over.
     #[test]
     fn every_gallery_theme_keeps_a_rows_name() {
-        let schemas = Schemas::engine_only();
         let root = crate::workspace_root();
-        let themes = Themes::load_all(&gallery(), &root, &schemas, None).expect("gallery loads");
+        let themes = Themes::load_all(&gallery(), &root, &[], None).expect("gallery loads");
+        let schemas = themes.get(None).unwrap().schemas();
         let names: Vec<String> = themes.names().map(str::to_string).collect();
         assert!(names.len() >= 6, "expected the gallery, found {names:?}");
 
@@ -511,7 +524,7 @@ mod tests {
                 if kind == "root" {
                     continue;
                 }
-                let m = crate::parts::populate(&schemas, kind, 2);
+                let m = crate::parts::populate(schemas, kind, 2);
                 let out = thm.fragments.render(&m);
                 assert!(
                     out.contains(&format!("data-kind=\"{kind}\"")),
@@ -546,8 +559,7 @@ mod tests {
     /// prose fill set on one part.
     #[test]
     fn the_identity_slots_are_the_html_ones_the_engine_does_not_fill() {
-        let schemas = Schemas::engine_only();
-        let base = Theme::null(&crate::workspace_root(), &schemas).expect("base loads");
+        let base = Theme::null(&crate::workspace_root(), &[]).expect("base loads");
         let slots: Vec<&str> = base.identity_slots().collect();
         assert_eq!(
             slots,
@@ -599,9 +611,8 @@ mod tests {
         for stem in ["nav", "copyright", "copyrite"] {
             std::fs::write(dir.join(".slots").join(format!("{stem}.md")), "words").unwrap();
         }
-        let schemas = Schemas::engine_only();
-        let themes =
-            Themes::load_all(&dir.join("themes"), &dir, &schemas, None).expect("two roots load");
+                let themes =
+            Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("two roots load");
         assert_eq!(
             themes.identity_slots(),
             ["nav"],

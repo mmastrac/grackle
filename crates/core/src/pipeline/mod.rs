@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::model::SiteDb;
-use crate::parts;
 use crate::passes::preview;
 use crate::render::{self, Site};
 use crate::theme;
@@ -105,14 +104,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // ---- themes: every directory under themes/, loaded once (§5e). All
     // theme errors — malformed fragment, unknown slot, arity violation —
     // surface here, before anything renders. Theme is chosen per ROW (§5a).
-    // §5e: the part vocabulary this build runs against — the engine's kinds
-    // plus whatever `[[parts]]` the site declares. Fragments are checked
-    // against it, so a theme can place a part the site invented.
-    let schemas = parts::Schemas::engine_only();
+    // Part vocabulary is derived from fragments + declared field schemas.
+    let fields = part_fields_from_cfg(cfg);
     let themes = theme::Themes::load_all(
         &root.join("themes"),
         &root,
-        &schemas,
+        &fields,
         cfg.site.theme.as_deref(),
     )
     .context("loading themes")?;
@@ -216,4 +213,19 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     postpass::citations(cfg, db, &thumbs, &mut out_map, &mut stats)?;
 
     Ok((out_map, stats))
+}
+
+/// Declared `[schema]` fields as part types for vocabulary derivation.
+fn part_fields_from_cfg(cfg: &Config) -> Vec<(String, grackle_source::schema::FieldType)> {
+    cfg.schema
+        .fields
+        .iter()
+        .filter_map(|(name, val)| {
+            let ty = val.get("type")?.as_str()?;
+            Some((
+                name.clone(),
+                grackle_source::schema::FieldType::parse(ty)?,
+            ))
+        })
+        .collect()
 }

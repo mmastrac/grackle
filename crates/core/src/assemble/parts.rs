@@ -1,7 +1,8 @@
 //! Part maps: typed holes a theme's fragments place (THEME.md §5).
 //!
-//! Schema order is canonical reading order. `set` stores at the schema's
-//! position, not call order. Producers never see `Site` — URLs stay
+//! Part vocabulary is derived from field schemas + theme fragments — not a
+//! handwritten table. Schema order is first-seen fragment order. `set` stores
+//! at that position, not call order. Producers never see `Site` — URLs stay
 //! root-relative.
 
 use crate::model::Row;
@@ -169,105 +170,7 @@ impl PartType {
     }
 }
 
-use PartType::{Flag, Html, Map, Stream, Text, Url};
-
-/// Engine part vocabulary + order (THEME.md §5). Themes extend via their own
-/// `.schema.toml`; site `[[parts]]` is gone.
-const ENGINE: &[(&str, &[(&str, PartType)])] = &[
-    (
-        "root",
-        &[
-            ("nav", Html),
-            ("site_title", Text),
-            ("axes", Stream("axis")),
-            ("content", Html),
-            ("copyright", Html),
-        ],
-    ),
-    // One presence-driven kind; faces are fragment variants (THEME.md §2).
-    (
-        "row",
-        &[
-            ("title", Text),
-            ("url", Url),
-            ("tree", Flag),
-            ("crumbs", Stream("crumb")),
-            ("tags", Stream("tag")),
-            ("hero", Map("row")),
-            ("section", Stream("outline_entry")),
-            ("outline", Stream("outline_entry")),
-            ("intro", Html),
-            ("content", Html),
-            ("pagination", Map("pagination")),
-            ("date", Text),
-            ("date_pretty", Text),
-            ("src", Url),
-            ("width", Text),
-            ("height", Text),
-            ("note", Text),
-            ("truncated", Flag),
-            ("relations", Stream("relation")),
-        ],
-    ),
-    (
-        "outline_entry",
-        &[
-            ("label", Text),
-            ("url", Url),
-            ("current", Text),
-            ("children", Stream("outline_entry")),
-        ],
-    ),
-    (
-        "axis",
-        &[
-            ("axis", Text),
-            ("label", Text),
-            ("current", Text),
-            ("items", Stream("axis_member")),
-        ],
-    ),
-    (
-        "axis_member",
-        &[("label", Text), ("url", Url), ("current", Text)],
-    ),
-    ("crumb", &[("label", Text), ("url", Url)]),
-    ("tag", &[("name", Text), ("url", Url)]),
-    (
-        "relation",
-        &[
-            ("relation", Text),
-            ("label", Text),
-            ("items", Stream("neighbor")),
-        ],
-    ),
-    (
-        "neighbor",
-        &[
-            // Same card surface as a listing `row` (via `preview`), under the
-            // relation face — themes keep `data-kind="neighbor"`.
-            ("url", Url),
-            ("title", Text),
-            ("date", Text),
-            ("date_pretty", Text),
-            ("note", Text),
-            ("src", Url),
-            ("width", Text),
-            ("height", Text),
-            ("truncated", Flag),
-            ("content", Html),
-        ],
-    ),
-    (
-        "pagination",
-        &[("prev", Url), ("next", Url), ("pages", Stream("page_link"))],
-    ),
-    ("page_link", &[("n", Text), ("url", Url), ("current", Text)]),
-    ("item", &[("label", Text)]),
-    ("raw", &[("content", Html)]),
-];
-
-#[allow(clippy::type_complexity)]
+/// Derived part vocabulary for a build (THEME.md §5).
 static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
     std::sync::OnceLock::new();
 
@@ -277,12 +180,48 @@ pub struct Schemas {
 }
 
 impl Schemas {
+    /// Base fragments only — tests and the null theme before site fields land.
     pub fn engine_only() -> Schemas {
         Schemas { kinds: engine() }
     }
 
+    /// Derive kinds/parts from parsed fragments, then overlay field schemas.
+    pub fn derive(
+        fragments: &crate::assemble::binder::Fragments,
+        fields: &[(String, grackle_source::schema::FieldType)],
+    ) -> Schemas {
+        let mut kinds: Vec<(String, Vec<(&'static str, PartType)>)> = Vec::new();
+        let kind_set: std::collections::BTreeSet<String> =
+            fragments.kinds().into_iter().map(str::to_string).collect();
+
+        for (kind, uses) in fragments.slot_uses() {
+            let mut parts = Vec::new();
+            for u in &uses {
+                let ty = infer_part_type(kind.as_str(), u, &kind_set);
+                let name: &'static str = Box::leak(u.part.clone().into_boxed_str());
+                if parts.iter().any(|(n, _)| *n == name) {
+                    continue;
+                }
+                parts.push((name, ty));
+            }
+            kinds.push((kind, parts));
+        }
+
+        // Kinds that exist as fragments but declare no slots yet.
+        for k in fragments.kinds() {
+            if !kinds.iter().any(|(n, _)| n == k) {
+                kinds.push((k.to_string(), Vec::new()));
+            }
+        }
+
+        seed_furniture(&mut kinds);
+        overlay_fields(&mut kinds, fields);
+        mirror_neighbor(&mut kinds);
+        Schemas { kinds }
+    }
+
     /// Extend with a theme's `.schema.toml` (THEME.md §5): each field becomes
-    /// a part on `row`. May not remove or retype an engine part.
+    /// a part on `row`. May not remove or retype an existing part.
     pub fn extend_theme_dir(&self, theme_dir: &Path) -> anyhow::Result<Schemas> {
         let path = theme_dir.join(".schema.toml");
         if !path.is_file() {
@@ -296,22 +235,20 @@ impl Schemas {
         let mut kinds = self.kinds.clone();
         for (name, val) in &table {
             let Some(part_ty) = field_value_as_part(val) else {
-                continue; // nested tables / unknowns — not part decls
+                continue;
             };
             let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
-            for kind in ["row"] {
-                let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == kind) else {
-                    continue;
-                };
-                match parts.iter().find(|(n, _)| *n == leaked) {
-                    Some((_, prev)) if *prev != part_ty => anyhow::bail!(
-                        "{}: part `{kind}.{name}` is {:?}; a theme may not retype an engine part",
-                        path.display(),
-                        prev
-                    ),
-                    Some(_) => {}
-                    None => parts.push((leaked, part_ty)),
-                }
+            let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == "row") else {
+                continue;
+            };
+            match parts.iter().find(|(n, _)| *n == leaked) {
+                Some((_, prev)) if *prev != part_ty => anyhow::bail!(
+                    "{}: part `row.{name}` is {:?}; a theme may not retype an engine part",
+                    path.display(),
+                    prev
+                ),
+                Some(_) => {}
+                None => parts.push((leaked, part_ty)),
             }
         }
         Ok(Schemas { kinds })
@@ -327,12 +264,31 @@ impl Schemas {
     pub fn kind_names(&self) -> Vec<&str> {
         self.kinds.iter().map(|(k, _)| k.as_str()).collect()
     }
+
+    fn into_static(self) -> Vec<(String, Vec<(String, PartType)>)> {
+        self.kinds
+            .into_iter()
+            .map(|(k, parts)| {
+                (
+                    k,
+                    parts
+                        .into_iter()
+                        .map(|(n, t)| (n.to_string(), t))
+                        .collect(),
+                )
+            })
+            .collect()
+    }
 }
 
 fn field_value_as_part(val: &toml::Value) -> Option<PartType> {
     let ty = val.get("type")?.as_str()?;
+    field_type_as_part(ty)
+}
+
+fn field_type_as_part(ty: &str) -> Option<PartType> {
     Some(match ty {
-        "string" | "int" => PartType::Text,
+        "string" | "int" | "date" => PartType::Text,
         "bool" => PartType::Flag,
         "image" => PartType::Url,
         "list" => PartType::Stream("item"),
@@ -340,13 +296,172 @@ fn field_value_as_part(val: &toml::Value) -> Option<PartType> {
     })
 }
 
+fn field_type_enum_as_part(ty: grackle_source::schema::FieldType) -> PartType {
+    use grackle_source::schema::FieldType as F;
+    match ty {
+        F::Str | F::Int | F::Date => PartType::Text,
+        F::Bool => PartType::Flag,
+        F::Image => PartType::Url,
+        F::List => PartType::Stream("item"),
+    }
+}
+
+const HTML_SLOTS: &[&str] = &["content", "intro", "nav", "copyright"];
+const MAP_SLOTS: &[&str] = &["hero", "pagination"];
+
+fn infer_part_type(
+    kind: &str,
+    u: &crate::assemble::binder::SlotUse,
+    kinds: &std::collections::BTreeSet<String>,
+) -> PartType {
+    if let Some(target) = u.fragment.as_deref() {
+        let child = target.split_once("--").map(|(k, _)| k).unwrap_or(target);
+        let child: &'static str = Box::leak(child.to_string().into_boxed_str());
+        if MAP_SLOTS.contains(&u.part.as_str()) {
+            return PartType::Map(child);
+        }
+        return PartType::Stream(child);
+    }
+    // Fallback when a theme omits data-fragment on a known stream/map slot.
+    if let Some(ty) = infer_container(kind, &u.part, kinds) {
+        return ty;
+    }
+    if u.as_url_attr && !u.as_content {
+        return PartType::Url;
+    }
+    if u.as_url_attr {
+        return PartType::Url;
+    }
+    if HTML_SLOTS.contains(&u.part.as_str()) {
+        return PartType::Html;
+    }
+    PartType::Text
+}
+
+fn infer_container(
+    kind: &str,
+    slot: &str,
+    kinds: &std::collections::BTreeSet<String>,
+) -> Option<PartType> {
+    let child = match (kind, slot) {
+        (_, "crumbs") => "crumb",
+        (_, "tags") => "tag",
+        (_, "pages") => "page_link",
+        (_, "relations") => "relation",
+        (_, "axes") => "axis",
+        (_, "section" | "outline" | "children") => "outline_entry",
+        ("relation", "items") => "neighbor",
+        ("axis", "items") => "axis_member",
+        (_, "pagination") => {
+            return kinds.contains("pagination").then_some(PartType::Map("pagination"));
+        }
+        (_, "hero") => {
+            return kinds.contains("row").then_some(PartType::Map("row"));
+        }
+        _ => return None,
+    };
+    if !kinds.contains(child) {
+        return None;
+    }
+    let child: &'static str = Box::leak(child.to_string().into_boxed_str());
+    Some(PartType::Stream(child))
+}
+
+fn seed_furniture(kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>) {
+    // Producer-only kinds with no base fragment.
+    ensure_kind(kinds, "item", &[("label", PartType::Text)]);
+    ensure_kind(kinds, "raw", &[("content", PartType::Html)]);
+    // Presentation flags producers set; fragments never content-slot them.
+    if let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == "row") {
+        for (name, ty) in [("tree", PartType::Flag), ("truncated", PartType::Flag)] {
+            if !parts.iter().any(|(n, _)| *n == name) {
+                parts.push((name, ty));
+            }
+        }
+    }
+}
+
+fn ensure_kind(
+    kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>,
+    kind: &str,
+    parts: &[(&'static str, PartType)],
+) {
+    if kinds.iter().any(|(k, _)| k == kind) {
+        return;
+    }
+    kinds.push((kind.to_string(), parts.to_vec()));
+}
+
+fn overlay_fields(
+    kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>,
+    fields: &[(String, grackle_source::schema::FieldType)],
+) {
+    let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == "row") else {
+        return;
+    };
+    for (name, ty) in fields {
+        let part_ty = field_type_enum_as_part(*ty);
+        let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
+        if parts.iter().any(|(n, _)| *n == leaked) {
+            continue; // fragment-derived wins
+        }
+        parts.push((leaked, part_ty));
+    }
+}
+
+/// Neighbor shares the listing card surface (route_face / preview).
+fn mirror_neighbor(kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>) {
+    const CARD: &[&str] = &[
+        "url",
+        "title",
+        "date",
+        "date_pretty",
+        "note",
+        "src",
+        "width",
+        "height",
+        "truncated",
+        "content",
+    ];
+    let row_parts = kinds
+        .iter()
+        .find(|(k, _)| k == "row")
+        .map(|(_, p)| p.clone())
+        .unwrap_or_default();
+    let card: Vec<_> = CARD
+        .iter()
+        .filter_map(|name| {
+            row_parts
+                .iter()
+                .find(|(n, _)| n == name)
+                .copied()
+                .or_else(|| match *name {
+                    "truncated" => Some(("truncated", PartType::Flag)),
+                    "content" => Some(("content", PartType::Html)),
+                    "src" => Some(("src", PartType::Url)),
+                    "url" => Some(("url", PartType::Url)),
+                    _ => Some((*name, PartType::Text)),
+                })
+        })
+        .collect();
+    if let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == "neighbor") {
+        for (name, ty) in card {
+            if !parts.iter().any(|(n, _)| *n == name) {
+                parts.push((name, ty));
+            }
+        }
+    } else {
+        kinds.push(("neighbor".into(), card));
+    }
+}
+
 fn engine() -> Vec<(String, Vec<(&'static str, PartType)>)> {
-    ENGINE
+    schemas()
         .iter()
         .map(|(k, parts)| {
             (
-                (*k).to_string(),
-                parts.iter().map(|(n, t)| (*n, *t)).collect(),
+                k.clone(),
+                parts.iter().map(|(n, t)| (n.as_str(), *t)).collect(),
             )
         })
         .collect()
@@ -354,15 +469,13 @@ fn engine() -> Vec<(String, Vec<(&'static str, PartType)>)> {
 
 fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
     SCHEMAS.get_or_init(|| {
-        ENGINE
+        let sources: Vec<_> = crate::base::fragments()
             .iter()
-            .map(|(k, parts)| {
-                (
-                    (*k).to_string(),
-                    parts.iter().map(|(n, t)| ((*n).to_string(), *t)).collect(),
-                )
-            })
-            .collect()
+            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
+            .collect();
+        let frags = crate::assemble::binder::Fragments::parse(sources)
+            .expect("base fragments must parse");
+        Schemas::derive(&frags, &[]).into_static()
     })
 }
 
@@ -864,7 +977,7 @@ pub fn fill_from_fields(
 }
 
 /// Shared card fill for a route — under `row` (listings) or `neighbor`
-/// (relation items). Only parts declared on `kind` are set.
+/// (relation items).
 fn route_face(cfg: &crate::config::Config, kind: &'static str, p: Preview<'_>) -> PartMap {
     let mut m = PartMap::new(kind);
     let row = p.row;
@@ -1190,71 +1303,94 @@ mod tests {
 mod schema_asset_tests {
     use super::*;
 
-    /// Every `stream:`/`map:` names a kind that exists. A dangling child kind
-    /// would surface as a fragment failing to bind, far from the cause.
+    fn base_schemas() -> Schemas {
+        Schemas::engine_only()
+    }
+
     #[test]
     fn every_child_kind_resolves() {
-        for (kind, parts) in schemas() {
-            for (part, ty) in parts {
+        let schemas = base_schemas();
+        for kind in schemas.kind_names() {
+            for (part, ty) in schemas.get(kind).unwrap() {
                 let child = match ty {
                     PartType::Stream(k) | PartType::Map(k) => *k,
                     _ => continue,
                 };
                 assert!(
-                    schema(child).is_some(),
+                    schemas.get(child).is_some(),
                     "{kind}.{part} names kind {child:?}, which is not declared"
                 );
             }
         }
     }
 
-    /// The vocabulary each kind declares, in canonical order — the order
-    /// `set()` stores parts in and `canonical()` renders. Pinned so neither
-    /// the vocabulary nor the reading order drifts silently.
     #[test]
-    fn each_kind_declares_its_vocabulary() {
-        let names = |k| {
-            schema(k)
-                .unwrap()
-                .iter()
-                .map(|(n, _)| n.as_str())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            names("root"),
-            ["nav", "site_title", "axes", "content", "copyright"]
-        );
-        assert_eq!(names("item"), ["label"], "the shape a list field fills");
-        assert_eq!(
-            names("row"),
-            [
-                "title",
-                "url",
-                "tree",
-                "crumbs",
-                "tags",
-                "hero",
-                "section",
-                "outline",
-                "intro",
-                "content",
-                "pagination",
-                "date",
-                "date_pretty",
-                "src",
-                "width",
-                "height",
-                "note",
-                "truncated",
-                "relations",
-            ]
-        );
-        assert_eq!(names("axis"), ["axis", "label", "current", "items"]);
-        assert_eq!(names("axis_member"), ["label", "url", "current"]);
+    fn every_base_fragment_slot_is_declared() {
+        let sources: Vec<_> = crate::base::fragments()
+            .iter()
+            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
+            .collect();
+        let frags = crate::assemble::binder::Fragments::parse(sources).unwrap();
+        let schemas = Schemas::derive(&frags, &[]);
+        for (kind, uses) in frags.slot_uses() {
+            let parts = schemas.get(&kind).unwrap_or(&[]);
+            for u in uses {
+                assert!(
+                    parts.iter().any(|(n, _)| *n == u.part),
+                    "slot `{}.{}` missing from derived schema",
+                    kind,
+                    u.part
+                );
+            }
+        }
     }
 
-    /// A kind nothing declares is `None`, which is what makes a fragment
-    /// named after a typo a load error rather than an empty render.
+    #[test]
+    fn field_schema_overlays_row() {
+        use grackle_source::schema::FieldType;
+        let sources: Vec<_> = crate::base::fragments()
+            .iter()
+            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
+            .collect();
+        let frags = crate::assemble::binder::Fragments::parse(sources).unwrap();
+        let fields = vec![
+            ("date".into(), FieldType::Date),
+            ("description".into(), FieldType::Str),
+            ("score".into(), FieldType::Int),
+        ];
+        let schemas = Schemas::derive(&frags, &fields);
+        let row = schemas.get("row").unwrap();
+        assert!(row.iter().any(|(n, t)| *n == "date" && *t == PartType::Text));
+        // description is not a fragment slot — overlay adds it
+        assert!(row.iter().any(|(n, _)| *n == "description"));
+        assert!(row.iter().any(|(n, t)| *n == "score" && *t == PartType::Text));
+    }
+
+    #[test]
+    fn neighbor_has_card_surface() {
+        let schemas = base_schemas();
+        let names: Vec<_> = schemas
+            .get("neighbor")
+            .unwrap()
+            .iter()
+            .map(|(n, _)| *n)
+            .collect();
+        for need in [
+            "url",
+            "title",
+            "date",
+            "date_pretty",
+            "note",
+            "src",
+            "width",
+            "height",
+            "truncated",
+            "content",
+        ] {
+            assert!(names.contains(&need), "neighbor missing {need}: {names:?}");
+        }
+    }
+
     #[test]
     fn an_undeclared_kind_is_none() {
         assert!(schema("row").is_some());

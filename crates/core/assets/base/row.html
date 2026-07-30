@@ -1,14 +1,14 @@
 <article>
-	<nav data-slot="crumbs" aria-label="Breadcrumbs"></nav>
+	<nav data-slot="crumbs" data-fragment="crumb" aria-label="Breadcrumbs"></nav>
 	<header>
 		<h1 data-slot="title"></h1>
-		<p data-slot="tags"></p>
+		<p data-slot="tags" data-fragment="tag"></p>
 	</header>
-	<aside data-slot="hero"></aside>
-	<nav data-slot="section" aria-label="Section contents"></nav>
-	<nav data-slot="outline" aria-label="On this page"></nav>
+	<aside data-slot="hero" data-fragment="row"></aside>
+	<nav data-slot="section" data-fragment="outline_entry" aria-label="Section contents"></nav>
+	<nav data-slot="outline" data-fragment="outline_entry" aria-label="On this page"></nav>
 	<div data-slot="intro"></div>
 	<div data-slot="content"></div>
-	<nav data-slot="pagination" aria-label="Pagination"></nav>
-	<nav data-slot="relations" aria-label="Related"></nav>
+	<nav data-slot="pagination" data-fragment="pagination" aria-label="Pagination"></nav>
+	<nav data-slot="relations" data-fragment="relation" aria-label="Related"></nav>
 </article>

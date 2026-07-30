@@ -85,9 +85,13 @@ for aggregates and embeds.
 
 ## 5. Schemas
 
-Engine part vocabulary is the static `ENGINE` table in `assemble/parts.rs`
-(order for null/partial fallback still follows base fragments). A theme's
-`.schema.toml` may add fields as parts on `row` (may not retype engine parts).
+## 5. Schemas
+
+Engine part vocabulary is **derived** at theme load from base + theme
+fragments (slot / `data-fragment` / attr holes) plus declared field schemas
+(`[schema]` / theme `.schema.toml`). There is no handwritten `parts.toml`.
+A theme's `.schema.toml` may add fields as parts on `row` (may not retype
+existing parts).
 
 ## 6. Replaces
 

@@ -95,6 +95,22 @@ pub struct Fragment {
 #[derive(Debug, Default)]
 pub struct Fragments {
     map: BTreeMap<String, Fragment>,
+    /// Display path per fragment name (for validate errors).
+    files: BTreeMap<String, String>,
+    /// Fragment names in load order (base first, then theme).
+    order: Vec<String>,
+}
+
+/// One hole seen while deriving part schemas from fragments.
+#[derive(Debug, Clone)]
+pub struct SlotUse {
+    pub part: String,
+    /// `data-fragment` target, when present.
+    pub fragment: Option<String>,
+    /// Used as `data-slot-href` / `data-slot-src` (url-shaped attr).
+    pub as_url_attr: bool,
+    /// Used as a content `data-slot`.
+    pub as_content: bool,
 }
 
 impl Fragments {
@@ -117,6 +133,56 @@ impl Fragments {
             .collect();
         faces.sort_unstable();
         faces
+    }
+
+    /// Kind names present (fragment stems before `--`).
+    pub fn kinds(&self) -> Vec<&str> {
+        let mut kinds: Vec<&str> = self.map.keys().map(|n| kind_of_name(n)).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        kinds
+    }
+
+    /// Parse without schema validation — used when deriving schemas from
+    /// the fragments themselves (THEME.md §5).
+    pub fn parse(sources: Vec<(String, String, String)>) -> Result<Fragments> {
+        let mut f = Fragments::default();
+        for (name, text, file) in &sources {
+            let kind = kind_of_name(name).to_string();
+            let nodes = Parser::new(text, file).parse_all()?;
+            f.map.insert(name.clone(), Fragment { kind, nodes });
+            f.files.insert(name.clone(), file.clone());
+            f.order.push(name.clone());
+        }
+        Ok(f)
+    }
+
+    /// Check every fragment against `schemas` (unknown kind / slot / arity).
+    pub fn validate_against(&self, schemas: &crate::parts::Schemas) -> Result<()> {
+        for name in &self.order {
+            let frag = &self.map[name];
+            let file = self.files.get(name).map(String::as_str).unwrap_or(name);
+            if schemas.get(&frag.kind).is_none() {
+                bail!(
+                    "{file}: fragment names no layout kind `{}` — kinds are: {}",
+                    frag.kind,
+                    known_kinds(schemas)
+                );
+            }
+            self.validate(schemas, frag, file)?;
+        }
+        Ok(())
+    }
+
+    /// Slot uses per kind, in first-seen document order across fragments.
+    pub fn slot_uses(&self) -> BTreeMap<String, Vec<SlotUse>> {
+        let mut out: BTreeMap<String, Vec<SlotUse>> = BTreeMap::new();
+        for name in &self.order {
+            let frag = &self.map[name];
+            let entry = out.entry(frag.kind.clone()).or_default();
+            collect_slot_uses(&frag.nodes, entry);
+        }
+        out
     }
 }
 
@@ -323,23 +389,8 @@ impl Fragments {
         sources: Vec<(String, String, String)>,
         schemas: &crate::parts::Schemas,
     ) -> Result<Fragments> {
-        let mut f = Fragments::default();
-        let mut files = Vec::new();
-        for (name, text, file) in &sources {
-            let kind = kind_of_name(name).to_string();
-            if schemas.get(&kind).is_none() {
-                bail!(
-                    "{file}: fragment names no layout kind `{kind}` — kinds are: {}",
-                    known_kinds(schemas)
-                );
-            }
-            let nodes = Parser::new(text, file).parse_all()?;
-            f.map.insert(name.clone(), Fragment { kind, nodes });
-            files.push((name.clone(), file.clone()));
-        }
-        for (name, file) in &files {
-            f.validate(schemas, &f.map[name], file)?;
-        }
+        let f = Fragments::parse(sources)?;
+        f.validate_against(schemas)?;
         Ok(f)
     }
 
@@ -612,6 +663,45 @@ fn collect_slot_tags(nodes: &[Node], out: &mut Vec<(String, String)>) {
             }
             collect_slot_tags(&el.children, out);
         }
+    }
+}
+
+fn collect_slot_uses(nodes: &[Node], out: &mut Vec<SlotUse>) {
+    for n in nodes {
+        let Node::Element(el) = n else { continue };
+        for a in &el.attrs {
+            if let Attr::Slot(attr, part) = a {
+                let is_url = attr == "href" || attr == "src";
+                merge_slot_use(out, part, None, is_url, false);
+            }
+        }
+        if let Some(slot) = &el.slot {
+            merge_slot_use(out, slot, el.fragment.clone(), false, true);
+        }
+        collect_slot_uses(&el.children, out);
+    }
+}
+
+fn merge_slot_use(
+    out: &mut Vec<SlotUse>,
+    part: &str,
+    fragment: Option<String>,
+    as_url_attr: bool,
+    as_content: bool,
+) {
+    if let Some(u) = out.iter_mut().find(|u| u.part == part) {
+        if u.fragment.is_none() {
+            u.fragment = fragment;
+        }
+        u.as_url_attr |= as_url_attr;
+        u.as_content |= as_content;
+    } else {
+        out.push(SlotUse {
+            part: part.to_string(),
+            fragment,
+            as_url_attr,
+            as_content,
+        });
     }
 }
 
@@ -1004,8 +1094,8 @@ mod tests {
         let msg = format!("{e}");
         assert!(msg.contains("row.html:1"), "{msg}");
         assert!(msg.contains("unknown slot `titel`"), "{msg}");
-        assert!(msg.contains("title, url"), "{msg}");
-        // date sits later in the vocabulary; the message lists known slots.
+        assert!(msg.contains("title") && msg.contains("url"), "{msg}");
+        // The message lists known slots from the derived vocabulary.
     }
 
     /// Themes are partial (§5e step 4): a kind the theme declines to arrange
