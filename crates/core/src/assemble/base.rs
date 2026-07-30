@@ -27,27 +27,9 @@ const FRAGMENTS: &[(&str, &str)] = &[
         "row--link",
         include_str!("../../assets/base/row--link.html"),
     ),
-    ("crumb", include_str!("../../assets/base/crumb.html")),
-    ("tag", include_str!("../../assets/base/tag.html")),
-    ("neighbor", include_str!("../../assets/base/neighbor.html")),
-    ("relation", include_str!("../../assets/base/relation.html")),
-    ("axis", include_str!("../../assets/base/axis.html")),
-    (
-        "axis_member",
-        include_str!("../../assets/base/axis_member.html"),
-    ),
-    (
-        "outline_entry",
-        include_str!("../../assets/base/outline_entry.html"),
-    ),
-    (
-        "pagination",
-        include_str!("../../assets/base/pagination.html"),
-    ),
-    (
-        "page_link",
-        include_str!("../../assets/base/page_link.html"),
-    ),
+    // Smaller kinds (crumb, tag, page_link, outline_entry, pagination,
+    // relation, neighbor, axis, axis_member) live inline under root/row
+    // (THEME.md §5).
 ];
 
 /// Dev-only: read the base from `assets/base/` on disk instead of from the

@@ -1,14 +1,38 @@
 <article>
-	<nav data-slot="crumbs" data-fragment="crumb" aria-label="Breadcrumbs"></nav>
+	<nav data-slot="crumbs" data-fragment="crumb" aria-label="Breadcrumbs">
+		<span><a data-slot-href="url" data-slot="label"></a></span>
+	</nav>
 	<header>
 		<h1 data-slot="title"></h1>
-		<p data-slot="tags" data-fragment="tag"></p>
+		<p data-slot="tags" data-fragment="tag">
+			<a data-slot-href="url" data-slot="name"></a>
+		</p>
 	</header>
 	<aside data-slot="hero" data-fragment="row"></aside>
-	<nav data-slot="section" data-fragment="outline_entry" aria-label="Section contents"></nav>
+	<nav data-slot="section" data-fragment="outline_entry" aria-label="Section contents">
+		<div><a data-slot-href="url" data-slot-aria-current="current" data-slot="label"></a><div data-slot="children" data-fragment="outline_entry"></div></div>
+	</nav>
 	<nav data-slot="outline" data-fragment="outline_entry" aria-label="On this page"></nav>
 	<div data-slot="intro"></div>
 	<div data-slot="content"></div>
-	<nav data-slot="pagination" data-fragment="pagination" aria-label="Pagination"></nav>
-	<nav data-slot="relations" data-fragment="relation" aria-label="Related"></nav>
+	<nav data-slot="pagination" data-fragment="pagination" aria-label="Pagination">
+		<div>
+			<a rel="prev" data-slot-href="prev">Newer</a>
+			<ol data-slot="pages" data-fragment="page_link">
+				<li><a data-slot-href="url" data-slot-aria-current="current" data-slot="n"></a></li>
+			</ol>
+			<a rel="next" data-slot-href="next">Older</a>
+		</div>
+	</nav>
+	<nav data-slot="relations" data-fragment="relation" aria-label="Related">
+		<section data-slot-data-relation="relation">
+			<h2 data-slot="label"></h2>
+			<div data-slot="items" data-fragment="neighbor">
+				<a data-slot-href="url">
+					<time data-slot-datetime="date" data-slot="date_pretty"></time>
+					<span data-slot="title"></span>
+				</a>
+			</div>
+		</section>
+	</nav>
 </article>

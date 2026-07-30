@@ -88,10 +88,37 @@ for aggregates and embeds.
 Engine part vocabulary is **derived** at theme load from base + theme
 fragments plus declared field schemas (`[schema]` / theme `.schema.toml`).
 Stream and map slots must declare their child with `data-fragment` (e.g.
-`data-slot="crumbs" data-fragment="crumb"`); there is no handwritten
-`parts.toml` and no engine name table for those children. A theme's
-`.schema.toml` may add fields as parts on `row` (may not retype existing
-parts).
+`data-slot="crumbs" data-fragment="crumb"`). There is no handwritten
+`parts.toml`. A theme's `.schema.toml` may add fields as parts on `row`
+(may not retype existing parts).
+
+### Inline fragment defaults
+
+A stream/map hole may embed the default body of its `data-fragment` target
+instead of shipping a separate file. Element children become fragment
+`NAME`; whitespace/comments-only children count as empty (definition still
+comes from `NAME.html` or is absent). After files are loaded:
+
+1. If `NAME.html` (or any file-backed fragment of that name) already exists,
+   inline children are **dropped** - the file wins everywhere that name is
+   used.
+2. Otherwise the children are **registered** as fragment `NAME` and the
+   hole is cleared for render.
+
+```html
+<nav data-slot="crumbs" data-fragment="crumb" aria-label="Breadcrumbs">
+	<span><a data-slot-href="url" data-slot="label"></a></span>
+</nav>
+```
+
+Ship `crumb.html` in a theme to overload every `data-fragment="crumb"` site;
+omit the file and keep the inline under the parent to stay one file. Same
+rule for variants (`data-fragment="row--figure"` with an inline body).
+
+A theme that replaces a parent fragment (e.g. `row.html`) still inherits
+inline defaults harvested from the base parent, unless it also ships the
+child file or redefines the child inline under the new parent (later inline
+wins over earlier; a file always wins over an inline).
 
 ## 6. Replaces
 

@@ -254,13 +254,19 @@ impl Theme {
                 }
             }
         }
-        let mut sources: Vec<(String, String, String)> = base::fragments()
+        let base_sources: Vec<(String, String, String)> = base::fragments()
             .iter()
-            .filter(|(n, _)| !own.iter().any(|(o, _, _)| o == n))
             .map(|(n, src)| (n.to_string(), src.to_string(), format!("<base>/{n}.html")))
             .collect();
-        sources.extend(own);
-        let fragments = Fragments::parse(sources).with_context(|| format!("parsing theme {what}"))?;
+        let mut fragments = Fragments::parse(base_sources)
+            .with_context(|| format!("parsing theme {what}"))?;
+        // Overlay after base parse so inline defaults from a replaced parent
+        // (e.g. base `row` → crumb/tag) remain unless the theme ships that name.
+        if !own.is_empty() {
+            fragments
+                .overlay(own)
+                .with_context(|| format!("parsing theme {what}"))?;
+        }
         let mut schemas = Schemas::derive(&fragments, fields);
         if let Some(dir) = theme_dir {
             schemas = schemas.extend_theme_dir(dir)?;
@@ -465,7 +471,7 @@ mod tests {
             ("row", "note", "member faces place the blurb"),
             ("row", "truncated", "card CSS fact; default face has no cue"),
             // Neighbor is the same card surface under a relation face; the
-            // base neighbor.html only places title + date_pretty + url.
+            // base inline only places title + date_pretty + url.
             (
                 "neighbor",
                 "src",
@@ -660,16 +666,17 @@ mod tests {
         }
     }
 
-    /// The `data-slot="…"` names a fragment places, content slots only.
+    /// The `data-slot="…"` names a fragment places on its own holes (after
+    /// inline fragment defaults are extracted — nested child slots do not
+    /// count as the parent's).
     fn slots_of(src: &str) -> std::collections::HashSet<String> {
-        let mut out = std::collections::HashSet::new();
-        for (i, _) in src.match_indices("data-slot=\"") {
-            let rest = &src[i + 11..];
-            if let Some(end) = rest.find('"') {
-                out.insert(rest[..end].to_string());
-            }
-        }
-        out
+        let f = crate::assemble::Fragments::parse(vec![(
+            "root".into(),
+            src.to_string(),
+            "root.html".into(),
+        )])
+        .expect("root parses");
+        f.slot_tags("root").into_iter().map(|(s, _)| s).collect()
     }
 
     /// The token contract (themes/README.md): a theme may add names, but it

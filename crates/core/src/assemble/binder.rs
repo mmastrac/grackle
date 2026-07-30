@@ -144,7 +144,8 @@ impl Fragments {
     }
 
     /// Parse without schema validation — used when deriving schemas from
-    /// the fragments themselves (THEME.md §5).
+    /// the fragments themselves (THEME.md §5). Extracts optional inline
+    /// fragment defaults from stream/map holes before returning.
     pub fn parse(sources: Vec<(String, String, String)>) -> Result<Fragments> {
         let mut f = Fragments::default();
         for (name, text, file) in &sources {
@@ -154,7 +155,55 @@ impl Fragments {
             f.files.insert(name.clone(), file.clone());
             f.order.push(name.clone());
         }
+        f.extract_inlines();
         Ok(f)
+    }
+
+    /// Replace or insert fragments from `sources`, then re-extract inlines.
+    /// Used when a theme overlays the base: inline defaults harvested from a
+    /// base parent survive even if the theme replaces that parent file, unless
+    /// the theme also ships a fragment of the same name (file wins).
+    pub fn overlay(&mut self, sources: Vec<(String, String, String)>) -> Result<()> {
+        for (name, text, file) in &sources {
+            let kind = kind_of_name(name).to_string();
+            let nodes = Parser::new(text, file).parse_all()?;
+            if !self.map.contains_key(name) {
+                self.order.push(name.clone());
+            }
+            self.map.insert(name.clone(), Fragment { kind, nodes });
+            self.files.insert(name.clone(), file.clone());
+        }
+        self.extract_inlines();
+        Ok(())
+    }
+
+    /// Pull default bodies out of stream/map holes into the fragment map.
+    /// A hole with `data-fragment="NAME"` and element children defines `NAME`
+    /// when no file already provided it; a file always wins (children dropped).
+    /// A later inline replaces an earlier one (theme over base).
+    fn extract_inlines(&mut self) {
+        let mut i = 0;
+        while i < self.order.len() {
+            let name = self.order[i].clone();
+            self.extract_inlines_in(&name);
+            i += 1;
+        }
+    }
+
+    fn extract_inlines_in(&mut self, name: &str) {
+        let Some(frag) = self.map.get_mut(name) else {
+            return;
+        };
+        let mut nodes = std::mem::take(&mut frag.nodes);
+        let parent_file = self
+            .files
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_string());
+        extract_inline_nodes(&mut nodes, self, &parent_file);
+        if let Some(frag) = self.map.get_mut(name) {
+            frag.nodes = nodes;
+        }
     }
 
     /// Check every fragment against `schemas` (unknown kind / slot / arity).
@@ -184,6 +233,69 @@ impl Fragments {
         }
         out
     }
+
+    /// Load from `(name, source, display-name)` triples.
+    pub fn load(
+        sources: Vec<(String, String, String)>,
+        schemas: &crate::parts::Schemas,
+    ) -> Result<Fragments> {
+        let f = Fragments::parse(sources)?;
+        f.validate_against(schemas)?;
+        Ok(f)
+    }
+
+    fn validate(&self, schemas: &crate::parts::Schemas, frag: &Fragment, file: &str) -> Result<()> {
+        self.validate_nodes(schemas, &frag.nodes, &frag.kind, file)
+    }
+}
+
+/// Walk a node tree: stream/map holes with element children become named
+/// fragments when `NAME` is not already file-backed. A later inline replaces
+/// an earlier one (theme overlay over base); a real file always wins.
+fn extract_inline_nodes(nodes: &mut Vec<Node>, frags: &mut Fragments, parent_file: &str) {
+    for n in nodes.iter_mut() {
+        let Node::Element(el) = n else { continue };
+        let Some(fname) = el.fragment.clone() else {
+            extract_inline_nodes(&mut el.children, frags, parent_file);
+            continue;
+        };
+        if el.slot.is_none() {
+            extract_inline_nodes(&mut el.children, frags, parent_file);
+            continue;
+        }
+        if !has_element_child(&el.children) {
+            extract_inline_nodes(&mut el.children, frags, parent_file);
+            continue;
+        }
+        if let Some(existing) = frags.files.get(&fname) {
+            if !is_inline_origin(existing) {
+                el.children.clear();
+                continue;
+            }
+            frags.map.remove(&fname);
+            frags.files.remove(&fname);
+            frags.order.retain(|n| n != &fname);
+        }
+        let children = std::mem::take(&mut el.children);
+        let kind = kind_of_name(&fname).to_string();
+        frags.map.insert(fname.clone(), Fragment { kind, nodes: children });
+        frags.files.insert(
+            fname.clone(),
+            format!("{parent_file} (inline `{fname}`)"),
+        );
+        frags.order.push(fname.clone());
+        // Nested inlines inside the new body (order walk picks it up too;
+        // extract now so a same-pass sibling can see the name).
+        frags.extract_inlines_in(&fname);
+    }
+}
+
+fn is_inline_origin(file: &str) -> bool {
+    file.contains(" (inline `")
+}
+
+fn has_element_child(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| matches!(n, Node::Element(_)))
 }
 
 /// `row--card` → the `row` schema.
@@ -382,22 +494,6 @@ fn check_head_fence(head: &Element, file: &str) -> Result<()> {
 }
 
 impl Fragments {
-    /// Load from `(name, source, display-name)` triples — the testable core.
-    /// Parse everything first, then validate: cross-fragment checks (a stream
-    /// slot needs its child fragment) need the whole set present.
-    pub fn load(
-        sources: Vec<(String, String, String)>,
-        schemas: &crate::parts::Schemas,
-    ) -> Result<Fragments> {
-        let f = Fragments::parse(sources)?;
-        f.validate_against(schemas)?;
-        Ok(f)
-    }
-
-    fn validate(&self, schemas: &crate::parts::Schemas, frag: &Fragment, file: &str) -> Result<()> {
-        self.validate_nodes(schemas, &frag.nodes, &frag.kind, file)
-    }
-
     fn validate_nodes(
         &self,
         schemas: &crate::parts::Schemas,
@@ -1250,5 +1346,113 @@ mod tests {
         ])
         .unwrap_err();
         assert!(format!("{e}").contains("binds kind"), "{e}");
+    }
+
+    #[test]
+    fn inline_fragment_defines_a_child_when_no_file() {
+        let f = Fragments::parse(vec![(
+            "row".into(),
+            r#"<nav data-slot="crumbs" data-fragment="crumb"><span><a data-slot-href="url" data-slot="label"></a></span></nav>"#.into(),
+            "row.html".into(),
+        )])
+        .unwrap();
+        assert!(f.has("crumb"), "inline registered crumb");
+        let mut m = PartMap::new("row");
+        m.set(
+            "crumbs",
+            Part::Stream(vec![crumb("Home", Some("/")), crumb("Here", None)]),
+        );
+        let out = f.render(&m);
+        assert!(out.contains(r#"href="/""#), "{out}");
+        assert!(out.contains("Home"), "{out}");
+        assert!(out.contains("Here"), "{out}");
+    }
+
+    #[test]
+    fn file_fragment_wins_over_inline() {
+        let f = Fragments::parse(vec![
+            (
+                "row".into(),
+                r#"<nav data-slot="crumbs" data-fragment="crumb"><span data-slot="label">INLINE</span></nav>"#.into(),
+                "row.html".into(),
+            ),
+            (
+                "crumb".into(),
+                r#"<span><a data-slot="label"></a></span>"#.into(),
+                "crumb.html".into(),
+            ),
+        ])
+        .unwrap();
+        let mut m = PartMap::new("row");
+        m.set("crumbs", Part::Stream(vec![crumb("File", None)]));
+        let out = f.render(&m);
+        assert!(out.contains("File"), "{out}");
+        assert!(!out.contains("INLINE"), "file must win: {out}");
+    }
+
+    #[test]
+    fn whitespace_only_hole_does_not_register_a_fragment() {
+        let f = Fragments::parse(vec![(
+            "row".into(),
+            "<nav data-slot=\"crumbs\" data-fragment=\"crumb\">\n\t  \n</nav>".into(),
+            "row.html".into(),
+        )])
+        .unwrap();
+        assert!(!f.has("crumb"), "whitespace is not an inline body");
+    }
+
+    #[test]
+    fn overlay_keeps_base_inlines_when_parent_is_replaced() {
+        let mut f = Fragments::parse(vec![(
+            "row".into(),
+            r#"<nav data-slot="crumbs" data-fragment="crumb"><span data-slot="label"></span></nav>"#.into(),
+            "row.html".into(),
+        )])
+        .unwrap();
+        assert!(f.has("crumb"));
+        f.overlay(vec![(
+            "row".into(),
+            r#"<nav data-slot="crumbs" data-fragment="crumb"></nav>"#.into(),
+            "theme/row.html".into(),
+        )])
+        .unwrap();
+        assert!(f.has("crumb"), "base inline must survive parent overlay");
+        let schemas = crate::parts::Schemas::engine_only();
+        f.validate_against(&schemas).unwrap();
+    }
+
+    #[test]
+    fn overlay_inline_replaces_base_inline() {
+        let mut f = Fragments::parse(vec![(
+            "row".into(),
+            r#"<nav data-slot="crumbs" data-fragment="crumb"><span data-slot="label">BASE</span></nav>"#.into(),
+            "row.html".into(),
+        )])
+        .unwrap();
+        f.overlay(vec![(
+            "row".into(),
+            r#"<nav data-slot="crumbs" data-fragment="crumb"><span class="crumb" data-slot="label"></span></nav>"#.into(),
+            "theme/row.html".into(),
+        )])
+        .unwrap();
+        let mut m = PartMap::new("row");
+        m.set("crumbs", Part::Stream(vec![crumb("Here", None)]));
+        let out = f.render(&m);
+        assert!(out.contains(r#"class="crumb""#), "theme inline must win: {out}");
+        assert!(!out.contains("BASE"), "{out}");
+    }
+
+    #[test]
+    fn unknown_slot_inside_inline_fails_against_child_kind() {
+        // Without extract, `titel` would be checked as a slot on `row`.
+        // After extract it must fail against the child kind `crumb`.
+        let e = frags(&[(
+            "row",
+            r#"<nav data-slot="crumbs" data-fragment="crumb"><span data-slot="titel"></span></nav>"#,
+        )])
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("unknown slot `titel`"), "{e}");
+        assert!(e.contains("`crumb`"), "{e}");
     }
 }
