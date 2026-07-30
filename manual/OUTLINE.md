@@ -411,10 +411,10 @@ the binary.
   because the token names are a cross-theme contract it survives theme
   *switches*, not just updates. Cheapest real customization there is. ★
   (`.style.scss` overlays themselves are still specced — ch. 27.)
-- Dogfood/tooling callout: `theme-preview/` is a site of structurally
-  identical subtrees, one per theme, so `/ledger/notes/` and
-  `/miroir/notes/` are the same rows in the same shapes — compare in two
-  tabs. `grackle --config grackle/theme-preview/grackle.toml serve`.
+- Dogfood/tooling callout: `examples/theme-preview/` is a site of structurally
+  identical content under each gallery theme, so `/ledger/blog/` and
+  `/miroir/blog/` are the same rows in the same shapes — compare in two
+  tabs. `grackle --config grackle/examples/theme-preview/grackle.toml serve`.
 
 ### 14. Writing a theme: the hole algebra
 - **A theme is only its differences.** It inherits the base; a fragment

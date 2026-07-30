@@ -4,10 +4,9 @@
 # 2026-07-25, ONE content tree. The themes are an axis (q53): a post, a guide
 # page or a shelf entry is a single row published at a route per look — the
 # eight themes plus the showcase subthemes (`ledger:dark`, `miroir:rose`, …) —
-# each rendering differently. `/notes/one/` and `/ledger/notes/one/` are the
-# same row, so "the same content in every look" is true by construction rather
-# than by a copy per theme kept in step by hand. Sixteen content files serve
-# every look.
+# each rendering differently. `/vanilla/blog/one/` and `/ledger/blog/one/` are
+# the same row, so "the same content in every look" is true by construction
+# rather than by a copy per theme kept in step by hand.
 #
 # Every member wears its `{theme}` segment, canonical included: the axis says
 # WHICH forms exist and the route template says where they land. `vanilla` is
@@ -15,12 +14,12 @@
 # only it reaches the sitemap — the many looks of one document are not many
 # documents.
 #
-# The three landings (notes, shelf, wall) merged too: a landing CLAIMS a
+# The three landings (blog, shelf, wall) merged too: a landing CLAIMS a
 # content row, and the claim is keyed on the VIEW, so one view materialized
-# across the axis claims one row. `notes/index.md` is written once and every
-# theme's `/…/notes/` renders it — three landing files, not three per theme.
+# across the axis claims one row. `blog/index.md` is written once and every
+# theme's `/…/blog/` renders it — three landing files, not three per theme.
 #
-# `themes` is a symlink to ../themes, the gallery itself, and `serve` watches
+# `themes` is a symlink to ../../themes, the gallery itself, and `serve` watches
 # through it — editing a token file re-renders every page here.
 #
 # This is a harness, not an example site — for the engine's own kitchen sink
@@ -28,33 +27,31 @@
 
 root = "."
 
-# No base config (§4d). This harness is atypical: its posts live at `/notes/`
-# rather than `/blog/`, and the base's `published` set and `/blog/` archive
-# would be beside the point. The second live user of the escape hatch, after
-# `examples/raw` — a site whose shape the base did not anticipate says so in one
-# line instead of shadowing routes.
+# No base config (§4d). This harness is atypical: its posts live at
+# `/{theme}/blog/{slug}/` rather than the base's dated `/blog/…` paths, and the
+# base's `published` set would fight the theme axis. The second live user of
+# the escape hatch, after `examples/raw` — a site whose shape the base did not
+# anticipate says so in one line instead of shadowing routes.
 extends = "none"
 
 # Declining the base means declining its vocabulary too (§4e): the flag family
 # is ordinary declared schema, so a site that inherits nothing declares its own
 # before filtering on it.
 #
-# `toc` is here with the flag family (MERGE.md C1 / §4e): the pages under
-# `guide/` set it in front matter, and a name a row wears is a name some schema
-# declares. `shell` and `slot` join them for the rules below to write (IO.md
-# I7c): declining the base declines its declared shell defaults too, so every
-# row here resolved no shell at all and reached the themed rendering through
-# the renderer's legacy `layout:` fallback. A declared shell is what makes this
-# site's serialization a fact instead of a fallback, and it is what the
-# rendering law reads (`front_mattered || shell ∈ {html, light_html}`).
-# `theme` is still NOT declared — this site never sets it on a row (the theme
-# axis below sets it per member, at render), and declaring what nothing uses is
-# how a vocabulary stops meaning anything.
+# Blog fields (`tags`, `date`, `description`) sit with the flags because posts
+# wear them and `extends = "none"` declines the base's declarations. `toc` is
+# here for guide pages (MERGE.md C1 / §4e). `shell` and `slot` join them for
+# the rules below to write (IO.md I7c). `theme` is still NOT declared — the
+# theme axis sets it per member at render, and declaring what nothing writes
+# is how a vocabulary stops meaning anything.
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
 toc = { type = "bool" }
+tags = { type = "list" }
+description = { type = "string" }
+date = { type = "date" }
 slot = { type = "string" }
 shell = { type = "string" }
 
@@ -100,7 +97,7 @@ author = "grackle"
 # entry per theme, because the only way to vary a row's theme was to vary the row.
 #
 # Every member wears its `{theme}` segment, canonical included
-# (`/vanilla/notes/one/`, `/ledger/notes/one/`, `/miroir:rose/notes/one/`): the
+# (`/vanilla/blog/one/`, `/ledger/blog/one/`, `/miroir:rose/blog/one/`): the
 # axis says WHICH forms exist and the route template below says where they
 # land. `vanilla` is canonical, so every member points `rel="canonical"` at the
 # vanilla URL and only it is in the sitemap: the many looks of one document are
@@ -161,13 +158,15 @@ exclude = ["themes/**"]
   route = "/{path}"
   defaults = { shell = "raw" }
 
-# ------------------------------------------------------------------ notes
+# ------------------------------------------------------------------ blog
 #
 # One posts collection, where there were six. The theme comes from the axis
-# now, not from a rule default per collection.
+# now, not from a rule default per collection. Routes are blog-shaped
+# (`/{theme}/blog/{slug}/`) without the base's dated URL template, so the
+# theme segment stays the first path part.
 
 [[collections]]
-name = "notes"
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
@@ -177,7 +176,7 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   # through to the tree.
   [[collections.rules]]
   match = "**/*.{md,markdown}"
-  route = "/{theme}/notes/{slug}/"
+  route = "/{theme}/blog/{slug}/"
   defaults = { shell = "html" }
 
 # ---------------------------------------------------------------- objects
@@ -215,12 +214,12 @@ callout = """
 
 # ------------------------------------------------------------------- sets
 
-[sets.notes_published]
-from = "notes"
+[sets.published]
+from = "posts"
 where = '!draft && !hidden'
 order_by = "-date"
 
-  [sets.notes_published.fields.summary]
+  [sets.published.fields.summary]
   truncate = { max_blocks = 1, max_chars = 180 }
 
 # Path scoping is a clause of the predicate, not a key of its own: `glob` is
@@ -243,14 +242,14 @@ order_by = "-date"
 # The per-theme copies of each landing's prose are gone with the per-theme
 # declarations.
 
-[routes.notes_index]
-paths = ["/{theme}/notes/", "/{theme}/notes/page/{n}/"]
-from = "notes_published"
+[routes.blog_index]
+paths = ["/{theme}/blog/", "/{theme}/blog/page/{n}/"]
+from = "published"
 paginate = 2
 layout = "card"
 axis = "theme"
-content = "notes/index.md"
-title = "Notes"
+content = "blog/index.md"
+title = "Blog"
 
 [routes.shelf_index]
 path = "/{theme}/shelf/"

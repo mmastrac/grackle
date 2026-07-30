@@ -287,7 +287,7 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 #
 # A site that wants literal asset paths writes ONE rule saying so, above this
 # one — `route = "/{path}"`, which is the line that used to be here — and every
-# corpus site with images already does (`examples/field-notes`, `theme-preview`
+# corpus site with images already does (`examples/field-notes`, `examples/theme-preview`
 # and grack.com each declare their own objects rule; that is why this change
 # moves no byte anywhere). First-writer-wins does the rest: the address
 # question is answered once, by the first rule that answers it either way, so

@@ -18,11 +18,11 @@ engine.
 ## View them
 
 ```bash
-grackle --config grackle/theme-preview/grackle.toml serve --port 8083
+grackle --config grackle/examples/theme-preview/grackle.toml serve --port 8083
 ```
 
-The [`theme-preview/`](../theme-preview/) site renders identical content under each theme.
-Compare themes by opening two tabs: `/ledger/notes/` and `/miroir/notes/` are
+The [`theme-preview/`](../examples/theme-preview/) site renders identical content under each theme.
+Compare themes by opening two tabs: `/ledger/blog/` and `/miroir/blog/` are
 the same rows in the same shapes. Entry: `grackle-themes` in `.claude/launch.json`.
 
 ## Install one

@@ -135,7 +135,7 @@ fn every_sites_effective_config_parses_back() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for rel in [
         "grackle.toml", // grack.com itself
-        "theme-preview/grackle.toml",
+        "examples/theme-preview/grackle.toml",
         "examples/minimal/grackle.toml",
         "examples/raw/grackle.toml",
         "examples/field-notes/grackle.toml",

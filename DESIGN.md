@@ -990,7 +990,7 @@ Two live users, which is what keeps the escape hatch real:
   so the printed copy cannot drift from the compiled one without going red.
   It is also the answer to "what am I inheriting" that a person can read and
   argue with; `grackle config --effective` is the exact one.
-- **`theme-preview/`**, whose shape the base did not anticipate: one posts
+- **`examples/theme-preview/`**, whose shape the base did not anticipate: one posts
   collection published across a fourteen-member theme axis (q53), and no
   site-level blog. Every `kind = "posts"` collection feeds the one posts
   table (§4), so the base's `published` would sweep its notes into a
@@ -1022,7 +1022,7 @@ The base config merge is inert on sites that already declared everything, verifi
 
 The audit: **`draft`, `hidden` and `noindex` are ordinary declared bools that `base.toml` ships in `[schema]`; the
 engine's own row schema no longer mentions them.** `extends = "none"` genuinely removes them, and `where = "!draft"` on such a site is a load error
-naming the knowns — which is exactly what `examples/raw` and `theme-preview`
+naming the knowns — which is exactly what `examples/raw` and `examples/theme-preview`
 now declare `[schema]` to avoid.
 
 What remains is one spelling, narrow and named above: a view's
@@ -2341,7 +2341,7 @@ key an author writes rather than the absence of one.
 **The base declines.** Since I11 the base config routes no image (§4): every
 human-addressable asset URL exists because a rule said so, which is the base's
 "may not mint a URL the author did not ask for" rule at its strictest. Nothing
-in the corpus moved — `examples/field-notes`, `theme-preview` and grack.com
+in the corpus moved — `examples/field-notes`, `examples/theme-preview` and grack.com
 each declare their own objects route, and `examples/minimal` has no images —
 so the capability is fixture-proven and the default is corpus-inert.
 

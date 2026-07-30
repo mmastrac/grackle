@@ -301,7 +301,7 @@ fn spawn_watcher(
     // watches inodes under the root, and a symlink's target is not one of
     // them. `themes/` is the one place a site plausibly points elsewhere (a
     // gallery kept outside the site, which is exactly what
-    // `grackle/theme-preview` does), and a theme edit that needs a server
+    // `grackle/examples/theme-preview` does), and a theme edit that needs a server
     // restart is a bad enough day to be worth these six lines. Best effort:
     // if the link is dangling or unreadable, the rest of the site still
     // watches.
