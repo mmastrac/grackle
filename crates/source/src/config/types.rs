@@ -1204,7 +1204,7 @@ impl I18nCfg {
 }
 
 /// `[schema]` (§5b): field declarations plus the two engine consumers that
-/// name those fields — embeddings text and search indexing.
+/// name those fields — embeddings text and search index/store.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SchemaBag {
     #[serde(default)]
@@ -1224,12 +1224,17 @@ pub struct EmbeddingsSchema {
     pub string: String,
 }
 
-/// `[schema.search]`: which row fields (plus `title` / `body`) feed the
-/// search index. List fields contribute each value; scalars contribute once.
+/// `[schema.search]`: what the search shell indexes vs. stores for hit
+/// display. `index` fields are tokenized (list values each contribute;
+/// `body` is the rendered/stripped text). `store` fields travel with each
+/// hit; the overlay still hardcodes `date` + `title` from that bag.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SearchSchema {
     #[serde(default)]
-    pub fields: Vec<String>,
+    pub index: Vec<String>,
+    #[serde(default)]
+    pub store: Vec<String>,
 }
 
 impl crate::shape::Shaped for SchemaBag {

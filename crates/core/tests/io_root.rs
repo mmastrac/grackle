@@ -234,7 +234,7 @@ fn a_theme_head_may_hold_style_and_nothing_else() {
 /// Mutation: restore I4's emission (`head_html.push_str(&self.head)` in
 /// `Theme::page`) and the head carries the rule again → the `!contains` and
 /// the `<style` assertions go red. Mutation, the other half: drop the
-/// `head_style` argument at `css_pass`'s call sites (pass `""`) and the sheet
+/// `head_style` argument at `shells::css::css_pass`'s call sites (pass `""`) and the sheet
 /// loses the rule while the theme still loads clean — the silent-drop shape
 /// the fence exists to refuse.
 #[test]
@@ -288,7 +288,7 @@ fn a_head_style_lands_in_the_css_and_not_in_the_head() {
 /// `<style>` last in a `<head>` beat the stylesheet link above it, and last
 /// in the layer keeps the same rule winning.
 ///
-/// Mutation: swap the two pushes in `css_pass` so the head style goes in
+/// Mutation: swap the two pushes in `shells::css::css_pass` so the head style goes in
 /// first, and `from-scss` wins instead.
 #[test]
 fn a_root_head_style_outranks_the_themes_own_sheet() {

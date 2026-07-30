@@ -8,7 +8,7 @@ use anyhow::Result;
 use grackle_model::AxisMember;
 use std::path::Path;
 
-use super::parts::{self, PartMap, Preview};
+use super::parts::{self, PartMap};
 use super::theme::Theme;
 use crate::model::Row;
 use crate::render;
@@ -116,25 +116,17 @@ pub fn light_page(
 }
 
 /// Resolve `layout`/`variant` to a theme face and concatenate member rows
-/// (THEME.md §3). Callers attach view context on the error. List-field pills
-/// fill from the row via [`parts::fill_from_fields`].
+/// (THEME.md §3). Callers attach view context on the error.
 pub fn member_faces(
-    cfg: &crate::config::Config,
     theme: &Theme,
-    resolve_asset: &dyn Fn(&str) -> String,
     layout: &str,
     variant: Option<&str>,
-    items: Vec<Preview<'_>>,
+    items: &[PartMap],
 ) -> Result<String> {
     let face = parts::member_face(&theme.fragments, layout, variant)?;
     let mut out = String::new();
-    for p in items {
-        let row = p.row;
-        let mut m = parts::preview(p);
-        if let Some(row) = row {
-            parts::fill_from_fields(cfg, &mut m, row, theme.schemas(), resolve_asset)?;
-        }
-        out.push_str(&theme.fragments.render_with(&m, Some(face)));
+    for m in items {
+        out.push_str(&theme.fragments.render_with(m, Some(face)));
     }
     Ok(out)
 }

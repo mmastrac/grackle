@@ -21,7 +21,7 @@ pub mod postpass;
 pub mod prepass;
 pub mod types;
 
-pub use postpass::search_docs;
+pub use crate::shells::search::search_docs;
 pub(crate) use preview::asset_url;
 pub(crate) use types::Backlink;
 pub use types::{PageBody, SiteOutput, Stats};

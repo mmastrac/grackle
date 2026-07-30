@@ -477,7 +477,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 build::search_docs(cfg, db, |p| store::read_body(&p.path).unwrap_or_default());
             let (index, _) = grackle_search_core::build_index(&docs);
             let q = query.join(" ");
-            for (url, title, date) in index.search(&q, limit) {
+            for (url, store) in index.search(&q, limit) {
+                let title = store.get("title").map(String::as_str).unwrap_or("-");
+                let date = store.get("date").map(String::as_str).unwrap_or("-");
                 println!("  {date:>18}  {url}  {title}");
             }
         }

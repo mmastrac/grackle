@@ -1149,14 +1149,14 @@ impl Config {
         })
     }
 
-    /// Weighted plain-text streams for the search index (`[schema.search].fields`).
+    /// Weighted plain-text streams for the search index (`[schema.search].index`).
     /// `title` and list/scalar fields boost; `body` is the caller's body text
     /// at weight 1 (HTML already stripped, or markdown for the CLI).
     pub fn search_streams(&self, p: &grackle_model::Row, body: &str) -> Vec<(u32, String)> {
         const BOOST: u32 = 5;
         const BODY: u32 = 1;
         let mut out = Vec::new();
-        for f in &self.schema.search.fields {
+        for f in &self.schema.search.index {
             match f.as_str() {
                 "body" => {
                     if !body.is_empty() {
@@ -1182,6 +1182,57 @@ impl Config {
                     _ => {}
                 },
             }
+        }
+        out
+    }
+
+    /// Named fields for search-hit display (`[schema.search].store`). A
+    /// missing `title` falls back to the URL so a hit still has a label;
+    /// date-typed fields use the xmlschema form.
+    pub fn search_store(
+        &self,
+        p: &grackle_model::Row,
+        body: &str,
+    ) -> std::collections::BTreeMap<String, String> {
+        let mut out = std::collections::BTreeMap::new();
+        for f in &self.schema.search.store {
+            let value = match f.as_str() {
+                "body" => {
+                    if body.is_empty() {
+                        continue;
+                    }
+                    body.to_string()
+                }
+                "title" => p
+                    .title
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| p.url.clone()),
+                other => {
+                    if let Some(d) = p.as_date(other) {
+                        format!("{d}T00:00:00+00:00")
+                    } else {
+                        match grackle_db::filter::Row::field(p, other) {
+                            grackle_db::Value::List(v) => {
+                                let joined = v
+                                    .into_iter()
+                                    .filter(|s| !s.is_empty())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                if joined.is_empty() {
+                                    continue;
+                                }
+                                joined
+                            }
+                            grackle_db::Value::Str(s) if !s.is_empty() => s,
+                            grackle_db::Value::Int(n) => n.to_string(),
+                            grackle_db::Value::Bool(b) => b.to_string(),
+                            _ => continue,
+                        }
+                    }
+                }
+            };
+            out.insert(f.clone(), value);
         }
         out
     }

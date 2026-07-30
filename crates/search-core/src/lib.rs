@@ -115,20 +115,21 @@ pub fn strip_tags(html: &str) -> String {
     out
 }
 
-/// The shipped index. `docs` are `(url, title, date)`; `terms` maps a stem
+/// The shipped index. `docs` are `(url, store map)`; `terms` maps a stem
 /// to postings `(doc index, quantised TF·IDF)`, strongest first.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Index {
-    pub docs: Vec<(String, String, String)>,
+    /// `(url, stored display fields)` — keys come from `[schema.search].store`.
+    pub docs: Vec<(String, BTreeMap<String, String>)>,
     pub terms: BTreeMap<String, Vec<(u32, u16)>>,
 }
 
 /// One searchable document, as the build side sees it.
 pub struct SearchDoc {
     pub url: String,
-    pub title: String,
-    pub date: String,
-    /// Weighted plain-text streams from `[schema.search].fields` — `(boost, text)`.
+    /// Named fields from `[schema.search].store`, for hit display.
+    pub store: BTreeMap<String, String>,
+    /// Weighted plain-text streams from `[schema.search].index` — `(boost, text)`.
     /// The caller decides which fields and weights; this crate only tokenizes.
     pub streams: Vec<(u32, String)>,
 }
@@ -192,7 +193,7 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
         Index {
             docs: docs
                 .iter()
-                .map(|d| (d.url.clone(), d.title.clone(), d.date.clone()))
+                .map(|d| (d.url.clone(), d.store.clone()))
                 .collect(),
             terms,
         },
@@ -200,8 +201,9 @@ pub fn build_index(docs: &[SearchDoc]) -> (Index, IndexStats) {
     )
 }
 
-/// One ranked hit: `(url, title, date)`.
-pub type Hit = (String, String, String);
+/// One ranked hit: `(url, store)`. Display still reads `title` / `date`
+/// from the store map.
+pub type Hit = (String, BTreeMap<String, String>);
 
 impl Index {
     pub fn from_bytes(bytes: &[u8]) -> Result<Index, postcard::Error> {
@@ -294,8 +296,10 @@ mod tests {
         vec![
             SearchDoc {
                 url: "/a/".into(),
-                title: "Hacking Bluetooth to Brew Coffee".into(),
-                date: "1 January 2012".into(),
+                store: BTreeMap::from([
+                    ("title".into(), "Hacking Bluetooth to Brew Coffee".into()),
+                    ("date".into(), "1 January 2012".into()),
+                ]),
                 streams: vec![
                     (5, "Hacking Bluetooth to Brew Coffee".into()),
                     (5, "hardware".into()),
@@ -304,8 +308,10 @@ mod tests {
             },
             SearchDoc {
                 url: "/b/".into(),
-                title: "Rust linkers".into(),
-                date: "2 June 2026".into(),
+                store: BTreeMap::from([
+                    ("title".into(), "Rust linkers".into()),
+                    ("date".into(), "2 June 2026".into()),
+                ]),
                 streams: vec![
                     (5, "Rust linkers".into()),
                     (5, "rust".into()),
@@ -314,8 +320,10 @@ mod tests {
             },
             SearchDoc {
                 url: "/c/".into(),
-                title: "Unrelated".into(),
-                date: "3 March 2020".into(),
+                store: BTreeMap::from([
+                    ("title".into(), "Unrelated".into()),
+                    ("date".into(), "3 March 2020".into()),
+                ]),
                 streams: vec![(5, "Unrelated".into()), (1, "nothing relevant here".into())],
             },
         ]
@@ -355,8 +363,7 @@ mod tests {
         let docs: Vec<SearchDoc> = (0..60)
             .map(|i| SearchDoc {
                 url: format!("/{i}/"),
-                title: "x".into(),
-                date: String::new(),
+                store: BTreeMap::from([("title".into(), "x".into())]),
                 streams: vec![(1, "common word here".into())],
             })
             .collect();

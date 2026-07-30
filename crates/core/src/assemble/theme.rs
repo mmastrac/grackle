@@ -309,7 +309,7 @@ impl Theme {
     /// The CSS this theme's `root.html` declared in its `<head>` (IO.md §6),
     /// empty for the body-only roots every theme in the repository writes.
     ///
-    /// Its one reader is `build::css_pass`, which compiles it into the
+    /// Its one reader is `shells::css::css_pass`, which compiles it into the
     /// theme's sheet (I5). **No page ever sees it**: the head fence exists so
     /// that a theme's presentation can join the one CSS artifact, and a page
     /// carrying an inline `<style>` as well as the stylesheet link would be
@@ -468,7 +468,7 @@ mod tests {
             ("row", "height", "rides with src"),
             ("row", "date", "member faces place dates"),
             ("row", "date_pretty", "rides with date"),
-            ("row", "note", "member faces place the blurb"),
+            ("row", "description", "member faces place the blurb"),
             ("row", "truncated", "card CSS fact; default face has no cue"),
         ];
 

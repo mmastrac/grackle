@@ -8,6 +8,7 @@
 //!   init(ptr, len)      -> 0 | -1     parse /search.bin (postcard) into state
 //!   search(ptr, len)    -> u64        query in; (ptr << 32 | len) of a JSON
 //!                                     array of [url, title, date] out
+//!                                     (title/date read from the store map)
 //!
 //! Each search result buffer is leaked and reclaimed on the *next* call —
 //! single-threaded, one query in flight, so the previous buffer is dead the
@@ -59,10 +60,13 @@ pub unsafe extern "C" fn search(ptr: *const u8, len: usize) -> u64 {
 
     let mut json = String::with_capacity(1024);
     json.push('[');
-    for (i, (url, title, date)) in hits.iter().enumerate() {
+    for (i, (url, store)) in hits.iter().enumerate() {
         if i > 0 {
             json.push(',');
         }
+        // Overlay still hardcodes date + title from the store bag.
+        let title = store.get("title").map(String::as_str).unwrap_or("");
+        let date = store.get("date").map(String::as_str).unwrap_or("");
         json.push('[');
         json_str(url, &mut json);
         json.push(',');

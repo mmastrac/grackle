@@ -65,6 +65,20 @@
     });
   }
 
+  // Index dates are xmlschema UTC midnights; keep the calendar day fixed and
+  // only localize the spelling (month names, order) via the document lang.
+  function fmtDate(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(document.documentElement.lang || undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
   function render(hits, q) {
     list.textContent = "";
     if (!q) return;
@@ -81,7 +95,7 @@
       a.href = h[0];
       var when = document.createElement("span");
       when.className = "search-hit-date";
-      when.textContent = h[2];
+      when.textContent = fmtDate(h[2]);
       var title = document.createElement("span");
       title.className = "search-hit-title";
       title.textContent = h[1];

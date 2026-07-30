@@ -247,22 +247,6 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
     })?;
     let none = crate::thumbs::Renditions::new();
     let thumbs = cx.thumbs.unwrap_or(&none);
-    let items: Vec<_> = v
-        .members
-        .iter()
-        .filter_map(|k| cx.db.rows.get(k))
-        .map(|p| {
-            let t = p
-                .hero_source()
-                .and_then(|s| crate::thumbs::default_of(thumbs, s));
-            crate::parts::Preview {
-                row: Some(p),
-                src: t.map(|t| t.url.clone()),
-                dims: t.and_then(|t| t.dims),
-                ..Default::default()
-            }
-        })
-        .collect();
     let Some(cfg) = cx.cfg else {
         bail!(
             "{}: {{% view {name} %}} needs a config context for member fill",
@@ -274,15 +258,28 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
             .map(|t| t.url.clone())
             .unwrap_or_else(|| crate::build::asset_url(cx.baseurl, src))
     };
-    crate::assemble::chain::member_faces(
-        cfg,
-        theme,
-        &resolve_asset,
-        layout,
-        v.variant.as_deref(),
-        items,
-    )
-    .with_context(|| format!("{}: view {name}", cx.source))
+    let mut items = Vec::new();
+    for k in &v.members {
+        let Some(p) = cx.db.rows.get(k) else {
+            continue;
+        };
+        let t = p
+            .hero_source()
+            .and_then(|s| crate::thumbs::default_of(thumbs, s));
+        items.push(crate::parts::from_row(
+            cfg,
+            theme.schemas(),
+            &resolve_asset,
+            p,
+            crate::parts::Presentation {
+                src: t.map(|t| t.url.clone()),
+                dims: t.and_then(|t| t.dims),
+                ..Default::default()
+            },
+        )?);
+    }
+    crate::assemble::chain::member_faces(theme, layout, v.variant.as_deref(), &items)
+        .with_context(|| format!("{}: view {name}", cx.source))
 }
 
 /// `{% include social.html %}` — parameterless only.

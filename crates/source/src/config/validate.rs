@@ -249,17 +249,22 @@ impl Config {
             crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
         {
             let row = grackle_model::row_schema();
-            for f in &cfg.schema.search.fields {
-                if f == "body" || f == "title" {
-                    continue;
+            for (slot, fields) in [
+                ("index", &cfg.schema.search.index),
+                ("store", &cfg.schema.search.store),
+            ] {
+                for f in fields {
+                    if f == "body" || f == "title" {
+                        continue;
+                    }
+                    if declared_route.contains_key(f) || row.contains_key(f.as_str()) {
+                        continue;
+                    }
+                    anyhow::bail!(
+                        "[schema.search].{slot}: field {f:?} is not a row field — \
+                         declare it in [schema] or use \"title\" / \"body\""
+                    );
                 }
-                if declared_route.contains_key(f) || row.contains_key(f.as_str()) {
-                    continue;
-                }
-                anyhow::bail!(
-                    "[schema.search]: field {f:?} is not a row field — \
-                     declare it in [schema] or use \"title\" / \"body\""
-                );
             }
         }
         for (vname, v) in &cfg.views {

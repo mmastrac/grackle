@@ -59,7 +59,8 @@ locale = { type = "string" }
 string = "title: {title} tags: {tags} body: {body}"
 
 [schema.search]
-fields = ["title", "tags", "body"]
+index = ["title", "tags", "body"]
+store = ["title", "date"]
 
 # The head, declared rather than compiled in (§4e). Every tag below is one
 # the engine used to emit from Rust.

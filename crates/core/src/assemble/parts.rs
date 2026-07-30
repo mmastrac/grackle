@@ -612,12 +612,7 @@ fn neighbor_from_row(
     resolve_asset: &dyn Fn(&str) -> String,
     row: &Row,
 ) -> anyhow::Result<PartMap> {
-    let mut m = preview(Preview {
-        row: Some(row),
-        ..Default::default()
-    });
-    fill_from_fields(cfg, &mut m, row, schemas, resolve_asset)?;
-    Ok(m)
+    from_row(cfg, schemas, resolve_asset, row, Presentation::default())
 }
 
 /// One relations group (§6g): a named, labelled list of neighbours. The name
@@ -806,26 +801,64 @@ pub fn document_tree(
     )
 }
 
-/// A row as the view sees it. Optional fields are presence-driven (q36).
-/// Presentation overrides (`title`/`url`/`note` when the caller invents them,
-/// thumb `src`/dims, truncated body) land here; ordinary row fields land via
-/// [`fill_from_fields`] after this is built.
+/// Presentation facts that are not plain row fields: thumb `src`/dims,
+/// truncated body, and rare overrides (object stem title, hero URL).
 #[derive(Default)]
-pub struct Preview<'a> {
-    pub row: Option<&'a Row>,
+pub struct Presentation {
     pub content: Option<String>,
     pub truncated: bool,
     pub src: Option<String>,
     pub dims: Option<(u32, u32)>,
     pub title: Option<String>,
     pub url: Option<String>,
-    pub note: Option<String>,
+}
+
+fn apply_presentation(m: &mut PartMap, p: Presentation) {
+    if let Some(t) = p.title {
+        m.set("title", Part::Text(t));
+    }
+    if let Some(u) = p.url {
+        m.set("url", Part::Text(u));
+    }
+    if let Some(s) = p.src {
+        m.set("src", Part::Text(s));
+    }
+    if let Some((w, h)) = p.dims {
+        m.set("width", Part::Text(w.to_string()));
+        m.set("height", Part::Text(h.to_string()));
+    }
+    if p.truncated {
+        m.set("truncated", Part::Flag(true));
+    }
+    if let Some(c) = p.content {
+        m.set("content", Part::Html(c));
+    }
+}
+
+/// A row shaped only by presentation (hero cards with no backing content row).
+pub fn present(p: Presentation) -> PartMap {
+    let mut m = PartMap::new("row");
+    apply_presentation(&mut m, p);
+    m
+}
+
+/// Full row projection for listings and relations (q36). The face chops what
+/// it places; this fills everything the row can answer.
+pub fn from_row(
+    cfg: &crate::config::Config,
+    schemas: &Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
+    row: &Row,
+    p: Presentation,
+) -> anyhow::Result<PartMap> {
+    let mut m = present(p);
+    fill_from_fields(cfg, &mut m, row, schemas, resolve_asset)?;
+    Ok(m)
 }
 
 /// One presence-driven kind; faces select variants. Fill undeclared parts from
 /// the row when types line up (§5e) — schema fields plus row columns (`title`,
-/// `url`, …). `note` reads `description` when no `note` field exists.
-/// `date_pretty` is the formatted twin of a date-typed `date` field.
+/// `url`, …). `date_pretty` is the formatted twin of a date-typed `date` field.
 /// List fields whose child kind is `(Text, Url)` become archive pills.
 pub fn fill_from_fields(
     cfg: &crate::config::Config,
@@ -854,10 +887,7 @@ pub fn fill_from_fields(
             );
             continue;
         }
-        let v = match FilterRow::field(row, name) {
-            V::Null if *name == "note" => FilterRow::field(row, "description"),
-            other => other,
-        };
+        let v = FilterRow::field(row, name);
         let part = match (&v, ty) {
             (V::Null, _) => continue,
             (V::Str(s), PartType::Text) => Part::Text(s.clone()),
@@ -910,43 +940,6 @@ pub fn fill_from_fields(
         m.set_declared(name, part);
     }
     Ok(())
-}
-
-/// Presentation facts a listing/relation card carries that are not plain row
-/// fields: Preview overrides (title/url when the caller invents them, thumb
-/// `src`/dims, truncated body). Ordinary fields land via [`fill_from_fields`].
-fn route_face(kind: &'static str, p: Preview<'_>) -> PartMap {
-    let mut m = PartMap::new(kind);
-    if let Some(t) = p.title {
-        m.set("title", Part::Text(t));
-    }
-    if let Some(u) = p.url {
-        m.set("url", Part::Text(u));
-    }
-    if let Some(n) = p.note {
-        m.set("note", Part::Text(n));
-    }
-    if let Some(s) = p.src {
-        m.set("src", Part::Text(s));
-    }
-    if let Some((w, h)) = p.dims {
-        m.set("width", Part::Text(w.to_string()));
-        m.set("height", Part::Text(h.to_string()));
-    }
-    if p.truncated {
-        m.set("truncated", Part::Flag(true));
-    }
-    if let Some(c) = p.content {
-        m.set("content", Part::Html(c));
-    }
-    m
-}
-
-/// A part is filled when the row answers it — one projection serves a post, a
-/// book and a photograph (q36). Callers with a row must follow with
-/// [`fill_from_fields`].
-pub fn preview(p: Preview) -> PartMap {
-    route_face("row", p)
 }
 
 /// Wrapper `row` for an aggregate page: furniture around already-concatenated
@@ -1170,13 +1163,17 @@ mod tests {
                 .iter()
                 .filter_map(|k| db.rows.get(k))
                 .map(|p| {
-                    let mut m = preview(Preview {
-                        row: Some(p),
-                        content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
-                        ..Default::default()
-                    });
-                    fill_from_fields(&cfg, &mut m, p, &Schemas::engine_only(), &|s| s.to_string())
-                        .unwrap();
+                    let m = from_row(
+                        &cfg,
+                        &Schemas::engine_only(),
+                        &|s| s.to_string(),
+                        p,
+                        Presentation {
+                            content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
                     canonical(&m)
                 })
                 .collect::<String>();
@@ -1278,7 +1275,7 @@ mod schema_asset_tests {
         let schemas = Schemas::derive(&frags, &fields);
         let row = schemas.get("row").unwrap();
         assert!(row.iter().any(|(n, t)| *n == "date" && *t == PartType::Text));
-        // description is not a fragment slot — overlay adds it
+        // description is a card-face slot; score arrives only via overlay
         assert!(row.iter().any(|(n, _)| *n == "description"));
         assert!(row.iter().any(|(n, t)| *n == "score" && *t == PartType::Text));
     }
@@ -1296,7 +1293,7 @@ mod schema_asset_tests {
     }
 
     #[test]
-    fn fill_from_fields_reads_columns_note_alias_and_date_pretty() {
+    fn fill_from_fields_reads_columns_and_date_pretty() {
         use grackle_db::Value as V;
         let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
             .expect("grackle.toml loads");
@@ -1316,18 +1313,20 @@ mod schema_asset_tests {
         assert_eq!(m.text("title"), Some("Hello"));
         assert_eq!(m.text("url"), Some("/hello/"));
         assert_eq!(m.text("date"), Some("2026-07-30"));
-        assert_eq!(m.text("note"), Some("a blurb"));
+        assert_eq!(m.text("description"), Some("a blurb"));
         assert!(m.text("date_pretty").is_some_and(|s| !s.is_empty()));
 
-        let mut m = route_face(
-            "row",
-            Preview {
+        let m = from_row(
+            &cfg,
+            &Schemas::engine_only(),
+            &|s| s.to_string(),
+            &row,
+            Presentation {
                 title: Some("Override".into()),
                 ..Default::default()
             },
-        );
-        fill_from_fields(&cfg, &mut m, &row, &Schemas::engine_only(), &|s| s.to_string())
-            .unwrap();
+        )
+        .unwrap();
         assert_eq!(m.text("title"), Some("Override"));
     }
 

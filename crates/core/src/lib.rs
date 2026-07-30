@@ -36,6 +36,7 @@ pub mod relate;
 pub mod render;
 pub mod rewrite;
 pub mod serve;
+pub mod shells;
 pub mod tags;
 
 pub use assemble::{base, binder, parts, slots, theme};

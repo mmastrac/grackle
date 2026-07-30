@@ -3,11 +3,12 @@
 //!   schema  -> head facts (computed, never branched; §5a)
 //!   layout  -> part maps (parts.rs, §5e)
 //!   theme   -> fragments + css (themes/<name>/, theme.rs, §5e)
-//!   feed/sitemap -> serializations, no look (below)
+//!   feed -> serializations, no look (below)
 //!
 //! What remains here is what has no theme: the computed `<head>` facts, the
 //! `light` tier's minimal wrapper (§5g "Row tiers" — a tier, not the null
-//! theme, which takes the full head), and the XML serializations.
+//! theme, which takes the full head), and the Atom feed. Sitemap lives in
+//! [`crate::shells::sitemap`].
 
 use anyhow::{Context, Result};
 
@@ -871,24 +872,6 @@ mod feed_tests {
         let d = chrono::NaiveDate::from_ymd_opt(2026, 6, 25).unwrap();
         assert_eq!(xmlschema(d), "2026-06-25T00:00:00+00:00");
     }
-}
-
-/// The XML sitemap (sitemap.xml). Entries are `(absolute loc, optional
-/// lastmod)`, already in the order they should appear.
-pub fn sitemap(entries: &[(String, Option<String>)]) -> String {
-    let mut s = String::with_capacity(64 * 1024);
-    s.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    s.push_str("<urlset xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd\" xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
-    for (loc, lastmod) in entries {
-        s.push_str("<url>\n");
-        let _ = writeln!(s, "<loc>{loc}</loc>");
-        if let Some(lm) = lastmod {
-            let _ = writeln!(s, "<lastmod>{lm}</lastmod>");
-        }
-        s.push_str("</url>\n");
-    }
-    s.push_str("</urlset>\n");
-    s
 }
 
 #[cfg(test)]

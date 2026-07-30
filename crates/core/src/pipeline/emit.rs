@@ -228,8 +228,15 @@ pub(crate) fn run(
         if preview::view_base_collection(cfg, view).is_none() {
             continue;
         }
-        let items = preview::member_previews(
+        let (theme_name, subtheme) =
+            preview::resolve_view_theme(themes, r, v.theme.as_deref(), || {
+                themes.resolve(row.theme.as_deref())
+            });
+        let row_thm = themes.get(theme_name)?;
+        let items = preview::member_rows(
             cfg,
+            row_thm.schemas(),
+            &resolve_asset,
             db,
             view,
             &r.members,
@@ -237,25 +244,13 @@ pub(crate) fn run(
             bodies,
             page_bodies,
             |k| db.object_ix.iter().any(|o| o == k),
-        );
-        let (theme_name, subtheme) =
-            preview::resolve_view_theme(themes, r, v.theme.as_deref(), || {
-                themes.resolve(row.theme.as_deref())
-            });
-        let row_thm = themes.get(theme_name)?;
+        )?;
         let layout = v
             .layout
             .as_deref()
             .with_context(|| format!("view {view}: landing embed needs a layout (member face)"))?;
-        let mut embed_html = chain::member_faces(
-            cfg,
-            row_thm,
-            &resolve_asset,
-            layout,
-            v.variant.as_deref(),
-            items,
-        )
-        .with_context(|| format!("view {view}"))?;
+        let mut embed_html = chain::member_faces(row_thm, layout, v.variant.as_deref(), &items)
+            .with_context(|| format!("view {view}"))?;
         if let Some(p) = preview::pagination_parts(cfg, db, view, v, r)? {
             embed_html.push_str(&row_thm.fragments.render(&p));
         }
@@ -415,44 +410,8 @@ pub(crate) fn run(
         stats.serialized += 1;
     }
 
-    // ---- sitemap: a fold with no `from` serializes the finished route set.
-    //
-    // The fold (§5) counted its matches at load; here we read them back. `lastmod` is emitted only for posts, from the
-    // content date. jekyll-sitemap also stamps static files with their file
-    // *mtime* — but that is checkout-time noise (every clone differs) and works
-    // against the indexing goal this whole project exists for, so it is
-    // deliberately dropped — the URL *set* is unaffected. (DESIGN §4a is the
-    // related draft/hidden concern.)
-    for fold in &db.routes {
-        let Some(view) = &fold.view else { continue };
-        let Some(v) = cfg.views.get(view) else {
-            continue;
-        };
-        // The sitemap SHELL, likewise declared.
-        if v.shell.as_deref() != Some("sitemap") {
-            continue;
-        }
-        // Resolved at load like every other view's, rather than re-derived
-        // from the filter's source text here.
-        let entries: Vec<(String, Option<String>)> = fold
-            .route_members
-            .iter()
-            .filter_map(|k| db.routes.get(k))
-            .map(|r| {
-                let loc = format!("{}{}", site.url, r.url);
-                // `lastmod` follows the DATE, not the table — a dated tree
-                // row gets one too (q51).
-                let lastmod = db
-                    .row_by_url(&r.url)
-                    .and_then(|p| p.as_date("date"))
-                    .map(render::xmlschema);
-                (loc, lastmod)
-            })
-            .collect();
-        let xml = render::sitemap(&entries);
-        out_map.insert(fold.url.clone(), xml.into_bytes());
-        stats.serialized += 1;
-    }
+    // ---- sitemap fold shell
+    crate::shells::sitemap::emit(cfg, db, site, out_map, stats);
 
     // ---- script shells (§5g, the pun intended): registered serializations.
     //
@@ -578,7 +537,7 @@ pub(crate) fn run(
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
                     let t = crate::thumbs::default_of(thumbs, s);
                     let full = preview::asset_url(&cfg.site.baseurl, s);
-                    parts::preview(parts::Preview {
+                    parts::present(parts::Presentation {
                         title: Some(title.clone()),
                         url: Some(full.clone()),
                         src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),

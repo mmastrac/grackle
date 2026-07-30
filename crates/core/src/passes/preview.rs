@@ -290,26 +290,29 @@ pub(crate) fn pagination_parts(
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Members of a view/route as previews — objects, truncated prose, or tree
-/// bodies from `page_bodies` when the post map has none.
-pub(crate) fn member_previews<'a>(
+/// Members of a view/route as row projections — objects, truncated prose, or
+/// tree bodies from `page_bodies` when the post map has none.
+pub(crate) fn member_rows(
     cfg: &Config,
-    db: &'a crate::model::SiteDb,
+    schemas: &crate::parts::Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
+    db: &crate::model::SiteDb,
     view: &str,
     members: &[grackle_model::Key],
     thumbs: &crate::thumbs::Renditions,
     bodies: &std::collections::HashMap<&grackle_model::Key, crate::markdown::Doc>,
     page_bodies: &std::collections::HashMap<String, PageBody>,
     is_object: impl Fn(&grackle_model::Key) -> bool,
-) -> Vec<parts::Preview<'a>> {
+) -> anyhow::Result<Vec<parts::PartMap>> {
     let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
-    members
-        .iter()
-        .filter_map(|k| db.rows.get(k))
-        .map(|p| {
-            if is_object(&p.key) {
-                return object_preview(p, thumbs);
-            }
+    let mut out = Vec::new();
+    for k in members {
+        let Some(p) = db.rows.get(k) else {
+            continue;
+        };
+        let m = if is_object(&p.key) {
+            object_row(cfg, schemas, resolve_asset, p, thumbs)?
+        } else {
             let (html, truncated) = match bodies.get(&p.key) {
                 Some(d) => match summary_field {
                     Some(t) => d.truncate(t.max_blocks, t.max_chars),
@@ -323,31 +326,40 @@ pub(crate) fn member_previews<'a>(
                     false,
                 ),
             };
-            row_preview(p, thumbs, Some(html), truncated)
-        })
-        .collect()
+            content_row(cfg, schemas, resolve_asset, p, thumbs, Some(html), truncated)?
+        };
+        out.push(m);
+    }
+    Ok(out)
 }
 
-/// An object row as a preview: the row IS the picture, so it is its own
-/// thumbnail source and its stem is the only label it has. `row` stays unset
-/// — an object has no date, tags or prose to answer with.
-pub(crate) fn object_preview<'a>(
+/// An object row: the row IS the picture, so it is its own thumbnail source
+/// and its stem labels it when front matter has no title.
+fn object_row(
+    cfg: &Config,
+    schemas: &crate::parts::Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
     o: &crate::model::Row,
     thumbs: &crate::thumbs::Renditions,
-) -> parts::Preview<'a> {
+) -> anyhow::Result<parts::PartMap> {
     let t = crate::thumbs::default_of(thumbs, &o.rel.to_string_lossy());
-    parts::Preview {
-        title: Some(
-            o.rel
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default(),
-        ),
-        url: Some(o.url.clone()),
-        src: Some(t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone())),
-        dims: t.and_then(|t| t.dims),
-        ..Default::default()
-    }
+    let stem = o
+        .rel
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    parts::from_row(
+        cfg,
+        schemas,
+        resolve_asset,
+        o,
+        parts::Presentation {
+            title: o.title.is_none().then_some(stem),
+            src: Some(t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone())),
+            dims: t.and_then(|t| t.dims),
+            ..Default::default()
+        },
+    )
 }
 
 /// An image field's value as a URL. An absolute one names something outside
@@ -365,29 +377,34 @@ pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
     }
 }
 
-/// A row as a preview: everything the row can answer (§5e/q36).
-///
-/// Prose when it has a body, a picture when it has a hero, a note when it has
-/// a description — the fragment takes what it wants and the hole algebra
-/// deletes the rest. `content` is the body already truncated by the view's
+/// A content row as a listing member: prose when it has a body, a picture when
+/// it has a hero. `content` is the body already truncated by the view's
 /// `summary` field (§6d), or `None` where the caller shows no prose.
-pub(crate) fn row_preview<'a>(
-    p: &'a crate::model::Row,
+fn content_row(
+    cfg: &Config,
+    schemas: &crate::parts::Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
+    p: &crate::model::Row,
     thumbs: &crate::thumbs::Renditions,
     content: Option<String>,
     truncated: bool,
-) -> parts::Preview<'a> {
+) -> anyhow::Result<parts::PartMap> {
     let t = p
         .hero_source()
         .and_then(|s| crate::thumbs::default_of(thumbs, s));
-    parts::Preview {
-        row: Some(p),
-        content,
-        truncated,
-        src: t.map(|t| t.url.clone()),
-        dims: t.and_then(|t| t.dims),
-        ..Default::default()
-    }
+    parts::from_row(
+        cfg,
+        schemas,
+        resolve_asset,
+        p,
+        parts::Presentation {
+            content,
+            truncated,
+            src: t.map(|t| t.url.clone()),
+            dims: t.and_then(|t| t.dims),
+            ..Default::default()
+        },
+    )
 }
 
 /// The intro for one ROUTE (§6f enum records × q45 mode A): a grouped

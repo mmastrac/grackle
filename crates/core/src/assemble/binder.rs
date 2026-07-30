@@ -407,7 +407,7 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
                 // The head half leaves as CSS, not as markup: the fence has
                 // just proved there is nothing else in it, so carrying the
                 // `<style>` tags on would only mean stripping them at the
-                // other end (`build::css_pass`).
+                // other end (`shells::css::css_pass`).
                 (&mut root.style, head_styles(el, src))
             }
             "body" => (&mut root.body, src[el.inner.clone()].to_string()),
