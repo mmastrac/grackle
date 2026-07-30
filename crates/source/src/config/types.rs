@@ -2106,11 +2106,12 @@ pub struct View {
     /// a `[sets]` entry whose text is not the text in the message.
     #[serde(skip)]
     pub filter_profile: Option<String>,
-    /// Computed fields (§6d): columns this view adds to its rows, each
-    /// defined by a deriver. Views composed `from` this one inherit them —
-    /// fields flow with rows through query composition the way filters do —
-    /// and redeclaring a name overrides (nearest wins). The field named
-    /// `summary` is what listing previews consume.
+    /// Computed fields (§6d / §5f): columns this view adds to its rows —
+    /// each an expression over `content`, or a literal. Views composed
+    /// `from` this one inherit them — fields flow with rows through query
+    /// composition the way filters do — and redeclaring a name overrides
+    /// (nearest wins). The field named `summary` is what listing previews
+    /// consume.
     #[serde(default)]
     pub fields: BTreeMap<String, Field>,
     /// Schema-declared values this route answers with (§4e). Spelled as
@@ -2122,23 +2123,28 @@ pub struct View {
     pub route_fields: BTreeMap<String, toml::Value>,
 }
 
-/// One computed field: exactly one deriver names how the value is computed
-/// from the row. `deny_unknown_fields` makes an unknown deriver a parse
-/// error naming the known ones.
+/// One computed field (§5f / §6d): a CEL expression over `content`, or a
+/// literal value. Same untagged shape as [`HeadEntry`]: a TOML string is
+/// always an expression; other TOML types are literals. String *literals*
+/// as values are spelled as CEL (`'"hello"'`), not bare TOML strings.
+///
+/// ```toml
+/// summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
+/// ```
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Field {
-    /// The row's content blocks, kept until a budget runs out (block
-    /// granularity, at least one block; `max_chars` counts visible text).
-    /// Carries a `truncated` fact for the theme's ★.
-    pub truncate: Option<Truncate>,
+#[serde(untagged)]
+pub enum Field {
+    Expr(String),
+    Value(toml::Value),
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Truncate {
-    pub max_blocks: Option<usize>,
-    pub max_chars: Option<usize>,
+impl Field {
+    pub fn as_expr(&self) -> Option<&str> {
+        match self {
+            Field::Expr(s) => Some(s.as_str()),
+            Field::Value(_) => None,
+        }
+    }
 }
 
 impl View {

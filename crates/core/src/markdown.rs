@@ -209,50 +209,19 @@ impl Doc {
     /// budget runs out, plus whether anything was cut (the `truncated` fact
     /// the theme gates the ★ on).
     ///
-    /// This is **mechanism only** — the numbers are policy, and policy lives
-    /// in the view that asks for the projection (`summary = { max_blocks,
-    /// max_chars }` in config, §6d). `max_chars` counts *visible text*, not
-    /// markup, so a rouge-wrapped code block doesn't blow the budget with
-    /// spans; the block that would exceed it is dropped whole (block
-    /// granularity), but at least one block is always kept.
+    /// Mechanism only: policy is the field expression on the view
+    /// (`truncate_chars(truncate_blocks(content, n), m)`, §5f / §6d).
+    /// Composes the two wrappers the expression language exposes.
     pub fn truncate(&self, max_blocks: Option<usize>, max_chars: Option<usize>) -> (String, bool) {
-        let mut cut = self.blocks.len();
-        let mut chars = 0usize;
-        for (i, b) in self.blocks.iter().enumerate() {
-            if let Some(mb) = max_blocks {
-                if i >= mb {
-                    cut = i;
-                    break;
-                }
-            }
-            if let Some(mc) = max_chars {
-                chars += text_len(b);
-                if chars > mc && i > 0 {
-                    cut = i;
-                    break;
-                }
-            }
+        let mut c = grackle_db::Content::new(self.blocks.clone());
+        if let Some(n) = max_blocks {
+            c = c.truncate_blocks(n);
         }
-        let html: String = self.blocks[..cut].concat();
-        (html, cut < self.blocks.len())
-    }
-}
-
-/// Visible text length of an HTML fragment: characters outside tags.
-/// Entity-naive (`&amp;` counts as 5), which errs on the side of keeping
-/// summaries short — fine for a budget, wrong for typography.
-fn text_len(html: &str) -> usize {
-    let mut n = 0;
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => n += 1,
-            _ => {}
+        if let Some(n) = max_chars {
+            c = c.truncate_chars(n);
         }
+        (c.html(), c.truncated)
     }
-    n
 }
 
 /// One heading of a rendered document — defined in [`grackle_model::Heading`].

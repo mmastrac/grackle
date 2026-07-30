@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
 use super::{
-    archive_route_fill, describe_collection, fence, split_profile, Config, LocalizedStr, BASE,
-    FORCE,
+    archive_route_fill, describe_collection, fence, split_profile, Config, Field, LocalizedStr,
+    BASE, FORCE,
 };
 
 impl Config {
@@ -341,11 +341,21 @@ impl Config {
                 }
             }
             for (fname, f) in &v.fields {
-                if f.truncate.is_none() {
-                    anyhow::bail!(
-                        "view {vname}: field {fname:?} declares no deriver \
-                         (have: truncate)"
-                    );
+                match f {
+                    Field::Expr(src) => {
+                        grackle_db::FieldExpr::parse(src, &grackle_db::filter::field_schema())
+                            .map_err(|e| {
+                                anyhow::anyhow!("view {vname}: field {fname:?}: {e}")
+                            })?;
+                    }
+                    Field::Value(_) if fname == "summary" => {
+                        anyhow::bail!(
+                            "view {vname}: field \"summary\" must be an expression \
+                             (e.g. summary = 'truncate_chars(truncate_blocks(content, 4), 700)'), \
+                             not a literal value"
+                        );
+                    }
+                    Field::Value(_) => {}
                 }
             }
         }

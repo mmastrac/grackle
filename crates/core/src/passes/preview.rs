@@ -304,7 +304,14 @@ pub(crate) fn member_rows(
     page_bodies: &std::collections::HashMap<String, PageBody>,
     is_object: impl Fn(&grackle_model::Key) -> bool,
 ) -> anyhow::Result<Vec<parts::PartMap>> {
-    let summary_field = cfg.fields_for(view).get("summary").and_then(|f| f.truncate);
+    let summary = cfg
+        .fields_for(view)
+        .get("summary")
+        .and_then(|f| f.as_expr())
+        .map(|src| {
+            grackle_db::FieldExpr::parse(src, &grackle_db::filter::field_schema())
+                .expect("summary field validated at load")
+        });
     let mut out = Vec::new();
     for k in members {
         let Some(p) = db.rows.get(k) else {
@@ -314,8 +321,13 @@ pub(crate) fn member_rows(
             object_row(cfg, schemas, resolve_asset, p, thumbs)?
         } else {
             let (html, truncated) = match bodies.get(&p.key) {
-                Some(d) => match summary_field {
-                    Some(t) => d.truncate(t.max_blocks, t.max_chars),
+                Some(d) => match &summary {
+                    Some(expr) => {
+                        let c = expr.eval(&ContentRow {
+                            content: grackle_db::Content::new(d.blocks.clone()),
+                        });
+                        (c.html(), c.truncated)
+                    }
                     None => (d.whole.clone(), false),
                 },
                 None => (
@@ -331,6 +343,20 @@ pub(crate) fn member_rows(
         out.push(m);
     }
     Ok(out)
+}
+
+/// Binds `content` for a `fields.summary` expression.
+struct ContentRow {
+    content: grackle_db::Content,
+}
+
+impl grackle_db::Row for ContentRow {
+    fn field(&self, name: &str) -> grackle_db::Value {
+        match name {
+            "content" => grackle_db::Value::Content(self.content.clone()),
+            _ => grackle_db::Value::Null,
+        }
+    }
 }
 
 /// An object row: the row IS the picture, so it is its own thumbnail source

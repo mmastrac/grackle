@@ -188,8 +188,8 @@ callout = """
   where = "!hidden"
   order_by = "-date"
 
-    [profiles.drafts.sets.published.fields.summary]
-    truncate = { max_blocks = 4, max_chars = 700 }
+    [profiles.drafts.sets.published.fields]
+    summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 
   [profiles.drafts.routes.search]
   path = "/search.bin"
@@ -207,13 +207,14 @@ where = "!draft && !hidden"
 # a tree is a list of files, and dates are a thing posts have.
 order_by = "-date"
 
-  # A computed field (§6d): a derived column on this query's rows, inherited
-  # by every query composed over it (nearest declaration wins). `summary` is
-  # what listing previews consume — content blocks kept until a budget runs
-  # out; the theme's fade clamps at ~7 lines, so max_chars tracks what is
-  # actually visible. The deriver also yields the `truncated` fact (the ★).
-  [sets.published.fields.summary]
-  truncate = { max_blocks = 4, max_chars = 700 }
+  # A computed field (§6d / §5f): a derived column on this query's rows,
+  # inherited by every query composed over it (nearest declaration wins).
+  # `summary` is what listing previews consume — content blocks kept until a
+  # budget runs out; the theme's fade clamps at ~7 lines, so truncate_chars
+  # tracks what is actually visible. The wrappers yield the `truncated` fact
+  # (the ★) on the Content value.
+  [sets.published.fields]
+  summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 
 # No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
 # with `{% assign latest_count %}` because `site.posts | limit: 3` slices before

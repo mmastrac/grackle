@@ -182,8 +182,8 @@ where = "!draft && !hidden"
 # a tree is a list of files, and dates are a thing posts have.
 order_by = "-date"
 
-  [sets.published.fields.summary]
-  truncate = { max_blocks = 3, max_chars = 500 }
+  [sets.published.fields]
+  summary = 'truncate_chars(truncate_blocks(content, 3), 500)'
 
 [sets.latest]
 from = "published"

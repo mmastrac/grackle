@@ -180,8 +180,8 @@ fn fields_inherit_along_over_nearest_wins() {
     let c = cfg(r#"
             [sets.published]
             from = "blog"
-            [sets.published.fields.summary]
-            truncate = { max_blocks = 4 }
+            [sets.published.fields]
+            summary = 'truncate_blocks(content, 4)'
 
             [routes.blog_index]
             from = "published"
@@ -192,13 +192,19 @@ fn fields_inherit_along_over_nearest_wins() {
             from = "published"
             group_by = "tags"
             path = "/blog/tags/{key}/"
-            [routes.tag_index.fields.summary]
-            truncate = { max_blocks = 1 }
+            [routes.tag_index.fields]
+            summary = 'truncate_blocks(content, 1)'
         "#);
     let inherited = c.fields_for("blog_index");
-    assert_eq!(inherited["summary"].truncate.unwrap().max_blocks, Some(4));
+    assert_eq!(
+        inherited["summary"].as_expr(),
+        Some("truncate_blocks(content, 4)")
+    );
     let overridden = c.fields_for("tag_index");
-    assert_eq!(overridden["summary"].truncate.unwrap().max_blocks, Some(1));
+    assert_eq!(
+        overridden["summary"].as_expr(),
+        Some("truncate_blocks(content, 1)")
+    );
 }
 
 /// The directory names the table, so it is written once.

@@ -232,18 +232,15 @@ word "view" before chapter 6.
 
 ### 7. Listings that don't ship the whole blog
 - The problem: full bodies hidden by CSS.
-- `[sets.published.fields.summary] truncate = { max_blocks = 4,
-  max_chars = 700 }`.
+- `[sets.published.fields] summary = 'truncate_chars(truncate_blocks(content, 4), 700)'`.
 - Computed fields inherit down `from` chains; nearest declaration wins.
 - `summary` is the one preview kind, by convention. No summary field ⇒
   full bodies (intended, not a bug).
 - Measured: `/blog/` 160 KB → 15.7 KB.
 - `truncated` becomes `data-truncated`, which the theme styles. First
   sighting of "a fact becomes an attribute".
-- ★ note: `truncate = {…}` is still a stopgap struct shape (q31), even
-  though the expression language (§5f) now exists — it was built for
-  relations (ch. 29), and computed fields haven't been moved onto it yet.
-  So a `summary` field is still the struct form; don't over-invest in it.
+- `Content` is an internal CEL type; the two wrappers compose. Same
+  expression surface as `where` / `rank` / head (§5f).
 
 ### 8. Tags and archives for free
 - `[routes.tag_index]` with `group_by = "tags"` + `path =
@@ -1244,13 +1241,12 @@ rather than memorize it.
 ### 36. What isn't real yet
 - The ledger, in one table: `.style.scss`, `.slots/` typed fills,
   **authored `.rewrite.toml` rules**, **the notes/footnote stream +
-  sidenotes**, per-post `<style>`, md shell, **computed fields on §5f**
-  (the `truncate = {…}` struct is still the stopgap — the expression
-  language exists now but this hasn't moved onto it), board kind, serve
-  v2, pagination × subdivision, per-block facts, audio/video field types,
-  faceted filtering, transclusion, profile `baseurl`, the route-token
-  supply merge (q51's remainder — a post still can't route to an arbitrary
-  path).
+  sidenotes**, per-post `<style>`, md shell, **`outline` / `hero` / `lede`
+  field expressions** (`summary` / `Content` already moved onto §5f), board
+  kind, serve v2, pagination × subdivision, per-block facts, audio/video
+  field types, faceted filtering, transclusion, profile `baseurl`, the
+  route-token supply merge (q51's remainder — a post still can't route to
+  an arbitrary path).
 - **Axis edges (the mechanism is built, ch. 20; these aren't):** axis ×
   locale composition (the cartesian product — two axes on one row collide
   today); a `rel="alternate"` for axis members (`Head.alternates` is

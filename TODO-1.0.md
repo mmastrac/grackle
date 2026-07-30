@@ -120,9 +120,11 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
       name→string map still can't express those. Subsumes the "link table form"
       item: the favicon half of that motivation is gone (`site.icon` restored
       it). (§4e)
-- [ ] **Expression-form derivers** — v1's `toc` uses a hardcoded h2–h3 window;
-      the §5f form would be `toc = outline(content, {"max_depth": 3})`. Same
-      shape as the `hero`/`lede` derivers §11 parks under q23. (§6e)
+- [ ] **Expression-form derivers** — `summary` is built as
+      `truncate_chars(truncate_blocks(content, n), m)` over a `Content` type
+      (§5f). Remains: v1's `toc` uses a hardcoded h2–h3 window; the form would
+      be `toc = outline(content, …)`. Same shape as the `hero`/`lede` derivers
+      §11 parks under q23. (§6e)
 - [ ] **Parenthesised expressions in rank** — `(a + b) > c` is valid CEL but
       unsupported; the error suggests lifting it into a rank term. **Not q13**
       (that is embedding model pinning) — this carries no number. (§6g)

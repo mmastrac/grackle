@@ -206,8 +206,8 @@ from = "posts"
 where = '!draft && !hidden'
 order_by = "-date"
 
-  [sets.published.fields.summary]
-  truncate = { max_blocks = 1, max_chars = 180 }
+  [sets.published.fields]
+  summary = 'truncate_chars(truncate_blocks(content, 1), 180)'
 
 # Path scoping is a clause of the predicate, not a key of its own: `glob` is
 # a registered filter function (§5f), so the subtree narrowing conjoins along

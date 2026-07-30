@@ -1143,7 +1143,7 @@ impl Config {
                     grackle_db::Value::Int(n) => n.to_string(),
                     grackle_db::Value::Bool(b) => b.to_string(),
                     grackle_db::Value::Double(d) => d.to_string(),
-                    grackle_db::Value::Null => String::new(),
+                    grackle_db::Value::Content(_) | grackle_db::Value::Null => String::new(),
                 },
             })
         })

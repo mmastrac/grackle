@@ -35,6 +35,10 @@ pub enum Type {
     /// Includes dates, which are ISO-8601 and so order correctly as strings.
     Str,
     List,
+    /// Rendered prose as a block sequence (§5f / §6d). Internal to field
+    /// expressions, not a schema column. Carries the `truncated` fact when
+    /// a `truncate_*` wrapper cuts.
+    Content,
     /// A string column whose values are a **closed set** — the column is
     /// backed by a Rust enum, so the engine knows every value it can ever
     /// hold. Behaves as [`Type::Str`] in every rule of the language; the
@@ -87,8 +91,93 @@ impl fmt::Display for Type {
             // says something the type error cannot.
             Type::Str | Type::Enum(_) => "string",
             Type::List => "list",
+            Type::Content => "content",
         })
     }
+}
+
+/// Rendered prose for field expressions (§5f): HTML blocks plus whether a
+/// `truncate_*` wrapper already cut. Bound as `content` when evaluating
+/// `fields.NAME`; not a row column.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Content {
+    pub blocks: Vec<String>,
+    pub truncated: bool,
+}
+
+impl Content {
+    pub fn new(blocks: Vec<String>) -> Self {
+        Self {
+            blocks,
+            truncated: false,
+        }
+    }
+
+    pub fn html(&self) -> String {
+        self.blocks.concat()
+    }
+
+    /// Keep the first `n` blocks. Sets `truncated` if anything was cut or the
+    /// input was already truncated.
+    pub fn truncate_blocks(&self, n: usize) -> Self {
+        let cut = cut_prefix(&self.blocks, Some(n), None);
+        Self {
+            blocks: self.blocks[..cut].to_vec(),
+            truncated: self.truncated || cut < self.blocks.len(),
+        }
+    }
+
+    /// Keep blocks from the start until visible text would exceed `n`
+    /// (block granularity; at least one block). Sets `truncated` if anything
+    /// was cut or the input was already truncated.
+    pub fn truncate_chars(&self, n: usize) -> Self {
+        let cut = cut_prefix(&self.blocks, None, Some(n));
+        Self {
+            blocks: self.blocks[..cut].to_vec(),
+            truncated: self.truncated || cut < self.blocks.len(),
+        }
+    }
+}
+
+/// Block index where a budget cuts: walk from the start, stop at the first
+/// limit. `max_chars` counts visible text (outside tags); the block that
+/// would exceed it is dropped whole, but at least one block is always kept.
+fn cut_prefix(blocks: &[String], max_blocks: Option<usize>, max_chars: Option<usize>) -> usize {
+    let mut cut = blocks.len();
+    let mut chars = 0usize;
+    for (i, b) in blocks.iter().enumerate() {
+        if let Some(mb) = max_blocks {
+            if i >= mb {
+                cut = i;
+                break;
+            }
+        }
+        if let Some(mc) = max_chars {
+            chars += text_len(b);
+            if chars > mc && i > 0 {
+                cut = i;
+                break;
+            }
+        }
+    }
+    cut
+}
+
+/// Visible text length of an HTML fragment: characters outside tags.
+/// Entity-naive (`&amp;` counts as 5), which errs on the side of keeping
+/// summaries short: fine for a budget, wrong for typography.
+fn text_len(html: &str) -> usize {
+    let mut n = 0;
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => n += 1,
+            _ => {}
+        }
+    }
+    n
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -99,6 +188,7 @@ pub enum Value {
     Double(f64),
     Str(String),
     List(Vec<String>),
+    Content(Content),
     Null,
 }
 
@@ -111,6 +201,7 @@ impl Value {
             Value::Double(_) => "a double",
             Value::Str(_) => "a string",
             Value::List(_) => "a list",
+            Value::Content(_) => "content",
             Value::Null => "null",
         }
     }
@@ -146,7 +237,7 @@ impl Value {
             (Value::Double(x), Value::Double(y)) => x.total_cmp(y),
             (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
             (Value::List(x), Value::List(y)) => x.cmp(y),
-            // Mixed types cannot arise: a column has one type in the schema.
+            // Content is not a sort key; mixed types cannot arise for columns.
             _ => Equal,
         };
         if desc {
@@ -164,6 +255,9 @@ impl Value {
             Value::Double(d) => *d != 0.0,
             Value::Str(s) => !s.is_empty(),
             Value::List(v) => !v.is_empty(),
+            // Content is not a predicate; a bare `content` in `where` is a
+            // type error at load when the schema has no such column.
+            Value::Content(_) => false,
             Value::Null => false,
         }
     }
@@ -353,6 +447,24 @@ fn eval_levenshtein(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     }
 }
 
+fn eval_truncate_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Content(c)), Some(Value::Int(n))) => {
+            Value::Content(c.truncate_blocks((*n).max(0) as usize))
+        }
+        _ => Value::Null,
+    }
+}
+
+fn eval_truncate_chars(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Content(c)), Some(Value::Int(n))) => {
+            Value::Content(c.truncate_chars((*n).max(0) as usize))
+        }
+        _ => Value::Null,
+    }
+}
+
 /// The closed set of things a function may precompute. Small on purpose: it
 /// is a cache, not a second value type.
 #[derive(Debug, Clone)]
@@ -450,6 +562,23 @@ const FUNCS: &[Func] = &[
         returns: Type::Int,
         prepare: no_prep,
         eval: eval_levenshtein,
+    },
+    // §5f field derivers: wrappers on Content. Compose for both budgets
+    // (`truncate_chars(truncate_blocks(content, 4), 700)`) rather than a
+    // map-literal options bag. Facts ride on the value (`truncated`).
+    Func {
+        name: "truncate_blocks",
+        params: &[Type::Content, Type::Int],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_truncate_blocks,
+    },
+    Func {
+        name: "truncate_chars",
+        params: &[Type::Content, Type::Int],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_truncate_chars,
     },
 ];
 
@@ -1276,6 +1405,53 @@ impl Text {
     }
 }
 
+/// A computed-field expression (§5f / §6d): a `Content`-yielding operand over
+/// an environment that binds `content` (and whatever else the caller puts in
+/// the schema).
+#[derive(Debug, Clone)]
+pub struct FieldExpr {
+    op: Operand,
+}
+
+impl FieldExpr {
+    pub fn parse(src: &str, schema: &Schema) -> Result<Self> {
+        let toks = lex(src)?;
+        if toks.is_empty() {
+            bail!("a field expression cannot be empty");
+        }
+        let mut p = Parser { toks, pos: 0 };
+        let op = p.parse_arith()?;
+        if p.pos != p.toks.len() {
+            bail!("trailing tokens after a complete expression");
+        }
+        let t = operand_type(&op, schema)?;
+        if t != Type::Content {
+            bail!("a field expression must be content, but `{op}` is {t}");
+        }
+        Ok(FieldExpr { op })
+    }
+
+    pub fn eval(&self, row: &impl Row) -> Content {
+        match operand_value(&self.op, row, &NoCtx) {
+            Value::Content(c) => c,
+            _ => Content::new(Vec::new()),
+        }
+    }
+
+    pub fn referenced_fields(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        collect_fields_operand(&self.op, &mut out);
+        out
+    }
+}
+
+/// Schema for `fields.NAME` expressions: `content` is the row's rendered body.
+pub fn field_schema() -> Schema {
+    let mut s = Schema::new();
+    s.insert("content", Type::Content);
+    s
+}
+
 fn collect_fields_expr(e: &Expr, out: &mut Vec<String>) {
     match e {
         Expr::True => {}
@@ -2062,5 +2238,63 @@ mod tests {
             Rank::parse("(x + x) * x", &s).unwrap().eval(&R, &NoCtx),
             Some(8.0)
         );
+    }
+
+    #[test]
+    fn truncate_wrappers_compose_on_content() {
+        let blocks = vec![
+            "<p>aaaa aaaa</p>".into(),
+            "<p>bbbb bbbb</p>".into(),
+            "<p>cccc</p>".into(),
+        ];
+        let c = Content::new(blocks);
+        let by_blocks = c.truncate_blocks(2);
+        assert_eq!(by_blocks.blocks.len(), 2);
+        assert!(by_blocks.truncated);
+
+        let by_chars = c.truncate_chars(12);
+        assert_eq!(by_chars.blocks.len(), 1);
+        assert!(by_chars.truncated);
+
+        let composed = c.truncate_blocks(4).truncate_chars(12);
+        assert_eq!(composed.blocks.len(), 1);
+        assert!(composed.truncated);
+
+        let whole = c.truncate_blocks(10);
+        assert!(!whole.truncated);
+        assert_eq!(whole.html(), c.html());
+    }
+
+    #[test]
+    fn field_expr_parses_truncate_chain() {
+        let s = field_schema();
+        let expr =
+            FieldExpr::parse("truncate_chars(truncate_blocks(content, 4), 700)", &s).unwrap();
+        struct R(Content);
+        impl Row for R {
+            fn field(&self, name: &str) -> Value {
+                match name {
+                    "content" => Value::Content(self.0.clone()),
+                    _ => Value::Null,
+                }
+            }
+        }
+        let row = R(Content::new(vec![
+            "<p>one</p>".into(),
+            "<p>two</p>".into(),
+            "<p>three</p>".into(),
+            "<p>four</p>".into(),
+            "<p>five</p>".into(),
+        ]));
+        let out = expr.eval(&row);
+        assert_eq!(out.blocks.len(), 4);
+        assert!(out.truncated);
+    }
+
+    #[test]
+    fn field_expr_rejects_non_content() {
+        let s = field_schema();
+        let e = FieldExpr::parse("4", &s).unwrap_err().to_string();
+        assert!(e.contains("must be content"), "{e}");
     }
 }

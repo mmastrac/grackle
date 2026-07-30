@@ -1843,7 +1843,7 @@ Three lines had to be drawn:
 - A theme fragment wants a conditional → there is a missing fact; empty-collapses cover presence, facts-as-attributes cover variants.
 - The binder grows an expression syntax → stop; it is becoming a template language.
 - A slot name appears in CSS but not the part schema → the load-time check should already have caught it; if it didn't, the check is broken.
-## 5f. One expression language: CEL, subsetted *(specced 2026-07; build at the q23 forcing point)*
+## 5f. One expression language: CEL, subsetted *(specced 2026-07; `fields.summary` / Content built 2026-07-30)*
 
 q31 settled the direction — extend `filter.rs`, borrow no engine — and this
 section pins the contract: **the expression language is a subset of CEL**
@@ -1871,7 +1871,7 @@ never a grackle-only dialect.
 | config key | expression type | status |
 |---|---|---|
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
-| `fields.NAME =` | a typed value over the row (content, text, …) | q31's target; replaces the deriver-struct |
+| `fields.NAME =` | a typed value over the row (content, text, …) | built for `summary` / `Content` (q31); `outline` / `hero` / `lede` still open |
 | future derivers (`hero`, `lede`) | same | q23 / q25 |
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
@@ -1900,19 +1900,22 @@ is not optional — an expression that doesn't type-check is a config error.
 
 ```toml
 [sets.published.fields]
-summary = 'truncate(content, {"max_blocks": 4, "max_chars": 700})'
+summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 ```
 
-- The registry declares each function like a schema entry: name, source
-  type, option keys with their types, return type —
-  `truncate: (content, map) -> content`.
-- **Named options are a CEL map literal with string keys.** CEL has no
-  named arguments, and we do not invent them — that would fork the grammar
-  and void the swap. An unknown option key or wrong value type is a load
-  error naming the knowns, like everything else.
-- **Values carry facts.** `truncate` returns content bearing the
-  `truncated` fact, which the part layer stamps as `data-truncated` (§6d).
-  A fact is part of the value's type, not a side channel.
+- The registry declares each function like a schema entry: name, argument
+  types, return type —
+  `truncate_blocks: (content, int) -> content`,
+  `truncate_chars: (content, int) -> content`.
+- **Budgets compose as wrappers**, not as a map-literal options bag. CEL has
+  no named arguments; a later function that needs many options can take a
+  map literal, but truncate does not need one.
+- **Values carry facts.** Each wrapper returns content bearing the
+  `truncated` fact when it cut (or when its input already had the fact),
+  which the part layer stamps as `data-truncated` (§6d). A fact is part of
+  the value's type, not a side channel.
+- **`fields.NAME` is an untagged Expr | Value** (same shape as `[html.head.*]`
+  entries): a TOML string is a CEL expression; other TOML types are literals.
 - **The standard library is what we register, nothing more.** CEL's own
   stdlib (`size()`, `matches()`, timestamps…) arrives function-by-function
   when a config actually needs it, each behind the typed registry.
@@ -2641,13 +2644,13 @@ The rule: any `<style>` block in a row's body is extracted by the HTML rewrite p
 **The summary is a computed field on the view's rows** — a derived column:
 
 ```toml
-[sets.published.fields.summary]
-truncate = { max_blocks = 4, max_chars = 700 }
+[sets.published.fields]
+summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 ```
 
-`Doc::truncate` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The deriver's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole.
+`Content::truncate_*` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The value's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole.
 
-Two wrong altitudes were corrected: the cut rule started as engine code — policy belongs in config — and then as a view *attribute*, when a summary is a property of the rows, not of the view's rendering. **Marked not-quite-right (q31)**: deriver-as-struct-key is a stopgap shape; if config grows *functions*, a field wants to be an expression (§5f).
+Two wrong altitudes were corrected: the cut rule started as engine code — policy belongs in config — and then as a view *attribute*, when a summary is a property of the rows, not of the view's rendering. The deriver-struct spelling was the q31 stopgap; fields are expressions now (§5f).
 
 **Stage B, partly built (2026-07-21).** The **rewrite stage exists, narrowly** (`rewrite.rs`, lol_html): `a[href]` resolution for rows whose source *is* HTML — `.html` page bodies, `.html` slot fills, raw-HTML landings — the one job the AST pass cannot do. It is deliberately not the rule table below: q26's dimensions became the fourth at expansion time, and neither site wants an authored rule, so the selector language waits for its second consumer. Still deferred: the **notes stream**, which needs its consumer — sidenotes want a third grid column (q18).
 
@@ -3389,7 +3392,7 @@ One line per retired question; the named section carries the design.
 | 24 | fragment variants: `{kind}--{variant}` → base → canonical; `data-fragment` resolves at load | §5e |
 | 27 | index-less dirs render as unlinked labels in section trees; the auto-index view is a landing with no intro row | §6e, §5h |
 | 29 | `{% callout %}` widgets: `[widgets]` registry, paired-tag expansion, no arguments, no conditionals | §5d |
-| 31 | expressions extend `filter.rs` as a strict CEL subset, no borrowed engine; build at the q23 forcing point | §5f |
+| 31 | expressions extend `filter.rs` as a strict CEL subset; `fields.summary` / `Content` / `truncate_*` built; `outline` / `hero` / `lede` remain | §5f |
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |
