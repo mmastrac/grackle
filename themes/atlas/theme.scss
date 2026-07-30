@@ -437,7 +437,7 @@ a[data-kind="tag"] {
 	margin: 0 0 var(--space-sm);
 }
 
-[data-kind="neighbor"] {
+.neighbor {
 	display: grid;
 	grid-template-columns: var(--date-col) minmax(0, 1fr);
 	gap: 0 var(--space-md);
@@ -452,7 +452,7 @@ a[data-kind="tag"] {
 	}
 }
 
-[data-kind="neighbor"] time {
+.neighbor time {
 	font-size: var(--size-sm);
 	color: var(--fg-muted);
 	white-space: nowrap;
@@ -469,7 +469,7 @@ a[data-kind="tag"] {
 		display: none;
 	}
 
-	[data-kind="neighbor"] {
+	.neighbor {
 		display: inline-block;
 		padding: var(--pill-pad);
 		border: var(--rule);

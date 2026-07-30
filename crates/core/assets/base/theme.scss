@@ -142,7 +142,7 @@ a[aria-current] {
 // The label is an h2 and styles itself. Translations stays exactly where
 // the reading order put it: repositioning is a theme move.
 
-a[data-kind="neighbor"] {
+a.neighbor {
 	display: block;
 	padding-block: var(--space-xs);
 }

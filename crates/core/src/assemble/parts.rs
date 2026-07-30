@@ -214,7 +214,6 @@ impl Schemas {
 
         seed_furniture(&mut kinds);
         overlay_fields(&mut kinds, fields);
-        mirror_neighbor(&mut kinds);
         Schemas { kinds }
     }
 
@@ -364,52 +363,6 @@ fn overlay_fields(
             continue; // fragment-derived wins
         }
         parts.push((leaked, part_ty));
-    }
-}
-
-/// Neighbor shares the listing card surface (route_face / preview).
-fn mirror_neighbor(kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>) {
-    const CARD: &[&str] = &[
-        "url",
-        "title",
-        "date",
-        "date_pretty",
-        "note",
-        "src",
-        "width",
-        "height",
-        "truncated",
-        "content",
-    ];
-    let row_parts = kinds
-        .iter()
-        .find(|(k, _)| k == "row")
-        .map(|(_, p)| p.clone())
-        .unwrap_or_default();
-    let card: Vec<_> = CARD
-        .iter()
-        .filter_map(|name| {
-            row_parts
-                .iter()
-                .find(|(n, _)| n == name)
-                .copied()
-                .or_else(|| match *name {
-                    "truncated" => Some(("truncated", PartType::Flag)),
-                    "content" => Some(("content", PartType::Html)),
-                    "src" => Some(("src", PartType::Url)),
-                    "url" => Some(("url", PartType::Url)),
-                    _ => Some((*name, PartType::Text)),
-                })
-        })
-        .collect();
-    if let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == "neighbor") {
-        for (name, ty) in card {
-            if !parts.iter().any(|(n, _)| *n == name) {
-                parts.push((name, ty));
-            }
-        }
-    } else {
-        kinds.push(("neighbor".into(), card));
     }
 }
 
@@ -651,17 +604,20 @@ fn pill_keys(shape: &[(&'static str, PartType)]) -> Option<(&'static str, &'stat
     }
 }
 
-/// One neighbor: a full route row under the `neighbor` kind (same fill as a
-/// listing card). Themes keep styling `[data-kind="neighbor"]`.
-fn neighbor_from_row(cfg: &crate::config::Config, row: &Row) -> PartMap {
-    route_face(
-        cfg,
-        "neighbor",
-        Preview {
-            row: Some(row),
-            ..Default::default()
-        },
-    )
+/// One relation item: the full row projection; `row--neighbor` (or another
+/// face) chops what the fragment places.
+fn neighbor_from_row(
+    cfg: &crate::config::Config,
+    schemas: &Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
+    row: &Row,
+) -> anyhow::Result<PartMap> {
+    let mut m = preview(Preview {
+        row: Some(row),
+        ..Default::default()
+    });
+    fill_from_fields(cfg, &mut m, row, schemas, resolve_asset)?;
+    Ok(m)
 }
 
 /// One relations group (§6g): a named, labelled list of neighbours. The name
@@ -686,19 +642,24 @@ fn relation_group(name: &str, label: &str, items: Vec<PartMap>) -> Option<PartMa
 pub fn relation_groups(
     cfg: &crate::config::Config,
     db: &crate::model::SiteDb,
+    schemas: &Schemas,
+    resolve_asset: &dyn Fn(&str) -> String,
     groups: Vec<crate::relate::Group>,
-) -> Vec<PartMap> {
-    groups
-        .into_iter()
-        .filter_map(|g| {
-            let items = g
-                .items
-                .iter()
-                .filter_map(|url| db.row_by_url(url).map(|r| neighbor_from_row(cfg, r)))
-                .collect();
-            relation_group(&g.name, &g.label, items)
-        })
-        .collect()
+) -> anyhow::Result<Vec<PartMap>> {
+    let mut out = Vec::new();
+    for g in groups {
+        let mut items = Vec::new();
+        for url in &g.items {
+            let Some(r) = db.row_by_url(url) else {
+                continue;
+            };
+            items.push(neighbor_from_row(cfg, schemas, resolve_asset, r)?);
+        }
+        if let Some(group) = relation_group(&g.name, &g.label, items) {
+            out.push(group);
+        }
+    }
+    Ok(out)
 }
 
 /// One axis group for the axis slot (q47, §6f): a named, labelled set of
@@ -846,7 +807,9 @@ pub fn document_tree(
 }
 
 /// A row as the view sees it. Optional fields are presence-driven (q36).
-/// List-field pills land via [`fill_from_fields`] after this is built.
+/// Presentation overrides (`title`/`url`/`note` when the caller invents them,
+/// thumb `src`/dims, truncated body) land here; ordinary row fields land via
+/// [`fill_from_fields`] after this is built.
 #[derive(Default)]
 pub struct Preview<'a> {
     pub row: Option<&'a Row>,
@@ -860,8 +823,10 @@ pub struct Preview<'a> {
 }
 
 /// One presence-driven kind; faces select variants. Fill undeclared parts from
-/// row fields when types line up (§5e). List fields whose child kind is
-/// `(Text, Url)` become archive pills (`record_name` + `archive_url`).
+/// the row when types line up (§5e) — schema fields plus row columns (`title`,
+/// `url`, …). `note` reads `description` when no `note` field exists.
+/// `date_pretty` is the formatted twin of a date-typed `date` field.
+/// List fields whose child kind is `(Text, Url)` become archive pills.
 pub fn fill_from_fields(
     cfg: &crate::config::Config,
     m: &mut PartMap,
@@ -869,6 +834,7 @@ pub fn fill_from_fields(
     schemas: &Schemas,
     resolve_asset: &dyn Fn(&str) -> String,
 ) -> anyhow::Result<()> {
+    use grackle_db::filter::Row as FilterRow;
     use grackle_db::Value as V;
     let Some(decl) = schemas.get(m.kind) else {
         return Ok(());
@@ -877,10 +843,23 @@ pub fn fill_from_fields(
         if m.get(name).is_some() {
             continue;
         }
-        let Some(v) = row.fields.get(*name) else {
+        if *name == "date_pretty" {
+            let Some(d) = row.as_date("date") else {
+                continue;
+            };
+            let member = cfg.pairing_member(row);
+            m.set_declared(
+                name,
+                Part::Text(cfg.format_date(d, "medium_date", &member)),
+            );
             continue;
+        }
+        let v = match FilterRow::field(row, name) {
+            V::Null if *name == "note" => FilterRow::field(row, "description"),
+            other => other,
         };
-        let part = match (v, ty) {
+        let part = match (&v, ty) {
+            (V::Null, _) => continue,
             (V::Str(s), PartType::Text) => Part::Text(s.clone()),
             (V::Str(s), PartType::Url) => {
                 if row.images.contains_key(*name) {
@@ -920,7 +899,6 @@ pub fn fill_from_fields(
                     )
                 }
             }
-            (V::Null, _) => continue,
             (v, ty) => anyhow::bail!(
                 "{}: field `{name}` is {}, which cannot fill a `{}` part of kind `{}`",
                 row.rel.display(),
@@ -934,60 +912,41 @@ pub fn fill_from_fields(
     Ok(())
 }
 
-/// Shared card fill for a route — under `row` (listings) or `neighbor`
-/// (relation items).
-fn route_face(cfg: &crate::config::Config, kind: &'static str, p: Preview<'_>) -> PartMap {
+/// Presentation facts a listing/relation card carries that are not plain row
+/// fields: Preview overrides (title/url when the caller invents them, thumb
+/// `src`/dims, truncated body). Ordinary fields land via [`fill_from_fields`].
+fn route_face(kind: &'static str, p: Preview<'_>) -> PartMap {
     let mut m = PartMap::new(kind);
-    let row = p.row;
-    let title = p
-        .title
-        .clone()
-        .or_else(|| row.and_then(|r| r.title.clone()))
-        .unwrap_or_default();
-    m.set("title", Part::Text(title));
-    let url = p
-        .url
-        .clone()
-        .or_else(|| row.map(|r| r.url.clone()))
-        .unwrap_or_default();
-    m.set("url", Part::Text(url));
-    if let Some(d) = row.and_then(|r| r.as_date("date")) {
-        let member = row
-            .map(|r| cfg.pairing_member(r))
-            .unwrap_or_default();
-        m.set("date", Part::Text(crate::model::iso_date(d)));
-        m.set(
-            "date_pretty",
-            Part::Text(cfg.format_date(d, "medium_date", &member)),
-        );
+    if let Some(t) = p.title {
+        m.set("title", Part::Text(t));
     }
-    if let Some(s) = &p.src {
-        m.set("src", Part::Text(s.clone()));
+    if let Some(u) = p.url {
+        m.set("url", Part::Text(u));
+    }
+    if let Some(n) = p.note {
+        m.set("note", Part::Text(n));
+    }
+    if let Some(s) = p.src {
+        m.set("src", Part::Text(s));
     }
     if let Some((w, h)) = p.dims {
         m.set("width", Part::Text(w.to_string()));
         m.set("height", Part::Text(h.to_string()));
     }
-    if let Some(n) = p
-        .note
-        .clone()
-        .or_else(|| row.and_then(|r| r.string("description").map(str::to_owned)))
-    {
-        m.set("note", Part::Text(n));
-    }
     if p.truncated {
         m.set("truncated", Part::Flag(true));
     }
-    if let Some(c) = &p.content {
-        m.set("content", Part::Html(c.clone()));
+    if let Some(c) = p.content {
+        m.set("content", Part::Html(c));
     }
     m
 }
 
 /// A part is filled when the row answers it — one projection serves a post, a
-/// book and a photograph (q36).
-pub fn preview(cfg: &crate::config::Config, p: Preview) -> PartMap {
-    route_face(cfg, "row", p)
+/// book and a photograph (q36). Callers with a row must follow with
+/// [`fill_from_fields`].
+pub fn preview(p: Preview) -> PartMap {
+    route_face("row", p)
 }
 
 /// Wrapper `row` for an aggregate page: furniture around already-concatenated
@@ -1211,7 +1170,7 @@ mod tests {
                 .iter()
                 .filter_map(|k| db.rows.get(k))
                 .map(|p| {
-                    let mut m = preview(&cfg, Preview {
+                    let mut m = preview(Preview {
                         row: Some(p),
                         content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
                         ..Default::default()
@@ -1325,28 +1284,51 @@ mod schema_asset_tests {
     }
 
     #[test]
-    fn neighbor_has_card_surface() {
+    fn relation_items_are_rows() {
         let schemas = base_schemas();
-        let names: Vec<_> = schemas
-            .get("neighbor")
-            .unwrap()
+        let relation = schemas.get("relation").expect("relation kind");
+        let items = relation
             .iter()
-            .map(|(n, _)| *n)
-            .collect();
-        for need in [
-            "url",
-            "title",
-            "date",
-            "date_pretty",
-            "note",
-            "src",
-            "width",
-            "height",
-            "truncated",
-            "content",
-        ] {
-            assert!(names.contains(&need), "neighbor missing {need}: {names:?}");
-        }
+            .find(|(n, _)| *n == "items")
+            .expect("relation.items");
+        assert_eq!(items.1, PartType::Stream("row"));
+        assert!(schemas.get("neighbor").is_none());
+    }
+
+    #[test]
+    fn fill_from_fields_reads_columns_note_alias_and_date_pretty() {
+        use grackle_db::Value as V;
+        let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
+            .expect("grackle.toml loads");
+        let mut row = Row {
+            title: Some("Hello".into()),
+            url: "/hello/".into(),
+            rel: "posts/hello.md".into(),
+            ..Default::default()
+        };
+        row.fields.insert("date".into(), V::Str("2026-07-30".into()));
+        row.fields
+            .insert("description".into(), V::Str("a blurb".into()));
+
+        let mut m = PartMap::new("row");
+        fill_from_fields(&cfg, &mut m, &row, &Schemas::engine_only(), &|s| s.to_string())
+            .unwrap();
+        assert_eq!(m.text("title"), Some("Hello"));
+        assert_eq!(m.text("url"), Some("/hello/"));
+        assert_eq!(m.text("date"), Some("2026-07-30"));
+        assert_eq!(m.text("note"), Some("a blurb"));
+        assert!(m.text("date_pretty").is_some_and(|s| !s.is_empty()));
+
+        let mut m = route_face(
+            "row",
+            Preview {
+                title: Some("Override".into()),
+                ..Default::default()
+            },
+        );
+        fill_from_fields(&cfg, &mut m, &row, &Schemas::engine_only(), &|s| s.to_string())
+            .unwrap();
+        assert_eq!(m.text("title"), Some("Override"));
     }
 
     #[test]

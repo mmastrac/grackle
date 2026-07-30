@@ -257,11 +257,8 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
                 .and_then(|s| crate::thumbs::default_of(thumbs, s));
             crate::parts::Preview {
                 row: Some(p),
-                title: Some(p.title.clone().unwrap_or_default()),
-                url: Some(p.url.clone()),
                 src: t.map(|t| t.url.clone()),
                 dims: t.and_then(|t| t.dims),
-                note: p.string("description").map(str::to_owned),
                 ..Default::default()
             }
         })

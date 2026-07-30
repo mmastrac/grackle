@@ -333,7 +333,7 @@ sidenote {
 	}
 }
 
-[data-kind="neighbor"] {
+.neighbor {
 	display: grid;
 	grid-template-columns: var(--date-col) minmax(0, 1fr);
 	gap: 0 var(--space-md);
@@ -342,12 +342,12 @@ sidenote {
 	text-decoration: none;
 	color: var(--fg);
 
-	&:hover [data-kind="neighbor"] span {
+	&:hover .neighbor span {
 		color: var(--accent);
 	}
 }
 
-[data-kind="neighbor"] time {
+.neighbor time {
 	font-size: var(--size-sm);
 	font-style: italic;
 	color: var(--fg-muted);
@@ -365,12 +365,12 @@ sidenote {
 		display: none;
 	}
 
-	[data-kind="neighbor"] {
+	.neighbor {
 		display: inline;
 		font-size: var(--size-sm);
 		color: var(--fg-muted);
 
-		& + [data-kind="neighbor"]::before {
+		& + .neighbor::before {
 			content: " · ";
 		}
 	}

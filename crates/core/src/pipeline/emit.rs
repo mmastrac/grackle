@@ -112,15 +112,17 @@ pub(crate) fn run(
             });
             head.alternates
                 .extend(prepass::axis_alternates(db, &cfg.site.url, r, &cfg.media_types));
+            let (theme_name, subtheme) = preview::resolve_theme(themes, r, p.theme.as_deref());
+            let row_thm = themes.get(theme_name)?;
             let groups = parts::relation_groups(
                 cfg,
                 db,
+                row_thm.schemas(),
+                &resolve_asset,
                 rel_groups.get(&p.url).cloned().unwrap_or_default(),
-            );
+            )?;
             let doc = parts::document(p, whole, trail, groups, outline);
             let dir = p.path.parent().unwrap_or(root);
-            let (theme_name, subtheme) = preview::resolve_theme(themes, r, p.theme.as_deref());
-            let row_thm = themes.get(theme_name)?;
             let lang = cfg.pairing_member(p);
             let (html_attrs, body_attrs) = eval_page_attrs(p, &head.title, &p.url);
             let html = chain::document_page(
@@ -329,8 +331,10 @@ pub(crate) fn run(
         let groups = parts::relation_groups(
             cfg,
             db,
+            row_thm.schemas(),
+            &resolve_asset,
             rel_groups.get(&r.url).cloned().unwrap_or_default(),
-        );
+        )?;
         let doc = parts::document_tree(
             cfg,
             loc,
@@ -574,7 +578,7 @@ pub(crate) fn run(
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
                     let t = crate::thumbs::default_of(thumbs, s);
                     let full = preview::asset_url(&cfg.site.baseurl, s);
-                    parts::preview(cfg, parts::Preview {
+                    parts::preview(parts::Preview {
                         title: Some(title.clone()),
                         url: Some(full.clone()),
                         src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),
@@ -630,8 +634,10 @@ pub(crate) fn run(
                         let groups = parts::relation_groups(
                             cfg,
                             db,
+                            row_thm.schemas(),
+                            &resolve_asset,
                             rel_groups.get(&r.url).cloned().unwrap_or_default(),
-                        );
+                        )?;
                         let mut head = head;
                         head.alternates = render::eval_expands(metas, site, &title, cfg, |name| {
                             let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)

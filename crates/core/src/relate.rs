@@ -78,9 +78,8 @@ fn render_rank(name: &str) -> (u8, &str) {
 }
 
 /// One relation's finished output: a heading and its neighbours, ready for the
-/// `relation` part. Items are row URLs — resolved to full rows when the
-/// neighbor part map is built (same projection as a listing card, rendered
-/// under the `neighbor` kind).
+/// `relation` part. Items are row URLs — resolved to full row part maps when
+/// rendered; the `row--neighbor` face chops what the fragment places.
 #[derive(Clone)]
 pub struct Group {
     pub name: String,

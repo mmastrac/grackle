@@ -470,19 +470,6 @@ mod tests {
             ("row", "date_pretty", "rides with date"),
             ("row", "note", "member faces place the blurb"),
             ("row", "truncated", "card CSS fact; default face has no cue"),
-            // Neighbor is the same card surface under a relation face; the
-            // base inline only places title + date_pretty + url.
-            (
-                "neighbor",
-                "src",
-                "same as row — figure face would place it",
-            ),
-            ("neighbor", "width", "rides with src"),
-            ("neighbor", "height", "rides with src"),
-            ("neighbor", "date", "datetime attr; visible text is date_pretty"),
-            ("neighbor", "note", "relation face is date | title"),
-            ("neighbor", "truncated", "card CSS fact; default face has no cue"),
-            ("neighbor", "content", "relation face is a link, not a body"),
         ];
 
         let thm = Theme::null(&crate::workspace_root(), &[]).expect("base loads");
@@ -492,7 +479,11 @@ mod tests {
             if kind == "root" {
                 continue;
             }
-            let full = crate::parts::populate(&schemas, kind, 2);
+            // `relation.items` holds full rows; `row--neighbor` chops them.
+            // Depth 0 leaves items unset so this test measures the relation
+            // fragment itself, not every row part the face declines.
+            let depth = if kind == "relation" { 0 } else { 2 };
+            let full = crate::parts::populate(&schemas, kind, depth);
             let out = thm.fragments.render(&full);
             // Exemptions hold at every depth: `document.hero` is a summary,
             // so a summary's exempt parts are exempt inside it too.

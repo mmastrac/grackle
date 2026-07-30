@@ -130,7 +130,7 @@ pub fn member_faces(
     let mut out = String::new();
     for p in items {
         let row = p.row;
-        let mut m = parts::preview(cfg, p);
+        let mut m = parts::preview(p);
         if let Some(row) = row {
             parts::fill_from_fields(cfg, &mut m, row, theme.schemas(), resolve_asset)?;
         }

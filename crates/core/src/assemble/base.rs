@@ -28,8 +28,8 @@ const FRAGMENTS: &[(&str, &str)] = &[
         include_str!("../../assets/base/row--link.html"),
     ),
     // Smaller kinds (crumb, tag, page_link, outline_entry, pagination,
-    // relation, neighbor, axis, axis_member) live inline under root/row
-    // (THEME.md §5).
+    // relation, axis, axis_member) and the row--neighbor face live inline
+    // under root/row (THEME.md §5).
 ];
 
 /// Dev-only: read the base from `assets/base/` on disk instead of from the
