@@ -451,6 +451,19 @@ mod tests {
             ("row", "date_pretty", "rides with date"),
             ("row", "note", "member faces place the blurb"),
             ("row", "truncated", "card CSS fact; default face has no cue"),
+            // Neighbor is the same card surface under a relation face; the
+            // base neighbor.html only places title + date_pretty + url.
+            (
+                "neighbor",
+                "src",
+                "same as row — figure face would place it",
+            ),
+            ("neighbor", "width", "rides with src"),
+            ("neighbor", "height", "rides with src"),
+            ("neighbor", "date", "datetime attr; visible text is date_pretty"),
+            ("neighbor", "note", "relation face is date | title"),
+            ("neighbor", "truncated", "card CSS fact; default face has no cue"),
+            ("neighbor", "content", "relation face is a link, not a body"),
         ];
 
         let schemas = Schemas::engine_only();

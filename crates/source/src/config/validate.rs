@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
 use super::{
-    archive_route_fill, describe_collection, fence, split_profile, Config, LocalizedStr,
-    ENGINE_STRINGS, FORCE,
+    archive_route_fill, describe_collection, fence, split_profile, Config, LocalizedStr, BASE,
+    FORCE,
 };
 
 impl Config {
@@ -604,6 +604,17 @@ impl Config {
                     );
                 }
             }
+            for (tname, table) in &cfg.i18n.tables {
+                for (index, s) in table.iter() {
+                    check(&format!("i18n.tables.{tname}.{index}"), s)?;
+                    if s.reference().is_some() {
+                        anyhow::bail!(
+                            "i18n.tables.{tname}.{index}: a table entry may not \
+                             itself be a reference (no chains)"
+                        );
+                    }
+                }
+            }
             // References must resolve, and every non-engine global string
             // must be referenced — an unused key is a load error, which is
             // what catches a typo'd engine-vocabulary override ("hom") now
@@ -643,31 +654,49 @@ impl Config {
                     }
                 }
                 for (what, s) in refs {
+                    // `@table[…]` looks up `[i18n.tables]`, not strings.
+                    for name in s.table_names() {
+                        if !cfg.i18n.tables.contains_key(name) {
+                            let mut knowns: Vec<&str> =
+                                cfg.i18n.tables.keys().map(String::as_str).collect();
+                            knowns.sort_unstable();
+                            anyhow::bail!(
+                                "{what}: table @{name}[…] names no table (knowns: {})",
+                                if knowns.is_empty() {
+                                    "(none)".into()
+                                } else {
+                                    knowns.join(", ")
+                                }
+                            );
+                        }
+                    }
                     let Some(key) = s.reference() else { continue };
-                    let known = cfg.i18n.strings.contains_key(key)
-                        || ENGINE_STRINGS.iter().any(|(k, _)| *k == key);
-                    if !known {
+                    if !cfg.i18n.strings.contains_key(key) {
                         let mut knowns: Vec<&str> =
-                            ENGINE_STRINGS.iter().map(|(k, _)| *k).collect();
-                        knowns.extend(cfg.i18n.strings.keys().map(String::as_str));
+                            cfg.i18n.strings.keys().map(String::as_str).collect();
                         knowns.sort_unstable();
-                        knowns.dedup();
                         anyhow::bail!(
                             "{what}: reference @{key} names no string (knowns: {})",
-                            knowns.join(", ")
+                            if knowns.is_empty() {
+                                "(none)".into()
+                            } else {
+                                knowns.join(", ")
+                            }
                         );
                     }
                     referenced.push(key);
                 }
             }
+            // Base vocabulary (`home`, `blog`, …) is looked up by name from
+            // Rust, so it may sit unreferenced. Everything else must be an
+            // `"@key"` somewhere — which is what catches a typo'd override.
+            let base_keys = base_i18n_string_keys();
             for key in cfg.i18n.strings.keys() {
-                if !ENGINE_STRINGS.iter().any(|(k, _)| k == key)
-                    && !referenced.iter().any(|r| r == key)
-                {
+                if !base_keys.contains(key) && !referenced.iter().any(|r| r == key) {
                     anyhow::bail!(
                         "i18n.strings.{key}: unused string — nothing references \
-                         @{key}, and it is not engine vocabulary (a typo'd engine \
-                         key would look exactly like this)"
+                         @{key}, and it is not in the base vocabulary (a typo'd \
+                         base key would look exactly like this)"
                     );
                 }
             }
@@ -760,4 +789,21 @@ impl Config {
         cfg.check_profile_filters()?;
         Ok(())
     }
+}
+
+/// Keys `[i18n.strings]` ships in the built-in base — vocabulary the engine
+/// looks up by name. Read from [`BASE`] so the allowlist cannot drift from
+/// the file.
+fn base_i18n_string_keys() -> &'static std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+    static KEYS: OnceLock<HashSet<String>> = OnceLock::new();
+    KEYS.get_or_init(|| {
+        let base: toml::Table = toml::from_str(BASE).expect("base.toml parses");
+        base.get("i18n")
+            .and_then(|i| i.get("strings"))
+            .and_then(|s| s.as_table())
+            .map(|t| t.keys().cloned().collect())
+            .unwrap_or_default()
+    })
 }

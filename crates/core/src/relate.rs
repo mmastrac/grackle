@@ -78,12 +78,14 @@ fn render_rank(name: &str) -> (u8, &str) {
 }
 
 /// One relation's finished output: a heading and its neighbours, ready for the
-/// `relation` part. Items are `(title, url, date)`, the shape `neighbor` wants.
+/// `relation` part. Items are row URLs — resolved to full rows when the
+/// neighbor part map is built (same projection as a listing card, rendered
+/// under the `neighbor` kind).
 #[derive(Clone)]
 pub struct Group {
     pub name: String,
     pub label: String,
-    pub items: Vec<(String, String, Option<chrono::NaiveDate>)>,
+    pub items: Vec<String>,
 }
 
 /// The build-time facts a relation reads that no row field carries: embedding
@@ -154,11 +156,7 @@ impl<'a> Engine<'a> {
             }
             let items = members
                 .into_iter()
-                .filter_map(|(url, _)| {
-                    self.db
-                        .row_by_url(&url)
-                        .map(|r| (r.title.clone().unwrap_or_default(), r.url.clone(), r.as_date("date")))
-                })
+                .filter_map(|(url, _)| self.db.row_by_url(&url).map(|r| r.url.clone()))
                 .collect();
             groups.push(Group {
                 name: rel.name.clone(),

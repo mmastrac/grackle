@@ -250,7 +250,7 @@ word "view" before chapter 6.
   "/blog/tags/{key}/"`.
 - Any typed field groups; list fields multi-key.
 - `title` / `crumb` are templates over group params (`{key}`, `{year}`,
-  `{month_name}`, …).
+  `@months[{month}]`, `{key}`, …).
 - **Subdivision**: a grouped route whose `from` names another grouped
   route refines the partition — `yearly_archive` → `monthly_archive`, keys
   accumulate down the chain. No new keyword; the engine sees `from` points
@@ -1096,7 +1096,7 @@ writes a real expression.
   routes, id stays the key.
 - Locale-parallel views are **default-on**; opt out with `locales =
   "default"`. Empty locale ⇒ no routes.
-- ★ Honest edges: `pretty_date`/`month_name` locale-free, `site.title`
+- ★ Honest edges: `site.title`
   not localized, embedded views don't follow locale yet, prefix selector
   unexercised by a real corpus.
 - ★ **The one a reader will actually hit (q47): listing views render no

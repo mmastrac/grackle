@@ -40,28 +40,14 @@ impl SortKey {
     }
 }
 
-const MONTH_NAMES: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
-
 /// The group keys a row holds under one spec, read through the same typed
 /// field access filters use: a `List` field multi-keys (one group per
 /// item), scalars single-key, `Null` means the row is absent from this
 /// partition (an undated row under a year grouping; a course-less recipe
 /// under a course grouping). Every key exposes `{key}` plus a param named
-/// after the field; `month` keeps its display derivative (`{month_name}`)
-/// until §5f formatters give it a proper home.
+/// after the field; `date.month` also exposes `{month}` (and year/day
+/// likewise). Month *names* come from `@months[{month}]` in title/crumb
+/// templates, not a stamped param.
 fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
     let mk = |sort: SortKey, display: String| {
         let mut params = vec![("key".to_string(), display.clone())];
@@ -73,13 +59,6 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
         if let Some((_, part)) = spec.rsplit_once('.') {
             if matches!(part, "year" | "month" | "day") {
                 params.push((part.to_string(), display.clone()));
-            }
-        }
-        if spec == "month" || spec.ends_with(".month") {
-            if let SortKey::Int(m) = sort {
-                if (1..=12).contains(&m) {
-                    params.push(("month_name".into(), MONTH_NAMES[(m - 1) as usize].into()));
-                }
             }
         }
         GroupKey { sort, params }
@@ -1091,10 +1070,6 @@ mod grouping_tests {
             "{params:?}"
         );
         assert!(params.contains(&("month".into(), "3".into())), "{params:?}");
-        assert!(
-            params.contains(&("month_name".into(), "March".into())),
-            "{params:?}"
-        );
         // Composite display joins with zero-padded numerics: "2022-03".
         let key: Vec<String> = combos[0].iter().map(|k| k.sort.display()).collect();
         assert_eq!(key.join("-"), "2022-03");
@@ -1199,12 +1174,14 @@ mod grouping_tests {
     }
 
     #[test]
-    fn month_keeps_its_display_name() {
+    fn month_param_is_unpadded() {
         let p = post(Some("2022-12-16"), &[]);
         let keys = group_keys(&p, "date.month");
+        assert!(keys[0].params.contains(&("month".into(), "12".into())));
         assert!(keys[0]
             .params
-            .contains(&("month_name".into(), "December".into())));
+            .iter()
+            .all(|(k, _)| k != "month_name"));
     }
 }
 

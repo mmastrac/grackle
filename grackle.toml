@@ -281,5 +281,5 @@ from = "yearly_archive"
 group_by = "date.month"
 layout = "card"
 noindex = true
-title = "{year} {month_name}"
-crumb = "{month_name}"
+title = "{year} @months[{month}]"
+crumb = "@months[{month}]"

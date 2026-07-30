@@ -15,6 +15,34 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// Replace each `@name[index]` in `text` with the table entry (empty if
+/// missing). `@@` yields a literal `@`.
+fn expand_table_refs(cfg: &Config, text: &str, member: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('@') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        if after.starts_with('@') {
+            out.push('@');
+            rest = &after[1..];
+            continue;
+        }
+        // `parse_table_ref` wants the leading `@`.
+        if let Some((name, index)) = parse_table_ref(&rest[at..]) {
+            let norm = normalize_table_index(index);
+            out.push_str(cfg.i18n_table(name, &norm, member));
+            // Advance past `@name[index]` using the original index span.
+            rest = &rest[at + 1 + name.len() + 1 + index.len() + 1..];
+            continue;
+        }
+        out.push('@');
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         Config::load_profile(path, None)
@@ -444,10 +472,90 @@ impl Config {
         self.i18n.string(key, member, canon)
     }
 
+    /// [`I18nCfg::table`] with the pairing axis's canonical as fallback.
+    pub fn i18n_table<'a>(&'a self, name: &str, index: &str, member: &str) -> &'a str {
+        let canon = self.pairing_canonical().unwrap_or(member);
+        self.i18n.table(name, index, member, canon)
+    }
+
     /// [`I18nCfg::text`] with the pairing axis's canonical as fallback.
     pub fn i18n_text<'a>(&'a self, s: &'a LocalizedStr, member: &str) -> &'a str {
         let canon = self.pairing_canonical().unwrap_or(member);
         self.i18n.text(s, member, canon)
+    }
+
+    /// Render a display string: `"@key"` / `"@table[index]"` / inline template
+    /// with embedded `@table[…]` after `{token}` substitution (§6f).
+    ///
+    /// A whole-value `"@key"` whose string contains `{tokens}` or `@table[…]`
+    /// is expanded again (date templates: `@medium_date` →
+    /// `"{day} @months[{month}] {year}"`). String values may not themselves
+    /// be `"@other"` references (validate forbids chains).
+    pub fn render_localized<F>(
+        &self,
+        s: &LocalizedStr,
+        member: &str,
+        get: &F,
+    ) -> Result<String>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        match s {
+            LocalizedStr::One(raw) => {
+                // `@@…` → literal leading `@` (no table/string resolution).
+                if let Some(rest) = raw.strip_prefix("@@") {
+                    let rendered = grackle_db::template::render(rest, get)?;
+                    return Ok(format!("@{rendered}"));
+                }
+                if let Some((table, index_tmpl)) = parse_table_ref(raw) {
+                    let index = grackle_db::template::render(index_tmpl, get)?;
+                    let index = normalize_table_index(&index);
+                    return Ok(self.i18n_table(table, &index, member).to_string());
+                }
+                if let Some(key) = raw
+                    .strip_prefix('@')
+                    .filter(|r| !r.starts_with('@') && !r.contains('['))
+                {
+                    let tmpl = self.i18n_string(key, member);
+                    if tmpl.is_empty() {
+                        return Ok(String::new());
+                    }
+                    // Expand the looked-up string as an inline template (not
+                    // another `@key`), so `@medium_date` fills date tokens.
+                    let rendered = grackle_db::template::render(tmpl, get)?;
+                    return Ok(expand_table_refs(self, &rendered, member));
+                }
+                let rendered = grackle_db::template::render(raw, get)?;
+                Ok(expand_table_refs(self, &rendered, member))
+            }
+            LocalizedStr::PerMember(_) => {
+                let text = self.i18n_text(s, member);
+                let rendered = grackle_db::template::render(text, get)?;
+                Ok(expand_table_refs(self, &rendered, member))
+            }
+        }
+    }
+
+    /// Format a calendar date through an `[i18n.strings]` template (`short_date`,
+    /// `medium_date`, `long_date`, …) at `member`. Missing template → `""`.
+    pub fn format_date(
+        &self,
+        d: chrono::NaiveDate,
+        style: &str,
+        member: &str,
+    ) -> String {
+        use chrono::Datelike;
+        let get = |tok: &str| -> Option<String> {
+            match tok {
+                "year" => Some(d.year().to_string()),
+                "month" => Some(d.month().to_string()),
+                "day" => Some(d.day().to_string()),
+                _ => None,
+            }
+        };
+        let s = LocalizedStr::One(format!("@{style}"));
+        self.render_localized(&s, member, &get)
+            .unwrap_or_default()
     }
 
     /// Axis values a `{axis:NAME}` file token may capture (skip canonical).

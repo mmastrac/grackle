@@ -101,10 +101,11 @@ pub fn listing_title_and_trail(
             None => Some(raw),
         }
     };
-    let text = |t: &crate::config::LocalizedStr| cfg.i18n_text(t, loc).to_string();
+    let text = |t: &crate::config::LocalizedStr| -> Result<String> {
+        cfg.render_localized(t, loc, &param)
+    };
     let title = match &v.title {
-        Some(t) => crate::template::render(&text(t), param)
-            .with_context(|| format!("view {view}: title"))?,
+        Some(t) => text(t).with_context(|| format!("view {view}: title"))?,
         // The empty-title fallback resolves through the i18n string layer keyed
         // on the view name — the door the base's `@home`/`@blog` routes reach
         // (§4d) — so an engine view resolves its built-in and any other resolves
@@ -123,10 +124,7 @@ pub fn listing_title_and_trail(
         // every other listing does.
         Some(p) if p > 1 => Some(cfg.i18n_string("page", loc).replace("{n}", &p.to_string())),
         _ => match crumb_tmpl(v) {
-            Some(t) => Some(
-                crate::template::render(&text(t), param)
-                    .with_context(|| format!("view {view}: crumb"))?,
-            ),
+            Some(t) => Some(text(t).with_context(|| format!("view {view}: crumb"))?),
             None => r.key.clone(),
         },
     };
@@ -140,8 +138,7 @@ pub fn listing_title_and_trail(
     for anc in cfg.grouped_chain(view).iter().filter(|n| *n != view) {
         let av = &cfg.views[anc.as_str()];
         if let (Some(t), Some(route_t)) = (crumb_tmpl(av), av.route.as_deref()) {
-            let label = crate::template::render(&text(t), param)
-                .with_context(|| format!("view {anc}: crumb"))?;
+            let label = text(t).with_context(|| format!("view {anc}: crumb"))?;
             let url = crate::template::render(route_t, param)?;
             trail.push((label, Some(url)));
         }
@@ -201,10 +198,9 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
                 }
             };
             if let (Some(tm), Some(rt)) = (crumb_tmpl(v), v.route.as_deref()) {
-                let tm = cfg.i18n_text(tm, loc);
                 if let (Ok(label), Ok(url)) = (
-                    crate::template::render(tm, get),
-                    crate::template::render(rt, get),
+                    cfg.render_localized(tm, loc, &get),
+                    crate::template::render(rt, &get),
                 ) {
                     t.push((label, Some(url)));
                     chained = true;
@@ -218,7 +214,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
         let tail = if chained {
             d.format("%-d").to_string()
         } else {
-            crate::model::pretty_date(d)
+            cfg.format_date(d, "medium_date", loc)
         };
         t.push((tail, None));
     }
@@ -278,7 +274,10 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
                 if let Some(t) = crumb_tmpl(v) {
                     let loc_owned = cfg.pairing_member(r);
-                    out.push((parent, cfg.i18n_text(t, &loc_owned).to_string()));
+                    let empty = |_: &str| None;
+                    if let Ok(label) = cfg.render_localized(t, &loc_owned, &empty) {
+                        out.push((parent, label));
+                    }
                 }
             }
         }

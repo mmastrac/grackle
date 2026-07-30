@@ -129,9 +129,9 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 - [ ] **Localized group keys** — enum records extend to group *keys*, not just
       value domains. **Not q40** (that is structured record fields); §6f calls
       this "q40-adjacent" and an earlier harvest dropped the qualifier. (§6f)
-- [ ] **The rest of i18n's locale-free surface** — `month_name` (computed at
-      route build), `pretty_date` (hardcoded), the search overlay's client-side
-      strings, and `site.title` (not a `LocalizedStr`). (§6f)
+- [ ] **The rest of i18n's locale-free surface** — the search overlay's
+      client-side strings, and `site.title` (not a `LocalizedStr`). Date
+      labels use `@medium_date` / `@months[{month}]`. (§6f)
 - [ ] **Embedded views follow their embedding page's locale** — specced,
       pending. (§6f, §5h)
 - [ ] **Orphaned translation warning** — `index.fr.md` with no French rows should

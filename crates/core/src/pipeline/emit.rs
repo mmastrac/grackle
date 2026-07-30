@@ -112,8 +112,11 @@ pub(crate) fn run(
             });
             head.alternates
                 .extend(prepass::axis_alternates(db, &cfg.site.url, r));
-            let groups =
-                parts::relation_groups(rel_groups.get(&p.url).cloned().unwrap_or_default());
+            let groups = parts::relation_groups(
+                cfg,
+                db,
+                rel_groups.get(&p.url).cloned().unwrap_or_default(),
+            );
             let doc = parts::document(p, whole, trail, groups, outline);
             let dir = p.path.parent().unwrap_or(root);
             let (theme_name, subtheme) = preview::resolve_theme(themes, r, p.theme.as_deref());
@@ -323,7 +326,11 @@ pub(crate) fn run(
             (a.field.as_str(), a.canonical().unwrap_or(""))
         });
         let section = section_parts(db, &mut section_trees, &row.rel, &r.url, pairing_keep);
-        let groups = parts::relation_groups(rel_groups.get(&r.url).cloned().unwrap_or_default());
+        let groups = parts::relation_groups(
+            cfg,
+            db,
+            rel_groups.get(&r.url).cloned().unwrap_or_default(),
+        );
         let doc = parts::document_tree(
             cfg,
             loc,
@@ -476,8 +483,7 @@ pub(crate) fn run(
                 serde_json::json!({
                     "url": p.url,
                     "title": p.title,
-                    "date": p.as_date("date").map(crate::model::iso_date),
-                    "date_pretty": p.as_date("date").map(crate::model::pretty_date),
+                    "date": p.as_date("date").map(render::xmlschema),
                     "fields": fields,
                     "html": bodies::row_body_html(p, bodies, page_bodies).unwrap_or(""),
                 })
@@ -568,7 +574,7 @@ pub(crate) fn run(
                 let hero = row.and_then(|p| p.hero_source()).map(|s| {
                     let t = crate::thumbs::default_of(thumbs, s);
                     let full = preview::asset_url(&cfg.site.baseurl, s);
-                    parts::preview(parts::Preview {
+                    parts::preview(cfg, parts::Preview {
                         title: Some(title.clone()),
                         url: Some(full.clone()),
                         src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),
@@ -622,6 +628,8 @@ pub(crate) fn run(
                     }
                     Theme::Default => {
                         let groups = parts::relation_groups(
+                            cfg,
+                            db,
                             rel_groups.get(&r.url).cloned().unwrap_or_default(),
                         );
                         let mut head = head;

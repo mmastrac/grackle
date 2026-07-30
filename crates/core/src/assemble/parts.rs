@@ -244,10 +244,18 @@ const ENGINE: &[(&str, &[(&str, PartType)])] = &[
     (
         "neighbor",
         &[
+            // Same card surface as a listing `row` (via `preview`), under the
+            // relation face — themes keep `data-kind="neighbor"`.
             ("url", Url),
+            ("title", Text),
             ("date", Text),
             ("date_pretty", Text),
-            ("title", Text),
+            ("note", Text),
+            ("src", Url),
+            ("width", Text),
+            ("height", Text),
+            ("truncated", Flag),
+            ("content", Html),
         ],
     ),
     (
@@ -572,16 +580,17 @@ fn pill_keys(shape: &[(&'static str, PartType)]) -> Option<(&'static str, &'stat
     }
 }
 
-/// One neighbor: the shape every relation yields, dated or not.
-fn neighbor(title: &str, url: &str, date: Option<chrono::NaiveDate>) -> PartMap {
-    let mut nm = PartMap::new("neighbor");
-    nm.set("url", Part::Text(url.to_string()));
-    if let Some(d) = date {
-        nm.set("date", Part::Text(crate::model::iso_date(d)));
-        nm.set("date_pretty", Part::Text(crate::model::pretty_date(d)));
-    }
-    nm.set("title", Part::Text(title.to_string()));
-    nm
+/// One neighbor: a full route row under the `neighbor` kind (same fill as a
+/// listing card). Themes keep styling `[data-kind="neighbor"]`.
+fn neighbor_from_row(cfg: &crate::config::Config, row: &Row) -> PartMap {
+    route_face(
+        cfg,
+        "neighbor",
+        Preview {
+            row: Some(row),
+            ..Default::default()
+        },
+    )
 }
 
 /// One relations group (§6g): a named, labelled list of neighbours. The name
@@ -601,15 +610,20 @@ fn relation_group(name: &str, label: &str, items: Vec<PartMap>) -> Option<PartMa
 }
 
 /// The engine's relation groups (§6g), already evaluated, as parts. Each
-/// carries its resolved label; empties are dropped upstream.
-pub fn relation_groups(groups: Vec<crate::relate::Group>) -> Vec<PartMap> {
+/// carries its resolved label; empties are dropped upstream. Items are
+/// looked up as full rows and projected through [`neighbor_from_row`].
+pub fn relation_groups(
+    cfg: &crate::config::Config,
+    db: &crate::model::SiteDb,
+    groups: Vec<crate::relate::Group>,
+) -> Vec<PartMap> {
     groups
         .into_iter()
         .filter_map(|g| {
             let items = g
                 .items
                 .iter()
-                .map(|(title, url, date)| neighbor(title, url, *date))
+                .filter_map(|url| db.row_by_url(url).map(|r| neighbor_from_row(cfg, r)))
                 .collect();
             relation_group(&g.name, &g.label, items)
         })
@@ -849,10 +863,10 @@ pub fn fill_from_fields(
     Ok(())
 }
 
-/// A part is filled when the row answers it — one projection serves a post, a
-/// book and a photograph (q36).
-pub fn preview(p: Preview) -> PartMap {
-    let mut m = PartMap::new("row");
+/// Shared card fill for a route — under `row` (listings) or `neighbor`
+/// (relation items). Only parts declared on `kind` are set.
+fn route_face(cfg: &crate::config::Config, kind: &'static str, p: Preview<'_>) -> PartMap {
+    let mut m = PartMap::new(kind);
     let row = p.row;
     let title = p
         .title
@@ -867,8 +881,14 @@ pub fn preview(p: Preview) -> PartMap {
         .unwrap_or_default();
     m.set("url", Part::Text(url));
     if let Some(d) = row.and_then(|r| r.as_date("date")) {
+        let member = row
+            .map(|r| cfg.pairing_member(r))
+            .unwrap_or_default();
         m.set("date", Part::Text(crate::model::iso_date(d)));
-        m.set("date_pretty", Part::Text(crate::model::pretty_date(d)));
+        m.set(
+            "date_pretty",
+            Part::Text(cfg.format_date(d, "medium_date", &member)),
+        );
     }
     if let Some(s) = &p.src {
         m.set("src", Part::Text(s.clone()));
@@ -891,6 +911,12 @@ pub fn preview(p: Preview) -> PartMap {
         m.set("content", Part::Html(c.clone()));
     }
     m
+}
+
+/// A part is filled when the row answers it — one projection serves a post, a
+/// book and a photograph (q36).
+pub fn preview(cfg: &crate::config::Config, p: Preview) -> PartMap {
+    route_face(cfg, "row", p)
 }
 
 /// Wrapper `row` for an aggregate page: furniture around already-concatenated
@@ -1114,7 +1140,7 @@ mod tests {
                 .iter()
                 .filter_map(|k| db.rows.get(k))
                 .map(|p| {
-                    let mut m = preview(Preview {
+                    let mut m = preview(&cfg, Preview {
                         row: Some(p),
                         content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
                         ..Default::default()

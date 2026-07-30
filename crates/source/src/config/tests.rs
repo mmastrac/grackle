@@ -757,6 +757,8 @@ fn a_trail_level_with_no_label_is_a_load_error() {
 }
 
 const TRAIL_CHAIN: &str = "trail = \"monthly_archive\"\n\
+         [i18n.tables.months]\n\
+         1 = \"January\"\n\
          [routes.yearly_archive]\n\
          path = \"/blog/{year}/\"\n\
          from = \"blog\"\n\
@@ -768,7 +770,7 @@ const TRAIL_CHAIN: &str = "trail = \"monthly_archive\"\n\
          from = \"yearly_archive\"\n\
          group_by = \"date.month\"\n\
          layout = \"card\"\n\
-         crumb = \"{month_name}\"\n";
+         crumb = \"@months[{month}]\"\n";
 
 /// The field names serde accepts for `T`, read out of its own
 /// `deny_unknown_fields` complaint — renames applied, skipped fields
@@ -1876,9 +1878,118 @@ fn string_hierarchy_resolves() {
     assert_eq!(c.i18n_text(t, "fr"), "Inline wins");
     let t = c.views["b"].crumb.as_ref().unwrap();
     assert_eq!(c.i18n_text(t, "en"), "@literal-at");
-    // Global overrides the engine built-in; absent key keeps it.
+    // Declared override; absent key is empty (defaults live in base.toml).
     assert_eq!(c.i18n_string("home", "fr"), "Accueil");
-    assert_eq!(c.i18n_string("related", "fr"), "Related");
+    assert_eq!(c.i18n_string("related", "fr"), "");
+}
+
+#[test]
+fn i18n_tables_resolve_and_merge() {
+    // Base ships months; inherited untouched.
+    let c = Config::from_toml(
+        "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+         [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
+    )
+    .unwrap();
+    c.validate().unwrap();
+    assert_eq!(c.i18n_table("months", "1", "en"), "January");
+    assert_eq!(c.i18n_table("months", "7", "en"), "July");
+    assert_eq!(c.i18n_table("months", "13", "en"), "");
+    assert_eq!(c.i18n_string("home", "en"), "Home");
+
+    // A named table is a TableAtom: the site's months replace base's whole.
+    let c = Config::from_toml(
+        "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+         [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
+         [i18n.tables.months]\n7 = { en = \"July\", fr = \"juillet\" }\n",
+    )
+    .unwrap();
+    c.validate().unwrap();
+    assert_eq!(c.i18n_table("months", "1", "en"), "");
+    assert_eq!(c.i18n_table("months", "7", "fr"), "juillet");
+    assert_eq!(c.i18n_table("months", "7", "en"), "July");
+}
+
+#[test]
+fn render_localized_resolves_table_refs() {
+    let c = Config::from_toml(
+        "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+         [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
+         [i18n.tables.months]\n7 = { en = \"July\", fr = \"juillet\" }\n",
+    )
+    .unwrap();
+    let get = |tok: &str| match tok {
+        "month" => Some("07".into()),
+        "year" => Some("2022".into()),
+        _ => None,
+    };
+    let crumb = LocalizedStr::One("@months[{month}]".into());
+    assert_eq!(
+        c.render_localized(&crumb, "fr", &get).unwrap(),
+        "juillet"
+    );
+    let title = LocalizedStr::One("{year} @months[{month}]".into());
+    assert_eq!(
+        c.render_localized(&title, "en", &get).unwrap(),
+        "2022 July"
+    );
+    // `@@` keeps a literal `@months[…]`.
+    let lit = LocalizedStr::One("@@months[{month}]".into());
+    assert_eq!(
+        c.render_localized(&lit, "en", &get).unwrap(),
+        "@months[07]"
+    );
+}
+
+#[test]
+fn format_date_expands_medium_date_template() {
+    let c = Config::from_toml(
+        "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+         [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n",
+    )
+    .unwrap();
+    let d = chrono::NaiveDate::from_ymd_opt(2022, 3, 16).unwrap();
+    assert_eq!(c.format_date(d, "medium_date", "en"), "16 March 2022");
+    assert_eq!(c.format_date(d, "short_date", "en"), "16 Mar 2022");
+    assert_eq!(c.format_date(d, "long_date", "en"), "March 16, 2022");
+    // Site override of the template + French month name.
+    let c = Config::from_toml(
+        "[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+         [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
+         [i18n.strings]\nmedium_date = \"{day} @months[{month}] {year}\"\n\
+         [i18n.tables.months]\n3 = { en = \"March\", fr = \"mars\" }\n",
+    )
+    .unwrap();
+    assert_eq!(c.format_date(d, "medium_date", "fr"), "16 mars 2022");
+}
+
+#[test]
+fn unknown_i18n_table_ref_is_a_load_error() {
+    let e = cfg_err(
+        "[axes.locale]\nvalues = [\"en\"]\nfield = \"locale\"\n\
+         [routes.x]\npath = \"/x/\"\nfrom = \"blog\"\n\
+         group_by = \"date.month\"\ncrumb = \"@nope[{month}]\"\n",
+    );
+    assert!(e.contains("@nope"), "{e}");
+    assert!(e.contains("names no table") || e.contains("no table"), "{e}");
+}
+
+#[test]
+fn i18n_table_member_maps_are_checked() {
+    let e = cfg_err(
+        "[axes.locale]\nvalues = [\"en\"]\nfield = \"locale\"\n\
+         [i18n.tables.months]\n1 = { en = \"January\", fr = \"janvier\" }\n",
+    );
+    assert!(e.contains("i18n.tables.months.1"), "{e}");
+    assert!(e.contains("fr"), "{e}");
+}
+
+/// `extends = "none"` inherits no vocabulary — Home is empty until declared.
+#[test]
+fn extends_none_has_no_i18n_vocabulary() {
+    let c = cfg("");
+    assert_eq!(c.i18n_string("home", "en"), "");
+    assert_eq!(c.i18n_table("months", "1", "en"), "");
 }
 
 /// §6f: a dangling reference and an unused global string are both load

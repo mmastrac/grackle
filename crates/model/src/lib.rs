@@ -165,11 +165,6 @@ pub fn iso_date(d: NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
 }
 
-/// Display date (`16 March 2022`).
-pub fn pretty_date(d: NaiveDate) -> String {
-    d.format("%-d %B %Y").to_string()
-}
-
 /// Previous and next keys around `of` in an ordered sequence.
 pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
     let Some(pos) = seq.iter().position(|k| k == of) else {

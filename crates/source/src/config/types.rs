@@ -467,6 +467,7 @@ impl Shaped for I18nCfg {
             field("axis", |i: &I18nCfg| &i.axis),
             field("names", |i: &I18nCfg| &i.names),
             field("strings", |i: &I18nCfg| &i.strings),
+            field("tables", |i: &I18nCfg| &i.tables),
         ])
     }
 }
@@ -1095,13 +1096,43 @@ pub struct I18nCfg {
     #[serde(default)]
     pub names: BTreeMap<String, String>,
     /// The GLOBAL string map (§6f): the fallback layer of the display-name
-    /// hierarchy (inline beats global beats engine built-in). Engine
-    /// vocabulary keys (ENGINE_STRINGS) override what the engine emits; any
-    /// other key is a shared string for `"@key"` references — and must be
-    /// referenced somewhere, so a typo'd engine key can't hide as an
-    /// accidental unused string. Values are literal (no reference chains).
+    /// hierarchy (inline beats global). Base.toml ships the engine vocabulary
+    /// (`home`, `blog`, …); any other key is a shared string for `"@key"`
+    /// references and must be referenced somewhere. Values are literal (no
+    /// reference chains).
     #[serde(default)]
     pub strings: BTreeMap<String, LocalizedStr>,
+    /// Indexed tables (§6f): name → [`I18nTable`]. Base ships `months`; a site
+    /// that overrides a named table replaces it whole (same atom law as a
+    /// LocalizedStr — so `[i18n]` stays one `Descend` deep with `strings`).
+    #[serde(default)]
+    pub tables: BTreeMap<String, I18nTable>,
+}
+
+/// One indexed table under `[i18n.tables.<name>]` — index → LocalizedStr.
+///
+/// A table-spelled atom: the merge takes the whole map, so a site that wants
+/// a different July restates the months it still needs (or inherits base's
+/// `months` untouched). Keeping this an atom is what lets `tables` sit beside
+/// `strings` under one `Descend(2)` on `[i18n]`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(transparent)]
+pub struct I18nTable(BTreeMap<String, LocalizedStr>);
+
+impl I18nTable {
+    pub fn get(&self, index: &str) -> Option<&LocalizedStr> {
+        self.0.get(index)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &LocalizedStr)> {
+        self.0.iter()
+    }
+}
+
+impl Shaped for I18nTable {
+    fn shape() -> Shape {
+        Shape::TableAtom
+    }
 }
 
 impl Default for I18nCfg {
@@ -1112,28 +1143,10 @@ impl Default for I18nCfg {
             axis: default_i18n_axis(),
             names: BTreeMap::new(),
             strings: BTreeMap::new(),
+            tables: BTreeMap::new(),
         }
     }
 }
-
-/// The engine's display vocabulary: every string the engine emits into
-/// pages, with its built-in default. `[i18n.strings]` may override any of
-/// these (per locale or wholesale); nothing else may appear there.
-pub const ENGINE_STRINGS: &[(&str, &str)] = &[
-    ("home", "Home"),
-    // Titles the BASE CONFIG's routes wear (§4d). They live here rather than
-    // as literals in `base.toml` so that an inherited route localizes like
-    // every other engine string — a site retitles `/blog/` in one place, in
-    // every language, without restating the route.
-    ("blog", "Blog"),
-    ("drafts", "Drafts"),
-    ("related", "Related"),
-    ("later", "Later post"),
-    ("earlier", "Earlier post"),
-    ("linked_from", "Linked from"),
-    ("translations", "Translations"),
-    ("page", "Page {n}"),
-];
 
 fn default_i18n_axis() -> Option<String> {
     Some("locale".to_string())
@@ -1145,24 +1158,34 @@ impl I18nCfg {
         self.names.get(locale).map(String::as_str).unwrap_or(locale)
     }
 
-    /// A named string (§6f) for a member: the global `[i18n.strings]` entry
-    /// if declared, else the engine built-in. `canonical` is the pairing
-    /// axis's first member — the fallback key for a per-member map.
+    /// A named string from the merged `[i18n.strings]` map. Missing → `""`.
+    /// `canonical` is the pairing axis's first member — the fallback key for
+    /// a per-member map.
     pub fn string<'a>(&'a self, key: &str, member: &str, canonical: &str) -> &'a str {
-        if let Some(s) = self.strings.get(key) {
-            return s.get(member, canonical);
-        }
-        ENGINE_STRINGS
-            .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, v)| *v)
+        self.strings
+            .get(key)
+            .map(|s| s.get(member, canonical))
+            .unwrap_or("")
+    }
+
+    /// An indexed table entry from `[i18n.tables.<name>]`. Missing → `""`.
+    pub fn table<'a>(
+        &'a self,
+        name: &str,
+        index: &str,
+        member: &str,
+        canonical: &str,
+    ) -> &'a str {
+        self.tables
+            .get(name)
+            .and_then(|t| t.get(index))
+            .map(|s| s.get(member, canonical))
             .unwrap_or("")
     }
 
     /// Resolve a display-name site (§6f): an inline value wins outright;
-    /// an `"@key"` reference falls back to the global map (which itself
-    /// falls back to engine built-ins). Load validation guarantees every
-    /// reference resolves.
+    /// an `"@key"` reference falls back to the global map. Load validation
+    /// guarantees every reference resolves.
     pub fn text<'a>(&'a self, s: &'a LocalizedStr, member: &str, canonical: &str) -> &'a str {
         match s.reference() {
             Some(key) => self.string(key, member, canonical),
@@ -1401,10 +1424,11 @@ pub struct RecordCfg {
 }
 
 /// THE shape for display names (§6f): any human-facing string the config
-/// authors is either a bare string, a per-member map, or a REFERENCE
-/// (`"@key"`) into the global `[i18n.strings]` map. The hierarchy is
-/// inline beats global beats engine built-in: write a value at the site
-/// to be surgical, name a shared string to say one thing everywhere.
+/// authors is either a bare string, a per-member map, or a REFERENCE into
+/// the global i18n maps — `"@key"` for `[i18n.strings]`, `"@table[index]"`
+/// for `[i18n.tables]` (index may itself be a `{token}` template). The
+/// hierarchy is inline beats global: write a value at the site to be
+/// surgical, name a shared string or table entry to say one thing everywhere.
 /// Validated at load: per-member maps name only declared pairing-axis
 /// members and include the canonical (resolution is total); references must
 /// resolve; `"@@…"` escapes a literal leading `@`.
@@ -1415,12 +1439,88 @@ pub enum LocalizedStr {
     PerMember(BTreeMap<String, String>),
 }
 
+/// `"@name[index]"` — a table lookup. `name` is `[A-Za-z0-9_]`; `index` is
+/// everything up to the first closing `]`. Matches a prefix of `s` (so
+/// embedded refs in `"{year} @months[03]"` parse).
+pub fn parse_table_ref(s: &str) -> Option<(&str, &str)> {
+    let rest = s.strip_prefix('@').filter(|r| !r.starts_with('@'))?;
+    let (name, after) = rest.split_once('[')?;
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return None;
+    }
+    let close = after.find(']')?;
+    Some((name, &after[..close]))
+}
+
+/// Strip leading zeros from an all-digit table index (`"03"` → `"3"`) so
+/// zero-padded `{month}` params hit base keys `"1"`…`"12"`. A lone `"0"`
+/// stays `"0"`.
+pub fn normalize_table_index(index: &str) -> String {
+    if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) {
+        let trimmed = index.trim_start_matches('0');
+        if trimmed.is_empty() {
+            "0".into()
+        } else {
+            trimmed.into()
+        }
+    } else {
+        index.to_string()
+    }
+}
+
+/// Every `@name[…]` table name in `text`, skipping `@@` escapes.
+pub fn table_ref_names(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find('@') {
+        let after = &rest[at + 1..];
+        if after.starts_with('@') {
+            rest = &after[1..];
+            continue;
+        }
+        if let Some((name, index)) = parse_table_ref(&rest[at..]) {
+            out.push(name);
+            rest = &rest[at + 1 + name.len() + 1 + index.len() + 1..];
+        } else {
+            rest = after;
+        }
+    }
+    out
+}
+
 impl LocalizedStr {
-    /// The `"@key"` reference form, if this is one.
+    /// The `"@key"` string-map reference, if this is one (not `@table[…]`).
     pub fn reference(&self) -> Option<&str> {
         match self {
-            LocalizedStr::One(s) => s.strip_prefix('@').filter(|rest| !rest.starts_with('@')),
+            LocalizedStr::One(s) => s
+                .strip_prefix('@')
+                .filter(|rest| !rest.starts_with('@') && !rest.contains('[')),
             LocalizedStr::PerMember(_) => None,
+        }
+    }
+
+    /// The whole-value `"@table[index]"` form, if this is one.
+    pub fn table_ref(&self) -> Option<(&str, &str)> {
+        match self {
+            LocalizedStr::One(s) => {
+                let (name, index) = parse_table_ref(s)?;
+                let span = 1 + name.len() + 1 + index.len() + 1;
+                (span == s.len()).then_some((name, index))
+            }
+            LocalizedStr::PerMember(_) => None,
+        }
+    }
+
+    /// Table names referenced by this value (whole-value or embedded).
+    pub fn table_names(&self) -> Vec<&str> {
+        match self {
+            LocalizedStr::One(s) if s.starts_with("@@") => Vec::new(),
+            LocalizedStr::One(s) => table_ref_names(s),
+            LocalizedStr::PerMember(m) => m.values().flat_map(|v| table_ref_names(v)).collect(),
         }
     }
 
@@ -1429,8 +1529,21 @@ impl LocalizedStr {
     /// Reference-blind — resolution with the global map is `I18nCfg::text`.
     pub fn get<'a>(&'a self, member: &str, canonical: &str) -> &'a str {
         match self {
-            // "@@literal" -> "@literal"
-            LocalizedStr::One(s) => s.strip_prefix('@').unwrap_or(s),
+            // `@@literal` → `@literal`. A value that starts with `@name[…]`
+            // is a table-ref template (date formats, …) — keep the `@` so
+            // later expansion can see it. Bare `@key` references go through
+            // [`Self::reference`], not here.
+            LocalizedStr::One(s) => {
+                if s.starts_with("@@") {
+                    s.strip_prefix('@').unwrap_or(s)
+                } else if parse_table_ref(s).is_some()
+                    || (s.starts_with('@') && s.contains('['))
+                {
+                    s
+                } else {
+                    s.strip_prefix('@').unwrap_or(s)
+                }
+            }
             LocalizedStr::PerMember(m) => m
                 .get(member)
                 .or_else(|| m.get(canonical))
@@ -1926,8 +2039,9 @@ pub struct View {
     pub limit: Option<usize>,
     pub template: Option<String>,
     /// Listing title, as a template over the route's group params
-    /// (`"{year} {month_name}"`, `"Posts Tagged “{key}”"`). Same placeholder
-    /// language as routes, same load-time discipline.
+    /// (`"{year} @months[{month}]"`, `"Posts Tagged “{key}”"`). Same
+    /// placeholder language as routes, plus `@table[index]` into
+    /// `[i18n.tables]`. Same load-time discipline.
     pub title: Option<LocalizedStr>,
     /// What this view contributes to descendants' breadcrumb trails.
     /// Defaults to `title`. Per-member maps carry the pairing axis (§6f).
