@@ -11,7 +11,6 @@ use crate::markdown::Doc;
 use crate::model::{Route, RouteKind, SiteDb};
 use crate::parts;
 use crate::passes::preview;
-use crate::pipeline::bodies;
 use crate::pipeline::prepass;
 use crate::pipeline::types::{PageBody, SiteOutput, Stats};
 use crate::render::{self, Site, Theme};
@@ -371,100 +370,10 @@ pub(crate) fn run(
         stats.listings += 1;
     }
 
-    // ---- feed: the atom.xml serialization (the `feed` view's template).
-    //
-    // A serialization, not a themed page — it bypasses the shell entirely (§5e:
-    // "feed bypasses themes; serializations have no look"). The route already
-    // carries its members (the 20 newest published, newest-first); we render
-    // each body and apply the feed's content transforms.
-    let updated = chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%S+00:00")
-        .to_string();
-    for r in &db.routes {
-        let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else {
-            continue;
-        };
-        // The atom SHELL: the same rows, a different outermost wrapper —
-        // declared, not inferred from a template filename (q44).
-        if v.shell.as_deref() != Some("atom") {
-            continue;
-        }
-        // `members` indexes one row store whatever the view's base table, so
-        // the kind does not enter into it. Finding the row's HTML does: posts
-        // hold their body, tree rows are re-read, and the two maps below
-        // answer that. A dated tree collection can have a feed.
-        let entries: Vec<(&crate::model::Row, &str)> = r
-            .members
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .map(|p| {
-                (
-                    p,
-                    bodies::row_body_html(p, bodies, page_bodies).unwrap_or(""),
-                )
-            })
-            .collect();
-        let xml = render::feed(site, &r.url, &updated, &entries);
-        out_map.insert(r.url.clone(), xml.into_bytes());
-        stats.serialized += 1;
-    }
-
-    // ---- sitemap fold shell
+    // ---- fold shells: atom, sitemap, registered scripts
+    crate::shells::atom::emit(cfg, db, site, bodies, page_bodies, out_map, stats);
     crate::shells::sitemap::emit(cfg, db, site, out_map, stats);
-
-    // ---- script shells (§5g, the pun intended): registered serializations.
-    //
-    // The experimental bench: a `[shells.name] command = "…"` entry plus
-    // `shell = "name"` on a view pipes the view's member rows as JSON into
-    // the command's stdin, and whatever bytes it prints land at the view's
-    // route verbatim — PDF, PostScript, whatever. The JSON schema is TEMP
-    // (stamped "grackle-shell/0"); it gets versioned the day anything
-    // beyond an experiment depends on it. A shell that earns keeping gets
-    // promoted to a built-in.
-    for r in &db.routes {
-        let Some(view) = &r.view else { continue };
-        let Some(v) = cfg.views.get(view) else {
-            continue;
-        };
-        let Some(shell) = v.shell.as_deref() else {
-            continue;
-        };
-        let Some(def) = cfg.shells.get(shell) else {
-            continue;
-        };
-        let rows: Vec<serde_json::Value> = r
-            .members
-            .iter()
-            .filter_map(|k| db.rows.get(k))
-            .map(|p| {
-                let fields: serde_json::Map<String, serde_json::Value> = p
-                    .fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), field_json(v)))
-                    .collect();
-                serde_json::json!({
-                    "url": p.url,
-                    "title": p.title,
-                    "date": p.as_date("date").map(render::xmlschema),
-                    "fields": fields,
-                    "html": bodies::row_body_html(p, bodies, page_bodies).unwrap_or(""),
-                })
-            })
-            .collect();
-        let payload = serde_json::json!({
-            "schema": "grackle-shell/0",
-            "shell": shell,
-            "view": view,
-            "route": r.url,
-            "site": { "url": site.url, "title": site.title, "author": site.author },
-            "rows": rows,
-        });
-        let bytes = run_script_shell(root, &def.command, &payload)
-            .with_context(|| format!("view {view}: script shell {shell:?} ({})", def.command))?;
-        out_map.insert(r.url.clone(), bytes);
-        stats.serialized += 1;
-    }
+    crate::shells::script::emit(cfg, db, site, bodies, page_bodies, root, out_map, stats)?;
 
     // ---- tree: rendered pages + static passthrough + objects
     //
@@ -662,56 +571,6 @@ pub(crate) fn run(
     }
 
     Ok(())
-}
-
-pub(crate) fn field_json(v: &crate::filter::Value) -> serde_json::Value {
-    use crate::filter::Value as V;
-    match v {
-        V::Str(s) => serde_json::json!(s),
-        V::Int(i) => serde_json::json!(i),
-        V::Double(d) => serde_json::json!(d),
-        V::Bool(b) => serde_json::json!(b),
-        V::List(items) => serde_json::json!(items),
-        V::Null => serde_json::Value::Null,
-    }
-}
-
-/// Run a registered script shell (§5g): `sh -c command` from the site root,
-/// JSON on stdin, bytes on stdout. Non-zero exit is a build error carrying
-/// stderr — a script shell fails loud, like everything else. Stdin is fed
-/// from a thread so a script that streams output before draining its input
-/// can't deadlock against the pipe buffer.
-pub(crate) fn run_script_shell(
-    root: &Path,
-    command: &str,
-    payload: &serde_json::Value,
-) -> Result<Vec<u8>> {
-    use std::io::Write;
-    use std::process::{Command as Proc, Stdio};
-    let mut child = Proc::new("sh")
-        .arg("-c")
-        .arg(command)
-        .current_dir(root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawn failed")?;
-    let mut stdin = child.stdin.take().expect("stdin was piped");
-    let data = serde_json::to_vec(payload)?;
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&data);
-    });
-    let out = child.wait_with_output()?;
-    let _ = writer.join();
-    if !out.status.success() {
-        anyhow::bail!(
-            "exited {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(out.stdout)
 }
 
 /// Section outline for a row inside a `.section` unit (§6e), cached per unit.
