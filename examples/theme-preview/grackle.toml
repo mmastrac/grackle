@@ -199,19 +199,6 @@ name = "objects"
   route = "/{path}"
   defaults = { shell = "raw" }
 
-# ---------------------------------------------------------------- widgets
-
-[widgets]
-callout = """
-<callout>
-<div>
-
-{body}
-
-</div>
-</callout>
-"""
-
 # ------------------------------------------------------------------- sets
 
 [sets.published]
