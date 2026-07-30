@@ -1843,7 +1843,7 @@ Three lines had to be drawn:
 - A theme fragment wants a conditional → there is a missing fact; empty-collapses cover presence, facts-as-attributes cover variants.
 - The binder grows an expression syntax → stop; it is becoming a template language.
 - A slot name appears in CSS but not the part schema → the load-time check should already have caught it; if it didn't, the check is broken.
-## 5f. One expression language: CEL, subsetted *(specced 2026-07; `fields.summary` / Content built 2026-07-30)*
+## 5f. One expression language: CEL, subsetted *(specced 2026-07; `summary` / `toc` built 2026-07-30)*
 
 q31 settled the direction — extend `filter.rs`, borrow no engine — and this
 section pins the contract: **the expression language is a subset of CEL**
@@ -1871,7 +1871,7 @@ never a grackle-only dialect.
 | config key | expression type | status |
 |---|---|---|
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
-| `fields.NAME =` | a typed value over the row (content, text, …) | built for `summary` / `Content` (q31); `outline` / `hero` / `lede` still open |
+| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc`; `hero` / `lede` still open |
 | future derivers (`hero`, `lede`) | same | q23 / q25 |
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
@@ -1901,19 +1901,22 @@ is not optional — an expression that doesn't type-check is a config error.
 ```toml
 [sets.published.fields]
 summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
+toc = 'outline(content, 3)'
 ```
 
 - The registry declares each function like a schema entry: name, argument
   types, return type —
   `truncate_blocks: (content, int) -> content`,
-  `truncate_chars: (content, int) -> content`.
-- **Budgets compose as wrappers**, not as a map-literal options bag. CEL has
-  no named arguments; a later function that needs many options can take a
-  map literal, but truncate does not need one.
-- **Values carry facts.** Each wrapper returns content bearing the
+  `truncate_chars: (content, int) -> content`,
+  `outline: (content, int) -> outline`.
+- **Budgets and depth compose as wrappers / positional ints**, not as a
+  map-literal options bag. CEL has no named arguments; a later function that
+  needs many options can take a map literal, but these do not need one.
+- **Values carry facts.** Each truncate wrapper returns content bearing the
   `truncated` fact when it cut (or when its input already had the fact),
   which the part layer stamps as `data-truncated` (§6d). A fact is part of
-  the value's type, not a side channel.
+  the value's type, not a side channel. `outline` returns an outline tree
+  the part layer turns into `outline_entry` maps.
 - **`fields.NAME` is an untagged Expr | Value** (same shape as `[html.head.*]`
   entries): a TOML string is a CEL expression; other TOML types are literals.
 - **The standard library is what we register, nothing more.** CEL's own
@@ -2646,6 +2649,7 @@ The rule: any `<style>` block in a row's body is extracted by the HTML rewrite p
 ```toml
 [sets.published.fields]
 summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
+toc = 'outline(content, 3)'
 ```
 
 `Content::truncate_*` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The value's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole.
@@ -2797,7 +2801,9 @@ This is the **first self-referential schema**: streams render their child fragme
 
 - **Source: the same parse that renders.** `render_doc` walks the AST once; collecting `(level, id, text)` per heading is a few lines in that walk. Ids are comrak's `auto_ids` — already emitted, already verified — and because the outline is extracted from the same AST pass that emits them, link and target *cannot* desynchronize.
 - **Opt-in is schema, cascaded by the tree.** `toc: true` front matter, with markers/rules supplying subtree defaults, so "everything under `doc/` has a ToC" is one marker.
-- **Depth is production policy, not CSS.** v1 hardcodes h2–h3; the §5f expression form is the future home — `toc = outline(content, {"max_depth": 3})`.
+- **Depth is production policy, not CSS.** `fields.toc = 'outline(content, 3)'`
+  (§5f); the int is max heading level, min stays 2 so the page title is out.
+  Opt-in remains the row bool `toc: true` (markers/rules cascade it).
 
 ### The section tree (path axis)
 
@@ -3392,7 +3398,7 @@ One line per retired question; the named section carries the design.
 | 24 | fragment variants: `{kind}--{variant}` → base → canonical; `data-fragment` resolves at load | §5e |
 | 27 | index-less dirs render as unlinked labels in section trees; the auto-index view is a landing with no intro row | §6e, §5h |
 | 29 | `{% callout %}` widgets: `[widgets]` registry, paired-tag expansion, no arguments, no conditionals | §5d |
-| 31 | expressions extend `filter.rs` as a strict CEL subset; `fields.summary` / `Content` / `truncate_*` built; `outline` / `hero` / `lede` remain | §5f |
+| 31 | expressions extend `filter.rs` as a strict CEL subset; `summary` / `toc` (`Content` / `Outline` / `truncate_*` / `outline`) built; `hero` / `lede` remain | §5f |
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |

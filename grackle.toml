@@ -190,6 +190,7 @@ callout = """
 
     [profiles.drafts.sets.published.fields]
     summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
+    toc = 'outline(content, 3)'
 
   [profiles.drafts.routes.search]
   path = "/search.bin"
@@ -215,6 +216,7 @@ order_by = "-date"
   # (the ★) on the Content value.
   [sets.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
+  toc = 'outline(content, 3)'
 
 # No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
 # with `{% assign latest_count %}` because `site.posts | limit: 3` slices before

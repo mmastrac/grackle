@@ -309,8 +309,12 @@ pub(crate) fn member_rows(
         .get("summary")
         .and_then(|f| f.as_expr())
         .map(|src| {
-            grackle_db::FieldExpr::parse(src, &grackle_db::filter::field_schema())
-                .expect("summary field validated at load")
+            grackle_db::FieldExpr::parse(
+                src,
+                &grackle_db::field_schema(),
+                grackle_db::Type::Content,
+            )
+            .expect("summary field validated at load")
         });
     let mut out = Vec::new();
     for k in members {
@@ -323,9 +327,12 @@ pub(crate) fn member_rows(
             let (html, truncated) = match bodies.get(&p.key) {
                 Some(d) => match &summary {
                     Some(expr) => {
-                        let c = expr.eval(&ContentRow {
+                        let c = match expr.eval(&ContentRow {
                             content: grackle_db::Content::new(d.blocks.clone()),
-                        });
+                        }) {
+                            grackle_db::Value::Content(c) => c,
+                            _ => grackle_db::Content::new(d.blocks.clone()),
+                        };
                         (c.html(), c.truncated)
                     }
                     None => (d.whole.clone(), false),

@@ -1025,6 +1025,18 @@ impl Config {
         out
     }
 
+    /// First expression source for a computed field name across all views
+    /// (via `fields_for` inheritance). Document emit uses this for `toc`;
+    /// listings already know their view.
+    pub fn field_expr(&self, name: &str) -> Option<&str> {
+        for vname in self.views.keys() {
+            if let Some(src) = self.fields_for(vname).get(name).and_then(|f| f.as_expr()) {
+                return Some(src);
+            }
+        }
+        None
+    }
+
     /// Site root, resolved relative to the config file's directory.
     pub fn root(&self) -> PathBuf {
         let joined = self.dir.join(&self.root);
@@ -1143,7 +1155,9 @@ impl Config {
                     grackle_db::Value::Int(n) => n.to_string(),
                     grackle_db::Value::Bool(b) => b.to_string(),
                     grackle_db::Value::Double(d) => d.to_string(),
-                    grackle_db::Value::Content(_) | grackle_db::Value::Null => String::new(),
+                    grackle_db::Value::Content(_)
+                    | grackle_db::Value::Outline(_)
+                    | grackle_db::Value::Null => String::new(),
                 },
             })
         })

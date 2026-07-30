@@ -17,7 +17,10 @@ pub mod view;
 // a caller has to render, is public.
 mod index;
 
-pub use filter::{Content, FieldExpr, Filter, Row, Schema, Text, Type, Value};
+pub use filter::{
+    field_return_type, field_schema, Content, FieldExpr, Filter, Heading, OutlineNode, Row, Schema,
+    Text, Type, Value,
+};
 pub use index::Collision;
 pub use key::{Key, Keyed};
 pub use table::Table;

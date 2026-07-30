@@ -75,7 +75,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
         // somehow did, rather than silently dropped.
         filter::Value::Double(d) => vec![mk(SortKey::Str(d.to_string()), d.to_string())],
         filter::Value::Bool(b) => vec![mk(SortKey::Str(b.to_string()), b.to_string())],
-        filter::Value::Content(_) | filter::Value::Null => Vec::new(),
+        filter::Value::Content(_) | filter::Value::Outline(_) | filter::Value::Null => Vec::new(),
     }
 }
 

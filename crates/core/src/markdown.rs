@@ -232,46 +232,16 @@ impl Doc {
     /// that ship — link and target cannot desync (§6e), the search-wasm
     /// argument applied to anchors.
     pub fn headings(&self) -> Vec<Heading> {
-        self.blocks.iter().filter_map(|b| heading_of(b)).collect()
+        grackle_db::Content::new(self.blocks.clone())
+            .headings()
+            .into_iter()
+            .map(|h| Heading {
+                level: h.level,
+                id: h.id,
+                text: h.text,
+            })
+            .collect()
     }
-}
-
-fn heading_of(html: &str) -> Option<Heading> {
-    let h = html.trim_start();
-    let rest = h.strip_prefix("<h")?;
-    let level = rest.bytes().next().filter(u8::is_ascii_digit)? - b'0';
-    if !(1..=6).contains(&level) {
-        return None;
-    }
-    let i = h.find("id=\"")? + 4;
-    let id = h[i..].split('"').next()?.to_string();
-    let text = unescape(&visible_text(h));
-    Some(Heading { level, id, text })
-}
-
-/// Visible text of a fragment: characters outside tags, trimmed. The
-/// heading's trailing anchor link is empty, so it contributes nothing.
-fn visible_text(html: &str) -> String {
-    let mut out = String::new();
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    out.trim().to_string()
-}
-
-/// Fold comrak's text escapes back to characters — the label re-escapes at
-/// fill time (`Part::Text`), so leaving entities would double-escape.
-fn unescape(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
 }
 
 #[cfg(test)]

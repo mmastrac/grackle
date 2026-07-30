@@ -39,6 +39,9 @@ pub enum Type {
     /// expressions, not a schema column. Carries the `truncated` fact when
     /// a `truncate_*` wrapper cuts.
     Content,
+    /// A heading tree from `outline(content, max)` (§5f / §6e). Internal to
+    /// field expressions; the part layer turns it into `outline_entry` maps.
+    Outline,
     /// A string column whose values are a **closed set** — the column is
     /// backed by a Rust enum, so the engine knows every value it can ever
     /// hold. Behaves as [`Type::Str`] in every rule of the language; the
@@ -92,6 +95,7 @@ impl fmt::Display for Type {
             Type::Str | Type::Enum(_) => "string",
             Type::List => "list",
             Type::Content => "content",
+            Type::Outline => "outline",
         })
     }
 }
@@ -137,6 +141,93 @@ impl Content {
             truncated: self.truncated || cut < self.blocks.len(),
         }
     }
+
+    /// Headings extracted from rendered block HTML (`<hN id="…">`), in order.
+    pub fn headings(&self) -> Vec<Heading> {
+        self.blocks.iter().filter_map(|b| heading_of(b)).collect()
+    }
+
+    /// Heading tree for levels `2..=max` (page-title h1 stays out). Same
+    /// nesting as the document ToC: jumps nest under the nearest shallower.
+    pub fn outline(&self, max: u8) -> Vec<OutlineNode> {
+        heading_tree(&self.headings(), 2, max)
+    }
+}
+
+/// One heading in rendered HTML.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Heading {
+    pub level: u8,
+    pub id: String,
+    pub text: String,
+}
+
+/// One node in an `outline(content, max)` tree.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct OutlineNode {
+    pub label: String,
+    pub url: Option<String>,
+    pub children: Vec<OutlineNode>,
+}
+
+fn heading_of(html: &str) -> Option<Heading> {
+    let h = html.trim_start();
+    let rest = h.strip_prefix("<h")?;
+    let level = rest.bytes().next().filter(u8::is_ascii_digit)? - b'0';
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    let i = h.find("id=\"")? + 4;
+    let id = h[i..].split('"').next()?.to_string();
+    let text = unescape(&visible_text(h));
+    Some(Heading { level, id, text })
+}
+
+fn visible_text(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+fn unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+}
+
+/// Nest headings by level; a jump (h2 → h4) nests under the nearest shallower.
+pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<OutlineNode> {
+    fn build(hs: &[&Heading], i: &mut usize, parent: u8) -> Vec<OutlineNode> {
+        let mut out = Vec::new();
+        while *i < hs.len() {
+            let h = hs[*i];
+            if h.level <= parent {
+                break;
+            }
+            *i += 1;
+            let children = build(hs, i, h.level);
+            out.push(OutlineNode {
+                label: h.text.clone(),
+                url: Some(format!("#{}", h.id)),
+                children,
+            });
+        }
+        out
+    }
+    let kept: Vec<&Heading> = hs
+        .iter()
+        .filter(|h| h.level >= min && h.level <= max)
+        .collect();
+    build(&kept, &mut 0, 0)
 }
 
 /// Block index where a budget cuts: walk from the start, stop at the first
@@ -189,6 +280,7 @@ pub enum Value {
     Str(String),
     List(Vec<String>),
     Content(Content),
+    Outline(Vec<OutlineNode>),
     Null,
 }
 
@@ -202,6 +294,7 @@ impl Value {
             Value::Str(_) => "a string",
             Value::List(_) => "a list",
             Value::Content(_) => "content",
+            Value::Outline(_) => "an outline",
             Value::Null => "null",
         }
     }
@@ -255,9 +348,7 @@ impl Value {
             Value::Double(d) => *d != 0.0,
             Value::Str(s) => !s.is_empty(),
             Value::List(v) => !v.is_empty(),
-            // Content is not a predicate; a bare `content` in `where` is a
-            // type error at load when the schema has no such column.
-            Value::Content(_) => false,
+            Value::Content(_) | Value::Outline(_) => false,
             Value::Null => false,
         }
     }
@@ -465,6 +556,16 @@ fn eval_truncate_chars(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     }
 }
 
+fn eval_outline(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Content(c)), Some(Value::Int(n))) => {
+            let max = (*n).clamp(1, 6) as u8;
+            Value::Outline(c.outline(max))
+        }
+        _ => Value::Null,
+    }
+}
+
 /// The closed set of things a function may precompute. Small on purpose: it
 /// is a cache, not a second value type.
 #[derive(Debug, Clone)]
@@ -579,6 +680,15 @@ const FUNCS: &[Func] = &[
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_truncate_chars,
+    },
+    // §6e heading ToC: max level is positional (3 ≡ today's h2–h3 window);
+    // min stays 2 so the page title is never an entry.
+    Func {
+        name: "outline",
+        params: &[Type::Content, Type::Int],
+        returns: Type::Outline,
+        prepare: no_prep,
+        eval: eval_outline,
     },
 ];
 
@@ -1405,16 +1515,17 @@ impl Text {
     }
 }
 
-/// A computed-field expression (§5f / §6d): a `Content`-yielding operand over
-/// an environment that binds `content` (and whatever else the caller puts in
-/// the schema).
+/// A computed-field expression (§5f / §6d): an operand over an environment
+/// that binds `content`. Return type is checked at parse (`Content` or
+/// `Outline`).
 #[derive(Debug, Clone)]
 pub struct FieldExpr {
     op: Operand,
+    returns: Type,
 }
 
 impl FieldExpr {
-    pub fn parse(src: &str, schema: &Schema) -> Result<Self> {
+    pub fn parse(src: &str, schema: &Schema, want: Type) -> Result<Self> {
         let toks = lex(src)?;
         if toks.is_empty() {
             bail!("a field expression cannot be empty");
@@ -1425,17 +1536,18 @@ impl FieldExpr {
             bail!("trailing tokens after a complete expression");
         }
         let t = operand_type(&op, schema)?;
-        if t != Type::Content {
-            bail!("a field expression must be content, but `{op}` is {t}");
+        if t != want {
+            bail!("a field expression must be {want}, but `{op}` is {t}");
         }
-        Ok(FieldExpr { op })
+        Ok(FieldExpr { op, returns: want })
     }
 
-    pub fn eval(&self, row: &impl Row) -> Content {
-        match operand_value(&self.op, row, &NoCtx) {
-            Value::Content(c) => c,
-            _ => Content::new(Vec::new()),
-        }
+    pub fn returns(&self) -> Type {
+        self.returns
+    }
+
+    pub fn eval(&self, row: &impl Row) -> Value {
+        operand_value(&self.op, row, &NoCtx)
     }
 
     pub fn referenced_fields(&self) -> Vec<String> {
@@ -1450,6 +1562,15 @@ pub fn field_schema() -> Schema {
     let mut s = Schema::new();
     s.insert("content", Type::Content);
     s
+}
+
+/// Expected return type for a named computed field.
+pub fn field_return_type(name: &str) -> Option<Type> {
+    match name {
+        "summary" => Some(Type::Content),
+        "toc" => Some(Type::Outline),
+        _ => None,
+    }
 }
 
 fn collect_fields_expr(e: &Expr, out: &mut Vec<String>) {
@@ -2268,8 +2389,12 @@ mod tests {
     #[test]
     fn field_expr_parses_truncate_chain() {
         let s = field_schema();
-        let expr =
-            FieldExpr::parse("truncate_chars(truncate_blocks(content, 4), 700)", &s).unwrap();
+        let expr = FieldExpr::parse(
+            "truncate_chars(truncate_blocks(content, 4), 700)",
+            &s,
+            Type::Content,
+        )
+        .unwrap();
         struct R(Content);
         impl Row for R {
             fn field(&self, name: &str) -> Value {
@@ -2286,7 +2411,9 @@ mod tests {
             "<p>four</p>".into(),
             "<p>five</p>".into(),
         ]));
-        let out = expr.eval(&row);
+        let Value::Content(out) = expr.eval(&row) else {
+            panic!("expected content");
+        };
         assert_eq!(out.blocks.len(), 4);
         assert!(out.truncated);
     }
@@ -2294,7 +2421,38 @@ mod tests {
     #[test]
     fn field_expr_rejects_non_content() {
         let s = field_schema();
-        let e = FieldExpr::parse("4", &s).unwrap_err().to_string();
+        let e = FieldExpr::parse("4", &s, Type::Content)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("must be content"), "{e}");
+    }
+
+    #[test]
+    fn outline_builds_heading_tree() {
+        let c = Content::new(vec![
+            "<h2 id=\"a\">Alpha</h2>".into(),
+            "<p>x</p>".into(),
+            "<h3 id=\"b\">Beta</h3>".into(),
+            "<h2 id=\"c\">Gamma</h2>".into(),
+        ]);
+        let s = field_schema();
+        let expr = FieldExpr::parse("outline(content, 3)", &s, Type::Outline).unwrap();
+        struct R(Content);
+        impl Row for R {
+            fn field(&self, name: &str) -> Value {
+                match name {
+                    "content" => Value::Content(self.0.clone()),
+                    _ => Value::Null,
+                }
+            }
+        }
+        let Value::Outline(tree) = expr.eval(&R(c)) else {
+            panic!("expected outline");
+        };
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].label, "Alpha");
+        assert_eq!(tree[0].children.len(), 1);
+        assert_eq!(tree[0].children[0].label, "Beta");
+        assert_eq!(tree[1].label, "Gamma");
     }
 }

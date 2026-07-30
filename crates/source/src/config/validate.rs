@@ -343,15 +343,22 @@ impl Config {
             for (fname, f) in &v.fields {
                 match f {
                     Field::Expr(src) => {
-                        grackle_db::FieldExpr::parse(src, &grackle_db::filter::field_schema())
-                            .map_err(|e| {
-                                anyhow::anyhow!("view {vname}: field {fname:?}: {e}")
-                            })?;
+                        let want = grackle_db::field_return_type(fname).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "view {vname}: field {fname:?} is not a known computed \
+                                 field (have: summary, toc)"
+                            )
+                        })?;
+                        grackle_db::FieldExpr::parse(
+                            src,
+                            &grackle_db::field_schema(),
+                            want,
+                        )
+                        .map_err(|e| anyhow::anyhow!("view {vname}: field {fname:?}: {e}"))?;
                     }
-                    Field::Value(_) if fname == "summary" => {
+                    Field::Value(_) if fname == "summary" || fname == "toc" => {
                         anyhow::bail!(
-                            "view {vname}: field \"summary\" must be an expression \
-                             (e.g. summary = 'truncate_chars(truncate_blocks(content, 4), 700)'), \
+                            "view {vname}: field {fname:?} must be an expression, \
                              not a literal value"
                         );
                     }

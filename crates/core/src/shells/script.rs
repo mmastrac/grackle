@@ -84,7 +84,7 @@ fn field_json(v: &crate::filter::Value) -> serde_json::Value {
         V::Double(d) => serde_json::json!(d),
         V::Bool(b) => serde_json::json!(b),
         V::List(items) => serde_json::json!(items),
-        V::Content(_) | V::Null => serde_json::Value::Null,
+        V::Content(_) | V::Outline(_) | V::Null => serde_json::Value::Null,
     }
 }
 

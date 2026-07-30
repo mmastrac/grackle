@@ -765,7 +765,8 @@ author. Here the database framing pays off and can finally be used.
 
 ### 23. Hierarchy: the page's tree and the tree's tree
 - Two axes, one recursive part kind (`outline_entry`), one fragment.
-- **Heading axis**: `toc: true` (cascade it with a marker). Extracted
+- **Heading axis**: `toc: true` (cascade it with a marker). Depth is
+  `fields.toc = 'outline(content, 3)'`. Extracted
   from rendered bytes, so link and target can't desync. ★ depth fixed
   h2–h3.
 - **Path axis**: drop a bare `.section` file. Every row beneath gets the
@@ -1241,8 +1242,8 @@ rather than memorize it.
 ### 36. What isn't real yet
 - The ledger, in one table: `.style.scss`, `.slots/` typed fills,
   **authored `.rewrite.toml` rules**, **the notes/footnote stream +
-  sidenotes**, per-post `<style>`, md shell, **`outline` / `hero` / `lede`
-  field expressions** (`summary` / `Content` already moved onto §5f), board
+  sidenotes**, per-post `<style>`, md shell, **`hero` / `lede`
+  field expressions** (`summary` / `toc` already on §5f), board
   kind, serve v2, pagination × subdivision, per-block facts, audio/video
   field types, faceted filtering, transclusion, profile `baseurl`, the
   route-token supply merge (q51's remainder — a post still can't route to

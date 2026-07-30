@@ -142,29 +142,27 @@ pub fn section_tree(
 /// nearest shallower entry. The depth window is production policy — §6d's
 /// lesson stands: never ship levels a stylesheet hides.
 pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<Node> {
-    fn build(hs: &[&Heading], i: &mut usize, parent: u8) -> Vec<Node> {
-        let mut out = Vec::new();
-        while *i < hs.len() {
-            let h = hs[*i];
-            if h.level <= parent {
-                break;
-            }
-            *i += 1;
-            let children = build(hs, i, h.level);
-            out.push(Node {
-                label: h.text.clone(),
-                url: Some(format!("#{}", h.id)),
-                order: None,
-                children,
-            });
-        }
-        out
-    }
-    let kept: Vec<&Heading> = hs
+    let db_hs: Vec<grackle_db::Heading> = hs
         .iter()
-        .filter(|h| h.level >= min && h.level <= max)
+        .map(|h| grackle_db::Heading {
+            level: h.level,
+            id: h.id.clone(),
+            text: h.text.clone(),
+        })
         .collect();
-    build(&kept, &mut 0, 0)
+    grackle_db::filter::heading_tree(&db_hs, min, max)
+        .into_iter()
+        .map(db_to_node)
+        .collect()
+}
+
+fn db_to_node(n: grackle_db::OutlineNode) -> Node {
+    Node {
+        label: n.label,
+        url: n.url,
+        order: None,
+        children: n.children.into_iter().map(db_to_node).collect(),
+    }
 }
 
 /// The tree as `outline_entry` part maps, with the row's own entry marked
