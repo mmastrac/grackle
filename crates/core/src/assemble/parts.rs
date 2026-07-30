@@ -191,13 +191,11 @@ impl Schemas {
         fields: &[(String, grackle_source::schema::FieldType)],
     ) -> Schemas {
         let mut kinds: Vec<(String, Vec<(&'static str, PartType)>)> = Vec::new();
-        let kind_set: std::collections::BTreeSet<String> =
-            fragments.kinds().into_iter().map(str::to_string).collect();
 
         for (kind, uses) in fragments.slot_uses() {
             let mut parts = Vec::new();
             for u in &uses {
-                let ty = infer_part_type(kind.as_str(), u, &kind_set);
+                let ty = infer_part_type(u);
                 let name: &'static str = Box::leak(u.part.clone().into_boxed_str());
                 if parts.iter().any(|(n, _)| *n == name) {
                     continue;
@@ -309,11 +307,7 @@ fn field_type_enum_as_part(ty: grackle_source::schema::FieldType) -> PartType {
 const HTML_SLOTS: &[&str] = &["content", "intro", "nav", "copyright"];
 const MAP_SLOTS: &[&str] = &["hero", "pagination"];
 
-fn infer_part_type(
-    kind: &str,
-    u: &crate::assemble::binder::SlotUse,
-    kinds: &std::collections::BTreeSet<String>,
-) -> PartType {
+fn infer_part_type(u: &crate::assemble::binder::SlotUse) -> PartType {
     if let Some(target) = u.fragment.as_deref() {
         let child = target.split_once("--").map(|(k, _)| k).unwrap_or(target);
         let child: &'static str = Box::leak(child.to_string().into_boxed_str());
@@ -322,13 +316,6 @@ fn infer_part_type(
         }
         return PartType::Stream(child);
     }
-    // Fallback when a theme omits data-fragment on a known stream/map slot.
-    if let Some(ty) = infer_container(kind, &u.part, kinds) {
-        return ty;
-    }
-    if u.as_url_attr && !u.as_content {
-        return PartType::Url;
-    }
     if u.as_url_attr {
         return PartType::Url;
     }
@@ -336,35 +323,6 @@ fn infer_part_type(
         return PartType::Html;
     }
     PartType::Text
-}
-
-fn infer_container(
-    kind: &str,
-    slot: &str,
-    kinds: &std::collections::BTreeSet<String>,
-) -> Option<PartType> {
-    let child = match (kind, slot) {
-        (_, "crumbs") => "crumb",
-        (_, "tags") => "tag",
-        (_, "pages") => "page_link",
-        (_, "relations") => "relation",
-        (_, "axes") => "axis",
-        (_, "section" | "outline" | "children") => "outline_entry",
-        ("relation", "items") => "neighbor",
-        ("axis", "items") => "axis_member",
-        (_, "pagination") => {
-            return kinds.contains("pagination").then_some(PartType::Map("pagination"));
-        }
-        (_, "hero") => {
-            return kinds.contains("row").then_some(PartType::Map("row"));
-        }
-        _ => return None,
-    };
-    if !kinds.contains(child) {
-        return None;
-    }
-    let child: &'static str = Box::leak(child.to_string().into_boxed_str());
-    Some(PartType::Stream(child))
 }
 
 fn seed_furniture(kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>) {

@@ -998,7 +998,7 @@ mod tests {
         assert!(!out.contains("<time"), "{out}");
         // And an empty stream deletes its container too.
         let f = frags(&[
-            ("row", r#"<article><div data-slot="tags"></div></article>"#),
+            ("row", r#"<article><div data-slot="tags" data-fragment="tag"></div></article>"#),
             ("tag", r#"<a data-slot="name"></a>"#),
         ])
         .unwrap();
@@ -1009,7 +1009,7 @@ mod tests {
     #[test]
     fn stream_maps_child_fragment_per_item() {
         let f = frags(&[
-            ("row", r#"<nav data-slot="crumbs"></nav>"#),
+            ("row", r#"<nav data-slot="crumbs" data-fragment="crumb"></nav>"#),
             (
                 "crumb",
                 r#"<span><a data-slot-href="url" data-slot="label"></a></span>"#,
@@ -1033,10 +1033,13 @@ mod tests {
     #[test]
     fn map_part_renders_named_fragment() {
         let f = frags(&[
-            ("row", r#"<div><nav data-slot="pagination"></nav></div>"#),
+            (
+                "row",
+                r#"<div><nav data-slot="pagination" data-fragment="pagination"></nav></div>"#,
+            ),
             (
                 "pagination",
-                r#"<div><a data-slot-href="prev">Prev</a><ol data-slot="pages"></ol></div>"#,
+                r#"<div><a data-slot-href="prev">Prev</a><ol data-slot="pages" data-fragment="page_link"></ol></div>"#,
             ),
             (
                 "page_link",
