@@ -68,6 +68,13 @@ pub struct Config {
     /// root-element attributes — declared rather than compiled in.
     #[serde(default)]
     pub html: HtmlCfg,
+    /// Extension → media type (`[media_types]`). Used for `rel="alternate"
+    /// type="…"` on different-format axis members (q53), and wherever else
+    /// a URL's extension needs a Content-Type. An ordinary HTML form (no
+    /// extension, or one absent here) is omitted — a restyle is the same
+    /// representation at another URL.
+    #[serde(default)]
+    pub media_types: BTreeMap<String, String>,
     /// `[schema]` (§5b): typed fields every row has, plus how embeddings and
     /// search read those fields. Field declarations are the flatten; the two
     /// named subtables are engine consumers of the vocabulary, not fields.
@@ -244,6 +251,7 @@ fn every_config_key_has_a_law(c: Config) {
         axes: _,
         markers: _,
         html: _,
+        media_types: _,
         schema: _,
         widgets: _,
         shells: _,
@@ -290,6 +298,7 @@ impl Shaped for Config {
             field("axes", |c: &Config| &c.axes),
             field("markers", |c: &Config| &c.markers),
             field("html", |c: &Config| &c.html),
+            field("media_types", |c: &Config| &c.media_types),
             field("schema", |c: &Config| &c.schema),
             field("widgets", |c: &Config| &c.widgets),
             field("shells", |c: &Config| &c.shells),

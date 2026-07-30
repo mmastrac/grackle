@@ -93,6 +93,9 @@ fields = ["title", "tags", "body"]
 #   [html.html.attribute] <html K="V">
 #   [html.body.attribute] <body K="V">
 #
+# Extension → media type lives at the top level (`[media_types]`), not under
+# `[html]`: it is URL vocabulary, not head-tag vocabulary.
+#
 # `noindex ? …` is CEL's own conditional, which is why it is spelled with `?`
 # rather than an `if_else()` the engine would have to register. §5d's
 # no-control-flow rule governs TEMPLATES; this is the expression surface, and
@@ -166,6 +169,31 @@ url = 'site.url + "/"'
 [html.head.jsonld.publisher]
 "@type" = '"Person"'
 name = 'site.author'
+
+[media_types]
+md = "text/markdown"
+xml = "application/xml"
+json = "application/json"
+txt = "text/plain"
+svg = "image/svg+xml"
+png = "image/png"
+jpg = "image/jpeg"
+jpeg = "image/jpeg"
+gif = "image/gif"
+webp = "image/webp"
+ico = "image/x-icon"
+pdf = "application/pdf"
+js = "text/javascript"
+mjs = "text/javascript"
+cjs = "text/javascript"
+woff2 = "font/woff2"
+woff = "font/woff"
+ttf = "font/ttf"
+zip = "application/zip"
+wasm = "application/wasm"
+bin = "application/octet-stream"
+mp4 = "video/mp4"
+avif = "image/avif"
 
 # Monolingual pairing axis. Sites that want translations redeclare with a
 # fuller `values` list; `[i18n] axis` points here until a site renames it.

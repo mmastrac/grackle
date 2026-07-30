@@ -17,15 +17,17 @@ use crate::theme;
 
 /// A row's OTHER axis forms as `rel="alternate"` (q53). One entry per member
 /// route of the same row that is NOT this route — a member points at its
-/// siblings, `rel="canonical"` names the one that counts. A form whose URL has a
-/// non-HTML media type (the md twin) carries that `type`; a same-format restyle
-/// (a theme member) carries none, being the same representation elsewhere.
+/// siblings, `rel="canonical"` names the one that counts. A form whose URL
+/// extension is in `[media_types]` (the md twin) carries that `type`; a
+/// same-format restyle (a theme member) carries none, being the same
+/// representation elsewhere.
 ///
 /// Empty for a row on no axis, so a page with one form announces nothing.
 pub(crate) fn axis_alternates(
     db: &SiteDb,
     site_url: &str,
     r: &Route,
+    media_types: &std::collections::BTreeMap<String, String>,
 ) -> Vec<crate::model::Alternate> {
     let Some(row) = &r.row else {
         return Vec::new();
@@ -41,24 +43,20 @@ pub(crate) fn axis_alternates(
             hreflang: None,
             // `type` only when the form's media type is not the ordinary HTML —
             // then the alternate is a genuinely different representation.
-            media_type: alt_media_type(&o.url),
+            media_type: alt_media_type(&o.url, media_types),
         })
         .collect()
 }
 
 /// The media type a member URL advertises as a `rel="alternate"` `type`, or
 /// `None` for an ordinary HTML page (a restyle names no type — it is the same
-/// representation). Keyed off the URL's extension, the one thing that says a
-/// form is a different format.
-pub(crate) fn alt_media_type(url: &str) -> Option<String> {
+/// representation). Keyed off the URL's extension against `[media_types]`.
+pub(crate) fn alt_media_type(
+    url: &str,
+    media_types: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
     let ext = url.rsplit('/').next()?.rsplit_once('.')?.1;
-    match ext {
-        "md" => Some("text/markdown".to_string()),
-        "xml" => Some("application/xml".to_string()),
-        "json" => Some("application/json".to_string()),
-        "txt" => Some("text/plain".to_string()),
-        _ => None,
-    }
+    media_types.get(ext).cloned()
 }
 
 /// The site-icon candidates, in the order a browser should prefer them (§4d).
@@ -268,16 +266,46 @@ pub(crate) fn backlinks_map(
 #[cfg(test)]
 mod alternates_tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    fn base_types() -> BTreeMap<String, String> {
+        BTreeMap::from([
+            ("md".into(), "text/markdown".into()),
+            ("xml".into(), "application/xml".into()),
+            ("json".into(), "application/json".into()),
+            ("txt".into(), "text/plain".into()),
+            ("png".into(), "image/png".into()),
+            ("jpg".into(), "image/jpeg".into()),
+            ("jpeg".into(), "image/jpeg".into()),
+            ("gif".into(), "image/gif".into()),
+            ("webp".into(), "image/webp".into()),
+            ("svg".into(), "image/svg+xml".into()),
+            ("ico".into(), "image/x-icon".into()),
+            ("avif".into(), "image/avif".into()),
+        ])
+    }
 
     #[test]
     fn alt_media_type_names_only_non_html_forms() {
+        let types = base_types();
         assert_eq!(
-            alt_media_type("/notes/one.md"),
+            alt_media_type("/notes/one.md", &types),
             Some("text/markdown".into())
         );
-        assert_eq!(alt_media_type("/feed.xml"), Some("application/xml".into()));
+        assert_eq!(
+            alt_media_type("/feed.xml", &types),
+            Some("application/xml".into())
+        );
+        assert_eq!(
+            alt_media_type("/static/cover.jpg", &types),
+            Some("image/jpeg".into())
+        );
+        assert_eq!(
+            alt_media_type("/favicon.ico", &types),
+            Some("image/x-icon".into())
+        );
         // A restyle at a directory URL is the same representation — no type.
-        assert_eq!(alt_media_type("/ledger/notes/one/"), None);
-        assert_eq!(alt_media_type("/page.html"), None);
+        assert_eq!(alt_media_type("/ledger/notes/one/", &types), None);
+        assert_eq!(alt_media_type("/page.html", &types), None);
     }
 }

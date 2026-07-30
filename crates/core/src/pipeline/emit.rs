@@ -111,7 +111,7 @@ pub(crate) fn run(
                 members
             });
             head.alternates
-                .extend(prepass::axis_alternates(db, &cfg.site.url, r));
+                .extend(prepass::axis_alternates(db, &cfg.site.url, r, &cfg.media_types));
             let groups = parts::relation_groups(
                 cfg,
                 db,
@@ -646,7 +646,12 @@ pub(crate) fn run(
                             members
                         });
                         head.alternates
-                            .extend(prepass::axis_alternates(db, &cfg.site.url, r));
+                            .extend(prepass::axis_alternates(
+                                db,
+                                &cfg.site.url,
+                                r,
+                                &cfg.media_types,
+                            ));
                         let doc = parts::document_tree(
                             cfg,
                             lang,
