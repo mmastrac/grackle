@@ -374,7 +374,7 @@ impl Config {
                              is not a declared view"
                         );
                     };
-                    if v.group_by.as_deref().map(grackle_model::spec_field) != Some(field) {
+                    if v.group_by.as_deref() != Some(field) {
                         anyhow::bail!(
                             "collection {cname}: archives.{field} view {vname:?} \
                              is not grouped by {field}"
@@ -403,7 +403,7 @@ impl Config {
                     .views
                     .iter()
                     .filter(|(_, v)| {
-                        v.group_by.as_deref().map(grackle_model::spec_field) == Some(field)
+                        v.group_by.as_deref() == Some(field)
                     })
                     .map(|(n, _)| n.as_str())
                     .collect();

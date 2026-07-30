@@ -45,6 +45,10 @@ toc = { type = "bool" }
 tags = { type = "list" }
 # Optional blurb for meta / previews. Ordinary string, not an engine column.
 description = { type = "string" }
+# Content date (`YYYY-MM-DD`). Ordinary declared field; engine type `date`
+# validates the form. Filled from front matter or `{date.year|month|day}` in a
+# collection's `file` pattern.
+date = { type = "date" }
 
 # Fields the engine still reads off a row BY NAME — which theme renders it
 # (§5a), which shell wraps it (§5g), which slot cuts the render chain, and
@@ -83,6 +87,8 @@ fields = ["title", "tags", "body"]
 #   [html.head.meta]      <meta name="K" content="V">
 #   [html.head.property]  <meta property="K" content="V">   (Open Graph)
 #   [html.head.link]      <link rel="K" href="V">
+# Plus a structured document, not a content attribute:
+#   [html.head.jsonld]    <script type="application/ld+json">
 # Plus attribute maps on the skeleton (§4e):
 #   [html.html.attribute] <html K="V">
 #   [html.body.attribute] <body K="V">
@@ -136,6 +142,31 @@ icon = 'site.icon'
 # a monolingual page yields one member and emits nothing.
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
 
+# Schema.org BlogPosting for dated rows. Nested tables are JSON objects;
+# string leaves are the same CEL surface as the meta tables. Empty `@type`
+# (no date) ⇒ no script.
+[html.head.jsonld]
+"@context" = '"https://schema.org"'
+"@type" = 'date ? "BlogPosting" : ""'
+headline = 'title'
+url = 'site.url + url'
+datePublished = 'date ? date + "T00:00:00+00:00" : ""'
+dateModified = 'date ? date + "T00:00:00+00:00" : ""'
+description = 'description'
+
+[html.head.jsonld.mainEntityOfPage]
+"@type" = '"WebPage"'
+"@id" = 'site.url + url'
+
+[html.head.jsonld.author]
+"@type" = '"Person"'
+name = 'site.author'
+url = 'site.url + "/"'
+
+[html.head.jsonld.publisher]
+"@type" = '"Person"'
+name = 'site.author'
+
 # Monolingual pairing axis. Sites that want translations redeclare with a
 # fuller `values` list; `[i18n] axis` points here until a site renames it.
 [axes.locale]
@@ -172,7 +203,7 @@ source = "_posts"
 # The extractor's default for this collection's rules (§4, IO.md I6): a rule
 # may name its own `file`, and a rule routing by path tokens alone
 # (`/{dir}/{stem}/`) needs none at all.
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"

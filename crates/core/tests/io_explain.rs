@@ -272,10 +272,10 @@ fn explain_prints_each_cascade_key_exactly_once() {
 
     assert_eq!(
         fields("/blog/2020/01/01/hello/"),
-        "slot        -\ntheme       ledger\nlocale      en\nminutes     4\ntoc         true\n",
+        "slot        -\ntheme       ledger\ndate        2020-01-01\nlocale      en\nminutes     4\ntoc         true\n",
         "a row that resolved theme (slot absent): one named line each, and the \
-         dump still carries ordinary fields including toc; base's monolingual \
-         pairing axis stamps locale"
+         dump still carries ordinary fields including toc and file-pattern date; \
+         base's monolingual pairing axis stamps locale"
     );
     assert_eq!(
         fields("/notes.txt"),

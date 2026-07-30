@@ -319,19 +319,9 @@ pub(crate) fn walk_site(
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
-        let key = extracted.as_ref().map(|m| m.key.clone());
-        let from_name = match key.as_ref().and_then(|k| k.ymd()) {
-            Some((y, m, d)) => Some(NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
-                format!(
-                    "{} has an impossible date in its filename",
-                    f.path.display()
-                )
-            })?),
-            None => None,
-        };
-        let slug = key
-            .as_ref()
-            .and_then(|k| k.slug.clone())
+        let captures = extracted.as_ref().map(|m| &m.captures);
+        let slug = captures
+            .and_then(|c| c.get("slug").cloned())
             .unwrap_or_else(|| stem.clone());
 
         // Front matter, read once. The posts loader read every file whole and
@@ -368,9 +358,41 @@ pub(crate) fn walk_site(
             true => schema::validate(&schema, &fm.extra, identity_path)?,
             false => Default::default(),
         };
-        // The engine's own four arrive on named front-matter fields rather
-        // than in `extra`, so they are seeded here — nearest writer first.
+        // The engine's own cascade keys arrive on named front-matter fields
+        // rather than in `extra`, so they are seeded here — nearest writer first.
         schema::cascade_front(&schema, &fm, &mut checked, identity_path)?;
+        // `{field.year|month|day}` captures stamp date-typed fields: front
+        // matter already won above; markers/rules fill whatever is still unset.
+        if let Some(m) = &extracted {
+            for (field, iso) in filename::dates_from_captures(&m.captures)? {
+                if checked.values.contains_key(&field) {
+                    continue;
+                }
+                let Some(ty) = schema.get(field.as_str()) else {
+                    bail!(
+                        "{}: file pattern names {{{field}.*}} but {field:?} is \
+                         not declared\n  declared fields: {}",
+                        f.path.display(),
+                        schema::knowns(&schema)
+                    );
+                };
+                if *ty != schema::FieldType::Date {
+                    bail!(
+                        "{}: file pattern names {{{field}.*}} but {field:?} is \
+                         declared {}, not date",
+                        f.path.display(),
+                        ty.name()
+                    );
+                }
+                schema::write_typed(
+                    *ty,
+                    &field,
+                    &toml::Value::String(iso),
+                    &mut checked,
+                    &format!("{}: file pattern", f.path.display()),
+                )?;
+            }
+        }
         // Markers and rules fill whatever front matter left unset (§4b).
         schema::apply_defaults(&schema, &defaults, &mut checked, &f.path)?;
         // …and rung 0 overrules all three (§2, MERGE.md E1). Above `cascade`,
@@ -434,14 +456,14 @@ pub(crate) fn walk_site(
         if rendered && !f.has_front_matter {
             body_bytes = read_front_matter(&f.path)?.1;
         }
-        // Front matter beats the filename, the precedence every other field
-        // has (§4b) — and it is read ABOVE routing now, so a `date:` reaches a
-        // dated route template on any row rather than only on a post. That is
-        // I6's recorded other half of "one supplier", and the seam it named.
-        let date = match &fm.date {
-            Some(s) => Some(front_matter_date(s, identity_path)?),
-            None => from_name,
-        };
+        // Resolved date for route tokens: first date-typed field that has a value.
+        let date = schema
+            .iter()
+            .filter(|(_, ty)| **ty == schema::FieldType::Date)
+            .find_map(|(name, _)| match checked.values.get(*name) {
+                Some(grackle_db::Value::Str(s)) => grackle_model::parse_date_str(s),
+                _ => None,
+            });
         // The engine-fallback rung, below front matter and every default
         // (§4b). A row that is not a document has no title to imply: its
         // content is its bytes.
@@ -493,7 +515,7 @@ pub(crate) fn walk_site(
                 path: &f.path,
                 hash: Default::default(),
                 date,
-                key: key.as_ref(),
+                extracted: extracted.as_ref(),
                 slug: &slug,
             }
             .render_all(routing.templates, routing.pattern, &f.path)?
@@ -560,7 +582,6 @@ pub(crate) fn walk_site(
             size: f.size,
             title,
             order: fm.order,
-            date,
             theme: worn.theme,
             shell: worn.shell,
             fields: {

@@ -34,7 +34,7 @@ pub use outline_node::OutlineNode;
 pub use relation::Relation;
 pub use rendition::Rendition;
 pub use route::Route;
-pub use row::Row;
+pub use row::{parse_date_str, Row};
 pub use row_axis::RowAxis;
 pub use site_db::SiteDb;
 pub use view_rows::ViewRows;
@@ -143,13 +143,21 @@ pub enum RelLabel {
     PerMember(BTreeMap<String, String>),
 }
 
-/// Column name a group-by spec refers to (`date.year` -> `year`).
-pub fn spec_field(spec: &str) -> &str {
-    match spec {
-        "date.year" => "year",
-        "date.month" => "month",
-        s => s,
-    }
+/// Declared date-typed fields: names that also have a `{name}.year` companion
+/// in the filter schema (see [`crate::source::schema`] date expansion).
+pub fn date_fields(declared: &filter::Schema) -> Vec<&'static str> {
+    let years: std::collections::HashSet<&str> = declared
+        .keys()
+        .copied()
+        .filter_map(|k| k.strip_suffix(".year"))
+        .collect();
+    let mut out: Vec<_> = declared
+        .keys()
+        .copied()
+        .filter(|n| !n.contains('.') && years.contains(*n))
+        .collect();
+    out.sort_unstable();
+    out
 }
 
 /// Machine-readable date (`2022-03-16`).
@@ -249,10 +257,6 @@ pub fn row_schema() -> filter::Schema {
     s.insert("slug", Str);
     s.insert("stem", Str);
     s.insert("url", Str);
-    s.insert("date", Str);
-    s.insert("year", Int);
-    s.insert("month", Int);
-    s.insert("day", Int);
     s.insert("body_bytes", Int);
     s.insert("order", Int);
     s.insert("rendered", Bool);

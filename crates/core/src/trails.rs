@@ -80,11 +80,7 @@ pub fn listing_title_and_trail(
     // §6f enum records: a grouped param renders its record's localized
     // NAME — "méta" on the French tag page, "Dinner" for a course —
     // while routes keep slugs and keys/params keep ids.
-    let fields: Vec<String> = cfg
-        .group_specs(view)
-        .iter()
-        .map(|s| crate::model::spec_field(s).to_string())
-        .collect();
+    let fields = cfg.group_specs(view);
     let param = |tok: &str| -> Option<String> {
         // Bare and `group:`-qualified tokens name the same group param; no other
         // namespace is in scope in a listing trail.
@@ -218,7 +214,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
     }
     // The inert tail: a bare day only reads after year › month crumbs, so
     // with no archive chain declared the whole date is the honest crumb.
-    if let Some(d) = p.date {
+    if let Some(d) = p.as_date("date") {
         let tail = if chained {
             d.format("%-d").to_string()
         } else {

@@ -46,6 +46,7 @@ toc = { type = "bool" }
 # whitespace-separated string). Base mints no tag routes.
 tags = { type = "list" }
 description = { type = "string" }
+date = { type = "date" }
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
@@ -77,6 +78,8 @@ fields = ["title", "tags", "body"]
 #   [html.head.meta]      <meta name="K" content="V">
 #   [html.head.property]  <meta property="K" content="V">   (Open Graph)
 #   [html.head.link]      <link rel="K" href="V">
+# Plus a structured document:
+#   [html.head.jsonld]    <script type="application/ld+json">
 # Plus attribute maps on the skeleton (§4e):
 #   [html.html.attribute] <html K="V">
 #   [html.body.attribute] <body K="V">
@@ -130,7 +133,7 @@ axis = "locale"
 
 [[collections]]
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   # The glob names what this scope claims — markdown, and only markdown. A
   # scope owns its source (IO.md I7d), so what no rule here claims is not

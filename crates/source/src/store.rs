@@ -25,12 +25,6 @@ pub struct FrontMatter {
     /// Cut point in the render chain (THEME.md §4). `root` skips document furniture.
     pub slot: Option<String>,
     pub permalink: Option<String>,
-    /// `YYYY-MM-DD`. A post's date comes from its filename (§3), so this is
-    /// the override there and the ONLY source on a tree page — which is
-    /// what makes "has a date" a property of the row's data rather than of
-    /// which table holds it (q51). Parsed at load, so a malformed one is a
-    /// load error naming the file rather than a row that quietly sorts last.
-    pub date: Option<String>,
     /// Declared position within a section tree (§6e). Unset sorts last.
     pub order: Option<i64>,
     /// Which theme renders this row (§5a: theme is chosen per row).
@@ -42,8 +36,8 @@ pub struct FrontMatter {
     /// `theme`.
     pub shell: Option<String>,
     /// Everything else: captured for schema validation (§5b). `draft`,
-    /// `hidden`, `noindex`, `toc`, `tags`, and `description` arrive here —
-    /// declared fields the base config ships (§4e), not names this struct knows.
+    /// `hidden`, `noindex`, `toc`, `tags`, `description`, and `date` arrive
+    /// here — declared fields the base config ships, not names this struct knows.
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }

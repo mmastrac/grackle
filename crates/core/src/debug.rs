@@ -141,7 +141,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             url: p.url.clone(),
             path: rel_to_root(&p.path),
             title: p.title.clone(),
-            date: p.date.map(|d| d.to_string()),
+            date: p.as_date("date").map(|d| d.to_string()),
             layout: None,
             shell: None,
             theme: None,

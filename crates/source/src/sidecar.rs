@@ -158,10 +158,13 @@ mod tests {
         .expect("a sidecar is TOML in the shape of front matter");
         assert_eq!(front.title.as_deref(), Some("A photo"));
         assert_eq!(front.shell.as_deref(), Some("raw"));
-        assert_eq!(front.date.as_deref(), Some("2020-01-02"));
+        assert_eq!(
+            front.extra.get("date").and_then(|v| v.as_str()),
+            Some("2020-01-02")
+        );
         // tags travels in `extra` with the other declared fields; schema
         // validate coerces the list.
-        assert_eq!(front.extra.len(), 3);
+        assert_eq!(front.extra.len(), 4);
         assert!(front.extra.contains_key("tags"));
         assert_eq!(
             front.extra.get("alt").and_then(|v| v.as_str()),

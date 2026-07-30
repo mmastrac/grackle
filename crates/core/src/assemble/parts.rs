@@ -866,7 +866,7 @@ pub fn preview(p: Preview) -> PartMap {
         .or_else(|| row.map(|r| r.url.clone()))
         .unwrap_or_default();
     m.set("url", Part::Text(url));
-    if let Some(d) = row.and_then(|r| r.date) {
+    if let Some(d) = row.and_then(|r| r.as_date("date")) {
         m.set("date", Part::Text(crate::model::iso_date(d)));
         m.set("date_pretty", Part::Text(crate::model::pretty_date(d)));
     }

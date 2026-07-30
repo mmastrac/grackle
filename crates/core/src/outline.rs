@@ -78,7 +78,7 @@ impl Dir {
 pub fn section_tree(
     db: &SiteDb,
     root: &Path,
-    dated_keep: Option<(&str, &str)>,
+    pairing_keep: Option<(&str, &str)>,
 ) -> Vec<Node> {
     let mut top = Dir::default();
     let mut root_index: Option<Node> = None;
@@ -88,7 +88,7 @@ pub fn section_tree(
     // otherwise collide with it node-for-node.
     for p in db.rows.iter().filter(|p| {
         p.rendered
-            && match dated_keep {
+            && match pairing_keep {
                 Some((field, canon)) => p.string(field) == Some(canon),
                 None => true,
             }
@@ -208,7 +208,6 @@ mod tests {
             size: 0,
             title: title.map(String::from),
             order,
-            date: None,
             theme: None,
             shell: None,
             fields: Default::default(),

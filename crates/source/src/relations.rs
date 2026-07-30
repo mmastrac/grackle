@@ -30,7 +30,20 @@ pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
         // Defaults for the role, then the site's declarations layered on top —
         // per NAME, so changing `related` leaves `earlier`/`later` alone
         // (§6g). A declared block replaces its default wholesale.
-        let mut specs: BTreeMap<String, RelationCfg> = default_relations(c.is_posts());
+        let date_field = {
+            let dates: Vec<_> = schemas
+                .declared()
+                .iter()
+                .filter(|(_, t)| **t == crate::schema::FieldType::Date)
+                .map(|(n, _)| *n)
+                .collect();
+            match dates.as_slice() {
+                [one] => Some(*one),
+                _ => None,
+            }
+        };
+        let mut specs: BTreeMap<String, RelationCfg> =
+            default_relations(c.is_posts(), date_field);
         for (name, rc) in &c.relations {
             specs.insert(name.clone(), rc.clone());
         }
@@ -177,7 +190,10 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
 /// date-and-similarity ideas a page has no answer for, and running them would
 /// be an empty group at O(n²) cost. A declared relation on any collection is
 /// added regardless.
-fn default_relations(is_posts: bool) -> BTreeMap<String, RelationCfg> {
+fn default_relations(
+    is_posts: bool,
+    date_field: Option<&str>,
+) -> BTreeMap<String, RelationCfg> {
     let mut m = BTreeMap::new();
     let rel =
         |from: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
@@ -202,46 +218,42 @@ fn default_relations(is_posts: bool) -> BTreeMap<String, RelationCfg> {
         ),
     );
     if is_posts {
-        // The nearest neighbour on each side. `date` is an ISO string, which
-        // compares chronologically in `where` — but a rank must be a NUMBER,
-        // so the ordinal is built from the y/m/d columns: bigger = later, so
-        // `earlier` takes the max below self and `later` negates to take the
-        // min above. An undated candidate yields Null and drops out. Verbose,
-        // but it is an engine default no site ever types.
-        //
-        // Known latent: `<` is strict and the ordinal is day-granular, so two
-        // posts on ONE day are neither's neighbour (and tie in rank). Measured
-        // zero same-day pairs in the corpus; the day the first appears, add a
-        // slug tiebreak to the ordinal. The old position-based walk handled it
-        // by luck of sort order, not by rule.
-        const DATE_ORD: &str = "candidate.year * 10000 + candidate.month * 100 + candidate.day";
-        m.insert(
-            "earlier".to_string(),
-            rel(
-                None,
-                Some("candidate.date < self.date"),
-                Some(DATE_ORD),
-                Some(1),
-            ),
-        );
-        m.insert(
-            "later".to_string(),
-            rel(
-                None,
-                Some("candidate.date > self.date"),
-                Some(&format!("-({DATE_ORD})")),
-                Some(1),
-            ),
-        );
+        // Neighbours when the site declares exactly one date-typed field.
+        if let Some(f) = date_field {
+            let date_ord = format!(
+                "candidate.{f}.year * 10000 + candidate.{f}.month * 100 + candidate.{f}.day"
+            );
+            let self_ord =
+                format!("self.{f}.year * 10000 + self.{f}.month * 100 + self.{f}.day");
+            m.insert(
+                "earlier".to_string(),
+                rel(
+                    None,
+                    Some(&format!("{date_ord} < {self_ord}")),
+                    Some(&date_ord),
+                    Some(1),
+                ),
+            );
+            m.insert(
+                "later".to_string(),
+                rel(
+                    None,
+                    Some(&format!("{date_ord} > {self_ord}")),
+                    Some(&format!("-({date_ord})")),
+                    Some(1),
+                ),
+            );
+        }
+        let related_where = if date_field.is_some() {
+            "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+        } else {
+            "!(candidate in links_to)"
+        };
         m.insert(
             "related".to_string(),
             rel(
                 None,
-                // Not the neighbours already shown, not a page it links to
-                // (defect 1). `links_to` is the derived forward-link name.
-                Some(
-                    "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)",
-                ),
+                Some(related_where),
                 Some("embedding_similarity(self, candidate)"),
                 Some(4),
             ),
@@ -332,9 +344,9 @@ mod tests {
     fn compile(extra: &str) -> Result<Vec<Relation>> {
         let toml = format!(
             "root=\".\"\nextends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [schema]\ndraft={{type=\"bool\"}}\nhidden={{type=\"bool\"}}\n\
+             [schema]\ndraft={{type=\"bool\"}}\nhidden={{type=\"bool\"}}\ndate={{type=\"date\"}}\n\
              [[collections]]\nname=\"posts\"\nsource=\"_posts\"\n\
-             file=[\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
+             file=[\"{{date.year}}-{{date.month}}-{{date.day}}-{{slug}}\"]\n{extra}"
         );
         let cfg = Config::from_toml(&toml)?;
         let mut db = SiteDb::seed(vec![], true);
@@ -424,8 +436,15 @@ mod tests {
             .referenced_fields();
         assert_eq!(
             refs,
-            vec!["candidate.date".to_string(), "self.date".to_string()],
-            "the default `earlier` declares a date comparison and nothing else"
+            vec![
+                "candidate.date.year".to_string(),
+                "candidate.date.month".to_string(),
+                "candidate.date.day".to_string(),
+                "self.date.year".to_string(),
+                "self.date.month".to_string(),
+                "self.date.day".to_string(),
+            ],
+            "the default `earlier` compares date-field ordinals and nothing else"
         );
     }
 
@@ -435,11 +454,11 @@ mod tests {
     fn a_relation_over_a_set_reads_only_what_it_declared() {
         let rels = compile(
             "[sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n\
-             [collections.relations.x]\nwhere=\"candidate.year == 2026\"\n",
+             [collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n",
         )
         .unwrap();
         let refs = relation(&rels, "x").filter.referenced_fields();
-        assert_eq!(refs, vec!["candidate.year".to_string()]);
+        assert_eq!(refs, vec!["candidate.date.year".to_string()]);
     }
 
     /// With a `published` set the pool is that set, and the filtering it does

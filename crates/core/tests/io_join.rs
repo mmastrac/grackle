@@ -299,11 +299,12 @@ author = "Tester"
 [schema]
 shell = { type = "string" }
 topic = { type = "string" }
+date = { type = "date" }
 
 [[collections]]
 name = "posts"
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"
@@ -462,11 +463,12 @@ author = "Tester"
 
 [schema]
 shell = { type = "string" }
+date = { type = "date" }
 
 [[collections]]
 name = "posts"
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"

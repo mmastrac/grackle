@@ -18,25 +18,11 @@ use grackle_db::template;
 use grackle_model::{AxisMember, Route, RouteKind, Row, SiteDb};
 
 use crate::config::{Collection, Config};
-use crate::filename::{self, FileKey};
+use crate::filename;
 use crate::markers::{Defaults, Markers};
 use crate::schema::{self, Schemas};
 use crate::sidecar::Sidecars;
 use crate::store;
-
-/// Front matter's `date:`. `YYYY-MM-DD`; a bare `YYYY-MM` means the first of
-/// that month.
-fn front_matter_date(raw: &str, path: &Path) -> Result<NaiveDate> {
-    let s = raw.trim();
-    let parsed = NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .or_else(|_| NaiveDate::parse_from_str(&format!("{s}-01"), "%Y-%m-%d"));
-    parsed.with_context(|| {
-        format!(
-            "{}: date: {s:?} is not YYYY-MM-DD (or YYYY-MM)",
-            path.display()
-        )
-    })
-}
 
 struct CompiledRule<'a> {
     matcher: GlobMatcher,
@@ -728,12 +714,10 @@ struct RouteTokens<'a> {
     /// asks again, and hashing a file twice per template is not a thing to do
     /// quietly. `Some(None)` is "asked, and the file would not read".
     hash: std::cell::RefCell<Option<Option<String>>>,
-    /// The row's resolved date: front matter first where the loader has read
-    /// it, else the extractor's. `None` is a row with no date at all, and the
-    /// three date tokens are then unfillable — which is the error below.
+    /// Resolved content date (front matter / filename components), when present.
     date: Option<NaiveDate>,
-    /// What the extractor yielded, for the tokens a date does not cover.
-    key: Option<&'a FileKey>,
+    /// File-pattern match, for tokens a date does not cover.
+    extracted: Option<&'a filename::FileMatch>,
     /// The row's slug: the extractor's where a format named one, else the
     /// stem. Always fillable, on every row — which is the pre-I6 posts
     /// behaviour made general rather than a new promise.
@@ -749,20 +733,19 @@ impl RouteTokens<'_> {
         match k {
             // The resolved date first: front matter beats the filename (§4b),
             // so `{year}` must read what the row wears rather than what its
-            // name said. The extractor is the fallback for a format that named
-            // a part without naming a whole date.
+            // name said. Captures fill parts a whole date does not cover.
             "year" => self
                 .date
                 .map(|d| d.format("%Y").to_string())
-                .or_else(|| self.key?.year.map(|y| y.to_string())),
+                .or_else(|| self.extracted?.date_part("year").map(str::to_owned)),
             "month" => self
                 .date
                 .map(|d| d.format("%-m").to_string())
-                .or_else(|| self.key?.month.map(|m| m.to_string())),
+                .or_else(|| self.extracted?.date_part("month").map(str::to_owned)),
             "day" => self
                 .date
                 .map(|d| d.format("%-d").to_string())
-                .or_else(|| self.key?.day.map(|d| d.to_string())),
+                .or_else(|| self.extracted?.date_part("day").map(str::to_owned)),
             "slug" => Some(self.slug.to_string()),
             // IO.md §4a's hashing law, spent as a route token: the digest is
             // over the INPUT bytes and the identity transform's parameters,
@@ -775,6 +758,10 @@ impl RouteTokens<'_> {
             // untransformed-twin rule arriving for free: one hash function,
             // one address per byte string, whichever mechanism asked.
             "hash" => self.content_hash(),
+            // Capture fallback for slug/stem and any other free token.
+            k if self.extracted.is_some_and(|m| m.captures.contains_key(k)) => {
+                self.extracted.and_then(|m| m.captures.get(k).cloned())
+            }
             // An axis placeholder is spent per member, not here (q53).
             k => {
                 let (_, bare) = template::classify(k);
@@ -1212,14 +1199,14 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     let t_index = std::time::Instant::now();
-    let dated_keep = cfg.pairing_axis().map(|(_, a)| {
+    let pairing_keep = cfg.pairing_axis().map(|(_, a)| {
         (a.field.as_str(), a.canonical().unwrap_or(""))
     });
     db.insert_rows(
         sort_posts(post_rows),
         page_rows,
         objects,
-        dated_keep,
+        pairing_keep,
     )?;
     walk::resolve_image_fields(&db, &schemas)?;
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;

@@ -419,7 +419,7 @@ fn a_sites_rules_prepend_to_the_inherited_ones() {
     // Not restated, so it comes from the base.
     assert_eq!(
         c.collections["posts"].file,
-        vec!["{year}-{month}-{day}-{slug}".to_string()]
+        vec!["{date.year}-{date.month}-{date.day}-{slug}".to_string()]
     );
 }
 

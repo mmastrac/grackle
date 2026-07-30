@@ -31,10 +31,6 @@ pub fn esc(s: &str) -> String {
     o
 }
 
-fn json_str(s: &str) -> String {
-    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
-}
-
 /// Typed facts derived from a row's schema. A theme renders the subset it
 /// wants; nobody branches on "am I a post" (§5a).
 #[derive(Debug, Default)]
@@ -71,35 +67,6 @@ pub struct Site<'a> {
     pub icon: &'a str,
 }
 
-pub fn head_for_post(p: &Row, site: &Site) -> Head {
-    let canonical = format!("{}{}", site.url, p.url);
-    let published = p.date.map(xmlschema);
-    let jsonld = published.as_ref().map(|ts| {
-        let mut j = String::new();
-        let _ = write!(
-            j,
-            r#"{{"@context":"https://schema.org","@type":"BlogPosting","headline":{},"mainEntityOfPage":{{"@type":"WebPage","@id":{}}},"url":{},"datePublished":"{ts}","dateModified":"{ts}","author":{{"@type":"Person","name":{},"url":{}}},"publisher":{{"@type":"Person","name":{}}}"#,
-            json_str(p.title.as_deref().unwrap_or_default()),
-            json_str(&canonical),
-            json_str(&canonical),
-            json_str(site.author),
-            json_str(&format!("{}/", site.url)),
-            json_str(site.author),
-        );
-        if let Some(d) = p.string("description") {
-            let _ = write!(j, r#","description":{}"#, json_str(d));
-        }
-        j.push('}');
-        j
-    });
-    Head {
-        title: p.title.clone().unwrap_or_default(),
-        meta: Vec::new(),
-        jsonld,
-        alternates: Vec::new(),
-    }
-}
-
 /// The declared head (§4e), compiled once.
 ///
 /// One set, not one per surface, because the environment is the HEAD's
@@ -109,7 +76,18 @@ pub fn head_for_post(p: &Row, site: &Site) -> Head {
 /// there, the expression yields empty, and no tag is emitted — the conditional
 /// that used to be an `if let Some(d)` in Rust.
 #[derive(Debug, Default)]
-pub struct Metas(pub Vec<Decl>);
+pub struct Metas {
+    pub tags: Vec<Decl>,
+    /// Compiled `[html.head.jsonld]` tree. Empty map ⇒ no script ever.
+    pub jsonld: std::collections::BTreeMap<String, JsonLdNode>,
+}
+
+/// One node of a compiled JSON-LD tree.
+#[derive(Debug)]
+pub enum JsonLdNode {
+    Expr(crate::filter::Text),
+    Object(std::collections::BTreeMap<String, JsonLdNode>),
+}
 
 /// Declared `[html.html.attribute]` / `[html.body.attribute]` expressions,
 /// compiled once (§4e).
@@ -229,7 +207,7 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
         env.insert(k, *t);
     }
     let env = with_site(env);
-    let mut out = Vec::new();
+    let mut tags = Vec::new();
     let h = &cfg.html.head;
     let tables = [
         (Tag::Meta, "[html.head.meta]", &h.meta),
@@ -242,7 +220,7 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                 HeadEntry::Expr(src) => {
                     let expr = crate::filter::Text::parse(src, &env)
                         .with_context(|| format!("{whose} {key}"))?;
-                    out.push(Decl::Single {
+                    tags.push(Decl::Single {
                         tag,
                         key: key.clone(),
                         expr,
@@ -264,7 +242,7 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                             .with_context(|| format!("{whose} {key}.{attr}"))?;
                         attrs.push((attr.clone(), expr));
                     }
-                    out.push(Decl::Expand {
+                    tags.push(Decl::Expand {
                         tag,
                         key: key.clone(),
                         from: exp.from.clone(),
@@ -274,7 +252,36 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
             }
         }
     }
-    Ok(Metas(out))
+    let jsonld = compile_jsonld_map(&h.jsonld, &env, "[html.head.jsonld]")?;
+    Ok(Metas { tags, jsonld })
+}
+
+fn compile_jsonld_map(
+    map: &std::collections::BTreeMap<String, crate::config::JsonLdValue>,
+    env: &crate::filter::Schema,
+    whose: &str,
+) -> Result<std::collections::BTreeMap<String, JsonLdNode>> {
+    let mut out = std::collections::BTreeMap::new();
+    for (key, val) in map {
+        let path = format!("{whose}.{key}");
+        out.insert(key.clone(), compile_jsonld_value(val, env, &path)?);
+    }
+    Ok(out)
+}
+
+fn compile_jsonld_value(
+    val: &crate::config::JsonLdValue,
+    env: &crate::filter::Schema,
+    whose: &str,
+) -> Result<JsonLdNode> {
+    use crate::config::JsonLdValue;
+    match val {
+        JsonLdValue::Expr(src) => {
+            let expr = crate::filter::Text::parse(src, env).with_context(|| whose.to_string())?;
+            Ok(JsonLdNode::Expr(expr))
+        }
+        JsonLdValue::Object(map) => Ok(JsonLdNode::Object(compile_jsonld_map(map, env, whose)?)),
+    }
 }
 
 /// Compile `[html.html.attribute]` / `[html.body.attribute]` (§4e).
@@ -344,7 +351,7 @@ pub fn eval_metas(
         url,
     };
     metas
-        .0
+        .tags
         .iter()
         .filter_map(|d| match d {
             Decl::Single { tag, key, expr } => {
@@ -354,6 +361,61 @@ pub fn eval_metas(
             Decl::Expand { .. } => None,
         })
         .collect()
+}
+
+/// Evaluate `[html.head.jsonld]` into a JSON document. Requires a non-empty
+/// `@type` after eval; empty leaves (and objects that collapse to nothing)
+/// are omitted.
+pub fn eval_jsonld(
+    metas: &Metas,
+    row: &impl crate::filter::Row,
+    site: &Site,
+    title: &str,
+    url: &str,
+) -> Option<String> {
+    if metas.jsonld.is_empty() {
+        return None;
+    }
+    let env = HeadRow {
+        row,
+        site,
+        title,
+        url,
+    };
+    let obj = eval_jsonld_object(&metas.jsonld, &env)?;
+    let ty = obj.get("@type").and_then(|v| v.as_str()).unwrap_or("");
+    if ty.is_empty() {
+        return None;
+    }
+    Some(serde_json::Value::Object(obj).to_string())
+}
+
+fn eval_jsonld_object(
+    map: &std::collections::BTreeMap<String, JsonLdNode>,
+    env: &impl crate::filter::Row,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut out = serde_json::Map::new();
+    for (key, node) in map {
+        if let Some(v) = eval_jsonld_node(node, env) {
+            out.insert(key.clone(), v);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn eval_jsonld_node(
+    node: &JsonLdNode,
+    env: &impl crate::filter::Row,
+) -> Option<serde_json::Value> {
+    match node {
+        JsonLdNode::Expr(expr) => {
+            let s = expr.eval(env);
+            (!s.is_empty()).then(|| serde_json::Value::String(s))
+        }
+        JsonLdNode::Object(map) => {
+            eval_jsonld_object(map, env).map(serde_json::Value::Object)
+        }
+    }
 }
 
 /// Evaluate expand declarations: `from = "axis.<name>"` resolves a member pool
@@ -368,7 +430,7 @@ pub fn eval_expands<'a>(
     mut pool_for: impl FnMut(&str) -> Vec<ExpandMember<'a>>,
 ) -> Vec<Alternate> {
     let mut out = Vec::new();
-    for d in &metas.0 {
+    for d in &metas.tags {
         let Decl::Expand { from, attrs, .. } = d else {
             continue;
         };
@@ -467,7 +529,7 @@ pub fn head_simple(title: &str, _url: &str, _site: &Site) -> Head {
     Head::empty(title.to_string())
 }
 
-/// Title + evaluated metas for a listing/landing/page.
+/// Title + evaluated metas (and JSON-LD) for a listing/landing/page.
 pub fn head_for(
     title: &str,
     url: &str,
@@ -477,7 +539,19 @@ pub fn head_for(
 ) -> Head {
     let mut head = head_simple(title, url, site);
     head.meta = eval_metas(metas, row, site, title, url);
+    head.jsonld = eval_jsonld(metas, row, site, title, url);
     head
+}
+
+/// Post head: same declared tables as every other surface.
+pub fn head_for_post(p: &Row, site: &Site, metas: &Metas) -> Head {
+    head_for(
+        p.title.as_deref().unwrap_or_default(),
+        &p.url,
+        site,
+        metas,
+        p,
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -723,7 +797,7 @@ pub fn feed(site: &Site, self_path: &str, updated: &str, entries: &[(&Row, &str)
     s.push_str("\t<generator uri=\"http://jekyllrb.com/\">Jekyll</generator>\n");
     for (p, body) in entries {
         let content = cdata_escape(&feed_images(&expand_urls(body, site.url)));
-        let updated = p.date.map(xmlschema).unwrap_or_default();
+        let updated = p.as_date("date").map(xmlschema).unwrap_or_default();
         s.push_str("\t<entry>\n");
         let _ = writeln!(
             s,
@@ -1012,5 +1086,40 @@ mod meta_tests {
         assert!(out.find("name=\"a\"") < out.find("property=\"b\""));
         assert!(out.contains("&quot;quoted&quot;"), "{out}");
         assert!(out.contains("&amp;"), "{out}");
+    }
+
+    #[test]
+    fn jsonld_emits_only_when_type_is_non_empty() {
+        let c = Config::from_toml(
+            r#"extends = "none"
+               [site]
+               url = "https://e.com"
+               title = "t"
+               author = "a"
+               [schema]
+               date = { type = "date" }
+               [html.head.jsonld]
+               "@context" = '"https://schema.org"'
+               "@type" = 'date ? "BlogPosting" : ""'
+               headline = 'title'
+               [html.head.jsonld.author]
+               "@type" = '"Person"'
+               name = 'site.author'
+            "#,
+        )
+        .unwrap();
+        let mut decl = crate::filter::Schema::new();
+        decl.insert("date", crate::filter::Type::Str);
+        let m = compile_metas(&c, &decl).unwrap();
+        let mut dated = grackle_model::Row::default();
+        dated
+            .fields
+            .insert("date".into(), crate::filter::Value::Str("2026-01-02".into()));
+        let j = eval_jsonld(&m, &dated, &site(), "Hello", "/p/").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&j).unwrap();
+        assert_eq!(v["@type"], "BlogPosting");
+        assert_eq!(v["headline"], "Hello");
+        assert_eq!(v["author"]["name"], "Ada");
+        assert!(eval_jsonld(&m, &row(false), &site(), "Hello", "/p/").is_none());
     }
 }

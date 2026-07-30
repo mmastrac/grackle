@@ -973,7 +973,7 @@ impl Config {
         }
         let mut found = None;
         for (name, v) in &self.views {
-            if v.group_by.as_deref().map(grackle_model::spec_field) == Some(field) {
+            if v.group_by.as_deref() == Some(field) {
                 if found.is_some() {
                     return None;
                 }

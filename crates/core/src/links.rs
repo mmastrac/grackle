@@ -712,8 +712,7 @@ fn view_link(
                 chain.len()
             );
         }
-        for (spec, key) in chain.iter().zip(&keys) {
-            let field = crate::model::spec_field(spec);
+        for (field, key) in chain.iter().zip(&keys) {
             // §6f enum records: the URL wears any grouped field's slug.
             let value = cfg.record_slug(field, key).to_string();
             params.push((field.to_string(), value.clone()));
@@ -845,7 +844,6 @@ mod tests {
             size: 0,
             title: None,
             order: None,
-            date: None,
             theme: None,
             shell: None,
             fields: std::collections::BTreeMap::from([(

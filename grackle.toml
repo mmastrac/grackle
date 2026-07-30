@@ -29,7 +29,7 @@ source = "_posts"
 # climbs to the landing that owns it (q46).
 trail = "monthly_archive"
 # Only the first one is currently used
-file = ["{year}-{month}-{day}-{slug}", "{month}-{day}-{year}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}", "{date.month}-{date.day}-{date.year}-{slug}"]
 
   # A defaults-only rule scoping a directory, so it names no extension: what it
   # says is about where a file sits, not what kind it is. (It still CLAIMS what

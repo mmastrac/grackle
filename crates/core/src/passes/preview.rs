@@ -404,7 +404,7 @@ pub(crate) fn route_intro(
 ) -> Result<Option<String>> {
     if r.key.is_some() {
         let chain = cfg.group_specs(view);
-        if let Some(field) = chain.last().map(|s| crate::model::spec_field(s)) {
+        if let Some(field) = chain.last() {
             if let Some(id) = crate::template::param(&r.params, field) {
                 if let Some(i) = cfg.record(field, &id).and_then(|rec| rec.intro.as_ref()) {
                     let source = format!("record {field}.{id}: intro");

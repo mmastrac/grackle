@@ -8,9 +8,12 @@ url = "https://example.com"
 title = "Union"
 author = "Tester"
 
+[schema]
+date = { type = "date" }
+
 [[collections]]
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"

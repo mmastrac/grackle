@@ -1,6 +1,6 @@
 //! Site database: rows, routes, indexes, and load stats.
 
-use crate::{Key, LoadStats, Relation, Route, Row, ViewRows};
+use crate::{date_fields, Key, LoadStats, Relation, Route, Row, ViewRows};
 use anyhow::{bail, Result};
 use chrono::NaiveDate;
 use grackle_db::{filter, Table};
@@ -21,7 +21,7 @@ pub struct SiteDb {
     /// Rows from the tree (non-posts, non-objects).
     #[serde(skip)]
     pub page_ix: Vec<Key>,
-    /// Unique `(date, slug)` -> row.
+    /// Unique `(content-date, slug)` -> row, for posts (see [`Self::insert_rows`]).
     #[serde(skip)]
     pub by_key: HashMap<(Option<NaiveDate>, String), Key>,
     /// Slug -> rows (not unique).
@@ -30,8 +30,9 @@ pub struct SiteDb {
     /// Declared list field -> value -> rows.
     #[serde(skip)]
     pub by_multi_key: BTreeMap<String, BTreeMap<String, Vec<Key>>>,
+    /// Declared date-typed field -> ISO day (`YYYY-MM-DD`) -> rows.
     #[serde(skip)]
-    pub by_year_month: BTreeMap<(i32, u32), Vec<Key>>,
+    pub by_date_keys: BTreeMap<String, BTreeMap<String, Vec<Key>>>,
     /// Canonical URL -> row.
     #[serde(skip)]
     pub by_url: HashMap<String, Key>,
@@ -68,6 +69,16 @@ pub struct SiteDb {
 }
 
 impl SiteDb {
+    /// First declared date-typed field (sorted), when any exist.
+    pub fn primary_date_field(&self) -> Option<&'static str> {
+        date_fields(&self.declared).into_iter().next()
+    }
+
+    /// Parsed value of [`Self::primary_date_field`] on a row.
+    pub fn row_date(&self, p: &Row) -> Option<NaiveDate> {
+        self.primary_date_field().and_then(|f| p.as_date(f))
+    }
+
     /// Row at a URL, if any.
     pub fn row_by_url(&self, url: &str) -> Option<&Row> {
         self.by_url.get(url).and_then(|k| self.rows.get(k))
@@ -121,15 +132,15 @@ impl SiteDb {
 
     /// Load rows and build indexes.
     ///
-    /// `dated_keep` is `(field, canonical)` for the pairing axis: dated indexes
-    /// keep only that member so twins do not collide on `(date, slug)`. Pass
+    /// `pairing_keep` is `(field, canonical)` for the pairing axis: indexes that
+    /// would otherwise collide on file-axis twins keep only that member. Pass
     /// `None` when there is no pairing axis.
     pub fn insert_rows(
         &mut self,
         mut posts: Vec<Row>,
         mut pages: Vec<Row>,
         mut objects: Vec<Row>,
-        dated_keep: Option<(&str, &str)>,
+        pairing_keep: Option<(&str, &str)>,
     ) -> Result<()> {
         for r in posts
             .iter_mut()
@@ -153,10 +164,10 @@ impl SiteDb {
         self.rows = Table::new(posts);
         self.rows.extend(pages);
         self.rows.extend(objects);
-        self.index_rows(dated_keep)
+        self.index_rows(pairing_keep)
     }
 
-    fn index_rows(&mut self, dated_keep: Option<(&str, &str)>) -> Result<()> {
+    fn index_rows(&mut self, pairing_keep: Option<(&str, &str)>) -> Result<()> {
         let mut seen: HashMap<&Key, &Row> = HashMap::new();
         for p in self.rows.iter() {
             if let Some(prev) = seen.insert(&p.key, p) {
@@ -170,24 +181,30 @@ impl SiteDb {
         }
 
         let posts: std::collections::HashSet<&Key> = self.post_ix.iter().collect();
-        let dated = |p: &Row| {
+        let keep = |p: &Row| {
             posts.contains(&p.key)
-                && match dated_keep {
+                && match pairing_keep {
                     Some((field, canon)) => p.string(field) == Some(canon),
                     None => true,
                 }
         };
 
+        // Content-date indexes use the first declared date-typed field (sorted).
+        let date_field = date_fields(&self.declared).into_iter().next();
+
         let by_url = self
             .rows
             .unique_index(|p| (!p.url.is_empty()).then(|| p.url.clone()));
-        let by_key = self
-            .rows
-            .unique_index(|p| dated(p).then(|| (p.date, p.slug.clone())));
+        let by_key = self.rows.unique_index(|p| {
+            keep(p).then(|| {
+                let d = date_field.and_then(|f| p.as_date(f));
+                (d, p.slug.clone())
+            })
+        });
         let by_logical = self
             .rows
             .multi_index(|p| p.rendered.then(|| p.logical.clone()));
-        let by_slug = self.rows.multi_index(|p| dated(p).then(|| p.slug.clone()));
+        let by_slug = self.rows.multi_index(|p| keep(p).then(|| p.slug.clone()));
         let mut by_multi_key = BTreeMap::new();
         for (field, ty) in &self.declared {
             if *ty != filter::Type::List {
@@ -197,7 +214,7 @@ impl SiteDb {
             by_multi_key.insert(
                 field.to_string(),
                 self.rows.multi_index(|p| {
-                    if !dated(p) {
+                    if !keep(p) {
                         return Vec::new();
                     }
                     match filter::Row::field(p, field) {
@@ -207,23 +224,33 @@ impl SiteDb {
                 }),
             );
         }
-        let by_year_month = self
-            .rows
-            .multi_index(|p| dated(p).then(|| p.year_month()).flatten());
+        let mut by_date_keys = BTreeMap::new();
+        for field in date_fields(&self.declared) {
+            by_date_keys.insert(
+                field.to_string(),
+                self.rows.multi_index(|p| {
+                    if !keep(p) {
+                        return None;
+                    }
+                    p.as_date(field).map(crate::iso_date)
+                }),
+            );
+        }
         let by_strong = self.rows.multi_index(|p| p.strong_url.clone());
 
         self.by_strong = by_strong;
         self.by_logical = by_logical;
         self.by_slug = by_slug;
         self.by_multi_key = by_multi_key;
-        self.by_year_month = by_year_month;
+        self.by_date_keys = by_date_keys;
         self.by_url =
             by_url.map_err(|c| self.collision(&format!("route collision at {}:", c.key), c))?;
         self.by_key = by_key.map_err(|c| {
-            let (date, slug) = &c.key;
-            let date = date.map(|d| d.to_string()).unwrap_or("none".into());
+            let (day, slug) = &c.key;
+            let day = day.map(|d| d.to_string()).unwrap_or("none".into());
+            let field = date_field.unwrap_or("date");
             self.collision(
-                &format!("duplicate (date, slug) key ({date}, {slug:?}):"),
+                &format!("duplicate ({field}, slug) key ({day}, {slug:?}):"),
                 c,
             )
         })?;

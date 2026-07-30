@@ -22,7 +22,6 @@ pub struct Row {
     pub rel: PathBuf,
     #[serde(serialize_with = "hex")]
     pub version: u64,
-    pub date: Option<NaiveDate>,
     pub slug: String,
     /// Filename without extension.
     pub stem: String,
@@ -90,9 +89,9 @@ impl Keyed for Row {
 }
 
 impl Row {
-    pub fn year_month(&self) -> Option<(i32, u32)> {
-        use chrono::Datelike;
-        self.date.map(|d| (d.year(), d.month()))
+    /// Parsed value of a declared `date`-typed field (`YYYY-MM-DD`).
+    pub fn as_date(&self, name: &str) -> Option<NaiveDate> {
+        parse_date_str(self.string(name)?)
     }
 
     /// Declared bool field; false when absent.
@@ -129,6 +128,14 @@ fn hex<S: serde::Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&format!("{v:016x}"))
 }
 
+/// `YYYY-MM-DD`, or bare `YYYY-MM` as the first of that month.
+pub fn parse_date_str(raw: &str) -> Option<NaiveDate> {
+    let s = raw.trim();
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .or_else(|_| NaiveDate::parse_from_str(&format!("{s}-01"), "%Y-%m-%d"))
+        .ok()
+}
+
 impl filter::Row for Row {
     fn field(&self, name: &str) -> filter::Value {
         use chrono::Datelike;
@@ -142,13 +149,6 @@ impl filter::Row for Row {
             "slug" => V::Str(self.slug.clone()),
             "stem" => V::Str(self.stem.clone()),
             "url" => V::Str(self.url.clone()),
-            "date" => match self.date {
-                Some(d) => V::Str(d.format("%Y-%m-%d").to_string()),
-                None => V::Null,
-            },
-            "year" => self.date.map_or(V::Null, |d| V::Int(d.year() as i64)),
-            "month" => self.date.map_or(V::Null, |d| V::Int(d.month() as i64)),
-            "day" => self.date.map_or(V::Null, |d| V::Int(d.day() as i64)),
             "body_bytes" => V::Int(self.body_bytes as i64),
             "order" => self.order.map_or(V::Null, V::Int),
             "rendered" => V::Bool(self.rendered),
@@ -177,7 +177,18 @@ impl filter::Row for Row {
             "size" => V::Int(self.size as i64),
             "width" => self.width.map_or(V::Null, |w| V::Int(w as i64)),
             "height" => self.height.map_or(V::Null, |h| V::Int(h as i64)),
-            other => self.fields.get(other).cloned().unwrap_or(V::Null),
+            other => match other.split_once('.') {
+                Some((field, "year")) => self
+                    .as_date(field)
+                    .map_or(V::Null, |d| V::Int(d.year() as i64)),
+                Some((field, "month")) => self
+                    .as_date(field)
+                    .map_or(V::Null, |d| V::Int(d.month() as i64)),
+                Some((field, "day")) => self
+                    .as_date(field)
+                    .map_or(V::Null, |d| V::Int(d.day() as i64)),
+                _ => self.fields.get(other).cloned().unwrap_or(V::Null),
+            },
         }
     }
 }

@@ -63,13 +63,19 @@ const MONTH_NAMES: [&str; 12] = [
 /// after the field; `month` keeps its display derivative (`{month_name}`)
 /// until §5f formatters give it a proper home.
 fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
-    let field = grackle_model::spec_field(spec);
     let mk = |sort: SortKey, display: String| {
         let mut params = vec![("key".to_string(), display.clone())];
-        if field != "key" {
-            params.push((field.to_string(), display));
+        if spec != "key" {
+            params.push((spec.to_string(), display.clone()));
         }
-        if field == "month" {
+        // `date.year` also exposes `{year}` (and month/day likewise) so archive
+        // titles keep the short names.
+        if let Some((_, part)) = spec.rsplit_once('.') {
+            if matches!(part, "year" | "month" | "day") {
+                params.push((part.to_string(), display.clone()));
+            }
+        }
+        if spec == "month" || spec.ends_with(".month") {
             if let SortKey::Int(m) = sort {
                 if (1..=12).contains(&m) {
                     params.push(("month_name".into(), MONTH_NAMES[(m - 1) as usize].into()));
@@ -78,7 +84,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
         }
         GroupKey { sort, params }
     };
-    match row.field(field) {
+    match row.field(spec) {
         filter::Value::List(items) => items
             .into_iter()
             .map(|t| mk(SortKey::Str(t.clone()), t))
@@ -108,10 +114,9 @@ fn check_group_chain(name: &str, chain: &[String], schema: &filter::Schema) -> R
     known.sort_unstable();
     known.dedup();
     for spec in chain {
-        let field = grackle_model::spec_field(spec);
-        if !known.contains(&field) {
+        if !known.contains(&spec.as_str()) {
             bail!(
-                "view {name}: group_by names unknown field {field:?}\n  known fields: {}",
+                "view {name}: group_by names unknown field {spec:?}\n  known fields: {}",
                 known.join(", ")
             );
         }
@@ -236,10 +241,18 @@ fn insert_routeless(db: &mut SiteDb, name: &str, v: &View, members: Vec<grackle_
 
 /// The default ordering for dated rows: newest first, undated last, slug as
 /// the tiebreak. A comparator, not an index, so losing the table costs
-/// nothing (q51).
-pub fn chronological(rows: &[grackle_model::Row], a: usize, b: usize) -> std::cmp::Ordering {
+/// nothing (q51). Uses the first declared date-typed field when present.
+pub fn chronological(
+    declared: &grackle_db::filter::Schema,
+    rows: &[grackle_model::Row],
+    a: usize,
+    b: usize,
+) -> std::cmp::Ordering {
+    let field = grackle_model::date_fields(declared).into_iter().next();
     let (x, y) = (&rows[a], &rows[b]);
-    match (x.date, y.date) {
+    let xd = field.and_then(|f| x.as_date(f));
+    let yd = field.and_then(|f| y.as_date(f));
+    match (xd, yd) {
         (Some(p), Some(q)) => q.cmp(&p),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
@@ -251,11 +264,13 @@ pub fn chronological(rows: &[grackle_model::Row], a: usize, b: usize) -> std::cm
 /// What a sequence orders by when nothing says otherwise: newest first,
 /// undated last, path breaking ties. Adjacency's default, and NOT a view's —
 /// a view renders a list, a sequence encodes before-and-after.
-fn newest_first() -> Vec<grackle_db::Order> {
-    vec![
-        grackle_db::Order::desc("date"),
-        grackle_db::Order::asc("path"),
-    ]
+fn newest_first(declared: &grackle_db::filter::Schema) -> Vec<grackle_db::Order> {
+    let mut orders = Vec::new();
+    if let Some(f) = grackle_model::date_fields(declared).into_iter().next() {
+        orders.push(grackle_db::Order::desc(f));
+    }
+    orders.push(grackle_db::Order::asc("path"));
+    orders
 }
 
 /// The order a view asked for, plus the tiebreak every view gets.
@@ -299,8 +314,9 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
 /// are declared relations now (§6g), computed per row by the engine over
 /// `published`. The old collection-level `adjacency` set retired with them;
 /// this stays only as the CLI's raw table walk.
-pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas) -> Result<()> {
+pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
+    let order = newest_first(&schemas.declared_schema());
     for cname in cfg.collections.keys() {
         let ix: Vec<grackle_db::Key> = db
             .rows
@@ -313,7 +329,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, _schemas: &Schemas)
             })
             .map(|p| p.key.clone())
             .collect();
-        let seq = grackle_db::View::all().order(newest_first());
+        let seq = grackle_db::View::all().order(order.clone());
         out.insert(cname.clone(), db.rows.view_within(&ix, &seq));
     }
     db.adjacency = out;
@@ -648,9 +664,7 @@ fn build_view(
     }
     // §6f enum records: URLs wear the record's slug for ANY grouped field
     // (tags, courses, …); keys and titles keep the id.
-    let leaf = chain
-        .last()
-        .map(|s| grackle_model::spec_field(s).to_string());
+    let leaf = chain.last().cloned();
     let route_value = |k: &str, val: &str| -> String {
         let field = if k == "key" { leaf.as_deref() } else { Some(k) };
         match field {
@@ -948,14 +962,12 @@ mod object_view_tests {
 #[cfg(test)]
 mod posts_order_tests {
     use super::*;
-    use chrono::NaiveDate;
     use grackle_model::Row;
 
     fn post(url: &str, date: &str, order: Option<i64>) -> Row {
         let mut r = Row {
             collection: "notes".into(),
             url: url.into(),
-            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").ok(),
             order,
             slug: url.trim_matches('/').into(),
             // A row's key is its path, so fixtures need distinct ones or
@@ -970,6 +982,8 @@ mod posts_order_tests {
         // canonical value to be visible at all.
         r.fields
             .insert("locale".into(), grackle_db::Value::Str("en".into()));
+        r.fields
+            .insert("date".into(), grackle_db::Value::Str(date.into()));
         r
     }
 
@@ -989,7 +1003,7 @@ mod posts_order_tests {
         let src = format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"notes\"\nsource = \"_posts\"\n\
-             file = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n\
+             file = [\"{{date.year}}-{{date.month}}-{{date.day}}-{{slug}}\"]\n\
              [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"card\"\n{clauses}"
         );
         Config::from_toml(&src).expect("test config parses")
@@ -1047,14 +1061,14 @@ mod posts_order_tests {
 #[cfg(test)]
 mod grouping_tests {
     use super::*;
-    use chrono::NaiveDate;
     use grackle_model::Row;
 
     fn post(date: Option<&str>, tags: &[&str]) -> Row {
-        let mut r = Row {
-            date: date.map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap()),
-            ..Row::default()
-        };
+        let mut r = Row::default();
+        if let Some(d) = date {
+            r.fields
+                .insert("date".into(), grackle_db::Value::Str(d.into()));
+        }
         if !tags.is_empty() {
             r.fields.insert(
                 "tags".into(),
@@ -1138,7 +1152,6 @@ mod grouping_tests {
             size: 0,
             title: Some("Carbonara".into()),
             order: None,
-            date: None,
             theme: None,
             shell: None,
             fields: Default::default(),
@@ -1171,7 +1184,10 @@ mod grouping_tests {
         // came from. An undated page is absent from the year partition,
         // exactly as an undated post is.
         assert!(key_combos(&p, &["date.year".into()]).is_empty());
-        p.date = chrono::NaiveDate::from_ymd_opt(2026, 7, 1);
+        p.fields.insert(
+            "date".into(),
+            grackle_db::filter::Value::Str("2026-07-01".into()),
+        );
         let combos = key_combos(&p, &["date.year".into(), "date.month".into()]);
         assert_eq!(combos.len(), 1);
         let params: Vec<_> = combos[0].iter().flat_map(|k| k.params.clone()).collect();
@@ -1183,11 +1199,7 @@ mod grouping_tests {
     }
 
     #[test]
-    fn date_specs_are_field_aliases() {
-        assert_eq!(grackle_model::spec_field("date.year"), "year");
-        assert_eq!(grackle_model::spec_field("date.month"), "month");
-        assert_eq!(grackle_model::spec_field("course"), "course");
-        // The month display derivative survives the generalization.
+    fn month_keeps_its_display_name() {
         let p = post(Some("2022-12-16"), &[]);
         let keys = group_keys(&p, "date.month");
         assert!(keys[0]
@@ -1201,7 +1213,6 @@ mod grouping_tests {
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
-    use chrono::NaiveDate;
     use grackle_model::Row;
 
     fn post(collection: &str, url: &str, date: Option<&str>, draft: bool) -> Row {
@@ -1213,12 +1224,15 @@ mod adjacency_tests {
             collection: collection.into(),
             url: url.into(),
             slug: url.trim_matches('/').replace('/', "-"),
-            date: date.and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()),
             // A flag is a declared field now (§4e), so a fixture sets one the
             // way a row carries one.
             fields: BTreeMap::from([("draft".to_string(), grackle_db::Value::Bool(draft))]),
             ..Row::default()
         };
+        if let Some(d) = date {
+            r.fields
+                .insert("date".into(), grackle_db::Value::Str(d.into()));
+        }
         r.fields
             .insert("locale".into(), grackle_db::Value::Str("en".into()));
         r
@@ -1231,10 +1245,18 @@ mod adjacency_tests {
     fn cfg(extra: &str) -> Config {
         Config::from_toml(&format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [schema]\ndate = {{ type = \"date\" }}\ndraft = {{ type = \"bool\" }}\n\
              [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
-             file = [\"{{year}}-{{month}}-{{day}}-{{slug}}\"]\n{extra}"
+             file = [\"{{date.year}}-{{date.month}}-{{date.day}}-{{slug}}\"]\n{extra}"
         ))
         .expect("test config parses")
+    }
+
+    fn schemas(c: &Config) -> Schemas {
+        let mut s = Schemas::new(row_schema());
+        s.set_site(c.schema.fields.clone(), "[schema]")
+            .expect("test schema");
+        s
     }
 
     fn seq(db: &SiteDb, collection: &str) -> Vec<String> {
@@ -1251,14 +1273,14 @@ mod adjacency_tests {
     #[test]
     fn each_collection_gets_its_own_sequence() {
         let c = cfg("[[collections]]\nname = \"notes\"\n\
-                     source = \"_notes\"\nfile = [\"{year}-{month}-{day}-{slug}\"]\n");
+                     source = \"_notes\"\nfile = [\"{{date.year}}-{{date.month}}-{{date.day}}-{{slug}}\"]\n");
         let mut db = db_with(vec![
             post("posts", "/blog/jan/", Some("2026-01-01"), false),
             post("notes", "/notes/feb/", Some("2026-02-01"), false),
             post("posts", "/blog/mar/", Some("2026-03-01"), false),
             post("notes", "/notes/apr/", Some("2026-04-01"), false),
         ]);
-        build_adjacency(&c, &mut db, &Schemas::new(row_schema())).unwrap();
+        build_adjacency(&c, &mut db, &schemas(&c)).unwrap();
         assert_eq!(seq(&db, "posts"), ["/blog/mar/", "/blog/jan/"]);
         assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
     }
@@ -1269,12 +1291,13 @@ mod adjacency_tests {
     /// (§6g), not this sequence's; `grackle explain` only reports the table.
     #[test]
     fn the_diagnostic_walk_is_chronological_and_unfiltered() {
+        let c = cfg("");
         let mut db = db_with(vec![
             post("posts", "/blog/jan/", Some("2026-01-01"), false),
             post("posts", "/blog/feb/", Some("2026-02-01"), true), // dated DRAFT
             post("posts", "/blog/mar/", Some("2026-03-01"), false),
         ]);
-        build_adjacency(&cfg(""), &mut db, &Schemas::new(row_schema())).unwrap();
+        build_adjacency(&c, &mut db, &schemas(&c)).unwrap();
         assert_eq!(
             seq(&db, "posts"),
             ["/blog/mar/", "/blog/feb/", "/blog/jan/"],

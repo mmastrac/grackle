@@ -116,9 +116,9 @@ fn one_template_spends_both_suppliers_and_the_rule_owns_the_extractor() {
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                  [[collections]]\nsource = \"_posts\"\n\
-                 file = [\"{year}-{month}-{day}-{slug}\"]\n\n\
+                 file = [\"{date.year}-{date.month}-{date.day}-{slug}\"]\n\n\
                  [[collections.rules]]\nmatch = \"legacy/**\"\n\
-                 file = [\"{month}-{day}-{year}-{slug}\"]\n\
+                 file = [\"{date.month}-{date.day}-{date.year}-{slug}\"]\n\
                  route = \"/{dir}/{year}/{slug}/\"\n\n\
                  [[collections.rules]]\nmatch = \"rust/**\"\n\
                  route = \"/{dir}/{year}/{slug}/\"\n",
@@ -170,7 +170,7 @@ fn an_extractor_reaches_a_tree_rule() {
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                  [[collections]]\nsource = \".\"\n\n\
                  [[collections.rules]]\nmatch = \"notes/**\"\nfront_matter = true\n\
-                 file = [\"{year}-{month}-{day}-{slug}\"]\n\
+                 file = [\"{date.year}-{date.month}-{date.day}-{slug}\"]\n\
                  route = \"/{year}/{slug}/\"\n",
             ),
             (
@@ -194,7 +194,7 @@ fn an_extractor_reaches_a_tree_rule() {
         .expect("the row loaded");
     assert_eq!(row.slug, "hello");
     assert_eq!(
-        row.date.map(|d| d.to_string()).as_deref(),
+        row.as_date("date").map(|d| d.to_string()).as_deref(),
         Some("2020-01-02")
     );
     // The base's own rules still route the page that no rule of the site's
@@ -223,7 +223,7 @@ fn an_undated_row_under_a_dated_template_names_the_file_and_the_rule() {
                 "grackle.toml",
                 "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                  [[collections]]\nsource = \"_posts\"\n\
-                 file = [\"{year}-{month}-{day}-{slug}\"]\n\n\
+                 file = [\"{date.year}-{date.month}-{date.day}-{slug}\"]\n\n\
                  [[collections.rules]]\nmatch = \"notes/**\"\n\
                  route = \"/blog/{year}/{slug}/\"\n",
             ),

@@ -28,7 +28,7 @@ fn config(scopes: &str) -> String {
     format!(
         "extends = \"none\"\n\
          [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-         [schema]\nshell = {{ type = \"string\" }}\n\n{scopes}"
+         [schema]\nshell = {{ type = \"string\" }}\ndate = {{ type = \"date\" }}\n\n{scopes}"
     )
 }
 
@@ -37,7 +37,7 @@ fn config(scopes: &str) -> String {
 /// rules do not claim is not content at all.
 const POSTS: &str = "[[collections]]\n\
      name = \"posts\"\nsource = \"_posts\"\n\
-     file = [\"{year}-{month}-{day}-{slug}\"]\n\n  \
+     file = [\"{date.year}-{date.month}-{date.day}-{slug}\"]\n\n  \
      [[collections.rules]]\n  match = \"**/*.{md,markdown}\"\n  \
      route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
 

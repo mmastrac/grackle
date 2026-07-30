@@ -30,7 +30,7 @@ author = "Tester"
 
 [[collections]]
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
 [profiles.staging]
 

@@ -155,7 +155,7 @@ pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RankPolicy) -> Relate
     // not a row — indexing `db.rows` with it is wrong.
     let keys = &db.post_ix;
     let row = |i: usize| keys.get(i).and_then(|k| db.rows.get(k));
-    let year = |i: usize| row(i).and_then(|r| r.date).map(|d| d.year());
+    let year = |i: usize| row(i).and_then(|r| r.as_date("date")).map(|d| d.year());
     let mut by_post = HashMap::new();
     for (i, vi) in vectors.iter().enumerate() {
         let Some(vi) = vi else { continue };
@@ -278,14 +278,17 @@ mod tests {
     use crate::model::Row;
 
     fn post(title: &str, year: i32, v: Option<Vec<f32>>) -> (Row, Option<Vector>) {
-        let p = Row {
+        let mut p = Row {
             title: Some(title.into()),
             // Distinct, because a row's key is its path and these rows have
             // to be tellable apart once ranking names them.
             rel: std::path::PathBuf::from(format!("{title}.md")),
-            date: chrono::NaiveDate::from_ymd_opt(year, 1, 1),
             ..Row::default()
         };
+        p.fields.insert(
+            "date".into(),
+            grackle_db::Value::Str(format!("{year}-01-01")),
+        );
         (p, v)
     }
 

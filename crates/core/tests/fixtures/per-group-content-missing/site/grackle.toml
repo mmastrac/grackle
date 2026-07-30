@@ -20,6 +20,7 @@ title = "Per-group content"
 author = "Tester"
 
 [schema]
+date = { type = "date" }
 draft = { type = "bool" }
 hidden = { type = "bool" }
 topic = { type = "string" }
@@ -27,7 +28,7 @@ topic = { type = "string" }
 [[collections]]
 name = "posts"
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"

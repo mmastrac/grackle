@@ -234,7 +234,7 @@ pub(crate) fn backlinks_map(
             sources.push((
                 p.url.as_str(),
                 p.title.clone().unwrap_or_default(),
-                p.date,
+                p.as_date("date"),
                 html,
             ));
         }

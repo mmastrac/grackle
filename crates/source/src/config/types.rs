@@ -450,6 +450,7 @@ impl Shaped for HeadCfg {
             field("meta", |h: &HeadCfg| &h.meta),
             field("property", |h: &HeadCfg| &h.property),
             field("link", |h: &HeadCfg| &h.link),
+            field("jsonld", |h: &HeadCfg| &h.jsonld),
         ])
     }
 }
@@ -1295,6 +1296,47 @@ impl Shaped for HeadEntry {
     }
 }
 
+/// One value in `[html.head.jsonld]`: a CEL text expression, or a nested
+/// object. Empty string after eval omits the key; an object whose keys all
+/// omit is itself omitted; a root without a non-empty `@type` emits no script.
+#[derive(Debug, Clone)]
+pub enum JsonLdValue {
+    Expr(String),
+    Object(BTreeMap<String, JsonLdValue>),
+}
+
+impl<'de> serde::Deserialize<'de> for JsonLdValue {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = toml::Value::deserialize(d)?;
+        jsonld_from_toml(v).map_err(serde::de::Error::custom)
+    }
+}
+
+fn jsonld_from_toml(v: toml::Value) -> Result<JsonLdValue, String> {
+    match v {
+        toml::Value::String(s) => Ok(JsonLdValue::Expr(s)),
+        toml::Value::Table(t) => {
+            let mut out = BTreeMap::new();
+            for (k, v) in t {
+                out.insert(k, jsonld_from_toml(v)?);
+            }
+            Ok(JsonLdValue::Object(out))
+        }
+        other => Err(format!(
+            "jsonld value must be a string expression or a table, got {}",
+            other.type_str()
+        )),
+    }
+}
+
+impl Shaped for JsonLdValue {
+    fn shape() -> Shape {
+        // One authored subtree: a site overriding `author` replaces the whole
+        // object rather than composing fields with the base's.
+        Shape::TableAtom
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HeadCfg {
@@ -1320,6 +1362,11 @@ pub struct HeadCfg {
     /// which is how hreflang left the engine (§4e residue).
     #[serde(default)]
     pub link: BTreeMap<String, HeadEntry>,
+    /// `<script type="application/ld+json">` body. Nested TOML tables become
+    /// JSON objects; string leaves are §5f text expressions (JSON-escaped on
+    /// emit). Absent or empty `@type` after eval ⇒ no script.
+    #[serde(default)]
+    pub jsonld: BTreeMap<String, JsonLdValue>,
 }
 
 /// Internal-link policy (§6a).

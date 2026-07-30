@@ -12,10 +12,13 @@ author = "Tester"
 values = ["plain", "fancy"]
 field = "look"
 
+[schema]
+date = { type = "date" }
+
 [[collections]]
 name = "posts"
 source = "_posts"
-file = ["{year}-{month}-{day}-{slug}"]
+file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"

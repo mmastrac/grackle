@@ -157,7 +157,7 @@ impl<'a> Engine<'a> {
                 .filter_map(|(url, _)| {
                     self.db
                         .row_by_url(&url)
-                        .map(|r| (r.title.clone().unwrap_or_default(), r.url.clone(), r.date))
+                        .map(|r| (r.title.clone().unwrap_or_default(), r.url.clone(), r.as_date("date")))
                 })
                 .collect();
             groups.push(Group {
@@ -330,7 +330,7 @@ impl<'a> Engine<'a> {
                 },
                 None => None,
             };
-            scored.push((cand.url.clone(), score, cand.date));
+            scored.push((cand.url.clone(), score, cand.as_date("date")));
         }
         // Determinism (§6g): rank desc, then date desc, then url. Unranked
         // relations (`linked_from`) fall through to date-then-url, newest
@@ -437,7 +437,7 @@ impl Ctx for RelCtx<'_> {
         use chrono::Datelike;
         let ra = self.engine.db.row_by_url(a)?;
         let rb = self.engine.db.row_by_url(b)?;
-        let (da, db) = (ra.date?, rb.date?);
+        let (da, db) = (ra.as_date("date")?, rb.as_date("date")?);
         Some((da.year() - db.year()).abs() as f64)
     }
 }

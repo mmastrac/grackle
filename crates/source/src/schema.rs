@@ -24,6 +24,9 @@ pub enum FieldType {
     /// A root-relative image path: thumbnailed via §6b, dimension facts
     /// attached, eligible as a `hero` source (q23).
     Image,
+    /// Calendar day as `YYYY-MM-DD` (bare `YYYY-MM` means the first of that
+    /// month). Stored as an ISO string so filters order it correctly.
+    Date,
 }
 
 impl FieldType {
@@ -34,26 +37,28 @@ impl FieldType {
             "bool" => FieldType::Bool,
             "list" => FieldType::List,
             "image" => FieldType::Image,
+            "date" => FieldType::Date,
             _ => return None,
         })
     }
 
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             FieldType::Str => "string",
             FieldType::Int => "int",
             FieldType::Bool => "bool",
             FieldType::List => "list",
             FieldType::Image => "image",
+            FieldType::Date => "date",
         }
     }
 
     /// How the filter language sees this field. An image is a path, so it
     /// reads as a string — a `where` could compare or `glob()` on one, though
-    /// nothing does yet.
+    /// nothing does yet. A date is ISO-8601 text for the same reason.
     pub fn filter_type(self) -> filter::Type {
         match self {
-            FieldType::Str | FieldType::Image => filter::Type::Str,
+            FieldType::Str | FieldType::Image | FieldType::Date => filter::Type::Str,
             FieldType::Int => filter::Type::Int,
             FieldType::Bool => filter::Type::Bool,
             FieldType::List => filter::Type::List,
@@ -338,7 +343,7 @@ impl Schemas {
     pub fn declared_schema(&self) -> Schema {
         let mut s = Schema::new();
         for (name, ty) in self.declared() {
-            s.insert(grackle_model::intern(name.to_string()), ty.filter_type());
+            insert_declared(&mut s, name, ty);
         }
         s
     }
@@ -364,9 +369,22 @@ impl Schemas {
             // A declaration never shadows a built-in (enforced in `add`), so a
             // plain insert is right. Interned rather than leaked, so `serve`
             // reloads do not accumulate keys.
-            s.insert(grackle_model::intern(name.to_string()), ty.filter_type());
+            insert_declared(&mut s, name, ty);
         }
         s
+    }
+}
+
+fn insert_declared(s: &mut Schema, name: &str, ty: FieldType) {
+    let key = grackle_model::intern(name.to_string());
+    s.insert(key, ty.filter_type());
+    if ty == FieldType::Date {
+        for part in ["year", "month", "day"] {
+            s.insert(
+                grackle_model::intern(format!("{name}.{part}")),
+                filter::Type::Int,
+            );
+        }
     }
 }
 
@@ -394,7 +412,7 @@ fn parse_fields(
         let Some(ty) = ty else {
             bail!(
                 "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
-                 \"bool\" | \"list\" | \"image\""
+                 \"bool\" | \"list\" | \"image\" | \"date\""
             );
         };
         // Cascade keys are declarable at the type the engine reads them at:
@@ -538,7 +556,7 @@ pub fn force(
 }
 
 /// The declared names, sorted — what an error about an undeclared one lists.
-fn knowns(schema: &BTreeMap<&str, FieldType>) -> String {
+pub(crate) fn knowns(schema: &BTreeMap<&str, FieldType>) -> String {
     let mut known: Vec<&str> = schema.keys().copied().collect();
     known.sort_unstable();
     known.join(", ")
@@ -550,7 +568,7 @@ fn knowns(schema: &BTreeMap<&str, FieldType>) -> String {
 /// `force` block — share this, so "declared bool, given a string" is one
 /// sentence with one author and the image side channel is fed from one place.
 /// `whose` is the prefix each caller owns ("x.md: a marker or rule").
-fn write_typed(
+pub(crate) fn write_typed(
     ty: FieldType,
     name: &str,
     v: &toml::Value,
@@ -580,6 +598,7 @@ pub(crate) fn list_from_words(s: &str) -> Vec<String> {
 pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> Result<Value> {
     Ok(match (ty, v) {
         (FieldType::Str | FieldType::Image, toml::Value::String(s)) => Value::Str(s.clone()),
+        (FieldType::Date, toml::Value::String(s)) => Value::Str(date_str(s, name, whose)?),
         (FieldType::Int, toml::Value::Integer(i)) => Value::Int(*i),
         (FieldType::Bool, toml::Value::Boolean(b)) => Value::Bool(*b),
         (FieldType::List, toml::Value::Array(a)) => Value::List(
@@ -596,6 +615,14 @@ pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> 
             ty.name()
         ),
     })
+}
+
+/// Canonical `YYYY-MM-DD` from a declared date value.
+fn date_str(raw: &str, name: &str, whose: &str) -> Result<String> {
+    let Some(d) = grackle_model::parse_date_str(raw) else {
+        bail!("{whose}: {name:?}: {raw:?} is not YYYY-MM-DD (or YYYY-MM)");
+    };
+    Ok(d.format("%Y-%m-%d").to_string())
 }
 
 pub fn validate(
@@ -615,8 +642,10 @@ pub fn validate(
                 known.join(", ")
             );
         };
+        let whose = path.display().to_string();
         let value = match (ty, v) {
             (FieldType::Str, Y::String(s)) => Value::Str(s.clone()),
+            (FieldType::Date, Y::String(s)) => Value::Str(date_str(s, name, &whose)?),
             (FieldType::Image, Y::String(s)) => {
                 out.images.insert(name.clone(), s.clone());
                 Value::Str(s.clone())
@@ -897,6 +926,28 @@ mod tests {
         assert!(e.contains("declared string"), "{e}");
     }
 
+    #[test]
+    fn a_date_field_accepts_iso_and_rejects_noise() {
+        let mut schema = BTreeMap::new();
+        schema.insert("published", FieldType::Date);
+        let mut extra = BTreeMap::new();
+        extra.insert(
+            "published".to_string(),
+            serde_yaml_ng::Value::String("2020-01".into()),
+        );
+        let fields = validate(&schema, &extra, Path::new("x.md")).unwrap();
+        assert_eq!(fields.values["published"], Value::Str("2020-01-01".into()));
+
+        extra.insert(
+            "published".to_string(),
+            serde_yaml_ng::Value::String("soon".into()),
+        );
+        let e = validate(&schema, &extra, Path::new("x.md"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("YYYY-MM-DD"), "{e}");
+    }
+
     /// A `type = "list"` field accepts a whitespace-separated string as well
     /// as a sequence.
     #[test]
@@ -947,16 +998,14 @@ mod tests {
     }
 
     /// A declaration that collides with a base row field parsed, validated
-    /// and was then unreachable — `Post::field`/`Page::field` answer the
-    /// base name first. field-notes had a live one (`month`, the stand-in
-    /// for the date a page could not hold), and nothing said so.
+    /// and was then unreachable — `Row::field` answers the base name first.
     #[test]
     fn declaring_a_built_in_field_is_a_load_error() {
         let mut s = Schemas::new(grackle_model::row_schema());
         let e = s
             .add(
                 Path::new("books"),
-                "month = { type = \"string\" }\n",
+                "slug = { type = \"string\" }\n",
                 Path::new("books/.schema.toml"),
             )
             .unwrap_err()

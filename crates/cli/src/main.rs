@@ -347,7 +347,7 @@ fn routes_tree(db: &model::SiteDb, depth: usize, under: Option<&str>) {
 fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) -> Result<()> {
     match q {
         Query::Stats => {
-            let dated = db.rows.iter().filter(|r| r.date.is_some()).count();
+            let dated = db.rows.iter().filter(|r| db.row_date(r).is_some()).count();
             let shared: Vec<_> = db.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
             println!("posts           {}", db.rows.len());
             println!("  dated         {}", dated);
@@ -387,7 +387,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
             for (field, idx) in &db.by_multi_key {
                 println!("  by_multi_key.{field:<12} {}", idx.len());
             }
-            println!("  by_year_month {}", db.by_year_month.len());
+            for (field, idx) in &db.by_date_keys {
+                println!("  by_date_keys.{field:<12} {}", idx.len());
+            }
             println!(
                 "markers         {}  files found ({:.1}ms scan)",
                 db.stats.markers, db.stats.markers_ms
@@ -441,7 +443,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                     None => true,
                 })
                 .collect();
-            ix.sort_by(|&a, &b| views::chronological(&db.rows, a, b));
+            ix.sort_by(|&a, &b| views::chronological(&db.declared, &db.rows, a, b));
             for &i in &ix {
                 let r = &db.rows[i];
                 if let Some((field, value)) = &has {
@@ -450,11 +452,17 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                     }
                 }
                 if let Some(y) = year {
-                    if r.year_month().map(|(yy, _)| yy) != Some(y) {
+                    let hit = model::date_fields(&db.declared).iter().any(|f| {
+                        matches!(
+                            filter::Row::field(r, &format!("{f}.year")),
+                            filter::Value::Int(yy) if yy == y as i64
+                        )
+                    });
+                    if !hit {
                         continue;
                     }
                 }
-                println!("{}  {}", fmt_date(r), r.title.as_deref().unwrap_or("-"));
+                println!("{}  {}", fmt_date(r, &db.declared), r.title.as_deref().unwrap_or("-"));
                 println!("    {}", r.url);
                 n += 1;
                 if n >= limit {
@@ -535,8 +543,28 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
             }
         }
         Query::Archives => {
-            for ((y, m), v) in &db.by_year_month {
-                println!("{y}-{m:02}  {:3} posts  /blog/{y}/{m:02}/", v.len());
+            let header = db.by_date_keys.len() > 1;
+            for (field, idx) in &db.by_date_keys {
+                if header {
+                    println!("{field}");
+                }
+                let mut months: BTreeMap<(i32, u32), usize> = BTreeMap::new();
+                for (iso, keys) in idx {
+                    // Keys are `iso_date` output (`YYYY-MM-DD`).
+                    let Some((y, rest)) = iso.split_once('-') else {
+                        continue;
+                    };
+                    let Some((m, _)) = rest.split_once('-') else {
+                        continue;
+                    };
+                    let (Ok(y), Ok(m)) = (y.parse(), m.parse()) else {
+                        continue;
+                    };
+                    *months.entry((y, m)).or_default() += keys.len();
+                }
+                for ((y, m), n) in months {
+                    println!("{y}-{m:02}  {n:3} posts");
+                }
             }
         }
         Query::Explain { url } => {
@@ -545,7 +573,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 print!("{}", debug::row_facts(r));
                 println!("source      {}", r.path.display());
                 println!("version     {:016x}", r.version);
-                println!("date        {}", fmt_date(r));
+                println!("date        {}", fmt_date(r, &db.declared));
                 println!("slug        {}", r.slug);
                 println!("stem        {}", r.stem);
                 println!("source      {}  (embedding cache key)", r.rel.display());
@@ -635,8 +663,10 @@ fn parse_has(spec: &str) -> Result<(String, String)> {
     Ok((field.to_string(), value.to_string()))
 }
 
-fn fmt_date(p: &model::Row) -> String {
-    p.date
+fn fmt_date(p: &model::Row, declared: &filter::Schema) -> String {
+    model::date_fields(declared)
+        .into_iter()
+        .find_map(|f| p.as_date(f))
         .map(model::iso_date)
         .unwrap_or_else(|| "----------".into())
 }

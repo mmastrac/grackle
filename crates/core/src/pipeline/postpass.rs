@@ -707,7 +707,7 @@ pub fn search_docs(
             grackle_search_core::SearchDoc {
                 url: p.url.clone(),
                 title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-                date: p.date.map(crate::model::pretty_date).unwrap_or_default(),
+                date: p.as_date("date").map(crate::model::pretty_date).unwrap_or_default(),
                 streams: cfg.search_streams(p, &body),
             }
         })
@@ -759,7 +759,7 @@ pub(crate) fn search_pass(
                         grackle_search_core::SearchDoc {
                             url: p.url.clone(),
                             title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-                            date: p.date.map(crate::model::pretty_date).unwrap_or_default(),
+                            date: p.as_date("date").map(crate::model::pretty_date).unwrap_or_default(),
                             streams: cfg.search_streams(p, &body),
                         }
                     })
@@ -778,7 +778,7 @@ pub(crate) fn search_pass(
                         // A titleless page is still searchable by body; its
                         // URL is the only honest label a hit can wear.
                         title: p.title.clone().unwrap_or_else(|| p.url.clone()),
-                        date: p.date.map(crate::model::pretty_date).unwrap_or_default(),
+                        date: p.as_date("date").map(crate::model::pretty_date).unwrap_or_default(),
                         streams: cfg.search_streams(p, &body),
                     })
                 }
