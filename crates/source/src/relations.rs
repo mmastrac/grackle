@@ -6,6 +6,10 @@
 //! config into type-checked, dependency-ordered [`Relation`]s on the db; the
 //! engine (grackle crate) evaluates them per row at build.
 //!
+//! Defaults live in `base.toml` on the posts and tree collections (§4d), not
+//! here — the same move as `[sets.published]` for draft/hidden. This module
+//! only compiles what the merged config declared.
+//!
 //! What happens here, and why here: parsing and type-checking are load-time
 //! (§5f), so a `where` naming a field no row has, or a `rank` that is not a
 //! number, or a reference cycle, is a startup error naming the relation —
@@ -27,29 +31,12 @@ use crate::schema::Schemas;
 pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<Relation>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
-        // Defaults for the role, then the site's declarations layered on top —
-        // per NAME, so changing `related` leaves `earlier`/`later` alone
-        // (§6g). A declared block replaces its default wholesale.
-        let date_field = {
-            let dates: Vec<_> = schemas
-                .declared()
-                .iter()
-                .filter(|(_, t)| **t == crate::schema::FieldType::Date)
-                .map(|(n, _)| *n)
-                .collect();
-            match dates.as_slice() {
-                [one] => Some(*one),
-                _ => None,
-            }
-        };
-        let mut specs: BTreeMap<String, RelationCfg> =
-            default_relations(c.is_posts(), date_field);
-        for (name, rc) in &c.relations {
-            specs.insert(name.clone(), rc.clone());
-        }
-        if specs.is_empty() {
+        // Declared only — base.toml ships the usual four on posts (and
+        // `linked_from` on the tree); a site overrides per NAME (§6g).
+        if c.relations.is_empty() {
             continue;
         }
+        let specs: &BTreeMap<String, RelationCfg> = &c.relations;
 
         // The two-row schema every expression here type-checks against: the
         // base fields under `self.`/`candidate.`, plus every relation name of
@@ -63,7 +50,7 @@ pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
         let schema = two_row_schema(&base, &names);
 
         let mut compiled: HashMap<String, Relation> = HashMap::new();
-        for (name, rc) in &specs {
+        for (name, rc) in specs {
             let who = format!("collection {cname}: relation {name}");
             let rel = compile_one(cfg, db, cname, name, rc, &schema).with_context(|| who)?;
             compiled.insert(name.clone(), rel);
@@ -90,12 +77,10 @@ fn compile_one(
     // become somebody's Later post — the engine composing a query about two
     // field names it had no business knowing.
     //
-    // The guarantee moved rather than went away: the base config ships
-    // `[sets.published]` (§4d), so the defaulted pool IS that set and is
-    // already filtered. Only a site at `extends = "none"` with no `published`
-    // falls back to the bare collection, and there the pool is what the site
-    // declared — if it wants drafts out of its neighbours it says so, in the
-    // same place it says everything else.
+    // The guarantee lives in the base config: `[sets.published]` filters the
+    // pool, and the base's relation blocks write `from = "published"`
+    // explicitly. Absent `from` means the collection itself — no set name is
+    // special-cased here.
     let where_src = match rc.filter.as_deref() {
         Some(f) => f.to_string(),
         None => "*".to_string(),
@@ -131,19 +116,13 @@ fn compile_one(
 /// Resolve `from` to a candidate pool. A derived name is row-relative; a set
 /// or collection is a fixed list.
 ///
-/// An explicit `from` must resolve or it is a load error. An ABSENT one is the
-/// engine defaults' pool: the `published` set — which the base config ships
-/// (§4d), so this is the normal case and the pool arrives already filtered —
-/// falling back to the collection itself when a site declares no such set
-/// (§6g: a `published` set is not mandatory just to get neighbours). Nothing
-/// is ANDed onto either: the pool is a query the config wrote.
+/// An explicit `from` must resolve or it is a load error. An ABSENT one means
+/// the collection itself — sites that want a filtered pool (the base's
+/// `published` set) write `from = "published"`. Nothing is ANDed onto either:
+/// the pool is a query the config wrote.
 fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, from: Option<&str>) -> Result<Pool> {
     let Some(name) = from else {
-        return Ok(if db.views.contains_key("published") {
-            Pool::Set("published".to_string())
-        } else {
-            Pool::Collection(cname.to_string())
-        });
+        return Ok(Pool::Collection(cname.to_string()));
     };
     if DERIVED_RELATIONS.contains(&name) {
         return Ok(Pool::Derived(name.to_string()));
@@ -185,88 +164,11 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
     }
 }
 
-/// The four engine defaults (§6g). Posts get the full set; a tree or object
-/// collection gets only `linked_from` — `earlier`/`later`/`related` are
-/// date-and-similarity ideas a page has no answer for, and running them would
-/// be an empty group at O(n²) cost. A declared relation on any collection is
-/// added regardless.
-fn default_relations(
-    is_posts: bool,
-    date_field: Option<&str>,
-) -> BTreeMap<String, RelationCfg> {
-    let mut m = BTreeMap::new();
-    let rel =
-        |from: Option<&str>, filter: Option<&str>, rank: Option<&str>, limit: Option<usize>| {
-            RelationCfg {
-                from: from.map(str::to_string),
-                filter: filter.map(str::to_string),
-                scope: None,
-                rank: rank.map(str::to_string),
-                min_rank: None,
-                limit,
-                label: None,
-            }
-        };
-    // Every collection can point at what links to it.
-    m.insert(
-        "linked_from".to_string(),
-        rel(
-            Some("linked_from"),
-            Some("!(candidate in ancestors)"),
-            None,
-            None,
-        ),
-    );
-    if is_posts {
-        // Neighbours when the site declares exactly one date-typed field.
-        if let Some(f) = date_field {
-            let date_ord = format!(
-                "candidate.{f}.year * 10000 + candidate.{f}.month * 100 + candidate.{f}.day"
-            );
-            let self_ord =
-                format!("self.{f}.year * 10000 + self.{f}.month * 100 + self.{f}.day");
-            m.insert(
-                "earlier".to_string(),
-                rel(
-                    None,
-                    Some(&format!("{date_ord} < {self_ord}")),
-                    Some(&date_ord),
-                    Some(1),
-                ),
-            );
-            m.insert(
-                "later".to_string(),
-                rel(
-                    None,
-                    Some(&format!("{date_ord} > {self_ord}")),
-                    Some(&format!("-({date_ord})")),
-                    Some(1),
-                ),
-            );
-        }
-        let related_where = if date_field.is_some() {
-            "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
-        } else {
-            "!(candidate in links_to)"
-        };
-        m.insert(
-            "related".to_string(),
-            rel(
-                None,
-                Some(related_where),
-                Some("embedding_similarity(self, candidate)"),
-                Some(4),
-            ),
-        );
-    }
-    m
-}
-
 /// Order relations so each evaluates after the ones it names. `related`
 /// references `earlier`/`later`, so it must follow them; a reference cycle is
-/// a load error, never a render-time surprise. The initial order is the
-/// reading order — the defaults first, then extras alphabetically — and the
-/// sort is stable within it.
+/// a load error, never a render-time surprise. The initial order prefers the
+/// base's conventional names when present (a stable seed, not a requirement),
+/// then the rest alphabetically — and the sort is stable within it.
 fn order_by_dependency(
     cname: &str,
     mut compiled: HashMap<String, Relation>,
@@ -290,8 +192,8 @@ fn order_by_dependency(
             .collect()
     };
 
-    // A deterministic initial order: the reading order of the defaults, then
-    // any extras in the sorted order `names` already carries.
+    // Prefer the base convention's reading order when those names exist, then
+    // any others in the sorted order `names` already carries.
     let mut initial: Vec<String> = Vec::new();
     for d in ["earlier", "later", "related", "linked_from"] {
         if compiled.contains_key(d) {
@@ -338,6 +240,41 @@ mod tests {
     use super::*;
     use grackle_model::{row_schema, SiteDb};
 
+    /// The base.toml posts-collection neighbour defaults, for tests that need
+    /// them without merging the full base config.
+    ///
+    /// Relation tables MUST come before `[sets.…]`: TOML attaches
+    /// `[collections.relations.*]` to the last `[[collections]]` only while
+    /// that array entry is still open.
+    const POSTS_DEFAULTS: &str = r#"
+[collections.relations.earlier]
+from = "published"
+where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day < self.date.year * 10000 + self.date.month * 100 + self.date.day"
+rank = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day"
+limit = 1
+
+[collections.relations.later]
+from = "published"
+where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day > self.date.year * 10000 + self.date.month * 100 + self.date.day"
+rank = "-(candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day)"
+limit = 1
+
+[collections.relations.related]
+from = "published"
+where = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+rank = "embedding_similarity(self, candidate)"
+limit = 4
+
+[collections.relations.linked_from]
+from = "linked_from"
+where = "!(candidate in ancestors)"
+
+[sets.published]
+from = "posts"
+where = "!draft && !hidden"
+order_by = "-date"
+"#;
+
     /// Compile relations for a single posts collection with `extra` config
     /// appended (relation blocks, sets). Runs `build_views` first so a declared
     /// `[sets.published]` resolves as a pool.
@@ -372,9 +309,46 @@ mod tests {
         format!("{:#}", compile(extra).unwrap_err())
     }
 
+    /// `extends = "none"` with no relation blocks is truly empty — the engine
+    /// mints nothing (§4d, same as the flag family).
     #[test]
-    fn defaults_are_present_and_related_follows_its_neighbours() {
+    fn extends_none_mints_no_relations() {
         let rels = compile("").unwrap();
+        assert!(rels.is_empty(), "expected no relations, got {rels:?}");
+    }
+
+    /// The base config is where the four live now: an empty site that inherits
+    /// it gets them on posts (and `linked_from` on the tree), with nothing
+    /// compiled in Rust.
+    #[test]
+    fn inheriting_base_ships_posts_and_tree_relations() {
+        let cfg = Config::from_toml(
+            "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n",
+        )
+        .expect("empty site inherits base");
+        let posts = &cfg.collections["posts"].relations;
+        for want in ["earlier", "later", "related", "linked_from"] {
+            assert!(posts.contains_key(want), "posts missing {want}: {posts:?}");
+        }
+        assert_eq!(
+            posts["earlier"].from.as_deref(),
+            Some("published"),
+            "base writes from explicitly"
+        );
+        let tree = &cfg.collections["entries"].relations;
+        assert!(
+            tree.contains_key("linked_from") && tree.len() == 1,
+            "tree gets only linked_from: {tree:?}"
+        );
+        assert!(
+            cfg.collections["objects"].relations.is_empty(),
+            "objects stay relation-free"
+        );
+    }
+
+    #[test]
+    fn base_defaults_are_present_and_related_follows_its_neighbours() {
+        let rels = compile(POSTS_DEFAULTS).unwrap();
         let ns = names(&rels);
         for want in ["earlier", "later", "related", "linked_from"] {
             assert!(ns.contains(&want), "missing default {want}: {ns:?}");
@@ -411,9 +385,35 @@ mod tests {
     }
 
     #[test]
-    fn a_declared_relation_overrides_its_default_by_name() {
-        // Overriding `related` leaves the other three defaults in place.
-        let rels = compile("[collections.relations.related]\nfrom=\"posts\"\nlimit=2\n").unwrap();
+    fn a_site_may_declare_related_differently_beside_the_other_defaults() {
+        // Same shape as a site that inherits base and overrides `related` by
+        // name: the other three stay, the one named is the site's.
+        let extra = r#"
+[collections.relations.earlier]
+from = "published"
+where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day < self.date.year * 10000 + self.date.month * 100 + self.date.day"
+rank = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day"
+limit = 1
+
+[collections.relations.later]
+from = "published"
+where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day > self.date.year * 10000 + self.date.month * 100 + self.date.day"
+rank = "-(candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day)"
+limit = 1
+
+[collections.relations.related]
+from = "posts"
+limit = 2
+
+[collections.relations.linked_from]
+from = "linked_from"
+where = "!(candidate in ancestors)"
+
+[sets.published]
+from = "posts"
+where = "!draft && !hidden"
+"#;
+        let rels = compile(extra).unwrap();
         let ns = names(&rels);
         assert!(
             ns.contains(&"earlier") && ns.contains(&"linked_from"),
@@ -431,7 +431,7 @@ mod tests {
     /// `a_relation_over_a_set_reads_only_what_it_declared` fail with it.
     #[test]
     fn the_engine_ands_nothing_onto_a_declared_predicate() {
-        let refs = relation(&compile("").unwrap(), "earlier")
+        let refs = relation(&compile(POSTS_DEFAULTS).unwrap(), "earlier")
             .filter
             .referenced_fields();
         assert_eq!(
@@ -453,21 +453,45 @@ mod tests {
     #[test]
     fn a_relation_over_a_set_reads_only_what_it_declared() {
         let rels = compile(
-            "[sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n\
-             [collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n",
+            "[collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n\
+             [sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n",
         )
         .unwrap();
         let refs = relation(&rels, "x").filter.referenced_fields();
         assert_eq!(refs, vec!["candidate.date.year".to_string()]);
     }
 
-    /// With a `published` set the pool is that set, and the filtering it does
-    /// is its own — `earlier` still reads only the date.
+    /// Absent `from` means the collection itself — never a hard-coded set
+    /// name. The base writes `from = "published"` explicitly.
+    #[test]
+    fn absent_from_is_the_collection_itself() {
+        let rels = compile(
+            "[collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n",
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                &relation(&rels, "x").pool,
+                Pool::Collection(n) if n == "posts"
+            ),
+            "{:?}",
+            relation(&rels, "x").pool
+        );
+    }
+
+    /// With an explicit `from = "published"`, the pool is that set, and the
+    /// filtering it does is its own — `earlier` still reads only the date.
     #[test]
     fn a_published_set_needs_no_fallback_filter() {
-        let rels =
-            compile("[sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n").unwrap();
-        let refs = relation(&rels, "earlier").filter.referenced_fields();
+        let refs = relation(&compile(POSTS_DEFAULTS).unwrap(), "earlier")
+            .filter
+            .referenced_fields();
         assert!(!refs.iter().any(|f| f == "candidate.draft"), "{refs:?}");
+        assert!(
+            matches!(
+                &relation(&compile(POSTS_DEFAULTS).unwrap(), "earlier").pool,
+                Pool::Set(n) if n == "published"
+            )
+        );
     }
 }

@@ -63,9 +63,10 @@ fn needed_derived(rels: &[Relation]) -> std::collections::HashSet<&'static str> 
     needed
 }
 
-/// The canonical render order (§6g): the four defaults in reading order, then
-/// any site-defined relation by name. Distinct from evaluation order, which is
-/// dependency-driven.
+/// The canonical render order (§6g): the base convention's four names in
+/// reading order when present, then any other relation by name. Presentation
+/// preference only — those names are not required. Distinct from evaluation
+/// order, which is dependency-driven.
 fn render_rank(name: &str) -> (u8, &str) {
     let primary = match name {
         "earlier" => 0,

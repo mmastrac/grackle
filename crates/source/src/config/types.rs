@@ -1674,9 +1674,9 @@ pub struct Collection {
     /// relations.NAME]` is a small row-relative query — `from` (candidate
     /// pool), `where` (a predicate over the two-row `self`/`candidate`
     /// environment), `rank` (a score, bigger wins), `limit` — that produces
-    /// one labelled group in a document's body. A collection declaring none
-    /// inherits the four engine defaults (`earlier`, `later`, `related`,
-    /// `linked_from`); declaring one overrides that NAME alone.
+    /// one labelled group in a document's body. The base config ships four on
+    /// posts (`earlier`, `later`, `related`, `linked_from`) and `linked_from`
+    /// on the tree; a site overrides per NAME. `extends = "none"` gets none.
     #[serde(default)]
     pub relations: BTreeMap<String, RelationCfg>,
     /// `[collections.<name>.schema]` (§5b): typed fields every row of THIS
@@ -1728,9 +1728,8 @@ impl Collection {
 #[serde(deny_unknown_fields)]
 pub struct RelationCfg {
     /// The candidate pool: a set name, a collection, or a derived relation
-    /// name (`linked_from`, `ancestors`, …). Absent = the collection's
-    /// published set — "the shape every site's published set has" (§6g open
-    /// sub-question), resolved at load.
+    /// name (`linked_from`, `ancestors`, …). Absent = this collection.
+    /// The base's neighbour defaults write `from = "published"` explicitly.
     ///
     /// Spelled `from`, the same word a view spells (§5c): both name a
     /// candidate pool, and one word is what MERGE.md G1 bought. The retired

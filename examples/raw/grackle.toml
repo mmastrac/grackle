@@ -203,6 +203,29 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
   defaults = { shell = "html" }
 
+  # Neighbour lists (§6g). See base.toml.
+  [collections.relations.earlier]
+  from = "published"
+  where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day < self.date.year * 10000 + self.date.month * 100 + self.date.day"
+  rank = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day"
+  limit = 1
+
+  [collections.relations.later]
+  from = "published"
+  where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day > self.date.year * 10000 + self.date.month * 100 + self.date.day"
+  rank = "-(candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day)"
+  limit = 1
+
+  [collections.relations.related]
+  from = "published"
+  where = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+  rank = "embedding_similarity(self, candidate)"
+  limit = 4
+
+  [collections.relations.linked_from]
+  from = "linked_from"
+  where = "!(candidate in ancestors)"
+
 # Membership is what this scope's rules claim (IO.md I7a): the extension list
 # is the glob, case-insensitively. The shell is declared like every other
 # rule's — an image leaves through the transparent one (IO.md I7e: one row
@@ -243,6 +266,10 @@ source = "."
   match = "**/*"
   route = "/{path}"
   defaults = { shell = "raw" }
+
+  [collections.relations.linked_from]
+  from = "linked_from"
+  where = "!(candidate in ancestors)"
 
 [sets.published]
 from = "posts"

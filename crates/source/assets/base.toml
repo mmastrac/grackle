@@ -289,6 +289,35 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
   defaults = { shell = "html" }
 
+  # Neighbour lists (§6g). Declared here rather than minted in Rust — the same
+  # move as `[sets.published]` for draft/hidden. A site that declines the base
+  # (`extends = "none"`) gets none; overriding is per NAME.
+  #
+  # Date ordinals (not `candidate.date < self.date`) because the filter sees
+  # year/month/day as ints; `from = "published"` is explicit so the engine
+  # never looks up that set by magic.
+  [collections.relations.earlier]
+  from = "published"
+  where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day < self.date.year * 10000 + self.date.month * 100 + self.date.day"
+  rank = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day"
+  limit = 1
+
+  [collections.relations.later]
+  from = "published"
+  where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day > self.date.year * 10000 + self.date.month * 100 + self.date.day"
+  rank = "-(candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day)"
+  limit = 1
+
+  [collections.relations.related]
+  from = "published"
+  where = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
+  rank = "embedding_similarity(self, candidate)"
+  limit = 4
+
+  [collections.relations.linked_from]
+  from = "linked_from"
+  where = "!(candidate in ancestors)"
+
 # ---------------------------------------------------------------- objects
 #
 # Images only. Every other extension stays a tree row and ships verbatim at its
@@ -385,6 +414,12 @@ source = "."
   match = "**/*"
   route = "/{path}"
   defaults = { shell = "raw" }
+
+  # Citations only — earlier/later/related are date-and-embedding ideas a
+  # page has no answer for (§6g). Same spelling as on posts.
+  [collections.relations.linked_from]
+  from = "linked_from"
+  where = "!(candidate in ancestors)"
 
 # ------------------------------------------------------------------ sets
 

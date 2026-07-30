@@ -41,10 +41,8 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}.{axis:locale}", "{date.year}
   ]
 
   # Related notes (§6g). No recency penalty here (a small corpus), just the
-  # embedding order with a floor — the mechanical migration of the old
-  # `[related]` block. `earlier`/`later`/`linked_from` are engine defaults;
-  # the retired `adjacency = "published"` key is now the `earlier`/`later`
-  # default's `from`.
+  # embedding order with a floor — overrides the base's `related` by name;
+  # `earlier`/`later`/`linked_from` stay inherited from base.toml.
   [collections.relations.related]
   where    = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
   rank     = "embedding_similarity(self, candidate)"
@@ -100,15 +98,14 @@ file = ["{stem}.{axis:locale}", "{stem}"]
   match = "**/*"
   route = "/{path}"
 
-  # A relation the engine never hardcoded (§6g): recipes in the same course.
+  # A relation the base never shipped (§6g): recipes in the same course.
   # `scope` narrows it to the recipes subtree AND names the schema
   # `self.course` type-checks against — `course` is a recipes-only
   # `.schema.toml` field, so a whole-tree schema would reject it. The key does
   # both jobs, which is why it is not spelled `match`. Nearest by title, a
   # stand-in for "most similar" without embeddings on pages; the distance
-  # wears a minus sign because bigger always wins. `linked_from` is the engine
-  # default; the tree gets no earlier/later/related (those are
-  # date-and-embedding ideas a page has no answer for).
+  # wears a minus sign because bigger always wins. `linked_from` is inherited
+  # from base on the tree; earlier/later/related stay posts-only.
   [collections.relations.same_course]
   from  = "recipes"
   scope = "recipes/**"
