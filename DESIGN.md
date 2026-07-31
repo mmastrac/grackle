@@ -1871,8 +1871,8 @@ never a grackle-only dialect.
 | config key | expression type | status |
 |---|---|---|
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
-| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc`; `hero` / `lede` still open |
-| future derivers (`hero`, `lede`) | same | q23 / q25 |
+| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc` / `hero`; `lede` still open |
+| future derivers (`lede`) | same | q25 |
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
 
@@ -1902,6 +1902,7 @@ is not optional — an expression that doesn't type-check is a config error.
 [sets.published.fields]
 summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 toc = 'outline(content, 3)'
+hero = 'cover ? cover : image ? image : images(content)[0]'
 ```
 
 - The registry declares each function like a schema entry: name, argument
@@ -1914,6 +1915,8 @@ toc = 'outline(content, 3)'
   and outline are HTML-only (coerce with `as_html` when needed).
   `links` / `images` yield string lists (`href` / `src`); index with
   `links(content)[0]` (out of range is null).
+  `hero` is a string field: cover, else image, else first body image
+  (`images(content)[0]`), via CEL's `cond ? a : b`.
 - **Budgets and depth compose as wrappers / positional ints**, not as a
   map-literal options bag. CEL has no named arguments; a later function that
   needs many options can take a map literal, but these do not need one.
@@ -2655,9 +2658,10 @@ The rule: any `<style>` block in a row's body is extracted by the HTML rewrite p
 [sets.published.fields]
 summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 toc = 'outline(content, 3)'
+hero = 'cover ? cover : image ? image : images(content)[0]'
 ```
 
-`Content::truncate_*` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept; HTML kind only). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The value's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole.
+`Content::truncate_*` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept; HTML kind only). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The value's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole. `hero` picks the listing/document picture the same way.
 
 Two wrong altitudes were corrected: the cut rule started as engine code — policy belongs in config — and then as a view *attribute*, when a summary is a property of the rows, not of the view's rendering. The deriver-struct spelling was the q31 stopgap; fields are expressions now (§5f).
 

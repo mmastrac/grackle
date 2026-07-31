@@ -89,7 +89,7 @@ pub(crate) fn run(
             let whole = bodies[&p.key].whole.as_str();
             // §6e: toc rows carry outline from the same rendered bytes.
             let outline = if p.flag("toc") {
-                heading_outline(cfg, &bodies[&p.key], &p.url)
+                heading_outline(cfg, p, &bodies[&p.key], &p.url)
             } else {
                 Vec::new()
             };
@@ -424,8 +424,10 @@ pub(crate) fn run(
                 }
                 let frag = &pb.frag;
                 // §6e heading axis for `toc:` pages, from the prepass Doc.
-                let outline = match (&pb.doc, row.is_some_and(|p| p.flag("toc"))) {
-                    (Some(d), true) => heading_outline(cfg, d, &r.url),
+                let outline = match (&pb.doc, row) {
+                    (Some(d), Some(p)) if p.flag("toc") => {
+                        heading_outline(cfg, p, d, &r.url)
+                    }
                     _ => Vec::new(),
                 };
 
@@ -438,16 +440,19 @@ pub(crate) fn run(
                     })
                     .unwrap_or_default();
 
-                // Hero (q23): image-typed field, thumbnailed, with dimensions.
-                let hero = row.and_then(|p| p.hero_source()).map(|s| {
-                    let t = crate::thumbs::default_of(thumbs, s);
-                    let full = preview::asset_url(&cfg.site.baseurl, s);
-                    parts::present(parts::Presentation {
-                        title: Some(title.clone()),
-                        url: Some(full.clone()),
-                        src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),
-                        dims: t.and_then(|t| t.dims),
-                        ..Default::default()
+                // Hero (q23): `fields.hero`, thumbnailed, with dimensions.
+                let hero = row.and_then(|p| {
+                    let blocks = pb.doc.as_ref().map(|d| d.blocks.as_slice());
+                    preview::hero_url(cfg, None, p, blocks).map(|s| {
+                        let t = crate::thumbs::default_of(thumbs, &s);
+                        let full = preview::asset_url(&cfg.site.baseurl, &s);
+                        parts::present(parts::Presentation {
+                            title: Some(title.clone()),
+                            url: Some(full.clone()),
+                            src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),
+                            dims: t.and_then(|t| t.dims),
+                            ..Default::default()
+                        })
                     })
                 });
 
@@ -572,7 +577,12 @@ pub(crate) fn run(
 /// §6e heading axis: when `toc` is set on the row, build the outline from
 /// rendered content. Depth comes from `fields.toc = 'outline(content, n)'`
 /// when declared; otherwise max level 3 (the old h2–h3 window).
-fn heading_outline(cfg: &Config, doc: &Doc, current_url: &str) -> Vec<parts::PartMap> {
+fn heading_outline(
+    cfg: &Config,
+    row: &crate::model::Row,
+    doc: &Doc,
+    current_url: &str,
+) -> Vec<parts::PartMap> {
     let content = grackle_db::Content::new(doc.blocks.clone());
     let nodes = match cfg.field_expr("toc") {
         Some(src) => {
@@ -582,18 +592,8 @@ fn heading_outline(cfg: &Config, doc: &Doc, current_url: &str) -> Vec<parts::Par
                 grackle_db::Type::Outline,
             )
             .expect("toc field validated at load");
-            struct ContentRow {
-                content: grackle_db::Content,
-            }
-            impl grackle_db::Row for ContentRow {
-                fn field(&self, name: &str) -> grackle_db::Value {
-                    match name {
-                        "content" => grackle_db::Value::Content(self.content.clone()),
-                        _ => grackle_db::Value::Null,
-                    }
-                }
-            }
-            match expr.eval(&ContentRow {
+            match expr.eval(&preview::FieldBind {
+                row,
                 content: content.clone(),
             }) {
                 grackle_db::Value::Outline(nodes) => nodes,

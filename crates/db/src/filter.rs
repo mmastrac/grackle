@@ -640,6 +640,8 @@ enum Operand {
     Map(Vec<(Operand, Operand)>),
     /// CEL list index: `links(content)[0]`. Out of range is Null at eval.
     Index(Box<Operand>, Box<Operand>),
+    /// CEL conditional: `cond ? then : else` (right-associative via nested else).
+    Cond(Box<Expr>, Box<Operand>, Box<Operand>),
 }
 
 #[derive(Debug, Clone)]
@@ -1593,6 +1595,7 @@ impl fmt::Display for Operand {
                 f.write_str("}")
             }
             Operand::Index(base, idx) => write!(f, "{base}[{idx}]"),
+            Operand::Cond(_, t, e) => write!(f, "... ? {t} : {e}"),
         }
     }
 }
@@ -1679,6 +1682,17 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
                 bail!("list index `{idx}` is {it}, but must be int");
             }
             Ok(Type::Str)
+        }
+        Operand::Cond(cond, then, otherwise) => {
+            check(cond, schema)?;
+            let tt = operand_type(then, schema)?;
+            let et = operand_type(otherwise, schema)?;
+            if tt.scalar() != et.scalar() {
+                bail!(
+                    "conditional branches must match, but `{then}` is {tt} and `{otherwise}` is {et}"
+                );
+            }
+            Ok(tt)
         }
     }
 }
@@ -2024,12 +2038,12 @@ impl FieldExpr {
             bail!("a field expression cannot be empty");
         }
         let mut p = Parser { toks, pos: 0 };
-        let op = p.parse_arith()?;
+        let op = parse_field_operand(&mut p)?;
         if p.pos != p.toks.len() {
             bail!("trailing tokens after a complete expression");
         }
         let t = operand_type(&op, schema)?;
-        if t != want {
+        if t.scalar() != want.scalar() {
             bail!("a field expression must be {want}, but `{op}` is {t}");
         }
         Ok(FieldExpr { op, returns: want })
@@ -2050,10 +2064,34 @@ impl FieldExpr {
     }
 }
 
-/// Schema for `fields.NAME` expressions: `content` is the row's rendered body.
+/// `cond ? then : else`, right-associative on the else branch; else a bare arith operand.
+fn parse_field_operand(p: &mut Parser) -> Result<Operand> {
+    let start = p.pos;
+    if let Ok(cond) = p.parse_or() {
+        if p.eat(&Tok::Question) {
+            let then = p.parse_arith()?;
+            if !p.eat(&Tok::Colon) {
+                bail!("a conditional needs `:` — `cond ? a : b`");
+            }
+            let otherwise = parse_field_operand(p)?;
+            return Ok(Operand::Cond(
+                Box::new(cond),
+                Box::new(then),
+                Box::new(otherwise),
+            ));
+        }
+    }
+    p.pos = start;
+    p.parse_arith()
+}
+
+/// Schema for `fields.NAME` expressions: `content` plus the image-field names
+/// hero policy reads (`cover`, then `image`).
 pub fn field_schema() -> Schema {
     let mut s = Schema::new();
     s.insert("content", Type::Content);
+    s.insert("cover", Type::Str);
+    s.insert("image", Type::Str);
     s
 }
 
@@ -2062,6 +2100,7 @@ pub fn field_return_type(name: &str) -> Option<Type> {
     match name {
         "summary" => Some(Type::Content),
         "toc" => Some(Type::Outline),
+        "hero" => Some(Type::Str),
         _ => None,
     }
 }
@@ -2105,6 +2144,11 @@ fn collect_fields_operand(o: &Operand, out: &mut Vec<String>) {
         Operand::Index(base, idx) => {
             collect_fields_operand(base, out);
             collect_fields_operand(idx, out);
+        }
+        Operand::Cond(cond, then, otherwise) => {
+            collect_fields_expr(cond, out);
+            collect_fields_operand(then, out);
+            collect_fields_operand(otherwise, out);
         }
     }
 }
@@ -2196,6 +2240,14 @@ fn operand_value(o: &Operand, row: &impl Row, ctx: &dyn Ctx) -> Value {
                     .map_or(Value::Null, Value::Str),
                 _ => Value::Null,
             }
+        }
+        Operand::Cond(cond, then, otherwise) => {
+            let branch = if eval(cond, row, ctx) {
+                then
+            } else {
+                otherwise
+            };
+            operand_value(branch, row, ctx)
         }
     }
 }
@@ -3165,5 +3217,58 @@ mod tests {
             "pic.png"
         );
         FieldExpr::parse("links(content)[0]", &field_schema(), Type::Str).unwrap();
+    }
+
+    #[test]
+    fn hero_field_prefers_cover_then_image_then_body() {
+        let s = field_schema();
+        let expr = FieldExpr::parse(
+            "cover ? cover : image ? image : images(content)[0]",
+            &s,
+            Type::Str,
+        )
+        .unwrap();
+        struct R {
+            cover: &'static str,
+            image: &'static str,
+            content: Content,
+        }
+        impl Row for R {
+            fn field(&self, name: &str) -> Value {
+                match name {
+                    "cover" => Value::Str(self.cover.into()),
+                    "image" => Value::Str(self.image.into()),
+                    "content" => Value::Content(self.content.clone()),
+                    _ => Value::Null,
+                }
+            }
+        }
+        let body = Content::html(vec![
+            r#"<p><img src="from-body.png"></p>"#.into(),
+        ]);
+        assert_eq!(
+            expr.eval(&R {
+                cover: "cover.png",
+                image: "",
+                content: body.clone(),
+            }),
+            Value::Str("cover.png".into())
+        );
+        assert_eq!(
+            expr.eval(&R {
+                cover: "",
+                image: "image.png",
+                content: body.clone(),
+            }),
+            Value::Str("image.png".into())
+        );
+        assert_eq!(
+            expr.eval(&R {
+                cover: "",
+                image: "",
+                content: body,
+            }),
+            Value::Str("from-body.png".into())
+        );
     }
 }

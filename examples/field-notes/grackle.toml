@@ -185,6 +185,7 @@ order_by = "-date"
   [sets.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 3), 500)'
   toc = 'outline(content, 3)'
+  hero = 'cover ? cover : image ? image : images(content)[0]'
 
 [sets.latest]
 from = "published"

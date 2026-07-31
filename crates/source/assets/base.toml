@@ -431,6 +431,11 @@ from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
 
+  # Computed columns (§5f / §6d). Sites redeclare to change budgets; hero is
+  # cover, then image, then the first body <img>.
+  [sets.published.fields]
+  hero = 'cover ? cover : image ? image : images(content)[0]'
+
 # ---------------------------------------------------------------- routes
 
 # `/` is the one URL every site has an opinion about, so the base does not

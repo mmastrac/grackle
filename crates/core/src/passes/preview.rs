@@ -327,7 +327,8 @@ pub(crate) fn member_rows(
             let (html, truncated) = match bodies.get(&p.key) {
                 Some(d) => match &summary {
                     Some(expr) => {
-                        let c = match expr.eval(&ContentRow {
+                        let c = match expr.eval(&FieldBind {
+                            row: p,
                             content: grackle_db::Content::new(d.blocks.clone()),
                         }) {
                             grackle_db::Value::Content(c) => c,
@@ -345,24 +346,61 @@ pub(crate) fn member_rows(
                     false,
                 ),
             };
-            content_row(cfg, schemas, resolve_asset, p, thumbs, Some(html), truncated)?
+            content_row(
+                cfg,
+                schemas,
+                resolve_asset,
+                view,
+                p,
+                thumbs,
+                Some(html),
+                truncated,
+                bodies.get(&p.key).map(|d| d.blocks.as_slice()),
+            )?
         };
         out.push(m);
     }
     Ok(out)
 }
 
-/// Binds `content` for a `fields.summary` expression.
-struct ContentRow {
-    content: grackle_db::Content,
+/// Binds `content` plus the underlying row for `fields.NAME` expressions.
+pub(crate) struct FieldBind<'a> {
+    pub row: &'a crate::model::Row,
+    pub content: grackle_db::Content,
 }
 
-impl grackle_db::Row for ContentRow {
+impl grackle_db::Row for FieldBind<'_> {
     fn field(&self, name: &str) -> grackle_db::Value {
         match name {
             "content" => grackle_db::Value::Content(self.content.clone()),
-            _ => grackle_db::Value::Null,
+            other => grackle_db::Row::field(self.row, other),
         }
+    }
+}
+
+/// Hero image source URL (q23): `fields.hero` when declared, else cover/image.
+pub(crate) fn hero_url(
+    cfg: &Config,
+    view: Option<&str>,
+    row: &crate::model::Row,
+    blocks: Option<&[String]>,
+) -> Option<String> {
+    let src = view
+        .and_then(|v| cfg.fields_for(v).get("hero").and_then(|f| f.as_expr()))
+        .or_else(|| cfg.field_expr("hero"));
+    let Some(src) = src else {
+        return row.hero_source().map(str::to_string);
+    };
+    let expr = grackle_db::FieldExpr::parse(
+        src,
+        &grackle_db::field_schema(),
+        grackle_db::Type::Str,
+    )
+    .expect("hero field validated at load");
+    let content = grackle_db::Content::new(blocks.map(|b| b.to_vec()).unwrap_or_default());
+    match expr.eval(&FieldBind { row, content }) {
+        grackle_db::Value::Str(s) if !s.is_empty() => Some(s),
+        _ => None,
     }
 }
 
@@ -417,14 +455,15 @@ fn content_row(
     cfg: &Config,
     schemas: &crate::parts::Schemas,
     resolve_asset: &dyn Fn(&str) -> String,
+    view: &str,
     p: &crate::model::Row,
     thumbs: &crate::thumbs::Renditions,
     content: Option<String>,
     truncated: bool,
+    blocks: Option<&[String]>,
 ) -> anyhow::Result<parts::PartMap> {
-    let t = p
-        .hero_source()
-        .and_then(|s| crate::thumbs::default_of(thumbs, s));
+    let t = hero_url(cfg, Some(view), p, blocks)
+        .and_then(|s| crate::thumbs::default_of(thumbs, &s));
     parts::from_row(
         cfg,
         schemas,

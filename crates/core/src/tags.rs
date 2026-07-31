@@ -263,9 +263,8 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
         let Some(p) = cx.db.rows.get(k) else {
             continue;
         };
-        let t = p
-            .hero_source()
-            .and_then(|s| crate::thumbs::default_of(thumbs, s));
+        let t = crate::passes::preview::hero_url(cfg, Some(name), p, None)
+            .and_then(|s| crate::thumbs::default_of(thumbs, &s));
         items.push(crate::parts::from_row(
             cfg,
             theme.schemas(),

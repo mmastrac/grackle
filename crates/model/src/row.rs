@@ -107,7 +107,7 @@ impl Row {
         }
     }
 
-    /// Cover or image field, for the hero.
+    /// Cover or image field — fallback when no `fields.hero` expression.
     pub fn hero_source(&self) -> Option<&str> {
         self.images
             .get("cover")

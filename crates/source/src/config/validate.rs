@@ -346,7 +346,7 @@ impl Config {
                         let want = grackle_db::field_return_type(fname).ok_or_else(|| {
                             anyhow::anyhow!(
                                 "view {vname}: field {fname:?} is not a known computed \
-                                 field (have: summary, toc)"
+                                 field (have: summary, toc, hero)"
                             )
                         })?;
                         grackle_db::FieldExpr::parse(
@@ -356,7 +356,7 @@ impl Config {
                         )
                         .map_err(|e| anyhow::anyhow!("view {vname}: field {fname:?}: {e}"))?;
                     }
-                    Field::Value(_) if fname == "summary" || fname == "toc" => {
+                    Field::Value(_) if fname == "summary" || fname == "toc" || fname == "hero" => {
                         anyhow::bail!(
                             "view {vname}: field {fname:?} must be an expression, \
                              not a literal value"
