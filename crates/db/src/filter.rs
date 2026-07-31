@@ -233,18 +233,35 @@ impl Content {
         })
     }
 
-    /// Blocks whose tag equals `tag` (case-insensitive), each as one-block
+    /// Blocks whose tag is in `tags` (case-insensitive), each as one-block
     /// Content. Markdown renders first; text chunks on blank lines.
-    pub fn filter_blocks(&self, tag: &str) -> Vec<Content> {
-        let want = tag.to_ascii_lowercase();
+    pub fn filter_blocks(&self, tags: &[&str]) -> Vec<Content> {
+        let want = tag_set(tags);
         self.blocks_for_filter()
             .into_iter()
-            .filter(|b| b.tag == want)
+            .filter(|b| want.contains(b.tag.as_str()))
             .map(|b| Content {
                 body: ContentBody::Html { blocks: vec![b] },
                 truncated: self.truncated,
             })
             .collect()
+    }
+
+    /// Content keeping only blocks whose tag is in `tags` (case-insensitive),
+    /// in document order. Markdown renders first; text chunks on blank lines.
+    pub fn keep_blocks(&self, tags: &[&str]) -> Content {
+        let want = tag_set(tags);
+        let all = self.blocks_for_filter();
+        let n = all.len();
+        let blocks: Vec<Block> = all
+            .into_iter()
+            .filter(|b| want.contains(b.tag.as_str()))
+            .collect();
+        let dropped = blocks.len() < n;
+        Content {
+            body: ContentBody::Html { blocks },
+            truncated: self.truncated || dropped,
+        }
     }
 
     /// Headings from rendered block HTML. Empty if not HTML.
@@ -351,6 +368,10 @@ impl Content {
             ContentBody::Text(src) => text_to_blocks(src),
         }
     }
+}
+
+fn tag_set(tags: &[&str]) -> std::collections::BTreeSet<String> {
+    tags.iter().map(|t| t.to_ascii_lowercase()).collect()
 }
 
 /// Tag a pre-split HTML fragment (opening element name, or `"p"` for bare text).
@@ -949,6 +970,9 @@ enum Expr {
 pub struct Func {
     name: &'static str,
     params: &'static [Type],
+    /// When set, further arguments of this type are allowed after `params`
+    /// (at least one required). Used by `filter_blocks` / `keep_blocks`.
+    rest: Option<Type>,
     returns: Type,
     /// Whatever the function can work out once, at parse time, from its
     /// literal arguments. A glob is a regex; compiling one per row per filter
@@ -1120,15 +1144,42 @@ fn eval_images(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 }
 
 fn eval_filter_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match (args.first(), args.get(1)) {
-        (Some(Value::Content(c)), Some(Value::Str(tag))) => Value::List(
-            c.filter_blocks(tag)
-                .into_iter()
-                .map(Value::Content)
-                .collect(),
-        ),
-        _ => Value::Null,
+    let Some(Value::Content(c)) = args.first() else {
+        return Value::Null;
+    };
+    let tags = str_args_from(1, args);
+    if tags.is_empty() {
+        return Value::Null;
     }
+    let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
+    Value::List(
+        c.filter_blocks(&tag_refs)
+            .into_iter()
+            .map(Value::Content)
+            .collect(),
+    )
+}
+
+fn eval_keep_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    let Some(Value::Content(c)) = args.first() else {
+        return Value::Null;
+    };
+    let tags = str_args_from(1, args);
+    if tags.is_empty() {
+        return Value::Null;
+    }
+    let tag_refs: Vec<&str> = tags.iter().map(|s| s.as_str()).collect();
+    Value::Content(c.keep_blocks(&tag_refs))
+}
+
+fn str_args_from(start: usize, args: &[Value]) -> Vec<String> {
+    args[start..]
+        .iter()
+        .filter_map(|v| match v {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn eval_to_json(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
@@ -1223,6 +1274,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "under",
         params: &[Type::Str, Type::Str],
+        rest: None,
         returns: Type::Bool,
         prepare: no_prep,
         eval: |_, args, _| match (&args[0], &args[1]) {
@@ -1235,6 +1287,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "glob",
         params: &[Type::Str, Type::Str],
+        rest: None,
         returns: Type::Bool,
         prepare: |args| {
             let pat = literal_arg(args, 1, "glob")?;
@@ -1257,6 +1310,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "embedding_similarity",
         params: &[Type::Str, Type::Str],
+        rest: None,
         returns: Type::Double,
         prepare: no_prep,
         eval: eval_embedding_similarity,
@@ -1264,6 +1318,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "year_gap",
         params: &[Type::Str, Type::Str],
+        rest: None,
         returns: Type::Double,
         prepare: no_prep,
         eval: eval_year_gap,
@@ -1271,6 +1326,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "levenshtein",
         params: &[Type::Str, Type::Str],
+        rest: None,
         returns: Type::Int,
         prepare: no_prep,
         eval: eval_levenshtein,
@@ -1282,6 +1338,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "truncate_blocks",
         params: &[Type::Content, Type::Int],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_truncate_blocks,
@@ -1289,6 +1346,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "truncate_chars",
         params: &[Type::Content, Type::Int],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_truncate_chars,
@@ -1298,6 +1356,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "outline",
         params: &[Type::Content, Type::Int],
+        rest: None,
         returns: Type::Outline,
         prepare: no_prep,
         eval: eval_outline,
@@ -1306,6 +1365,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "html",
         params: &[Type::Str],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_html,
@@ -1313,6 +1373,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "markdown",
         params: &[Type::Str],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_markdown,
@@ -1320,6 +1381,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "text",
         params: &[Type::Str],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_text_ctor,
@@ -1327,6 +1389,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "kind",
         params: &[Type::Content],
+        rest: None,
         returns: Type::Str,
         prepare: no_prep,
         eval: eval_kind,
@@ -1334,6 +1397,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "as_html",
         params: &[Type::Content],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_as_html,
@@ -1341,6 +1405,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "as_markdown",
         params: &[Type::Content],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_as_markdown,
@@ -1348,6 +1413,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "as_text",
         params: &[Type::Content],
+        rest: None,
         returns: Type::Content,
         prepare: no_prep,
         eval: eval_as_text,
@@ -1355,6 +1421,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "word_count",
         params: &[Type::Content],
+        rest: None,
         returns: Type::Int,
         prepare: no_prep,
         eval: eval_word_count,
@@ -1362,6 +1429,7 @@ const FUNCS: &[Func] = &[
     Func {
         name: "links",
         params: &[Type::Content],
+        rest: None,
         returns: Type::List,
         prepare: no_prep,
         eval: eval_links,
@@ -1369,20 +1437,31 @@ const FUNCS: &[Func] = &[
     Func {
         name: "images",
         params: &[Type::Content],
+        rest: None,
         returns: Type::List,
         prepare: no_prep,
         eval: eval_images,
     },
     Func {
         name: "filter_blocks",
-        params: &[Type::Content, Type::Str],
+        params: &[Type::Content],
+        rest: Some(Type::Str),
         returns: Type::List,
         prepare: no_prep,
         eval: eval_filter_blocks,
     },
     Func {
+        name: "keep_blocks",
+        params: &[Type::Content],
+        rest: Some(Type::Str),
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_keep_blocks,
+    },
+    Func {
         name: "to_json",
         params: &[Type::Any],
+        rest: None,
         returns: Type::Str,
         prepare: no_prep,
         eval: eval_to_json,
@@ -1815,11 +1894,24 @@ impl Parser {
         }
         // Arity first: `prepare` reaches for an argument by position, and a
         // call with too few would otherwise report the wrong complaint.
-        if args.len() != func.params.len() {
+        let min = func.params.len() + usize::from(func.rest.is_some());
+        let ok = if func.rest.is_some() {
+            args.len() >= min
+        } else {
+            args.len() == func.params.len()
+        };
+        if !ok {
+            let want = match func.rest {
+                Some(_) => format!("at least {min}"),
+                None => format!("{}", func.params.len()),
+            };
             bail!(
-                "`{name}` takes {} argument{}, but {} were given",
-                func.params.len(),
-                if func.params.len() == 1 { "" } else { "s" },
+                "`{name}` takes {want} argument{}, but {} were given",
+                if min == 1 && func.rest.is_none() {
+                    ""
+                } else {
+                    "s"
+                },
                 args.len()
             );
         }
@@ -1919,6 +2011,18 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
                         func.name,
                         i + 1
                     );
+                }
+            }
+            if let Some(want) = func.rest {
+                for (i, arg) in args.iter().enumerate().skip(func.params.len()) {
+                    let got = operand_type(arg, schema)?;
+                    if want != Type::Any && got.scalar() != want.scalar() {
+                        bail!(
+                            "`{}` argument {} is {want}, but `{arg}` is {got}",
+                            func.name,
+                            i + 1
+                        );
+                    }
                 }
             }
             Ok(func.returns)
@@ -3585,7 +3689,7 @@ mod tests {
         assert_eq!(tags, ["h1", "p", "p"]);
 
         let t = Content::text("alpha\n\nbeta gamma\n\n");
-        let ps = t.filter_blocks("p");
+        let ps = t.filter_blocks(&["p"]);
         assert_eq!(ps.len(), 2);
         assert!(ps[0].html_string().contains("alpha"));
         assert!(ps[1].html_string().contains("beta gamma"));
@@ -3620,5 +3724,52 @@ mod tests {
         assert_eq!(out.blocks().unwrap()[0].tag, "p");
         assert!(out.html_string().contains("lede text"));
         assert!(!out.html_string().contains("more"));
+    }
+
+    #[test]
+    fn keep_blocks_and_filter_blocks_take_multiple_tags() {
+        let c = Content::new(vec![
+            "<h1>T</h1>".into(),
+            "<p>one</p>".into(),
+            "<ul><li>x</li></ul>".into(),
+            "<h2>S</h2>".into(),
+            "<p>two</p>".into(),
+        ]);
+        let kept = c.keep_blocks(&["p", "h1"]);
+        let tags: Vec<_> = kept.blocks().unwrap().iter().map(|b| b.tag.as_str()).collect();
+        assert_eq!(tags, ["h1", "p", "p"]);
+        assert!(kept.truncated);
+
+        let expr = FieldExpr::parse(
+            r#"keep_blocks(content, "p", "h1")"#,
+            &field_schema(),
+            Type::Content,
+        )
+        .unwrap();
+        struct R(Content);
+        impl Row for R {
+            fn field(&self, name: &str) -> Value {
+                match name {
+                    "content" => Value::Content(self.0.clone()),
+                    _ => Value::Null,
+                }
+            }
+        }
+        let Value::Content(out) = expr.eval(&R(c.clone())) else {
+            panic!("expected content");
+        };
+        assert_eq!(out.blocks().unwrap().len(), 3);
+
+        let list = FieldExpr::parse(
+            r#"filter_blocks(content, "h1", "h2")"#,
+            &field_schema(),
+            Type::List,
+        )
+        .unwrap()
+        .eval(&R(c));
+        let Value::List(items) = list else {
+            panic!("expected list");
+        };
+        assert_eq!(items.len(), 2);
     }
 }

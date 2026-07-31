@@ -1921,6 +1921,8 @@ hero = 'cover ? cover : image ? image : images(content)[0]'
   other computed Str→Url field — no hero producer.
   `lede` is Content: `filter_blocks(content, "p")[0]` — HTML blocks are
   tagged elements (text chunks on blank lines; HTML drills through `div`).
+  `filter_blocks` / `keep_blocks` take one or more tags; filter yields a list
+  of matching blocks, keep yields Content with only those tags.
 - **Budgets and depth compose as wrappers / positional ints**, not as a
   map-literal options bag. CEL has no named arguments; a later function that
   needs many options can take a map literal, but these do not need one.
