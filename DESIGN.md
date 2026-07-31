@@ -1909,6 +1909,9 @@ toc = 'outline(content, 3)'
   `truncate_blocks: (content, int) -> content`,
   `truncate_chars: (content, int) -> content`,
   `outline: (content, int) -> outline`.
+  Content has three kinds (`html` / `markdown` / `text`) with constructors,
+  `kind`, `as_html` / `as_markdown` / `as_text`, and `word_count`; truncate
+  and outline are HTML-only (coerce with `as_html` when needed).
 - **Budgets and depth compose as wrappers / positional ints**, not as a
   map-literal options bag. CEL has no named arguments; a later function that
   needs many options can take a map literal, but these do not need one.
@@ -2652,7 +2655,7 @@ summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
 toc = 'outline(content, 3)'
 ```
 
-`Content::truncate_*` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The value's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole.
+`Content::truncate_*` is mechanism only (blocks kept until a budget runs out, block granularity, at least one always kept; HTML kind only). **Fields flow with rows through `from` composition**: declared once on `published`, every listing composed over it inherits the column; redeclaring the name overrides, nearest wins. The value's fact (`truncated`) rides along, feeding `data-truncated`. Listing previews consume the field named `summary` by convention; no summary field means rows ship whole.
 
 Two wrong altitudes were corrected: the cut rule started as engine code — policy belongs in config — and then as a view *attribute*, when a summary is a property of the rows, not of the view's rendering. The deriver-struct spelling was the q31 stopgap; fields are expressions now (§5f).
 

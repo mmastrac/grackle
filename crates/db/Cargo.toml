@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 chrono = { workspace = true }
+comrak = "0.54"
 globset = { workspace = true }
 serde = { workspace = true }
 serde_json = "1"

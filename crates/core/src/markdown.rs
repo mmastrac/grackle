@@ -215,12 +215,12 @@ impl Doc {
     pub fn truncate(&self, max_blocks: Option<usize>, max_chars: Option<usize>) -> (String, bool) {
         let mut c = grackle_db::Content::new(self.blocks.clone());
         if let Some(n) = max_blocks {
-            c = c.truncate_blocks(n);
+            c = c.truncate_blocks(n).unwrap_or(c);
         }
         if let Some(n) = max_chars {
-            c = c.truncate_chars(n);
+            c = c.truncate_chars(n).unwrap_or(c);
         }
-        (c.html(), c.truncated)
+        (c.html_string(), c.truncated)
     }
 }
 

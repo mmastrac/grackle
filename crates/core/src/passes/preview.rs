@@ -333,7 +333,7 @@ pub(crate) fn member_rows(
                             grackle_db::Value::Content(c) => c,
                             _ => grackle_db::Content::new(d.blocks.clone()),
                         };
-                        (c.html(), c.truncated)
+                        (c.html_string(), c.truncated)
                     }
                     None => (d.whole.clone(), false),
                 },

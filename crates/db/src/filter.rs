@@ -108,58 +108,178 @@ impl fmt::Display for Type {
     }
 }
 
-/// Rendered prose for field expressions (§5f): HTML blocks plus whether a
-/// `truncate_*` wrapper already cut. Bound as `content` when evaluating
-/// `fields.NAME`; not a row column.
+/// Rendered or authored prose for field expressions (§5f): HTML blocks,
+/// markdown source, or plain text, plus whether a `truncate_*` wrapper cut.
+/// Bound as `content` when evaluating `fields.NAME`; not a row column.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Content {
-    pub blocks: Vec<String>,
+    pub body: ContentBody,
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub enum ContentBody {
+    Html { blocks: Vec<String> },
+    Markdown(String),
+    Text(String),
+}
+
 impl Content {
-    pub fn new(blocks: Vec<String>) -> Self {
+    /// HTML content from rendered blocks (today's document `content` binding).
+    pub fn html(blocks: Vec<String>) -> Self {
         Self {
-            blocks,
+            body: ContentBody::Html { blocks },
             truncated: false,
         }
     }
 
-    pub fn html(&self) -> String {
-        self.blocks.concat()
+    /// Alias for [`Self::html`]; call sites that mint from `Doc.blocks`.
+    pub fn new(blocks: Vec<String>) -> Self {
+        Self::html(blocks)
     }
 
-    /// Keep the first `n` blocks. Sets `truncated` if anything was cut or the
-    /// input was already truncated.
-    pub fn truncate_blocks(&self, n: usize) -> Self {
-        let cut = cut_prefix(&self.blocks, Some(n), None);
+    pub fn markdown(src: impl Into<String>) -> Self {
         Self {
-            blocks: self.blocks[..cut].to_vec(),
-            truncated: self.truncated || cut < self.blocks.len(),
+            body: ContentBody::Markdown(src.into()),
+            truncated: false,
         }
     }
 
-    /// Keep blocks from the start until visible text would exceed `n`
-    /// (block granularity; at least one block). Sets `truncated` if anything
-    /// was cut or the input was already truncated.
-    pub fn truncate_chars(&self, n: usize) -> Self {
-        let cut = cut_prefix(&self.blocks, None, Some(n));
+    pub fn text(src: impl Into<String>) -> Self {
         Self {
-            blocks: self.blocks[..cut].to_vec(),
-            truncated: self.truncated || cut < self.blocks.len(),
+            body: ContentBody::Text(src.into()),
+            truncated: false,
         }
     }
 
-    /// Headings extracted from rendered block HTML (`<hN id="…">`), in order.
+    pub fn kind_name(&self) -> &'static str {
+        match &self.body {
+            ContentBody::Html { .. } => "html",
+            ContentBody::Markdown(_) => "markdown",
+            ContentBody::Text(_) => "text",
+        }
+    }
+
+    /// Concatenated HTML when this is HTML content; otherwise empty.
+    pub fn html_string(&self) -> String {
+        match &self.body {
+            ContentBody::Html { blocks } => blocks.concat(),
+            _ => String::new(),
+        }
+    }
+
+    /// HTML block list when kind is html.
+    pub fn blocks(&self) -> Option<&[String]> {
+        match &self.body {
+            ContentBody::Html { blocks } => Some(blocks),
+            _ => None,
+        }
+    }
+
+    /// Keep the first `n` blocks. HTML only; `None` if not HTML.
+    pub fn truncate_blocks(&self, n: usize) -> Option<Self> {
+        let ContentBody::Html { blocks } = &self.body else {
+            return None;
+        };
+        let cut = cut_prefix(blocks, Some(n), None);
+        Some(Self {
+            body: ContentBody::Html {
+                blocks: blocks[..cut].to_vec(),
+            },
+            truncated: self.truncated || cut < blocks.len(),
+        })
+    }
+
+    /// Keep blocks from the start until visible text would exceed `n`.
+    /// HTML only; `None` if not HTML.
+    pub fn truncate_chars(&self, n: usize) -> Option<Self> {
+        let ContentBody::Html { blocks } = &self.body else {
+            return None;
+        };
+        let cut = cut_prefix(blocks, None, Some(n));
+        Some(Self {
+            body: ContentBody::Html {
+                blocks: blocks[..cut].to_vec(),
+            },
+            truncated: self.truncated || cut < blocks.len(),
+        })
+    }
+
+    /// Headings from rendered block HTML. Empty if not HTML.
     pub fn headings(&self) -> Vec<Heading> {
-        self.blocks.iter().filter_map(|b| heading_of(b)).collect()
+        match &self.body {
+            ContentBody::Html { blocks } => blocks.iter().filter_map(|b| heading_of(b)).collect(),
+            _ => Vec::new(),
+        }
     }
 
-    /// Heading tree for levels `2..=max` (page-title h1 stays out). Same
-    /// nesting as the document ToC: jumps nest under the nearest shallower.
+    /// Heading tree for levels `2..=max`. Empty if not HTML.
     pub fn outline(&self, max: u8) -> Vec<OutlineNode> {
         heading_tree(&self.headings(), 2, max)
     }
+
+    /// Coerce to HTML. Markdown renders; text fails; HTML is identity.
+    pub fn as_html(&self) -> Option<Self> {
+        match &self.body {
+            ContentBody::Html { .. } => Some(self.clone()),
+            ContentBody::Markdown(src) => {
+                let html = render_markdown(src);
+                Some(Self {
+                    body: ContentBody::Html {
+                        blocks: vec![html],
+                    },
+                    truncated: self.truncated,
+                })
+            }
+            ContentBody::Text(_) => None,
+        }
+    }
+
+    /// Coerce to markdown. Only identity; HTML and text fail.
+    pub fn as_markdown(&self) -> Option<Self> {
+        match &self.body {
+            ContentBody::Markdown(_) => Some(self.clone()),
+            ContentBody::Html { .. } | ContentBody::Text(_) => None,
+        }
+    }
+
+    /// Coerce to plain text. HTML strips tags; markdown renders then strips.
+    pub fn as_text(&self) -> Option<Self> {
+        match &self.body {
+            ContentBody::Text(_) => Some(self.clone()),
+            ContentBody::Html { blocks } => {
+                let t = unescape(&visible_text(&blocks.concat()));
+                Some(Self {
+                    body: ContentBody::Text(t),
+                    truncated: self.truncated,
+                })
+            }
+            ContentBody::Markdown(_) => self.as_html()?.as_text(),
+        }
+    }
+
+    /// Whitespace-separated word count after coercing to text.
+    pub fn word_count(&self) -> Option<i64> {
+        let text = self.as_text()?;
+        let ContentBody::Text(s) = &text.body else {
+            return None;
+        };
+        Some(s.split_whitespace().count() as i64)
+    }
+}
+
+/// Fixed minimal comrak options for `as_html(markdown(…))` in the language
+/// crate, not the site's full kramdown stand-in (that stays in core).
+fn render_markdown(src: &str) -> String {
+    let mut opts = comrak::Options::default();
+    opts.extension.strikethrough = true;
+    opts.extension.table = true;
+    opts.extension.autolink = true;
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, src, &opts);
+    let mut out = String::new();
+    comrak::format_html(root, &opts, &mut out).unwrap_or_default();
+    out
 }
 
 /// One heading in rendered HTML.
@@ -553,18 +673,18 @@ fn eval_levenshtein(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 
 fn eval_truncate_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match (args.first(), args.get(1)) {
-        (Some(Value::Content(c)), Some(Value::Int(n))) => {
-            Value::Content(c.truncate_blocks((*n).max(0) as usize))
-        }
+        (Some(Value::Content(c)), Some(Value::Int(n))) => c
+            .truncate_blocks((*n).max(0) as usize)
+            .map_or(Value::Null, Value::Content),
         _ => Value::Null,
     }
 }
 
 fn eval_truncate_chars(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match (args.first(), args.get(1)) {
-        (Some(Value::Content(c)), Some(Value::Int(n))) => {
-            Value::Content(c.truncate_chars((*n).max(0) as usize))
-        }
+        (Some(Value::Content(c)), Some(Value::Int(n))) => c
+            .truncate_chars((*n).max(0) as usize)
+            .map_or(Value::Null, Value::Content),
         _ => Value::Null,
     }
 }
@@ -572,9 +692,68 @@ fn eval_truncate_chars(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 fn eval_outline(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match (args.first(), args.get(1)) {
         (Some(Value::Content(c)), Some(Value::Int(n))) => {
+            if c.blocks().is_none() {
+                return Value::Null;
+            }
             let max = (*n).clamp(1, 6) as u8;
             Value::Outline(c.outline(max))
         }
+        _ => Value::Null,
+    }
+}
+
+fn eval_html(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Str(s)) => Value::Content(Content::html(vec![s.clone()])),
+        _ => Value::Null,
+    }
+}
+
+fn eval_markdown(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Str(s)) => Value::Content(Content::markdown(s.clone())),
+        _ => Value::Null,
+    }
+}
+
+fn eval_text_ctor(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Str(s)) => Value::Content(Content::text(s.clone())),
+        _ => Value::Null,
+    }
+}
+
+fn eval_kind(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => Value::Str(c.kind_name().into()),
+        _ => Value::Null,
+    }
+}
+
+fn eval_as_html(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => c.as_html().map_or(Value::Null, Value::Content),
+        _ => Value::Null,
+    }
+}
+
+fn eval_as_markdown(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => c.as_markdown().map_or(Value::Null, Value::Content),
+        _ => Value::Null,
+    }
+}
+
+fn eval_as_text(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => c.as_text().map_or(Value::Null, Value::Content),
+        _ => Value::Null,
+    }
+}
+
+fn eval_word_count(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => c.word_count().map_or(Value::Null, Value::Int),
         _ => Value::Null,
     }
 }
@@ -607,7 +786,10 @@ fn value_to_json_value(v: &Value) -> serde_json::Value {
             }
             J::Object(m)
         }
-        Value::Content(_) => J::String("<content>".into()),
+        Value::Content(c) => json!({
+            "kind": c.kind_name(),
+            "truncated": c.truncated,
+        }),
         Value::Outline(_) => J::String("<outline>".into()),
         Value::Null => J::Null,
     }
@@ -723,6 +905,7 @@ const FUNCS: &[Func] = &[
     // §5f field derivers: wrappers on Content. Compose for both budgets
     // (`truncate_chars(truncate_blocks(content, 4), 700)`) rather than a
     // map-literal options bag. Facts ride on the value (`truncated`).
+    // HTML-only; coerce with as_html first when the source is markdown.
     Func {
         name: "truncate_blocks",
         params: &[Type::Content, Type::Int],
@@ -738,13 +921,70 @@ const FUNCS: &[Func] = &[
         eval: eval_truncate_chars,
     },
     // §6e heading ToC: max level is positional (3 ≡ today's h2–h3 window);
-    // min stays 2 so the page title is never an entry.
+    // min stays 2 so the page title is never an entry. HTML only.
     Func {
         name: "outline",
         params: &[Type::Content, Type::Int],
         returns: Type::Outline,
         prepare: no_prep,
         eval: eval_outline,
+    },
+    // Content constructors and kind coercion (§5f).
+    Func {
+        name: "html",
+        params: &[Type::Str],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_html,
+    },
+    Func {
+        name: "markdown",
+        params: &[Type::Str],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_markdown,
+    },
+    Func {
+        name: "text",
+        params: &[Type::Str],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_text_ctor,
+    },
+    Func {
+        name: "kind",
+        params: &[Type::Content],
+        returns: Type::Str,
+        prepare: no_prep,
+        eval: eval_kind,
+    },
+    Func {
+        name: "as_html",
+        params: &[Type::Content],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_as_html,
+    },
+    Func {
+        name: "as_markdown",
+        params: &[Type::Content],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_as_markdown,
+    },
+    Func {
+        name: "as_text",
+        params: &[Type::Content],
+        returns: Type::Content,
+        prepare: no_prep,
+        eval: eval_as_text,
+    },
+    Func {
+        name: "word_count",
+        params: &[Type::Content],
+        returns: Type::Int,
+        prepare: no_prep,
+        eval: eval_word_count,
     },
     Func {
         name: "to_json",
@@ -2524,21 +2764,25 @@ mod tests {
             "<p>cccc</p>".into(),
         ];
         let c = Content::new(blocks);
-        let by_blocks = c.truncate_blocks(2);
-        assert_eq!(by_blocks.blocks.len(), 2);
+        let by_blocks = c.truncate_blocks(2).unwrap();
+        assert_eq!(by_blocks.blocks().unwrap().len(), 2);
         assert!(by_blocks.truncated);
 
-        let by_chars = c.truncate_chars(12);
-        assert_eq!(by_chars.blocks.len(), 1);
+        let by_chars = c.truncate_chars(12).unwrap();
+        assert_eq!(by_chars.blocks().unwrap().len(), 1);
         assert!(by_chars.truncated);
 
-        let composed = c.truncate_blocks(4).truncate_chars(12);
-        assert_eq!(composed.blocks.len(), 1);
+        let composed = c
+            .truncate_blocks(4)
+            .unwrap()
+            .truncate_chars(12)
+            .unwrap();
+        assert_eq!(composed.blocks().unwrap().len(), 1);
         assert!(composed.truncated);
 
-        let whole = c.truncate_blocks(10);
+        let whole = c.truncate_blocks(10).unwrap();
         assert!(!whole.truncated);
-        assert_eq!(whole.html(), c.html());
+        assert_eq!(whole.html_string(), c.html_string());
     }
 
     #[test]
@@ -2569,7 +2813,7 @@ mod tests {
         let Value::Content(out) = expr.eval(&row) else {
             panic!("expected content");
         };
-        assert_eq!(out.blocks.len(), 4);
+        assert_eq!(out.blocks().unwrap().len(), 4);
         assert!(out.truncated);
     }
 
@@ -2666,5 +2910,69 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("map keys must be"), "{e}");
+    }
+
+    #[test]
+    fn content_kinds_and_coercion() {
+        let s = Schema::new();
+        assert_eq!(
+            Text::parse(r#"kind(html("<p>x</p>"))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "html"
+        );
+        assert_eq!(
+            Text::parse(r#"kind(as_text(html("<p>a b</p>")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "text"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(word_count(text("one two three")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "3"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(word_count(html("<p>one two</p>")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "2"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(word_count(markdown("one **two**")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "2"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(as_markdown(html("<p>x</p>")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "null"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(as_html(text("x")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "null"
+        );
+        assert_eq!(
+            Text::parse(r#"kind(as_html(markdown("hi")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "html"
+        );
+    }
+
+    #[test]
+    fn content_coercion_typechecks_at_load() {
+        let s = field_schema();
+        FieldExpr::parse("as_html(content)", &s, Type::Content).unwrap();
+        FieldExpr::parse("word_count(content)", &s, Type::Int).unwrap();
+        let e = FieldExpr::parse("as_html(4)", &s, Type::Content)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("content"), "{e}");
     }
 }
