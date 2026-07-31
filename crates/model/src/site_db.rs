@@ -218,7 +218,7 @@ impl SiteDb {
                         return Vec::new();
                     }
                     match filter::Row::field(p, field) {
-                        filter::Value::List(v) => v,
+                        filter::Value::List(_) => filter::Row::field(p, field).as_str_list(),
                         _ => Vec::new(),
                     }
                 }),

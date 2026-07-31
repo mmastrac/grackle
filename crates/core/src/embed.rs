@@ -318,7 +318,7 @@ mod tests {
             title: Some("T".into()),
             fields: [(
                 "tags".into(),
-                grackle_db::Value::List(vec!["a".into(), "b".into()]),
+                grackle_db::Value::str_list(vec!["a".into(), "b".into()]),
             )]
             .into(),
             ..Row::default()

@@ -407,7 +407,7 @@ impl filter::Row for Pair<'_> {
                 } else if let Some(f) = name.strip_prefix("candidate.") {
                     self.cand_row.field(f)
                 } else if let Some(list) = self.names.get(name) {
-                    Value::List(list.clone())
+                    Value::str_list(list.clone())
                 } else {
                     Value::Null
                 }

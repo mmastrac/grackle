@@ -338,7 +338,14 @@ pub fn value_text(v: &crate::filter::Value) -> String {
         V::Str(s) => s.clone(),
         V::Int(i) => i.to_string(),
         V::Bool(b) => b.to_string(),
-        V::List(items) => items.join(", "),
+        V::List(items) => items
+            .iter()
+            .filter_map(|x| match x {
+                V::Str(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
         V::Null => String::new(),
         other => serde_json::to_string(other).unwrap_or_default(),
     }

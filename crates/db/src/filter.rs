@@ -108,6 +108,23 @@ impl fmt::Display for Type {
     }
 }
 
+/// One HTML element in a [`Content`] block sequence (§5f / §6d): the element
+/// name plus its outer HTML.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Block {
+    pub tag: String,
+    pub html: String,
+}
+
+impl Block {
+    pub fn tagged(tag: impl Into<String>, html: impl Into<String>) -> Self {
+        Self {
+            tag: tag.into(),
+            html: html.into(),
+        }
+    }
+}
+
 /// Rendered or authored prose for field expressions (§5f): HTML blocks,
 /// markdown source, or plain text, plus whether a `truncate_*` wrapper cut.
 /// Bound as `content` when evaluating `fields.NAME`; not a row column.
@@ -119,23 +136,34 @@ pub struct Content {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum ContentBody {
-    Html { blocks: Vec<String> },
+    Html { blocks: Vec<Block> },
     Markdown(String),
     Text(String),
 }
 
 impl Content {
-    /// HTML content from rendered blocks (today's document `content` binding).
-    pub fn html(blocks: Vec<String>) -> Self {
+    /// HTML content from typed blocks.
+    pub fn html(blocks: Vec<Block>) -> Self {
         Self {
             body: ContentBody::Html { blocks },
             truncated: false,
         }
     }
 
-    /// Alias for [`Self::html`]; call sites that mint from `Doc.blocks`.
+    /// Tag each HTML fragment (Doc / comrak top-level children). Does not
+    /// re-split — one fragment stays one block so truncate prefixes match.
+    pub fn from_fragments(frags: Vec<String>) -> Self {
+        Self::html(frags.into_iter().map(block_from_fragment).collect())
+    }
+
+    /// Parse a full HTML document into blocks, drilling through wrapper `div`s.
+    pub fn from_html_document(html: &str) -> Self {
+        Self::html(html_to_blocks(html))
+    }
+
+    /// Alias for [`Self::from_fragments`]; call sites that mint from `Doc.blocks`.
     pub fn new(blocks: Vec<String>) -> Self {
-        Self::html(blocks)
+        Self::from_fragments(blocks)
     }
 
     pub fn markdown(src: impl Into<String>) -> Self {
@@ -163,13 +191,13 @@ impl Content {
     /// Concatenated HTML when this is HTML content; otherwise empty.
     pub fn html_string(&self) -> String {
         match &self.body {
-            ContentBody::Html { blocks } => blocks.concat(),
+            ContentBody::Html { blocks } => blocks.iter().map(|b| b.html.as_str()).collect(),
             _ => String::new(),
         }
     }
 
     /// HTML block list when kind is html.
-    pub fn blocks(&self) -> Option<&[String]> {
+    pub fn blocks(&self) -> Option<&[Block]> {
         match &self.body {
             ContentBody::Html { blocks } => Some(blocks),
             _ => None,
@@ -205,10 +233,26 @@ impl Content {
         })
     }
 
+    /// Blocks whose tag equals `tag` (case-insensitive), each as one-block
+    /// Content. Markdown renders first; text chunks on blank lines.
+    pub fn filter_blocks(&self, tag: &str) -> Vec<Content> {
+        let want = tag.to_ascii_lowercase();
+        self.blocks_for_filter()
+            .into_iter()
+            .filter(|b| b.tag == want)
+            .map(|b| Content {
+                body: ContentBody::Html { blocks: vec![b] },
+                truncated: self.truncated,
+            })
+            .collect()
+    }
+
     /// Headings from rendered block HTML. Empty if not HTML.
     pub fn headings(&self) -> Vec<Heading> {
         match &self.body {
-            ContentBody::Html { blocks } => blocks.iter().filter_map(|b| heading_of(b)).collect(),
+            ContentBody::Html { blocks } => {
+                blocks.iter().filter_map(|b| heading_of(&b.html)).collect()
+            }
             _ => Vec::new(),
         }
     }
@@ -218,7 +262,8 @@ impl Content {
         heading_tree(&self.headings(), 2, max)
     }
 
-    /// Coerce to HTML. Markdown renders; text fails; HTML is identity.
+    /// Coerce to HTML. Markdown renders and chunks (div-drill); text fails;
+    /// HTML is identity.
     pub fn as_html(&self) -> Option<Self> {
         match &self.body {
             ContentBody::Html { .. } => Some(self.clone()),
@@ -226,7 +271,7 @@ impl Content {
                 let html = render_markdown(src);
                 Some(Self {
                     body: ContentBody::Html {
-                        blocks: vec![html],
+                        blocks: html_to_blocks(&html),
                     },
                     truncated: self.truncated,
                 })
@@ -248,7 +293,8 @@ impl Content {
         match &self.body {
             ContentBody::Text(_) => Some(self.clone()),
             ContentBody::Html { blocks } => {
-                let t = unescape(&visible_text(&blocks.concat()));
+                let joined: String = blocks.iter().map(|b| b.html.as_str()).collect();
+                let t = unescape(&visible_text(&joined));
                 Some(Self {
                     body: ContentBody::Text(t),
                     truncated: self.truncated,
@@ -287,11 +333,210 @@ impl Content {
 
     fn html_for_scan(&self) -> Option<String> {
         match &self.body {
-            ContentBody::Html { blocks } => Some(blocks.concat()),
+            ContentBody::Html { blocks } => {
+                Some(blocks.iter().map(|b| b.html.as_str()).collect())
+            }
             ContentBody::Markdown(_) => self.as_html().map(|c| c.html_string()),
             ContentBody::Text(_) => None,
         }
     }
+
+    fn blocks_for_filter(&self) -> Vec<Block> {
+        match &self.body {
+            ContentBody::Html { blocks } => blocks.clone(),
+            ContentBody::Markdown(_) => self
+                .as_html()
+                .and_then(|c| c.blocks().map(|b| b.to_vec()))
+                .unwrap_or_default(),
+            ContentBody::Text(src) => text_to_blocks(src),
+        }
+    }
+}
+
+/// Tag a pre-split HTML fragment (opening element name, or `"p"` for bare text).
+fn block_from_fragment(html: String) -> Block {
+    let tag = opening_tag(&html).unwrap_or_else(|| "p".into());
+    Block { tag, html }
+}
+
+/// Blank-line paragraphs → `<p>…</p>` blocks (markdown-style text chunking).
+fn text_to_blocks(src: &str) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    let mut cur = String::new();
+    let flush = |cur: &mut String, blocks: &mut Vec<Block>| {
+        let t = cur.trim();
+        if t.is_empty() {
+            cur.clear();
+            return;
+        }
+        let html = format!("<p>{}</p>", escape_text(t));
+        blocks.push(Block::tagged("p", html));
+        cur.clear();
+    };
+    for line in src.lines() {
+        if line.trim().is_empty() {
+            flush(&mut cur, &mut blocks);
+        } else {
+            if !cur.is_empty() {
+                cur.push('\n');
+            }
+            cur.push_str(line);
+        }
+    }
+    flush(&mut cur, &mut blocks);
+    blocks
+}
+
+fn escape_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Walk HTML; drill through wrapper `div`s; emit one [`Block`] per other element.
+fn html_to_blocks(html: &str) -> Vec<Block> {
+    let mut out = Vec::new();
+    collect_html_blocks(html, &mut out);
+    out
+}
+
+fn collect_html_blocks(html: &str, out: &mut Vec<Block>) {
+    let mut i = 0;
+    let n = html.len();
+    while i < n {
+        while i < n && html.as_bytes()[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= n {
+            break;
+        }
+        if !html[i..].starts_with('<') {
+            let start = i;
+            while i < n && !html[i..].starts_with('<') {
+                i += 1;
+            }
+            let text = html[start..i].trim();
+            if !text.is_empty() {
+                out.push(Block::tagged(
+                    "p",
+                    format!("<p>{}</p>", escape_text(text)),
+                ));
+            }
+            continue;
+        }
+        if html[i..].starts_with("<!--") {
+            i = html[i..].find("-->").map(|e| i + e + 3).unwrap_or(n);
+            continue;
+        }
+        if html[i..].starts_with("<!") {
+            i = html[i..].find('>').map(|e| i + e + 1).unwrap_or(n);
+            continue;
+        }
+        let Some((tag, end)) = take_element(html, i) else {
+            i += 1;
+            continue;
+        };
+        let outer = html[i..end].to_string();
+        i = end;
+        if tag == "div" {
+            if let Some(inner) = element_inner(&outer) {
+                collect_html_blocks(inner, out);
+            }
+            continue;
+        }
+        out.push(Block { tag, html: outer });
+    }
+}
+
+fn opening_tag(html: &str) -> Option<String> {
+    let h = html.trim_start();
+    if !h.starts_with('<') {
+        return None;
+    }
+    let rest = &h[1..];
+    if rest.starts_with('/') || rest.starts_with('!') {
+        return None;
+    }
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_ascii_lowercase())
+    }
+}
+
+fn is_void_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
+/// Outer element starting at `start` (must be `<`); returns (tag, end_index).
+fn take_element(html: &str, start: usize) -> Option<(String, usize)> {
+    let tag = opening_tag(&html[start..])?;
+    let after_lt = start + 1;
+    let open_end = html[after_lt..].find('>').map(|e| after_lt + e + 1)?;
+    let open = &html[start..open_end];
+    if is_void_tag(&tag) || open.trim_end().ends_with("/>") {
+        return Some((tag, open_end));
+    }
+    let mut depth = 1usize;
+    let mut i = open_end;
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}");
+    while i < html.len() {
+        if html[i..].starts_with(&close_pat) {
+            let next = html[i + close_pat.len()..].chars().next();
+            if matches!(next, Some(c) if c == '>' || c.is_whitespace()) {
+                depth -= 1;
+                i = html[i..].find('>').map(|e| i + e + 1).unwrap_or(html.len());
+                if depth == 0 {
+                    return Some((tag, i));
+                }
+                continue;
+            }
+        }
+        if html[i..].starts_with(&open_pat) {
+            let next = html[i + open_pat.len()..].chars().next();
+            if matches!(next, Some(c) if c == '>' || c.is_whitespace() || c == '/') {
+                let end = html[i..].find('>').map(|e| i + e + 1).unwrap_or(html.len());
+                let slice = &html[i..end];
+                if !(is_void_tag(&tag) || slice.trim_end().ends_with("/>")) {
+                    depth += 1;
+                }
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    Some((tag, html.len()))
+}
+
+fn element_inner(outer: &str) -> Option<&str> {
+    let open_end = outer.find('>')? + 1;
+    let close_start = outer.rfind("</")?;
+    if close_start < open_end {
+        return None;
+    }
+    Some(&outer[open_end..close_start])
 }
 
 /// Values of `attr` on opening tags named `tag` (`<a href=…>`, `<img src=…>`).
@@ -421,7 +666,7 @@ pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<OutlineNode> {
 /// Block index where a budget cuts: walk from the start, stop at the first
 /// limit. `max_chars` counts visible text (outside tags); the block that
 /// would exceed it is dropped whole, but at least one block is always kept.
-fn cut_prefix(blocks: &[String], max_blocks: Option<usize>, max_chars: Option<usize>) -> usize {
+fn cut_prefix(blocks: &[Block], max_blocks: Option<usize>, max_chars: Option<usize>) -> usize {
     let mut cut = blocks.len();
     let mut chars = 0usize;
     for (i, b) in blocks.iter().enumerate() {
@@ -432,7 +677,7 @@ fn cut_prefix(blocks: &[String], max_blocks: Option<usize>, max_chars: Option<us
             }
         }
         if let Some(mc) = max_chars {
-            chars += text_len(b);
+            chars += text_len(&b.html);
             if chars > mc && i > 0 {
                 cut = i;
                 break;
@@ -466,7 +711,8 @@ pub enum Value {
     Int(i64),
     Double(f64),
     Str(String),
-    List(Vec<String>),
+    /// CEL list: strings (tags, links) or Content (`filter_blocks` results).
+    List(Vec<Value>),
     Content(Content),
     Outline(Vec<OutlineNode>),
     /// CEL map: key/value pairs in literal order. Keys are int/bool/string.
@@ -475,6 +721,25 @@ pub enum Value {
 }
 
 impl Value {
+    /// A list of strings (tags, links, images).
+    pub fn str_list(items: impl IntoIterator<Item = String>) -> Self {
+        Value::List(items.into_iter().map(Value::Str).collect())
+    }
+
+    /// String elements of a list value (non-strings skipped).
+    pub fn as_str_list(&self) -> Vec<String> {
+        match self {
+            Value::List(items) => items
+                .iter()
+                .filter_map(|v| match v {
+                    Value::Str(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// As an error message names it.
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -520,7 +785,7 @@ impl Value {
             (Value::Int(x), Value::Int(y)) => x.cmp(y),
             (Value::Double(x), Value::Double(y)) => x.total_cmp(y),
             (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
-            (Value::List(x), Value::List(y)) => x.cmp(y),
+            (Value::List(x), Value::List(y)) => cmp_str_lists(x, y),
             // Content is not a sort key; mixed types cannot arise for columns.
             _ => Equal,
         };
@@ -543,6 +808,24 @@ impl Value {
             Value::Null => false,
         }
     }
+}
+
+fn cmp_str_lists(a: &[Value], b: &[Value]) -> std::cmp::Ordering {
+    use std::cmp::Ordering::*;
+    let all_str = |v: &[Value]| v.iter().all(|x| matches!(x, Value::Str(_)));
+    if !all_str(a) || !all_str(b) {
+        return Equal;
+    }
+    for (x, y) in a.iter().zip(b) {
+        let (Value::Str(u), Value::Str(v)) = (x, y) else {
+            unreachable!();
+        };
+        match u.cmp(v) {
+            Equal => continue,
+            o => return o,
+        }
+    }
+    a.len().cmp(&b.len())
 }
 
 pub type Schema = BTreeMap<&'static str, Type>;
@@ -768,7 +1051,7 @@ fn eval_outline(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 
 fn eval_html(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match args.first() {
-        Some(Value::Str(s)) => Value::Content(Content::html(vec![s.clone()])),
+        Some(Value::Str(s)) => Value::Content(Content::from_html_document(s)),
         _ => Value::Null,
     }
 }
@@ -824,14 +1107,26 @@ fn eval_word_count(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 
 fn eval_links(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match args.first() {
-        Some(Value::Content(c)) => Value::List(c.links()),
+        Some(Value::Content(c)) => Value::str_list(c.links()),
         _ => Value::Null,
     }
 }
 
 fn eval_images(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match args.first() {
-        Some(Value::Content(c)) => Value::List(c.images()),
+        Some(Value::Content(c)) => Value::str_list(c.images()),
+        _ => Value::Null,
+    }
+}
+
+fn eval_filter_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Content(c)), Some(Value::Str(tag))) => Value::List(
+            c.filter_blocks(tag)
+                .into_iter()
+                .map(Value::Content)
+                .collect(),
+        ),
         _ => Value::Null,
     }
 }
@@ -856,7 +1151,7 @@ fn value_to_json_value(v: &Value) -> serde_json::Value {
         Value::Int(i) => json!(i),
         Value::Double(d) => json!(d),
         Value::Str(s) => J::String(s.clone()),
-        Value::List(items) => J::Array(items.iter().map(|s| J::String(s.clone())).collect()),
+        Value::List(items) => J::Array(items.iter().map(value_to_json_value).collect()),
         Value::Map(entries) => {
             let mut m = JsonMap::new();
             for (k, val) in entries {
@@ -1077,6 +1372,13 @@ const FUNCS: &[Func] = &[
         returns: Type::List,
         prepare: no_prep,
         eval: eval_images,
+    },
+    Func {
+        name: "filter_blocks",
+        params: &[Type::Content, Type::Str],
+        returns: Type::List,
+        prepare: no_prep,
+        eval: eval_filter_blocks,
     },
     Func {
         name: "to_json",
@@ -1681,18 +1983,21 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             if it.scalar() != Type::Int {
                 bail!("list index `{idx}` is {it}, but must be int");
             }
-            Ok(Type::Str)
+            // Element type is not tracked (string lists and Content lists
+            // share `list`); the field's declared return type checks the use.
+            Ok(Type::Any)
         }
         Operand::Cond(cond, then, otherwise) => {
             check(cond, schema)?;
             let tt = operand_type(then, schema)?;
             let et = operand_type(otherwise, schema)?;
-            if tt.scalar() != et.scalar() {
-                bail!(
+            match (tt.scalar(), et.scalar()) {
+                (Type::Any, t) | (t, Type::Any) => Ok(t),
+                (a, b) if a == b => Ok(tt),
+                _ => bail!(
                     "conditional branches must match, but `{then}` is {tt} and `{otherwise}` is {et}"
-                );
+                ),
             }
-            Ok(tt)
         }
     }
 }
@@ -1958,7 +2263,7 @@ impl Text {
                 check(&cond, schema)?;
                 for op in [&then, &otherwise] {
                     let t = operand_type(op, schema)?;
-                    if t.scalar() != Type::Str {
+                    if t.scalar() != Type::Str && t.scalar() != Type::Any {
                         bail!("a conditional's branches must be strings, but `{op}` is {t}");
                     }
                 }
@@ -1976,7 +2281,7 @@ impl Text {
             bail!("trailing tokens after a complete expression");
         }
         let t = operand_type(&then, schema)?;
-        if t.scalar() != Type::Str {
+        if t.scalar() != Type::Str && t.scalar() != Type::Any {
             bail!("a text expression must be a string, but `{then}` is {t}");
         }
         Ok(Text {
@@ -2043,7 +2348,7 @@ impl FieldExpr {
             bail!("trailing tokens after a complete expression");
         }
         let t = operand_type(&op, schema)?;
-        if t.scalar() != want.scalar() {
+        if t.scalar() != Type::Any && t.scalar() != want.scalar() {
             bail!("a field expression must be {want}, but `{op}` is {t}");
         }
         Ok(FieldExpr { op, returns: want })
@@ -2085,20 +2390,18 @@ fn parse_field_operand(p: &mut Parser) -> Result<Operand> {
     p.parse_arith()
 }
 
-/// Schema for `fields.NAME` expressions: `content` plus the image-field names
-/// hero policy reads (`cover`, then `image`).
+/// Schema for `fields.NAME` expressions: binds `content`. Row fields come
+/// from the site's `[schema]` (via `Config::field_expr_schema`).
 pub fn field_schema() -> Schema {
     let mut s = Schema::new();
     s.insert("content", Type::Content);
-    s.insert("cover", Type::Str);
-    s.insert("image", Type::Str);
     s
 }
 
 /// Expected return type for a named computed field.
 pub fn field_return_type(name: &str) -> Option<Type> {
     match name {
-        "summary" => Some(Type::Content),
+        "summary" | "lede" => Some(Type::Content),
         "toc" => Some(Type::Outline),
         "hero" => Some(Type::Str),
         _ => None,
@@ -2164,7 +2467,7 @@ fn cmp_values(a: &Value, op: Op, b: &Value) -> bool {
         }
         (Value::Str(x), Value::Str(y)) => x.partial_cmp(y),
         (Value::Bool(x), Value::Bool(y)) => x.partial_cmp(y),
-        (Value::List(x), Value::List(y)) => x.partial_cmp(y),
+        (Value::List(x), Value::List(y)) => Some(cmp_str_lists(x, y)),
         _ => match (a.as_f64(), b.as_f64()) {
             (Some(x), Some(y)) => x.partial_cmp(&y),
             _ => None,
@@ -2234,10 +2537,7 @@ fn operand_value(o: &Operand, row: &impl Row, ctx: &dyn Ctx) -> Value {
                 _ => return Value::Null,
             };
             match list {
-                Value::List(items) => items
-                    .get(i)
-                    .cloned()
-                    .map_or(Value::Null, Value::Str),
+                Value::List(items) => items.get(i).cloned().unwrap_or(Value::Null),
                 _ => Value::Null,
             }
         }
@@ -2269,7 +2569,9 @@ fn eval(e: &Expr, row: &impl Row, ctx: &dyn Ctx) -> bool {
             &operand_value(r, row, ctx),
         ),
         Expr::In(l, r) => match (operand_value(l, row, ctx), operand_value(r, row, ctx)) {
-            (Value::Str(s), Value::List(items)) => items.contains(&s),
+            (Value::Str(s), Value::List(items)) => {
+                items.iter().any(|v| matches!(v, Value::Str(t) if t == &s))
+            }
             _ => false,
         },
     }
@@ -2314,7 +2616,7 @@ mod tests {
                     Some(d) => Value::Str(d.clone()),
                     None => Value::Null,
                 },
-                "tags" => Value::List(self.tags.clone()),
+                "tags" => Value::str_list(self.tags.clone()),
                 "path" => Value::Str(self.path.clone()),
                 _ => Value::Null,
             }
@@ -2747,7 +3049,7 @@ mod tests {
                 "candidate.year" => Value::Int(self.cand_year),
                 "self" | "self.url" => Value::Str("/self/".into()),
                 "candidate" => Value::Str(self.cand_url.clone()),
-                "earlier" => Value::List(self.earlier.clone()),
+                "earlier" => Value::str_list(self.earlier.clone()),
                 _ => Value::Null,
             }
         }
@@ -3221,7 +3523,9 @@ mod tests {
 
     #[test]
     fn hero_field_prefers_cover_then_image_then_body() {
-        let s = field_schema();
+        let mut s = field_schema();
+        s.insert("cover", Type::Str);
+        s.insert("image", Type::Str);
         let expr = FieldExpr::parse(
             "cover ? cover : image ? image : images(content)[0]",
             &s,
@@ -3243,7 +3547,7 @@ mod tests {
                 }
             }
         }
-        let body = Content::html(vec![
+        let body = Content::new(vec![
             r#"<p><img src="from-body.png"></p>"#.into(),
         ]);
         assert_eq!(
@@ -3270,5 +3574,51 @@ mod tests {
             }),
             Value::Str("from-body.png".into())
         );
+    }
+
+    #[test]
+    fn html_drills_through_divs_and_text_chunks_paragraphs() {
+        let c = Content::from_html_document(
+            r#"<div><div><h1>T</h1><p>one</p></div><p>two</p></div>"#,
+        );
+        let tags: Vec<_> = c.blocks().unwrap().iter().map(|b| b.tag.as_str()).collect();
+        assert_eq!(tags, ["h1", "p", "p"]);
+
+        let t = Content::text("alpha\n\nbeta gamma\n\n");
+        let ps = t.filter_blocks("p");
+        assert_eq!(ps.len(), 2);
+        assert!(ps[0].html_string().contains("alpha"));
+        assert!(ps[1].html_string().contains("beta gamma"));
+    }
+
+    #[test]
+    fn filter_blocks_index_yields_first_paragraph() {
+        let expr = FieldExpr::parse(
+            r#"filter_blocks(content, "p")[0]"#,
+            &field_schema(),
+            Type::Content,
+        )
+        .unwrap();
+        struct R(Content);
+        impl Row for R {
+            fn field(&self, name: &str) -> Value {
+                match name {
+                    "content" => Value::Content(self.0.clone()),
+                    _ => Value::Null,
+                }
+            }
+        }
+        let row = R(Content::new(vec![
+            "<h1>Title</h1>".into(),
+            "<p>lede text</p>".into(),
+            "<p>more</p>".into(),
+        ]));
+        let Value::Content(out) = expr.eval(&row) else {
+            panic!("expected content");
+        };
+        assert_eq!(out.blocks().unwrap().len(), 1);
+        assert_eq!(out.blocks().unwrap()[0].tag, "p");
+        assert!(out.html_string().contains("lede text"));
+        assert!(!out.html_string().contains("more"));
     }
 }

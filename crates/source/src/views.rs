@@ -66,7 +66,10 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
     match row.field(spec) {
         filter::Value::List(items) => items
             .into_iter()
-            .map(|t| mk(SortKey::Str(t.clone()), t))
+            .filter_map(|v| match v {
+                filter::Value::Str(t) => Some(mk(SortKey::Str(t.clone()), t)),
+                _ => None,
+            })
             .collect(),
         filter::Value::Str(s) => vec![mk(SortKey::Str(s.clone()), s)],
         filter::Value::Int(i) => vec![mk(SortKey::Int(i), i.to_string())],
@@ -1054,7 +1057,7 @@ mod grouping_tests {
         if !tags.is_empty() {
             r.fields.insert(
                 "tags".into(),
-                grackle_db::Value::List(tags.iter().map(|t| t.to_string()).collect()),
+                grackle_db::Value::str_list(tags.iter().map(|t| t.to_string())),
             );
         }
         r

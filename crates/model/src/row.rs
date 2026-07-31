@@ -107,20 +107,9 @@ impl Row {
         }
     }
 
-    /// Cover or image field — fallback when no `fields.hero` expression.
-    pub fn hero_source(&self) -> Option<&str> {
-        self.images
-            .get("cover")
-            .or_else(|| self.images.get("image"))
-            .map(String::as_str)
-    }
-
     /// Declared list field values, or empty.
     pub fn list(&self, name: &str) -> Vec<String> {
-        match filter::Row::field(self, name) {
-            filter::Value::List(v) => v,
-            _ => Vec::new(),
-        }
+        filter::Row::field(self, name).as_str_list()
     }
 }
 
@@ -158,7 +147,7 @@ impl filter::Row for Row {
                 .output
                 .as_ref()
                 .map_or(V::Null, |k| V::Str(k.to_string())),
-            "alternates" => V::List(self.alternates.iter().map(|k| k.to_string()).collect()),
+            "alternates" => V::str_list(self.alternates.iter().map(|k| k.to_string())),
             "path" => V::Str(self.rel.to_string_lossy().to_string()),
             "dir" => V::Str(
                 self.rel

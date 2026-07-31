@@ -18,8 +18,8 @@ pub mod view;
 mod index;
 
 pub use filter::{
-    field_return_type, field_schema, Content, FieldExpr, Filter, Heading, OutlineNode, Row, Schema,
-    Text, Type, Value,
+    field_return_type, field_schema, Block, Content, FieldExpr, Filter, Heading, OutlineNode, Row,
+    Schema, Text, Type, Value,
 };
 pub use index::Collision;
 pub use key::{Key, Keyed};

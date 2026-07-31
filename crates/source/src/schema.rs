@@ -601,15 +601,15 @@ pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> 
         (FieldType::Date, toml::Value::String(s)) => Value::Str(date_str(s, name, whose)?),
         (FieldType::Int, toml::Value::Integer(i)) => Value::Int(*i),
         (FieldType::Bool, toml::Value::Boolean(b)) => Value::Bool(*b),
-        (FieldType::List, toml::Value::Array(a)) => Value::List(
+        (FieldType::List, toml::Value::Array(a)) => Value::str_list(
             a.iter()
                 .map(|x| match x.as_str() {
                     Some(s) => Ok(s.to_string()),
                     None => bail!("{whose}: {name:?}: list items must be strings, got {x}"),
                 })
-                .collect::<Result<_>>()?,
+                .collect::<Result<Vec<_>>>()?,
         ),
-        (FieldType::List, toml::Value::String(s)) => Value::List(list_from_words(s)),
+        (FieldType::List, toml::Value::String(s)) => Value::str_list(list_from_words(s)),
         (ty, other) => bail!(
             "{whose} sets {name:?} to {other}, but it is declared {}",
             ty.name()
@@ -654,7 +654,7 @@ pub fn validate(
                 Value::Int(n.as_i64().unwrap())
             }
             (FieldType::Bool, Y::Bool(b)) => Value::Bool(*b),
-            (FieldType::List, Y::Sequence(seq)) => Value::List(
+            (FieldType::List, Y::Sequence(seq)) => Value::str_list(
                 seq.iter()
                     .map(|x| match x {
                         Y::String(s) => Ok(s.clone()),
@@ -663,11 +663,11 @@ pub fn validate(
                             path.display()
                         ),
                     })
-                    .collect::<Result<_>>()?,
+                    .collect::<Result<Vec<_>>>()?,
             ),
-            (FieldType::List, Y::String(s)) => Value::List(list_from_words(s)),
+            (FieldType::List, Y::String(s)) => Value::str_list(list_from_words(s)),
             // `tags:` with no value: a form the corpus still carries.
-            (FieldType::List, Y::Null) => Value::List(vec![]),
+            (FieldType::List, Y::Null) => Value::str_list(Vec::<String>::new()),
             (ty, other) => bail!(
                 "{}: field {name:?} is declared {}, but the front matter has {other:?}",
                 path.display(),
@@ -968,7 +968,7 @@ mod tests {
         let fields = validate(&schema, &extra, Path::new("books/j.md")).unwrap();
         assert_eq!(
             fields.values["keywords"],
-            Value::List(vec!["rust".into(), "c".into(), "meta".into()])
+            Value::str_list(["rust".into(), "c".into(), "meta".into()])
         );
 
         let mut extra = BTreeMap::new();
@@ -982,18 +982,18 @@ mod tests {
         let fields = validate(&schema, &extra, Path::new("books/j.md")).unwrap();
         assert_eq!(
             fields.values["keywords"],
-            Value::List(vec!["rust".into(), "c".into()])
+            Value::str_list(["rust".into(), "c".into()])
         );
 
         let words = toml::Value::String("alpha beta".into());
         assert_eq!(
             typed(FieldType::List, "keywords", &words, "the profile").unwrap(),
-            Value::List(vec!["alpha".into(), "beta".into()])
+            Value::str_list(["alpha".into(), "beta".into()])
         );
         let empty = toml::Value::String("".into());
         assert_eq!(
             typed(FieldType::List, "keywords", &empty, "the profile").unwrap(),
-            Value::List(vec![])
+            Value::str_list(Vec::<String>::new())
         );
     }
 

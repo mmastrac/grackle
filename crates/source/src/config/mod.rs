@@ -734,6 +734,16 @@ impl Config {
         s
     }
 
+    /// Environment for `fields.NAME` expressions: `content` plus every field
+    /// `[schema]` / collection schema declares (so `hero` can name `cover`).
+    pub fn field_expr_schema(&self) -> grackle_db::filter::Schema {
+        let mut s = grackle_db::field_schema();
+        for (k, t) in self.config_declared_schema() {
+            s.insert(k, t);
+        }
+        s
+    }
+
     /// The vocabulary a view's own `where` type-checks against — one function,
     /// so a profile patching that `where` is held to exactly the same words.
     ///
@@ -1150,7 +1160,14 @@ impl Config {
                 "body" => body.trim().to_string(),
                 "title" => p.title.clone().unwrap_or_default(),
                 other => match grackle_db::filter::Row::field(p, other) {
-                    grackle_db::Value::List(v) => v.join(", "),
+                    grackle_db::Value::List(v) => v
+                        .into_iter()
+                        .filter_map(|x| match x {
+                            grackle_db::Value::Str(s) => Some(s),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
                     grackle_db::Value::Str(s) => s,
                     grackle_db::Value::Int(n) => n.to_string(),
                     grackle_db::Value::Bool(b) => b.to_string(),
@@ -1185,9 +1202,11 @@ impl Config {
                 }
                 other => match grackle_db::filter::Row::field(p, other) {
                     grackle_db::Value::List(v) => {
-                        for s in v {
-                            if !s.is_empty() {
-                                out.push((BOOST, s));
+                        for x in v {
+                            if let grackle_db::Value::Str(s) = x {
+                                if !s.is_empty() {
+                                    out.push((BOOST, s));
+                                }
                             }
                         }
                     }
@@ -1231,7 +1250,10 @@ impl Config {
                             grackle_db::Value::List(v) => {
                                 let joined = v
                                     .into_iter()
-                                    .filter(|s| !s.is_empty())
+                                    .filter_map(|x| match x {
+                                        grackle_db::Value::Str(s) if !s.is_empty() => Some(s),
+                                        _ => None,
+                                    })
                                     .collect::<Vec<_>>()
                                     .join(", ");
                                 if joined.is_empty() {

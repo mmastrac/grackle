@@ -393,8 +393,8 @@ mod row_column_tests {
         assert!(!row_schema().contains_key("tags"));
         let mut r = Row::default();
         r.fields
-            .insert("tags".into(), filter::Value::List(vec!["x".into()]));
-        assert_eq!(r.field("tags"), filter::Value::List(vec!["x".into()]));
+            .insert("tags".into(), filter::Value::str_list(vec!["x".into()]));
+        assert_eq!(r.field("tags"), filter::Value::str_list(vec!["x".into()]));
         assert_eq!(r.list("tags"), vec!["x".to_string()]);
     }
 
