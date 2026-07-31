@@ -106,6 +106,9 @@ limit = 1
 layout = "card"
 variant = "figure"
 
+  [sets.featured.fields]
+  hero = 'cover'
+
 [profiles.hide]
 force = { draft = true }
 "#;

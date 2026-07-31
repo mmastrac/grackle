@@ -13,6 +13,6 @@ pub mod theme;
 pub use binder::Fragments;
 pub use parts::{
     document, document_tree, fill_from_fields, from_row, member_face, page_row, present, raw,
-    require_face, row, tree_trail, Part, PartMap, PartType, Presentation, Schemas,
+    require_face, row, tree_trail, FillOpts, Part, PartMap, PartType, Presentation, Schemas,
 };
 pub use theme::{Theme, Themes};

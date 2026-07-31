@@ -304,7 +304,7 @@ fn field_type_enum_as_part(ty: grackle_source::schema::FieldType) -> PartType {
 }
 
 const HTML_SLOTS: &[&str] = &["content", "intro", "nav", "copyright"];
-const MAP_SLOTS: &[&str] = &["hero", "pagination"];
+const MAP_SLOTS: &[&str] = &["pagination"];
 
 fn infer_part_type(u: &crate::assemble::binder::SlotUse) -> PartType {
     if let Some(target) = u.fragment.as_deref() {
@@ -566,10 +566,7 @@ fn pill_stream(
     name_key: &'static str,
     url_key: &'static str,
 ) -> Part {
-    let ids = match grackle_db::filter::Row::field(p, field) {
-        grackle_db::Value::List(v) => v,
-        _ => Vec::new(),
-    };
+    let ids = grackle_db::filter::Row::field(p, field).as_str_list();
     let v = ids
         .iter()
         .map(|id| {
@@ -612,7 +609,14 @@ fn neighbor_from_row(
     resolve_asset: &dyn Fn(&str) -> String,
     row: &Row,
 ) -> anyhow::Result<PartMap> {
-    from_row(cfg, schemas, resolve_asset, row, Presentation::default())
+    from_row(
+        cfg,
+        schemas,
+        resolve_asset,
+        row,
+        Presentation::default(),
+        FillOpts::default(),
+    )
 }
 
 /// One relations group (§6g): a named, labelled list of neighbours. The name
@@ -699,14 +703,13 @@ pub fn axis_group(
 
 #[allow(clippy::too_many_arguments)]
 /// One row's part map (THEME.md §2). Callers differ in what they supply —
-/// crumbs, hero, relations — not in kind. List-field pills (`tags`, …) are
-/// filled later by [`fill_from_fields`].
+/// crumbs, relations — not in kind. List-field pills (`tags`, …) and
+/// computed Str fields (`hero`) are filled later by [`fill_from_fields`].
 pub fn row(
     title: String,
     url: String,
     tree: bool,
     crumbs: Vec<(String, Option<String>)>,
-    hero: Option<PartMap>,
     section: Vec<PartMap>,
     outline: Vec<PartMap>,
     content: &str,
@@ -719,9 +722,6 @@ pub fn row(
         m.set("tree", Part::Flag(true));
     }
     m.set("crumbs", crumb_stream(crumbs));
-    if let Some(h) = hero {
-        m.set("hero", Part::Map(h));
-    }
     if !section.is_empty() {
         m.set("section", Part::Stream(section));
     }
@@ -747,7 +747,6 @@ pub fn document(
         p.url.clone(),
         false,
         trail,
-        None,
         Vec::new(),
         outline,
         content,
@@ -784,7 +783,6 @@ pub fn document_tree(
     ancestors: &[(String, String)],
     section: Vec<PartMap>,
     outline: Vec<PartMap>,
-    hero: Option<PartMap>,
     relation_groups: Vec<PartMap>,
     content: &str,
 ) -> PartMap {
@@ -793,7 +791,6 @@ pub fn document_tree(
         url.to_string(),
         true,
         tree_trail(cfg, locale, home, title, ancestors),
-        hero,
         section,
         outline,
         content,
@@ -801,16 +798,26 @@ pub fn document_tree(
     )
 }
 
-/// Presentation facts that are not plain row fields: thumb `src`/dims,
-/// truncated body, and rare overrides (object stem title, hero URL).
+/// Presentation facts that are not plain row fields: thumb `hero`/dims,
+/// truncated body, and rare overrides (object stem title).
 #[derive(Default)]
 pub struct Presentation {
     pub content: Option<String>,
     pub truncated: bool,
-    pub src: Option<String>,
+    /// Picture URL for faces that bind `data-slot-src="hero"` (objects).
+    pub hero: Option<String>,
     pub dims: Option<(u32, u32)>,
     pub title: Option<String>,
     pub url: Option<String>,
+}
+
+/// Options for [`fill_from_fields`]: which view's computed fields to eval,
+/// body blocks for `content`, and thumbs for Url dims.
+#[derive(Default)]
+pub struct FillOpts<'a> {
+    pub view: Option<&'a str>,
+    pub blocks: Option<&'a [String]>,
+    pub thumbs: Option<&'a crate::thumbs::Renditions>,
 }
 
 fn apply_presentation(m: &mut PartMap, p: Presentation) {
@@ -820,8 +827,8 @@ fn apply_presentation(m: &mut PartMap, p: Presentation) {
     if let Some(u) = p.url {
         m.set("url", Part::Text(u));
     }
-    if let Some(s) = p.src {
-        m.set("src", Part::Text(s));
+    if let Some(s) = p.hero {
+        m.set("hero", Part::Text(s));
     }
     if let Some((w, h)) = p.dims {
         m.set("width", Part::Text(w.to_string()));
@@ -835,7 +842,7 @@ fn apply_presentation(m: &mut PartMap, p: Presentation) {
     }
 }
 
-/// A row shaped only by presentation (hero cards with no backing content row).
+/// A row shaped only by presentation (picture cards with no backing content row).
 pub fn present(p: Presentation) -> PartMap {
     let mut m = PartMap::new("row");
     apply_presentation(&mut m, p);
@@ -850,22 +857,25 @@ pub fn from_row(
     resolve_asset: &dyn Fn(&str) -> String,
     row: &Row,
     p: Presentation,
+    opts: FillOpts<'_>,
 ) -> anyhow::Result<PartMap> {
     let mut m = present(p);
-    fill_from_fields(cfg, &mut m, row, schemas, resolve_asset)?;
+    fill_from_fields(cfg, &mut m, row, schemas, resolve_asset, opts)?;
     Ok(m)
 }
 
 /// One presence-driven kind; faces select variants. Fill undeclared parts from
 /// the row when types line up (§5e) — schema fields plus row columns (`title`,
-/// `url`, …). `date_pretty` is the formatted twin of a date-typed `date` field.
-/// List fields whose child kind is `(Text, Url)` become archive pills.
+/// `url`, …), then computed Str fields (`hero`). `date_pretty` is the formatted
+/// twin of a date-typed `date` field. List fields whose child kind is
+/// `(Text, Url)` become archive pills.
 pub fn fill_from_fields(
     cfg: &crate::config::Config,
     m: &mut PartMap,
     row: &Row,
     schemas: &Schemas,
     resolve_asset: &dyn Fn(&str) -> String,
+    opts: FillOpts<'_>,
 ) -> anyhow::Result<()> {
     use grackle_db::filter::Row as FilterRow;
     use grackle_db::Value as V;
@@ -892,11 +902,8 @@ pub fn fill_from_fields(
             (V::Null, _) => continue,
             (V::Str(s), PartType::Text) => Part::Text(s.clone()),
             (V::Str(s), PartType::Url) => {
-                if row.images.contains_key(*name) {
-                    Part::Text(resolve_asset(s))
-                } else {
-                    Part::Text(s.clone())
-                }
+                set_url_with_dims(m, name, s, resolve_asset, opts.thumbs);
+                continue;
             }
             (V::Int(n), PartType::Text) => Part::Text(n.to_string()),
             (V::Bool(b), PartType::Flag) => {
@@ -920,10 +927,14 @@ pub fn fill_from_fields(
                     Part::Stream(
                         items
                             .iter()
+                            .filter_map(|v| match v {
+                                V::Str(s) => Some(s),
+                                _ => None,
+                            })
                             .map(|s| {
-                                let mut cm = PartMap::new_declared(child);
-                                cm.set_declared(label, Part::Text(s.clone()));
-                                cm
+                                let mut item = PartMap::new_declared(child);
+                                item.set_declared(label, Part::Text(s.clone()));
+                                item
                             })
                             .collect(),
                     )
@@ -939,7 +950,161 @@ pub fn fill_from_fields(
         };
         m.set_declared(name, part);
     }
+    fill_computed_str_fields(cfg, m, row, decl, resolve_asset, &opts);
+    fill_computed_content_fields(cfg, m, row, decl, &opts);
     Ok(())
+}
+
+fn set_url_with_dims(
+    m: &mut PartMap,
+    name: &'static str,
+    path: &str,
+    resolve_asset: &dyn Fn(&str) -> String,
+    thumbs: Option<&crate::thumbs::Renditions>,
+) {
+    m.set_declared(name, Part::Text(resolve_asset(path)));
+    if m.get("width").is_some() {
+        return;
+    }
+    let Some(thumbs) = thumbs else {
+        return;
+    };
+    let Some(t) = crate::thumbs::default_of(thumbs, path) else {
+        return;
+    };
+    if let Some((w, h)) = t.dims {
+        m.set("width", Part::Text(w.to_string()));
+        m.set("height", Part::Text(h.to_string()));
+    }
+}
+
+/// Eval computed Str fields (`fields.hero`, …) into empty Url/Text parts.
+fn fill_computed_str_fields(
+    cfg: &crate::config::Config,
+    m: &mut PartMap,
+    row: &Row,
+    decl: &[(&'static str, PartType)],
+    resolve_asset: &dyn Fn(&str) -> String,
+    opts: &FillOpts<'_>,
+) {
+    let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
+    let bind = crate::passes::preview::FieldBind { row, content };
+    for (name, src) in str_field_exprs(cfg, opts.view) {
+        if m.get(name).is_some() {
+            continue;
+        }
+        let Some(&(static_name, ty)) = decl.iter().find(|(n, _)| *n == name) else {
+            continue;
+        };
+        if !matches!(ty, PartType::Url | PartType::Text) {
+            continue;
+        }
+        let expr = grackle_db::FieldExpr::parse(
+            src,
+            &cfg.field_expr_schema(),
+            grackle_db::Type::Str,
+        )
+        .expect("computed field validated at load");
+        let grackle_db::Value::Str(s) = expr.eval(&bind) else {
+            continue;
+        };
+        if s.is_empty() {
+            continue;
+        }
+        match ty {
+            PartType::Url => set_url_with_dims(m, static_name, &s, resolve_asset, opts.thumbs),
+            PartType::Text => {
+                m.set_declared(static_name, Part::Text(s));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Eval computed Content fields (`fields.lede`, …) into empty Html parts.
+fn fill_computed_content_fields(
+    cfg: &crate::config::Config,
+    m: &mut PartMap,
+    row: &Row,
+    decl: &[(&'static str, PartType)],
+    opts: &FillOpts<'_>,
+) {
+    let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
+    let bind = crate::passes::preview::FieldBind { row, content };
+    for (name, src) in content_field_exprs(cfg, opts.view) {
+        if m.get(name).is_some() {
+            continue;
+        }
+        let Some(&(static_name, ty)) = decl.iter().find(|(n, _)| *n == name) else {
+            continue;
+        };
+        if !matches!(ty, PartType::Html) {
+            continue;
+        }
+        let expr = grackle_db::FieldExpr::parse(
+            src,
+            &cfg.field_expr_schema(),
+            grackle_db::Type::Content,
+        )
+        .expect("computed field validated at load");
+        let grackle_db::Value::Content(c) = expr.eval(&bind) else {
+            continue;
+        };
+        let html = c.html_string();
+        if html.is_empty() {
+            continue;
+        }
+        m.set_declared(static_name, Part::Html(html));
+        if c.truncated && m.get("truncated").is_none() {
+            m.set("truncated", Part::Flag(true));
+        }
+    }
+}
+
+fn str_field_exprs<'a>(
+    cfg: &'a crate::config::Config,
+    view: Option<&str>,
+) -> Vec<(&'a str, &'a str)> {
+    match view {
+        Some(v) => cfg
+            .fields_for(v)
+            .into_iter()
+            .filter_map(|(name, f)| {
+                if grackle_db::field_return_type(name) != Some(grackle_db::Type::Str) {
+                    return None;
+                }
+                f.as_expr().map(|src| (name, src))
+            })
+            .collect(),
+        None => ["hero"]
+            .into_iter()
+            .filter(|n| grackle_db::field_return_type(n) == Some(grackle_db::Type::Str))
+            .filter_map(|n| cfg.field_expr(n).map(|src| (n, src)))
+            .collect(),
+    }
+}
+
+fn content_field_exprs<'a>(
+    cfg: &'a crate::config::Config,
+    view: Option<&str>,
+) -> Vec<(&'a str, &'a str)> {
+    match view {
+        Some(v) => cfg
+            .fields_for(v)
+            .into_iter()
+            .filter_map(|(name, f)| {
+                if grackle_db::field_return_type(name) != Some(grackle_db::Type::Content) {
+                    return None;
+                }
+                f.as_expr().map(|src| (name, src))
+            })
+            .collect(),
+        None => ["lede", "summary"]
+            .into_iter()
+            .filter(|n| grackle_db::field_return_type(n) == Some(grackle_db::Type::Content))
+            .filter_map(|n| cfg.field_expr(n).map(|src| (n, src)))
+            .collect(),
+    }
 }
 
 /// Wrapper `row` for an aggregate page: furniture around already-concatenated
@@ -1090,7 +1255,7 @@ mod tests {
         m.set("title", Part::Text("A & B".into()));
         m.set("url", Part::Text("/x/".into()));
         m.set("tree", Part::Flag(true));
-        m.set("src", Part::Text("/static/x.jpg".into()));
+        m.set("hero", Part::Text("/static/x.jpg".into()));
         m.set("width", Part::Text("320".into()));
         m.set("height", Part::Text("200".into()));
         m.set("content", Part::Html("<p>hi</p>".into()));
@@ -1108,7 +1273,7 @@ mod tests {
             "{out}"
         );
         assert!(
-            out.contains(r#"<a data-slot="src" href="/static/x.jpg">"#),
+            out.contains(r#"<a data-slot="hero" href="/static/x.jpg">"#),
             "{out}"
         );
         assert!(
@@ -1172,6 +1337,7 @@ mod tests {
                             content: Some(crate::store::read_body(&p.path).unwrap_or_default()),
                             ..Default::default()
                         },
+                        FillOpts::default(),
                     )
                     .unwrap();
                     canonical(&m)
@@ -1203,7 +1369,6 @@ mod tests {
                 &[("/code/".to_string(), "Code".to_string())],
                 Vec::new(),
                 Vec::new(),
-                None,
                 Vec::new(),
                 "<p>body</p>",
             );
@@ -1308,8 +1473,15 @@ mod schema_asset_tests {
             .insert("description".into(), V::Str("a blurb".into()));
 
         let mut m = PartMap::new("row");
-        fill_from_fields(&cfg, &mut m, &row, &Schemas::engine_only(), &|s| s.to_string())
-            .unwrap();
+        fill_from_fields(
+            &cfg,
+            &mut m,
+            &row,
+            &Schemas::engine_only(),
+            &|s| s.to_string(),
+            FillOpts::default(),
+        )
+        .unwrap();
         assert_eq!(m.text("title"), Some("Hello"));
         assert_eq!(m.text("url"), Some("/hello/"));
         assert_eq!(m.text("date"), Some("2026-07-30"));
@@ -1325,6 +1497,7 @@ mod schema_asset_tests {
                 title: Some("Override".into()),
                 ..Default::default()
             },
+            FillOpts::default(),
         )
         .unwrap();
         assert_eq!(m.text("title"), Some("Override"));

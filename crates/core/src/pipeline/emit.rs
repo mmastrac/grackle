@@ -146,6 +146,11 @@ pub(crate) fn run(
                 doc,
                 whole,
                 &resolve_asset,
+                parts::FillOpts {
+                    blocks: Some(bodies[&p.key].blocks.as_slice()),
+                    thumbs: Some(thumbs),
+                    ..Default::default()
+                },
             )?;
             Ok((url.to_string(), html))
         })
@@ -337,7 +342,6 @@ pub(crate) fn run(
             &crate::trails::ancestors(cfg, db, &r.url),
             section,
             Vec::new(),
-            None,
             groups,
             &frag,
         );
@@ -364,6 +368,10 @@ pub(crate) fn run(
             doc,
             &frag,
             &resolve_asset,
+            parts::FillOpts {
+                thumbs: Some(thumbs),
+                ..Default::default()
+            },
         )?;
         out_map.insert(r.url.clone(), html.into_bytes());
         stats.listings += 1;
@@ -439,22 +447,6 @@ pub(crate) fn run(
                         section_parts(db, &mut section_trees, &p.rel, &r.url, pairing_keep)
                     })
                     .unwrap_or_default();
-
-                // Hero (q23): `fields.hero`, thumbnailed, with dimensions.
-                let hero = row.and_then(|p| {
-                    let blocks = pb.doc.as_ref().map(|d| d.blocks.as_slice());
-                    preview::hero_url(cfg, None, p, blocks).map(|s| {
-                        let t = crate::thumbs::default_of(thumbs, &s);
-                        let full = preview::asset_url(&cfg.site.baseurl, &s);
-                        parts::present(parts::Presentation {
-                            title: Some(title.clone()),
-                            url: Some(full.clone()),
-                            src: Some(t.map(|t| t.url.clone()).unwrap_or(full)),
-                            dims: t.and_then(|t| t.dims),
-                            ..Default::default()
-                        })
-                    })
-                });
 
                 // Theme per row (§5a); axis theme beats the row's (q53).
                 let (theme_name, subtheme) =
@@ -536,7 +528,6 @@ pub(crate) fn run(
                             &crate::trails::ancestors(cfg, db, &r.url),
                             section,
                             outline,
-                            hero,
                             groups,
                             frag,
                         );
@@ -561,6 +552,11 @@ pub(crate) fn run(
                             doc,
                             frag,
                             &resolve_asset,
+                            parts::FillOpts {
+                                blocks: pb.doc.as_ref().map(|d| d.blocks.as_slice()),
+                                thumbs: Some(thumbs),
+                                ..Default::default()
+                            },
                         )?
                     }
                 };
@@ -588,7 +584,7 @@ fn heading_outline(
         Some(src) => {
             let expr = grackle_db::FieldExpr::parse(
                 src,
-                &grackle_db::field_schema(),
+                &cfg.field_expr_schema(),
                 grackle_db::Type::Outline,
             )
             .expect("toc field validated at load");

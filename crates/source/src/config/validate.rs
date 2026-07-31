@@ -351,7 +351,7 @@ impl Config {
                         })?;
                         grackle_db::FieldExpr::parse(
                             src,
-                            &grackle_db::field_schema(),
+                            &self.field_expr_schema(),
                             want,
                         )
                         .map_err(|e| anyhow::anyhow!("view {vname}: field {fname:?}: {e}"))?;

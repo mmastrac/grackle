@@ -121,9 +121,10 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
       item: the favicon half of that motivation is gone (`site.icon` restored
       it). (§4e)
 - [ ] **Expression-form derivers** — `summary` /
-      `truncate_chars(truncate_blocks(content, n), m)` and `toc` /
-      `outline(content, max)` are built over `Content` / `Outline` (§5f).
-      Remains: `hero` / `lede` under q23. (§6e)
+      `truncate_chars(truncate_blocks(content, n), m)`, `toc` /
+      `outline(content, max)`, `hero`, and `lede` /
+      `filter_blocks(content, "p")[0]` are built over `Content` blocks (§5f).
+      Remains: group hero under q23. (§6e)
 - [ ] **Parenthesised expressions in rank** — `(a + b) > c` is valid CEL but
       unsupported; the error suggests lifting it into a rank term. **Not q13**
       (that is embedding model pinning) — this carries no number. (§6g)

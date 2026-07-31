@@ -1787,7 +1787,7 @@ The model's bet is that *all geometry* lives in theme CSS, so "can it do layout 
 
 Auditing archetypes — document with margin or sidenotes, album gallery, Pinterest masonry, magazine full-bleed, timeline, dense index — surfaced **four genuine gaps, and every one resolved to "add a part or fact", never to control flow.** Three are built:
 
-- **The `hero` part** (q23) — sourced from the image-typed schema field named `cover`, with first-image-block fallback and group hero.
+- **The `hero` part** (q23) — a Url on the row, filled from the computed Str field `fields.hero` (cover / image / first body image). Group hero remains open.
 - **Per-view fragment variants** (q24) — variant fragments per view.
 - **Dimension facts on images** (q26) — **closed 2026-07-21.** Body images emit `width`/`height` at expansion.
 
@@ -1871,8 +1871,8 @@ never a grackle-only dialect.
 | config key | expression type | status |
 |---|---|---|
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
-| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc` / `hero`; `lede` still open |
-| future derivers (`lede`) | same | q25 |
+| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc` / `hero` / `lede`; group hero still open |
+| future derivers | same | group hero (q23 remainder) |
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
 
@@ -1916,7 +1916,11 @@ hero = 'cover ? cover : image ? image : images(content)[0]'
   `links` / `images` yield string lists (`href` / `src`); index with
   `links(content)[0]` (out of range is null).
   `hero` is a string field: cover, else image, else first body image
-  (`images(content)[0]`), via CEL's `cond ? a : b`.
+  (`images(content)[0]`), via CEL's `cond ? a : b`. Themes bind it as a
+  Url part (`data-slot-src="hero"`); the engine fills that part like any
+  other computed Str→Url field — no hero producer.
+  `lede` is Content: `filter_blocks(content, "p")[0]` — HTML blocks are
+  tagged elements (text chunks on blank lines; HTML drills through `div`).
 - **Budgets and depth compose as wrappers / positional ints**, not as a
   map-literal options bag. CEL has no named arguments; a later function that
   needs many options can take a map literal, but these do not need one.
@@ -2675,7 +2679,7 @@ The justification is measured: the site used to truncate summaries in CSS, so `/
 
 ### Blocks
 
-Markdown renders to a **sequence of top-level blocks** (paragraph, heading, code, list, table, html) rather than one string. A layout kind takes what it needs: `document` takes all, `summary` takes the first few, a future `lede` slot takes `blocks[0]`.
+Markdown renders to a **sequence of top-level blocks** (paragraph, heading, code, list, table, html) rather than one string. Each HTML block is a tagged element (`Block { tag, html }`). Text content chunks on blank lines into `p` blocks; raw HTML drills through wrapper `div`s. A layout kind takes what it needs: `document` takes all, `summary` takes the first few, `lede = 'filter_blocks(content, "p")[0]'` takes the first paragraph.
 
 **326 of 327 posts satisfy `concat(blocks) == markdown_to_html(src)` byte for byte** — comrak's `format_html` takes any node, so blocks are a loop over `root.children()`, not a parser change, and a summary is a literal *prefix* of the document, which the harness can prove rather than eyeball. **The single mismatch is footnotes** — see below.
 
@@ -3289,7 +3293,7 @@ Only OPEN questions live here; a settled question moves its design into the sect
 14. **`<style>` auto-scoping default (§6c).** Scoping fixes a latent leak on multipost index pages but changes behavior on 3 existing posts. Default-on with opt-out, or default-off with opt-in?
 21. **Tighten `diff`'s liquid skip (§8a).** 97 of 327 posts excluded, many falsely; 30% of corpus unmeasured.
 22. **`_site-prod` refresh (§8a).** Jekyll fails on `{% view %}`; can no longer regenerate reference. Script refresh, or move behind a flag that stashes automatically?
-23. **The `hero` part — the remainder.** Built via book club; still arriving with first-image fallback and mindstorms group hero (explicit beats derived).
+23. **The `hero` part — the remainder.** Str computed field `fields.hero` fills a Url part generically (no engine producer); group hero (explicit beats derived) still open.
 25. **Per-block facts (§5e).** Block-level directive surviving as `data-` attribute so theme can span it. Needs decided authoring syntax — IALs are kramdown, not CommonMark.
 26. **Dimension facts — the remainder.** Object rows carry width/height at load (queryable, §5b). Remains: post *bodies* — `{% image %}` gains dimensions at §6d rewrite stage.
 28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure.
@@ -3407,7 +3411,7 @@ One line per retired question; the named section carries the design.
 | 24 | fragment variants: `{kind}--{variant}` → base → canonical; `data-fragment` resolves at load | §5e |
 | 27 | index-less dirs render as unlinked labels in section trees; the auto-index view is a landing with no intro row | §6e, §5h |
 | 29 | `{% callout %}` widgets: `[widgets]` registry, paired-tag expansion, no arguments, no conditionals | §5d |
-| 31 | expressions extend `filter.rs` as a strict CEL subset; `summary` / `toc` (`Content` / `Outline` / `truncate_*` / `outline`) built; `hero` / `lede` remain | §5f |
+| 31 | expressions extend `filter.rs` as a strict CEL subset; `summary` / `toc` / `hero` / `lede` built (`Content` blocks + `filter_blocks` / Str→Url part fill); group hero remains | §5f |
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |

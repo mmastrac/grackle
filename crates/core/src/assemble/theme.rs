@@ -459,13 +459,6 @@ mod tests {
                 "url",
                 "self-link is chrome; themes that want a permalink place it",
             ),
-            (
-                "row",
-                "src",
-                "needs row--figure / card face — empty content slot would break <img>",
-            ),
-            ("row", "width", "rides with src"),
-            ("row", "height", "rides with src"),
             ("row", "date", "member faces place dates"),
             ("row", "date_pretty", "rides with date"),
             ("row", "description", "member faces place the blurb"),
@@ -485,8 +478,8 @@ mod tests {
             let depth = if kind == "relation" { 0 } else { 2 };
             let full = crate::parts::populate(&schemas, kind, depth);
             let out = thm.fragments.render(&full);
-            // Exemptions hold at every depth: `document.hero` is a summary,
-            // so a summary's exempt parts are exempt inside it too.
+            // Exemptions hold at every depth: nested rows reuse the same
+            // part names, so a summary's exempt parts are exempt inside it too.
             if let Some(missing) = first_dropped(&full, &out, EXEMPT) {
                 panic!(
                     "the base drops `{missing}` and does not say why — either \

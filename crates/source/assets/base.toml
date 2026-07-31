@@ -49,6 +49,11 @@ description = { type = "string" }
 # validates the form. Filled from front matter or `{date.year|month|day}` in a
 # collection's `file` pattern.
 date = { type = "date" }
+# Optional hero sources (§5f `fields.hero`). Image-typed so they resolve to
+# rows and get thumbnailed; the default hero expression prefers `cover`, then
+# `image`, then the first body `<img>`.
+cover = { type = "image" }
+image = { type = "image" }
 
 # Fields the engine still reads off a row BY NAME — which theme renders it
 # (§5a), which shell wraps it (§5g), which slot cuts the render chain, and

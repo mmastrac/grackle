@@ -1311,28 +1311,28 @@ mod tests {
         let f = frags(&[
             (
                 "row",
-                r#"<aside data-slot="hero" data-fragment="row--figure"></aside>"#,
+                r#"<nav data-slot="pagination" data-fragment="pagination--compact"></nav>"#,
             ),
             (
-                "row--figure",
-                r#"<a data-slot-href="url" data-slot="title"></a>"#,
+                "pagination--compact",
+                r#"<a data-slot-href="prev">prev</a>"#,
             ),
+            ("pagination", r#"<div></div>"#),
         ])
         .unwrap();
         let mut m = PartMap::new("row");
-        let mut h = PartMap::new("row");
-        h.set("title", Part::Text("T".into()));
-        h.set("url", Part::Text("/x/".into()));
-        m.set("hero", Part::Map(h));
+        let mut p = PartMap::new("pagination");
+        p.set("prev", Part::Text("/older/".into()));
+        m.set("pagination", Part::Map(p));
         assert!(
-            f.render(&m).contains(r#"<a href="/x/""#),
+            f.render(&m).contains(r#"<a href="/older/""#),
             "{}",
             f.render(&m)
         );
 
         let e = frags(&[(
             "row",
-            r#"<aside data-slot="hero" data-fragment="nope"></aside>"#,
+            r#"<nav data-slot="pagination" data-fragment="nope"></nav>"#,
         )])
         .unwrap_err();
         assert!(format!("{e}").contains("names no fragment"), "{e}");
@@ -1340,9 +1340,10 @@ mod tests {
         let e = frags(&[
             (
                 "row",
-                r#"<aside data-slot="hero" data-fragment="crumb"></aside>"#,
+                r#"<nav data-slot="pagination" data-fragment="crumb"></nav>"#,
             ),
             ("crumb", r#"<span data-slot="label"></span>"#),
+            ("pagination", r#"<div></div>"#),
         ])
         .unwrap_err();
         assert!(format!("{e}").contains("binds kind"), "{e}");

@@ -47,6 +47,8 @@ toc = { type = "bool" }
 tags = { type = "list" }
 description = { type = "string" }
 date = { type = "date" }
+cover = { type = "image" }
+image = { type = "image" }
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
@@ -275,6 +277,9 @@ source = "."
 from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
+
+  [sets.published.fields]
+  hero = 'cover ? cover : image ? image : images(content)[0]'
 
 [routes.home]
 path = "/"

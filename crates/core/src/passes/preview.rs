@@ -311,7 +311,7 @@ pub(crate) fn member_rows(
         .map(|src| {
             grackle_db::FieldExpr::parse(
                 src,
-                &grackle_db::field_schema(),
+                &cfg.field_expr_schema(),
                 grackle_db::Type::Content,
             )
             .expect("summary field validated at load")
@@ -378,32 +378,6 @@ impl grackle_db::Row for FieldBind<'_> {
     }
 }
 
-/// Hero image source URL (q23): `fields.hero` when declared, else cover/image.
-pub(crate) fn hero_url(
-    cfg: &Config,
-    view: Option<&str>,
-    row: &crate::model::Row,
-    blocks: Option<&[String]>,
-) -> Option<String> {
-    let src = view
-        .and_then(|v| cfg.fields_for(v).get("hero").and_then(|f| f.as_expr()))
-        .or_else(|| cfg.field_expr("hero"));
-    let Some(src) = src else {
-        return row.hero_source().map(str::to_string);
-    };
-    let expr = grackle_db::FieldExpr::parse(
-        src,
-        &grackle_db::field_schema(),
-        grackle_db::Type::Str,
-    )
-    .expect("hero field validated at load");
-    let content = grackle_db::Content::new(blocks.map(|b| b.to_vec()).unwrap_or_default());
-    match expr.eval(&FieldBind { row, content }) {
-        grackle_db::Value::Str(s) if !s.is_empty() => Some(s),
-        _ => None,
-    }
-}
-
 /// An object row: the row IS the picture, so it is its own thumbnail source
 /// and its stem labels it when front matter has no title.
 fn object_row(
@@ -426,8 +400,12 @@ fn object_row(
         o,
         parts::Presentation {
             title: o.title.is_none().then_some(stem),
-            src: Some(t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone())),
+            hero: Some(t.map(|t| t.url.clone()).unwrap_or_else(|| o.url.clone())),
             dims: t.and_then(|t| t.dims),
+            ..Default::default()
+        },
+        parts::FillOpts {
+            thumbs: Some(thumbs),
             ..Default::default()
         },
     )
@@ -448,9 +426,9 @@ pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
     }
 }
 
-/// A content row as a listing member: prose when it has a body, a picture when
-/// it has a hero. `content` is the body already truncated by the view's
-/// `summary` field (§6d), or `None` where the caller shows no prose.
+/// A content row as a listing member: prose when it has a body. `content` is
+/// the body already truncated by the view's `summary` field (§6d), or `None`
+/// where the caller shows no prose. Picture comes from computed `fields.hero`.
 fn content_row(
     cfg: &Config,
     schemas: &crate::parts::Schemas,
@@ -462,8 +440,6 @@ fn content_row(
     truncated: bool,
     blocks: Option<&[String]>,
 ) -> anyhow::Result<parts::PartMap> {
-    let t = hero_url(cfg, Some(view), p, blocks)
-        .and_then(|s| crate::thumbs::default_of(thumbs, &s));
     parts::from_row(
         cfg,
         schemas,
@@ -472,9 +448,12 @@ fn content_row(
         parts::Presentation {
             content,
             truncated,
-            src: t.map(|t| t.url.clone()),
-            dims: t.and_then(|t| t.dims),
             ..Default::default()
+        },
+        parts::FillOpts {
+            view: Some(view),
+            blocks,
+            thumbs: Some(thumbs),
         },
     )
 }
