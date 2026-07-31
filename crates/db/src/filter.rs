@@ -266,6 +266,66 @@ impl Content {
         };
         Some(s.split_whitespace().count() as i64)
     }
+
+    /// `href` values from `<a>` tags, document order. Markdown renders first;
+    /// plain text yields an empty list.
+    pub fn links(&self) -> Vec<String> {
+        match self.html_for_scan() {
+            Some(html) => attr_values(&html, "a", "href"),
+            None => Vec::new(),
+        }
+    }
+
+    /// `src` values from `<img>` tags, document order. Markdown renders first;
+    /// plain text yields an empty list.
+    pub fn images(&self) -> Vec<String> {
+        match self.html_for_scan() {
+            Some(html) => attr_values(&html, "img", "src"),
+            None => Vec::new(),
+        }
+    }
+
+    fn html_for_scan(&self) -> Option<String> {
+        match &self.body {
+            ContentBody::Html { blocks } => Some(blocks.concat()),
+            ContentBody::Markdown(_) => self.as_html().map(|c| c.html_string()),
+            ContentBody::Text(_) => None,
+        }
+    }
+}
+
+/// Values of `attr` on opening tags named `tag` (`<a href=…>`, `<img src=…>`).
+fn attr_values(html: &str, tag: &str, attr: &str) -> Vec<String> {
+    let needle = format!("<{tag}");
+    let attr_eq = format!("{attr}=");
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < html.len() {
+        let Some(rel) = html[i..].find(&needle) else {
+            break;
+        };
+        i += rel + needle.len();
+        let next = html[i..].chars().next();
+        if !matches!(next, Some(c) if c.is_whitespace() || c == '>' || c == '/') {
+            continue;
+        }
+        let end = html[i..].find('>').map(|e| i + e).unwrap_or(html.len());
+        let open = &html[i..end];
+        if let Some(v) = quoted_attr(open, &attr_eq) {
+            out.push(unescape(&v));
+        }
+        i = end.saturating_add(1).min(html.len());
+    }
+    out
+}
+
+fn quoted_attr(open: &str, attr_eq: &str) -> Option<String> {
+    let i = open.find(attr_eq)? + attr_eq.len();
+    let rest = &open[i..];
+    let quote = rest.chars().next().filter(|&c| c == '"' || c == '\'')?;
+    let body = &rest[quote.len_utf8()..];
+    let end = body.find(quote)?;
+    Some(body[..end].to_string())
 }
 
 /// Fixed minimal comrak options for `as_html(markdown(…))` in the language
@@ -578,6 +638,8 @@ enum Operand {
     Arith(Box<Operand>, ArithOp, Box<Operand>),
     /// CEL map literal: `{key: value, …}`.
     Map(Vec<(Operand, Operand)>),
+    /// CEL list index: `links(content)[0]`. Out of range is Null at eval.
+    Index(Box<Operand>, Box<Operand>),
 }
 
 #[derive(Debug, Clone)]
@@ -754,6 +816,20 @@ fn eval_as_text(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 fn eval_word_count(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     match args.first() {
         Some(Value::Content(c)) => c.word_count().map_or(Value::Null, Value::Int),
+        _ => Value::Null,
+    }
+}
+
+fn eval_links(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => Value::List(c.links()),
+        _ => Value::Null,
+    }
+}
+
+fn eval_images(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(Value::Content(c)) => Value::List(c.images()),
         _ => Value::Null,
     }
 }
@@ -987,6 +1063,20 @@ const FUNCS: &[Func] = &[
         eval: eval_word_count,
     },
     Func {
+        name: "links",
+        params: &[Type::Content],
+        returns: Type::List,
+        prepare: no_prep,
+        eval: eval_links,
+    },
+    Func {
+        name: "images",
+        params: &[Type::Content],
+        returns: Type::List,
+        prepare: no_prep,
+        eval: eval_images,
+    },
+    Func {
         name: "to_json",
         params: &[Type::Any],
         returns: Type::Str,
@@ -1034,6 +1124,8 @@ enum Tok {
     Colon,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
 }
 
 fn lex(src: &str) -> Result<Vec<Tok>> {
@@ -1058,6 +1150,14 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
             }
             '}' => {
                 out.push(Tok::RBrace);
+                i += 1;
+            }
+            '[' => {
+                out.push(Tok::LBracket);
+                i += 1;
+            }
+            ']' => {
+                out.push(Tok::RBracket);
                 i += 1;
             }
             ',' => {
@@ -1288,7 +1388,9 @@ impl Parser {
                 Ok(Expr::In(left, right))
             }
             _ => match left {
-                Operand::Field(_) | Operand::Call(..) => Ok(Expr::Truthy(left)),
+                Operand::Field(_) | Operand::Call(..) | Operand::Index(..) => {
+                    Ok(Expr::Truthy(left))
+                }
                 Operand::Lit(_) => {
                     bail!("a literal is only valid on the left of `in` (as in `\"rust\" in tags`)")
                 }
@@ -1332,27 +1434,35 @@ impl Parser {
     }
 
     /// The leaf of an operand: a parenthesized arithmetic group, a call, a
-    /// field, or a literal.
+    /// field, a literal, or a map — then optional `[index]` suffixes.
     fn parse_atom(&mut self) -> Result<Operand> {
-        match self.next() {
+        let mut base = match self.next() {
             Some(Tok::LParen) => {
                 let e = self.parse_arith()?;
                 if !self.eat(&Tok::RParen) {
                     bail!("expected `)`");
                 }
-                Ok(e)
+                e
             }
             Some(Tok::Ident(name)) if name == "true" || name == "false" => {
-                Ok(Operand::Lit(Lit::Bool(name == "true")))
+                Operand::Lit(Lit::Bool(name == "true"))
             }
-            Some(Tok::Ident(name)) => self.parse_call_or_field(name),
-            Some(Tok::Str(s)) => Ok(Operand::Lit(Lit::Str(s))),
-            Some(Tok::Int(i)) => Ok(Operand::Lit(Lit::Int(i))),
-            Some(Tok::Float(f)) => Ok(Operand::Lit(Lit::Double(f))),
-            Some(Tok::LBrace) => self.parse_map(),
+            Some(Tok::Ident(name)) => self.parse_call_or_field(name)?,
+            Some(Tok::Str(s)) => Operand::Lit(Lit::Str(s)),
+            Some(Tok::Int(i)) => Operand::Lit(Lit::Int(i)),
+            Some(Tok::Float(f)) => Operand::Lit(Lit::Double(f)),
+            Some(Tok::LBrace) => self.parse_map()?,
             Some(t) => bail!("expected a field, literal or call, found {t:?}"),
             None => bail!("expected an operand"),
+        };
+        while self.eat(&Tok::LBracket) {
+            let idx = self.parse_arith()?;
+            if !self.eat(&Tok::RBracket) {
+                bail!("expected `]` after an index");
+            }
+            base = Operand::Index(Box::new(base), Box::new(idx));
         }
+        Ok(base)
     }
 
     /// CEL map literal: `{k: v, …}`. Trailing commas are allowed.
@@ -1482,6 +1592,7 @@ impl fmt::Display for Operand {
                 }
                 f.write_str("}")
             }
+            Operand::Index(base, idx) => write!(f, "{base}[{idx}]"),
         }
     }
 }
@@ -1557,6 +1668,17 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
                 let _ = operand_type(v, schema)?;
             }
             Ok(Type::Map)
+        }
+        Operand::Index(base, idx) => {
+            let bt = operand_type(base, schema)?;
+            if bt.scalar() != Type::List {
+                bail!("`{base}` is {bt}, but only a list can be indexed");
+            }
+            let it = operand_type(idx, schema)?;
+            if it.scalar() != Type::Int {
+                bail!("list index `{idx}` is {it}, but must be int");
+            }
+            Ok(Type::Str)
         }
     }
 }
@@ -1980,6 +2102,10 @@ fn collect_fields_operand(o: &Operand, out: &mut Vec<String>) {
                 collect_fields_operand(v, out);
             }
         }
+        Operand::Index(base, idx) => {
+            collect_fields_operand(base, out);
+            collect_fields_operand(idx, out);
+        }
     }
 }
 
@@ -2056,6 +2182,20 @@ fn operand_value(o: &Operand, row: &impl Row, ctx: &dyn Ctx) -> Value {
                 out.push((key, operand_value(v, row, ctx)));
             }
             Value::Map(out)
+        }
+        Operand::Index(base, idx) => {
+            let list = operand_value(base, row, ctx);
+            let i = match operand_value(idx, row, ctx) {
+                Value::Int(n) if n >= 0 => n as usize,
+                _ => return Value::Null,
+            };
+            match list {
+                Value::List(items) => items
+                    .get(i)
+                    .cloned()
+                    .map_or(Value::Null, Value::Str),
+                _ => Value::Null,
+            }
         }
     }
 }
@@ -2974,5 +3114,56 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("content"), "{e}");
+    }
+
+    #[test]
+    fn links_and_images_extract_and_index() {
+        let s = Schema::new();
+        assert_eq!(
+            Text::parse(
+                r#"to_json(links(html('<p><a href="/a">x</a> and <a href="/b">y</a></p>')))"#,
+                &s
+            )
+            .unwrap()
+            .eval(&Empty),
+            r#"["/a","/b"]"#
+        );
+        assert_eq!(
+            Text::parse(
+                r#"to_json(images(html('<img src="a.png" alt=""><img src="b.jpg">')))"#,
+                &s
+            )
+            .unwrap()
+            .eval(&Empty),
+            r#"["a.png","b.jpg"]"#
+        );
+        assert_eq!(
+            Text::parse(
+                r#"links(html('<a href="/first">x</a><a href="/second">y</a>'))[0]"#,
+                &s
+            )
+            .unwrap()
+            .eval(&Empty),
+            "/first"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(images(html('<img src="only.png">'))[1])"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "null"
+        );
+        assert_eq!(
+            Text::parse(r#"to_json(links(text("no tags")))"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "[]"
+        );
+        assert_eq!(
+            Text::parse(r#"images(markdown("![hi](pic.png)"))[0]"#, &s)
+                .unwrap()
+                .eval(&Empty),
+            "pic.png"
+        );
+        FieldExpr::parse("links(content)[0]", &field_schema(), Type::Str).unwrap();
     }
 }

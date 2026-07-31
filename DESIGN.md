@@ -1912,6 +1912,8 @@ toc = 'outline(content, 3)'
   Content has three kinds (`html` / `markdown` / `text`) with constructors,
   `kind`, `as_html` / `as_markdown` / `as_text`, and `word_count`; truncate
   and outline are HTML-only (coerce with `as_html` when needed).
+  `links` / `images` yield string lists (`href` / `src`); index with
+  `links(content)[0]` (out of range is null).
 - **Budgets and depth compose as wrappers / positional ints**, not as a
   map-literal options bag. CEL has no named arguments; a later function that
   needs many options can take a map literal, but these do not need one.
