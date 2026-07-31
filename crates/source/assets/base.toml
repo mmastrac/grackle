@@ -225,6 +225,10 @@ earlier = "Earlier post"
 linked_from = "Linked from"
 translations = "Translations"
 page = "Page {n}"
+# Search overlay (§6b / §6f): injected into /search.js per locale member.
+search = "Search"
+search_placeholder = "Search posts…"
+search_empty = "No posts match."
 # Date display templates (§6f): looked up by name (`medium_date`, …), then
 # expanded with `{year}`/`{month}`/`{day}` and `@months[…]` / `@months_short[…]`.
 short_date = "{day} @months_short[{month}] {year}"

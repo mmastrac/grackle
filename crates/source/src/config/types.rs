@@ -1270,30 +1270,35 @@ pub struct AttrCfg {
     pub attribute: BTreeMap<String, String>,
 }
 
-/// One `[html.head.*]` value: a single CEL text expression, or an expand that
-/// emits one tag per member of a candidate pool (§4e's variable-length residue).
+/// One `[html.head.*]` value: a CEL text expression, a multi-attr table, or an
+/// expand that emits one tag per member of a candidate pool (§4e).
 ///
 /// ```toml
 /// canonical = 'site.url + url'                          # single
+/// "apple-touch-icon" = { href = 'site.icon', sizes = '"180x180"' }
 /// alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
 /// ```
 ///
-/// `from` is the same word a relation spells: a pool name. Attributes beside
-/// it are CEL expressions evaluated once per member. A table-spelled atom so
-/// Descend(3) replaces the whole entry rather than composing its fields.
+/// Every table value is a CEL text expression. `from` is the same word a
+/// relation spells: a pool name. A table-spelled atom so Descend(3) replaces
+/// the whole entry rather than composing its fields.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum HeadEntry {
     Expr(String),
     Expand(HeadExpand),
+    /// `{ href = '…', sizes = '"180x180"' }` — key is still `rel`/`name`/
+    /// `property`; the table carries the rest. Untagged after [`Self::Expand`]
+    /// so a table with `from` stays an expand.
+    Attrs(BTreeMap<String, String>),
 }
 
 impl HeadEntry {
-    /// The single-expression form, when this is not an expand.
+    /// The single-expression form, when this is not a table.
     pub fn as_expr(&self) -> Option<&str> {
         match self {
             HeadEntry::Expr(s) => Some(s.as_str()),
-            HeadEntry::Expand(_) => None,
+            HeadEntry::Expand(_) | HeadEntry::Attrs(_) => None,
         }
     }
 }
@@ -1394,9 +1399,10 @@ pub struct HeadCfg {
     /// kind of knowledge §4e is removing.
     #[serde(default)]
     pub property: BTreeMap<String, HeadEntry>,
-    /// `<link rel="KEY" href="…">`. Same shape one element over. An expand
-    /// under a key (typically `alternate`) emits one link per pool member,
-    /// which is how hreflang left the engine (§4e residue).
+    /// `<link rel="KEY" href="…">`. Same shape one element over: a bare
+    /// expression, a table (`{ href, sizes?, type?, … }`), or an expand
+    /// under a key (typically `alternate`) that emits one link per pool
+    /// member (§4e).
     #[serde(default)]
     pub link: BTreeMap<String, HeadEntry>,
     /// `<script type="application/ld+json">` body. Nested TOML tables become
@@ -1446,11 +1452,29 @@ pub struct RecordCfg {
 /// Validated at load: per-member maps name only declared pairing-axis
 /// members and include the canonical (resolution is total); references must
 /// resolve; `"@@…"` escapes a literal leading `@`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum LocalizedStr {
     One(String),
     PerMember(BTreeMap<String, String>),
+}
+
+impl PartialEq<&str> for LocalizedStr {
+    fn eq(&self, other: &&str) -> bool {
+        matches!(self, LocalizedStr::One(s) if s == *other)
+    }
+}
+
+impl PartialEq<str> for LocalizedStr {
+    fn eq(&self, other: &str) -> bool {
+        matches!(self, LocalizedStr::One(s) if s == other)
+    }
+}
+
+impl PartialEq<String> for LocalizedStr {
+    fn eq(&self, other: &String) -> bool {
+        matches!(self, LocalizedStr::One(s) if s == other)
+    }
 }
 
 /// `"@name[index]"` — a table lookup. `name` is `[A-Za-z0-9_]`; `index` is
@@ -1573,7 +1597,8 @@ pub struct Site {
     pub url: String,
     #[serde(default)]
     pub baseurl: String,
-    pub title: String,
+    /// Display name (§6f) — bare string, per-member map, or `@key`.
+    pub title: LocalizedStr,
     pub author: String,
     /// The feed's `<author><email>`; omitted from the feed when absent.
     pub email: Option<String>,

@@ -80,9 +80,10 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     let mut out_map: SiteOutput = BTreeMap::new();
 
     let icon = prepass::site_icon(cfg, db);
+    let canon = cfg.pairing_canonical().unwrap_or("");
     let site = Site {
         url: &cfg.site.url,
-        title: &cfg.site.title,
+        title: cfg.site_title(canon),
         author: &cfg.site.author,
         email: cfg.site.email.as_deref(),
         icon: &icon,

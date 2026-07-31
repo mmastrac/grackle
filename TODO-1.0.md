@@ -123,28 +123,28 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 - [ ] **Authored `.rewrite.toml` rules** — the full rule table with selectors and
       wrapping. Stage A shipped the narrow HTML-source-link rewrite; the general
       form waits for a second consumer. (§6d)
-- [ ] **Variable-length head entries** — the `rel="alternate"` half is **built**
-      (2026-07): `Head.alternates` is now a list of `Alternate { href, hreflang?,
-      media_type? }`, which repeats `rel` and carries a second attribute, so
-      hreflang × n and `type` both fit. What remains is the same shape for the
-      DECLARED head (`[html.head.link]` with `sizes`/`type` per entry) — a
-      name→string map still can't express those. Subsumes the "link table form"
-      item: the favicon half of that motivation is gone (`site.icon` restored
-      it). (§4e)
-- [ ] **Expression-form derivers** — `summary` /
+- [x] **Variable-length head entries** — `Head.alternates` is a list of
+      `Alternate { href, hreflang?, media_type? }` (2026-07), and declared
+      `[html.head.link]` accepts the same table form (`{ href, sizes?, type?,
+      … }` — every value a CEL text expression). The favicon half of the old
+      "link table form" motivation was already restored via `site.icon`. (§4e)
+- [x] **Expression-form derivers** — `summary` /
       `truncate_chars(truncate_blocks(content, n), m)`, `toc` /
       `outline(content, max)`, `hero`, and `lede` /
       `filter_blocks(content, "p")[0]` are built over `Content` blocks (§5f).
-      Remains: group hero under q23. (§6e)
+      q23 closed with them: `fields.hero` fills a Url part; no separate group
+      hero.
 - [ ] **Parenthesised expressions in rank** — `(a + b) > c` is valid CEL but
       unsupported; the error suggests lifting it into a rank term. **Not q13**
       (that is embedding model pinning) — this carries no number. (§6g)
 - [ ] **Localized group keys** — enum records extend to group *keys*, not just
       value domains. **Not q40** (that is structured record fields); §6f calls
       this "q40-adjacent" and an earlier harvest dropped the qualifier. (§6f)
-- [ ] **The rest of i18n's locale-free surface** — the search overlay's
-      client-side strings, and `site.title` (not a `LocalizedStr`). Date
-      labels use `@medium_date` / `@months[{month}]`. (§6f)
+- [x] **The rest of i18n's locale-free surface** — `site.title` is a
+      `LocalizedStr`; search overlay strings come from `[i18n.strings]`
+      (`search` / `search_placeholder` / `search_empty`) and are baked into
+      `/search.js` per locale. Date labels use `@medium_date` /
+      `@months[{month}]`. (§6f)
 - [ ] **Embedded views follow their embedding page's locale** — specced,
       pending. (§6f, §5h)
 - [ ] **Orphaned translation warning** — `index.fr.md` with no French rows should

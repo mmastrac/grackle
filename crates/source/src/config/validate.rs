@@ -615,6 +615,7 @@ impl Config {
                     check(&format!("view {name}: intro"), i)?;
                 }
             }
+            check("site.title", &cfg.site.title)?;
             // The global map: same member rule; values are literal (a
             // reference chain would make resolution non-total).
             for (key, s) in &cfg.i18n.strings {
@@ -665,6 +666,7 @@ impl Config {
                         refs.push((format!("view {name}: intro"), i));
                     }
                 }
+                refs.push(("site.title".into(), &cfg.site.title));
                 // Relation labels (§6g) are `@refs` too, so a custom label
                 // (`same_course`) can name a `[i18n.strings]` entry — and a
                 // dangling one is caught here, like every other reference.

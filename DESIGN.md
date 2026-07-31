@@ -1219,7 +1219,7 @@ The head's contents sort into five classes by where their value comes from.
 | **row columns** | `description`, `og:description`, `og:title` | ✅ `'description'`, `'title'` |
 | **config constants** | `author`, `article:author`, `viewport` | ✅ once `site.*` is in the environment |
 | **derived from a column** | `canonical`, `og:url`, `og:type`, `article:published_time` | ✅ once `+` concatenates and a conditional exists |
-| **variable-length lists** | `rel="alternate" hreflang` × n (q53) | ❌ a name→string map cannot repeat |
+| **variable-length lists** | `rel="alternate" hreflang` × n (q53); link `sizes`/`type` | ✅ `Head.alternates` + table-form `[html.head.link]` entries |
 | **composites** | the JSON-LD `<script>` | ❌ a whole document, not a value |
 
 Three additions made the first three classes reachable:
@@ -1258,11 +1258,10 @@ live demonstration of the registry rule: the site's entries JOIN the base's
 rather than replacing the table).
 
 The two `<link>`s were **deleted, not moved**: they carry `sizes` and `type`,
-and `[html.head.link]` is a rel→href map. The honest consequence, stated
-because it is user-visible: **grack.com currently has no favicon** — there is
-no `/favicon.ico` at the root to fall back to. They come back when a link entry
-may be a table (`{ href = '…', sizes = "180x180" }`) rather than a bare
-expression, which is the one piece of head machinery still owed.
+and at the time `[html.head.link]` was a rel→href map. That residue is closed:
+a link entry may be a table (`{ href = '…', sizes = '"180x180"' }`) rather than
+a bare expression, so apple-touch-style icons are ordinary declarations again.
+Basic favicon linking was restored earlier via `site.icon`.
 
 **The `light_html` tier keeps `[html.head.meta]` and drops the rest.** The line is
 the element, not a list of blessed names: a `<meta name>` is a fact about the
@@ -1378,7 +1377,7 @@ path     = "/demos/mindstorms/{key}/"
 
 The scope arrived as its own `match` key and stopped being one (MERGE.md G2, 2026-07-27): it always compiled to `glob(path, …)` and always conjoined with `where`, so it was a clause of the predicate wearing a second spelling. `glob(field, pattern) -> bool` is a registered §5f function, which is what makes this work on an *object* view too — `path` is a column of the narrow object vocabulary, so the expression type-checks there while `where = "draft"` on the same gallery stays the load error §5b wants. `match` now means one thing in the whole config: a rule's glob over files.
 
-Still open: group `hero` (q23), and URL-parity for restructured trees (q28).
+Still open: URL-parity for restructured trees (q28).
 
 ## 5a. Presentation, from first principles
 
@@ -1787,7 +1786,9 @@ The model's bet is that *all geometry* lives in theme CSS, so "can it do layout 
 
 Auditing archetypes — document with margin or sidenotes, album gallery, Pinterest masonry, magazine full-bleed, timeline, dense index — surfaced **four genuine gaps, and every one resolved to "add a part or fact", never to control flow.** Three are built:
 
-- **The `hero` part** (q23) — a Url on the row, filled from the computed Str field `fields.hero` (cover / image / first body image). Group hero remains open.
+- **The `hero` part** (q23, closed) — a Url on the row, filled from the
+  computed Str field `fields.hero` (cover / image / first body image). No
+  engine producer; a group page that wants a picture declares the same fields.
 - **Per-view fragment variants** (q24) — variant fragments per view.
 - **Dimension facts on images** (q26) — **closed 2026-07-21.** Body images emit `width`/`height` at expansion.
 
@@ -1871,8 +1872,8 @@ never a grackle-only dialect.
 | config key | expression type | status |
 |---|---|---|
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
-| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc` / `hero` / `lede`; group hero still open |
-| future derivers | same | group hero (q23 remainder) |
+| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc` / `hero` / `lede` |
+| future derivers | same | — |
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
 
@@ -2894,7 +2895,11 @@ Load rules keep resolution total and typos loud: a per-locale map may only name 
 - **Localized tree pages walk URL ancestors**, and the duplicate home crumb on `/fr/…` URLs is **cured** (§5h: `ancestors()` skips locale-prefix homes). A section crumb appears in French exactly when the section's landing has a French variant.
 - **`.slots/` fills localize by the same suffix convention** (`nav.fr.md` beside `nav.md`), and their view links resolve per consuming page's locale.
 - **Locale-parallel views are built and DEFAULT-ON.** Every materializing row-query view partitions per declared locale: that locale's rows, the locale-prefixed route (default locale unprefixed), title/crumb/trail resolved at the route's locale. **A locale with no rows materializes nothing**: the partition is real, not mirrored. Opt-out is `locales = "default"`. Exempt by design: **all-outputs folds** never multiply, **object views** carry no locale, and **embedded views** follow their embedding page (pending).
-- **Still locale-free, and known**: the search overlay's strings (client-side, pending search being locale-aware), and `site.title`. Date labels use `@medium_date` / `@short_date` / `@long_date` → `[i18n.strings]` templates over `@months` / `@months_short`. Localized group *keys* are q40-adjacent.
+- **Still locale-free, and known**: Localized group *keys* are q40-adjacent.
+  (`site.title` is a `LocalizedStr`; search overlay strings ship from
+  `[i18n.strings]` into `/search.js`.) Date labels use `@medium_date` /
+  `@short_date` / `@long_date` → `[i18n.strings]` templates over `@months` /
+  `@months_short`.
 - The markers walk uses **physical** paths — irrelevant for suffix, a known caveat for prefix (built and tested but unexercised by a corpus).
 
 ## 6g. Relations: every neighbour list is a declared query *(q52, resolved 2026-07-23; built 2026-07-23 — the §5f forcing point)*
@@ -3342,7 +3347,6 @@ question has 1.0 exposure it also has one line in `TODO-1.0.md`.
 14. **`<style>` auto-scoping default (§6c).** Scoping fixes a latent leak on multipost index pages but changes behavior on 3 existing posts. Default-on with opt-out, or default-off with opt-in?
 21. **Tighten `diff`'s liquid skip (§8a).** 97 of 327 posts excluded, many falsely; 30% of corpus unmeasured.
 22. **`_site-prod` refresh (§8a).** Jekyll fails on `{% view %}`; can no longer regenerate reference. Script refresh, or move behind a flag that stashes automatically?
-23. **The `hero` part — the remainder.** Str computed field `fields.hero` fills a Url part generically (no engine producer); group hero (explicit beats derived) still open.
 25. **Per-block facts (§5e).** Block-level directive surviving as `data-` attribute so theme can span it. Needs decided authoring syntax — IALs are kramdown, not CommonMark.
 26. **Dimension facts — the remainder.** Object rows carry width/height at load (queryable, §5b). Remains: post *bodies* — `{% image %}` gains dimensions at §6d rewrite stage.
 28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure.
@@ -3458,9 +3462,10 @@ One line per retired question; the named section carries the design.
 | 19 | route-level fix landed (`draft`/`hidden` on every Route; sitemap filter); profiles still ride phase 3 | §4a |
 | 20 | themes are directories of fragments + SCSS; a third theme is `mkdir` | §5e |
 | 24 | fragment variants: `{kind}--{variant}` → base → canonical; `data-fragment` resolves at load | §5e |
+| 23 | `fields.hero` fills a Url part generically (cover / image / first body image); no engine producer | §5e, §5f |
 | 27 | index-less dirs render as unlinked labels in section trees; the auto-index view is a landing with no intro row | §6e, §5h |
 | 29 | `{% callout %}` widgets: `[widgets]` registry, paired-tag expansion, no arguments, no conditionals | §5d |
-| 31 | expressions extend `filter.rs` as a strict CEL subset; `summary` / `toc` / `hero` / `lede` built (`Content` blocks + `filter_blocks` / Str→Url part fill); group hero remains | §5f |
+| 31 | expressions extend `filter.rs` as a strict CEL subset; `summary` / `toc` / `hero` / `lede` built (`Content` blocks + `filter_blocks` / Str→Url part fill) | §5f |
 | 32 | producers take URLs — pagination/tag routes render from the owning view's templates | §5c |
 | 35 | `.section` is a bare marker file; `order:` is a page field; nested sections nest, nearest wins | §6e |
 | 36 | one preview kind: `summary` (presence-driven); `card`/`card_list`/`gallery`/`figure` all folded in; `featured` slot on listing; `LAYOUTS` = listing/link_list/card | §5e |

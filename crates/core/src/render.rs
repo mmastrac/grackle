@@ -40,7 +40,7 @@ pub struct Head {
     /// before they get here, so emitting is a loop with no decision in it —
     /// the engine no longer knows that one of these is called `robots`, or
     /// `og:title`, or what makes any of them appear.
-    pub meta: Vec<(Tag, String, String)>,
+    pub meta: Vec<MetaItem>,
     pub jsonld: Option<String>,
     /// q53 axis members: alternative FORMS of this row, each an absolute URL
     /// with an optional `hreflang` (the locale axis) OR an optional media `type`
@@ -54,6 +54,28 @@ pub struct Head {
     pub alternates: Vec<Alternate>,
 }
 
+/// One evaluated `[html.head.*]` tag (§4e). `value` is `content`/`href`;
+/// `attrs` carries any extras from a table-form entry (`sizes`, `type`, …).
+#[derive(Debug, Clone)]
+pub struct MetaItem {
+    pub tag: Tag,
+    pub key: String,
+    pub value: String,
+    pub attrs: Vec<(String, String)>,
+}
+
+impl MetaItem {
+    fn simple(tag: Tag, key: String, value: String) -> Self {
+        Self {
+            tag,
+            key,
+            value,
+            attrs: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Site<'a> {
     pub url: &'a str,
     pub title: &'a str,
@@ -65,6 +87,13 @@ pub struct Site<'a> {
     /// route (§4) and needs no key of its own. Empty is the ordinary case
     /// and every consumer drops its tag, which is §5e's rule 2 again.
     pub icon: &'a str,
+}
+
+impl<'a> Site<'a> {
+    /// Same site facts with a locale-resolved display title (§6f).
+    pub fn with_title(self, title: &'a str) -> Self {
+        Self { title, ..self }
+    }
 }
 
 /// The declared head (§4e), compiled once.
@@ -97,15 +126,22 @@ pub struct HtmlAttrs {
     pub body: Vec<(String, crate::filter::Text)>,
 }
 
-/// One declared head tag: a single expression, or an expand over a pool.
+/// One declared head tag: a single expression, a multi-attr table, or an
+/// expand over a pool.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)] // `Text` is the CEL payload; boxing it would cost a hop on every tag.
 pub enum Decl {
-    /// One tag whose value is a CEL text expression.
+    /// One tag whose value is a CEL text expression (`content` / `href`).
     Single {
         tag: Tag,
         key: String,
         expr: crate::filter::Text,
+    },
+    /// One tag with several CEL attributes (`href` + `sizes` + …).
+    Attrs {
+        tag: Tag,
+        key: String,
+        attrs: Vec<(String, crate::filter::Text)>,
     },
     /// One tag per member of `from`; attributes are CEL text expressions.
     Expand {
@@ -114,6 +150,14 @@ pub enum Decl {
         from: String,
         attrs: Vec<(String, crate::filter::Text)>,
     },
+}
+
+/// The primary attribute a table-form entry must carry, by element.
+fn primary_attr(tag: Tag) -> &'static str {
+    match tag {
+        Tag::Link => "href",
+        Tag::Meta | Tag::Property => "content",
+    }
 }
 
 /// The row a head expression actually reads: the row itself, plus `site.*`.
@@ -249,6 +293,28 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                         attrs,
                     });
                 }
+                HeadEntry::Attrs(map) => {
+                    let primary = primary_attr(tag);
+                    anyhow::ensure!(
+                        map.contains_key(primary),
+                        "{whose} {key}: a table entry needs a {primary} expression"
+                    );
+                    anyhow::ensure!(
+                        !map.is_empty(),
+                        "{whose} {key}: a table entry needs at least one attribute"
+                    );
+                    let mut attrs = Vec::new();
+                    for (attr, src) in map {
+                        let expr = crate::filter::Text::parse(src, &env)
+                            .with_context(|| format!("{whose} {key}.{attr}"))?;
+                        attrs.push((attr.clone(), expr));
+                    }
+                    tags.push(Decl::Attrs {
+                        tag,
+                        key: key.clone(),
+                        attrs,
+                    });
+                }
             }
         }
     }
@@ -335,15 +401,15 @@ pub fn eval_attrs(
         .collect()
 }
 
-/// Evaluate the single-expression metas, dropping the empty ones — §5e's
-/// rule 2 one layer up: an empty value emits no tag.
+/// Evaluate the single-expression and table-form metas, dropping the empty
+/// ones — §5e's rule 2 one layer up: an empty primary value emits no tag.
 pub fn eval_metas(
     metas: &Metas,
     row: &impl crate::filter::Row,
     site: &Site,
     title: &str,
     url: &str,
-) -> Vec<(Tag, String, String)> {
+) -> Vec<MetaItem> {
     let env = HeadRow {
         row,
         site,
@@ -356,7 +422,29 @@ pub fn eval_metas(
         .filter_map(|d| match d {
             Decl::Single { tag, key, expr } => {
                 let v = expr.eval(&env);
-                (!v.is_empty()).then(|| (*tag, key.clone(), v))
+                (!v.is_empty()).then(|| MetaItem::simple(*tag, key.clone(), v))
+            }
+            Decl::Attrs { tag, key, attrs } => {
+                let primary = primary_attr(*tag);
+                let mut value = String::new();
+                let mut extra = Vec::new();
+                for (attr, expr) in attrs {
+                    let v = expr.eval(&env);
+                    if v.is_empty() {
+                        continue;
+                    }
+                    if attr == primary {
+                        value = v;
+                    } else {
+                        extra.push((attr.clone(), v));
+                    }
+                }
+                (!value.is_empty()).then(|| MetaItem {
+                    tag: *tag,
+                    key: key.clone(),
+                    value,
+                    attrs: extra,
+                })
             }
             Decl::Expand { .. } => None,
         })
@@ -634,7 +722,7 @@ pub fn light_head(head: &Head) -> String {
         meta: head
             .meta
             .iter()
-            .filter(|(tag, _, _)| *tag == Tag::Meta)
+            .filter(|m| m.tag == Tag::Meta)
             .cloned()
             .collect(),
         ..Head::empty(head.title.clone())
@@ -649,25 +737,30 @@ pub fn light_head(head: &Head) -> String {
 /// The declared metas, in declaration order. One loop, no names.
 fn meta_tags(head: &Head) -> String {
     let mut out = String::new();
-    for (tag, key, value) in &head.meta {
-        let _ = match tag {
+    for m in &head.meta {
+        let extras = m
+            .attrs
+            .iter()
+            .map(|(k, v)| format!(" {}=\"{}\"", esc(k), esc(v)))
+            .collect::<String>();
+        let _ = match m.tag {
             Tag::Meta => write!(
                 out,
-                "\n\t<meta name=\"{}\" content=\"{}\">",
-                esc(key),
-                esc(value)
+                "\n\t<meta name=\"{}\" content=\"{}\"{extras}>",
+                esc(&m.key),
+                esc(&m.value),
             ),
             Tag::Property => write!(
                 out,
-                "\n\t<meta property=\"{}\" content=\"{}\">",
-                esc(key),
-                esc(value)
+                "\n\t<meta property=\"{}\" content=\"{}\"{extras}>",
+                esc(&m.key),
+                esc(&m.value),
             ),
             Tag::Link => write!(
                 out,
-                "\n\t<link rel=\"{}\" href=\"{}\">",
-                esc(key),
-                esc(value)
+                "\n\t<link rel=\"{}\" href=\"{}\"{extras}>",
+                esc(&m.key),
+                esc(&m.value),
             ),
         };
     }
@@ -768,8 +861,15 @@ mod meta_tests {
         }
     }
 
-    fn eval(m: &Metas, r: &grackle_model::Row) -> Vec<(Tag, String, String)> {
+    fn eval(m: &Metas, r: &grackle_model::Row) -> Vec<MetaItem> {
         eval_metas(m, r, &site(), "Hello", "/u/")
+    }
+
+    fn pairs(items: &[MetaItem]) -> Vec<(Tag, String, String)> {
+        items
+            .iter()
+            .map(|m| (m.tag, m.key.clone(), m.value.clone()))
+            .collect()
     }
 
     #[test]
@@ -778,7 +878,7 @@ mod meta_tests {
         let m = compile_metas(&c, &declared()).unwrap();
 
         assert_eq!(
-            eval(&m, &row(true)),
+            pairs(&eval(&m, &row(true))),
             vec![(
                 Tag::Meta,
                 "robots".to_string(),
@@ -803,7 +903,7 @@ mod meta_tests {
         let m = compile_metas(&c, &declared()).unwrap();
         let got: Vec<(String, String)> = eval(&m, &row(false))
             .into_iter()
-            .map(|(_, k, v)| (k, v))
+            .map(|m| (m.key, m.value))
             .collect();
         assert!(
             got.contains(&("og:title".into(), "Hello".into())),
@@ -909,9 +1009,13 @@ mod meta_tests {
             },
         );
         head.meta = vec![
-            (Tag::Meta, "a".into(), "one".into()),
-            (Tag::Property, "b".into(), "a \"quoted\" & escaped".into()),
-            (Tag::Link, "canonical".into(), "https://e.com/".into()),
+            MetaItem::simple(Tag::Meta, "a".into(), "one".into()),
+            MetaItem::simple(
+                Tag::Property,
+                "b".into(),
+                "a \"quoted\" & escaped".into(),
+            ),
+            MetaItem::simple(Tag::Link, "canonical".into(), "https://e.com/".into()),
         ];
         let out = meta_tags(&head);
         assert!(out.contains("<meta name=\"a\" content=\"one\">"), "{out}");
@@ -922,6 +1026,44 @@ mod meta_tests {
         assert!(out.find("name=\"a\"") < out.find("property=\"b\""));
         assert!(out.contains("&quot;quoted&quot;"), "{out}");
         assert!(out.contains("&amp;"), "{out}");
+    }
+
+    #[test]
+    fn a_link_table_carries_sizes_and_type() {
+        let c = Config::from_toml(
+            "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [html.head.link]\n\
+             \"apple-touch-icon\" = { href = 'site.icon', sizes = '\"180x180\"', type = '\"image/png\"' }\n",
+        )
+        .unwrap();
+        let m = compile_metas(&c, &declared()).unwrap();
+        let site = Site {
+            url: "https://e.com",
+            title: "T",
+            author: "Ada",
+            email: None,
+            icon: "/icon.png",
+        };
+        let items = eval_metas(&m, &row(false), &site, "Hello", "/u/");
+        assert_eq!(items.len(), 1, "{items:?}");
+        let item = &items[0];
+        assert_eq!(item.tag, Tag::Link);
+        assert_eq!(item.key, "apple-touch-icon");
+        assert_eq!(item.value, "/icon.png");
+        let attrs: std::collections::BTreeMap<_, _> = item.attrs.iter().cloned().collect();
+        assert_eq!(attrs.get("sizes").map(String::as_str), Some("180x180"));
+        assert_eq!(attrs.get("type").map(String::as_str), Some("image/png"));
+        let out = meta_tags(&Head {
+            meta: items,
+            ..Head::empty("T".into())
+        });
+        assert!(
+            out.contains("rel=\"apple-touch-icon\"")
+                && out.contains("href=\"/icon.png\"")
+                && out.contains("sizes=\"180x180\"")
+                && out.contains("type=\"image/png\""),
+            "{out}"
+        );
     }
 
     #[test]

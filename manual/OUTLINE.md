@@ -138,8 +138,10 @@ word "view" before chapter 6.
 - **Favicon**: drop a `favicon.svg` (or `.png`/`.ico`/`.webp`/`.gif`) at
   the site root and it's linked automatically; no icon ⇒ no `<link>`. An
   icon that lives elsewhere is pinned with a named object route to
-  `/favicon.png` (ch. 10). First-hour question, so answer it here. ★ honest
-  edge: `[html.head.link]` entries can't yet carry `sizes`/`type`.
+  `/favicon.png` (ch. 10). Touch icons and anything needing `sizes`/`type`
+  are ordinary table-form `[html.head.link]` entries
+  (`{ href = '…', sizes = '"180x180"' }`). First-hour question, so answer
+  it here.
 - Front matter is `title:` and nothing else required; the filename gives
   `(date, slug)`.
 - What just happened, in four lines: file → row → rule → route — and the
@@ -1094,8 +1096,7 @@ writes a real expression.
   routes, id stays the key.
 - Locale-parallel views are **default-on**; opt out with `locales =
   "default"`. Empty locale ⇒ no routes.
-- ★ Honest edges: `site.title`
-  not localized, embedded views don't follow locale yet, prefix selector
+- ★ Honest edges: embedded views don't follow locale yet, prefix selector
   unexercised by a real corpus.
 - ★ **The one a reader will actually hit (q47): listing views render no
   language switcher.** The `translations` axis is a *row* relation, so

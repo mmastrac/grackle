@@ -43,13 +43,6 @@ pub(crate) fn run(
             .map(|t| t.url.clone())
             .unwrap_or_else(|| preview::asset_url(&cfg.site.baseurl, src))
     };
-    let eval_page_attrs =
-        |row: &dyn crate::filter::Row, title: &str, url: &str| -> (Vec<(String, String)>, Vec<(String, String)>) {
-            (
-                render::eval_attrs(&attrs.html, cfg, row, site, title, url),
-                render::eval_attrs(&attrs.body, cfg, row, site, title, url),
-            )
-        };
     // ---- posts: document parts -> theme fragments -> shell
     //
     // Driven by the ROUTE table, like the `RouteKind::Page` arm below. It used
@@ -76,7 +69,9 @@ pub(crate) fn run(
         .filter_map(|r| r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| (*r, p)))
         .map(|(r, p)| -> Result<(String, String)> {
             let url = r.url.as_str();
-            let mut head = render::head_for_post(p, site, metas);
+            let lang = cfg.pairing_member(p);
+            let site = site.with_title(cfg.site_title(lang.as_str()));
+            let mut head = render::head_for_post(p, &site, metas);
             // The head describes the DOCUMENT, and a document's address is its
             // canonical URL — `p.url`, which is exactly what the canonical axis
             // member is published at (an alternate is templated, the canonical
@@ -84,7 +79,7 @@ pub(crate) fn run(
             // name the canonical form rather than themselves, which is the
             // whole difference between an alternative form and a duplicate
             // page. For a row on no axis this is the route's own URL anyway.
-            head.meta = render::eval_metas(metas, p, site, &head.title, &p.url);
+            head.meta = render::eval_metas(metas, p, &site, &head.title, &p.url);
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
             // §6e: toc rows carry outline from the same rendered bytes.
@@ -93,7 +88,7 @@ pub(crate) fn run(
             } else {
                 Vec::new()
             };
-            head.alternates = render::eval_expands(metas, site, &head.title, cfg, |name| {
+            head.alternates = render::eval_expands(metas, &site, &head.title, cfg, |name| {
                 let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
                     .into_iter()
                     .map(|m| render::ExpandMember {
@@ -121,8 +116,10 @@ pub(crate) fn run(
             )?;
             let doc = parts::document(p, whole, trail, groups, outline);
             let dir = p.path.parent().unwrap_or(root);
-            let lang = cfg.pairing_member(p);
-            let (html_attrs, body_attrs) = eval_page_attrs(p, &head.title, &p.url);
+            let (html_attrs, body_attrs) = (
+                render::eval_attrs(&attrs.html, cfg, p, &site, &head.title, &p.url),
+                render::eval_attrs(&attrs.body, cfg, p, &site, &head.title, &p.url),
+            );
             let html = chain::document_page(
                 chain::Page {
                     theme: row_thm,
@@ -130,7 +127,7 @@ pub(crate) fn run(
                         &head,
                         &theme::css_url(&cfg.site.baseurl, theme_name),
                     ),
-                    site_title: &cfg.site.title,
+                    site_title: site.title,
                     source_dir: dir,
                     lang: lang.as_str(),
                     html_attrs,
@@ -345,14 +342,18 @@ pub(crate) fn run(
             groups,
             &frag,
         );
-        let head = render::head_for(&title, &r.url, site, metas, r);
+        let site = site.with_title(cfg.site_title(loc));
+        let head = render::head_for(&title, &r.url, &site, metas, r);
         let dir = src.parent().unwrap_or(root);
-        let (html_attrs, body_attrs) = eval_page_attrs(row, &title, &r.url);
+        let (html_attrs, body_attrs) = (
+            render::eval_attrs(&attrs.html, cfg, row, &site, &title, &r.url),
+            render::eval_attrs(&attrs.body, cfg, row, &site, &title, &r.url),
+        );
         let html = chain::document_page(
             chain::Page {
                 theme: row_thm,
                 head_html: render::head_html(&head, &theme::css_url(&cfg.site.baseurl, theme_name)),
-                site_title: &cfg.site.title,
+                site_title: site.title,
                 source_dir: dir,
                 lang: loc,
                 html_attrs,
@@ -453,10 +454,15 @@ pub(crate) fn run(
                     preview::resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref()));
                 let row_thm = themes.get(theme_name)?;
                 let row_css = theme::css_url(&cfg.site.baseurl, theme_name);
+                let lang = row
+                    .map(|p| cfg.pairing_member(p))
+                    .unwrap_or_default();
+                let lang = lang.as_str();
+                let site = site.with_title(cfg.site_title(lang));
                 // Metas read the ROW when present; sourceless routes use the route.
                 let head = match row {
-                    Some(p) => render::head_for(&title, &p.url, site, metas, p),
-                    None => render::head_for(&title, &r.url, site, metas, r),
+                    Some(p) => render::head_for(&title, &p.url, &site, metas, p),
+                    None => render::head_for(&title, &r.url, &site, metas, r),
                 };
                 // IO.md §4: the output picks its map shell. `raw` is the
                 // transparent one — the body IS the output, so an imported
@@ -478,15 +484,14 @@ pub(crate) fn run(
                     Some("light_html") => Theme::Light,
                     _ => Theme::Default,
                 };
-                let lang = row
-                    .map(|p| cfg.pairing_member(p))
-                    .unwrap_or_default();
-                let lang = lang.as_str();
                 let attr_row: &dyn crate::filter::Row = match row {
                     Some(p) => p,
                     None => r,
                 };
-                let (html_attrs, body_attrs) = eval_page_attrs(attr_row, &title, &r.url);
+                let (html_attrs, body_attrs) = (
+                    render::eval_attrs(&attrs.html, cfg, attr_row, &site, &title, &r.url),
+                    render::eval_attrs(&attrs.body, cfg, attr_row, &site, &title, &r.url),
+                );
                 let html = match tier {
                     Theme::Light => {
                         chain::light_page(&head, &html_attrs, &body_attrs, profile, &r.axis, frag)
@@ -500,7 +505,7 @@ pub(crate) fn run(
                             rel_groups.get(&r.url).cloned().unwrap_or_default(),
                         )?;
                         let mut head = head;
-                        head.alternates = render::eval_expands(metas, site, &title, cfg, |name| {
+                        head.alternates = render::eval_expands(metas, &site, &title, cfg, |name| {
                             let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
                                 .into_iter()
                                 .map(|m| render::ExpandMember {
@@ -536,7 +541,7 @@ pub(crate) fn run(
                             chain::Page {
                                 theme: row_thm,
                                 head_html: render::head_html(&head, &row_css),
-                                site_title: &cfg.site.title,
+                                site_title: site.title,
                                 source_dir: dir,
                                 lang,
                                 html_attrs,

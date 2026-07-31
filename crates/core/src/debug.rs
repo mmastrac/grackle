@@ -279,7 +279,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
 
     let p = Payload {
         site: Site {
-            title: &cfg.site.title,
+            title: cfg.site_title(cfg.pairing_canonical().unwrap_or("")),
             url: &cfg.site.url,
             locales: match cfg.pairing_axis() {
                 Some((_, a)) => a.values.iter().map(String::as_str).collect(),

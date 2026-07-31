@@ -109,14 +109,41 @@ pub(crate) fn search_pass(
         any = true;
     }
     if any {
-        out_map.insert(
-            "/search.js".to_string(),
-            include_bytes!("../../assets/search.js").to_vec(),
-        );
+        out_map.insert("/search.js".to_string(), search_js(cfg));
         out_map.insert(
             "/search.wasm".to_string(),
             include_bytes!("../../assets/search.wasm").to_vec(),
         );
     }
     Ok(())
+}
+
+/// `/search.js` with `[i18n.strings]` search vocabulary baked in per locale.
+fn search_js(cfg: &Config) -> Vec<u8> {
+    let members: Vec<&str> = match cfg.pairing_axis() {
+        Some((_, a)) => a.values.iter().map(String::as_str).collect(),
+        None => vec![""],
+    };
+    let mut map = serde_json::Map::new();
+    for m in &members {
+        let entry = serde_json::json!({
+            "label": cfg.i18n_string("search", m),
+            "placeholder": cfg.i18n_string("search_placeholder", m),
+            "empty": cfg.i18n_string("search_empty", m),
+        });
+        map.insert((*m).to_string(), entry);
+    }
+    // Empty key: fallback when `<html lang>` is unset or unknown.
+    if !map.contains_key("") {
+        let canon = cfg.pairing_canonical().unwrap_or("");
+        if let Some(v) = map.get(canon).cloned() {
+            map.insert("".into(), v);
+        } else if let Some((_, v)) = map.iter().next() {
+            map.insert("".into(), v.clone());
+        }
+    }
+    let json = serde_json::Value::Object(map).to_string();
+    include_str!("../../assets/search.js")
+        .replacen("__SEARCH_I18N__", &json, 1)
+        .into_bytes()
 }

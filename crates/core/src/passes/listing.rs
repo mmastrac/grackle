@@ -66,15 +66,16 @@ impl Pass for Listing {
         let main = row_thm.fragments.render(&parts::page_row(
             &title, &r.url, trail, intro, content, pagination,
         ));
-        let head = render::head_for(&title, &r.url, ctx.site, ctx.metas, r);
+        let site = ctx.site.with_title(cfg.site_title(loc.as_str()));
+        let head = render::head_for(&title, &r.url, &site, ctx.metas, r);
         let resolve = fill_link_resolver(cfg, ctx.linkspace, loc.as_str());
-        let html_attrs = render::eval_attrs(&ctx.attrs.html, cfg, r, ctx.site, &title, &r.url);
-        let body_attrs = render::eval_attrs(&ctx.attrs.body, cfg, r, ctx.site, &title, &r.url);
+        let html_attrs = render::eval_attrs(&ctx.attrs.html, cfg, r, &site, &title, &r.url);
+        let body_attrs = render::eval_attrs(&ctx.attrs.body, cfg, r, &site, &title, &r.url);
         let html = chain::wrap(
             chain::Page {
                 theme: row_thm,
                 head_html: render::head_html(&head, &ctx.css_of(theme_name)),
-                site_title: &cfg.site.title,
+                site_title: site.title,
                 source_dir: ctx.root_path(),
                 lang: loc.as_str(),
                 html_attrs,

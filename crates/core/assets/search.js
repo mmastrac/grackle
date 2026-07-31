@@ -2,12 +2,25 @@
 // core that built /search.bin, compiled for the browser. This file only
 // moves bytes and pixels; every search decision (stemming, ranking,
 // prefix-matching the token being typed) lives in the wasm.
+//
+// `__SEARCH_I18N__` is replaced at emit with a per-locale string map from
+// `[i18n.strings]` (`search` / `search_placeholder` / `search_empty`).
 (function () {
   "use strict";
 
+  var I18N = __SEARCH_I18N__;
   var wasm = null; // { mem, alloc, init, search }
   var enc = new TextEncoder();
   var dec = new TextDecoder();
+
+  function strings() {
+    var lang = document.documentElement.lang || "";
+    return I18N[lang] || I18N[""] || I18N[Object.keys(I18N)[0]] || {
+      label: "Search",
+      placeholder: "Search posts…",
+      empty: "No posts match.",
+    };
+  }
 
   function load() {
     if (wasm) return Promise.resolve(wasm);
@@ -42,11 +55,13 @@
   var overlay = null, input = null, list = null;
 
   function build() {
+    var t = strings();
     overlay = document.createElement("div");
     overlay.className = "search-overlay";
     overlay.innerHTML =
-      '<div class="search-panel" role="dialog" aria-label="Search">' +
-      '<input class="search-input" type="search" placeholder="Search posts…" aria-label="Search posts">' +
+      '<div class="search-panel" role="dialog" aria-label="' + esc(t.label) + '">' +
+      '<input class="search-input" type="search" placeholder="' + esc(t.placeholder) +
+      '" aria-label="' + esc(t.placeholder) + '">' +
       '<div class="search-results" role="listbox"></div>' +
       "</div>";
     document.body.appendChild(overlay);
@@ -63,6 +78,13 @@
       if (!q) { list.textContent = ""; return; }
       load().then(function (ex) { render(query(ex, q), q); });
     });
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
   }
 
   // Index dates are xmlschema UTC midnights; keep the calendar day fixed and
@@ -85,7 +107,7 @@
     if (!hits.length) {
       var none = document.createElement("p");
       none.className = "search-none";
-      none.textContent = "No posts match.";
+      none.textContent = strings().empty;
       list.appendChild(none);
       return;
     }

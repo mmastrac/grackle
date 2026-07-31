@@ -484,6 +484,11 @@ impl Config {
         self.i18n.text(s, member, canon)
     }
 
+    /// `[site].title` resolved for a pairing-axis member (§6f).
+    pub fn site_title<'a>(&'a self, member: &str) -> &'a str {
+        self.i18n_text(&self.site.title, member)
+    }
+
     /// Render a display string: `"@key"` / `"@table[index]"` / inline template
     /// with embedded `@table[…]` after `{token}` substitution (§6f).
     ///
