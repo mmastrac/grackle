@@ -42,6 +42,12 @@ pub enum Type {
     /// A heading tree from `outline(content, max)` (§5f / §6e). Internal to
     /// field expressions; the part layer turns it into `outline_entry` maps.
     Outline,
+    /// A CEL map literal (`{"a": 1}`). Keys are int/bool/string; values are
+    /// whatever the language already types.
+    Map,
+    /// Matches any typed value. Only used as a function parameter (e.g.
+    /// `to_json`); never a schema column.
+    Any,
     /// A string column whose values are a **closed set** — the column is
     /// backed by a Rust enum, so the engine knows every value it can ever
     /// hold. Behaves as [`Type::Str`] in every rule of the language; the
@@ -96,6 +102,8 @@ impl fmt::Display for Type {
             Type::List => "list",
             Type::Content => "content",
             Type::Outline => "outline",
+            Type::Map => "map",
+            Type::Any => "any",
         })
     }
 }
@@ -281,6 +289,8 @@ pub enum Value {
     List(Vec<String>),
     Content(Content),
     Outline(Vec<OutlineNode>),
+    /// CEL map: key/value pairs in literal order. Keys are int/bool/string.
+    Map(Vec<(Value, Value)>),
     Null,
 }
 
@@ -295,6 +305,7 @@ impl Value {
             Value::List(_) => "a list",
             Value::Content(_) => "content",
             Value::Outline(_) => "an outline",
+            Value::Map(_) => "a map",
             Value::Null => "null",
         }
     }
@@ -348,7 +359,7 @@ impl Value {
             Value::Double(d) => *d != 0.0,
             Value::Str(s) => !s.is_empty(),
             Value::List(v) => !v.is_empty(),
-            Value::Content(_) | Value::Outline(_) => false,
+            Value::Content(_) | Value::Outline(_) | Value::Map(_) => false,
             Value::Null => false,
         }
     }
@@ -445,6 +456,8 @@ enum Operand {
     Neg(Box<Operand>),
     /// Arithmetic, for `rank` (§6g): `similarity(self, candidate) - 0.01 * gap`.
     Arith(Box<Operand>, ArithOp, Box<Operand>),
+    /// CEL map literal: `{key: value, …}`.
+    Map(Vec<(Operand, Operand)>),
 }
 
 #[derive(Debug, Clone)]
@@ -563,6 +576,49 @@ fn eval_outline(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
             Value::Outline(c.outline(max))
         }
         _ => Value::Null,
+    }
+}
+
+fn eval_to_json(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
+    match args.first() {
+        Some(v) => Value::Str(value_to_json(v)),
+        None => Value::Null,
+    }
+}
+
+/// JSON encoding of a language value. Map keys become strings (JSON objects
+/// have no int/bool keys); Content/Outline are opaque placeholders.
+fn value_to_json(v: &Value) -> String {
+    serde_json::to_string(&value_to_json_value(v)).unwrap_or_else(|_| "null".into())
+}
+
+fn value_to_json_value(v: &Value) -> serde_json::Value {
+    use serde_json::{json, Map as JsonMap, Value as J};
+    match v {
+        Value::Bool(b) => J::Bool(*b),
+        Value::Int(i) => json!(i),
+        Value::Double(d) => json!(d),
+        Value::Str(s) => J::String(s.clone()),
+        Value::List(items) => J::Array(items.iter().map(|s| J::String(s.clone())).collect()),
+        Value::Map(entries) => {
+            let mut m = JsonMap::new();
+            for (k, val) in entries {
+                m.insert(map_key_json(k), value_to_json_value(val));
+            }
+            J::Object(m)
+        }
+        Value::Content(_) => J::String("<content>".into()),
+        Value::Outline(_) => J::String("<outline>".into()),
+        Value::Null => J::Null,
+    }
+}
+
+fn map_key_json(k: &Value) -> String {
+    match k {
+        Value::Str(s) => s.clone(),
+        Value::Int(i) => i.to_string(),
+        Value::Bool(b) => b.to_string(),
+        other => other.type_name().to_string(),
     }
 }
 
@@ -690,6 +746,13 @@ const FUNCS: &[Func] = &[
         prepare: no_prep,
         eval: eval_outline,
     },
+    Func {
+        name: "to_json",
+        params: &[Type::Any],
+        returns: Type::Str,
+        prepare: no_prep,
+        eval: eval_to_json,
+    },
 ];
 
 fn lookup_func(name: &str) -> Result<&'static Func> {
@@ -729,6 +792,8 @@ enum Tok {
     Comma,
     Question,
     Colon,
+    LBrace,
+    RBrace,
 }
 
 fn lex(src: &str) -> Result<Vec<Tok>> {
@@ -745,6 +810,14 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
             }
             ')' => {
                 out.push(Tok::RParen);
+                i += 1;
+            }
+            '{' => {
+                out.push(Tok::LBrace);
+                i += 1;
+            }
+            '}' => {
+                out.push(Tok::RBrace);
                 i += 1;
             }
             ',' => {
@@ -1036,9 +1109,36 @@ impl Parser {
             Some(Tok::Str(s)) => Ok(Operand::Lit(Lit::Str(s))),
             Some(Tok::Int(i)) => Ok(Operand::Lit(Lit::Int(i))),
             Some(Tok::Float(f)) => Ok(Operand::Lit(Lit::Double(f))),
+            Some(Tok::LBrace) => self.parse_map(),
             Some(t) => bail!("expected a field, literal or call, found {t:?}"),
             None => bail!("expected an operand"),
         }
+    }
+
+    /// CEL map literal: `{k: v, …}`. Trailing commas are allowed.
+    fn parse_map(&mut self) -> Result<Operand> {
+        let mut entries = Vec::new();
+        if self.eat(&Tok::RBrace) {
+            return Ok(Operand::Map(entries));
+        }
+        loop {
+            let key = self.parse_arith()?;
+            if !self.eat(&Tok::Colon) {
+                bail!("expected `:` between a map key and its value");
+            }
+            let val = self.parse_arith()?;
+            entries.push((key, val));
+            if self.eat(&Tok::RBrace) {
+                break;
+            }
+            if !self.eat(&Tok::Comma) {
+                bail!("expected `,` or `}}` in a map literal");
+            }
+            if self.eat(&Tok::RBrace) {
+                break;
+            }
+        }
+        Ok(Operand::Map(entries))
     }
 
     /// An identifier is a call when a `(` follows it, and a field otherwise.
@@ -1132,6 +1232,16 @@ impl fmt::Display for Operand {
                 }
                 f.write_str(")")
             }
+            Operand::Map(entries) => {
+                f.write_str("{")?;
+                for (i, (k, v)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{k}: {v}")?;
+                }
+                f.write_str("}")
+            }
         }
     }
 }
@@ -1147,7 +1257,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
         Operand::Call(func, args, _) => {
             for (i, (arg, want)) in args.iter().zip(func.params).enumerate() {
                 let got = operand_type(arg, schema)?;
-                if got.scalar() != want.scalar() {
+                if *want != Type::Any && got.scalar() != want.scalar() {
                     bail!(
                         "`{}` argument {} is {want}, but `{arg}` is {got}",
                         func.name,
@@ -1186,6 +1296,27 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             } else {
                 Type::Int
             })
+        }
+        Operand::Map(entries) => {
+            let mut seen_keys = Vec::new();
+            for (k, v) in entries {
+                let kt = operand_type(k, schema)?;
+                match kt.scalar() {
+                    Type::Int | Type::Bool | Type::Str => {}
+                    _ => bail!("map keys must be int, bool, or string, but `{k}` is {kt}"),
+                }
+                // Duplicate literal keys are a load error (CEL). Non-literal
+                // keys are checked at eval.
+                if let Operand::Lit(lit) = k {
+                    let key = lit.value();
+                    if seen_keys.iter().any(|s| s == &key) {
+                        bail!("duplicate map key `{k}`");
+                    }
+                    seen_keys.push(key);
+                }
+                let _ = operand_type(v, schema)?;
+            }
+            Ok(Type::Map)
         }
     }
 }
@@ -1603,6 +1734,12 @@ fn collect_fields_operand(o: &Operand, out: &mut Vec<String>) {
                 collect_fields_operand(a, out);
             }
         }
+        Operand::Map(entries) => {
+            for (k, v) in entries {
+                collect_fields_operand(k, out);
+                collect_fields_operand(v, out);
+            }
+        }
     }
 }
 
@@ -1666,7 +1803,25 @@ fn operand_value(o: &Operand, row: &impl Row, ctx: &dyn Ctx) -> Value {
                 _ => Value::Null,
             }
         }
+        Operand::Map(entries) => {
+            let mut out = Vec::with_capacity(entries.len());
+            for (k, v) in entries {
+                let key = operand_value(k, row, ctx);
+                if !matches!(key, Value::Str(_) | Value::Int(_) | Value::Bool(_)) {
+                    return Value::Null;
+                }
+                if out.iter().any(|(s, _)| values_eq(s, &key)) {
+                    return Value::Null;
+                }
+                out.push((key, operand_value(v, row, ctx)));
+            }
+            Value::Map(out)
+        }
     }
+}
+
+fn values_eq(a: &Value, b: &Value) -> bool {
+    a == b
 }
 
 fn eval(e: &Expr, row: &impl Row, ctx: &dyn Ctx) -> bool {
@@ -2454,5 +2609,62 @@ mod tests {
         assert_eq!(tree[0].children.len(), 1);
         assert_eq!(tree[0].children[0].label, "Beta");
         assert_eq!(tree[1].label, "Gamma");
+    }
+
+    struct Empty;
+    impl Row for Empty {
+        fn field(&self, _: &str) -> Value {
+            Value::Null
+        }
+    }
+
+    #[test]
+    fn map_literal_round_trips_through_to_json() {
+        let s = Schema::new();
+        let t = Text::parse(r#"to_json({"a": 1, "b": true, "c": "x"})"#, &s).unwrap();
+        let json = t.eval(&Empty);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["a"], 1);
+        assert_eq!(v["b"], true);
+        assert_eq!(v["c"], "x");
+    }
+
+    #[test]
+    fn empty_map_and_trailing_comma() {
+        let s = Schema::new();
+        assert_eq!(
+            Text::parse("to_json({})", &s).unwrap().eval(&Empty),
+            "{}"
+        );
+        let t = Text::parse(r#"to_json({"a": 1,})"#, &s).unwrap();
+        assert_eq!(t.eval(&Empty), r#"{"a":1}"#);
+    }
+
+    #[test]
+    fn map_keys_may_be_int_or_bool() {
+        let s = Schema::new();
+        let t = Text::parse(r#"to_json({1: "one", true: "yes"})"#, &s).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&t.eval(&Empty)).unwrap();
+        assert_eq!(v["1"], "one");
+        assert_eq!(v["true"], "yes");
+    }
+
+    #[test]
+    fn duplicate_map_key_is_a_load_error() {
+        let s = Schema::new();
+        let e = Text::parse(r#"to_json({"a": 1, "a": 2})"#, &s)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("duplicate map key"), "{e}");
+    }
+
+    #[test]
+    fn map_key_must_be_int_bool_or_string() {
+        let mut schema = Schema::new();
+        schema.insert("tags", Type::List);
+        let e = Text::parse(r#"to_json({tags: 1})"#, &schema)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("map keys must be"), "{e}");
     }
 }

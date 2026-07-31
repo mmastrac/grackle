@@ -1157,6 +1157,7 @@ impl Config {
                     grackle_db::Value::Double(d) => d.to_string(),
                     grackle_db::Value::Content(_)
                     | grackle_db::Value::Outline(_)
+                    | grackle_db::Value::Map(_)
                     | grackle_db::Value::Null => String::new(),
                 },
             })

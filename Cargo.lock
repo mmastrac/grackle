@@ -1278,6 +1278,7 @@ dependencies = [
  "chrono",
  "globset",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
