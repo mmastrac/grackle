@@ -137,9 +137,10 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 - [ ] **Parenthesised expressions in rank** — `(a + b) > c` is valid CEL but
       unsupported; the error suggests lifting it into a rank term. **Not q13**
       (that is embedding model pinning) — this carries no number. (§6g)
-- [ ] **Localized group keys** — enum records extend to group *keys*, not just
-      value domains. **Not q40** (that is structured record fields); §6f calls
-      this "q40-adjacent" and an earlier harvest dropped the qualifier. (§6f)
+- [x] **Localized group keys** — closed by enum records (`[records.<field>.<id>]`
+      `name` as `LocalizedStr`; `{key}` / pills / trails render through
+      `record_name` at the route's locale). The honest edge was stale after
+      2cb805d; q40 remains the row-field half. (§6f)
 - [x] **The rest of i18n's locale-free surface** — `site.title` is a
       `LocalizedStr`; search overlay strings come from `[i18n.strings]`
       (`search` / `search_placeholder` / `search_empty`) and are baked into

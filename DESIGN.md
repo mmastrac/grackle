@@ -2895,11 +2895,6 @@ Load rules keep resolution total and typos loud: a per-locale map may only name 
 - **Localized tree pages walk URL ancestors**, and the duplicate home crumb on `/fr/…` URLs is **cured** (§5h: `ancestors()` skips locale-prefix homes). A section crumb appears in French exactly when the section's landing has a French variant.
 - **`.slots/` fills localize by the same suffix convention** (`nav.fr.md` beside `nav.md`), and their view links resolve per consuming page's locale.
 - **Locale-parallel views are built and DEFAULT-ON.** Every materializing row-query view partitions per declared locale: that locale's rows, the locale-prefixed route (default locale unprefixed), title/crumb/trail resolved at the route's locale. **A locale with no rows materializes nothing**: the partition is real, not mirrored. Opt-out is `locales = "default"`. Exempt by design: **all-outputs folds** never multiply, **object views** carry no locale, and **embedded views** follow their embedding page (pending).
-- **Still locale-free, and known**: Localized group *keys* are q40-adjacent.
-  (`site.title` is a `LocalizedStr`; search overlay strings ship from
-  `[i18n.strings]` into `/search.js`.) Date labels use `@medium_date` /
-  `@short_date` / `@long_date` → `[i18n.strings]` templates over `@months` /
-  `@months_short`.
 - The markers walk uses **physical** paths — irrelevant for suffix, a known caveat for prefix (built and tested but unexercised by a corpus).
 
 ## 6g. Relations: every neighbour list is a declared query *(q52, resolved 2026-07-23; built 2026-07-23 — the §5f forcing point)*
