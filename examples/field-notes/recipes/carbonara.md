@@ -3,17 +3,21 @@ title: Spaghetti carbonara
 course: dinner
 servings: 2
 minutes: 25
+ingredients:
+  - amount: 200 g
+    name: spaghetti
+  - amount: 100 g
+    name: guanciale
+  - amount: 2 + 1 yolk
+    name: eggs
+  - amount: 50 g
+    name: pecorino romano
+    note: finely grated
+  - name: black pepper
+    note: a lot
 ---
 Guanciale, eggs, pecorino, pepper. No cream — the sauce is an emulsion,
 not an addition.
-
-## Ingredients
-
-- 200 g spaghetti
-- 100 g guanciale
-- 2 whole eggs plus 1 yolk
-- 50 g pecorino romano, finely grated
-- black pepper, a lot
 
 ## Method
 

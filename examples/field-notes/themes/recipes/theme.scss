@@ -1,0 +1,256 @@
+// The recipes theme: deliberately nothing like the default — sans-serif,
+// dark header, recipe-card body. Mostly canonical: a shell, this
+// stylesheet, and four fragments (document/crumb/relation/neighbor —
+// added when canonical crumbs/relations proved too raw); every other
+// kind renders through the canonical fallback, styled here via
+// data-kind/data-slot. Same .slots/ identity (nav, copyright) — no theme
+// owns the site's words.
+//
+// Every literal lives in `_tokens.scss`; nothing below names a colour.
+
+@import "tokens";
+
+html {
+	background: var(--bg);
+	color: var(--ink);
+}
+
+body {
+	margin: 0;
+	font: 15px/1.55 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+}
+
+a {
+	color: var(--accent);
+}
+
+.kitchen-header {
+	background: var(--ink);
+	color: var(--bg);
+	padding: 1rem 1.5rem 1.25rem;
+	text-align: center;
+
+	.kitchen-title {
+		display: block;
+		font-size: 2rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--bg);
+		text-decoration: none;
+	}
+
+	.kitchen-nav ul {
+		list-style: none;
+		display: flex;
+		justify-content: center;
+		gap: 1.25rem;
+		margin: 0 0 0.5rem;
+		padding: 0;
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+
+		a {
+			color: var(--bg);
+			text-decoration: none;
+		}
+	}
+}
+
+main {
+	max-width: 40rem;
+	margin: 2rem auto 4rem;
+	padding: 0 1.25rem;
+}
+
+// The canonical document, styled as a recipe card.
+[data-kind="document"] {
+	background: var(--panel);
+	border-radius: 10px;
+	padding: 2rem 2.25rem;
+	box-shadow: 0 2px 10px rgba(60, 40, 20, 0.12);
+
+	> [data-slot="title"] {
+		display: block;
+		font-size: 1.7rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		border-bottom: 3px solid var(--accent);
+		padding-bottom: 0.5rem;
+		margin-bottom: 1rem;
+	}
+
+	[data-slot="crumbs"] {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--muted);
+		margin-bottom: 1rem;
+
+		a {
+			color: var(--muted);
+		}
+
+		.crumb + .crumb::before {
+			content: " / ";
+			padding: 0 0.15em;
+		}
+	}
+
+	// Relations (backlinks et al) as a quiet footer inside the card.
+	.relations {
+		margin-top: 2.5rem;
+		padding-top: 1rem;
+		border-top: 1px dashed var(--muted);
+	}
+
+	// The language switcher (§6f): the translations axis relocated to the
+	// card's top-right corner by CSS — same move as the default theme,
+	// wearing this kitchen's chip.
+	position: relative;
+
+	.relation[data-relation="translations"] {
+		position: absolute;
+		top: 1.4rem;
+		right: 2.25rem;
+
+		.relation-label {
+			display: none;
+		}
+
+		.neighbor {
+			display: inline-block;
+			padding: 0.15em 0.8em;
+			border: 1.5px solid var(--accent);
+			border-radius: 999px;
+			font-size: 0.75rem;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			color: var(--accent);
+			text-decoration: none;
+
+			&::before {
+				content: "\1F310  ";
+			}
+		}
+	}
+
+	.relations:not(:has(.relation:not([data-relation="translations"]))) {
+		margin-top: 0;
+		padding-top: 0;
+		border-top: none;
+	}
+
+	.relation-label {
+		margin: 0 0 0.35rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--muted);
+	}
+
+	.neighbor {
+		display: block;
+		padding: 0.1em 0;
+		text-decoration: none;
+	}
+
+	.neighbor-date {
+		font-size: 0.8rem;
+		color: var(--muted);
+		margin-right: 0.6em;
+	}
+
+	h2 {
+		font-size: 1rem;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--accent);
+	}
+
+	.ingredients {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 0 0 1.5rem;
+		font-size: 0.95rem;
+
+		td {
+			padding: 0.35rem 0;
+			border-bottom: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+			vertical-align: top;
+		}
+
+		.amount {
+			color: var(--muted);
+			margin-right: 0.55em;
+			white-space: nowrap;
+		}
+
+		.note {
+			color: var(--muted);
+			font-style: italic;
+			padding-left: 1rem;
+			width: 40%;
+		}
+
+		tr:last-child td {
+			border-bottom: none;
+		}
+	}
+
+	ul li {
+		margin-bottom: 0.25rem;
+	}
+
+	ol li {
+		margin-bottom: 0.5rem;
+	}
+}
+
+.kitchen-footer {
+	text-align: center;
+	color: var(--muted);
+	font-size: 0.8rem;
+	padding-bottom: 2rem;
+}
+
+// The landing's embedded listing (q45): the /recipes/ index page places
+// {% view recipes_index %} in its own prose, and the rows arrive here —
+// styled as this kitchen's tabs, nothing like the default theme's cards.
+.recipe-list {
+	list-style: none;
+	margin: 1.5rem 0 0;
+	padding: 0;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+	gap: 0.75rem;
+
+	.recipe a {
+		display: block;
+		background: var(--bg);
+		border-left: 4px solid var(--accent);
+		border-radius: 6px;
+		padding: 0.7rem 0.9rem;
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.recipe a:hover {
+		background: var(--accent);
+		color: var(--on-accent);
+	}
+}
+
+// Subtheme subselection (§5a): `theme: "recipes:spicy"` stamps
+// data-subtheme="spicy" on <html> via the shell's attribute hole; the theme's
+// CSS takes it from there — no engine branching, no new theme. The accent it
+// repaints is a token (_tokens.scss); the 🌶 it adds is this rule.
+html[data-subtheme~="spicy"] {
+	[data-kind="document"] > [data-slot="title"]::after {
+		content: " 🌶";
+	}
+}

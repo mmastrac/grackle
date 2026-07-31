@@ -288,18 +288,18 @@ fn field_type_as_part(ty: &str) -> Option<PartType> {
         "string" | "int" | "date" => PartType::Text,
         "bool" => PartType::Flag,
         "image" => PartType::Url,
-        "list" => PartType::Stream("item"),
+        "list" | "records" => PartType::Stream("item"),
         _ => return None,
     })
 }
 
-fn field_type_enum_as_part(ty: grackle_source::schema::FieldType) -> PartType {
+fn field_type_enum_as_part(ty: &grackle_source::schema::FieldType) -> PartType {
     use grackle_source::schema::FieldType as F;
     match ty {
         F::Str | F::Int | F::Date => PartType::Text,
         F::Bool => PartType::Flag,
         F::Image => PartType::Url,
-        F::List => PartType::Stream("item"),
+        F::List | F::Records { .. } => PartType::Stream("item"),
     }
 }
 
@@ -357,7 +357,7 @@ fn overlay_fields(
         return;
     };
     for (name, ty) in fields {
-        let part_ty = field_type_enum_as_part(*ty);
+        let part_ty = field_type_enum_as_part(ty);
         let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
         if parts.iter().any(|(n, _)| *n == leaked) {
             continue; // fragment-derived wins
@@ -849,6 +849,34 @@ pub fn present(p: Presentation) -> PartMap {
     m
 }
 
+fn record_part_map(
+    child: &'static str,
+    shape: &[(&'static str, PartType)],
+    entries: &[(grackle_db::Value, grackle_db::Value)],
+) -> PartMap {
+    use grackle_db::Value as V;
+    let mut item = PartMap::new_declared(child);
+    for (part, ty) in shape {
+        let val = entries.iter().find_map(|(k, v)| match k {
+            V::Str(s) if s == *part => Some(v),
+            _ => None,
+        });
+        match (val, ty) {
+            (Some(V::Str(s)), PartType::Text) => {
+                item.set_declared(part, Part::Text(s.clone()));
+            }
+            (Some(V::Int(n)), PartType::Text) => {
+                item.set_declared(part, Part::Text(n.to_string()));
+            }
+            (Some(V::Bool(true)), PartType::Flag) => {
+                item.set_declared(part, Part::Flag(true));
+            }
+            _ => {}
+        }
+    }
+    item
+}
+
 /// Full row projection for listings and relations (q36). The face chops what
 /// it places; this fills everything the row can answer.
 pub fn from_row(
@@ -919,6 +947,18 @@ pub fn fill_from_fields(
                 let shape = schemas.get(child).unwrap_or(&[]);
                 if let Some((name_key, url_key)) = pill_keys(shape) {
                     pill_stream(cfg, row, name, child, name_key, url_key)
+                } else if items.iter().all(|v| matches!(v, V::Map(_))) {
+                    Part::Stream(
+                        items
+                            .iter()
+                            .filter_map(|v| match v {
+                                V::Map(entries) => {
+                                    Some(record_part_map(child, shape, entries))
+                                }
+                                _ => None,
+                            })
+                            .collect(),
+                    )
                 } else {
                     let label = match shape {
                         [(label, PartType::Text)] => *label,

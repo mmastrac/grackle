@@ -3,3 +3,6 @@
 course = { type = "string" }
 servings = { type = "int" }
 minutes = { type = "int" }
+
+# q40: list-of-records — each item is a map of the nested fields.
+ingredients = { type = "records", fields = { amount = "string", name = "string", note = "string" } }

@@ -4,15 +4,27 @@ theme: "recipes:spicy"
 course: dinner
 servings: 4
 minutes: 35
+ingredients:
+  - amount: 250 g
+    name: red lentils
+  - amount: "1"
+    name: onion
+  - amount: 4 cloves
+    name: garlic
+  - name: ginger
+    note: a thumb
+  - amount: 1 tsp
+    name: turmeric
+  - amount: 1 tsp
+    name: cumin seed
+  - amount: 1 tsp
+    name: mustard seed
+  - amount: "2"
+    name: dried chilies
+  - name: ghee
+  - name: cilantro
 ---
 The tadka is the recipe; the lentils are the vehicle.
-
-## Ingredients
-
-- 250 g red lentils
-- 1 onion, 4 cloves garlic, thumb of ginger
-- 1 tsp turmeric, 1 tsp cumin seed, 1 tsp mustard seed
-- 2 dried chilies, ghee, cilantro
 
 ## Method
 

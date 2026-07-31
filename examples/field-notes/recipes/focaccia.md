@@ -3,16 +3,20 @@ title: Overnight focaccia
 course: baking
 servings: 8
 minutes: 40
+ingredients:
+  - amount: 500 g
+    name: bread flour
+  - amount: 420 g
+    name: water
+  - amount: 10 g
+    name: salt
+  - amount: 4 g
+    name: instant yeast
+  - name: olive oil
+  - name: flaky salt
+  - name: rosemary
 ---
 High hydration, no kneading, all patience.
-
-## Ingredients
-
-- 500 g bread flour
-- 420 g water
-- 10 g salt
-- 4 g instant yeast
-- olive oil, flaky salt, rosemary
 
 ## Method
 

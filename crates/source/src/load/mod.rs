@@ -560,7 +560,7 @@ fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Resul
         };
         // "the profile", the same subject `schema::force` names one layer
         // over — with no file to blame, because a route is not in the tree.
-        values.push((name.clone(), schema::typed(*ty, name, v, "the profile")?));
+        values.push((name.clone(), schema::typed(ty, name, v, "the profile")?));
     }
     for r in db.routes.iter_mut() {
         for (name, value) in &values {
@@ -1683,7 +1683,10 @@ mod cascade_tests {
     /// the cascade list by hand would be asserting their own copy; this reads
     /// the one list the loader reads (`schema::CASCADE`).
     fn governed() -> BTreeMap<&'static str, schema::FieldType> {
-        let mut m: BTreeMap<_, _> = schema::CASCADE.iter().copied().collect();
+        let mut m: BTreeMap<_, _> = schema::CASCADE
+            .iter()
+            .map(|(n, t)| (*n, t.clone()))
+            .collect();
         m.insert("toc", schema::FieldType::Bool);
         m
     }

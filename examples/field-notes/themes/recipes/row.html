@@ -1,0 +1,35 @@
+<article class="doc">
+	<nav class="crumbs" data-slot="crumbs" data-fragment="crumb" aria-label="Breadcrumbs">
+		<span class="crumb"><a data-slot-href="url" data-slot="label"></a></span>
+	</nav>
+	<h1 data-slot="title"></h1>
+	<p class="tags" data-slot="tags" data-fragment="tag"></p>
+	<div class="doc-hero"><img data-slot-src="hero" data-slot-width="width" data-slot-height="height" data-slot-alt="title"></div>
+	<nav class="section-tree" data-slot="section" data-fragment="outline_entry" aria-label="Section contents"></nav>
+	<nav class="page-outline" data-slot="outline" data-fragment="outline_entry" aria-label="On this page"></nav>
+	<div data-slot="intro"></div>
+	<table class="ingredients">
+		<tbody data-slot="ingredients" data-fragment="ingredient">
+			<tr>
+				<td class="ingredient">
+					<span class="amount" data-slot="amount"></span>
+					<span class="name" data-slot="name"></span>
+				</td>
+				<td class="note" data-slot="note"></td>
+			</tr>
+		</tbody>
+	</table>
+	<div class="doc-body" data-slot="content"></div>
+	<nav class="pagination" data-slot="pagination" data-fragment="pagination" aria-label="Pagination"></nav>
+	<nav class="relations" data-slot="relations" data-fragment="relation" aria-label="Related">
+		<section class="relation" data-slot-data-relation="relation">
+			<h3 class="relation-label" data-slot="label"></h3>
+			<div class="relation-items" data-slot="items" data-fragment="row--neighbor">
+				<a class="neighbor" data-slot-href="url">
+					<time class="neighbor-date" data-slot-datetime="date" data-slot="date_pretty"></time>
+					<span class="neighbor-title" data-slot="title"></span>
+				</a>
+			</div>
+		</section>
+	</nav>
+</article>

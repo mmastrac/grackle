@@ -185,7 +185,7 @@ impl Config {
                     );
                 };
                 crate::schema::typed(
-                    *ty,
+                    ty,
                     field,
                     v,
                     &format!("profile {pname}: [profiles.{pname}.{FORCE}]"),
@@ -291,7 +291,7 @@ impl Config {
                         }
                     );
                 };
-                crate::schema::typed(*ty, field, val, &format!("view {vname}"))?;
+                crate::schema::typed(ty, field, val, &format!("view {vname}"))?;
             }
             // §7 q5 / MERGE.md F3: a set's `theme` can never apply, so declaring
             // one is declared-and-ignored. A set does not materialize, so there

@@ -4,15 +4,27 @@ theme: "recipes:spicy"
 course: dinner
 servings: 4
 minutes: 35
+ingredients:
+  - amount: 250 g
+    name: lentilles corail
+  - amount: "1"
+    name: oignon
+  - amount: 4 gousses
+    name: ail
+  - name: gingembre
+    note: un morceau
+  - amount: 1 c. à c.
+    name: curcuma
+  - amount: 1 c. à c.
+    name: graines de cumin
+  - amount: 1 c. à c.
+    name: graines de moutarde
+  - amount: "2"
+    name: piments séchés
+  - name: ghee
+  - name: coriandre
 ---
 Le tadka est la recette ; les lentilles ne sont que le véhicule.
-
-## Ingrédients
-
-- 250 g de lentilles corail
-- 1 oignon, 4 gousses d'ail, un morceau de gingembre
-- 1 c. à c. de curcuma, de graines de cumin, de graines de moutarde
-- 2 piments séchés, du ghee, de la coriandre
 
 ## Préparation
 

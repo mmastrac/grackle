@@ -3,17 +3,21 @@ title: Spaghetti carbonara
 course: dinner
 servings: 2
 minutes: 25
+ingredients:
+  - amount: 200 g
+    name: spaghetti
+  - amount: 100 g
+    name: guanciale
+  - amount: 2 + 1 jaune
+    name: œufs
+  - amount: 50 g
+    name: pecorino romano
+    note: finement râpé
+  - name: poivre noir
+    note: beaucoup
 ---
 Guanciale, œufs, pecorino, poivre. Pas de crème — la sauce est une émulsion,
 pas un ajout.
-
-## Ingrédients
-
-- 200 g de spaghetti
-- 100 g de guanciale
-- 2 œufs entiers plus 1 jaune
-- 50 g de pecorino romano, finement râpé
-- du poivre noir, beaucoup
 
 ## Préparation
 

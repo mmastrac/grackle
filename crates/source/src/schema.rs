@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use grackle_db::filter::{self, Schema, Value};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldType {
     Str,
     Int,
@@ -27,9 +27,15 @@ pub enum FieldType {
     /// Calendar day as `YYYY-MM-DD` (bare `YYYY-MM` means the first of that
     /// month). Stored as an ISO string so filters order it correctly.
     Date,
+    /// List of maps (q40). Item keys are the nested `fields` table; each
+    /// item field is a scalar. Filter language sees a list; group_by does
+    /// not multi-key it (item maps are not string ids).
+    Records { fields: BTreeMap<String, FieldType> },
 }
 
 impl FieldType {
+    /// Bare type name with no nested shape — site `[schema]` overlays and
+    /// cascade keys. Records need [`parse_fields`].
     pub fn parse(s: &str) -> Option<FieldType> {
         Some(match s {
             "string" => FieldType::Str,
@@ -42,7 +48,7 @@ impl FieldType {
         })
     }
 
-    pub(crate) fn name(self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             FieldType::Str => "string",
             FieldType::Int => "int",
@@ -50,18 +56,20 @@ impl FieldType {
             FieldType::List => "list",
             FieldType::Image => "image",
             FieldType::Date => "date",
+            FieldType::Records { .. } => "records",
         }
     }
 
     /// How the filter language sees this field. An image is a path, so it
     /// reads as a string — a `where` could compare or `glob()` on one, though
     /// nothing does yet. A date is ISO-8601 text for the same reason.
-    pub fn filter_type(self) -> filter::Type {
+    /// Records are a list (of maps).
+    pub fn filter_type(&self) -> filter::Type {
         match self {
             FieldType::Str | FieldType::Image | FieldType::Date => filter::Type::Str,
             FieldType::Int => filter::Type::Int,
             FieldType::Bool => filter::Type::Bool,
-            FieldType::List => filter::Type::List,
+            FieldType::List | FieldType::Records { .. } => filter::Type::List,
         }
     }
 }
@@ -97,7 +105,7 @@ pub const CASCADE: &[(&str, FieldType)] = &[
 
 /// The type the engine reads this cascade key at, if it is one of its own.
 pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
-    CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
+    CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| t.clone())
 }
 
 /// One rung's worth of declarations: the fields, and who wrote them — the
@@ -217,7 +225,7 @@ impl Schemas {
                      so nothing orders them. The site's filter vocabulary \
                      (`where`, `order_by`, `group_by`) has one entry per name: \
                      give them the same type, or rename one.",
-                    conflict(whose, *ty, other_whose, *other)
+                    conflict(whose, ty.clone(), other_whose, other.clone())
                 );
             }
         }
@@ -265,7 +273,7 @@ impl Schemas {
                      types. The site's filter vocabulary has one entry per name, \
                      and collections have no nearness to rank them by: give them \
                      the same type, or rename one.",
-                    conflict(whose, *ty, other_whose, *other)
+                    conflict(whose, ty.clone(), other_whose, other.clone())
                 );
             }
         }
@@ -291,7 +299,7 @@ impl Schemas {
         while let Some(d) = cur {
             if let Some((_, fields)) = self.by_dir.get(d) {
                 for (k, t) in fields {
-                    out.entry(k.as_str()).or_insert(*t);
+                    out.entry(k.as_str()).or_insert_with(|| t.clone());
                 }
             }
             if d.as_os_str().is_empty() {
@@ -305,7 +313,7 @@ impl Schemas {
         ] {
             let Some(fields) = src else { continue };
             for (k, t) in fields {
-                out.entry(k.as_str()).or_insert(*t);
+                out.entry(k.as_str()).or_insert_with(|| t.clone());
             }
         }
         out
@@ -331,7 +339,7 @@ impl Schemas {
             .chain(std::iter::once(&self.site))
         {
             for (k, t) in fields {
-                out.entry(k.as_str()).or_insert(*t);
+                out.entry(k.as_str()).or_insert_with(|| t.clone());
             }
         }
         out
@@ -378,7 +386,7 @@ impl Schemas {
 fn insert_declared(s: &mut Schema, name: &str, ty: FieldType) {
     let key = grackle_model::intern(name.to_string());
     s.insert(key, ty.filter_type());
-    if ty == FieldType::Date {
+    if matches!(ty, FieldType::Date) {
         for part in ["year", "month", "day"] {
             s.insert(
                 grackle_model::intern(format!("{name}.{part}")),
@@ -404,16 +412,28 @@ fn parse_fields(
 ) -> Result<BTreeMap<String, FieldType>> {
     let mut fields = BTreeMap::new();
     for (name, v) in table {
-        let ty = v
-            .as_table()
-            .and_then(|t| t.get("type"))
-            .and_then(|t| t.as_str())
-            .and_then(FieldType::parse);
-        let Some(ty) = ty else {
+        let Some(t) = v.as_table() else {
             bail!(
                 "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
-                 \"bool\" | \"list\" | \"image\" | \"date\""
+                 \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
             );
+        };
+        let Some(ty_name) = t.get("type").and_then(|x| x.as_str()) else {
+            bail!(
+                "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
+                 \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
+            );
+        };
+        let ty = if ty_name == "records" {
+            parse_records_fields(t, &name, whose)?
+        } else {
+            let Some(ty) = FieldType::parse(ty_name) else {
+                bail!(
+                    "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
+                     \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
+                );
+            };
+            ty
         };
         // Cascade keys are declarable at the type the engine reads them at:
         // restating is fine; a different type would be typed one way and read
@@ -434,29 +454,74 @@ fn parse_fields(
                  one. Rename the declaration."
             );
         }
-        // A declaration table has exactly one key. Anything else was read
-        // as a property of the field and dropped, which is how `default =`
-        // and `required =` get written by someone reasonably expecting
-        // them to work.
-        let extra: Vec<&str> = v
-            .as_table()
-            .map(|t| {
-                t.keys()
-                    .map(String::as_str)
-                    .filter(|k| *k != "type")
-                    .collect()
-            })
-            .unwrap_or_default();
+        let allowed = match &ty {
+            FieldType::Records { .. } => ["type", "fields"].as_slice(),
+            _ => ["type"].as_slice(),
+        };
+        let extra: Vec<&str> = t
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !allowed.contains(k))
+            .collect();
         if !extra.is_empty() {
             bail!(
                 "{whose}: field {name:?} has unknown key(s) {} — a field \
-                 declaration takes: type",
-                extra.join(", ")
+                 declaration takes: {}",
+                extra.join(", "),
+                allowed.join(", ")
             );
         }
         fields.insert(name, ty);
     }
     Ok(fields)
+}
+
+fn parse_records_fields(
+    table: &toml::Table,
+    name: &str,
+    whose: &str,
+) -> Result<FieldType> {
+    let Some(fields_v) = table.get("fields") else {
+        bail!(
+            "{whose}: field {name:?} is type = \"records\" and needs \
+             fields = {{ … }} naming each item key"
+        );
+    };
+    let Some(fields_t) = fields_v.as_table() else {
+        bail!("{whose}: field {name:?}: fields must be a table");
+    };
+    if fields_t.is_empty() {
+        bail!("{whose}: field {name:?}: fields must name at least one key");
+    }
+    let mut fields = BTreeMap::new();
+    for (k, v) in fields_t {
+        let ty_name = match v {
+            toml::Value::String(s) => s.as_str(),
+            toml::Value::Table(t) => t
+                .get("type")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{whose}: field {name:?}.fields.{k} needs type = \
+                         \"string\" | \"int\" | \"bool\""
+                    )
+                })?,
+            other => bail!(
+                "{whose}: field {name:?}.fields.{k} must be a type name or \
+                 {{ type = … }}, got {other}"
+            ),
+        };
+        let Some(ty) = FieldType::parse(ty_name).filter(|t| {
+            matches!(t, FieldType::Str | FieldType::Int | FieldType::Bool)
+        }) else {
+            bail!(
+                "{whose}: field {name:?}.fields.{k} must be \"string\", \
+                 \"int\", or \"bool\" (got {ty_name:?})"
+            );
+        };
+        fields.insert(k.clone(), ty);
+    }
+    Ok(FieldType::Records { fields })
 }
 
 /// The site-wide declared vocabulary, read from a `[schema]` table alone —
@@ -509,7 +574,7 @@ pub fn apply_defaults(
         if fields.values.contains_key(*name) {
             continue; // front matter is nearer
         }
-        write_typed(*ty, name, v, fields, &whose)?;
+        write_typed(ty.clone(), name, v, fields, &whose)?;
     }
     Ok(())
 }
@@ -550,7 +615,7 @@ pub fn force(
             );
         };
         let whose = format!("{}: the profile", path.display());
-        write_typed(*ty, name, v, fields, &whose)?;
+        write_typed(ty.clone(), name, v, fields, &whose)?;
     }
     Ok(())
 }
@@ -575,8 +640,8 @@ pub(crate) fn write_typed(
     fields: &mut Fields,
     whose: &str,
 ) -> Result<()> {
-    let value = typed(ty, name, v, whose)?;
-    if ty == FieldType::Image {
+    let value = typed(&ty, name, v, whose)?;
+    if matches!(ty, FieldType::Image) {
         if let Value::Str(s) = &value {
             fields.images.insert(name.to_string(), s.clone());
         }
@@ -595,7 +660,7 @@ pub(crate) fn list_from_words(s: &str) -> Vec<String> {
 /// One TOML value read at its declared type — see [`write_typed`], and
 /// [`crate::config::Config::check_profiles`], which type-checks a `force`
 /// block through this without a row to write into.
-pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> Result<Value> {
+pub(crate) fn typed(ty: &FieldType, name: &str, v: &toml::Value, whose: &str) -> Result<Value> {
     Ok(match (ty, v) {
         (FieldType::Str | FieldType::Image, toml::Value::String(s)) => Value::Str(s.clone()),
         (FieldType::Date, toml::Value::String(s)) => Value::Str(date_str(s, name, whose)?),
@@ -610,11 +675,91 @@ pub(crate) fn typed(ty: FieldType, name: &str, v: &toml::Value, whose: &str) -> 
                 .collect::<Result<Vec<_>>>()?,
         ),
         (FieldType::List, toml::Value::String(s)) => Value::str_list(list_from_words(s)),
+        (FieldType::Records { fields: shape }, toml::Value::Array(a)) => Value::List(
+            a.iter()
+                .enumerate()
+                .map(|(i, x)| record_item_toml(shape, name, i, x, whose))
+                .collect::<Result<Vec<_>>>()?,
+        ),
         (ty, other) => bail!(
             "{whose} sets {name:?} to {other}, but it is declared {}",
             ty.name()
         ),
     })
+}
+
+fn record_item_toml(
+    shape: &BTreeMap<String, FieldType>,
+    name: &str,
+    i: usize,
+    v: &toml::Value,
+    whose: &str,
+) -> Result<Value> {
+    let Some(t) = v.as_table() else {
+        bail!("{whose}: {name:?}[{i}] must be a table, got {v}");
+    };
+    let mut entries = Vec::new();
+    for (k, raw) in t {
+        let Some(fty) = shape.get(k) else {
+            let known: Vec<&str> = shape.keys().map(String::as_str).collect();
+            bail!(
+                "{whose}: {name:?}[{i}] has unknown key {k:?} (known: {})",
+                known.join(", ")
+            );
+        };
+        entries.push((Value::Str(k.clone()), typed(fty, k, raw, whose)?));
+    }
+    Ok(Value::Map(entries))
+}
+
+fn record_item_yaml(
+    shape: &BTreeMap<String, FieldType>,
+    name: &str,
+    i: usize,
+    v: &serde_yaml_ng::Value,
+    path: &Path,
+) -> Result<Value> {
+    use serde_yaml_ng::Value as Y;
+    let Y::Mapping(map) = v else {
+        bail!(
+            "{}: {name:?}[{i}] must be a mapping, got {v:?}",
+            path.display()
+        );
+    };
+    let mut entries = Vec::new();
+    for (k, raw) in map {
+        let Y::String(key) = k else {
+            bail!(
+                "{}: {name:?}[{i}] keys must be strings, got {k:?}",
+                path.display()
+            );
+        };
+        let Some(fty) = shape.get(key) else {
+            let known: Vec<&str> = shape.keys().map(String::as_str).collect();
+            bail!(
+                "{}: {name:?}[{i}] has unknown key {key:?} (known: {})",
+                path.display(),
+                known.join(", ")
+            );
+        };
+        let val = match (fty, raw) {
+            (FieldType::Str, Y::String(s)) => Value::Str(s.clone()),
+            (FieldType::Int, Y::Number(n)) if n.as_i64().is_some() => {
+                Value::Int(n.as_i64().unwrap())
+            }
+            (FieldType::Bool, Y::Bool(b)) => Value::Bool(*b),
+            // YAML often writes bare numbers as ints; allow string amount via
+            // integer stringify so `amount: 2` works beside `amount: "2 eggs"`.
+            (FieldType::Str, Y::Number(n)) => Value::Str(n.to_string()),
+            (fty, other) => bail!(
+                "{}: {name:?}[{i}].{key} is declared {}, got {other:?}",
+                path.display(),
+                fty.name()
+            ),
+        };
+        entries.push((Value::Str(key.clone()), val));
+    }
+    Ok(Value::Map(entries))
 }
 
 /// Canonical `YYYY-MM-DD` from a declared date value.
@@ -668,6 +813,13 @@ pub fn validate(
             (FieldType::List, Y::String(s)) => Value::str_list(list_from_words(s)),
             // `tags:` with no value: a form the corpus still carries.
             (FieldType::List, Y::Null) => Value::str_list(Vec::<String>::new()),
+            (FieldType::Records { fields: shape }, Y::Sequence(seq)) => Value::List(
+                seq.iter()
+                    .enumerate()
+                    .map(|(i, x)| record_item_yaml(shape, name, i, x, path))
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+            (FieldType::Records { .. }, Y::Null) => Value::List(Vec::new()),
             (ty, other) => bail!(
                 "{}: field {name:?} is declared {}, but the front matter has {other:?}",
                 path.display(),
@@ -987,14 +1139,79 @@ mod tests {
 
         let words = toml::Value::String("alpha beta".into());
         assert_eq!(
-            typed(FieldType::List, "keywords", &words, "the profile").unwrap(),
+            typed(&FieldType::List, "keywords", &words, "the profile").unwrap(),
             Value::str_list(["alpha".into(), "beta".into()])
         );
         let empty = toml::Value::String("".into());
         assert_eq!(
-            typed(FieldType::List, "keywords", &empty, "the profile").unwrap(),
+            typed(&FieldType::List, "keywords", &empty, "the profile").unwrap(),
             Value::str_list(Vec::<String>::new())
         );
+    }
+
+    #[test]
+    fn a_records_field_parses_item_maps() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.add(
+            Path::new("recipes"),
+            "ingredients = { type = \"records\", fields = { amount = \"string\", name = \"string\" } }\n",
+            Path::new("recipes/.schema.toml"),
+        )
+        .unwrap();
+        let schema = s.resolve("pages", Path::new("recipes"));
+        let FieldType::Records { fields } = &schema["ingredients"] else {
+            panic!("expected records");
+        };
+        assert_eq!(fields["amount"], FieldType::Str);
+        assert_eq!(fields["name"], FieldType::Str);
+
+        let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+            "- amount: 200 g\n  name: spaghetti\n- name: pepper\n",
+        )
+        .unwrap();
+        let mut extra = BTreeMap::new();
+        extra.insert("ingredients".into(), yaml);
+        let fields = validate(&schema, &extra, Path::new("recipes/x.md")).unwrap();
+        let Value::List(items) = &fields.values["ingredients"] else {
+            panic!("expected list");
+        };
+        assert_eq!(items.len(), 2);
+        let Value::Map(first) = &items[0] else {
+            panic!("expected map");
+        };
+        assert!(first.iter().any(|(k, v)| {
+            matches!((k, v), (Value::Str(a), Value::Str(b)) if a == "amount" && b == "200 g")
+        }));
+    }
+
+    #[test]
+    fn records_reject_unknown_item_keys_and_nested_lists() {
+        let e = Schemas::new(grackle_model::row_schema())
+            .add(
+                Path::new("r"),
+                "ingredients = { type = \"records\", fields = { name = \"list\" } }\n",
+                Path::new("r/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("must be \"string\""), "{e}");
+
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.add(
+            Path::new("r"),
+            "ingredients = { type = \"records\", fields = { name = \"string\" } }\n",
+            Path::new("r/.schema.toml"),
+        )
+        .unwrap();
+        let schema = s.resolve("pages", Path::new("r"));
+        let yaml: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str("- name: x\n  qty: 1\n").unwrap();
+        let mut extra = BTreeMap::new();
+        extra.insert("ingredients".into(), yaml);
+        let e = validate(&schema, &extra, Path::new("r/x.md"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("unknown key \"qty\""), "{e}");
     }
 
     /// A declaration that collides with a base row field parsed, validated

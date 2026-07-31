@@ -763,7 +763,8 @@ author. Here the database framing pays off and can finally be used.
 - Governed rows are strict (unknown key = load error naming the file);
   ungoverned rows stay tolerant.
 - Worked example: `recipes/` with `course`, `time`; then group by it.
-- ★ no list-of-records type, no JSON-LD emission (q40).
+- ★ list-of-records first slice: `type = "records"` (q40); JSON-LD Recipe
+  emission still open.
 
 ### 23. Hierarchy: the page's tree and the tree's tree
 - Two axes, one recursive part kind (`outline_entry`), one fragment.

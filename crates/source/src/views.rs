@@ -333,10 +333,10 @@ fn view_fields(
 ) -> anyhow::Result<BTreeMap<String, filter::Value>> {
     let mut f = BTreeMap::new();
     for (name, raw) in &v.route_fields {
-        let ty = schema.get(name.as_str()).copied().with_context(|| {
+        let ty = schema.get(name.as_str()).cloned().with_context(|| {
             format!("view route field {name:?} was not validated against [schema]")
         })?;
-        f.insert(name.clone(), crate::schema::typed(ty, name, raw, "view")?);
+        f.insert(name.clone(), crate::schema::typed(&ty, name, raw, "view")?);
     }
     // IO.md §3: `shell` is "the serialization it left through", a fact about
     // the OUTPUT — so a view route answers the same column a row route does,

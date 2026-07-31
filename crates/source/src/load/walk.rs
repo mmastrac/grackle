@@ -385,7 +385,7 @@ pub(crate) fn walk_site(
                     );
                 }
                 schema::write_typed(
-                    *ty,
+                    ty.clone(),
                     &field,
                     &toml::Value::String(iso),
                     &mut checked,
