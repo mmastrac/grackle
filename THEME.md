@@ -1,7 +1,8 @@
 # Theme: one recursive content chain, and layout as a row face
 
-**Status: in progress (2026-07-28).** Assembly lives in
-`crates/core/src/assemble/`. Byte-exactness is not required.
+**Status: built (2026-07-28).** Assembly lives in `crates/core/src/assemble/`.
+Pending work for this design lives only in `TODO-1.0.md`. Byte-exactness is
+not required.
 
 ## Law
 
@@ -131,10 +132,3 @@ wins over earlier; a file always wins over an inline).
 | `listing--gallery.html` etc. | `row--gallery.html` (member face) |
 | site `[[parts]]` | theme `.schema.toml` |
 | `data-slot="main"` | `data-slot="content"` |
-
-## 7. Open / deferred
-
-- **q-theme-a:** fold `light_html` into the chain
-- **q50:** deliberate vs forgotten omitted slots
-- Whether `variant` stays as an override, or config collapses to one `layout`
-  / `face` key once corpora no longer need both.

@@ -4,8 +4,9 @@
 themes installable, derivable, and safe to update — plus the `vanilla` theme
 (built, in this directory) that anchors the "every site renders reasonably
 with every theme" guarantee. It is self-contained: everything it assumes from
-`../DESIGN.md` (§5a, §5b, §5e) is restated in §0. Sections are ordered so the
-implementation plan in §9 can point at them.
+`../DESIGN.md` (§5a, §5b, §5e) is restated in §0. Pending *work* lives in
+`../TODO-1.0.md` (theme ladder); this file is the spec those checkboxes point
+at.
 
 The pain being designed away: in most SSGs a theme is a submodule, a fork, or
 a hand-copied directory, and the moment you touch one file you can never
@@ -69,6 +70,7 @@ Rung 1 is deliberately **not** a theme mechanism at all — it needs no new
 machinery, and because the token vocabulary is a contract, a rung-1 override
 survives not just theme updates but theme *switches*. Documentation should
 state that as a guarantee; `theme check`'s token lint is what keeps it true.
+Each rung below 1 that is still unbuilt has a checkbox in `TODO-1.0.md`.
 
 ## 3. Inheritance: `extends`
 

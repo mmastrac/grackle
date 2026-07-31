@@ -2060,7 +2060,9 @@ tree, so it will be routed and *published* unless excluded. Add `shells/**` to `
 
 ### The md shell
 
-Specced; not yet built. A markdown serialization of part maps; forcing consumer is `/llms.txt` (titles, URLs, summaries as markdown listing).
+Specced; not yet built — see `TODO-1.0.md`. A markdown serialization of part
+maps; forcing consumer is `/llms.txt` (titles, URLs, summaries as markdown
+listing).
 
 ### Row shells: a row picks its own wrapper *(q44, built 2026-07-19; folded into one axis by IO.md I2, 2026-07-27)*
 
@@ -2198,17 +2200,20 @@ A **literal** claim is settled at load (the row is marked, its own route withhel
 
 `collection.crumb`/`index` are **gone**. They stated in the collection what the collection's landing view already declares, duplicating a single fact. The dissolution is the climb doing its job: `trail_root` is now Home and nothing else; every crumb between Home and the current page comes from the climb.
 
-### Honest edges, pending
+### Honest edges, named now
+
+Work items live in `TODO-1.0.md`. Named here so the absences stay visible:
 
 - An explicit `parent =` for when URL nesting lies: unneeded so far.
 - Orphaned translations should warn.
-- Mode-B prose is not searchable (landing routes structurally excluded); keep until someone misses it.
-- A variant fragment lacking a hole drops that part **silently** — wants a load-time warning.
-- Home and the manual haven't lifted yet — home is the queryless
-  landing (`route = "/"`, `content = "index.html"`, no rows to strand;
-  q37's board hangs in this frame), the manual waits for the section
-  tree to be a landing's listing. The example search's one remaining
-  `stem != "index"` filter survives exactly until they do.
+- Mode-B prose is not searchable (landing routes structurally excluded); keep
+  until someone misses it.
+- A variant fragment lacking a hole drops that part **silently** — q50.
+- Home and the manual haven't lifted yet — home is the queryless landing
+  (`route = "/"`, `content = "index.html"`, no rows to strand; q37's board
+  hangs in this frame), the manual waits for the section tree to be a
+  landing's listing. The example search's one remaining `stem != "index"`
+  filter survives exactly until they do.
 
 ## 5i. The join: two databases, three fields *(IO.md §2; built I9, 2026-07-27)*
 
@@ -3023,7 +3028,7 @@ Each declared relation with a nonempty list emits one `relation` group — `{rel
 Both `build` and `serve` use one render path: `build::render_site` produces `URL → bytes` in memory.
 
 - **`grackle build`** — AOT materialization: render the map, write to disk.
-- **`grackle serve`** — 🟡 **built (v1).** Resident render map via raw `hyper`. A `notify` watcher rebuilds on content change (~0.3s) and bumps version; injected script polls and reloads. Snapshot lives in `keepcalm` RCU cell: reads are lock-free, writer swaps whole snapshot with no blocking (verified: 20 concurrent reads through rebuild, all 200). **v1 re-renders everything** (still sub-second) and polls rather than streaming (§2 upgrades not yet built).
+- **`grackle serve`** — 🟡 **built (v1).** Resident render map via raw `hyper`. A `notify` watcher rebuilds on content change (~0.3s) and bumps version; injected script polls and reloads. Snapshot lives in `keepcalm` RCU cell: reads are lock-free, writer swaps whole snapshot with no blocking (verified: 20 concurrent reads through rebuild, all 200). **v1 re-renders everything** (still sub-second) and polls rather than streaming — the fanout consumer is `TODO-1.0.md`.
 
   **What IO.md I10 changed here is the story, not the code.** IO.md §1 says
   build is "pull every output" and serve is "pull *this* one", and since I10
@@ -3261,19 +3266,57 @@ The split itself was the audit: boundaries you have to declare to Cargo are ones
 
 ### Since, and what is left *(2026-07-21)*
 
-Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. What remains: objects dispatch, config validation, presentation policy. *(**Loader collection choice** is closed — IO.md I7d: there is one walk and one ordered rule sequence, and which scope claims a file is per-file rather than per-loader. **Objects dispatch** is closed as well, in two halves and by two items — the "Still owed" list below carries the record.)*
+Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. *(**Loader collection choice** and **objects dispatch** are closed — settled record below. What remains of the endgame is a consumer, not a structure: `serve` walking the fanout, in `TODO-1.0.md`.)*
 
 ### Surveys/audits worth re-running
 
-- Seams audit post-landings, records, links and i18n: `build.rs` gravity well (~1,800 lines); trail family evicted to `trails.rs`; semantic drift in main config.
-- Seams audit post-crate split: revisit boundary declarations as workspace grows.
-- Seams audit post-merge passes: monitor kind branches and positional assumptions.
-- ~~Seams audit post-pipeline split (2026-07-29):~~ **done** — `build.rs` became `pipeline/{prepass,bodies,emit,postpass}`; listing helpers moved to `passes/preview`; `source` config/load split into directories. Cross-crate DAG unchanged. Watch: `config/types.rs` still mixes authored types with merge helpers (Shaped needs private fields); `load/mod.rs` still holds rule helpers beside `load()`.
+The live list is `TODO-1.0.md` (Surveys and audits). Do not grow a second copy
+here.
 
-### Still owed
+### Settled: the single-tree endgame
 
-- ~~**The objects dispatch.**~~ **Closed, and it was closed in two halves by two different items** — recorded rather than quietly deleted, because the entry outlived both. The VIEW half went when `build_object_view` became three parameters on one materializer (§5c's *One materializer*): `group_by` and `paginate` work over objects and the `object-grouping` fixture proves it, so this entry's last sentence has been false since that merge. The LOAD half went at **IO.md I7e**: the object row constructor is the row constructor, and `object_ix` keys off the extension fact (§3). What is left is not a dispatch at all — it is the two facts an object still differs by, both of them parameters a caller passes: the narrow `object_schema` vocabulary, and `rendered: false`.
-- **The single tree** (§3's endgame: one table, views as partitions). **The walk half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone, `store::walk_tree` is the one walk, and membership is first-rule-wins over one ordered sequence of scopes (§3). Both measured obstacles are settled rather than outstanding: the `.`/`_` skip **survives**, and the "six underscore directories need explicit excludes" cost was **amended, not paid** — a declared `source` punches through the skip, so `_posts` and `_drafts` are walked because a scope named them and `_tools`/`_hidden`/`_includes` stay out because nothing did, with no `exclude` line anywhere. *(The third obstacle — `filename_formats` per-collection where it wants to be per-rule — went at IO.md I6; §4's* Route tokens: one supplier *carries it, and the collection key survives as the default its rules inherit.)* **The table half is built too, as of IO.md I7e**: there is one row constructor — an image takes rule defaults, marker defaults, schema validation and rung 0 like every other row — and the three key lists are keyed off facts rather than off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i): `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two sides of membership — so "views as partitions" is a query on the half that may be queried (`output`, `alternates`) and a column on the half that may not (arrangement is what membership produces, so selection may not read it). **And the GRAPH is built, as of IO.md I10** (§5j): the same columns read as nodes and edges, one graph with two edge kinds, cycles refused at load. **And the ADDRESS model is built, as of IO.md I11** (§5k): an output has two slots, a rule decides which one it fills, and the citation's form decides which one it takes — which is the point at which the base stopped minting a URL for every image on every site that inherited it. **And the last table tag is as gone as it can be, as of IO.md I13** (§5b's *The column SURVIVES*): every `kind == View` test in the engine now reads the `view` column, and what is left of the enum is a config-visible column with two live filters on grack.com and one internal dispatch — post-vs-page — that no fact on an output can express. What the endgame still owes is not a structure but a *consumer* — `serve` walking the fanout instead of rebuilding the world (§7), which is the item that turns §2's typed keys from a design into machinery.
+Recorded rather than quietly deleted, because the entries outlived the work.
+
+- **The objects dispatch** closed in two halves. The VIEW half went when
+  `build_object_view` became three parameters on one materializer (§5c's *One
+  materializer*): `group_by` and `paginate` work over objects and the
+  `object-grouping` fixture proves it. The LOAD half went at **IO.md I7e**: the
+  object row constructor is the row constructor, and `object_ix` keys off the
+  extension fact (§3). What remains is not a dispatch — it is the two facts an
+  object still differs by, both parameters a caller passes: the narrow
+  `object_schema` vocabulary, and `rendered: false`.
+- **The single tree** (§3's endgame: one table, views as partitions). **The walk
+  half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone,
+  `store::walk_tree` is the one walk, and membership is first-rule-wins over
+  one ordered sequence of scopes (§3). Both measured obstacles are settled
+  rather than outstanding: the `.`/`_` skip **survives**, and the "six
+  underscore directories need explicit excludes" cost was **amended, not paid**
+  — a declared `source` punches through the skip, so `_posts` and `_drafts`
+  are walked because a scope named them and `_tools`/`_hidden`/`_includes`
+  stay out because nothing did, with no `exclude` line anywhere. *(The third
+  obstacle — `filename_formats` per-collection where it wants to be per-rule —
+  went at IO.md I6; §4's Route tokens: one supplier carries it, and the
+  collection key survives as the default its rules inherit.)* **The table half
+  is built too, as of IO.md I7e**: there is one row constructor — an image
+  takes rule defaults, marker defaults, schema validation and rung 0 like
+  every other row — and the three key lists are keyed off facts rather than
+  off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i):
+  `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two
+  sides of membership — so "views as partitions" is a query on the half that
+  may be queried (`output`, `alternates`) and a column on the half that may
+  not (arrangement is what membership produces, so selection may not read it).
+  **And the GRAPH is built, as of IO.md I10** (§5j): the same columns read as
+  nodes and edges, one graph with two edge kinds, cycles refused at load.
+  **And the ADDRESS model is built, as of IO.md I11** (§5k): an output has two
+  slots, a rule decides which one it fills, and the citation's form decides
+  which one it takes — which is the point at which the base stopped minting a
+  URL for every image on every site that inherited it. **And the last table
+  tag is as gone as it can be, as of IO.md I13** (§5b's *The column SURVIVES*):
+  every `kind == View` test in the engine now reads the `view` column, and
+  what is left of the enum is a config-visible column with two live filters on
+  grack.com and one internal dispatch — post-vs-page — that no fact on an
+  output can express. The remaining *consumer* is `serve` walking the fanout
+  (`TODO-1.0.md`).
 
 ## 10. Phasing (each phase has a checkable exit)
 
@@ -3284,7 +3327,11 @@ Three merges unified distinctions that were never real: two row flows became one
 
 ## 11. Open questions (to iterate on)
 
-Only OPEN questions live here; a settled question moves its design into the section that carries it and leaves one line in the ledger below, so `qNN` references elsewhere in this document always resolve. Numbers are never reused.
+Only OPEN *design* questions live here — not a task list; `TODO-1.0.md` is
+the release checklist. A settled question moves its design into the section
+that carries it and leaves one line in the ledger below, so `qNN` references
+elsewhere in this document always resolve. Numbers are never reused. Where a
+question has 1.0 exposure it also has one line in `TODO-1.0.md`.
 
 1. **Dependency tracking**: hand-rolled typed invalidation keys vs `salsa`. Leaning hand-rolled — at this scale precision bugs are cheaper than framework complexity.
 2. **Row version**: content hash vs mtime+size vs mtime-then-hash pre-check (specced).

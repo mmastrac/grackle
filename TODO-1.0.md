@@ -1,10 +1,12 @@
 # grackle 1.0 — the list
 
 The release checklist. MERGE.md and IO.md's ledgers are closed; their
-remaining Matt-only calls live here. `DESIGN.md` §11 is the authority for
-open *design* questions — where a question has 1.0 exposure it gets one
-line here and a pointer, never a copy. `GRAVEYARD.md` holds the compressed
-prose the design docs gave up.
+remaining Matt-only calls live here. This file is the **only** pending task
+list. `DESIGN.md` §11 is the authority for open *design* questions — where a
+question has 1.0 exposure it gets one line here and a pointer, never a copy.
+`THEME.md` and `themes/DESIGN.md` are specs the checkboxes below point at;
+they carry no second list. `GRAVEYARD.md` holds the compressed prose the
+design docs gave up.
 
 Ordering is rough priority within each group, not across groups. Items
 marked *(from doc prose)* were harvested from documentation, not read out
@@ -41,6 +43,15 @@ of the code — check them before acting.
       each part, which fragment placed it, and **which parts nothing placed**.
       The last is a partial answer to q50's forgotten-vs-deliberate hole that
       needs no settlement first.
+
+## Assembly (THEME.md)
+
+The row-face / listing-as-concat model is built. What remains:
+
+- [ ] **Fold `light_html` into the chain** — today it stays a separate map-shell
+      path; THEME.md §4 names the gap.
+- [ ] **Collapse `variant` / `layout` to one face key** — both name the member
+      face; keep both only while corpora need the override. (THEME.md §6)
 
 ## The theme ladder and distribution
 
@@ -146,6 +157,15 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
       scoped to the selector and silently not apply. Needs a documented
       constraint or a load-time error, because the failure is invisible. Rides
       with the `.style.scss` decision. (§5b)
+- [ ] **The md shell** — markdown serialization of part maps; forcing consumer
+      is `/llms.txt` (today a script-shell experiment). (§5g)
+- [ ] **Home and the manual lift to landings** — home is still the queryless
+      landing (`route = "/"`, `content = "index.html"`); the manual waits for
+      the section tree to be a landing's listing. The example search's
+      `stem != "index"` filter survives until they do. (§5h)
+- [ ] **`serve` walks the fanout** — `Graph::fanout` / `Graph::pull` are built
+      (§5j); serve still re-renders the whole map. The item that turns §2's
+      typed keys from a design into machinery. (§7, §9b)
 
 ## §11 questions with 1.0 exposure
 
