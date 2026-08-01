@@ -1,66 +1,18 @@
-//! The shell axis (IO.md §4): one vocabulary, one validator, two families.
-//!
-//! A shell is a function from content to final bytes. Until IO.md I2 the
-//! engine held two vocabularies behind an artificial wall — a ROW tier ladder
-//! (`none`/`light`/`html`, checked in `load::cascade`) and a VIEW
-//! serialization set (`atom`/`sitemap`/`search` plus `[shells.*]` script
-//! shells, checked in `Config::check`). Nothing joined them, so `shell` meant
-//! two things in one word and neither checker knew the other's values.
-//!
-//! They were never two axes. They are one axis split by **arity**:
-//!
-//! - **map shells** consume ONE output and emit one file each: [`MAP`].
-//! - **fold shells** sit on a query over outputs, consume the collection, and
-//!   emit one artifact: [`FOLD`], plus every registered script shell.
-//!
-//! Arity is a hard contract, and it is what the two checks below enforce: a
-//! row (or a per-member route) is one output, so it takes a map shell; a view
-//! is a query, so it takes a fold shell. Identity is the SOFT contract — an
-//! identity-less file under `html` becomes a degenerate row (IO.md §1, Matt
-//! 2026-07-27), and since I7c that softness is stated here too, as
-//! [`renders`]: the one law that says whether a row is a document at all.
-//!
-//! The retired spellings (`none` → `raw`, `light` → `light_html`) get no
-//! teaching error: MERGE.md §4 makes retired spellings hard cutoffs, and no
-//! site ships. They are simply not in the vocabulary, and the error naming the
-//! knowns is the only thing a typo gets.
+//! Shell axis (IO.md §4): map shells wrap one output; fold shells serialize a query.
 
 use anyhow::{bail, Result};
 use std::path::Path;
 
-/// Map shells: one output in, one file out. Legal on a row, and on a
-/// per-member route (an axis over `shell` is one row serialized several ways —
-/// each member is still one output).
-///
-/// `raw` is the transparent one: it emits the output verbatim, wrapper-free,
-/// and is what today's static passthrough and object byte-copies are.
-/// `light_html` is the html shell with no theme root merged.
+/// Map shells: one output in, one file out.
 pub const MAP: &[&str] = &["raw", "html", "light_html"];
 
-/// Fold shells the engine ships. A site adds more by registering
-/// `[shells.<name>] command = "…"`, which is why every fold check takes the
-/// registered names beside these.
+/// Built-in fold shells. Script shells register via `[shells.*]`.
 pub const FOLD: &[&str] = &["atom", "sitemap", "search"];
 
-/// What a view route with no `shell =` leaves through (IO.md §3: `shell` is
-/// "the serialization it left through", and a listing leaves through HTML).
-///
-/// It is a MAP shell name on a FOLD-shaped declaration, and that is not a
-/// contradiction: an undeclared view materializes one HTML document per
-/// route — `paginate` and `group_by` fan it out — so the arity of what it
-/// EMITS is one file per output, the map arity. The declaration slot is
-/// reserved for folds because that is the only thing a view can say that the
-/// route set does not already answer.
+/// Default when a view omits `shell =` (IO.md §3).
 pub const VIEW_DEFAULT: &str = "html";
 
-/// The **document family**: the map shells that wrap an output in an HTML
-/// document. A subset of [`MAP`] — `raw` is the transparent one and wraps
-/// nothing — and the set [`renders`] reads.
-///
-/// It is a named set rather than two literals because the law below is a
-/// statement about a FAMILY: the future `md` shell will have to decide whether
-/// it joins, and a `matches!(s, "html" | "light_html")` at the one call site
-/// would let it join by omission.
+/// Map shells that wrap HTML documents. Named set so future shells must opt in explicitly.
 pub const DOCUMENT: &[&str] = &["html", "light_html"];
 
 pub fn is_map(name: &str) -> bool {
@@ -71,48 +23,13 @@ pub fn is_document(name: &str) -> bool {
     DOCUMENT.contains(&name)
 }
 
-/// **The rendering law** (IO.md §1 and §4, I7c): a row renders iff its file
-/// carries a front-matter **block**, or a rule sent it through a document shell.
-///
-/// Both halves are load-bearing and neither implies the other, which is why the
-/// law is a disjunction rather than either clause on its own:
-///
-/// - **A block alone is not enough to say `raw`.** A front-mattered file
-///   wearing `shell = "raw"` is a document the pipeline renders and the
-///   `raw` shell then emits verbatim — `examples/field-notes`' `demos/pane.html`
-///   is the live one. A law spelled "the shell decides" would byte-copy it, and
-///   what a byte copy of a front-mattered file ships is the `---` block.
-/// - **`shell` alone is not enough to say "no identity, no document".** That
-///   second clause IS the degenerate row (IO.md §1): an identity-less file that
-///   rules send through `html`/`light_html` renders anyway — a warning, never an
-///   error, with its title implied from its slug. `_drafts/caret/…` on grack.com
-///   is the corpus's one.
-///
-/// An identity-less file routed `raw` is the ordinary byte row, and gets no
-/// warning: that is the normal case, not a degenerate one.
-///
-/// **It takes the block, not the identity fact** (IO.md I8), and the two stopped
-/// being the same bit when sidecars landed. A block is *in* the file, so a file
-/// with one is a document whose remainder is a body; a sidecar is a second file
-/// and says nothing about the first one's bytes. That is the split §3 calls the
-/// feature — "a `.png` with a sidecar is a governed row whose bytes are never
-/// parsed" — and it lives here, in one parameter name, rather than in a caller's
-/// discretion.
+/// Row renders iff it has a front-matter block or a document shell (IO.md §1, I7c).
+/// Takes the block, not identity: sidecars grant identity without a block (IO.md I8).
 pub fn renders(has_block: bool, shell: Option<&str>) -> bool {
     has_block || shell.is_some_and(is_document)
 }
 
-/// The law's second clause standing alone: the row that renders WITHOUT
-/// identity — IO.md §1's **degenerate row**. Hands back the document shell that
-/// made it one, so the warning can name it.
-///
-/// A predicate would have been enough for the branch and not for the message,
-/// and the message is most of what a warning is. It also removes the corner
-/// where a caller has to default a shell name it can prove is present.
-///
-/// **This one takes IDENTITY**, where [`renders`] takes the block: the warning
-/// exists to nudge an unnamed row towards a name, and a sidecar is a name. Two
-/// questions about one row, and since IO.md I8 they can disagree.
+/// Identity-less row that still renders via a document shell (IO.md §1). Returns the shell for the warning.
 pub fn degenerate(has_identity: bool, shell: Option<&str>) -> Option<&str> {
     shell.filter(|s| !has_identity && is_document(s))
 }
@@ -125,9 +42,6 @@ fn list(names: &[&str]) -> String {
     names.join(", ")
 }
 
-/// What a fold shell eats, for the error a row wearing one gets (IO.md §4's
-/// sentence: "a row wearing `shell = atom` is a load error naming what atom
-/// eats").
 fn eats(name: &str) -> &'static str {
     match name {
         "atom" => "a feed's worth of entries",
@@ -137,8 +51,6 @@ fn eats(name: &str) -> &'static str {
     }
 }
 
-/// The check a ROW's `shell` takes, wherever the cascade produced it — front
-/// matter, a marker, or a rule default.
 pub fn check_row(name: &str, whose: &Path) -> Result<()> {
     if is_map(name) {
         return Ok(());
@@ -161,14 +73,7 @@ pub fn check_row(name: &str, whose: &Path) -> Result<()> {
     );
 }
 
-/// The check a per-member route's shell takes: an `[axes.*]` whose `field` is
-/// `shell` declares the serializations its members leave through, and a member
-/// is one output, so the values are map shells.
-///
-/// Without this the axis values would reach `build.rs` unchecked and a retired
-/// or misfamilied one would render the WRONG TIER in silence — the exact
-/// failure `load::cascade`'s check has always existed to stop, on the one path
-/// that never went through it.
+/// Per-member route shell check: axis values are map shells only.
 pub fn check_axis_value(name: &str, axis: &str) -> Result<()> {
     if is_map(name) {
         return Ok(());
@@ -213,28 +118,7 @@ pub fn check_view(name: &str, view: &str, registered: &[&str]) -> Result<()> {
     bail!("view {view}: unknown shell {name:?} — a view takes a {folds}");
 }
 
-/// The check a view with **no `from`** takes (IO.md §4, I3).
-///
-/// "A fold shell with no `from` reads all outputs" is §4's sentence, and it is
-/// the successor to the retired `from = "*"` — a respelling, not a new power:
-/// the pool a star view read is the pool this reads.
-///
-/// Absent-`from` is legal exactly where the shell is a fold, because the two
-/// families answer the question differently. A fold sits on a query over
-/// outputs, so "all of them" is a query it can serialize. A map shell wraps
-/// ONE output, so a view wearing one is a listing, and a listing has to say
-/// what it lists — including the undeclared view, whose shell is
-/// [`VIEW_DEFAULT`].
-///
-/// `registered` is `[shells.*]`, as in [`check_view`]: a script shell is a
-/// fold by arity — but only the ENGINE's folds may be `from`-less, which is
-/// the narrowing IR1(a) lands. The engine's folds read the output pool
-/// themselves (`resolve_pool_folds` fills `route_members`); a script shell is
-/// fed the row projection its view selected, so a `from`-less one is handed
-/// `rows: []` and publishes an empty payload at a URL the author asked a query
-/// for — the same silent-empty disease one family over. IO.md §4 gives a
-/// script shell a `pulls = "inputs" | "outputs"` declaration later; until it
-/// lands, a script shell eats rows and has to be told which ones.
+/// View with no `from` (IO.md §4, I3). Only engine fold shells may omit `from`; script shells need a pool.
 pub fn check_absent_from(shell: Option<&str>, view: &str, registered: &[&str]) -> Result<()> {
     if shell.is_some_and(is_fold) {
         return Ok(());
@@ -262,12 +146,7 @@ pub fn check_absent_from(shell: Option<&str>, view: &str, registered: &[&str]) -
     )
 }
 
-/// A registered script shell may not take a name the engine already owns.
-///
-/// It would be a shell nobody could reach: `check_view` answers from the
-/// built-in vocabulary first, so `[shells.atom]` would be shadowed and
-/// `[shells.html]` would be rejected as a map shell — either way the command
-/// never runs and nothing says so.
+/// Built-in names shadow registered script shells.
 pub fn check_registered_name(name: &str) -> Result<()> {
     if is_map(name) || is_fold(name) {
         bail!(

@@ -1,20 +1,4 @@
-//! Compiling declared relations (DESIGN.md §6g).
-//!
-//! Each collection's neighbour lists — `earlier`, `later`, `related`,
-//! `linked_from`, and whatever a site invents — are small queries over a
-//! **two-row environment** (`self` and `candidate`). This module turns the
-//! config into type-checked, dependency-ordered [`Relation`]s on the db; the
-//! engine (grackle crate) evaluates them per row at build.
-//!
-//! Defaults live in `base.toml` on the posts and tree collections (§4d), not
-//! here — the same move as `[sets.published]` for draft/hidden. This module
-//! only compiles what the merged config declared.
-//!
-//! What happens here, and why here: parsing and type-checking are load-time
-//! (§5f), so a `where` naming a field no row has, or a `rank` that is not a
-//! number, or a reference cycle, is a startup error naming the relation —
-//! never a render surprise. Evaluation is deferred, because it needs the
-//! embedding vectors and the link graph, which live at build.
+//! Compile collection relations at load time (DESIGN.md §6g). Evaluation deferred to build.
 
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, HashMap};
@@ -25,27 +9,15 @@ use grackle_model::{two_row_schema, Pool, RelLabel, Relation, SiteDb, DERIVED_RE
 use crate::config::{Config, LocalizedStr, RelationCfg};
 use crate::schema::Schemas;
 
-/// Compile every collection's relations onto `db.relations`, in dependency
-/// order. Runs after `build_views`, so the sets a relation ranges `from` are
-/// already resolved.
 pub(crate) fn build_relations(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<Relation>> = BTreeMap::new();
     for (cname, c) in &cfg.collections {
-        // Declared only — base.toml ships the usual four on posts (and
-        // `linked_from` on the tree); a site overrides per NAME (§6g).
         if c.relations.is_empty() {
             continue;
         }
         let specs: &BTreeMap<String, RelationCfg> = &c.relations;
 
-        // The two-row schema every expression here type-checks against: the
-        // base fields under `self.`/`candidate.`, plus every relation name of
-        // THIS collection as a list. Declared `.schema.toml` fields join the
-        // base so `self.course` resolves (§6g same_course).
         let names: Vec<String> = specs.keys().cloned().collect();
-        // One row schema for every collection — an object is a `Row` like any
-        // other (IO.md §3), so its `self`/`candidate` vocabulary is the same
-        // one every other row answers.
         let base = schemas.row_filter_schema();
         let schema = two_row_schema(&base, &names);
 
@@ -71,16 +43,6 @@ fn compile_one(
     schema: &filter::Schema,
 ) -> Result<Relation> {
     let pool = resolve_pool(cfg, db, cname, rc.from.as_deref())?;
-    // A relation's predicate is the one the config wrote, full stop. The engine
-    // used to AND `!candidate.draft && !candidate.hidden` onto a defaulted
-    // `from` that fell back to the bare collection, so a dated draft could not
-    // become somebody's Later post — the engine composing a query about two
-    // field names it had no business knowing.
-    //
-    // The guarantee lives in the base config: `[sets.published]` filters the
-    // pool, and the base's relation blocks write `from = "published"`
-    // explicitly. Absent `from` means the collection itself — no set name is
-    // special-cased here.
     let where_src = match rc.filter.as_deref() {
         Some(f) => f.to_string(),
         None => "*".to_string(),
@@ -106,20 +68,12 @@ fn compile_one(
         filter,
         rank,
         min_rank: rc.min_rank,
-        // No `limit` means the whole list — `linked_from` shows every citation;
-        // `earlier`/`later`/`related` set their windows.
         limit: rc.limit.unwrap_or(usize::MAX),
         label: resolve_label(rc.label.as_ref(), name),
     })
 }
 
-/// Resolve `from` to a candidate pool. A derived name is row-relative; a set
-/// or collection is a fixed list.
-///
-/// An explicit `from` must resolve or it is a load error. An ABSENT one means
-/// the collection itself — sites that want a filtered pool (the base's
-/// `published` set) write `from = "published"`. Nothing is ANDed onto either:
-/// the pool is a query the config wrote.
+/// Absent `from` means the collection itself; filtered pools come from explicit set names.
 fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, from: Option<&str>) -> Result<Pool> {
     let Some(name) = from else {
         return Ok(Pool::Collection(cname.to_string()));
@@ -127,7 +81,6 @@ fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, from: Option<&str>) -> R
     if DERIVED_RELATIONS.contains(&name) {
         return Ok(Pool::Derived(name.to_string()));
     }
-    // A set is a routeless view resolved to one member list.
     if db.views.contains_key(name) {
         return Ok(Pool::Set(name.to_string()));
     }
@@ -144,10 +97,7 @@ fn resolve_pool(cfg: &Config, db: &SiteDb, cname: &str, from: Option<&str>) -> R
     );
 }
 
-/// A relation's heading (§6g). Absent = `@NAME`, the string key equal to the
-/// relation's own name — so a site that declares `same_course` gets a
-/// `same_course` label key for free and only writes strings for the locales
-/// it cares about.
+/// Absent label = `@NAME` (the relation's own name as i18n key).
 fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
     match label {
         None => RelLabel::Key(name.to_string()),
@@ -164,19 +114,11 @@ fn resolve_label(label: Option<&LocalizedStr>, name: &str) -> RelLabel {
     }
 }
 
-/// Order relations so each evaluates after the ones it names. `related`
-/// references `earlier`/`later`, so it must follow them; a reference cycle is
-/// a load error, never a render-time surprise. The initial order prefers the
-/// base's conventional names when present (a stable seed, not a requirement),
-/// then the rest alphabetically — and the sort is stable within it.
 fn order_by_dependency(
     cname: &str,
     mut compiled: HashMap<String, Relation>,
     names: &[String],
 ) -> Result<Vec<Relation>> {
-    // Deps of a relation = the OTHER relation names its where/rank read, plus
-    // its pool if the pool names one. Derived names are always available, so
-    // they impose no ordering (they are not in `names`).
     let name_set: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
     let deps_of = |r: &Relation| -> Vec<String> {
         let mut fields = r.filter.referenced_fields();
@@ -192,8 +134,6 @@ fn order_by_dependency(
             .collect()
     };
 
-    // Prefer the base convention's reading order when those names exist, then
-    // any others in the sorted order `names` already carries.
     let mut initial: Vec<String> = Vec::new();
     for d in ["earlier", "later", "related", "linked_from"] {
         if compiled.contains_key(d) {
@@ -206,8 +146,6 @@ fn order_by_dependency(
         }
     }
 
-    // Stable topological sort: repeatedly emit the first not-yet-emitted node
-    // whose deps are all emitted. None emittable with nodes left ⇒ a cycle.
     let mut emitted: Vec<String> = Vec::new();
     while emitted.len() < initial.len() {
         let next = initial.iter().find(|n| {

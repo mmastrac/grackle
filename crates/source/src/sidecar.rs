@@ -1,28 +1,5 @@
-//! Sidecar files: identity for a file that cannot carry a block (IO.md I8).
-//!
-//! IO.md §1 says identity comes from front matter — "a literal block, or a
-//! sidecar file" — and §3 says what the second spelling buys: **sidecars split
-//! identity from parsing**. A `.png` with a sidecar is a governed row (declared
-//! fields, schema-validated, a title, a place in the link graph) whose bytes are
-//! never parsed. Which facts a file has and what the pipeline does with it are
-//! separate questions with separate answers.
-//!
-//! **The spelling is the pair, not the name.** `photo.png.toml` beside
-//! `photo.png` is that file's sidecar; a `x.toml` with no `x` beside it is an
-//! ordinary file, content like any other. Identifying a sidecar by its
-//! *companion* rather than by a name pattern is what keeps `Cargo.toml`,
-//! `netlify.toml` and `.schema.toml` out of the mechanism without a list of
-//! exceptions to maintain — and DESIGN.md q49's rider ("what this must NOT do:
-//! infer page-vs-component from absence") is the reason it is a pair test and
-//! not a heuristic over the stem.
-//!
-//! **A sidecar is a declaration, so it is read on the declaration walk** —
-//! `store::walker_declarations`, beside markers and `.schema.toml`. That
-//! placement is a decision (IO.md IR6's world) and it is load-bearing: a
-//! file-shaped `exclude` pattern is a statement about *content*, and grack.com's
-//! `exclude` lists `*.toml`. Reading sidecars on the content walk would let that
-//! one line silently unspeak every sidecar on the site — MERGE.md R1's narrowing,
-//! at the newest declaration family.
+//! Sidecar files: TOML identity beside a companion file (IO.md I8).
+//! Read on the declaration walk so `*.toml` excludes do not drop them (MERGE.md R1).
 
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
@@ -30,53 +7,33 @@ use std::path::{Path, PathBuf};
 
 use crate::store::FrontMatter;
 
-/// What a sidecar's name adds to the file it speaks for.
 const SUFFIX: &str = ".toml";
 
-/// The file `path` is a sidecar FOR, if its name has the sidecar shape.
-///
-/// Purely lexical — whether that file exists is the caller's question, and it
-/// is the one that decides whether this is a sidecar at all.
+/// Lexical companion path; existence is the caller's check.
 fn companion(path: &Path) -> Option<PathBuf> {
     let name = path.file_name()?.to_str()?;
     let stem = name.strip_suffix(SUFFIX)?;
-    // `.toml` alone speaks for nothing; `.schema.toml` speaks for `.schema`,
-    // which no site has, so the pair test declines it without naming it.
+    // `.toml` alone speaks for nothing; `.schema.toml` speaks for `.schema`.
     (!stem.is_empty()).then(|| path.with_file_name(stem))
 }
 
-/// One sidecar, parsed.
 pub struct Sidecar {
-    /// The sidecar file itself — absolute, so a schema error names the file the
-    /// author has to edit rather than the file it speaks for.
+    /// Absolute path for schema errors (the file the author edits).
     pub path: PathBuf,
-    /// Exactly what a `---` block would have said (see [`FrontMatter`]).
     pub front: FrontMatter,
-    /// The sidecar's own change stamp, folded into its row's `version` so that
-    /// editing a sidecar invalidates the row it governs. A row's identity lives
-    /// in this file; a `version` that ignored it would report a row unchanged
-    /// after its title changed.
+    /// Folded into the row's `version` when identity lives here.
     pub version: u64,
 }
 
-/// Every sidecar the declaration walk found, keyed by the file it speaks for.
 #[derive(Default)]
 pub struct Sidecars {
-    /// Root-relative content path -> its sidecar.
     by_file: HashMap<PathBuf, Sidecar>,
-    /// Root-relative sidecar paths, so the content walk can refuse to route
-    /// them — the statement `Markers::is_marker` makes one declaration family
-    /// over. Positional in the same sense: what makes this file not content is
-    /// where it sits (beside the file it declares), not what it is called.
+    /// Sidecar paths the content walk must not route.
     files: HashSet<PathBuf>,
     pub found: usize,
 }
 
 impl Sidecars {
-    /// Offer one file found by the declaration walk. Returns whether it was a
-    /// sidecar.
-    ///
-    /// `path` is absolute (the walk's), `rel` root-relative.
     pub fn offer(&mut self, path: &Path, rel: &Path) -> Result<bool> {
         let (Some(abs), Some(companion)) = (companion(path), companion(rel)) else {
             return Ok(false);
@@ -103,12 +60,10 @@ impl Sidecars {
         Ok(true)
     }
 
-    /// The sidecar speaking for a row, given its **root-relative** path.
     pub fn get(&self, rel: &Path) -> Option<&Sidecar> {
         self.by_file.get(rel)
     }
 
-    /// Is this file a sidecar — i.e. a declaration rather than content?
     pub fn is_sidecar(&self, rel: &Path) -> bool {
         self.files.contains(rel)
     }

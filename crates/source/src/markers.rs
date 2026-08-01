@@ -1,9 +1,4 @@
-//! Marker files: defaults declared by the tree (DESIGN.md §4b).
-//!
-//! A `.hidden` file makes its directory and everything below it hidden. The
-//! config says what a marker means; the tree says where it applies.
-//!
-//! Resolution is the same shape as bucket lookup (§6a): walk up, nearest wins.
+//! Marker files: tree-declared defaults (DESIGN.md §4b). Nearest directory wins.
 
 use anyhow::{bail, Result};
 use serde::Deserialize;
@@ -12,30 +7,13 @@ use std::path::{Path, PathBuf};
 
 pub type Defaults = BTreeMap<String, toml::Value>;
 
-/// What one marker MEANS: the defaults `[markers] ".draft" = { … }` declares
-/// for the marker of that filename.
-///
-/// A newtype over the payload, `#[serde(transparent)]` so the TOML is
-/// unchanged, because the wrapper is a statement about the MERGE (MERGE.md §7
-/// q10): a marker's meaning is a *definition* under a user-chosen name — the
-/// filename — and Law 2 stops at definitions, so a site redeclaring `.draft`
-/// says what `.draft` means, whole. The bare `BTreeMap<String, toml::Value>`
-/// said the opposite by structure (a map of maps descends twice, composing a
-/// meaning out of two files); DESIGN.md §4d has always listed `[markers]`
-/// among the registries that shadow by name, entry whole. The type says it
-/// now, so `config::merge_base` can read the law off it rather than be told.
+/// Marker meaning is a definition (MERGE.md §7): whole entry shadows by filename.
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
 pub struct MarkerDef(pub Defaults);
 
-/// Which marker file set each key, per directory. Lives only as long as a
-/// scan: nothing downstream needs a key's provenance, only the collision
-/// check below does.
 type Writers = HashMap<PathBuf, BTreeMap<String, String>>;
 
-/// "`.draft` says true, `.retired` says false" — the two markers claiming one
-/// key, ordered by filename so the message reads the same however the walk
-/// happened to find them (the declaration walk is unsorted).
 fn conflict(a: &str, av: &toml::Value, b: &str, bv: &toml::Value) -> String {
     let mut both = [(a, av), (b, bv)];
     both.sort_by(|x, y| x.0.cmp(y.0));
@@ -47,25 +25,13 @@ fn conflict(a: &str, av: &toml::Value, b: &str, bv: &toml::Value) -> String {
 
 #[derive(Debug, Default)]
 pub struct Markers {
-    /// Root-relative directory -> the defaults its markers declare.
     by_dir: HashMap<PathBuf, Defaults>,
-    /// Marker filenames, so the tree walk can refuse to route them.
     names: Vec<String>,
     pub found: usize,
 }
 
 impl Markers {
-    /// Scan the tree for marker files.
-    ///
-    /// Deliberately does not honour the dotfile/underscore skip: markers *are*
-    /// dotfiles, and they live under `_posts`, so that skip would hide the very
-    /// thing we're looking for. The other two §4c layers do apply —
-    /// `.gitignore` is what keeps this walk out of `_site*`, `vendor` and
-    /// `target` (without some form of pruning it costs ~80ms instead of ~6ms),
-    /// and `exclude` keeps it out of an embedded site that is not this one,
-    /// and the positional layer keeps it out of `themes/` (IO.md IR6).
-    /// `store::walker_declarations` owns all three. Only names are inspected;
-    /// no file is read.
+    /// Uses `walker_declarations`: markers are dotfiles under `_posts`, etc.
     pub fn scan(
         root: &Path,
         cfg: &BTreeMap<String, MarkerDef>,
@@ -99,21 +65,7 @@ impl Markers {
         Ok(m)
     }
 
-    /// Fold one marker file's defaults into the directory it sits in.
-    ///
-    /// Two markers in one directory setting **different** keys compose —
-    /// that is the point of having more than one marker. Two setting the
-    /// **same** key do not: `defaults_for` walks *directory levels*, and
-    /// nearness ranks levels, not files at one level. Whichever the walk
-    /// reached last would win, which from the config's point of view is no
-    /// answer at all. So a disagreement here is the error (MERGE.md A5).
-    ///
-    /// Agreement is not a disagreement: two markers writing the same value
-    /// for one key leave the directory with the same defaults whatever the
-    /// order, so the walk's arbitrariness is unobservable and there is
-    /// nothing to rank. That is the line `check_positional_collision` draws
-    /// for `.schema.toml` too (A4) — the error is the *unrankable
-    /// disagreement*, not the second writer.
+    /// Same key from two markers in one directory is an error (MERGE.md A5); disjoint keys compose.
     fn fold(
         &mut self,
         dir: &Path,
@@ -124,8 +76,6 @@ impl Markers {
         let slot = self.by_dir.entry(dir.to_path_buf()).or_default();
         let wrote = writers.entry(dir.to_path_buf()).or_default();
         for (k, v) in defaults {
-            // `wrote` and `slot` are written together below, so a key in one
-            // of them is in the other.
             if let (Some(prev), Some(prev_v)) = (wrote.get(k), slot.get(k)) {
                 if prev_v != v {
                     let place = if dir.as_os_str().is_empty() {
@@ -156,10 +106,6 @@ impl Markers {
             .unwrap_or(false)
     }
 
-    /// Defaults for a row, given its **root-relative** path.
-    ///
-    /// Walks up from the row's directory; first writer wins per key, so the
-    /// nearest marker shadows a shallower one.
     pub fn defaults_for(&self, rel: &Path) -> Defaults {
         let mut out = Defaults::new();
         if self.by_dir.is_empty() {
@@ -317,7 +263,7 @@ mod tests {
             "blog",
             &[
                 (".featured", payload(&[("theme", s("b"))])),
-                (".draft", payload(&[("theme", s("a"))])),
+                (".draft", payload(&[("draft", true.into()), ("theme", s("a"))])),
             ],
         )
         .expect_err("still a conflict the other way round")

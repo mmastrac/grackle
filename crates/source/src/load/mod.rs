@@ -1,7 +1,4 @@
-//! The load: one walk of the site, and the rows it produces.
-//!
-//! Reads the tree, applies collection rules, routes every row, and hands the
-//! result to `SiteDb::insert_rows` — the only way into the database.
+//! One walk of the site; rows, routes, and `SiteDb::insert_rows`.
 
 mod join;
 mod walk;
@@ -29,21 +26,11 @@ struct CompiledRule<'a> {
     route: &'a [String],
     front_matter: Option<bool>,
     on_demand: bool,
-    /// IO.md §4a: this rule declines to route — the embed policy addresses
-    /// its rows. The other half of `route`, and read in the same place.
     embed: bool,
     pattern: &'a str,
-    /// This rule's own extractors, compiled. Empty means "the collection's",
-    /// which [`apply_rules`] resolves — the rule holds what it DECLARED, so
-    /// first-writer-wins can tell silence from a list.
     formats: Vec<filename::FilePattern>,
     defaults: &'a BTreeMap<String, toml::Value>,
-    /// From the base config rather than the site's own file (§4d).
     inherited: bool,
-    /// Whether the walk ever found this rule eligible for a row — the corpus
-    /// answering the glob. Written as the rows go past, read once afterwards
-    /// by [`dead_rules`]; a `Cell` because the rule list is shared (`&[…]`)
-    /// across a walk that only ever visits one row at a time.
     governed: Cell<bool>,
 }
 
@@ -55,12 +42,7 @@ fn compile_rules<'a>(
         .iter()
         .map(|r| {
             Ok(CompiledRule {
-                // Case-INSENSITIVE, and for every rule of every scope
-                // (IO.md I7a): a `match` glob names a KIND of file and the
-                // shift key is not part of the kind. Objects forced it —
-                // their membership is a glob now (below) where it used to be
-                // a lowercased extension scan, and `after-theme-hack.PNG` is
-                // the corpus row that tells the two apart.
+                // Case-insensitive: a glob names a kind of file; shift key is not part of kind.
                 matcher: GlobBuilder::new(&r.pattern)
                     .case_insensitive(true)
                     .build()
@@ -80,8 +62,6 @@ fn compile_rules<'a>(
         .collect()
 }
 
-/// One declared `file` list, compiled. Once per rule (and once per
-/// collection, for the default), never per row.
 fn compile_formats(
     formats: &[String],
     axes: &filename::AxisValues<'_>,
@@ -92,32 +72,7 @@ fn compile_formats(
         .collect()
 }
 
-/// The site's own rules that governed no row — DESIGN.md §4's promised
-/// **"Dead rule (matches zero rows) → warning"**, which nothing provided
-/// before MERGE.md C3.
-///
-/// A warning and not an error, on the doc's word: a rule may be written for
-/// content that has not landed yet, and an empty `_posts/` is documented as
-/// legal (§4d). It reports what the corpus said, so it is computed here —
-/// after the walk — rather than guessed from the glob's text.
-///
-/// **Only rules the site WROTE are reported**, which is what
-/// [`crate::config::Rule::inherited`] is for. The base's globs are not the
-/// author's to fix and go dead for perfectly ordinary reasons: `examples/
-/// minimal` has no `index.md`, so the base's `**/index.{html,md}` matches
-/// nothing there, and a site with no `_posts/` never asked for a rule over it.
-/// Warning about those would put a permanent, unfixable line on every
-/// base-inheriting site, which is how a warning stops being read.
-///
-/// "Matched zero rows" means *eligible for* zero rows: a rule gated
-/// `front_matter = false` in a tree of nothing but pages governs nothing,
-/// whatever its glob would say on its own.
-///
-/// A collection that produced NO rows reports nothing either (`found`), for
-/// the same reason and one level up: a rule is dead relative to a corpus, and
-/// an absent `_posts/` (or a site with no images) is a statement about the
-/// source, not about any one glob. Three warnings for one missing directory
-/// would bury the case this is for.
+/// Dead rule warning (DESIGN.md §4): site-written rules only; skip inherited and `found == 0`.
 fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<String> {
     if found == 0 {
         return Vec::new();
@@ -135,45 +90,7 @@ fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<Str
         .collect()
 }
 
-/// A scope whose source held files and that claimed none of them (IO.md IR8).
-///
-/// This is the hole [`dead_rules`]' `found == 0` early return leaves, and I7d's
-/// **a scope owns its source** is what makes the hole matter: what a sourced
-/// scope does not claim is not content and leaves the walk without a word. So a
-/// typo'd glob — `match = "**/*.markdwn"` over a full `_posts/` — used to be a
-/// load error (`load_dir` read the directory and demanded rows) and became a
-/// clean, silent build with an empty blog. Silently emptying a blog is the
-/// disease this ledger exists to refuse.
-///
-/// **The key is `offered > 0 && found == 0`**, and the denominator is the whole
-/// point. `found == 0` alone cannot tell a typo from the two shapes that are
-/// documented legal and must stay silent:
-///
-/// - an **absent** source — §4d's site with no `_posts/`, which pays nothing;
-/// - an **empty but present** source — a directory waiting for its first post.
-///
-/// Both offer zero files, so both stay silent, and neither needs an exception.
-///
-/// **Only scopes with a PROPER source** ([`Scope::owned`]), which is where the
-/// narrowing lives. A sourceless scope (objects) selects by shape and owns
-/// nothing, so "asked about a file it did not want" is its ordinary day — the
-/// mutation admitting it puts a line on four existing warning fixtures. The
-/// root scope is excluded by the same call and is unreachable anyway: it is
-/// asked only when no owner stopped the search, so a file it declines is the
-/// engine's own *no rule supplies a route* error rather than a silent drop.
-///
-/// A warning and not an error, for `dead_rules`' reason one level up: a source
-/// holding nothing but assets is legal (an `_drafts/caret/` bundle of images
-/// under a scope that claims markdown), and the author may be mid-move. Reported
-/// for inherited scopes too, unlike a dead rule: the base's glob is not the
-/// author's to fix, but the FILES are — they are in a directory the author
-/// filled, and moving them or writing a rule are both theirs.
-///
-/// **Keyed on the scope, not the rule**, and the residual is carried honestly:
-/// a typo in ONE rule of several, where a sibling rule still claims something,
-/// does not trip this — the scope found rows. `dead_rules` reports that case
-/// instead, and only when the site wrote the rule; a per-rule census of what
-/// each glob was offered is `query stats`' shape, not stderr's.
+/// Sourced scope offered files but claimed none: `offered > 0 && found == 0` (IO.md IR8).
 fn empty_source(scope: &Scope) -> Option<String> {
     let source = scope.owned()?;
     if scope.offered.get() == 0 || scope.found.get() > 0 {
@@ -201,28 +118,10 @@ fn empty_source(scope: &Scope) -> Option<String> {
     ))
 }
 
-/// The engine-fallback title rung (IO.md §1): a name implied from the slug.
-///
-/// One derivation, shared by both loaders, and deliberately the dumbest one
-/// that could work — the posts loader has spelled it exactly this way since
-/// before the ledger, and grack.com's caret draft has been publishing
-/// `<title>why is a cursor called a caret</title>` from it. Anything prettier
-/// (title-casing, an acronym table) would move published bytes on a live page
-/// the moment it landed, so the string is PINNED and a test says so.
-///
-/// It is the bottom rung and nothing else: front matter beats it, and so does
-/// any rule or marker default, because both are read before it is.
 fn implied_title(slug: &str) -> String {
     slug.replace('-', " ")
 }
 
-/// The degenerate row's warning (IO.md §1, I7c) — a nudge, never an error.
-///
-/// A file with no front-matter block that rules nonetheless send through a
-/// document shell renders anyway, with the title above. That is a softening of
-/// the identity contract and not a licence, so the build says so once per row
-/// and keeps going: the author wanted a page, they have one, and the fix is
-/// three characters.
 fn degenerate_warning(rel: &Path, shell: &str, title: &str) -> String {
     format!(
         "{}: no front-matter block, but a rule sends it through the \
@@ -233,61 +132,20 @@ fn degenerate_warning(rel: &Path, shell: &str, title: &str) -> String {
     )
 }
 
-// D1's `declared_and_unread` lived here and went with its subject (MERGE.md
-// F1): `bucket` was the only key it reported, and a key that no longer parses
-// needs no warning — `deny_unknown_fields` names it at the line that wrote it,
-// which is strictly the better error. If a second declared-and-ignored key ever
-// turns up, the shape is one `filter_map` over `cfg.collections` and D1's §6
-// note describes it; nothing here is worth keeping warm for it.
-
-/// What the rule cascade decided for one row.
 struct Routing<'a> {
-    /// The glob of the FIRST rule of this scope that matched — the claim
-    /// (IO.md I7d). `None` is "no rule of this scope wanted this file", which
-    /// is what sends the ordered sequence on to the next scope, and what a
-    /// scope's own source turns into "not content".
-    ///
-    /// Distinct from `pattern` below, which is the first rule that ROUTED: a
-    /// defaults-only rule claims a file it cannot land, and that is an error
-    /// naming the file rather than a quiet drop.
     claimed: Option<&'a str>,
     templates: &'a [String],
-    /// The glob of the rule that supplied `templates` — carried so a routing
-    /// error can name the rule the reader has to edit, not just the template
-    /// text (IO.md I6). Empty when no rule supplied a route.
     pattern: &'a str,
-    /// The extractors in force for this row: the first matching rule that
-    /// declared any, else the collection's own list.
     formats: &'a [filename::FilePattern],
-    /// The rule that decided the address said `embed = true` (IO.md §4a):
-    /// there is no route to render, and the embed policy supplies a
-    /// `strong_url` instead.
-    ///
-    /// Decided by the SAME first-writer step `templates` is, and that matters
-    /// on every base-inheriting site: `route` and `embed` are two answers to
-    /// one question, so the first rule that answers it wins and the base's
-    /// `embed` line beneath a site's own routing rule never speaks.
     embed: bool,
-    /// The winning route rule was on-demand: compute the URL, emit no route
-    /// until something references it.
     on_demand: bool,
-    /// Every on-demand rule that COVERED this path, winner or not. Two is a
-    /// config error: an on-demand rule declares where a class of files
-    /// lives, and two declarations for one file is ambiguous rather than a
-    /// cascade. Checked per file against the real corpus, the way §4's dead
-    /// rule is.
     on_demand_cover: Vec<&'a str>,
     defaults: BTreeMap<&'a str, &'a toml::Value>,
 }
 
-/// First-writer-wins per key (DESIGN.md §4) — and, since IO.md I7d,
-/// first-rule-wins for MEMBERSHIP: the first rule of this scope past both
-/// gates is the claim, and `walk_site` asks the scopes in order until one
-/// claims.
+/// First rule wins membership; first-writer-wins per default key (DESIGN.md §4).
 fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
-    // The collection's own `file`: the default its rules inherit,
-    // read only where no matching rule declared a list of its own (§4).
     collection_formats: &'a [filename::FilePattern],
     rel: &Path,
     has_front_matter: bool,
@@ -297,10 +155,7 @@ fn apply_rules<'a>(
     let mut pattern: &str = "";
     let mut formats: Option<&[filename::FilePattern]> = None;
     let mut embed = false;
-    // The address question is answered ONCE, by the first rule past both gates
-    // that answers it either way (IO.md §4a). `templates.is_empty()` used to
-    // stand in for this, and cannot any more: an embed rule supplies no
-    // template, so silence and a decision would look the same.
+    // Embed supplies no template; track `addressed` separately from route winner.
     let mut addressed = false;
     let mut on_demand = false;
     let mut on_demand_cover: Vec<&str> = Vec::new();
@@ -312,8 +167,7 @@ fn apply_rules<'a>(
                 continue;
             }
         }
-        // Globs see the logical path: strip spent file axes first so a prefix
-        // i18n prefix (`fr/recipes/dal.md`) still matches `recipes/**`.
+        // Globs see logical path: strip spent file axes first.
         let rule_formats = if rule.formats.is_empty() {
             collection_formats
         } else {
@@ -326,12 +180,8 @@ fn apply_rules<'a>(
         if !rule.matcher.is_match(&match_rel) {
             continue;
         }
-        // Past both gates: this rule governs this row, whether or not it is
-        // the one that wins the route. That is what keeps a rule shadowed by
-        // a nearer one (it still fills defaults) out of `dead_rules`.
+        // Shadowed rules still govern; keeps them out of `dead_rules`.
         rule.governed.set(true);
-        // …and the first one past them is the CLAIM (IO.md I7d): first rule
-        // wins, and the rule that wins says which scope this row is in.
         claimed.get_or_insert(rule.pattern);
         if rule.on_demand && !rule.route.is_empty() {
             on_demand_cover.push(rule.pattern);
@@ -346,10 +196,7 @@ fn apply_rules<'a>(
             pattern = rule.pattern;
             addressed = true;
         }
-        // First writer wins here too, and deliberately independent of which
-        // rule won the ROUTE: `file` is a key like any other, so a
-        // rule that names the extractor for a subtree governs it whether or
-        // not it is also the rule that says where those rows land.
+        // `file` first-writer is independent of which rule won the route.
         if formats.is_none() && !rule.formats.is_empty() {
             formats = Some(&rule.formats);
         }
@@ -369,21 +216,7 @@ fn apply_rules<'a>(
     }
 }
 
-/// The embed policy's answer for one row (IO.md §4a, I11): its strong address,
-/// or the load error that says the config left this asset unreachable.
-///
-/// **Both refusals are here, at load, and that is stricter than §4a's letter
-/// on purpose.** The design says an embedded-but-unrouted asset is an error
-/// when the policy is off; asking at load asks one question earlier — before
-/// anyone knows whether the asset is embedded — and answers it for the uncited
-/// asset too. That is the honest place for it: with the policy off, or with
-/// this row outside its subset, `embed = true` is a rule that names no address
-/// at all, which is a statement about the CONFIG and needs no citation to be
-/// wrong. It also means the refusal names the asset (the design's ask) with a
-/// path rather than with a URL that does not exist.
-///
-/// The mint itself is `strong::address`, and the hashing law is stated there:
-/// inputs plus parameters, never output bytes.
+/// Embed policy address at load (IO.md §4a, I11), or error if unreachable.
 fn embed_address(
     cfg: &Config,
     subset: &Option<GlobSet>,
@@ -438,8 +271,7 @@ fn check_on_demand_cover(rel: &Path, r: &Routing) -> Result<()> {
     Ok(())
 }
 
-/// Precedence (§4b): front matter > nearest marker > rule. Markers go in
-/// first so `or_insert` cannot let a rule override them.
+/// Markers before rules so `or_insert` cannot let a rule override them (§4b).
 fn merged_defaults<'a>(
     marker_defaults: &'a Defaults,
     rule_defaults: BTreeMap<&'a str, &'a toml::Value>,
@@ -454,96 +286,30 @@ fn merged_defaults<'a>(
     out
 }
 
-/// What a row wears, after the cascade: the fields the engine reads off a row
-/// by name (`schema::CASCADE`).
 #[derive(Debug)]
 struct Cascaded {
     theme: Option<String>,
     shell: Option<String>,
 }
 
-/// Read the engine's cascade keys off a row's RESOLVED fields — one spelling,
-/// so posts and tree rows cannot drift apart on which fields cascade.
-///
-/// This is no longer a cascade of its own (MERGE.md C1). It used to reach into
-/// raw TOML with `as_str()`/`as_bool()`, which is why `defaults = { theme =
-/// 1 }` silently vanished. The cascade is `schema::cascade_front` (nearest)
-/// then `schema::apply_defaults` (markers, then rules), the same two calls
-/// every other declared key takes; what is left here is the typed read, plus
-/// the one vocabulary the engine closes.
-///
-/// The values stay in `fields` as well as landing on the row's named fields:
-/// they are declared, so a `where`, an `order_by` or a fold's route may
-/// name them, and a name that type-checks against nothing readable is the
-/// worse failure (§4e).
 fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
     let worn = |key: &str| match fields.values.get(key) {
         Some(grackle_db::Value::Str(s)) => Some(s.clone()),
         _ => None,
     };
-    // A typo'd shell would silently render the wrong tier — the failure mode
-    // this codebase keeps finding. Closed vocabulary, checked at load.
-    //
-    // The vocabulary is now the WHOLE axis (IO.md §4, I2), not a tier ladder of
-    // its own: one row's worth of it is the map family, and a fold name here is
-    // an arity error naming what that fold eats rather than an unknown word.
+    // Closed shell vocabulary: typo would silently render the wrong tier.
     let shell = worn("shell");
     if let Some(sh) = shell.as_deref() {
         crate::shell::check_row(sh, whose)?;
     }
     Ok(Cascaded {
-        // Theme is chosen per row (§5a): a marker or a rule can restyle a
-        // subtree, and the row's own front matter still beats both — the
-        // ladder is `fields`', not this read's.
         theme: worn("theme"),
         shell,
     })
 }
 
-/// Rung 0's other half (§2, MERGE.md E1): the selected profile's forced fields,
-/// written into EVERY route.
-///
-/// **This is the load-bearing half.** A head expression is evaluated against a
-/// ROW when the surface has one and against the ROUTE when it does not, so a
-/// force that reached only rows would leave every listing, archive and tag page
-/// saying the opposite of the documents beneath it — `/blog/` in a search index
-/// under the drafts profile, which is precisely the leak §4a exists to close.
-/// The row half is not a substitute: a view route has no row to read.
-///
-/// **Placement: after every route exists, before anything filters routes**
-/// (MERGE.md R6). It runs once materialization and `build_views`/
-/// `build_pool_folds` have minted the last route, and the engine's one
-/// `db.routes.select` — `views::resolve_pool_folds` — runs at the end of
-/// `load`, so an all-outputs fold's `where` reads FORCED routes. That is the law and
-/// not an accident of ordering: rung 0 sits above every reader, the ones that
-/// SELECT as well as the ones that SAY, because §4a's fence puts "which rows
-/// the views admit" inside profile territory in the first place. The row half
-/// is already there by the same law (`schema::force` runs before any view
-/// materializes), so the two pools answer one question the same way.
-///
-/// E1 placed this call here and read it the other way round — "rung 0 says
-/// what a surface SAYS, not what a query SELECTS" — on the strength of
-/// `build_star_views` running one line above (`build_pool_folds` since IO.md
-/// I3). But that pass only *mints* the fold's route; it filters nothing.
-/// Nothing between the two calls
-/// reads a route field, so the sentence never described the code.
-///
-/// **The one route this does not reach — closed at IO.md I10.** An on-demand
-/// row published by `build::materialize_referenced` mints its route after
-/// `load` has returned, so this pass cannot write it. E1 stated the hole and
-/// review I-C handed it here as a graph-ordering question; the answer is that
-/// minting an output is the graph event, so rung 0 belongs at every minting
-/// seam rather than at this one pass. The typed values are kept on
-/// `SiteDb::forced_fields` and the second seam applies them from there — one
-/// list, two writers, no re-derivation. Byte-inert today (those routes are
-/// `RouteKind::Object` byte publishes with no head, minted below every reader
-/// of a route field), which is exactly why it is worth closing now rather than
-/// when a reader arrives.
-///
-/// The types come from the site vocabulary (`Schemas::declared`) rather than
-/// from a row's resolved schema, because a route is not in a directory — it is
-/// the same table `Schemas::declared_schema` builds a route's own filter
-/// environment from.
+/// Profile forced fields on every route; view routes have no row (§2, MERGE.md E1).
+/// After all routes exist, before `resolve_pool_folds` filters them.
 fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     if cfg.forced.is_empty() {
         return Ok(());
@@ -551,15 +317,9 @@ fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Resul
     let declared = schemas.declared();
     let mut values: Vec<(String, grackle_db::Value)> = Vec::new();
     for (name, v) in &cfg.forced {
-        // `Config::check_profiles` already refused a name the site's `[schema]`
-        // does not declare, and `declared()` is a superset of that table — so
-        // this cannot fire, and it is a lookup rather than an `unwrap` for the
-        // reason `schema::force`'s is.
         let Some(ty) = declared.get(name.as_str()) else {
             bail!("the profile forces {name:?}, which no schema declares");
         };
-        // "the profile", the same subject `schema::force` names one layer
-        // over — with no file to blame, because a route is not in the tree.
         values.push((name.clone(), schema::typed(ty, name, v, "the profile")?));
     }
     for r in db.routes.iter_mut() {
@@ -571,10 +331,7 @@ fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Resul
     Ok(())
 }
 
-/// The axes a rule's template(s) opt a row into (q53 step 2): a `{theme}` (or
-/// `{axis:theme}`) segment is what spends the theme axis. Axes spent by the
-/// rule's `file` patterns are FILE axes — each member owns a content file —
-/// so they are the row's own coordinate, not a product dimension.
+/// Axes a rule's templates spend; file-pattern axes are row coordinates, not product dims.
 fn row_axes(
     cfg: &Config,
     templates: &[String],
@@ -590,49 +347,30 @@ fn row_axes(
         .collect()
 }
 
-/// Whether a template spends an axis: `{name}` or the namespaced `{axis:name}`.
-///
-/// **The one spend test.** Every reader of a route template asks this question —
-/// the materializer, the view loader's declared-but-never-spent check, the link
-/// resolver — and each used to ask it with a `format!("{{{name}}}")` of its own,
-/// which is how a route written `{axis:theme}` came to load in one place and
-/// fail in another (MERGE.md C5). `pub` for that reason: a second spelling of
-/// this predicate is the bug, not the convenience.
+/// `{name}` or `{axis:name}`: the one spend test every reader must share.
 pub fn spends(tmpl: &str, axis: &str) -> bool {
     tmpl.contains(&format!("{{{axis}}}")) || tmpl.contains(&format!("{{axis:{axis}}}"))
 }
 
-/// Spend one axis's segment: the dual of `spends`, and it must accept exactly
-/// the spellings `spends` recognizes or a template that passes the check comes
-/// back with a placeholder still in it.
 pub fn fill_axis(tmpl: &str, axis: &str, value: &str) -> String {
     tmpl.replace(&format!("{{{axis}}}"), value)
         .replace(&format!("{{axis:{axis}}}"), value)
 }
 
-/// One axis coordinate of a materialized route: the axis, its value, and whether
-/// that value is canonical — which is what a shorter template may omit.
 pub struct Coord<'a> {
     pub axis: &'a str,
     pub value: &'a str,
     pub canonical: bool,
 }
 
-/// Pick the shortest template whose spent axes cover every NON-canonical coord,
-/// and fill it (§6f, the default-axis case). A canonical coord's segment drops
-/// when a shorter template omits it — `["/{theme}/{axis:locale}/", "/{theme}/",
-/// "/"]` lands the all-canonical member at `/`. Locale is not special: a
-/// non-canonical i18n member must be spent by a template, same as any other axis.
-/// Errors only if no template covers a required set, which the fullest
-/// template always does unless the templates are pathologically split.
+/// Shortest template covering every non-canonical coord (§6f).
 pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
     let required: Vec<&str> = coords
         .iter()
         .filter(|c| !c.canonical)
         .map(|c| c.axis)
         .collect();
-    // The shortest template that still spends everything required; ties keep
-    // declaration order, so the first-listed shape wins.
+    // Ties keep declaration order.
     let tmpl = templates
         .iter()
         .filter(|t| required.iter().all(|r| spends(t, r)))
@@ -658,8 +396,6 @@ fn build_globset(pats: &[String]) -> Result<GlobSet> {
     Ok(b.build()?)
 }
 
-/// `{dir}`, `{stem}`, `{name}`, `{path}`, `{ext}` — the tokens a path carries
-/// on its own. Every row has them, whichever collection read it.
 fn path_tokens(rel: &Path, k: &str) -> Option<String> {
     let path = rel.to_string_lossy().to_string();
     match k {
@@ -676,64 +412,25 @@ fn path_tokens(rel: &Path, k: &str) -> Option<String> {
     }
 }
 
-/// The names the path always supplies, for the error that lists them.
 const PATH_TOKENS: &[&str] = &["path", "dir", "stem", "name", "ext"];
 
-/// **One route-token supplier** (IO.md I6, DESIGN.md q51): everything a rule's
-/// route template may spend for one row.
-///
-/// Three sources, and the point of the type is that they are one table:
-///
-/// - **the path**, always — `{path}`, `{dir}`, `{stem}`, `{name}`, `{ext}`,
-///   relative to what the rule's own glob matches (collection-relative, so
-///   `match = "rust/**"` and `route = "/{dir}/{stem}/"` read the same words
-///   in `_posts` as they do in the tree);
-/// - **the extractor**, where a `file` entry described the stem —
-///   `{year}`, `{month}`, `{day}`, `{slug}`, or whichever of them the format
-///   named;
-/// - **the axes**, which are not filled here at all: a declared axis (and
-///   `locale`) is handed back as its own placeholder, for `select_path` and
-///   the materializer to spend per member (q53);
-/// - **`{hash}`**, the row's content hash (IO.md §4a, I11) — for a site that
-///   wants hashed CANONICAL addresses by rule rather than by policy. It reads
-///   the file, so it is the one token that costs I/O, and it is read lazily
-///   and once: a template that does not spend it never opens anything.
-///
-/// Before this type there were two suppliers with no overlap: the tree offered
-/// path tokens and the posts loader offered date/slug inline, so a file in a
-/// posts scope could not route by its directory and a tree page could not
-/// route by a date in its name. Both halves now reach every rule.
+/// Route-token supplier for one row (IO.md I6).
 struct RouteTokens<'a> {
     cfg: &'a Config,
-    /// The path the rule matched — see the doc above on why it is that one.
     rel: &'a Path,
-    /// The row's file, for `{hash}`. Absolute, unlike `rel`, because the token
-    /// is about the BYTES rather than about the name.
     path: &'a Path,
-    /// `{hash}`, memoized: `check` asks for every token and then `render`
-    /// asks again, and hashing a file twice per template is not a thing to do
-    /// quietly. `Some(None)` is "asked, and the file would not read".
     hash: std::cell::RefCell<Option<Option<String>>>,
-    /// Resolved content date (front matter / filename components), when present.
     date: Option<NaiveDate>,
-    /// File-pattern match, for tokens a date does not cover.
     extracted: Option<&'a filename::FileMatch>,
-    /// The row's slug: the extractor's where a format named one, else the
-    /// stem. Always fillable, on every row — which is the pre-I6 posts
-    /// behaviour made general rather than a new promise.
     slug: &'a str,
 }
 
 impl RouteTokens<'_> {
-    /// Resolve one token, or `None` if this row cannot fill it.
     fn get(&self, k: &str) -> Option<String> {
         if let Some(v) = path_tokens(self.rel, k) {
             return Some(v);
         }
         match k {
-            // The resolved date first: front matter beats the filename (§4b),
-            // so `{year}` must read what the row wears rather than what its
-            // name said. Captures fill parts a whole date does not cover.
             "year" => self
                 .date
                 .map(|d| d.format("%Y").to_string())
@@ -747,22 +444,11 @@ impl RouteTokens<'_> {
                 .map(|d| d.format("%-d").to_string())
                 .or_else(|| self.extracted?.date_part("day").map(str::to_owned)),
             "slug" => Some(self.slug.to_string()),
-            // IO.md §4a's hashing law, spent as a route token: the digest is
-            // over the INPUT bytes and the identity transform's parameters,
-            // which is what a canonical URL spending `{hash}` has to mean —
-            // the address exists at planning, before any shell runs, exactly
-            // like every other route token.
-            //
-            // A site spelling `route = "/static/{hash}.{ext}"` therefore mints
-            // the SAME string the embed policy would have, which is the
-            // untransformed-twin rule arriving for free: one hash function,
-            // one address per byte string, whichever mechanism asked.
             "hash" => self.content_hash(),
-            // Capture fallback for slug/stem and any other free token.
             k if self.extracted.is_some_and(|m| m.captures.contains_key(k)) => {
                 self.extracted.and_then(|m| m.captures.get(k).cloned())
             }
-            // An axis placeholder is spent per member, not here (q53).
+            // Axis placeholders spent per member, not here (q53).
             k => {
                 let (_, bare) = template::classify(k);
                 self.cfg.axes.contains_key(bare).then(|| format!("{{{k}}}"))
@@ -770,7 +456,6 @@ impl RouteTokens<'_> {
         }
     }
 
-    /// The `{hash}` token's value, computed at most once per row.
     fn content_hash(&self) -> Option<String> {
         if let Some(cached) = self.hash.borrow().as_ref() {
             return cached.clone();
@@ -786,13 +471,6 @@ impl RouteTokens<'_> {
         v
     }
 
-    /// Render one rule's route templates for one row, refusing any template
-    /// that spends a token this row cannot fill.
-    ///
-    /// The refusal is DESIGN.md §4's constraint, generalized off the one shape
-    /// it used to have (a dateless post under a dated template): the supplier
-    /// knows what it can fill, so "this row cannot go there" is one question
-    /// asked in one place, for tree rows and posts alike.
     fn render_all(&self, tmpls: &[String], pattern: &str, path: &Path) -> Result<Vec<String>> {
         tmpls
             .iter()
@@ -820,8 +498,7 @@ impl RouteTokens<'_> {
             .iter()
             .filter(|t| matches!(t.as_str(), "year" | "month" | "day"))
             .collect();
-        // The date case keeps its own sentence, because "unfillable" is the
-        // mechanism and "this file carries no date" is the diagnosis.
+        // Dateless file under dated template: keep the specific error sentence.
         if dated.len() == unfillable.len() {
             bail!(
                 "{} has no date (its filename matches none of the \
@@ -861,7 +538,7 @@ impl RouteTokens<'_> {
     }
 }
 
-/// Collapse `//` that arise when `{dir}` is empty at the root.
+/// Collapse `//` when `{dir}` is empty at the root.
 fn tidy(url: String) -> String {
     let mut out = String::with_capacity(url.len());
     let mut prev_slash = false;
@@ -882,47 +559,16 @@ fn tidy(url: String) -> String {
     out
 }
 
-/// One collection, compiled: the rules that decide what it claims, and the
-/// subtree they read.
-///
-/// The word the model uses is **scope** (IO.md §1): a source subtree plus its
-/// rules, extractors, schema and relations. A scope's ROLE — which table its
-/// rows land in, and so which indexes, relation defaults and route kinds they
-/// get — is read off its `source` now that `kind` is gone: a proper source is
-/// a posts scope, no source at all the objects scope, and `"."` the tree (see
-/// [`crate::config::Collection::is_posts`]).
 struct Scope<'a> {
     name: &'a str,
-    /// The subtree this scope's rules read, root-relative.
-    ///
-    /// - `None` — **sourceless** (the objects scope): its rules range over the
-    ///   whole walk, and it owns nothing.
-    /// - `Some("")` — the **site root** (the tree scope). A tree collection's
-    ///   declared `source` is decorative — it names the table and nothing
-    ///   else, which [`crate::config::Collection::source`] says at the key —
-    ///   so the root is what it reads whatever it wrote.
-    /// - `Some("_posts")` — a **proper subtree**, which this scope OWNS (see
-    ///   [`walk_site`]).
     source: Option<PathBuf>,
     rules: Vec<CompiledRule<'a>>,
-    /// The collection-level `file` list: the default its rules inherit, read
-    /// where no matching rule declared a list.
     formats: Vec<filename::FilePattern>,
-    /// How many rows this scope claimed — `dead_rules`' `found`. A `Cell`
-    /// because the walk holds the scope list by shared reference, which is
-    /// also why a rule's `governed` flag is one.
     found: Cell<usize>,
-    /// How many files the walk OFFERED this scope: every file under its source
-    /// that the ordered sequence actually asked it about. The denominator
-    /// `found` never had (IO.md IR8) — "claimed nothing" means one thing when
-    /// the source is empty or absent and quite another when it was full, and
-    /// only this counter tells the two apart.
     offered: Cell<usize>,
 }
 
 impl Scope<'_> {
-    /// The subtree this scope owns, if it owns one. The root scope and the
-    /// sourceless scopes own nothing — see [`walk_site`].
     fn owned(&self) -> Option<&Path> {
         match &self.source {
             Some(p) if !p.as_os_str().is_empty() => Some(p.as_path()),
@@ -930,9 +576,6 @@ impl Scope<'_> {
         }
     }
 
-    /// The path this scope's rules read for a file, or `None` when the file is
-    /// not under this scope's source at all — which is how a scope declines to
-    /// look without having to be filtered out of the sequence.
     fn relative(&self, rel: &Path) -> Option<PathBuf> {
         match &self.source {
             Some(src) => rel.strip_prefix(src).ok().map(Path::to_path_buf),
@@ -941,42 +584,11 @@ impl Scope<'_> {
     }
 }
 
-/// **The ordered rule sequence** (IO.md I7d): every scope of the site, in the
-/// order the walk asks them.
-///
-/// The order comes from the **most-specific-source law**, and deriving it is
-/// the point — `posts → objects → tree` was a constant in the loader
-/// (DESIGN.md §3's membership precedence), and a constant cannot say why:
-///
-/// 1. **Scopes with a proper source, deepest first.** `_posts` sits inside the
-///    tree's `.`, and the more specific statement about a subtree wins — the
-///    reading a nearer marker and a nearer `.schema.toml` already get (§4b,
-///    §5b). This is q51's rider, decided.
-/// 2. **Sourceless scopes** (objects) next. A scope with no source selects by
-///    shape rather than by place, and it has to outrank the root scope for the
-///    reason the root's own rules are ordered as they are: `**` sorts last, or
-///    nothing after it ever matches.
-/// 3. **The root scope** (`source = "."`) last, by the same principle.
-/// 4. **Ties**: the site's own scopes before the base's, mirroring the rule
-///    prepend (§4d) — then the table name, which is deterministic and is as
-///    near declaration order as a config keyed BY table name can get. The tie
-///    is unobservable while two scopes' sources differ, because a scope only
-///    ever sees files under its own source and two scopes sharing one source
-///    would be one entry.
-///
-/// Verified against all four corpus sites to reproduce the retired precedence
-/// whatever the declaration order — **theme-preview declares its tree FIRST**,
-/// and under declaration order alone that tree would eat its own posts.
+/// Scopes in walk order: deepest sourced first, then sourceless, then root (IO.md I7d).
 fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
     let axes = cfg.axis_values_for_file();
     let mut out: Vec<Scope> = Vec::new();
     for (name, c) in &cfg.collections {
-        // The source IS the role now (`kind` is gone): a sourceless scope is
-        // the objects one and owns nothing; a source that reads as `.` is the
-        // site root (the tree); anything else is a posts scope that owns its
-        // subtree. `.` and the empty path are one statement, and the empty one
-        // is the spelling the rest of this file needs: a rule glob is relative
-        // to the source, so a root written `.` would grow a `./` on every path.
         let source = c.source.as_deref().map(|s| match s {
             "." => PathBuf::new(),
             other => PathBuf::from(other),
@@ -996,29 +608,17 @@ fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
             None => (1, 0),
             Some(_) => (2, 0),
         };
-        // "The site's before the base's", read off the rules the way
-        // `dead_rules` reads it: a scope the site did not write is one whose
-        // every rule arrived inherited.
         let inherited = !s.rules.is_empty() && s.rules.iter().all(|r| r.inherited);
         (class, std::cmp::Reverse(depth), inherited, s.name)
     });
     Ok(out)
 }
 
-/// Posts arrive from several scopes (`_posts` and `_drafts` are two sources of
-/// one corpus) and, since IO.md I7d, from one walk that visits them in path
-/// order — so this is now a statement rather than a fix. It stays a statement:
-/// the posts table's load order is the loader's to decide (q51), and leaving it
-/// to be a side effect of how a directory walk happens to sort is how an
-/// ordering-derived byte (an embedding neighbour, a tag list) moves without
-/// anyone choosing to move it.
 fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| a.path.cmp(&b.path));
     rows
 }
 
-/// Collection-relative path with the extension removed, `/`-separated.
-/// The subject `file` patterns match against.
 fn path_key(rel: &Path) -> String {
     let s = rel.to_string_lossy();
     let s = match rel.extension().and_then(|e| e.to_str()) {
@@ -1031,10 +631,6 @@ fn path_key(rel: &Path) -> String {
     s.replace('\\', "/")
 }
 
-/// Rebuild a path from a logical path key, keeping the physical extension.
-///
-/// A logical key with `/` replaces the whole relative path (prefix strip).
-/// A bare filename key only replaces the final component (suffix / dated).
 fn with_logical(physical: &Path, logical: &str) -> PathBuf {
     if logical.contains('/') {
         let mut out = PathBuf::from(logical);
@@ -1052,23 +648,12 @@ fn with_logical(physical: &Path, logical: &str) -> PathBuf {
     out
 }
 
-/// Is `rel` (root-relative) *inside* the site's `themes/` directory?
-///
-/// The directory itself, were a site ever to hold a root-level FILE by that
-/// name, is not: what the engine reads is `root.join("themes")` as a
-/// directory, so the positional claim is over its contents. `Path::starts_with`
-/// compares whole components, so `themes-old/x.md` is ordinary content.
-///
-/// The name of the directory is `store::THEMES`, shared with the declaration
-/// walks' prune (IO.md IR6) so the positional layer is one word in one place.
+/// Root-relative path inside site `themes/` (not the directory node itself).
 fn under_themes(rel: &Path) -> bool {
     let mut parts = rel.components();
     parts.next().is_some_and(|c| c.as_os_str() == store::THEMES) && parts.next().is_some()
 }
 
-/// The canonical address of one row: every route axis at its canonical value,
-/// plus the i18n member when templates spend that axis (§6f). `select_path`
-/// drops a canonical segment where a shorter template allows.
 fn canonical_url(
     cfg: &Config,
     templates: &[String],
@@ -1101,18 +686,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut db = SiteDb::default();
     let root = cfg.root();
 
-    // Which collection owns the tree is decided FIRST, because its `exclude` /
-    // `include` are the site's declaration of what is not content (§4c) and
-    // every walk of the root reads them from here: the tree walk, the marker
-    // scan, and the vocabulary walk below. One list, one reader — a walk with
-    // a private copy of "what to skip" is q34's disease, and it is how an
-    // embedded site's `.schema.toml` (`cover`, under `grackle/examples/`)
-    // joined grack.com's own field vocabulary at the same rung.
-    //
-    // The FIRST tree collection (`source = "."`) supplies the content lists:
-    // the tree is the root, walked once, and every other scope reads out of
-    // that same walk by its own rules, so a second tree would have nothing of
-    // its own to read.
+    // Tree collection supplies shared `exclude`/`include` (§4c) for every walk.
     let tree_c = cfg.collections.values().find(|c| c.is_tree());
     let empty: &[String] = &[];
     let not_content = store::NotContent::new(
@@ -1125,14 +699,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     db.stats.markers_ms = t_m.elapsed().as_secs_f64() * 1000.0;
     db.stats.markers = markers.found;
 
-    // The engine-vocabulary walk: `.section` scope markers (§6e) and
-    // `.schema.toml` field declarations (§5b) — positional names like
-    // `.slots/`, no config entries. One name-only pass with the same
-    // .gitignore, `exclude` and `themes/` defences as the marker scan
-    // (`walker_declarations` owns all three).
     let mut schemas = Schemas::new(grackle_model::row_schema());
-    // The config axes first, so a positional `.schema.toml` is the NEAREST
-    // declaration and wins per name (§5b).
     schemas.set_site(cfg.schema.fields.clone(), "grackle.toml [schema]")?;
     for (cname, c) in &cfg.collections {
         schemas.add_collection(
@@ -1141,12 +708,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             &format!("grackle.toml [collections.{cname}.schema]"),
         )?;
     }
-    // Sidecars ride the same walk (IO.md I8): a sidecar is a declaration — it
-    // says what a file IS, the way a marker says what a directory's rows are —
-    // and a declaration must not be silenceable by a *content* statement. This
-    // walk applies `exclude` to directories only, which is exactly what keeps
-    // grack.com's `exclude = ["*.toml"]` from unspeaking every sidecar on the
-    // site (MERGE.md R1's narrowing, one family newer).
+    // Sidecars on declaration walk: `exclude` is dirs-only, so `*.toml` cannot silence them.
     let mut sidecars = Sidecars::default();
     let b = store::walker_declarations(&root, &not_content, cfg.gitignore);
     for entry in b.build().filter_map(|e| e.ok()) {
@@ -1169,14 +731,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
     db.stats.sidecars = sidecars.found;
     db.sections.sort();
-    // The site vocabulary travels with the database (§4e).
     db.declared = schemas.declared_schema();
 
-    // ONE walk (IO.md I7d), one ordered rule sequence over it, and since I7e
-    // one row constructor under that. The three vectors are a PARTITION of its
-    // result, not three loaders and not three shapes of row: `posts` is the
-    // claiming scope's role, `objects` is the extension fact, and `pages` is
-    // everything else.
     let t = std::time::Instant::now();
     let scopes = scopes(cfg)?;
     let (post_rows, page_rows, objects) = walk::walk_site(
@@ -1189,11 +745,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         &mut db.warnings,
     )?;
     db.stats.read_ms += t.elapsed().as_secs_f64() * 1000.0;
-    // Said once, here, where every caller reaches it — `serve` rebuilds the
-    // world through this function, so a warning fixed stops being printed on
-    // the next save. The convention is `build.rs`'s and `base.rs`'s: a
-    // `grackle: ` line on stderr, because a warning that is not an error must
-    // not be mistaken for one.
     for w in &db.warnings {
         eprintln!("grackle: {w}");
     }
@@ -1211,29 +762,15 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     walk::resolve_image_fields(&db, &schemas)?;
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
-    // Unified route list.
     let t = std::time::Instant::now();
-    // `RouteKind::Post` survives because a ROUTE kind is real: it is the
-    // vocabulary route-pool filters use (`kind == "post"`). Membership, not
-    // arithmetic — position in the store carries no meaning.
     let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
     let objects: std::collections::HashSet<&grackle_db::Key> = db.object_ix.iter().collect();
-    // §4 on-demand: the row knows its URL, but nothing publishes it until
-    // something references it. `materialize_referenced` (build.rs) emits
-    // these after the render pass, once the references exist.
     let mut new_routes: Vec<Route> = Vec::new();
-    // q45: a claimed row has no route of its own — the owning view materializes
-    // the landing. §4: an on-demand row has none YET — a reference materializes
-    // it after the render pass. IO.md §4a: an embed-addressed row has none
-    // EVER — no rule minted one — and its strong address publishes on the same
-    // pull, for the same reason: what nothing cites never materializes.
     for p in db
         .rows
         .iter()
         .filter(|p| !p.claimed && !p.on_demand && p.strong_url.is_none())
     {
-        // Route kind is a question about the row's PROPERTIES, not about which
-        // vector it arrived in.
         let kind = if posts.contains(&p.key) {
             RouteKind::Post
         } else if objects.contains(&p.key) {
@@ -1251,8 +788,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 }
                 f
             };
-            // Rows keep every axis field; routes leave the pairing axis's
-            // canonical unstamped so filters see Null (same as other axes).
             if let Some((name, _)) = cfg.pairing_axis() {
                 if let Some(value) = cfg.axis_on(p, name) {
                     cfg.stamp_axis_field(&mut fields, name, &value);
@@ -1261,34 +796,17 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             Route {
                 row: Some(p.key.clone()),
                 source: Some(p.path.clone()),
-                // The row's fields, with one correction: a member of an axis over
-                // `shell` IS a different serialization of the same row (q53's md
-                // twin), so THIS output left through the member's shell, not the
-                // row's. Only `shell` is corrected — it is the column IO.md §3
-                // puts on the output side, and the axis's other field (`theme`) has
-                // no reader on the route pool to lie to.
                 fields,
                 axis,
-                // The row's identity fact, carried to the output side (IO.md §3)
-                // for the same reason `fields` is: a fold over the route pool can
-                // only filter on what the route answers.
                 front_mattered: p.front_mattered,
                 ..Route::new(url, kind)
             }
         };
-        // The row's own rule decided this (q53 step 2): a route template that
-        // spends `{theme}` opted its rows in. Only a RENDERED row multiplies —
-        // an axis publishes alternative forms of a document, and a static file
-        // or an image has one form, the bytes.
         let axes: &[grackle_model::RowAxis] = if p.rendered { &p.axis } else { &[] };
         if axes.is_empty() {
             new_routes.push(one(p.url.clone(), Vec::new()));
             continue;
         }
-        // The cartesian product of the axes' values: one route per member-tuple.
-        // A single axis is the degenerate product of one. Each tuple picks its
-        // template (i18n a coordinate beside the theme members) so a canonical
-        // member drops its segment where a shorter template allows.
         let mut tuples: Vec<Vec<AxisMember>> = vec![Vec::new()];
         for ra in axes {
             let axis = &cfg.axes[&ra.name];
@@ -1338,56 +856,32 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         }
     }
     db.routes.extend(new_routes);
-    // IO.md §2, the join's output half — here because this is the earliest
-    // point its answer is complete, and because `build_views` below is the
-    // first reader: a set spelled `where = "!output"` must select the rows
-    // that land nowhere, not every row in the store.
+    // Join output half at planning, before `build_views` reads `output`.
     join::join_outputs(&mut db);
     crate::views::build_adjacency(cfg, &mut db, &schemas)?;
     crate::views::build_views(cfg, &mut db, &schemas)?;
     crate::views::build_pool_folds(cfg, &mut db)?;
-    // Rung 0 into the route pool, at the first point where the pool is whole —
-    // and necessarily before `resolve_pool_folds` below, which is the only pass
-    // that filters routes (MERGE.md R6). A new route-minting pass belongs above
-    // this line; a new route-FILTERING pass belongs below it.
     force_route_fields(cfg, &mut db, &schemas)?;
-    // §6g: relations compile after views, so a relation's `over` set is
-    // already resolved. Type errors and cycles surface here, at load.
     crate::relations::build_relations(cfg, &mut db, &schemas)?;
     db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-    // q45 TEMPLATED landings (§5c): a view whose `content`/`default_content` is a
-    // template (`{group:key}/index.md`) resolves to a different row per route, so
-    // its claims can only be settled now — once the routes and their group params
-    // and axis members exist. A LITERAL claim was settled at load (rows marked,
-    // own routes withheld, excluded from queries) and is untouched here, which is
-    // what keeps every existing site byte-identical.
+    // q45 templated landings: claims settle once routes and group params exist.
     {
-        // Resolve each templated landing route to the logical path it embeds.
-        let mut set_content: Vec<(grackle_db::Key, String)> = Vec::new(); // (route id, logical)
-        let mut owner_of: HashMap<String, String> = HashMap::new(); // logical -> view
+        let mut set_content: Vec<(grackle_db::Key, String)> = Vec::new();
+        let mut owner_of: HashMap<String, String> = HashMap::new();
         let mut errors: Vec<String> = Vec::new();
         for r in &db.routes {
-            // (A `kind != View` guard stood here and was DELETED at I13, not
-            // respelled: the `view` column below already asks it — "is this a
-            // view route" is that column being non-empty, IO.md §3.)
             let Some(view) = r.view.as_deref() else {
                 continue;
             };
             let Some(v) = cfg.views.get(view) else {
                 continue;
             };
-            // A templated `content` is a PROMISE (missing row = error); a
-            // templated `default_content` is an OFFER (missing, or a row that
-            // does not place the embed, = plain landing).
             let (tmpl, promise) = match (v.content.as_deref(), v.default_content.as_deref()) {
                 (Some(c), _) if crate::config::is_templated(c) => (c, true),
                 (_, Some(d)) if crate::config::is_templated(d) => (d, false),
                 _ => continue,
             };
-            // Resolve against this route's group params (bare or `group:`) and
-            // axis members (`axis:`); a bare name resolves in whichever single
-            // namespace has it.
             let cp = template::render(tmpl, |tok| {
                 let (ns, k) = template::classify(tok);
                 let g = || template::param(&r.params, k);
@@ -1419,12 +913,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                         r.url
                     ));
                 }
-                continue; // offer: plain landing
+                continue;
             }
-            // The OFFER accepts only if the claimed row places the embed;
-            // otherwise the row wants the URL to itself, so the route stays a
-            // plain listing. The PROMISE requires the embed too, but checks it at
-            // render (build.rs), where the literal claim checks it as well.
             if !promise {
                 let tag = format!("{{% view {view} %}}");
                 let places = sibs
@@ -1440,8 +930,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                     continue;
                 }
             }
-            // A row serves one landing (§5h) — the load-time check cannot see
-            // this across two DIFFERENT templates, so it is caught here.
             if let Some(prev) = owner_of.insert(cp.clone(), view.to_string()) {
                 if prev != view {
                     errors.push(format!(
@@ -1453,8 +941,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             set_content.push((r.id.clone(), cp));
         }
         if !errors.is_empty() {
-            // A promise route repeats per i18n member/page, so the same message can
-            // arrive several times.
             errors.sort();
             errors.dedup();
             bail!("{}", errors.join("\n"));
@@ -1478,19 +964,9 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 row.claimed = true;
             }
         }
-        // The landing owns the URL now, so the claimed rows' own standalone
-        // routes go — exactly as a literal claim withholds them at load.
         db.routes
             .retain(|r| r.row.as_ref().is_none_or(|k| !claimed_keys.contains(k)));
-        // …and with the routes, the join fact that named them. This is the one
-        // place a planning fact is corrected rather than decided, for the
-        // reason the two lines below are: a TEMPLATED claim is not knowable
-        // until the group keys exist. A literal claim never mints the route at
-        // all, so it needs no correction.
         join::join_outputs(&mut db);
-        // And the rows leave every query they were materialized into: a literal
-        // claim is excluded at build_views, but a templated one was not known
-        // until now, so its rows are dropped from view membership here.
         for r in db.routes.iter_mut() {
             if r.members.iter().any(|k| claimed_keys.contains(k)) {
                 r.members.retain(|k| !claimed_keys.contains(k));
@@ -1506,12 +982,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         }
     }
 
-    // q45: a claimed row's URL becomes its landing's — so source-path links and
-    // the ancestors walk see the landing, not the retired standalone URL. A
-    // TEMPLATED claim points at the specific route that embeds it (the one whose
-    // resolved `content` is this row's logical path, for this i18n member); a LITERAL
-    // one points at its owner view's bare route. A twin whose partition
-    // didn't materialize keeps no URL (nothing may link it).
     {
         let claims = cfg.content_claims();
         let mut fixed: Vec<(grackle_db::Key, String)> = Vec::new();
@@ -1526,10 +996,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             let url = db
                 .routes
                 .iter()
-                // "Is this a view route" is the `view` column being non-empty
-                // (IO.md §3, I13). In the second find it was already being
-                // said — the route NAMES the owning view — so only the term
-                // is gone there.
                 .find(|r| {
                     r.view.is_some()
                         && r.content.as_deref() == Some(p.logical.as_str())
@@ -1588,29 +1054,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         bail!("route collisions:\n{}", collisions.join("\n"));
     }
 
-    // Constraint: the DUAL of the one above. That check says two rows may not
-    // share a URL; this one says one row may not have two URLs.
-    //
-    // A row is rendered at exactly one route, and the three legal counts are
-    // 0 (claimed by a landing view, q45 — the view owns the URL — or on-demand
-    // and unreferenced), 1 (everything else), and N **only along an axis**
-    // (q53: i18n members, and whatever follows them). Nothing produces N today, so
-    // this cannot currently fire from any config; it is stated now because the
-    // axis is the feature that will make it reachable, and a contract written
-    // before its first violation is a design decision rather than a patch.
-    //
-    // It could not even be expressed until `Route.row` did: recovering a
-    // route's row meant looking its URL up in `by_url`, which answers "one" by
-    // construction and so could never see the second.
+    // One row, one URL per axis member-tuple (q53).
     let mut by_row: HashMap<(&grackle_db::Key, String), &Route> = HashMap::new();
     for r in &db.routes {
         let Some(k) = &r.row else { continue };
-        // Keyed by (row, member TUPLE): several routes onto one row are legal
-        // exactly when they differ in the tuple of members they carry — the
-        // cartesian product of the axes. Two routes with the same tuple — or
-        // both with none — are the collision this forbids, so composing axes
-        // buys the exception it needs and no more. Sorted so the key does not
-        // depend on which order the axes were spent.
         let mut members: Vec<(&str, &str)> = r
             .axis
             .iter()
@@ -1643,16 +1090,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));
-    // All-outputs folds index routes, so they resolve against the final,
-    // sorted list.
     crate::views::resolve_pool_folds(cfg, &mut db, &schemas)?;
-    // IO.md §2, the join's arrangement half. Last, because it is the half that
-    // reads what every pass above decided — and the render pass adds the
-    // citation edges to `inputs` on top (`build::join_citations`).
     join::join_arrangement(cfg, &mut db);
-    // IO.md §5: the graph exists the moment the join does, so its one refusal
-    // is asked here — at load, like relations' dependency order, and never as
-    // a render surprise.
     join::check_graph(&db)?;
     Ok(db)
 }

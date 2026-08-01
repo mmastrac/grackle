@@ -1,24 +1,10 @@
-//! FsStore: the filesystem as storage engine.
-//!
-//! Hydrates stat/version and front matter only. The body is split out but
-//! never parsed or rendered here — see DESIGN.md §2 for the stages.
+//! FsStore: hydrate stat/version and front matter only (DESIGN.md §2).
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// Front matter. Unknown keys are tolerated (Jekyll front matter is open).
-///
-/// **One struct, two spellings** (IO.md I8): a `---` block deserializes into
-/// this from YAML, and a sidecar file deserializes into it from TOML. That is
-/// what makes "a sidecar grants exactly block-identity" true by construction
-/// rather than by a parallel implementation that drifts — every named field a
-/// block may write, a sidecar may write, and `extra` reaches the same
-/// `schema::validate`.
-///
-/// `Clone` for the sidecar's sake: a sidecar is parsed once at the declaration
-/// walk (so a malformed one is a load error wherever its companion ends up)
-/// and handed to the row constructor by value.
+/// YAML block and TOML sidecar deserialize into the same struct (IO.md I8).
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct FrontMatter {
     pub title: Option<String>,
@@ -42,20 +28,13 @@ pub struct FrontMatter {
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }
 
-/// The body of a source file, read from disk. No row holds its body: the
-/// posts loader used to keep one in memory while the tree loader did not,
-/// and that asymmetry outlived the row-type merge (q51) for no reason
-/// except that it was already there. Reading is a few ms over ~800 files
-/// and costs nothing to reason about.
 pub fn read_body(path: &Path) -> Result<String> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     Ok(split_front_matter(&text).1.to_string())
 }
 
-/// Split `---\nyaml\n---\nbody`. Returns (yaml, body).
-/// A file with no front matter is all body. The one front-matter fence
-/// parser: page schema reads and the SCSS/template splits all come here.
+/// Split `---\nyaml\n---\nbody`. No fence means all body.
 pub fn split_front_matter(text: &str) -> (&str, &str) {
     let Some(rest) = text.strip_prefix("---") else {
         return ("", text);
@@ -74,9 +53,7 @@ pub fn split_front_matter(text: &str) -> (&str, &str) {
     ("", text)
 }
 
-/// The change stamp of one file: mtime and length, folded. Shared with the
-/// sidecar scan (IO.md I8), because a row whose identity lives in a second
-/// file has to notice that file changing.
+/// mtime xor length; shared with sidecar scan (IO.md I8).
 pub(crate) fn version_of(meta: &std::fs::Metadata) -> u64 {
     let mtime = meta
         .modified()
@@ -87,11 +64,6 @@ pub(crate) fn version_of(meta: &std::fs::Metadata) -> u64 {
     mtime ^ meta.len().rotate_left(32)
 }
 
-/// Does this file start with a `---` front-matter fence?
-///
-/// This is the page/static discriminator in Jekyll: a file with front matter is
-/// rendered and gets a pretty URL; one without is copied verbatim. Cheap enough
-/// to run over the whole tree (4 bytes per file).
 pub fn peek_front_matter(path: &Path) -> bool {
     use std::io::Read;
     let Ok(mut f) = std::fs::File::open(path) else {
@@ -104,19 +76,10 @@ pub fn peek_front_matter(path: &Path) -> bool {
     }
 }
 
-/// The same question asked of bytes already in hand.
-///
-/// ONE definition, deliberately: two spellings of "does this file carry front
-/// matter" would be two answers the day one of them learned about `\r\n` and
-/// the other did not. Since IO.md I7d there is also only one CALLER — the one
-/// walk peeks every file it may render, where the posts loader used to read
-/// whole files and ask this of the text.
 fn opens_front_matter(text: impl AsRef<[u8]>) -> bool {
     matches!(text.as_ref(), [b'-', b'-', b'-', b'\n' | b'\r', ..])
 }
 
-/// One file found by the tree walk. `has_front_matter` is filled in by the
-/// caller, which knows which rows are binary objects and can skip the peek.
 #[derive(Debug)]
 pub struct TreeFile {
     pub path: PathBuf,
@@ -126,28 +89,14 @@ pub struct TreeFile {
     pub has_front_matter: bool,
 }
 
-/// The one place `.gitignore` semantics are defined; both the tree walk and the
-/// marker scan build on it.
-///
-/// `.gitignore` is the site's existing, authoritative statement of "this is not
-/// content" — every build artifact (`_site*`, `_log*`, `vendor`, `_cache`,
-/// `grackle/target`, `.jekyll-cache`, …) is already listed there, and those are
-/// exactly the directories that are expensive to walk. Honouring it removes a
-/// hand-maintained duplicate that silently rots.
-///
-/// It is not a *complete* exclusion list: `docker/`, `scripts/`, `CHANGES/`,
-/// `Gemfile` and friends are tracked on purpose but still aren't content, so a
-/// Jekyll-style `exclude` list stays (DESIGN.md §4c).
+/// `.gitignore` semantics for tree and marker walks.
 pub fn walker(root: &Path, gitignore: bool) -> ignore::WalkBuilder {
     let mut b = ignore::WalkBuilder::new(root);
     b.hidden(false) // dotfile policy is ours: .well-known and markers must survive
         .git_ignore(gitignore)
         .git_exclude(gitignore)
-        // A contributor's global gitignore must not change what the site
-        // publishes, and neither must a .gitignore above the site root.
         .git_global(false)
         .parents(false)
-        // Honour .gitignore even in a checkout that isn't a git repo.
         .require_git(false)
         .follow_links(false);
     b
@@ -157,35 +106,10 @@ fn is_git_dir(e: &ignore::DirEntry) -> bool {
     e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"
 }
 
-/// The site-root directory that is engine vocabulary by POSITION (IO.md I7b):
-/// the build reads themes from `root.join("themes")` and from nowhere else, so
-/// what sits under it is input to the build in the same sense the config file
-/// is.
-///
-/// Named once, here, because the word is not the fact: `slots.rs`'s `SKIP`
-/// says the same thing about the same directory, and `serve.rs`'s `is_content`
-/// says the OPPOSITE about it (theme sources are *watched* precisely because
-/// they are build input). q34 counts three occurrences of the literal for that
-/// reason; this constant is the one that means "not content", and both readers
-/// of that sense — the content walk's `under_themes` and the declaration
-/// walk's pruning below — take it from here.
+/// Site-root `themes/` is engine vocabulary by position (IO.md I7b).
 pub const THEMES: &str = "themes";
 
-/// The *declared* not-content layer of DESIGN.md §4c — a collection's
-/// `exclude`, with `include` re-adding ahead of it — compiled once and read
-/// by every walk of the site root.
-///
-/// It is one value rather than two globsets passed around because the walks
-/// must reach the same verdict: the vocabulary walk carrying its own idea of
-/// what lies outside the site is how `cover`, declared under grack.com's
-/// excluded `grackle/**`, became part of grack.com's field vocabulary
-/// (MERGE.md R1 — q34's disease, one rung up).
-///
-/// One value is not by itself one verdict, though: the walks ask it different
-/// questions. `keeps` answers for a single path, which is all the tree walk
-/// needs — it post-checks every file it emits. A walk that decides by pruning
-/// directories has no second chance at the files inside, so it must ask
-/// `keeps_dir` (MERGE.md R2).
+/// Declared not-content layer (DESIGN.md §4c): `exclude` with `include` re-adding.
 #[derive(Clone)]
 pub struct NotContent {
     exclude: globset::GlobSet,
@@ -197,47 +121,21 @@ impl NotContent {
         NotContent { exclude, include }
     }
 
-    /// Does an `include` pattern name `rel` explicitly?
-    ///
-    /// `include` is the escape hatch, and `keeps` gives it first say — so a
-    /// *positional* not-content rule (IO.md I7b's site-root `themes/`) has to
-    /// ask the same question the same way, or the hatch would open for the
-    /// declared layer and not for the engine's own.
     pub fn included(&self, rel: &Path) -> bool {
         self.include.is_match(rel)
     }
 
-    /// `included`'s directory twin: does an `include` pattern name the
-    /// directory `rel`, or its contents?
-    ///
-    /// It exists for the reason `keeps_dir` does (MERGE.md R2) — `themes/**`
-    /// matches `themes/x`, never `themes` — and a pruning walk asks about the
-    /// directory. The declaration walks prune the positional layer at
-    /// `themes/` itself (IO.md IR6), so asking the file question there would
-    /// find the hatch bolted shut for the one spelling every site writes.
+    /// Directory twin of `included`; subtree patterns match contents, not the dir (MERGE.md R2).
     pub fn included_dir(&self, rel: &Path) -> bool {
-        // `Path::join("")` is `keeps_dir`'s empty child: "themes" -> "themes/".
         self.include.is_match(rel) || self.include.is_match(rel.join(""))
     }
 
-    /// Is `rel` (root-relative) still inside the site?
     fn keeps(&self, rel: &Path) -> bool {
         rel.as_os_str().is_empty() || self.include.is_match(rel) || !self.exclude.is_match(rel)
     }
 
-    /// Is the directory `rel` — and everything under it — still inside the
-    /// site? A subtree pattern names the contents, not the directory:
-    /// `embedded/**` matches `embedded/x`, never `embedded`, so a walk that
-    /// prunes on `keeps` alone steps one level into every excluded subtree and
-    /// reads whatever sits directly there (MERGE.md R2).
-    ///
-    /// The second question is the same path with a trailing separator — the
-    /// empty child, `embedded/`. A subtree pattern matches it; a file-shaped
-    /// one cannot (`*.toml` matches `a/b.toml`, never `a/`), which is what
-    /// keeps R1's narrowing: grack.com excludes `*.toml` and must not thereby
-    /// prune the directory a `.schema.toml` lives in.
+    /// Pruning walks need the directory question: `embedded/**` matches `embedded/x`, not `embedded` (MERGE.md R2).
     pub fn keeps_dir(&self, rel: &Path) -> bool {
-        // `Path::join("")` is that empty child: "embedded" -> "embedded/".
         let below = rel.join("");
         rel.as_os_str().is_empty()
             || self.include.is_match(rel)
@@ -246,33 +144,7 @@ impl NotContent {
     }
 }
 
-/// A walk of the site root for files that are not content but *declare*
-/// things about it: marker files (§4b) and the `.schema.toml` / `.section`
-/// vocabulary walk (§5b, §6e).
-///
-/// It honours `.gitignore` and the declared `exclude`, but NOT the
-/// dot/underscore skip — these walks are looking for dotfiles, and markers
-/// live under `_posts`, so that skip would hide the very thing being sought.
-///
-/// `exclude` is applied to **directories only**, which makes the reachable
-/// directory set a superset of the tree walk's. Pruning the subtree is what
-/// these walks need from it: an embedded site under an excluded directory
-/// (grack.com's `grackle/**`) must not put its declarations into its host's
-/// vocabulary. A file-shaped pattern is a statement about *content* —
-/// grack.com's `exclude` lists `*.toml` — and must not silently unspeak a
-/// declaration, which is the same silent loss in the other direction.
-///
-/// Directory-only means `keeps_dir`, not `keeps`: the subtree's own root has
-/// to be pruned with it, or the walk steps one level in and reads the
-/// declaration sitting directly there (MERGE.md R2).
-///
-/// The **positional** layer applies here too (IO.md IR6): a site-root
-/// `themes/` is engine vocabulary by position, and a declaration is the one
-/// thing a directory can put into the site's vocabulary without owning a
-/// single row of it. `declared()` flattens every rung into one site-wide field
-/// list, so a theme shipping a `.schema.toml` would type-check names into its
-/// host's `where` clauses — R1's `cover` leak, at the directory I7b declared to
-/// be build input. `include` stays the hatch, asked as the directory question.
+/// Declaration walk: markers, `.schema.toml`, sidecars. No dot/underscore skip; exclude prunes directories only (MERGE.md R2).
 pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ignore::WalkBuilder {
     let root_owned = root.to_path_buf();
     let not = not.clone();
@@ -285,10 +157,6 @@ pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ig
             return true;
         }
         match e.path().strip_prefix(&root_owned) {
-            // The positional prune is asked at `themes/` ITSELF, not at its
-            // children: R2's lesson is that a pruning walk gets no second
-            // chance, and a `.schema.toml` sitting directly in `themes/` is as
-            // much a theme's declaration as one nested under `themes/mine/`.
             Ok(rel) if rel == Path::new(THEMES) && !not.included_dir(rel) => false,
             Ok(rel) => not.keeps_dir(rel),
             Err(_) => true,
@@ -297,38 +165,14 @@ pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ig
     b
 }
 
-/// Is `rel` on the way to, or inside, one of the declared scope sources?
-///
-/// The punch-through (IO.md I7d). The dot/underscore skip below is Jekyll's
-/// and it survives — `_tools/`, `_hidden/`, `_includes/` are not content on
-/// any site and nothing declares them — but a scope that says
-/// `source = "_posts"` has declared that directory to be content, in the one
-/// key that means that. So the skip asks the sources first, and DESIGN.md
-/// §9b's "six underscore directories need explicit excludes" obstacle is
-/// amended rather than paid: the five that no scope names stay out for free.
-///
-/// Both directions of containment matter and for different reasons: a source
-/// itself (`rel == "_posts"`) and everything under it are admitted, and so is
-/// every directory on the way DOWN to a nested source (`_a` for a
-/// `source = "_a/_b"`), because a pruning walk that refuses the parent never
-/// reaches the child. Whole components throughout — `_drafts_temp` is not
-/// under `_drafts`, which a string prefix would get wrong.
+/// Collection `source` punches through Jekyll's dot/underscore skip (IO.md I7d).
 fn punches_through(rel: &Path, sources: &[PathBuf]) -> bool {
     sources
         .iter()
         .any(|s| rel.starts_with(s) || s.starts_with(rel))
 }
 
-/// Walk the site root the way Jekyll does: skip dot- and underscore-prefixed
-/// entries and anything matching `exclude`, unless `include` re-adds it — or
-/// unless a collection declared the path as its `source` (see
-/// [`punches_through`]).
-///
-/// **The one walk** (IO.md I7d). Every row the site loads comes from here:
-/// what a scope's rules claim decides which table it lands in, and the walk
-/// itself has no opinion about tables.
-///
-/// `.gitignore` is honoured underneath (see `walker`).
+/// Content tree walk (IO.md I7d). Rules decide tables; the walk has no opinion.
 pub fn walk_tree(
     root: &Path,
     not: &NotContent,
@@ -367,16 +211,12 @@ pub fn walk_tree(
             Ok(r) => r.to_path_buf(),
             Err(_) => continue,
         };
-        // filter_entry prunes directories; re-check files that slipped through
-        // via an ancestor being allowed. Unlike the declaration walk, a file
-        // pattern does exclude a file here: this walk is the one deciding what
-        // is content.
         if !not.keeps(&rel) {
             continue;
         }
         let meta = entry.metadata()?;
         out.push(TreeFile {
-            has_front_matter: false, // filled in by the caller; see peek_front_matter
+            has_front_matter: false,
             path: entry.path().to_path_buf(),
             rel,
             version: version_of(&meta),
@@ -386,15 +226,6 @@ pub fn walk_tree(
     out.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
 }
-
-// `load_dir` — the posts loader's own walk of one `source`, hydrating every
-// `.md`/`.markdown` under it — is GONE (IO.md I7d). There is one walk, and
-// the extension filter that lived in its argument list is a rule glob now
-// (`match = "**/*.{md,markdown}"`), which is I7a's move one scope over: what a
-// scope claims is what its rules say, in the one mechanism that also says
-// where a claimed row lands. What that filter did by accident — a `.png`
-// beside a draft is not a post, and not anything else either — is now the
-// stated law: **a scope owns its source** (`load::walk_site`).
 
 #[cfg(test)]
 mod tests {

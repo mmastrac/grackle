@@ -1,49 +1,22 @@
-//! `grackle config --effective`: the merged config, printed with the
-//! provenance the merge itself recorded (MERGE.md B3, DESIGN.md §4d).
-//!
-//! The point of §4d is that a site inherits a config it never sees, and the
-//! only honest way to show it is to have the MERGE say where each value came
-//! from. So nothing here diffs two configs after the fact: [`Trace`] is
-//! written by `config::merge_table` and the functions below it, as they make
-//! each decision, and this module only prints what it was handed. A recorder
-//! that lies would have to lie about the merge it is part of.
-//!
-//! The unit of provenance is the ATOM (Law 2): a scalar, an array, or a
-//! definition under a user-chosen name. So `[sets.published]` carries one
-//! comment on its header and none on its three keys — you never inherit half
-//! a definition — while `[site]`, which the merge descends, carries one per
-//! key. Where the comment SITS is the law made visible.
+//! `grackle config --effective`: merged config with merge-recorded provenance
+//! (MERGE.md B3, DESIGN.md §4d). Unit of provenance is the atom (Law 2).
 
 use std::collections::BTreeMap;
 
-/// Which writer supplied a value.
-///
-/// Five rungs of §2's spine as a site meets them: the selected profile's
-/// overlay, its own file, the base config underneath it, and — for a key
-/// neither file wrote — the default compiled into the deserializer.
+/// Writer that supplied a value (§2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Prov {
-    /// The selected profile wrote it (MERGE.md E2). A profile is a fenced
-    /// config OVERLAY merged over everything below by the same two laws, so
-    /// it is one more writer rather than a second mechanism — which is the
-    /// whole reason this class exists and the preamble no longer has to
-    /// apologise for a projection it could not show.
+    /// Selected profile overlay (MERGE.md E2).
     Profile,
-    /// The site wrote it and the base had nothing at that key.
     Site,
-    /// The site wrote it over a value the base had: Law 1, visible.
+    /// Site shadowed base (Law 1).
     SiteOverBase,
-    /// The base wrote it and the site never mentioned the key. This is the
-    /// row that makes the command worth having.
     Base,
-    /// Neither file wrote it; serde's own default stands.
+    /// Serde / engine default.
     Default,
 }
 
 impl Prov {
-    /// The comment text. `profile` names the projection in force, which is
-    /// the one label that is not a constant — a profile's class is *which*
-    /// profile.
     fn label(self, profile: &str) -> String {
         match self {
             Prov::Profile => format!("profile {profile}"),
@@ -65,7 +38,6 @@ impl Prov {
     }
 }
 
-/// In the order a reader meets them, nearest writer first (§2's spine).
 const PROVENANCES: [Prov; 5] = [
     Prov::Profile,
     Prov::Site,
@@ -74,30 +46,10 @@ const PROVENANCES: [Prov; 5] = [
     Prov::Default,
 ];
 
-/// A comment: who wrote the value, and whether it was taken WHOLE (a table or
-/// an array — the shapes where "half of it was inherited" would be a lie worth
-/// forestalling).
 type Note = (Prov, bool);
 
-/// Where each atom of the merged config came from, keyed by the path the merge
-/// walked to reach it.
-///
-/// A path segment is a TOML key, except inside an array: `[[collections]]`
-/// entries are keyed by their identity (`source:_posts` — the annotation in
-/// MERGE.md §1, which is also why a renamed collection still pairs), and every
-/// other array element by its index. [`collection_seg`] and [`index_seg`] are
-/// the two spellings, used by the recorder and by the printer alike so the
-/// two cannot disagree about what a path is.
-///
-/// `on` is what keeps this free on the load path: `Trace::off()` is what
-/// `Config::from_toml` merges with, and every record is one bool test.
-///
-/// `near`/`far` are what let ONE merge serve two layers. The base merge runs
-/// with the site as the nearer writer and the base as the farther; the profile
-/// overlay (MERGE.md E2) re-runs the same `merge_table` over the RESULT, with
-/// the profile as the nearer writer and no farther one at all — because a key
-/// the profile did not write was already attributed by the merge underneath,
-/// and re-recording it as `base` would erase what that merge decided.
+/// Merge provenance by path. Collections keyed by identity (MERGE.md §1);
+/// `near`/`far` let one merge serve base then profile layers (MERGE.md E2).
 pub(crate) struct Trace {
     on: bool,
     near: Prov,
@@ -106,7 +58,6 @@ pub(crate) struct Trace {
 }
 
 impl Trace {
-    /// The load path's trace: records nothing.
     pub(crate) fn off() -> Trace {
         Trace {
             on: false,
@@ -125,23 +76,17 @@ impl Trace {
         }
     }
 
-    /// Re-aim the recorder at a layer merged OVER the one just recorded: `near`
-    /// becomes `prov`, and there is no farther writer to attribute (see the
-    /// type's own doc).
+    /// Next overlay layer: `near = prov`, no farther writer.
     pub(crate) fn layer(&mut self, prov: Prov) {
         self.near = prov;
         self.far = None;
     }
 
-    /// What a key the nearer writer wrote — and the farther one did not —
-    /// records as.
     pub(crate) fn near(&self) -> Prov {
         self.near
     }
 
-    /// What a key BOTH writers wrote records as. "Site over base" is Law 1 made
-    /// visible; a profile's class already says the same thing (it is by
-    /// construction over something), so it does not split in two.
+    /// Both writers: SiteOverBase for site layer; else `near`.
     pub(crate) fn near_over(&self) -> Prov {
         match self.near {
             Prov::Site => Prov::SiteOverBase,
@@ -149,8 +94,6 @@ impl Trace {
         }
     }
 
-    /// What a key only the farther writer wrote records as, or `None` when
-    /// there is nothing to say — see the type's own doc.
     pub(crate) fn far(&self) -> Option<Prov> {
         self.far
     }
@@ -180,14 +123,11 @@ impl Trace {
     }
 }
 
-/// One array element's path segment: its index.
 pub(crate) fn index_seg(i: usize) -> String {
     format!("[{i}]")
 }
 
-/// One `[[collections]]` entry's path segment: its identity, not its position,
-/// because the merge pairs them by source and a paired entry may sit at a
-/// different index on each side.
+/// Collection path segment by identity (not array index).
 pub(crate) fn collection_seg(entry: &toml::Value) -> String {
     crate::config::collection_key(entry).unwrap_or_else(|| "?".to_string())
 }
@@ -201,10 +141,7 @@ const COMMENT_COL: usize = 46;
 /// base.toml writes it, and a six-key view definition does not.
 const INLINE_MAX: usize = 62;
 
-/// Top-level key order: base.toml's, so that a diff against `examples/raw`
-/// reads as a diff and not as a shuffle. Keys not named here follow, in the
-/// order the merged table already has (alphabetical), which is also the order
-/// every nested table is printed in.
+/// Top-level print order matches base.toml.
 const ORDER: &[&str] = &[
     "extends",
     "root",
@@ -229,8 +166,6 @@ fn rank(k: &str) -> usize {
     ORDER.iter().position(|x| *x == k).unwrap_or(ORDER.len())
 }
 
-/// A TOML key, bare where TOML allows it and quoted where it does not
-/// (`"og:title"`, `".draft"`, `"shortcut icon"`).
 fn key_name(k: &str) -> String {
     let bare = !k.is_empty()
         && k.chars()
@@ -242,10 +177,6 @@ fn key_name(k: &str) -> String {
     }
 }
 
-/// The merged config as commented TOML. `preamble` is the caller's first
-/// lines — which file this is, and which profile is in force — and the legend
-/// below it is this module's. `profile` names the projection, and is what the
-/// [`Prov::Profile`] class prints as.
 pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str, profile: &str) -> String {
     let mut e = Emit {
         out: String::new(),
@@ -256,8 +187,6 @@ pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str, profil
     };
     e.out.push_str(preamble);
     e.out.push_str("#\n# Every value says who wrote it:\n#\n");
-    // Only the rungs this config actually has. A site with no base merged
-    // should not be handed a glossary of the merge it did not do.
     for p in PROVENANCES.iter().filter(|p| trace.uses(**p)) {
         e.out
             .push_str(&format!("#   # {:<15} {}\n", p.label(profile), p.gloss()));
@@ -278,12 +207,8 @@ pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str, profil
 struct Emit<'a> {
     out: String,
     trace: &'a Trace,
-    /// The projection in force, for [`Prov::Profile`]'s label.
     profile: &'a str,
-    /// The TOML header path — what goes between the brackets.
     hdr: Vec<String>,
-    /// The provenance path — the same walk the merge took, which differs
-    /// inside arrays (see [`Trace`]).
     path: Vec<String>,
 }
 
@@ -308,25 +233,19 @@ impl Emit<'_> {
             .push_str(&format!("{text}{:pad$}{comment}\n", "", pad = pad));
     }
 
-    /// Does this value print as `[header]` blocks rather than as one line?
-    /// Called with `self.path` already pointing at the value.
     fn is_block(&self, v: &toml::Value) -> bool {
         match v {
-            // Settled here: the merge stopped, so this is a definition taken
-            // whole. A block unless it fits on a line.
+            // Settled atom: block unless it fits inline.
             toml::Value::Table(_) if self.trace.at(&self.path).is_some() => {
                 let k = self.path.last().map(String::as_str).unwrap_or("");
                 key_name(k).chars().count() + 3 + v.to_string().chars().count() > INLINE_MAX
             }
-            // Not settled: the merge went further in, so the printer does too.
             toml::Value::Table(_) => true,
             toml::Value::Array(a) => !a.is_empty() && a.iter().all(|e| e.is_table()),
             _ => false,
         }
     }
 
-    /// The bracketed path, each segment quoted where TOML needs it —
-    /// `[markers.".draft"]` and not `[markers..draft]`.
     fn header_path(&self) -> String {
         self.hdr
             .iter()
@@ -339,10 +258,6 @@ impl Emit<'_> {
         self.path.len() == 1 && self.path[0] == "collections"
     }
 
-    /// One table. `settled` says provenance was decided above this point, so
-    /// nothing inside carries a comment; `own_header` and `head` are the
-    /// caller's, because an array element's `[[header]]` is printed by the
-    /// caller that knows the element exists.
     fn table(&mut self, tbl: &toml::Table, settled: bool, own_header: bool, head: Option<Note>) {
         let top = self.path.is_empty();
         let (mut inline, mut blocks) = (Vec::new(), Vec::new());
@@ -360,18 +275,11 @@ impl Emit<'_> {
             inline.sort_by_key(|(k, _)| rank(k));
             blocks.sort_by_key(|(k, _)| rank(k));
         } else {
-            // Sub-tables before arrays of them: `[collections.schema]` written
-            // after `[[collections.rules]]` still binds to the right
-            // collection, but only because a header path is absolute, and a
-            // printer that leans on that is one edit from being wrong. At the
-            // top level there is no such trap, and base.toml's order wins.
+            // Nested: sub-tables before arrays of tables.
             blocks.sort_by_key(|(_, v)| v.is_array());
         }
 
-        // A table that holds nothing but sub-tables needs no header of its
-        // own: `[html]` and `[html.head]` are namespaces on the way to
-        // `[html.head.meta]`, and printing them would be three headers for
-        // one table of values.
+        // Skip empty namespace headers (`[html]` when only `[html.head.*]`).
         if own_header && !self.hdr.is_empty() && (!inline.is_empty() || blocks.is_empty()) {
             self.out.push('\n');
             let h = format!("[{}]", self.header_path());
@@ -399,7 +307,6 @@ impl Emit<'_> {
                     let note = if settled { None } else { self.note(true) };
                     self.table(t, settled || note.is_some(), true, note);
                 }
-                // `is_block` says no.
                 _ => unreachable!(),
             }
             self.hdr.pop();
@@ -408,9 +315,6 @@ impl Emit<'_> {
     }
 
     fn array_of_tables(&mut self, entries: &[toml::Value], settled: bool) {
-        // An array taken whole (`[[parts]]`) is noted on the LIST; one whose
-        // entries were paired or interleaved (`[[collections]]`, its rules) is
-        // noted per entry. Ask the entry first, then the list.
         let whole_list = if settled { None } else { self.note(true) };
         let collections = self.is_collections();
         for (i, e) in entries.iter().enumerate() {
@@ -447,8 +351,6 @@ mod tests {
         assert_eq!(key_name("shortcut icon"), "\"shortcut icon\"");
     }
 
-    /// `off()` is what the load path merges with, and it is the whole of the
-    /// cost argument: a recorder that records nothing holds nothing.
     #[test]
     fn a_trace_that_is_off_records_nothing() {
         let mut t = Trace::off();

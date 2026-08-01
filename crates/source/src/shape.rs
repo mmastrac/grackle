@@ -1,170 +1,51 @@
-//! Law 2 (MERGE.md §1) in code: the TYPE STRUCTURE of a config value, and the
-//! depth a merge descends into it.
-//!
-//! > Merging descends namespaces and stops at atoms; an atom is taken whole
-//! > from the nearest writer. Atoms: scalars, arrays, enums, and *definitions*
-//! > (a struct under a user-chosen name). Namespaces: maps, and structs under
-//! > engine-chosen names.
-//!
-//! That law is a statement about the Rust types, so the depth a table merges
-//! to should be READ OFF the types rather than assigned by hand — which is
-//! what this module exists to do. [`Shape`] is the type tree in TOML-name
-//! space; [`Shape::depth`] is the law; [`Shape::law`] is what
-//! `config::merge_table` dispatches on, per key. There is no second table:
-//! retype a field and its law changes with it, with nothing to remember.
-//!
-//! The one thing a shape is NOT is a second spelling of the merge table. It
-//! describes types, not decisions: whether `[axes]` is a registry or a bag is
-//! not a question this file can be asked, because both are `Descend(1)` and
-//! the difference is what the values mean, not how they merge. §1's one
-//! ANNOTATION is the exception that proves it — a decision structure cannot
-//! make, written on the field it governs ([`Shape::Annotated`]) so that a
-//! key's law still comes from exactly one place.
+//! Law 2 (MERGE.md §1): merge depth read off config types via [`Shape`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// How one key of a config table merges over the base's (MERGE.md §1): the
-/// two laws, and the one annotation.
-///
-/// `Atom` and `Descend(n)` are Law 2, and nothing assigns them — they are
-/// read off the shape by [`Shape::law`]. The other two are §1's annotation,
-/// which no structure can imply, so they are written on the field
-/// ([`Shape::Annotated`]).
+/// How one config key merges (MERGE.md §1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Law {
-    /// One authored value, taken whole from the nearer writer — scalars,
-    /// arrays, and the tables nothing descends. Half-inheriting a list is
-    /// never what was meant.
     Atom,
-    /// Merge per key down `n` levels of tables; below that the site's value
-    /// replaces the base's whole.
-    ///
-    /// Depth 1 is a bag (`[site]`: the key is the unit, child wins — the same
-    /// rule as front matter over rule defaults) and equally a registry
-    /// (`[sets.*]`: the named definition is the unit; you never diff into one,
-    /// the same rule as a theme fragment shadowing the base's file of that
-    /// name). Which of the two a table is describes its contents, not its
-    /// merge: one law, read at different depths.
     Descend(usize),
-    /// The annotation: `[[collections]]` pair by SOURCE, then merge key by key
-    /// under `Collection`'s shape. Source is the key rather than `name`
-    /// because source is the physical thing and `name` is a label — a site
-    /// renaming its posts collection to `notes` is still talking about
-    /// `_posts/`, and must not end up reading it twice.
+    /// `[[collections]]` pair by source, then merge under `Collection`'s shape.
     Collections,
-    /// The site's list goes FIRST, which is all "specific rules before the
-    /// catch-all" ever meant. §4's "first writer wins, per key" then resolves
-    /// them with no extra machinery: a site's rule is nearer, so it writes the
-    /// route, and the base's `**` catch-all fills whatever is left.
+    /// Site list first; §4 first-writer-wins per key.
     Prepend,
 }
 
-/// The structure of one config value, in TOML's name space (serde renames
-/// applied, skipped fields absent) rather than Rust's.
-///
-/// The law reads exactly three things off a type — has it keys, are they the
-/// engine's or the user's, and is there anything under them — which is what
-/// [`Shape::Atom`], [`Shape::Struct`] and [`Shape::Map`] answer between them.
-/// [`Shape::TableAtom`] answers a fourth question the LAW never asks and a
-/// DESCENT must, and [`Shape::Annotated`] is not structure at all and says so.
+/// Config value structure in TOML name space (serde renames applied).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Shape {
-    /// A scalar, an array or a string-spelled enum. No keys to merge by; the
-    /// nearest writer's value is taken whole.
     Atom,
-    /// An atom that is spelled as a TOML TABLE — `LocalizedStr`, written
-    /// `{ en = "Home", fr = "Accueil" }`.
-    ///
-    /// It merges exactly as [`Shape::Atom`] does, and for the same reason:
-    /// §3 table D's atom is the whole `LocalizedStr`, and composing two of
-    /// them per locale would build a string nobody wrote. Depth 0, `Law::Atom`
-    /// — one law, no exception.
-    ///
-    /// The distinction is for the DESCENT, not the law. One `Descend(n)`
-    /// governs a whole table, so an atom sitting shallower than its siblings
-    /// is descended PAST — harmless while the merge is then handed a scalar or
-    /// an array (it gives back the nearer value whole), fatal when it is
-    /// handed a table, which it merges key by key. This variant is what lets
-    /// `a_nested_struct_ends_at_one_depth` see the difference between the two.
+    /// Table-spelled atom (`LocalizedStr`). Same law as [`Shape::Atom`]; variant exists for descent checks.
     TableAtom,
-    /// A struct: its fields, under their TOML names.
-    ///
-    /// Whether one is a namespace or an atom is a question of POSITION, not
-    /// of the type. Under an engine-chosen name (`[site]`, `[html]`) a struct
-    /// descends per field; under a user-chosen one (`[sets.<name>]`) it is a
-    /// *definition*, and definitions are atoms. [`Shape::depth`] applies that
-    /// rule, so a type is described once and merges correctly wherever it is
-    /// used.
     Struct(Vec<(&'static str, Shape)>),
-    /// `BTreeMap<String, V>` (or `toml::Table`): user-chosen keys over one
-    /// value shape. Descends per key.
     Map(Box<Shape>),
-    /// §1's one hand annotation, on the field it governs, with the field's
-    /// own shape kept underneath it.
-    ///
-    /// Both keys it reaches — `[[collections]]` and `[[collections.rules]]` —
-    /// are ARRAYS, so structure has nothing to say about them beyond "atom":
-    /// what makes them different is a fact about identity (a collection is
-    /// its source directory, so two configs writing that directory are
-    /// writing one collection) and a fact about order (rules interleave by
-    /// nearness, Law 1 expressed in list order). Neither is derivable, and
-    /// pretending otherwise would be the hand table smuggled back in.
-    ///
-    /// The inner shape is kept rather than erased: the annotation overrides
-    /// the LAW, not the description, so the invariant tests still see the
-    /// same type tree here as anywhere else.
+    /// §1 annotation on the field it governs.
     Annotated(Law, Box<Shape>),
 }
 
 impl Shape {
-    /// A struct that only ever appears under a user-chosen name, with its
-    /// fields left undescribed.
-    ///
-    /// This is not a claim that it has none: it is the claim that nothing
-    /// reads them. A definition is an atom, so the merge stops above its
-    /// fields and transcribing them here would be a list with no reader and
-    /// no test. `a_definition_never_sits_under_an_engine_name` holds the
-    /// claim — the moment such a type appears as a field of an engine-named
-    /// struct, the empty list becomes a lie and that test says so.
+    /// Definition atom under a user-chosen name; fields intentionally undescribed.
     pub(crate) fn definition() -> Shape {
         Shape::Struct(Vec::new())
     }
 
-    /// Law 2's depth: the level at which the first atom sits, counting this
-    /// value's own keys as level 1. Zero is "this value IS the atom".
-    ///
-    /// A struct takes the DEEPEST of its fields, because one depth governs
-    /// the whole table (`merge_to_depth` carries a single `n`). Descending
-    /// past a shallower field's atom is harmless while that atom is a scalar
-    /// or an array, since a merge that reaches a non-table hands back the
-    /// nearer value whole. The shape that would break the rule is an atom
-    /// that IS a table — a [`Shape::TableAtom`], or a definition — sitting
-    /// shallower than a map beside it; `a_nested_struct_ends_at_one_depth`
-    /// asserts the config has none, which is why the two atoms are told apart
-    /// here at all.
+    /// Level at which the first atom sits; 0 means this value is the atom.
     pub(crate) fn depth(&self) -> usize {
         match self {
             Shape::Atom | Shape::TableAtom => 0,
             Shape::Struct(fields) => 1 + fields.iter().map(|(_, s)| s.depth()).max().unwrap_or(0),
-            // A map descends per key. Its value descends FURTHER only if it
-            // is itself a map: a struct or an enum under a user-chosen name
-            // is a definition, and a definition is an atom.
+            // Map value descends further only if it is itself a map; struct/enum under user name is a definition (atom).
             Shape::Map(value) => match &**value {
                 Shape::Map(_) => 1 + value.depth(),
                 _ => 1,
             },
-            // An annotation changes the law, not the type: the depth is still
-            // the one the field's own shape has (0, for both of today's —
-            // they are arrays).
             Shape::Annotated(_, inner) => inner.depth(),
         }
     }
 
-    /// The law a value of this shape merges by, sitting under an
-    /// engine-chosen name: Law 2 read off the structure, or §1's annotation
-    /// where one is written. This is the whole of the dispatch — see
-    /// `config::merge_table`.
     pub(crate) fn law(&self) -> Law {
         match self {
             Shape::Annotated(law, _) => *law,
@@ -175,33 +56,15 @@ impl Shape {
         }
     }
 
-    /// Whether a descent that reached this value would SPLIT it rather than
-    /// hand it back: an atom the merge cannot tell from a namespace once it
-    /// holds the value, because both are TOML tables. See [`Shape::TableAtom`].
-    ///
-    /// A *definition* is table-spelled too and is deliberately not this: it
-    /// can only appear under a user-chosen name, one level below a `Map` that
-    /// stops the descent above it, and
-    /// `a_definition_never_sits_under_an_engine_name` is what keeps it there.
-    ///
-    /// `#[cfg(test)]` states where the enforcement lives, rather than hiding a
-    /// dead method: the MERGE never asks this question. It descends by a
-    /// single `n` and cannot narrow a shape as it goes, so the guard is the
-    /// invariant over the description — total, since it walks every struct in
-    /// it — and making it structural instead means the merge recursing over
-    /// `Shape` and retiring the depth scalar, which is a design change and not
-    /// a guard (MERGE.md §6, R3).
     #[cfg(test)]
     pub(crate) fn is_table_atom(&self) -> bool {
         match self {
             Shape::TableAtom => true,
-            // An annotation changes the law, not the type.
             Shape::Annotated(_, inner) => inner.is_table_atom(),
             _ => false,
         }
     }
 
-    /// This shape's fields, empty for anything that is not a struct.
     pub(crate) fn fields(&self) -> &[(&'static str, Shape)] {
         match self {
             Shape::Struct(fields) => fields,
@@ -210,21 +73,11 @@ impl Shape {
     }
 }
 
-/// A type that can say what shape it is. Implemented for the container types
-/// here — where the law is entirely mechanical — and per struct in
-/// `config.rs`, where a field list is the only thing Rust cannot tell us.
 pub(crate) trait Shaped {
     fn shape() -> Shape;
 }
 
-/// One field: its TOML name, and its shape read off the FIELD'S OWN TYPE.
-///
-/// The selector is never called. It exists so that the description tracks the
-/// declaration — retype a field and its law changes with it, with nothing
-/// here to edit — which is the difference between deriving a law and
-/// restating one. The name stays a literal because it is the TOML spelling,
-/// which serde owns; the tests hold the two together against serde's own
-/// `deny_unknown_fields` list.
+/// Field shape read off the field's own type; name is the TOML spelling.
 pub(crate) fn field<S, T: Shaped>(
     name: &'static str,
     _select: fn(&S) -> &T,
@@ -232,11 +85,6 @@ pub(crate) fn field<S, T: Shaped>(
     (name, T::shape())
 }
 
-/// One field whose law §1 ANNOTATES rather than derives — [`field`] with the
-/// exception written where the reader of the field list will meet it, so that
-/// the description stays the single place a key's law comes from. There are
-/// exactly two in the config, and
-/// `only_the_annotated_keys_have_a_hand_written_law` says so.
 pub(crate) fn annotated<S, T: Shaped>(
     name: &'static str,
     _select: fn(&S) -> &T,
@@ -253,15 +101,12 @@ macro_rules! atoms {
 
 atoms![String, bool, PathBuf, toml::Value];
 
-/// An array is an atom whatever it holds — "half-inheriting a list is never
-/// what was meant" — so its element type is never described.
 impl<T> Shaped for Vec<T> {
     fn shape() -> Shape {
         Shape::Atom
     }
 }
 
-/// `Option` is transparent: absence is not structure.
 impl<T: Shaped> Shaped for Option<T> {
     fn shape() -> Shape {
         T::shape()
@@ -274,9 +119,6 @@ impl<V: Shaped> Shaped for BTreeMap<String, V> {
     }
 }
 
-/// `toml::Table` is a map by another name: user-chosen keys over values the
-/// engine does not type. `[schema]` and `[collections.*.schema]` are this —
-/// a field declaration is opaque here and typed by `schema.rs`.
 impl Shaped for toml::Table {
     fn shape() -> Shape {
         Shape::Map(Box::new(Shape::Atom))

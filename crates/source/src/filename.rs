@@ -1,44 +1,31 @@
-//! File patterns: extract capture tokens (and spent axes) from a path.
-//!
-//! A pattern is declared per RULE as `file = [...]`, falling back to its
-//! collection's list. Tokens:
-//!
-//! - `{slug}` / `{stem}` — free captures for routing and identity
-//! - `{field.year|month|day}` — components of a declared `date`-typed field;
-//!   the walk stamps that field as `YYYY-MM-DD` (front matter wins if set)
-//! - `{axis:NAME}` — spends a declared axis into the path
+//! File patterns (`file = [...]`): capture tokens and spent axes from a path.
+//! Tokens: `{slug}`/`{stem}`, `{field.year|month|day}`, `{axis:NAME}`.
 
 use anyhow::{anyhow, bail, Context, Result};
 use regex::Regex;
 use std::collections::BTreeMap;
 
-/// A compiled `file` entry.
 #[derive(Debug)]
 pub struct FilePattern {
-    /// Pattern text with `{axis:…}` segments removed — filled for logical path.
+    /// Axis tokens stripped; filled for logical path.
     logical: String,
     re: Regex,
     /// Axis name -> regex capture name (`_axis_locale`).
     axes: Vec<(String, String)>,
-    /// Regex group name -> capture key (`date.year`, `slug`, …).
+    /// Regex group name -> capture key (`date.year`, `slug`, ...).
     caps: Vec<(String, String)>,
 }
 
 impl FilePattern {
-    /// Axes this pattern spends into the stem.
     pub fn spent_axes(&self) -> impl Iterator<Item = &str> + '_ {
         self.axes.iter().map(|(n, _)| n.as_str())
     }
 }
 
-/// What a file pattern yields.
 #[derive(Debug, Clone, Default)]
 pub struct FileMatch {
-    /// Named captures (`date.year`, `slug`, …) as strings.
     pub captures: BTreeMap<String, String>,
-    /// Axis name -> member value.
     pub axes: BTreeMap<String, String>,
-    /// Logical path without extension.
     pub logical_stem: String,
 }
 
@@ -47,7 +34,7 @@ impl FileMatch {
         self.captures.get(name).map(String::as_str)
     }
 
-    /// Year / month / day for route tokens: prefer `date.*`, else any `*.part`.
+    /// Prefer `date.*`, else any `*.part`.
     pub fn date_part(&self, part: &str) -> Option<&str> {
         let keyed = format!("date.{part}");
         self.get(&keyed).or_else(|| {
@@ -60,7 +47,7 @@ impl FileMatch {
     }
 }
 
-/// Non-canonical members of a declared axis — values a spent `{axis:N}` may capture.
+/// Non-canonical members a spent `{axis:N}` may capture.
 pub type AxisValues<'a> = BTreeMap<&'a str, &'a [String]>;
 
 impl FilePattern {
@@ -200,10 +187,7 @@ fn fill_logical(template: &str, captures: &BTreeMap<String, String>) -> String {
     out
 }
 
-/// Compose ISO dates from `{field.year|month|day}` captures.
-///
-/// Returns `(field, "YYYY-MM-DD")` for each field that named a year. Missing
-/// month/day become `01`. The caller type-checks and writes through schema.
+/// `(field, "YYYY-MM-DD")` per field with a year capture; missing month/day = `01`.
 pub fn dates_from_captures(captures: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
     let mut parts: BTreeMap<String, (Option<&str>, Option<&str>, Option<&str>)> = BTreeMap::new();
     for (key, raw) in captures {
@@ -240,7 +224,7 @@ pub fn dates_from_captures(captures: &BTreeMap<String, String>) -> Result<BTreeM
     Ok(out)
 }
 
-/// First matching pattern for this path key (full key, then basename).
+/// First matching pattern (full path key, then basename).
 pub fn extract(patterns: &[FilePattern], path_key: &str) -> Option<FileMatch> {
     let name = path_key.rsplit('/').next().unwrap_or(path_key);
     patterns.iter().find_map(|f| {

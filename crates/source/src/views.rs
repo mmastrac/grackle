@@ -1,7 +1,4 @@
-//! Views become routes: resolving each declared query into row sets, group
-//! partitions (subdivision, §5c) and materialized `Route`s. Split from the
-//! table-building half of the database (`db.rs`); `SiteDb::load` calls in
-//! here once the tables and row routes exist.
+//! Views become routes: resolve queries into row sets, partitions (§5c), and `Route`s.
 
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
@@ -12,10 +9,7 @@ use grackle_db::filter;
 use grackle_db::template;
 use grackle_model::{route_schema, row_schema, AxisMember, Route, RouteKind, SiteDb, ViewRows};
 
-/// One group key a row contributes under a single `group_by` spec: the typed
-/// sort component (years/months order numerically, tags lexically), the
-/// display component (joined into `Route.key`), and the parameters the key
-/// exposes to route/`title`/`crumb` templates.
+/// One `group_by` key: sort component, display (`Route.key`), and template params.
 #[derive(Clone, Debug)]
 pub struct GroupKey {
     sort: SortKey,
@@ -31,8 +25,7 @@ enum SortKey {
 impl SortKey {
     fn display(&self) -> String {
         match self {
-            // Numeric parts zero-pad to two so `2022-3` reads `2022-03` —
-            // years are 4 digits and unaffected.
+            // Zero-pad narrow numerics so `2022-3` reads `2022-03`.
             SortKey::Int(n) if *n < 10 => format!("0{n}"),
             SortKey::Int(n) => n.to_string(),
             SortKey::Str(s) => s.clone(),
@@ -40,22 +33,14 @@ impl SortKey {
     }
 }
 
-/// The group keys a row holds under one spec, read through the same typed
-/// field access filters use: a `List` field multi-keys (one group per
-/// item), scalars single-key, `Null` means the row is absent from this
-/// partition (an undated row under a year grouping; a course-less recipe
-/// under a course grouping). Every key exposes `{key}` plus a param named
-/// after the field; `date.month` also exposes `{month}` (and year/day
-/// likewise). Month *names* come from `@months[{month}]` in title/crumb
-/// templates, not a stamped param.
+/// Keys under one `group_by` spec: List multi-keys, scalars single-key, Null absent.
+/// Also exposes `{year}`/`{month}`/`{day}` for `date.*` specs.
 fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
     let mk = |sort: SortKey, display: String| {
         let mut params = vec![("key".to_string(), display.clone())];
         if spec != "key" {
             params.push((spec.to_string(), display.clone()));
         }
-        // `date.year` also exposes `{year}` (and month/day likewise) so archive
-        // titles keep the short names.
         if let Some((_, part)) = spec.rsplit_once('.') {
             if matches!(part, "year" | "month" | "day") {
                 params.push((part.to_string(), display.clone()));
@@ -73,9 +58,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
             .collect(),
         filter::Value::Str(s) => vec![mk(SortKey::Str(s.clone()), s)],
         filter::Value::Int(i) => vec![mk(SortKey::Int(i), i.to_string())],
-        // No row column is a double (it is a computed-expression type only),
-        // so grouping by one never happens; grouped by its string form if it
-        // somehow did, rather than silently dropped.
+        // Doubles are expression-only; string-form rather than drop if hit.
         filter::Value::Double(d) => vec![mk(SortKey::Str(d.to_string()), d.to_string())],
         filter::Value::Bool(b) => vec![mk(SortKey::Str(b.to_string()), b.to_string())],
         filter::Value::Content(_)
@@ -85,15 +68,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
     }
 }
 
-/// Load-time check for a view's group chain: every spec must name a field of
-/// the base's own vocabulary — the `order_by` discipline applied to grouping,
-/// so a typo cannot produce an empty partition silently.
-///
-/// The vocabulary arrives as a parameter because it belongs to the BASE, not
-/// to the kind. `Base::resolve` is the single place that decides what a view's
-/// expressions may name (§5c); this function held the second copy of that
-/// decision, and its objects arm was unreachable — the dispatch sent objects
-/// to a materializer that refused `group_by` before ever calling this.
+/// Every `group_by` spec must name a field of the base's vocabulary (§5c).
 fn check_group_chain(name: &str, chain: &[String], schema: &filter::Schema) -> Result<()> {
     let mut known: Vec<&str> = schema.keys().copied().collect();
     known.sort_unstable();
@@ -109,10 +84,7 @@ fn check_group_chain(name: &str, chain: &[String], schema: &filter::Schema) -> R
     Ok(())
 }
 
-/// The composite keys a row belongs to under a subdivision chain — the
-/// cartesian product across levels (a list field can multi-key a row;
-/// scalar fields contribute at most one each). Empty when the row is
-/// absent at any level.
+/// Cartesian product of group keys across a subdivision chain; empty if absent at any level.
 pub fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>> {
     let mut combos: Vec<Vec<GroupKey>> = vec![Vec::new()];
     for spec in chain {
@@ -134,22 +106,14 @@ pub fn key_combos(row: &dyn filter::Row, chain: &[String]) -> Vec<Vec<GroupKey>>
     combos
 }
 
-/// One cell of a view's route product: the rows that landed in it, the URL
-/// params that name it, and the key it wears.
-///
-/// A view without a `group_by` has exactly one cell holding everything, which
-/// is what lets the materializer below have no branches — an ungrouped view is
-/// a grouped one with a single partition, and a single-page view is a
-/// paginated one whose slice happens to be the whole cell.
+/// One partition cell: rows, URL params, and display key.
 struct Cell {
     key: Option<String>,
     params: Vec<(String, String)>,
     rows: Vec<grackle_db::Key>,
 }
 
-/// Partition rows into cells by a subdivision chain (§5c) — one cell per
-/// composite group key, in key order. Shared by every base table: grouping
-/// never cared what a post or a page was.
+/// Partition rows by subdivision chain (§5c), one cell per composite key.
 fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> Vec<Cell> {
     #[allow(clippy::type_complexity)]
     let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> =
@@ -184,9 +148,7 @@ fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> 
         .collect()
 }
 
-/// Which pairing-axis values a materializing view partitions into (§6f).
-/// Default-on: every member of `[i18n] axis`; `partition = "default"` keeps
-/// only the canonical.
+/// Pairing-axis values to materialize (§6f). Default-on; `partition = "default"` = canonical only.
 fn partition_values<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
     match (v.partition.as_deref(), cfg.pairing_axis()) {
         (_, None) => vec![""],
@@ -197,7 +159,6 @@ fn partition_values<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
     }
 }
 
-/// View route fields plus a stamped non-canonical pairing-axis field.
 fn view_fields_at(
     v: &View,
     route_schema: &BTreeMap<String, crate::schema::FieldType>,
@@ -211,7 +172,6 @@ fn view_fields_at(
     Ok(fields)
 }
 
-/// A view with no route: one row set, and nowhere to hang it but the view.
 fn insert_routeless(db: &mut SiteDb, name: &str, v: &View, members: Vec<grackle_db::Key>) {
     db.views.insert(
         name.to_string(),
@@ -224,9 +184,7 @@ fn insert_routeless(db: &mut SiteDb, name: &str, v: &View, members: Vec<grackle_
     );
 }
 
-/// The default ordering for dated rows: newest first, undated last, slug as
-/// the tiebreak. A comparator, not an index, so losing the table costs
-/// nothing (q51). Uses the first declared date-typed field when present.
+/// Newest first, undated last, slug tiebreak (q51). First declared date field.
 pub fn chronological(
     declared: &grackle_db::filter::Schema,
     rows: &[grackle_model::Row],
@@ -246,9 +204,7 @@ pub fn chronological(
     .then_with(|| x.slug.cmp(&y.slug))
 }
 
-/// What a sequence orders by when nothing says otherwise: newest first,
-/// undated last, path breaking ties. Adjacency's default, and NOT a view's —
-/// a view renders a list, a sequence encodes before-and-after.
+/// Sequence default: newest first, undated last, path ties. Not a view's default.
 fn newest_first(declared: &grackle_db::filter::Schema) -> Vec<grackle_db::Order> {
     let mut orders = Vec::new();
     if let Some(f) = grackle_model::date_fields(declared).into_iter().next() {
@@ -258,14 +214,7 @@ fn newest_first(declared: &grackle_db::filter::Schema) -> Vec<grackle_db::Order>
     orders
 }
 
-/// The order a view asked for, plus the tiebreak every view gets.
-///
-/// `path` goes last, always: two rows equal on the sort column would
-/// otherwise order by whatever the directory walk yielded, which is not an
-/// ordering. `path` ALONE is the default, because a tree is a list of files
-/// and their paths are the one ordering every row has. A collection whose
-/// rows carry dates says so — `order_by = "-date"` — rather than the engine
-/// assuming every corpus is a blog.
+/// View `order_by` plus a final `path` tiebreak. Default is path alone.
 fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<grackle_db::Order>> {
     let mut out = Vec::new();
     if let Some(spec) = spec {
@@ -291,14 +240,8 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
     Ok(out)
 }
 
-/// The chronological sequence the `grackle explain` diagnostic reports as a
-/// row's newer/older neighbours, one per posts collection, i18n canonical,
-/// newest first.
-///
-/// This is no longer what a rendered page's "earlier/later post" steps — those
-/// are declared relations now (§6g), computed per row by the engine over
-/// `published`. The old collection-level `adjacency` set retired with them;
-/// this stays only as the CLI's raw table walk.
+/// CLI `grackle explain` chronological walk (canonical only, §6f). Rendered
+/// earlier/later steps are relations (§6g), not this.
 pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
     let order = newest_first(&schemas.declared_schema());
@@ -307,7 +250,6 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
             .rows
             .iter()
             .filter(|p| p.collection == *cname)
-            // §6f: dated adjacency keeps the pairing axis's canonical only.
             .filter(|p| match cfg.pairing_axis() {
                 Some((name, _)) => cfg.on_canonical(*p, name),
                 None => true,
@@ -321,12 +263,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
     Ok(())
 }
 
-/// A view's own declarations, as route fields (§4e).
-///
-/// Schema-declared values on the view (`noindex = true`, …) land on the
-/// route under the same names a row would use, so `[html.head.meta]` and
-/// `where` share one vocabulary. `shell` is always present: absent means
-/// the HTML listing, and fold filters need a total column.
+/// View declarations as route fields (§4e). `shell` always set (fold filters need it).
 fn view_fields(
     v: &View,
     schema: &BTreeMap<String, crate::schema::FieldType>,
@@ -338,16 +275,7 @@ fn view_fields(
         })?;
         f.insert(name.clone(), crate::schema::typed(&ty, name, raw, "view")?);
     }
-    // IO.md §3: `shell` is "the serialization it left through", a fact about
-    // the OUTPUT — so a view route answers the same column a row route does,
-    // out of the same map. Before I2 the declaration was a route property the
-    // column could not see, and `shell == "atom"` selected nothing on a site
-    // with a feed.
-    //
-    // Absent means the HTML listing, and it is written here rather than left
-    // Null for the reason I1 refused to write it on rows and I2 does: a fold
-    // over the route pool needs a total predicate, and "the shell it left
-    // through" is answerable for every route in the table.
+    // IO.md §3: shell is an output column; absent = HTML listing (fold filters).
     f.insert(
         "shell".to_string(),
         filter::Value::Str(
@@ -362,39 +290,24 @@ fn view_fields(
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let route_schema = crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
-        // A fold with no `from` reads every output (IO.md §4) — at this stage
-        // the finished route set — so it runs in a second pass (see
-        // `build_pool_folds`). Views iterate in name order, so inline would
-        // measure a partial list.
+        // No-`from` folds run later (`build_pool_folds`); inline would see a partial set.
         if v.reads_all_outputs() {
             continue;
         }
-        // Both named queries (`published`) and embedded views (`latest`) still
-        // have to resolve, so a typo in `from` is a startup error either way.
         let q = cfg.query(name)?;
-        // The base's role still decides row eligibility (objects skip it). A
-        // union's members share a role — they share a `from` vocabulary — so
-        // the first collection answers for the whole base.
+        // Objects skip row eligibility; union members share a role via first collection.
         let base_is_objects = q
             .base
             .first()
             .and_then(|n| cfg.collections.get(n))
             .is_some_and(|c| c.is_objects());
         let base = Base::resolve(schemas, name, &q, base_is_objects)?;
-        // q53: the axis is the OUTERMOST dimension — a view on one materializes
-        // once per member, and everything below it (i18n partition, grouping,
-        // pagination) happens within each. Ordering it outermost is what keeps
-        // the branches below a substitution rather than a rewrite.
+        // q53: axis outermost so i18n/group/page stay a substitution within each member.
         for members in axis_member_combos(cfg, name, v)? {
             build_view(cfg, db, name, v, &q, base.clone(), members, &route_schema)?;
         }
     }
-    // §4d: an inherited route with nothing to show does not materialize. The
-    // base config may not mint a URL the author did not ask for, and a site
-    // with no `_posts/` never asked for an empty `/blog/` or a feed with no
-    // entries. A route the SITE declared still materializes empty — declaring
-    // it IS asking, and an empty listing you wrote is a fact about your
-    // content, not a stray page.
+    // §4d: inherited empty routes do not materialize; site-declared ones may.
     db.routes.retain(|r| {
         let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) else {
             return true; // a row's own route, not a view's
@@ -404,58 +317,29 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
     Ok(())
 }
 
-/// What a view's base contributes to materialization: the vocabulary its
-/// expressions type-check against, the predicate that scopes it to its own
-/// rows, and whether those rows are PARSED rows.
-///
-/// These three are the whole of what used to be a second materializer. Objects
-/// differ from posts and tree in exactly them — a narrower vocabulary (no front
-/// matter, so `where = "draft"` on a gallery stays the load error §5b wants),
-/// and bytes rather than parsed rows. Writing them as parameters is what makes
-/// `group_by`, `paginate` and subdivision work over objects: they were never
-/// unsupported, only unreachable, and `check_group_chain` had carried a dead
-/// objects arm to prove it.
-///
-/// Membership used to be the third difference, and is not any more. Objects
-/// scoped to the one collection named; rows ranged over every collection of
-/// their KIND, so `from = "notes"` quietly meant the whole posts table. Now
-/// both mean *the collections `from` names* (§5c), and a site that wants the
-/// old union writes it: `from = ["posts", "drafts"]`.
+/// Materialization inputs from a view's base: schema, membership, parsed-vs-object.
 #[derive(Clone)]
 struct Base {
     schema: filter::Schema,
     membership: filter::Filter,
-    /// `rendered`, `claimed` and the i18n field are properties of a parsed row. An
-    /// object is never rendered, cannot be a view's claimed content (q45) and
-    /// carries no i18n field (§6f) — so row eligibility, applied to objects, would
-    /// exclude every one of them.
+    /// False for objects: row eligibility (`rendered`/`claimed`/i18n) would exclude all.
     parsed: bool,
 }
 
 impl Base {
     fn resolve(schemas: &Schemas, name: &str, q: &Query, is_objects: bool) -> Result<Base> {
-        // One rule for every base: the row's collection is one of the ones
-        // `from` named. One row schema answers every view (IO.md §3): an object
-        // is a `Row` like any other, so `where` on a gallery sees the same
-        // columns — path, dir, name, ext, size, width, height all live on the
-        // row schema — that a post's `where` sees.
+        // Membership = collections `from` named. One row schema for every view (IO.md §3).
         let membership = filter::Filter::parse(&members_clause(&q.base), &row_schema())
             .with_context(|| format!("view {name}: base {:?}", q.base))?;
         Ok(Base {
-            // Built-ins plus every declared field, so `where` sees exactly
-            // what `order_by`, `group_by` and a relation's `rank` see.
             schema: schemas.row_filter_schema(),
             membership,
-            // Objects are never rendered, never a view's claimed content and
-            // carry no i18n field, so row eligibility would exclude every one of
-            // them — the one place the base's role still bends the flow.
             parsed: !is_objects,
         })
     }
 }
 
-/// `collection == a || collection == b` over the collections a view's `from`
-/// named. Empty names nothing, which is not the same as naming everything.
+/// `collection == a || ...` over `from`; empty means nothing, not everything.
 fn members_clause(names: &[String]) -> String {
     if names.is_empty() {
         return "false".to_string();
@@ -467,10 +351,7 @@ fn members_clause(names: &[String]) -> String {
         .join(" || ")
 }
 
-/// The member-tuples a view materializes across — the cartesian product of its
-/// declared axes, or a single empty tuple for a view on no axis, so the caller
-/// loops either way and there is no second path for the ordinary case. A view
-/// on one axis yields one member per value.
+/// Cartesian product of declared axes (or one empty tuple if none).
 fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<AxisMember>>> {
     let mut combos: Vec<Vec<AxisMember>> = vec![Vec::new()];
     for axis_name in &v.axis {
@@ -485,15 +366,7 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
                 }
             );
         };
-        // Each axis must be spent somewhere in the path, or its members collide
-        // on one URL and all but one are lost. Checked here because this is
-        // where the two halves — the axis and the path that allocates it — are
-        // both in hand, and per axis because a product must spend every one.
-        //
-        // Asked through `load::spends`, the same predicate `select_path` fills
-        // by: this check used to carry its own `{name}` string, so a path
-        // written the namespaced way (`{axis:theme}`) failed here while the
-        // materializer would have spent it happily (MERGE.md C5).
+        // Every axis must be spent in a path, else members collide (MERGE.md C5).
         if !v
             .route
             .iter()
@@ -526,11 +399,7 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Materialize a view — one flow for every base.
-///
-/// A view differs from another only in which index list it starts from: a set,
-/// not a shape. Ordering, `limit`, grouping, pagination and the i18n axis
-/// are one rule each, applied here for every base.
+/// Materialize a view: one flow for every base.
 fn build_view(
     cfg: &Config,
     db: &mut SiteDb,
@@ -546,26 +415,20 @@ fn build_view(
         membership,
         parsed,
     } = base;
-    // §6f: objects are not file-axis content, so a partition opt-in is a
-    // config error rather than a silent ignore.
+    // §6f: objects have no pairing axis.
     if !parsed && v.partition.is_some() {
         bail!("view {name}: objects have no pairing axis; object views cannot declare partition");
     }
-    // Parsed and type-checked once per view, not per row: a bad filter is a
-    // startup error naming the view.
+    // Filter once per view (startup error), same schema as order_by.
     let view = grackle_db::View::all()
         .filter(membership.and(declared_filter(name, q, &schema)?))
         .order({
-            // Sorting reads the same vocabulary the filter does — it used to
-            // rebuild it here, which is how the two drifted apart in the first
-            // place.
             let known: Vec<&str> = schema.keys().copied().collect();
             declared_order(&known, &format!("view {name}"), q.order_by.as_deref())?
         });
     let rows = &db.rows;
 
-    // One row set per pairing-axis value (§6f). Without a pairing axis there
-    // is a single cell. `rendered` / `!claimed` are no-ops on the posts side.
+    // One row set per pairing-axis value (§6f); single cell if none.
     let pairing = cfg.pairing_axis();
     let rows_for = |axis_value: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
@@ -594,19 +457,14 @@ fn build_view(
         return Ok(());
     }
 
-    // Partition DEFAULT-ON over the pairing axis; `partition = "default"` opts
-    // out. A value with no rows materializes nothing. Objects (unparsed) stay
-    // a single cell.
+    // Pairing partition default-on; `partition = "default"` opts out.
     let axis_values = if parsed {
         partition_values(cfg, v)
     } else {
         vec![""]
     };
 
-    // Every template this view lands on. `path` and `paths` are one list here:
-    // an unpaginated view uses the first, a paginated one needs the second for
-    // its `{n}`, and reading them from one place is what lets a grouped view
-    // paginate at all.
+    // `path` and `paths` as one list so grouped views can paginate.
     let tmpls: Vec<String> = if v.routes.is_empty() {
         v.route.iter().cloned().collect()
     } else {
@@ -615,11 +473,7 @@ fn build_view(
     if tmpls.is_empty() {
         bail!("view {name} needs a route");
     }
-    // The route templates split by pagination: those WITHOUT `{n}` are page-1 /
-    // default-variant candidates, those WITH it paginate. Axes are no
-    // longer spent up front — each cell selects among the candidates by which
-    // non-canonical axes it must show (§6f, the default-axis case), so a member
-    // at its canonical value can drop its segment to a shorter template.
+    // Without `{n}` = page-1 candidates; with `{n}` paginate. Axes spent at select (§6f).
     let page1: Vec<&String> = tmpls.iter().filter(|t| !t.contains("{n}")).collect();
     let paged: Vec<&String> = tmpls.iter().filter(|t| t.contains("{n}")).collect();
     if v.paginate.is_some() && paged.is_empty() {
@@ -632,23 +486,12 @@ fn build_view(
         bail!("view {name} needs a path with no {{n}} for page one");
     }
 
-    // ONE materialization, over the product of the view's dimensions.
-    //
-    // These used to be three branches — grouped, paginated, single — each with
-    // its own loop over i18n members and its own idea of how a route is built, and
-    // the grouped one carried a second copy of the pagination loop. They are
-    // one shape: partition, slice, emit. An ungrouped view is a grouped one
-    // with a single cell; a single-page view is a paginated one whose slice is
-    // the whole cell.
-    //
-    // The dimensions, outermost first: AXIS (spent by the caller, already in
-    // `tmpls`), LOCALE, GROUP, then PAGE slicing whatever cell it is handed.
+    // Dimensions outermost-first: axis, locale, group, page.
     let chain = cfg.group_specs(name);
     if !chain.is_empty() {
         check_group_chain(name, &chain, &schema)?;
     }
-    // §6f enum records: URLs wear the record's slug for ANY grouped field
-    // (tags, courses, …); keys and titles keep the id.
+    // §6f: grouped URLs wear record slug; keys/titles keep the id.
     let leaf = chain.last().cloned();
     let route_value = |k: &str, val: &str| -> String {
         let field = if k == "key" { leaf.as_deref() } else { Some(k) };
@@ -663,9 +506,7 @@ fn build_view(
     for axis_value in &axis_values {
         let row_ix = rows_for(axis_value);
         let cells = if chain.is_empty() {
-            // No rows for this member = no page (the partition is real, §6f).
-            // A GROUPED view needs no such rule: a group with no rows is a
-            // group that does not exist.
+            // Empty non-canonical pairing cell: no page (§6f).
             if row_ix.is_empty() && *axis_value != pairing_canon {
                 continue;
             }
@@ -683,14 +524,12 @@ fn build_view(
         };
 
         for cell in cells {
-            // Render a candidate: group params and `{n}` filled, axis
-            // placeholders PRESERVED for `select_path` to spend per member.
+            // Fill group/`{n}`; leave axis tokens for `select_path`.
             let render = |tmpl: &str, n: Option<usize>| -> Result<String> {
                 template::render(tmpl, |tok| {
                     let (ns, k) = template::classify(tok);
                     match ns {
                         None if k == "n" => n.map(|n| n.to_string()),
-                        // Preserve an axis token — spent by selection below.
                         Some("axis") => Some(format!("{{{tok}}}")),
                         None if cfg.axes.contains_key(k) => Some(format!("{{{k}}}")),
                         None | Some("group") => {
@@ -700,9 +539,7 @@ fn build_view(
                     }
                 })
             };
-            // Coordinates: spent route axes, plus the pairing axis when
-            // templates spend it. `select_path` picks the shortest covering
-            // template.
+            // Axes to spend; `select_path` picks the shortest covering template.
             let mut coords: Vec<crate::load::Coord> = axis_members
                 .iter()
                 .map(|m| crate::load::Coord {
@@ -748,9 +585,6 @@ fn build_view(
                             fields: view_fields_at(v, route_schema, cfg, axis_value)?,
                             axis: axis_members.clone(),
                             view: Some(name.to_string()),
-                            // A grouped page keeps its GROUP key — `{key}` in a
-                            // title names the partition — and `page` carries the
-                            // number. Ungrouped, the page number is all there is.
                             key: cell.key.clone().or_else(|| Some(format!("page {n}"))),
                             rows: Some(page.len()),
                             page: Some(n),
@@ -761,10 +595,7 @@ fn build_view(
                     }
                 }
                 None => {
-                    // `limit` truncates only an unpaginated, ungrouped view —
-                    // where it means "the feed's twenty". Preserved as-is rather
-                    // than generalized: a limit over a partition would silently
-                    // start truncating group pages.
+                    // `limit` only on unpaginated ungrouped views (feed size).
                     let members: Vec<grackle_db::Key> = match chain.is_empty() {
                         true => cell
                             .rows
@@ -791,22 +622,10 @@ fn build_view(
     Ok(())
 }
 
-/// A view's declared filter: the conjunction of every `where` along its
-/// `from` chain.
-///
-/// Path scoping is in there, as `glob(path, …)` clauses an author writes
-/// (MERGE.md G2 retired the `match` key that used to compile to exactly
-/// that). A scope and a filter are one thing — composable, checked by one
-/// type-checker, applied wherever the filter is — so there is one conjunction
-/// here rather than a predicate and a glob pass beside it.
+/// Conjunction of every `where` along the `from` chain (incl. path globs).
 fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
     Ok(match q.predicate() {
-        // A profile's `where` is type-checked HERE, by the pass that evaluates
-        // it — `Config` alone cannot see the positional `.schema.toml`
-        // vocabulary, so refusing an unknown name at profile-apply time would
-        // make a profile's filter stricter than the one it replaces (§4a,
-        // MERGE.md C6a). The source parsed here is the whole `from` chain, so
-        // the note is what keeps the profile in the message.
+        // Type-check here: Config cannot see positional schema (§4a, MERGE.md C6a).
         Some(src) => filter::Filter::parse(&src, schema).with_context(|| {
             let note = match q.patched.is_empty() {
                 true => String::new(),
@@ -818,15 +637,7 @@ fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<fil
     })
 }
 
-/// Folds over every output — a fold shell with no `from` (IO.md §4): the
-/// sitemap, the search index. Runs after every other route exists, and its
-/// `rows` is the count that actually passes its filter.
-///
-/// "Every output" is the route set at this stage of the migration, which is
-/// the outputs database's facts half and is exactly what the retired
-/// `from = "*"` read. A fold whose `from` names a *set* is not here — it goes
-/// through `build_views` with its rows, and the join makes that selection
-/// output-mediated at I9.
+/// Folds with no `from` (IO.md §4): sitemap, search index; after other routes exist.
 pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     let route_schema = crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
@@ -839,9 +650,6 @@ pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("view {name} needs a route"))?;
         db.routes.push(Route {
             view: Some(name.clone()),
-            // This fold answers the `shell` column like any other route
-            // (I2): `shell == "sitemap"` selects the route the sitemap leaves
-            // through. Route fields (`noindex`, …) ride along from the view.
             fields: view_fields(v, &route_schema)?,
             ..Route::new(tmpl.to_string(), RouteKind::View)
         });
@@ -849,18 +657,7 @@ pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     Ok(())
 }
 
-/// Resolve each all-outputs fold's members, once the route list is final.
-///
-/// These range over ROUTES, so their members name `db.routes` rather than the
-/// row store — the one place in the engine where that is true, and true
-/// because the absent `from` says so (IO.md §4).
-///
-/// Deferred to here because the route list is only final once it
-/// stops growing and has been sorted. Resolving during `build_pool_folds`
-/// measured a partial list: views build in name order, so `sitemap` saw
-/// `search`'s route and would not have seen it the other way round. Both
-/// filters happen to exclude the other's route by extension, which is why
-/// nothing was visibly wrong.
+/// Resolve no-`from` fold members over the final route list (IO.md §4).
 pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
         if !v.reads_all_outputs() {
@@ -869,8 +666,6 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
         let pred = match &v.filter {
             Some(src) => filter::Filter::parse(src, &route_schema(&schemas.declared_schema()))
                 .with_context(|| match &v.filter_profile {
-                    // As in `declared_filter`: a fold's `where` may have been
-                    // replaced by a profile, and the message says so.
                     Some(p) => {
                         format!("view {name}: filter {src:?} (profile {p} replaced its `where`)")
                     }
@@ -879,12 +674,7 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
             None => filter::Filter::always(),
         };
         let members = db.routes.select(&pred);
-        // q53: an all-outputs fold sees the CANONICAL member only. An axis publishes
-        // alternative forms of one row, and an alternate is not a second page —
-        // listing every member in the sitemap or the search index would be
-        // asking a crawler to treat six renderings of one document as six
-        // documents, which is the thing `rel="canonical"` exists to deny.
-        // Reaching them is `rel="alternate"`'s job, in the head.
+        // q53: all-outputs folds see the canonical axis member only.
         let members: Vec<grackle_db::Key> = members
             .into_iter()
             .filter(|k| {
@@ -896,9 +686,6 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
         let Some(at) = db
             .routes
             .iter()
-            // The `view` column alone: a route naming this view IS a view
-            // route, so the `kind == View` term that stood here was saying it
-            // twice (IO.md §3, I13).
             .find(|r| r.view.as_deref() == Some(name.as_str()))
             .map(|r| r.id.clone())
         else {
@@ -913,10 +700,6 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
 }
 
 #[cfg(test)]
-// Membership, scoping and ordering moved to fixture tests (§7d): they
-// hand-built `Row`s and wired `object_ix` themselves, so they could not have
-// caught a bug in the loader they were imitating. See
-// `crates/core/tests/fixtures/{object-gallery,post-ordering}`.
 mod object_view_tests {
     use super::*;
 
@@ -928,10 +711,7 @@ mod object_view_tests {
         Config::from_toml(&src).expect("test config parses")
     }
 
-    /// G2's precondition: a gallery scopes itself with `glob(path, …)` in its
-    /// `where`, and that type-checks HERE — `path` is a column of the one row
-    /// schema every view sees now (IO.md §3, an object is a `Row` like any
-    /// other), so retiring the `match` key cost object views nothing.
+    /// Object views scope with `glob(path, ...)` (IO.md §3).
     #[test]
     fn an_object_view_scopes_itself_with_a_path_glob() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\n\
@@ -942,8 +722,6 @@ mod object_view_tests {
     }
 }
 
-/// A view's ordering. `path` ascending unless the view names a column, and
-/// `path` as the final tiebreak either way.
 #[cfg(test)]
 mod posts_order_tests {
     use super::*;
@@ -955,16 +733,11 @@ mod posts_order_tests {
             url: url.into(),
             order,
             slug: url.trim_matches('/').into(),
-            // A row's key is its path, so fixtures need distinct ones or
-            // they are all the same row as far as the table is concerned.
             rel: std::path::PathBuf::from(format!("{}.md", url.trim_matches('/'))),
-            // Every post is a rendered row; the loader hardcodes it, and
-            // eligibility is a predicate, so the fixture must say so.
             rendered: true,
             ..Row::default()
         };
-        // The view partitions by i18n member, so a fixture row must carry the
-        // canonical value to be visible at all.
+        // Pairing axis: fixture needs the canonical value to be visible.
         r.fields
             .insert("locale".into(), grackle_db::Value::Str("en".into()));
         r.fields
@@ -1018,16 +791,11 @@ mod posts_order_tests {
         build_views(&cfg(clauses), &mut db(), &schemas)
             .expect("a declared field is nameable in `where`");
 
-        // And it is still a load error when nothing declares it — the widening
-        // is the declared set, not "anything goes".
+        // Undeclared fields remain a load error.
         let e = build_views(&cfg(clauses), &mut db(), &Schemas::new(row_schema())).unwrap_err();
-        // `{:#}` for the whole chain — the top frame is only "view s: filter …".
+        // `{:#}` for the whole chain (top frame is only "view s: filter ...").
         assert!(format!("{e:#}").contains("unknown field"), "{e:#}");
     }
-
-    /// `path` is the last key, always, so rows tied on the declared column
-    /// order by their file rather than by whatever the walk yielded. Here
-    /// `/b/` and `/c/` declare no `order`, tie at Null, and fall to path.
 
     #[test]
     fn order_by_names_a_field_or_it_is_a_load_error() {
@@ -1076,7 +844,6 @@ mod grouping_tests {
             "{params:?}"
         );
         assert!(params.contains(&("month".into(), "3".into())), "{params:?}");
-        // Composite display joins with zero-padded numerics: "2022-03".
         let key: Vec<String> = combos[0].iter().map(|k| k.sort.display()).collect();
         assert_eq!(key.join("-"), "2022-03");
     }
@@ -1085,7 +852,6 @@ mod grouping_tests {
     fn undated_rows_are_absent_from_date_partitions() {
         let p = post(None, &["rust"]);
         assert!(key_combos(&p, &["date.year".into()]).is_empty());
-        // ...but present in the tag partition.
         assert_eq!(key_combos(&p, &["tags".into()]).len(), 1);
     }
 
@@ -1098,17 +864,13 @@ mod grouping_tests {
 
     #[test]
     fn months_sort_numerically_not_lexically() {
-        // Through the real grouping path: comparing two `SortKey::Int`s
-        // directly is true by `derive(Ord)` and would hold with months
-        // grouped as strings, which is the bug — params carry an unpadded
-        // "3", so lexical order puts December before March.
+        // Months must sort numerically (params carry unpadded "3").
         let month = |d| key_combos(&post(Some(d), &[]), &["date.month".to_string()]);
         let (march, december) = (month("2022-03-16"), month("2022-12-16"));
         assert!(
             march[0][0].sort < december[0][0].sort,
             "March must sort before December"
         );
-        // Display zero-pads narrow values and leaves a year alone.
         assert_eq!(march[0][0].sort.display(), "03");
         assert_eq!(
             key_combos(&post(Some("2022-03-16"), &[]), &["date.year".to_string()])[0][0]
@@ -1118,8 +880,6 @@ mod grouping_tests {
         );
     }
 
-    /// The generalization: grouping by a schema field is the same operation
-    /// as grouping by tags — Str single-keys, Null is absent.
     #[test]
     fn any_typed_field_groups() {
         use grackle_model::Row;
@@ -1157,13 +917,10 @@ mod grouping_tests {
             "{params:?}"
         );
 
-        // No course: absent from the partition, same as undated-under-year.
         p.fields.clear();
         assert!(key_combos(&p, &["course".into()]).is_empty());
 
-        // `date.year` over a PAGE: grouping does not care which origin a row
-        // came from. An undated page is absent from the year partition,
-        // exactly as an undated post is.
+        // Undated page absent from year partition, same as undated post.
         assert!(key_combos(&p, &["date.year".into()]).is_empty());
         p.fields.insert(
             "date".into(),
@@ -1191,8 +948,7 @@ mod grouping_tests {
     }
 }
 
-/// What `next`/`previous` step through (q51). The collection anchor is
-/// structural — one sequence per collection, not a filter after the fact.
+/// Sequence per collection (q51), not a post-filter.
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
@@ -1207,8 +963,6 @@ mod adjacency_tests {
             collection: collection.into(),
             url: url.into(),
             slug: url.trim_matches('/').replace('/', "-"),
-            // A flag is a declared field now (§4e), so a fixture sets one the
-            // way a row carries one.
             fields: BTreeMap::from([("draft".to_string(), grackle_db::Value::Bool(draft))]),
             ..Row::default()
         };
@@ -1250,9 +1004,7 @@ mod adjacency_tests {
             .collect()
     }
 
-    /// Two dated collections interleave in one table, so a shared index made
-    /// a blog post's neighbour a note. One sequence per collection makes that
-    /// unable to recur.
+    /// One sequence per collection: neighbours stay within the corpus.
     #[test]
     fn each_collection_gets_its_own_sequence() {
         let c = cfg("[[collections]]\nname = \"notes\"\n\
@@ -1268,10 +1020,7 @@ mod adjacency_tests {
         assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
     }
 
-    /// The diagnostic walk is a raw chronological table order — every dated
-    /// row of the collection, newest first, drafts included. Selecting which
-    /// rows are neighbours on a rendered page is the relation engine's job now
-    /// (§6g), not this sequence's; `grackle explain` only reports the table.
+    /// Diagnostic walk includes drafts; rendered neighbours are §6g relations.
     #[test]
     fn the_diagnostic_walk_is_chronological_and_unfiltered() {
         let c = cfg("");

@@ -11,192 +11,99 @@ use std::path::PathBuf;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// The config this one inherits (§4d). `"default"` merges the engine's
-    /// base config underneath this file; `"none"` is the stock setup, where
-    /// the site declares every collection, rule and route itself.
-    ///
-    /// Same word as `theme.toml`'s, for the same reason: it is the same
-    /// operation — a union merge where the child wins — and one word means
-    /// one thing to learn.
+    /// `"default"` merges base under this file; `"none"` declares everything (§4d).
     #[serde(default = "default_extends")]
     pub extends: String,
     #[serde(default = "default_root")]
     pub root: PathBuf,
-    /// Honour .gitignore when walking (default true). It is the site's existing
-    /// declaration of what is not content; see store::walker.
+    /// Honour .gitignore when walking (default true); see store::walker.
     #[serde(default = "default_true")]
     pub gitignore: bool,
     pub site: Site,
-    /// Keyed by table name, resolved from each entry's `name` or its
-    /// source directory. Built at load from `declared_collections`.
+    /// Keyed by table name; built at load from `declared_collections`.
     #[serde(skip)]
     pub collections: BTreeMap<String, Collection>,
-    /// `[[collections]]` — an array, because the table name comes from the
-    /// SOURCE DIRECTORY (`_posts` -> `posts`, leading underscore stripped)
-    /// and TOML has no keyless table. `name =` overrides where the two
-    /// genuinely differ. A rootward source (`.`) has no directory to name
-    /// it and falls back to `entries` (q51).
+    /// Array of collections: table name from source dir (`_posts` -> `posts`);
+    /// `name =` overrides; `.` falls back to `entries` (q51).
     #[serde(default, rename = "collections")]
     pub(crate) declared_collections: Vec<Collection>,
-    /// Sets and routes, merged. One namespace (§5c): `from` names a
-    /// collection, a set or a route, so the three cannot collide — checked
-    /// in `validate`. One map internally because the split is a
-    /// config-surface distinction, not an engine one: a set is a route
-    /// with no path.
+    /// Sets + routes folded; one namespace with collections via `from` (§5c).
     #[serde(skip)]
     pub views: BTreeMap<String, View>,
-    /// Queries that never land — no `path`. Composable, embeddable.
+    /// Queries with no `path`.
     #[serde(default)]
     pub(crate) sets: BTreeMap<String, View>,
-    /// Queries that land: every URL the site emits from a query.
+    /// Queries that land at a URL.
     #[serde(default)]
     pub(crate) routes: BTreeMap<String, View>,
-    /// Axes: alternative FORMS of a row (q53). Each one publishes its rows at
-    /// several URLs, one per value, and is the only mechanism permitted to do
-    /// so — §4's "one row, one route" names this as its sole exception.
+    /// Alternative forms of a row; sole exception to one-row-one-route (q53, §4).
     #[serde(default)]
     pub axes: BTreeMap<String, Axis>,
-    /// Marker filename -> what that marker MEANS: the defaults it applies to
-    /// its directory and below. The config says what a marker means; the tree
-    /// says where (DESIGN.md §4b). The payload is a [`MarkerDef`] rather than
-    /// a bare table because it is a definition under a user-chosen name, and
-    /// definitions are atoms — see the newtype for why the merge needs the
-    /// type to say so.
+    /// Marker filename -> defaults for that directory and below (DESIGN.md §4b).
     #[serde(default)]
     pub markers: BTreeMap<String, MarkerDef>,
-    /// `[html]` (§4e): what the engine puts on the document — head tags and
-    /// root-element attributes — declared rather than compiled in.
+    /// Head tags and root-element attributes (§4e).
     #[serde(default)]
     pub html: HtmlCfg,
-    /// Extension → media type (`[media_types]`). Used for `rel="alternate"
-    /// type="…"` on different-format axis members (q53), and wherever else
-    /// a URL's extension needs a Content-Type. An ordinary HTML form (no
-    /// extension, or one absent here) is omitted — a restyle is the same
-    /// representation at another URL.
+    /// Extension -> media type for `rel="alternate"` etc. (q53).
     #[serde(default)]
     pub media_types: BTreeMap<String, String>,
-    /// `[schema]` (§5b): typed fields every row has, plus how embeddings and
-    /// search read those fields. Field declarations are the flatten; the two
-    /// named subtables are engine consumers of the vocabulary, not fields.
+    /// Typed fields + embeddings/search consumers (§5b).
     #[serde(default)]
     pub schema: SchemaBag,
-    /// Custom block widgets (§5d): `{% name %}…{% endname %}` expands to the
-    /// wrapper template with the markdown body spliced at `{body}`. Adding a
-    /// widget is one config entry, no code.
+    /// `{% name %}...{% endname %}` expands with `{body}` (§5d).
     #[serde(default)]
     pub widgets: BTreeMap<String, String>,
-    /// Script shells (§5g, and yes, the pun): registered shell types backed
-    /// by an external command — the experimental bench for serializations
-    /// the engine doesn't speak yet (PDF, PostScript, whatever). The command
-    /// gets the view's rows as JSON on stdin (schema is TEMP, see §5g) and
-    /// its stdout bytes land at the view's route verbatim.
+    /// External command shells: stdin JSON, stdout at the route (§5g).
     #[serde(default)]
     pub shells: BTreeMap<String, ShellDef>,
-    /// i18n (§6f): display strings for the pairing axis. Absent `[i18n]` still
-    /// points at axis `"locale"`; membership lives on `[axes.*]`.
+    /// Display strings for the pairing axis; default axis `"locale"` (§6f).
     #[serde(default)]
     pub i18n: I18nCfg,
-    /// `[embeds]` (IO.md §4a, I11): the embed policy — what an EMBEDDED
-    /// citation of an asset no rule routed resolves to.
-    ///
-    /// The base ships it on, so a site needs no entry. The table exists for
-    /// the two answers a site can give that the default cannot: **off** (an
-    /// unrouted asset is then a load error, because nothing would address it),
-    /// and **a subset** (the policy publishes only what its globs admit, and
-    /// the rest is that same error).
+    /// Unrouted-asset embed policy (IO.md §4a, I11). Base ships on.
     #[serde(default)]
     pub embeds: EmbedsCfg,
-    /// Enum records (§6f, generalized from tag records at Matt's ask):
-    /// `[records.<field>.<id>]` declares the value domain of a grouped
-    /// field — tags, courses, any typed field a view groups by. A value
-    /// used in front matter needs no entry (id is slug is name), but an
-    /// entry can set the route `slug`, per-locale display `name`s (used
-    /// by pills AND by `{key}` in grouped titles/crumbs), and an `intro`
-    /// — mode-A landing prose for that value's own archive page.
+    /// `[records.<field>.<id>]`: slug, locale names, intro for grouped values (§6f).
     #[serde(default)]
     pub records: BTreeMap<String, BTreeMap<String, RecordCfg>>,
-    /// Build profiles (§4a): a profile is a different PROJECTION of the same
-    /// database, never a different database. It may change three things and
-    /// no others — which rows the views admit, what URL space the output is
-    /// addressed in, and a marker themes can style on. Anything else stays
-    /// site config, because a profile that can override any key is a config
-    /// merge, and config merges drift (the Jekyll profiles this replaces had
-    /// three different opinions about `exclude`).
+    /// Projection of the same database: which rows, URL space, style marker (§4a).
     #[serde(default)]
     pub profiles: BTreeMap<String, ProfileCfg>,
-    /// The profile in force, once `apply_profile` has run. `None` is the
-    /// default profile: the config exactly as written.
+    /// In force after `apply_profile`; `None` = as written.
     #[serde(skip)]
     pub profile: Option<String>,
-    /// Internal-link policy (§6a, Matt's rule): links reference what the
-    /// database owns — rows by SOURCE PATH, views by `view:` reference —
-    /// because final URLs are derived values (locales, slugs, templates).
-    /// `strict` (the default) errors on raw internal URLs with the correct
-    /// form as the suggestion; `loose` resolves the new forms but leaves raw
-    /// URLs alone — the migration posture for a legacy corpus.
+    /// Links by source path / `view:`; `strict` errors on raw internal URLs (§6a).
     #[serde(default)]
     pub links: LinksCfg,
     #[serde(skip)]
     pub dir: PathBuf,
-    /// The config file itself. Never content: a site's own config is input
-    /// to the build, and without this it routes as an ordinary tree row and
-    /// gets published — which is how `grackle.toml` ended up on a website.
-    /// Excluded by identity rather than by an `exclude` glob, so no site has
-    /// to know the trap exists.
+    /// Excluded by identity so the config file never publishes as content.
     #[serde(skip)]
     pub config_file: PathBuf,
-    /// The selected profile's rung-0 fields, once `apply_profile` has run
-    /// (§2, MERGE.md E1) — `[profiles.NAME.force]`, lifted out of the profile
-    /// so the loader can reach it without knowing about profiles.
-    ///
-    /// Empty is the ordinary case and the whole cost of the feature on a site
-    /// that declares none: `schema::force` iterates it once per row.
+    /// `[profiles.NAME.force]` lifted for the loader (MERGE.md E1).
     #[serde(skip)]
     pub forced: BTreeMap<String, toml::Value>,
 }
 
-/// One profile: a fenced config **overlay** plus rung 0's veto block
-/// (§4a, MERGE.md E2).
-///
-/// The body is a PARTIAL CONFIG and is kept here as TOML because that is what
-/// it is merged as. `[profiles.NAME.<path>]` merges over the merged base+site
-/// config through the same `merge_table` + [`Config::shape`] every other table
-/// goes through, with the profile as the NEARER writer; the result is
-/// deserialized into a `Config` again, so `deny_unknown_fields` type-checks
-/// every path a profile can write and nothing here restates the config
-/// surface. The bag/definition distinction falls out of the shape rather than
-/// out of an annotation: `[profiles.p.site] title` patches one key of a bag,
-/// while `[profiles.p.sets.published]` replaces the whole definition — you
-/// never inherit half of one (Law 2).
-///
-/// Two keys are the engine's rather than the overlay's. `force` is reserved to
-/// rung 0 (MERGE.md E1) and is lifted out before the merge; and [`PROJECTABLE`]
-/// fences the rest, because a profile never changes what LOADS.
+/// Fenced config overlay plus rung-0 `force` (MERGE.md E2). Body stays TOML
+/// so it merges through [`Config::shape`] like any other table.
 #[derive(Debug, Deserialize, Default)]
 #[serde(transparent)]
 pub struct ProfileCfg {
     body: toml::Table,
 }
 
-/// `[profiles.NAME.force]` — rung 0's veto block (MERGE.md E1), reserved and
-/// never part of the overlay. Named once because the fence, the split and the
-/// error messages all have to agree about the spelling.
+/// Rung-0 veto key (MERGE.md E1); spelling shared by fence, split, and errors.
 pub(crate) const FORCE: &str = "force";
 
 impl ProfileCfg {
-    /// The profile's body as written: the overlay plus `force`.
     pub(crate) fn body(&self) -> &toml::Table {
         &self.body
     }
 }
 
-/// A profile's body split into the two things it is: the config OVERLAY, and
-/// rung 0's forced fields.
-///
-/// One function because the split happens twice and must not drift — once at
-/// load for every declared profile (typing the forced values, [`Config::
-/// check_profiles`]) and once for the selected one, on the raw TOML, before
-/// there is a `Config` for the overlay to be merged into.
+/// Split overlay from `force`. Called twice (every profile at load; selected
+/// one on raw TOML); must not drift.
 pub(crate) fn split_profile(pname: &str, body: &toml::Table) -> Result<(toml::Table, toml::Table)> {
     let mut overlay = body.clone();
     let force = match overlay.remove(FORCE) {
@@ -215,29 +122,11 @@ pub(crate) fn default_extends() -> String {
     "default".to_string()
 }
 
-/// The base config, compiled in (§4d) — the same move as `parts.toml` and the
-/// base theme, for the same reason: a site can forget to copy a file, and
-/// cannot forget the binary.
+/// Built-in base config (§4d); compiled in so a site cannot forget it.
 pub(crate) const BASE: &str = include_str!("../../assets/base.toml");
 
-// ------------------------------------------------------- the merge surface
-//
-// What follows is the description the merge dispatches on. `shape.rs` holds
-// Law 2 and the vocabulary of laws; this holds the shape of THIS config, and
-// `merge_table` reads each key's law off it — there is no law table, and a
-// depth is nowhere written down. The two functions below are the compiler's
-// half of that: they never run, and a field added to `Config` or `Collection`
-// stops the build in one of them until the description names it.
-
-/// The compiler's half of the merge surface. The merge runs on `toml::Value`,
-/// before there is a [`Config`] to descend, so nothing else holds the
-/// description to the struct: this pattern does. A new field stops the build
-/// here until [`Config::shape`] names it, rather than falling through to
-/// wholesale replace — which is how `[axes]` came to be merged by a law
-/// nobody chose.
-///
-/// It pins the FIELDS; `the_shape_covers_the_config_surface` pins their TOML
-/// SPELLINGS, which is what the merge dispatches on.
+/// Exhaustive field pin: a new [`Config`] field fails here until [`Config::shape`]
+/// names it (merge runs on `toml::Value` before a typed Config exists).
 #[allow(dead_code)]
 fn every_config_key_has_a_law(c: Config) {
     let Config {
@@ -260,8 +149,7 @@ fn every_config_key_has_a_law(c: Config) {
         records: _,
         profiles: _,
         links: _,
-        // Not config surface: `#[serde(skip)]`, derived at load from the keys
-        // above, so no TOML key of a site's ever reaches them.
+        // `#[serde(skip)]` / derived at load: no TOML key.
         collections: _,
         views: _,
         profile: _,
@@ -271,10 +159,7 @@ fn every_config_key_has_a_law(c: Config) {
     } = c;
 }
 
-/// The site config's shape — the merge surface itself, since `merge_base`
-/// reads every key's law off this list (`law_of`). Every depth in §3 table A
-/// is a fact about a type named here; the fields are in declaration order so
-/// the list can be diffed against `Config` above.
+/// Merge surface: `merge_base` reads each key's law via `law_of` (§3 table A).
 impl Shaped for Config {
     fn shape() -> Shape {
         Shape::Struct(vec![
@@ -282,12 +167,7 @@ impl Shaped for Config {
             field("root", |c: &Config| &c.root),
             field("gitignore", |c: &Config| &c.gitignore),
             field("site", |c: &Config| &c.site),
-            // The one serde rename on the surface. The merge keys on TOML
-            // names, so this list is in TOML's name space, not Rust's.
-            //
-            // And §1's annotation, half of it: identity is physical, so two
-            // configs writing `_posts` are writing one collection however
-            // each of them names it. Structurally this is a `Vec` — an atom.
+            // TOML name (serde rename); Law::Collections: identity is physical (§1).
             annotated(
                 "collections",
                 |c: &Config| &c.declared_collections,
@@ -307,44 +187,21 @@ impl Shaped for Config {
             field("records", |c: &Config| &c.records),
             field("profiles", |c: &Config| &c.profiles),
             field("links", |c: &Config| &c.links),
-            // The `#[serde(skip)]` fields have no TOML name and so no shape:
-            // `collections`, `views`, `profile`, `dir`, `config_file`,
-            // `forced`.
         ])
     }
 }
 
-// ------------------------------------------------------------------ the fence
-//
-// §4a's iron law, made checkable (MERGE.md E2). It lives here, beside the field
-// list, for the reason the two annotations do: it is a DECISION no structure
-// can imply — nothing about the type of `[collections]` says a profile may not
-// write it — and a decision about a key belongs where a reader meets the key.
-//
-// The two lists are exhaustive over the config surface, and
-// `the_fence_classifies_every_top_level_key` holds them to it: a key added to
-// `Config` has to be put on one side or the other, which is the same
-// compile-then-test discipline `every_config_key_has_a_law` applies one
-// paragraph up. Being exhaustive is also what lets the error tell "you may not
-// project this" apart from "this is not a config key at all".
-
-/// What a profile MAY write: the surfaces that decide what a projection says
-/// and which rows its queries admit.
+/// Keys a profile may write (§4a, MERGE.md E2). Exhaustive with [`NOT_PROJECTABLE`].
 pub(crate) const PROJECTABLE: &[&str] = &[
     "site", "html", "sets", "routes", "i18n", "records", "widgets", "shells", "axes",
+    "media_types",
 ];
 
-/// What a profile may NEVER write: everything that decides what LOADS.
-///
-/// The database is identical under every profile — that is what makes two
-/// projections comparable, and what lets one resident db answer for several
-/// (§4a). `profiles` is here for a second reason: a profile does not contain
-/// profiles, so the overlay is one layer and not a ladder.
+/// Keys a profile may not write: what loads. Database identical under every
+/// profile (§4a). `profiles` itself: overlay is one layer, not a ladder.
 pub(crate) const NOT_PROJECTABLE: &[&str] = &[
     "collections",
-    // The embed policy decides ADDRESSES, and an address is a load fact: turn
-    // the policy off in a projection and half the assets stop having one,
-    // which is a different database rather than a different view of it.
+    // Addresses are load facts; toggling embeds would change the database.
     "embeds",
     "schema",
     "markers",
@@ -355,18 +212,13 @@ pub(crate) const NOT_PROJECTABLE: &[&str] = &[
     "profiles",
 ];
 
-/// The fence, applied to one top-level key of one profile's body.
-///
-/// `force` passes because it is not overlay at all — it is rung 0, lifted out
-/// by [`split_profile`] before the merge ever sees the table.
+/// Fence one top-level profile key. `force` passes: rung 0, lifted by [`split_profile`].
 pub(crate) fn fence(pname: &str, key: &str) -> Result<()> {
     if key == FORCE || PROJECTABLE.contains(&key) {
         return Ok(());
     }
     let projectable = PROJECTABLE.join(", ");
-    // The two spellings the closed profile vocabulary used to have. Both are
-    // live in shipped configs and in DESIGN.md, and the fence's own sentence
-    // would leave a reader to guess the new form, so each names it.
+    // Migration spellings still seen in shipped configs / DESIGN.md.
     if key == "noindex" {
         anyhow::bail!(
             "profile {pname}: `noindex` is no longer a profile key — it \
@@ -416,16 +268,12 @@ impl Shaped for Collection {
             field("file", |c: &Collection| &c.file),
             field("exclude", |c: &Collection| &c.exclude),
             field("include", |c: &Collection| &c.include),
-            // The other half of §1's annotation: the site's rules go FIRST,
-            // which is Law 1 expressed in list order — nearer writer, earlier
-            // in the file, first to claim a key.
+            // Site rules first: Law 1 as list order (§1).
             annotated("rules", |c: &Collection| &c.rules, Law::Prepend),
             field("trail", |c: &Collection| &c.trail),
             field("archives", |c: &Collection| &c.archives),
             field("relations", |c: &Collection| &c.relations),
             field("schema", |c: &Collection| &c.schema),
-            // `inherited` is `#[serde(skip)]`: it has no TOML name and so no
-            // shape, like `Config`'s five below.
         ])
     }
 }
@@ -485,7 +333,7 @@ impl Shaped for EmbedsCfg {
     fn shape() -> Shape {
         Shape::Struct(vec![
             field("enabled", |e: &EmbedsCfg| &e.enabled),
-            // TOML's name, not Rust's: the merge keys on what a site writes.
+            // TOML name `match`, not Rust's `patterns`.
             field("match", |e: &EmbedsCfg| &e.patterns),
         ])
     }
@@ -497,9 +345,7 @@ impl Shaped for LinksCfg {
     }
 }
 
-/// Enums: atoms wherever they sit. These three are spelled as STRINGS, so a
-/// descent that reached one would hand it straight back — there is nothing in
-/// them a merge could take apart.
+/// String-spelled enums: atoms; nothing inside for a merge to take apart.
 macro_rules! enums_are_atoms {
     ($($t:ty),* $(,)?) => { $(impl Shaped for $t {
         fn shape() -> Shape { Shape::Atom }
@@ -508,27 +354,15 @@ macro_rules! enums_are_atoms {
 
 enums_are_atoms![LinkPolicy];
 
-/// `LocalizedStr` is the atom spelled as a TABLE. `{ en = "Home", fr =
-/// "Accueil" }` is one value with one authority — §3 table D's "the atom is
-/// the `LocalizedStr`" — and composing two of them per locale would build a
-/// string nobody wrote.
-///
-/// It merges exactly as the three above do; what [`Shape::TableAtom`] buys is
-/// the tripwire, since a descent CAN take this one apart. Today every
-/// `LocalizedStr` in the config sits at the bottom of its table's deepest path
-/// (`[i18n.strings.*]`, `[records.*.*]`'s own fields) rather than beside it —
-/// `a_nested_struct_ends_at_one_depth` is what holds that, and
-/// `a_localized_string_beside_a_map_would_be_split` is what it would say.
+/// Table-spelled atom (§3 table D): compose per locale would invent a string
+/// nobody wrote. [`Shape::TableAtom`] trips if a descent tries to split it.
 impl Shaped for LocalizedStr {
     fn shape() -> Shape {
         Shape::TableAtom
     }
 }
 
-/// The definitions: structs that only ever appear under a USER-chosen name,
-/// where Law 2 stops. Their fields are left undescribed on purpose — see
-/// [`Shape::definition`]; `a_definition_never_sits_under_an_engine_name`
-/// is what keeps that honest.
+/// Structs under a user-chosen name; Law 2 stops here ([`Shape::definition`]).
 macro_rules! definitions {
     ($($t:ty),* $(,)?) => { $(impl Shaped for $t {
         fn shape() -> Shape { Shape::definition() }
@@ -545,12 +379,8 @@ definitions![
     MarkerDef,
 ];
 
-/// The law for `key`, read off the shape of the field that owns it — Law 2
-/// applied to a type (`Shape::law`), or §1's annotation where the field
-/// carries one. Nothing is assigned here; retype a field and its law follows.
-///
-/// A key no field claims is a typo on its way to `deny_unknown_fields`; until
-/// it gets there it merges as it always has, whole.
+/// Law for `key` from the owning field's type / annotation. Unknown keys merge
+/// as atoms until `deny_unknown_fields`.
 pub(crate) fn law_of(shape: &Shape, key: &str) -> Law {
     shape
         .fields()
@@ -559,8 +389,6 @@ pub(crate) fn law_of(shape: &Shape, key: &str) -> Law {
         .map_or(Law::Atom, |(_, s)| s.law())
 }
 
-/// One key's merge, its law now known. A key the base never wrote is the
-/// site's whole under every law, so `base` is always a value both sides hold.
 fn merge_by(
     law: Law,
     base: toml::Value,
@@ -579,8 +407,7 @@ fn merge_by(
     }
 }
 
-/// The site's array in front of the base's. Either side not an array leaves
-/// the site's value whole — there is nothing to interleave.
+/// Site's array in front of base's; non-arrays leave the site whole.
 fn prepend(
     base: toml::Value,
     site: toml::Value,
@@ -593,8 +420,7 @@ fn prepend(
     };
     let mut out = s.clone();
     out.extend(b.iter().cloned());
-    // Nearness IS the list order here, so the provenance is the index: the
-    // site's rules occupy the front, the base's the tail.
+    // Provenance is list index: site front, base tail.
     if t.on() {
         for i in 0..out.len() {
             path.push(index_seg(i));
@@ -609,17 +435,7 @@ fn prepend(
     toml::Value::Array(out)
 }
 
-/// The keys that have a value even when neither writer wrote one, and what
-/// that value is. Rung 6 one notch further in than `base.toml`: a serde
-/// default is still the engine speaking.
-///
-/// Not a second copy of the defaults — these ARE the functions each field's
-/// `#[serde(default = "…")]` names, called. A field given a new default
-/// changes here with nothing to remember; a NEW defaulted scalar has to be
-/// added, which is what `every_defaulted_scalar_is_printed`
-/// (`crates/core/tests/base_config.rs`) is for: it reads the
-/// `#[serde(default = "…")]` fields off [`Config`]'s own text and requires
-/// each one in the empty site's effective config.
+/// Serde defaults for keys neither writer set; same fns as `#[serde(default)]`.
 pub(crate) fn engine_defaults() -> Vec<(&'static str, toml::Value)> {
     vec![
         ("extends", default_extends().into()),
@@ -628,16 +444,12 @@ pub(crate) fn engine_defaults() -> Vec<(&'static str, toml::Value)> {
     ]
 }
 
-/// Merge the base config underneath a site's own (§4d). Every rule this
-/// applies already existed somewhere in the system, which is the evidence that
-/// config inheritance needed no new law; [`Config::shape`] is the whole of it.
+/// Merge base under site (§4d); laws come from [`Config::shape`].
 pub(crate) fn merge_base(site: toml::Value) -> Result<toml::Value> {
     merge_base_traced(site, &mut Trace::off())
 }
 
-/// The same merge with a recorder attached — the only entry point
-/// `--effective` has, so what it prints is what the load path did. See
-/// [`crate::config::effective`].
+/// Same merge with a recorder; `--effective` entry point.
 pub(crate) fn merge_base_traced(site: toml::Value, t: &mut Trace) -> Result<toml::Value> {
     let base: toml::Value =
         toml::from_str(BASE).context("parsing the built-in base config (this is an engine bug)")?;
@@ -650,20 +462,9 @@ pub(crate) fn merge_base_traced(site: toml::Value, t: &mut Trace) -> Result<toml
     ))
 }
 
-/// Project a merged config through one profile (§4a, MERGE.md E2): the
-/// profile's body, minus rung 0, merged over the config with the profile as the
-/// NEARER writer.
-///
-/// It is the same `merge_table` the base merge runs, on the same shape, so
-/// nothing here decides how a key merges: `[site]` is a bag and patches per
-/// key, a `[sets.*]` entry is a definition and replaces whole, and a profile
-/// that means to relax one clause of a set restates the set. The projected
-/// table is then deserialized like any other, which is where a profile's paths
-/// are validated — `deny_unknown_fields`, for free.
-///
-/// Returns the projected table, rung 0's block, and the view names the overlay
-/// wrote — the last so that a `where` a profile supplied can be attributed to
-/// it downstream (MERGE.md C6a).
+/// Project through one profile (§4a, MERGE.md E2): overlay minus `force`,
+/// profile as nearer writer. Returns projected table, force block, and view
+/// names the overlay wrote (MERGE.md C6a).
 pub(crate) fn project(
     merged: toml::Value,
     name: &str,
@@ -672,10 +473,7 @@ pub(crate) fn project(
     let declared = merged.get("profiles").and_then(|p| p.as_table());
     let body = match declared.and_then(|p| p.get(name)) {
         Some(b) => b.clone(),
-        // `dev` is implicit (§4a): it needs no declaration, and undeclared it
-        // changes nothing — which is what makes it safe for `serve` to default
-        // to. Any other name must be declared, so a typo is a load error naming
-        // what exists rather than a build that ships the wrong projection.
+        // `dev` is implicit (§4a): undeclared changes nothing.
         None if name == "dev" => return Ok((merged, toml::Table::new(), Vec::new())),
         None => {
             let mut known: Vec<&str> = declared
@@ -697,9 +495,7 @@ pub(crate) fn project(
         fence(name, key)?;
     }
     let (overlay, force) = split_profile(name, body)?;
-    // Which views the overlay wrote. `sets` and `routes` are two sections of
-    // one namespace (`merge_queries`), and this is read before that fold, so
-    // both are asked.
+    // Before `merge_queries` folds sets/routes into one namespace.
     let patched: Vec<String> = ["sets", "routes"]
         .iter()
         .filter_map(|k| overlay.get(*k)?.as_table())
@@ -716,16 +512,7 @@ pub(crate) fn project(
     Ok((projected, force, patched))
 }
 
-// ------------------------------------------------------------- the recorder
-//
-// Provenance is not derived by comparing two configs afterwards: it is written
-// down by the merge, as it decides. What follows records the decisions the
-// merge does NOT make key by key — a subtree one side never wrote, which the
-// merge passes through untouched and which is therefore where the base is most
-// invisible and most worth naming.
-
-/// Record `prov` for every atom under `path`, descending exactly as far as the
-/// merge would have descended had both sides written here.
+/// Record `prov` for every atom under `path`, same depth the merge would use.
 fn note_key(t: &mut Trace, path: &mut Vec<String>, law: Law, v: &toml::Value, prov: Prov) {
     if !t.on() {
         return;
@@ -756,8 +543,6 @@ fn note_key(t: &mut Trace, path: &mut Vec<String>, law: Law, v: &toml::Value, pr
     }
 }
 
-/// `note_key` for a whole table whose keys have laws of their own — the
-/// config itself, or one `[[collections]]` entry.
 pub(crate) fn note_table(
     t: &mut Trace,
     path: &mut Vec<String>,
@@ -776,8 +561,6 @@ pub(crate) fn note_table(
     }
 }
 
-/// The depth half of Law 2, walked for recording rather than for merging: an
-/// atom sits at `depth` levels down, or wherever the tables run out first.
 fn note_depth(t: &mut Trace, path: &mut Vec<String>, depth: usize, v: &toml::Value, prov: Prov) {
     match v.as_table().filter(|tbl| depth > 0 && !tbl.is_empty()) {
         None => t.record(path, prov),
@@ -791,20 +574,8 @@ fn note_depth(t: &mut Trace, path: &mut Vec<String>, depth: usize, v: &toml::Val
     }
 }
 
-/// One table merged over another, each key by its law. The shared body of the
-/// two merges — the config's and one collection's — so that a law means the
-/// same thing at either level, and a test can drive the dispatch with a base
-/// of its own rather than restating the loop.
-///
-/// `shape` is the type structure of the struct this table deserializes into,
-/// and it is the ONLY thing consulted: a key's law is a fact about its
-/// field's type (MERGE.md B2), so there is no table here to keep in step with
-/// `Config` and no depth for anyone to assign.
-/// `path` and `t` are the recorder (MERGE.md B3). The load path passes
-/// `Trace::off()`, which reduces the whole apparatus to one bool test per key;
-/// `--effective` passes a recording one and prints what it wrote. There is no
-/// second traversal and no after-the-fact diff of the two configs, so the
-/// provenance cannot disagree with the merge that produced it.
+/// Merge one table over another by each key's law (MERGE.md B2). `path`/`t`
+/// record provenance (MERGE.md B3); load uses `Trace::off()`.
 pub(crate) fn merge_table(
     base: toml::Value,
     site: toml::Value,
@@ -840,8 +611,7 @@ pub(crate) fn merge_table(
     toml::Value::Table(out)
 }
 
-/// Per-key merge down `depth` levels of tables; below that the site's value
-/// replaces the base's whole. Depth 1 = "the named entry is the unit".
+/// Per-key merge down `depth` table levels; below that, site replaces whole.
 pub(crate) fn merge_to_depth(
     base: toml::Value,
     site: toml::Value,
@@ -880,9 +650,7 @@ pub(crate) fn merge_to_depth(
     toml::Value::Table(out)
 }
 
-/// What identifies a collection across the merge: its source directory, else
-/// its name (objects have no source — their own rules pick them out of the
-/// tree walk).
+/// Collection identity across the merge: source dir, else name.
 pub(crate) fn collection_key(c: &toml::Value) -> Option<String> {
     let t = c.as_table()?;
     identity(
@@ -891,9 +659,7 @@ pub(crate) fn collection_key(c: &toml::Value) -> Option<String> {
     )
 }
 
-/// [`collection_key`]'s rule, stated once so the TOML side (which runs during
-/// the merge) and the typed side (which runs after it, to say whose rules are
-/// whose) cannot come to different verdicts about which entry is which.
+/// Same identity rule for TOML merge and typed post-merge (must not drift).
 pub(crate) fn identity(source: Option<&str>, name: Option<&str>) -> Option<String> {
     if let Some(s) = source {
         let s = s.trim_end_matches('/');
@@ -902,19 +668,11 @@ pub(crate) fn identity(source: Option<&str>, name: Option<&str>) -> Option<Strin
     name.map(|n| format!("name:{n}"))
 }
 
-/// How an identity error names one collection: the table name `from` would
-/// use, plus the thing that actually identifies it across the merge. Written
-/// once so two entries in one message are described the same way — the whole
-/// point of such a message is that the reader can tell them apart.
+/// Diagnostic label: table name plus identity (source or rules).
 pub(crate) fn describe_collection(name: &str, c: &Collection) -> String {
     match c.source.as_deref() {
         Some(s) => format!("{name:?} at `source = {s:?}`"),
-        // Objects have no source, and since IO.md I7a no `extensions` list
-        // either — what picks their rows out of the walk is their rules, so
-        // the rules are what a reader has left to recognise them by. Listed
-        // rather than counted: two objects collections in one config differ
-        // in what their globs claim, and that is the difference the reader
-        // has to see to know which entry is the one they meant.
+        // Objects: list rule globs so two sourceless collections differ visibly.
         None => match c.rules.as_slice() {
             [] => format!("{name:?} (no `source`, no rules)"),
             rules => format!(
@@ -940,8 +698,6 @@ fn merge_collection_list(
         return site;
     };
     let mut out = ba.clone();
-    // Which of the base's entries the site came and met. The rest are the
-    // collections a site inherits without knowing they exist.
     let mut paired = vec![false; ba.len()];
     for sc in sa {
         path.push(collection_seg(sc));
@@ -979,8 +735,7 @@ fn merge_collection(
     merge_table(base, site, &Collection::shape(), path, t)
 }
 
-/// `index.{md,html}` -> `["index.md", "index.html"]`. One group, which is all
-/// `default_content` has ever needed; anything else is a literal path.
+/// `index.{md,html}` -> `["index.md", "index.html"]`; else one literal.
 pub(crate) fn brace_alternatives(pat: &str) -> Vec<String> {
     let (Some(open), Some(close)) = (pat.find('{'), pat.find('}')) else {
         return vec![pat.to_string()];
@@ -999,16 +754,8 @@ fn default_root() -> PathBuf {
     PathBuf::from(".")
 }
 
-/// Whether a `content`/`default_content` string carries `{token}` placeholders
-/// — a template resolved per route against its group params and axis members
-/// (§5c), rather than a literal logical path. A literal claim is settled at
-/// load; a templated one only once the routes exist, so the loader routes the
-/// two differently. A malformed template counts as templated, so its error
-/// surfaces where templates render rather than as a mysterious "names no row".
-///
-/// A `{a,b}` brace-alternative (`index.{md,html}`) is NOT a template token: a
-/// token names ONE field, an alternative carries a comma. So a literal
-/// `default_content` with alternatives is still settled at load, unchanged.
+/// True if `content`/`default_content` has `{token}` placeholders (§5c).
+/// Brace alts (`index.{md,html}`) are not tokens (comma). Malformed => true.
 pub(crate) fn is_templated(s: &str) -> bool {
     grackle_db::template::tokens(s).map_or(true, |t| t.iter().any(|tok| !tok.contains(',')))
 }
@@ -1017,38 +764,20 @@ fn default_true() -> bool {
     true
 }
 
-/// A registered script shell: `sh -c command`, run from the site root.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShellDef {
     pub command: String,
 }
 
-/// `[embeds]`: the embed policy (IO.md §4a, I11).
-///
-/// A rule saying [`Rule::embed`] declines to route its rows; this says what
-/// happens to them. On (the default, shipped by the base), such a row gets a
-/// `strong_url` under `/static/` and publishes when something embeds it. Off,
-/// or outside `match`, it gets no address at all — which is a load error
-/// naming the asset, because a claimed row that lands nowhere and can be
-/// reached by nothing is the config forgetting, not the config deciding.
-///
-/// **The prefix is not a key.** `/static/` is one directory the engine owns
-/// and has published derived assets under since §6b; making it configurable
-/// would be a second name for a place two mints already share, and neither
-/// mint asked.
+/// Embed policy for unrouted rows (IO.md §4a, I11). `/static/` prefix is fixed.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EmbedsCfg {
-    /// Publish embed-addressed rows at all. Off, a rule that declines to route
-    /// is a rule with no answer, and every row it claims is a load error.
+    /// Off: embed-marked rows are a load error.
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// The subset the policy admits, as path globs over the row's
-    /// root-relative path. Empty — the default — is every row a rule marked,
-    /// which is the honest default because the RULE already selected by shape:
-    /// this key is for a site that wants to narrow that selection site-wide
-    /// without editing rules it inherited.
+    /// Path globs narrowing the policy; empty = all embed-marked rows.
     #[serde(default, rename = "match", deserialize_with = "one_or_many_string")]
     pub patterns: Vec<String>,
 }
@@ -1063,12 +792,8 @@ impl Default for EmbedsCfg {
 }
 
 impl EmbedsCfg {
-    /// The `match` globs, compiled once per load. `None` is "no subset
-    /// declared", which admits everything — distinct from an empty `GlobSet`,
-    /// which admits nothing.
-    ///
-    /// Case-insensitive, for the reason every rule glob is (IO.md I7a): the
-    /// shift key is not part of a file's kind.
+    /// Compiled `match` globs; `None` = admit all (vs empty GlobSet = admit none).
+    /// Case-insensitive like rule globs (IO.md I7a).
     pub fn compiled(&self) -> Result<Option<globset::GlobSet>> {
         if self.patterns.is_empty() {
             return Ok(None);
@@ -1086,44 +811,25 @@ impl EmbedsCfg {
     }
 }
 
-/// Display strings for the i18n axis (§6f). Member identity lives on the
-/// axis named by [`I18nCfg::axis`]; this table is only names and shared strings.
-/// Canonical membership is [`Axis::canonical`] on that axis — not cached here.
+/// Display strings for the pairing axis (§6f). Membership is on [`I18nCfg::axis`].
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct I18nCfg {
-    /// Which declared axis drives pairing, hreflang, switcher, and
-    /// single-locale indexes. Default `"locale"` matches base.toml; a site
-    /// that renames the axis sets this to match. Inert until that axis exists
-    /// under `[axes.*]`.
+    /// Pairing axis name; default `"locale"`. Inert until `[axes.*]` declares it.
     #[serde(default = "default_i18n_axis")]
     pub axis: Option<String>,
-    /// Display names for axis members (`fr = "Français"`); a missing entry
-    /// falls back to the member code. Keyed by member, so every key must be a
-    /// declared axis member — a name for an undeclared member labels nothing,
-    /// and is a load error (C4a).
+    /// Member display names; keys must be declared axis members (C4a).
     #[serde(default)]
     pub names: BTreeMap<String, String>,
-    /// The GLOBAL string map (§6f): the fallback layer of the display-name
-    /// hierarchy (inline beats global). Base.toml ships the engine vocabulary
-    /// (`home`, `blog`, …); any other key is a shared string for `"@key"`
-    /// references and must be referenced somewhere. Values are literal (no
-    /// reference chains).
+    /// Global `"@key"` map (§6f); values literal, no chains. Unused site keys error.
     #[serde(default)]
     pub strings: BTreeMap<String, LocalizedStr>,
-    /// Indexed tables (§6f): name → [`I18nTable`]. Base ships `months`; a site
-    /// that overrides a named table replaces it whole (same atom law as a
-    /// LocalizedStr — so `[i18n]` stays one `Descend` deep with `strings`).
+    /// Indexed tables (§6f); whole-table atom replace (with `strings` under Descend(2)).
     #[serde(default)]
     pub tables: BTreeMap<String, I18nTable>,
 }
 
-/// One indexed table under `[i18n.tables.<name>]` — index → LocalizedStr.
-///
-/// A table-spelled atom: the merge takes the whole map, so a site that wants
-/// a different July restates the months it still needs (or inherits base's
-/// `months` untouched). Keeping this an atom is what lets `tables` sit beside
-/// `strings` under one `Descend(2)` on `[i18n]`.
+/// `[i18n.tables.<name>]`: index -> LocalizedStr; table-spelled atom.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(transparent)]
 pub struct I18nTable(BTreeMap<String, LocalizedStr>);
@@ -1147,8 +853,6 @@ impl Shaped for I18nTable {
 impl Default for I18nCfg {
     fn default() -> Self {
         Self {
-            // Same as `#[serde(default = "default_i18n_axis")]` — Config's
-            // `#[serde(default)]` on `i18n` calls this when `[i18n]` is absent.
             axis: default_i18n_axis(),
             names: BTreeMap::new(),
             strings: BTreeMap::new(),
@@ -1162,14 +866,11 @@ fn default_i18n_axis() -> Option<String> {
 }
 
 impl I18nCfg {
-    /// The label a locale wears in the translations axis.
     pub fn name_of<'a>(&'a self, locale: &'a str) -> &'a str {
         self.names.get(locale).map(String::as_str).unwrap_or(locale)
     }
 
-    /// A named string from the merged `[i18n.strings]` map. Missing → `""`.
-    /// `canonical` is the pairing axis's first member — the fallback key for
-    /// a per-member map.
+    /// Missing -> `""`. `canonical` is the pairing-axis fallback for maps.
     pub fn string<'a>(&'a self, key: &str, member: &str, canonical: &str) -> &'a str {
         self.strings
             .get(key)
@@ -1177,7 +878,6 @@ impl I18nCfg {
             .unwrap_or("")
     }
 
-    /// An indexed table entry from `[i18n.tables.<name>]`. Missing → `""`.
     pub fn table<'a>(
         &'a self,
         name: &str,
@@ -1192,9 +892,7 @@ impl I18nCfg {
             .unwrap_or("")
     }
 
-    /// Resolve a display-name site (§6f): an inline value wins outright;
-    /// an `"@key"` reference falls back to the global map. Load validation
-    /// guarantees every reference resolves.
+    /// Inline wins; `"@key"` falls back to the global map (§6f).
     pub fn text<'a>(&'a self, s: &'a LocalizedStr, member: &str, canonical: &str) -> &'a str {
         match s.reference() {
             Some(key) => self.string(key, member, canonical),
@@ -1203,31 +901,26 @@ impl I18nCfg {
     }
 }
 
-/// `[schema]` (§5b): field declarations plus the two engine consumers that
-/// name those fields — embeddings text and search index/store.
+/// Field declarations + embeddings/search consumers (§5b).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SchemaBag {
     #[serde(default)]
     pub embeddings: EmbeddingsSchema,
     #[serde(default)]
     pub search: SearchSchema,
-    /// `draft = { type = "bool" }`, `tags = { type = "list" }`, …
+    /// Flattened field decls (`draft = { type = "bool" }`, ...).
     #[serde(flatten)]
     pub fields: toml::Table,
 }
 
-/// `[schema.embeddings]`: the text a row embeds as. `{body}` is the markdown
-/// body; every other `{name}` is a row field (lists join with `", "`).
+/// Embed text template; `{body}` + row fields (lists join with `", "`).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct EmbeddingsSchema {
     #[serde(default)]
     pub string: String,
 }
 
-/// `[schema.search]`: what the search shell indexes vs. stores for hit
-/// display. `index` fields are tokenized (list values each contribute;
-/// `body` is the rendered/stripped text). `store` fields travel with each
-/// hit; the overlay still hardcodes `date` + `title` from that bag.
+/// Search index vs store fields; `body` is stripped text.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SearchSchema {
@@ -1239,30 +932,25 @@ pub struct SearchSchema {
 
 impl crate::shape::Shaped for SchemaBag {
     fn shape() -> crate::shape::Shape {
-        // Same merge law the bare table had: per-key atom replace under [schema].
+        // Per-key atom replace under [schema].
         crate::shape::Shape::Map(Box::new(crate::shape::Shape::Atom))
     }
 }
 
-/// `[html]` (§4e): the parts of the document skeleton that are a site's
-/// decision rather than the engine's — head tags and attributes on `<html>` /
-/// `<body>`.
+/// Head tags and `<html>`/`<body>` attributes (§4e).
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HtmlCfg {
     #[serde(default)]
     pub head: HeadCfg,
-    /// `<html …>` attributes (`[html.html.attribute]`). Document language
-    /// lives here (`lang = 'locale'`), not as engine vocabulary.
+    /// `<html>` attrs; `lang` lives here, not as engine vocabulary.
     #[serde(default)]
     pub html: AttrCfg,
-    /// `<body …>` attributes (`[html.body.attribute]`).
     #[serde(default)]
     pub body: AttrCfg,
 }
 
-/// One element's attribute map: name → §5f text expression. Empty result
-/// omits the attribute (§5e rule 2 one layer up), same as a head meta.
+/// Attribute name -> §5f expression; empty result omits the attr (§5e).
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AttrCfg {
@@ -1270,31 +958,18 @@ pub struct AttrCfg {
     pub attribute: BTreeMap<String, String>,
 }
 
-/// One `[html.head.*]` value: a CEL text expression, a multi-attr table, or an
-/// expand that emits one tag per member of a candidate pool (§4e).
-///
-/// ```toml
-/// canonical = 'site.url + url'                          # single
-/// "apple-touch-icon" = { href = 'site.icon', sizes = '"180x180"' }
-/// alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
-/// ```
-///
-/// Every table value is a CEL text expression. `from` is the same word a
-/// relation spells: a pool name. A table-spelled atom so Descend(3) replaces
-/// the whole entry rather than composing its fields.
+/// Head entry: CEL expr, multi-attr table, or expand over a pool (§4e).
+/// Table-spelled atom under Descend(3).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum HeadEntry {
     Expr(String),
     Expand(HeadExpand),
-    /// `{ href = '…', sizes = '"180x180"' }` — key is still `rel`/`name`/
-    /// `property`; the table carries the rest. Untagged after [`Self::Expand`]
-    /// so a table with `from` stays an expand.
+    /// Multi-attr table; after Expand so `from` stays an expand.
     Attrs(BTreeMap<String, String>),
 }
 
 impl HeadEntry {
-    /// The single-expression form, when this is not a table.
     pub fn as_expr(&self) -> Option<&str> {
         match self {
             HeadEntry::Expr(s) => Some(s.as_str()),
@@ -1321,13 +996,11 @@ impl PartialEq<String> for HeadEntry {
     }
 }
 
-/// An expand: one tag per member of `from`, attributes evaluated as CEL.
+/// One tag per member of `from`; attrs are CEL.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HeadExpand {
-    /// Candidate pool — relation/`axis.*` name, same vocabulary as a
-    /// relation's `from`.
+    /// Candidate pool (relation / `axis.*`), same word as RelationCfg::from.
     pub from: String,
-    /// Attribute → CEL text expression (`href`, `hreflang`, `type`, …).
     #[serde(flatten)]
     pub attrs: BTreeMap<String, String>,
 }
@@ -1338,9 +1011,7 @@ impl Shaped for HeadEntry {
     }
 }
 
-/// One value in `[html.head.jsonld]`: a CEL text expression, or a nested
-/// object. Empty string after eval omits the key; an object whose keys all
-/// omit is itself omitted; a root without a non-empty `@type` emits no script.
+/// JSON-LD leaf expr or nested object; empty / no `@type` => omit (§4e).
 #[derive(Debug, Clone)]
 pub enum JsonLdValue {
     Expr(String),
@@ -1373,8 +1044,7 @@ fn jsonld_from_toml(v: toml::Value) -> Result<JsonLdValue, String> {
 
 impl Shaped for JsonLdValue {
     fn shape() -> Shape {
-        // One authored subtree: a site overriding `author` replaces the whole
-        // object rather than composing fields with the base's.
+        // Whole-object replace, not field compose.
         Shape::TableAtom
     }
 }
@@ -1382,32 +1052,16 @@ impl Shaped for JsonLdValue {
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HeadCfg {
-    /// `<meta name="KEY" content="…">`, where the content is a §5f text
-    /// expression over the row (or, for a listing, the route). An empty
-    /// result emits no tag — §5e's "an empty part deletes its element", one
-    /// layer up.
-    ///
-    /// This is where `noindex` stopped being engine vocabulary: the engine
-    /// used to read `Row.noindex` and decide to emit a robots meta. Now it
-    /// evaluates whatever the config declares and knows none of the names.
+    /// `<meta name>`: §5f expr; empty omits (§5e). Names are config, not engine.
     #[serde(default)]
     pub meta: BTreeMap<String, HeadEntry>,
-    /// `<meta property="KEY" content="…">`. A separate table because the
-    /// ATTRIBUTE is different, not the mechanism: Open Graph and the
-    /// `article:*` family are `property=`, and folding them into `meta` would
-    /// mean the engine deciding which name takes which attribute — the exact
-    /// kind of knowledge §4e is removing.
+    /// `<meta property>` (OG / article:*); separate attr, same mechanism (§4e).
     #[serde(default)]
     pub property: BTreeMap<String, HeadEntry>,
-    /// `<link rel="KEY" href="…">`. Same shape one element over: a bare
-    /// expression, a table (`{ href, sizes?, type?, … }`), or an expand
-    /// under a key (typically `alternate`) that emits one link per pool
-    /// member (§4e).
+    /// `<link rel>`: expr, attr table, or expand (§4e).
     #[serde(default)]
     pub link: BTreeMap<String, HeadEntry>,
-    /// `<script type="application/ld+json">` body. Nested TOML tables become
-    /// JSON objects; string leaves are §5f text expressions (JSON-escaped on
-    /// emit). Absent or empty `@type` after eval ⇒ no script.
+    /// JSON-LD; nested tables -> objects; empty `@type` after eval => no script.
     #[serde(default)]
     pub jsonld: BTreeMap<String, JsonLdValue>,
 }
@@ -1420,11 +1074,7 @@ pub struct LinksCfg {
     pub policy: LinkPolicy,
 }
 
-/// Strict is the DEFAULT: a link that matches no source file or route is a
-/// load error naming the file, and a raw URL to routable content is an error
-/// telling you the source form to use instead. Loose leaves both untouched,
-/// which means a typo ships as a 404 — kept only for importing a corpus
-/// whose links have not been converted yet.
+/// `strict` (default): broken / raw internal URLs are load errors. `loose`: migrate.
 #[derive(Debug, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LinkPolicy {
@@ -1433,8 +1083,7 @@ pub enum LinkPolicy {
     Strict,
 }
 
-/// One enum record: the full schema of one value of a grouped field.
-/// `slug` and `name` default to the id; `intro` is absent by default.
+/// One grouped-field value: slug/name default to id; intro optional.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordCfg {
@@ -1443,15 +1092,8 @@ pub struct RecordCfg {
     pub intro: Option<LocalizedStr>,
 }
 
-/// THE shape for display names (§6f): any human-facing string the config
-/// authors is either a bare string, a per-member map, or a REFERENCE into
-/// the global i18n maps — `"@key"` for `[i18n.strings]`, `"@table[index]"`
-/// for `[i18n.tables]` (index may itself be a `{token}` template). The
-/// hierarchy is inline beats global: write a value at the site to be
-/// surgical, name a shared string or table entry to say one thing everywhere.
-/// Validated at load: per-member maps name only declared pairing-axis
-/// members and include the canonical (resolution is total); references must
-/// resolve; `"@@…"` escapes a literal leading `@`.
+/// Display string (§6f): bare, per-member map, `"@key"`, or `"@table[index]"`.
+/// Inline beats global; `"@@"` escapes a leading `@`.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum LocalizedStr {
@@ -1477,9 +1119,7 @@ impl PartialEq<String> for LocalizedStr {
     }
 }
 
-/// `"@name[index]"` — a table lookup. `name` is `[A-Za-z0-9_]`; `index` is
-/// everything up to the first closing `]`. Matches a prefix of `s` (so
-/// embedded refs in `"{year} @months[03]"` parse).
+/// Prefix `"@name[index]"`; name is `[A-Za-z0-9_]`.
 pub fn parse_table_ref(s: &str) -> Option<(&str, &str)> {
     let rest = s.strip_prefix('@').filter(|r| !r.starts_with('@'))?;
     let (name, after) = rest.split_once('[')?;
@@ -1494,9 +1134,7 @@ pub fn parse_table_ref(s: &str) -> Option<(&str, &str)> {
     Some((name, &after[..close]))
 }
 
-/// Strip leading zeros from an all-digit table index (`"03"` → `"3"`) so
-/// zero-padded `{month}` params hit base keys `"1"`…`"12"`. A lone `"0"`
-/// stays `"0"`.
+/// Strip leading zeros on all-digit indexes (`"03"` -> `"3"`; `"0"` stays).
 pub fn normalize_table_index(index: &str) -> String {
     if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) {
         let trimmed = index.trim_start_matches('0');
@@ -1510,7 +1148,7 @@ pub fn normalize_table_index(index: &str) -> String {
     }
 }
 
-/// Every `@name[…]` table name in `text`, skipping `@@` escapes.
+/// Every `@name[...]` table name in `text`, skipping `@@`.
 pub fn table_ref_names(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut rest = text;
@@ -1531,7 +1169,7 @@ pub fn table_ref_names(text: &str) -> Vec<&str> {
 }
 
 impl LocalizedStr {
-    /// The `"@key"` string-map reference, if this is one (not `@table[…]`).
+    /// `"@key"` string-map ref (not `@table[...]`).
     pub fn reference(&self) -> Option<&str> {
         match self {
             LocalizedStr::One(s) => s
@@ -1541,7 +1179,7 @@ impl LocalizedStr {
         }
     }
 
-    /// The whole-value `"@table[index]"` form, if this is one.
+    /// Whole-value `"@table[index]"`.
     pub fn table_ref(&self) -> Option<(&str, &str)> {
         match self {
             LocalizedStr::One(s) => {
@@ -1553,7 +1191,6 @@ impl LocalizedStr {
         }
     }
 
-    /// Table names referenced by this value (whole-value or embedded).
     pub fn table_names(&self) -> Vec<&str> {
         match self {
             LocalizedStr::One(s) if s.starts_with("@@") => Vec::new(),
@@ -1562,15 +1199,10 @@ impl LocalizedStr {
         }
     }
 
-    /// Exact member, else the canonical member's entry (validated present;
-    /// the empty-string fallback is unreachable on a loaded config).
-    /// Reference-blind — resolution with the global map is `I18nCfg::text`.
+    /// Member else canonical; reference-blind (see `I18nCfg::text`).
     pub fn get<'a>(&'a self, member: &str, canonical: &str) -> &'a str {
         match self {
-            // `@@literal` → `@literal`. A value that starts with `@name[…]`
-            // is a table-ref template (date formats, …) — keep the `@` so
-            // later expansion can see it. Bare `@key` references go through
-            // [`Self::reference`], not here.
+            // `@@` -> `@`; keep `@table[...]` for later expansion.
             LocalizedStr::One(s) => {
                 if s.starts_with("@@") {
                     s.strip_prefix('@').unwrap_or(s)
@@ -1597,195 +1229,87 @@ pub struct Site {
     pub url: String,
     #[serde(default)]
     pub baseurl: String,
-    /// Display name (§6f) — bare string, per-member map, or `@key`.
+    /// Display name (§6f): bare, per-member map, or `@key`.
     pub title: LocalizedStr,
     pub author: String,
-    /// The feed's `<author><email>`; omitted from the feed when absent.
+    /// Feed `<author><email>`; omitted when absent.
     pub email: Option<String>,
-    /// The site's default theme — the root of the per-row cascade (§5a:
-    /// front matter → rule default → here → the `default` directory → the
-    /// base theme). A full spec, so `"ledger:dark"` sets the site's subtheme
-    /// tokens too; a row that names its own theme states its own tokens.
-    ///
-    /// Absent is not "no theme": it means the `default` directory if there is
-    /// one, and the base theme otherwise — which is why this stays `Option`
-    /// rather than defaulting to `"default"`. A name no theme directory
-    /// answers to is a load error listing the knowns (`Themes::load_all`).
+    /// Site default in the theme cascade (§5a). `None` => `default/` dir or base
+    /// theme (not the string `"default"`). Full `name:tokens` allowed.
     pub theme: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Collection {
-    /// The table name, when the source directory is the wrong word for it
-    /// (`_posts` holding a table called `notes`). Absent, the directory
-    /// names the table — one place, not two.
+    /// Override table name when source dir is the wrong word.
     pub name: Option<String>,
-    /// The directory this collection reads — **and the scope's ROLE**, now
-    /// that `kind` is gone (see [`Collection::is_posts`]). Three cases:
-    ///
-    /// - **Absent** — the objects scope. It reads no directory of its own; it
-    ///   is picked out of the one site walk by whatever its rules claim.
-    /// - **`"."`** — the tree scope, the site root. `load::walk_site` walks
-    ///   `cfg.root()` whatever a collection wrote, so the tree's `source` says
-    ///   nothing but "I am the root"; to give the root table another name, use
-    ///   `name`, not a directory that is not read.
-    /// - **`"_posts"`** and the like — a posts scope, load-bearing three times
-    ///   over since IO.md I7d: it is the subtree walked, the specificity that
-    ///   ORDERS the scope in the one rule sequence, and the subtree that scope
-    ///   OWNS (a file under it that no rule of it claims is not content). It
-    ///   also punches through the dot/underscore skip, which is how `_posts`
-    ///   is walked at all.
+    /// Scope role via source (IO.md I7d): absent = objects; `"."` = tree;
+    /// else posts (subtree walked, owned, and ordered in the rule sequence).
     pub source: Option<String>,
-    // No `extensions`. Membership in an objects scope is what its RULES say
-    // (IO.md I7a): a `match` glob naming the extensions
-    // (`**/*.{png,jpg,…}`) does the job the list did, in the one mechanism
-    // that already decides where a row lands. Hard cutoff — the key is gone
-    // and `deny_unknown_fields` names it at the line that wrote it. Rule
-    // globs compile case-INSENSITIVE, which is what keeps `after-theme-hack
-    // .PNG` an object now that a glob rather than a lowercased extension
-    // scan is doing the claiming.
-    // No `bucket`. §6a's bubble+bucket bare-name resolution is specced and
-    // PARKED (MERGE.md F1, §7 q1): the key was declared ahead of the code that
-    // would consume it, and nothing ever consumed it, so it went rather than
-    // stayed as configuration that configures nothing. `deny_unknown_fields`
-    // above is what makes a leftover declaration say so. The design is
-    // unchanged and comes back with page bundles (§5b).
-    /// The extractor's **default for this collection's rules** (§4). Same list
-    /// law as `route`: patterns tried in order; `{axis:NAME}` spends a
-    /// declared axis into the path (suffix `{stem}.{axis:locale}` or prefix
-    /// `{axis:locale}/{stem}`); a shorter pattern without that token is the
-    /// canonical member. Date tokens ride the same matcher.
-    ///
-    /// A rule declaring its own list overrides this for the rows it governs.
+    /// Default stem extractors for this collection's rules (§4).
     #[serde(default)]
     pub file: Vec<String>,
-    /// What the site walk does NOT read, and what re-admits it — read from the
-    /// `tree` collection only (§4c, IO.md I7b). `load` compiles these two lists
-    /// into the one [`crate::store::NotContent`] the tree, marker and
-    /// vocabulary walks share; a posts or objects collection writing them
-    /// configures nothing (the loader reads only the tree's).
-    ///
-    /// `include` has first say over `exclude`, and over the engine's own
-    /// positional not-content rule (a site-root `themes/`): it is the one
-    /// key that means "publish this anyway".
-    ///
-    /// Since IO.md I7d these lists govern the WHOLE walk, posts sources
-    /// included — there is only one walk left to govern. An `exclude` naming a
-    /// scope's `source` is therefore a contradiction rather than a redundancy,
-    /// and `load::walk_site` refuses it: before the merge it was a harmless
-    /// line (the dot/underscore skip kept `_posts` out of the tree anyway),
-    /// and after it, it empties the scope.
+    /// Not-content globs; read from the tree collection only (§4c, IO.md I7b).
+    /// Govern the whole walk (IO.md I7d); excluding a posts `source` is refused.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// See [`Collection::exclude`] — the same key, in the other direction,
-    /// with the same tree-only restriction.
+    /// Re-admit paths; same tree-only restriction as `exclude`.
     #[serde(default)]
     pub include: Vec<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
-    /// The view whose subdivision chain forms this collection's row trails
-    /// (e.g. `monthly_archive` → Home > Blog > 2022 > December > 16).
-    /// Declared, not derived: the chain renders from a row's group keys,
-    /// which no URL walk can recover.
+    /// View whose subdivision chain forms row trails.
     pub trail: Option<String>,
-    /// Views that own archive routes for list fields (q32): pills for a
-    /// field render URLs from that view's route template. Key = field name
-    /// (`tags`, `course`, ...); value = view name. Optional: a unique view
-    /// grouped by the field is found on its own; none at all = unlinked pills.
+    /// List-field archive view names (q32); else unique grouped view.
     #[serde(default)]
     pub archives: BTreeMap<String, String>,
-    /// This collection's neighbour queries (§6g, q52). Each `[collections.
-    /// relations.NAME]` is a small row-relative query — `from` (candidate
-    /// pool), `where` (a predicate over the two-row `self`/`candidate`
-    /// environment), `rank` (a score, bigger wins), `limit` — that produces
-    /// one labelled group in a document's body. The base config ships four on
-    /// posts (`earlier`, `later`, `related`, `linked_from`) and `linked_from`
-    /// on the tree; a site overrides per NAME. `extends = "none"` gets none.
+    /// Neighbour queries (§6g, q52); override per NAME.
     #[serde(default)]
     pub relations: BTreeMap<String, RelationCfg>,
-    /// `[collections.<name>.schema]` (§5b): typed fields every row of THIS
-    /// collection has, whichever source it came from. `.schema.toml` is
-    /// positional and a collection may have several sources, so this is the
-    /// only place "every post has a `series`" can be said once.
+    /// Typed fields for every row of this collection (§5b).
     #[serde(default)]
     pub schema: toml::Table,
-    /// True when this entry came from the base config rather than the site's
-    /// own file (§4d) — [`View::inherited`] and [`Rule::inherited`] are the
-    /// same flag on the other two registries, recorded the same way: the
-    /// site's own TOML is read before the merge blurs the two.
-    ///
-    /// It lets a load error name where a collection came from: an error about
-    /// a collection the author never wrote has to say it is inherited, or it
-    /// is an error about a line that is not in their file.
+    /// From base rather than site (§4d); errors name inherited collections.
     #[serde(skip)]
     pub inherited: bool,
 }
 
 impl Collection {
-    /// The **sourceless** scope — the objects role. It owns no subtree and
-    /// picks its rows out of the whole walk by shape (IO.md I7a). What the
-    /// deleted `kind` enum spelled `objects`, read now off the one fact that
-    /// always distinguished it: an objects collection has no `source` at all.
+    /// Objects scope: no `source` (IO.md I7a).
     pub fn is_objects(&self) -> bool {
         self.source.is_none()
     }
 
-    /// The **site-root** scope — the tree role. Its `source` is `"."`
-    /// (decorative: it names the table, and the walk reads the root whatever
-    /// it wrote — see [`Collection::source`]). What `kind = "tree"` spelled.
+    /// Tree scope: `source = "."`.
     pub fn is_tree(&self) -> bool {
         self.source.as_deref() == Some(".")
     }
 
-    /// A **proper-source** scope — the posts role, which OWNS its subtree
-    /// (IO.md I7d). Everything that is neither sourceless nor the root: what
-    /// `kind = "posts"` spelled.
+    /// Posts scope: owns its subtree (IO.md I7d).
     pub fn is_posts(&self) -> bool {
         !self.is_objects() && !self.is_tree()
     }
 }
 
-/// One declared relation (§6g). A neighbour list expressed as a query over
-/// the two-row environment, so "related" and "previous post" stop being five
-/// hardcoded axes and become config a site can move, retune or invent.
+/// Neighbour query over self/candidate (§6g).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelationCfg {
-    /// The candidate pool: a set name, a collection, or a derived relation
-    /// name (`linked_from`, `ancestors`, …). Absent = this collection.
-    /// The base's neighbour defaults write `from = "published"` explicitly.
-    ///
-    /// Spelled `from`, the same word a view spells (§5c): both name a
-    /// candidate pool, and one word is what MERGE.md G1 bought. The retired
-    /// `over` is simply gone — `deny_unknown_fields` refuses it, naming the
-    /// knowns, and `from` is first in that list.
+    /// Candidate pool (set / collection / derived); absent = this collection.
+    /// Same word as View::from (MERGE.md G1).
     pub from: Option<String>,
-    /// A boolean over `self`/`candidate` (qualified fields) and relation
-    /// names (`!(candidate in earlier)`). Absent = every candidate.
+    /// Predicate over `self`/`candidate`; absent = every candidate.
     #[serde(rename = "where")]
     pub filter: Option<String>,
-    /// A path glob scoping which `self` rows carry this relation — and, when
-    /// the pool spans a subtree with its own `.schema.toml`, the schema
-    /// `self.*`/`candidate.*` type-check against (§6g: `same_course` needs
-    /// `self.course`, a recipes-only field).
-    ///
-    /// Spelled `scope`, because the key does both jobs and `match` named
-    /// only the first (MERGE.md G2). The retired spelling is simply gone —
-    /// `deny_unknown_fields` refuses it — and `match` now means one thing in
-    /// this config: a rule's glob over files.
+    /// Which `self` rows carry this; also picks `.schema.toml` for typing (§6g).
     pub scope: Option<String>,
-    /// The score, bigger wins (§6g slice 2). Absent = the built-in embedding
-    /// order, so a relation that only filters need not restate ranking.
+    /// Score, bigger wins; absent = embedding order.
     pub rank: Option<String>,
-    /// Drop candidates scoring below this after `rank` — grack.com's
-    /// `min_score`, applied to the *adjusted* score, which is why it is its
-    /// own key rather than a clause inside `where`.
+    /// Drop below this after `rank` (adjusted score, not a `where` clause).
     pub min_rank: Option<f64>,
-    /// The window size. Defaults to a handful; `earlier`/`later` set 1.
     pub limit: Option<usize>,
-    /// The group's heading, an `@ref` into `[i18n.strings]` (defaulting to
-    /// `@NAME`). A per-member map carries the pairing axis, like `title`.
+    /// Heading via `@ref` into `[i18n.strings]` (default `@NAME`).
     pub label: Option<LocalizedStr>,
 }
 
@@ -1794,138 +1318,47 @@ pub struct RelationCfg {
 pub struct Rule {
     #[serde(rename = "match")]
     pub pattern: String,
-    /// Where a matching row lands. One template, or a LIST for the default-axis
-    /// case (§6f): `["/{theme}/{axis:locale}/", "/{theme}/", "/"]` lets a member
-    /// at its canonical value drop its segment by falling to a shorter template.
-    /// The engine picks the shortest template that still spends every
-    /// non-canonical axis. One template is the ordinary case and behaves exactly
-    /// as before.
+    /// Landing template(s); list form for default-axis fallthrough (§6f).
     #[serde(default, deserialize_with = "one_or_many_string")]
     pub route: Vec<String>,
-    /// Gate the rule on front-matter presence. This is what separates a Jekyll
-    /// *page* (rendered, pretty URL) from a static file (copied verbatim).
+    /// Gate on front-matter presence (page vs static copy).
     pub front_matter: Option<bool>,
-    /// Publish a matching row only when something REFERENCES it (§4).
-    ///
-    /// The rule's `route` template still computes the row's URL, so a link
-    /// can resolve before anything materializes — what is deferred is only
-    /// whether a `Route` is emitted. At most one on-demand rule may cover a
-    /// path (a load error otherwise); eager rules cascade normally and an
-    /// eager match wins, which is what lets a specific `.well-known/**` rule
-    /// sit above an on-demand `**/*` catch-all.
+    /// Emit a Route only when something references the row (§4).
     #[serde(default)]
     pub on_demand: Option<bool>,
-    /// This rule's rows have **no canonical address**: the embed policy gives
-    /// them one (IO.md §4a, I11).
-    ///
-    /// The other half of `route`, and declared for the same reason `route` is
-    /// — "a rule that claims a file must say where it lands" stays the law,
-    /// and this is one of the two answers rather than the absence of both.
-    /// Which is what keeps *no rule supplies a route* the error it has always
-    /// been: a rule that says neither has forgotten, and a rule that says this
-    /// has decided.
-    ///
-    /// What the row gets instead is a `strong_url` — `/static/{hash}.{ext}`,
-    /// the content store made public — which an EMBEDDED citation (`<img>`,
-    /// `<iframe>`, a generated affordance) resolves to and an authored link
-    /// refuses to, because a bookmarkable address exists on purpose and this
-    /// is not one. Nothing publishes until something embeds it: the pull model
-    /// is the garbage collector.
-    ///
-    /// Site-wide, `[embeds]` decides whether the policy runs at all and over
-    /// what; a rule marked here whose row the policy declines is a load error
-    /// naming the asset. Declaring it beside `route` is a config error — an
-    /// address is one decision — and so is declaring it beside `on_demand`,
-    /// which defers a ROUTE that this rule does not mint.
+    /// No canonical URL; embed policy addresses via `/static/` (IO.md §4a, I11).
+    /// Mutually exclusive with `route` and `on_demand`.
     #[serde(default)]
     pub embed: Option<bool>,
-    /// Key extraction from a file's stem, for the rows this rule governs.
-    /// Tried in order; the first pattern that describes the stem supplies its
-    /// tokens (`{year}`, `{slug}`, `{stem}`, `{axis:NAME}`, …) and the
-    /// logical stem everything downstream treats as identity.
-    ///
-    /// Absent, the collection's [`Collection::file`] is the default. A rule
-    /// needs none: a route spending only path tokens (`/{dir}/{stem}/`) works
-    /// without an extractor.
+    /// Stem extractors; absent => [`Collection::file`].
     #[serde(default)]
     pub file: Vec<String>,
     #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
-    /// True when this rule came from the base config rather than the site's
-    /// own file (§4d) — [`View::inherited`] one table over, and recorded the
-    /// same way: the site's own TOML is read before the merge blurs the two.
-    ///
-    /// It buys one rule: **only a rule the site WROTE can be dead.** §4's
-    /// "dead rule (matches zero rows) → warning" is a message to the author
-    /// of the glob, and the base's globs are nobody's to fix — a site with no
-    /// `_posts/` never asked for `match = "**"` there, and a site with no
-    /// `index.md` never asked for `**/index.{html,md}` (both are live in
-    /// `examples/minimal`, which has neither).
+    /// From base (§4d); only site-written rules warn when dead.
     #[serde(skip)]
     pub inherited: bool,
 }
 
-/// An axis: alternative forms of one row (q53).
-///
-/// A relation points at *other rows* and needs a reach; an axis points at
-/// *other forms of this row* and does not, because the row determines its own
-/// members. Mechanically: **one row, several routes, keyed by a value.**
-///
-/// ```toml
-/// [axes.theme]
-/// values = ["ledger", "atlas"]   # the members; order fixes the canonical one
-/// field  = "theme"               # the row field each member sets
-/// ```
-///
-/// Those two keys are the whole table (`deny_unknown_fields`). Where the
-/// members land is not said here: a route template spends `{theme}` (or
-/// `{axis:theme}`) — a rule's for rows, a view's for landings — and one that
-/// does not spend it opts its rows out, which is why WHICH rows multiply
-/// needs no key either.
-///
-/// The one thing an axis may not be is implicit: every value and the field it
-/// sets are declared, and a route has to spend the axis by name, because an
-/// axis multiplies the URL space and §4's constraint exists to make that
-/// deliberate.
+/// Alternative forms of one row (q53): values + field; routes spend the axis.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Axis {
-    /// The members, in order. The first is CANONICAL: it is what
-    /// `<link rel="canonical">` names, what a link to the row resolves to, and
-    /// the only one a `*` view (sitemap, search) sees. The rest are alternates,
-    /// which is what `rel="alternate"` means and why they are not duplicates.
+    /// Members in order; first is canonical.
     pub values: Vec<String>,
-    /// The row field each member sets while rendering. `theme` renders one
-    /// corpus six ways; the field is named rather than assumed so the mechanism
-    /// is not a theme feature wearing a general name.
+    /// Row field set while rendering each member.
     pub field: String,
 }
 
 impl Axis {
-    /// The canonical member — the first declared.
     pub fn canonical(&self) -> Option<&str> {
         self.values.first().map(String::as_str)
     }
 }
 
-/// What a view ranges over (§5c). One name — a collection or another view —
-/// or a union of collections.
-///
-/// A view may also range over *no* name: absent `from` on a fold shell is the
-/// whole output pool (IO.md §4, I3), which is why [`View::from`] is an
-/// `Option` of this rather than this carrying a variant for it. The star
-/// spelling that used to say so is retired, and a `*` here now names nothing,
-/// like any other word that names nothing — see [`Config::check_base`].
-///
-/// The union exists because `from` a collection SCOPES to that collection, and
-/// §4 deliberately lets several sources feed one table: `_posts` and `_drafts`
-/// are two collections of one corpus. Before scoping, `from = "posts"` quietly
-/// meant every posts collection, so the union was a thing the engine kept and
-/// the config could not say. Now the config says it.
-///
-/// A union may name only COLLECTIONS, and they must share a kind. Unioning a
-/// set with a set is a query operation this does not attempt, and unioning
-/// across kinds would ask one filter to type-check against two vocabularies.
+/// What a view ranges over (§5c): one name or a union of collections.
+/// Absent `from` on a fold = whole output pool (IO.md §4, I3).
+/// Union: collections only, same kind.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum From {
@@ -1934,8 +1367,7 @@ pub enum From {
 }
 
 impl From {
-    /// The single name this composes over, or `None` for a union — which
-    /// terminates a chain rather than continuing it.
+    /// `None` for a union (terminates a chain).
     pub fn single(&self) -> Option<&str> {
         match self {
             From::One(s) => Some(s.as_str()),
@@ -1950,7 +1382,6 @@ impl From {
         }
     }
 
-    /// How it was written, for diagnostics.
     pub fn display(&self) -> String {
         match self {
             From::One(s) => format!("{s:?}"),
@@ -1959,10 +1390,7 @@ impl From {
     }
 }
 
-/// `axis = "theme"` or `axis = ["locale", "theme"]` → a Vec, empty when absent.
-/// One axis is the common case; a list declares the cartesian product (q53).
-/// Same string-or-list shape `from` takes, kept as a free deserializer because
-/// the field wants a plain `Vec<String>` rather than a queryable referent.
+/// `axis = "theme"` or list -> Vec; empty when absent.
 fn one_or_many_string<'de, D>(d: D) -> std::result::Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1979,183 +1407,69 @@ where
     })
 }
 
-/// A view is a *query* plus, optionally, a *materialization*.
-///
-/// The split gives three shapes (DESIGN.md §5c):
-///
-///   * query only (no route, no layout) — a named set, e.g. `published`
-///   * query + layout, no route         — embeddable, e.g. `latest`
-///   * query + layout + route(s)        — materialized, e.g. `blog_index`
-///
-/// Unknown top-level keys are captured in [`View::route_fields`] and checked
-/// against `[schema]` at validate — so `noindex = true` is a schema field,
-/// not engine vocabulary. (`deny_unknown_fields` cannot coexist with that
-/// flatten.)
+/// Query plus optional materialization (DESIGN.md §5c). Extra keys in
+/// `route_fields` are checked against `[schema]` at validate.
 #[derive(Debug, Deserialize)]
 pub struct View {
-    /// A collection name, another set/route's name, or a LIST of collections
-    /// to union. Spelled `from` — one namespace, so what it names decides
-    /// whether this selects, subdivides (§5c) or unions; the engine derives
-    /// that from the referent rather than taking a keyword for each.
-    ///
-    /// **Absent, on a fold shell, is the whole output pool** (IO.md §4, I3):
-    /// a fold sits on a query over outputs, and "all of them" is a query.
-    /// Absent on anything else is a load error — a listing has to say what it
-    /// lists ([`crate::shell::check_absent_from`]). At this stage the pool is
-    /// the route set (the facts half of the outputs database, which is what
-    /// already exists); the join makes `from` naming a *set* select those
-    /// inputs' outputs at I9.
+    /// Collection, set/route, or union of collections. Absent on a fold =
+    /// whole output pool (IO.md §4, I3).
     #[serde(default)]
     pub from: Option<From>,
-    /// The predicate, path scoping included. A view once carried a separate
-    /// `match` glob; it compiled to `glob(path, …)` and conjoined with this,
-    /// so it was a clause of this expression wearing its own key. Written as
-    /// the clause it always was (MERGE.md G2) — `where = 'glob(path,
-    /// "recipes/**") && !draft'` — which is also what makes the
-    /// collection-relative vs root-relative footgun unwritable: `path` is the
-    /// column, and a column has one meaning.
+    /// Predicate including path scoping via `glob(path, ...)` (MERGE.md G2).
     #[serde(rename = "where")]
     pub filter: Option<String>,
-    /// Explicit ordering for rows that have no natural one (§5 audit:
-    /// posts sort reverse-chronologically by construction; objects don't).
-    /// A column name, `-` for descending. Declared rather than defaulted:
-    /// `path` is the only order every row is guaranteed to have, so anything
-    /// else has to be asked for.
+    /// Explicit order (`-` = descending); not defaulted.
     pub order_by: Option<String>,
     pub group_by: Option<String>,
     pub paginate: Option<usize>,
-    /// Where this lands. Present ⇒ it is a `[routes]` entry; absent ⇒ a
-    /// `[sets]` entry, which never materializes (§5c's three shapes, now
-    /// visible as which section an entry lives in).
+    /// Present => `[routes]`; absent => `[sets]`.
     #[serde(rename = "path")]
     pub route: Option<String>,
-    /// Several templates for one query — pagination lands on more than one
-    /// URL, so the path cannot be the key.
     #[serde(default, rename = "paths")]
     pub routes: Vec<String>,
     pub layout: Option<String>,
-    /// Fragment variant (q24): the theme renders this view through
-    /// `{kind}--{variant}.html` when it ships one, falling back to the
-    /// kind's base fragment. How `/books/` gets cards while `/blog/`
-    /// stays textual, both being listings.
+    /// Theme fragment variant (q24): `{kind}--{variant}.html`.
     pub variant: Option<String>,
-    /// The axes this route is materialized across (q53): `axis = "theme"` for
-    /// one, `axis = ["locale", "theme"]` for the cartesian product. One route
-    /// per member-tuple, each rendering through its members' fields.
-    ///
-    /// The route's path allocates the URL space with a `{<axis name>}` segment
-    /// per axis — the route decides where each segment goes, because that is
-    /// where every other part of the URL is already decided. A view route could
-    /// not be axis-multiplied before, which is why a gallery of six themes
-    /// needed six copies of every landing; two axes over one view could not
-    /// compose, which is the edge this closes.
+    /// Axes this route materializes across (q53).
     #[serde(default, deserialize_with = "one_or_many_string")]
     pub axis: Vec<String>,
-    /// Which theme dresses this view, `name[:tokens]` like a row's (§5a).
-    ///
-    /// A listing otherwise takes the theme its member rows agree on, which
-    /// makes the theme a property of the CONTENT — so the only way to render
-    /// one query under two looks was to keep two copies of the rows. Declared
-    /// here it is a property of the route, and N routes over one set may each
-    /// wear their own. Nearest wins: the view beats member unanimity, which
-    /// beats `[site] theme`.
+    /// Theme for this view (`name[:tokens]`); nearest beats member unanimity (§5a).
     pub theme: Option<String>,
-    /// §6f pairing-axis partition, DEFAULT-ON: a materializing row-query view
-    /// partitions per member of `[i18n] axis` (each member's rows, member-
-    /// prefixed routes when templates spend the axis; a member with no rows
-    /// materializes nothing). `"default"` opts out (canonical only); `"*"`
-    /// states the default explicitly. Star views never multiply; embedded
-    /// views follow their embedding page (pending).
+    /// Pairing-axis partition; default-on. `"default"` opts out; `"*"` = all (§6f).
     pub partition: Option<String>,
-    /// The view's outermost serialization (Matt, 2026-07): `"atom"` and
-    /// `"sitemap"` are built-in XML shells, `"search"` is the postcard
-    /// index /search.js consumes — the feed is not a special pass, it is
-    /// the same rows in a different wrapper, and the searchable set is a
-    /// query like any other (§5g). Absent = the HTML shell (theme). The
-    /// full generalization is q44.
+    /// Outermost serialization: `atom` / `sitemap` / `search` / registered (§5g).
     pub shell: Option<String>,
     pub limit: Option<usize>,
     pub template: Option<String>,
-    /// Listing title, as a template over the route's group params
-    /// (`"{year} @months[{month}]"`, `"Posts Tagged “{key}”"`). Same
-    /// placeholder language as routes, plus `@table[index]` into
-    /// `[i18n.tables]`. Same load-time discipline.
+    /// Listing title template over group params / `@table[...]`.
     pub title: Option<LocalizedStr>,
-    /// What this view contributes to descendants' breadcrumb trails.
-    /// Defaults to `title`. Per-member maps carry the pairing axis (§6f).
+    /// Breadcrumb label; defaults to `title`.
     pub crumb: Option<LocalizedStr>,
-    /// q45 mode A: prose the view owns — rendered as markdown through the
-    /// locale-aware link resolver into the listing layout's `intro` slot.
-    /// The theme owns the arrangement; the slot collapses when absent.
+    /// Mode A landing prose (q45).
     pub intro: Option<LocalizedStr>,
-    /// q45 mode B: the root-relative source path of a row this landing
-    /// CLAIMS. The row becomes the whole body and must place
-    /// `{% view <this view> %}` itself — the author owns the arrangement.
-    /// A claimed row loses its standalone route and leaves every query.
+    /// Mode B: claim this source path as the landing body (q45).
     pub content: Option<String>,
-    /// q45 mode B, offered rather than demanded: the source path of a row this
-    /// landing claims **if that row exists**. A brace group takes the first
-    /// that does — `index.{md,html}`.
-    ///
-    /// The difference from `content` is entirely in the absence: a missing
-    /// `content` row is an error, a missing `default_content` row just leaves
-    /// the route a plain landing. That is what lets the base config ship `/`
-    /// (§4d). A site with an `index.md` has that row own its homepage; a site
-    /// without one gets the listing; neither had to say anything. The engine
-    /// still never guesses the ARRANGEMENT (§5h) — both outcomes are declared
-    /// here, and which one applies is a fact about the tree.
+    /// Mode B if the row exists; else plain landing. Lets base ship `/` (§4d).
     pub default_content: Option<String>,
-    /// True when this view came from the base config rather than the site's
-    /// own file (§4d). It buys one rule: **an inherited route with nothing to
-    /// show does not materialize.** A site with no `_posts/` never asked for
-    /// an empty `/blog/` or a feed with no entries, and the base may not mint
-    /// URLs the author did not ask for. A route the SITE declared still
-    /// materializes empty — it asked.
+    /// From base (§4d); inherited empty routes do not materialize.
     #[serde(skip)]
     pub inherited: bool,
-    /// Which section declared this view: `true` for a `[sets]` entry, `false`
-    /// for a `[routes]` one. `merge_queries` folds the two into one map and
-    /// the namespace really is one — but the split is the config's own
-    /// statement about what an entry IS (a query that never lands vs. a
-    /// landing), and a profile is held to it (§4a, MERGE.md C6c).
-    ///
-    /// Recorded rather than derived from `route`, because
-    /// `resolve_default_content` takes a declined offer's path away: that
-    /// leaves a `[routes]` entry with no path, which is not a set.
+    /// Declared under `[sets]` (true) vs `[routes]`; not derived from path
+    /// (default_content may clear path) (§4a, MERGE.md C6c).
     #[serde(skip)]
     pub declared_set: bool,
-    /// The profile that wrote this view's `filter`, if one did (§4a). Carried
-    /// so the re-validation after `apply_profile` (MERGE.md C6b) can name it:
-    /// the filter is checked by the same pass every other one is, and an
-    /// error that did not say which profile wrote it would send the reader to
-    /// a `[sets]` entry whose text is not the text in the message.
+    /// Profile that wrote this view's filter (MERGE.md C6b).
     #[serde(skip)]
     pub filter_profile: Option<String>,
-    /// Computed fields (§6d / §5f): columns this view adds to its rows —
-    /// each an expression over `content`, or a literal. Views composed
-    /// `from` this one inherit them — fields flow with rows through query
-    /// composition the way filters do — and redeclaring a name overrides
-    /// (nearest wins). The field named `summary` is what listing previews
-    /// consume.
+    /// Computed columns; flow through `from` composition (§6d / §5f).
     #[serde(default)]
     pub fields: BTreeMap<String, Field>,
-    /// Schema-declared values this route answers with (§4e). Spelled as
-    /// ordinary top-level keys (`noindex = true`) — the same names rows
-    /// use, so `[html.head.meta]` expressions and `where` clauses see one
-    /// vocabulary. Validated against `[schema]` (base.toml ships the flag
-    /// family); an undeclared key is a load error.
+    /// Schema-declared route answers as top-level keys (§4e).
     #[serde(default, flatten)]
     pub route_fields: BTreeMap<String, toml::Value>,
 }
 
-/// One computed field (§5f / §6d): a CEL expression over `content`, or a
-/// literal value. Same untagged shape as [`HeadEntry`]: a TOML string is
-/// always an expression; other TOML types are literals. String *literals*
-/// as values are spelled as CEL (`'"hello"'`), not bare TOML strings.
-///
-/// ```toml
-/// summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
-/// ```
+/// Computed field: TOML string = CEL expr; other types = literals (§5f / §6d).
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum Field {
@@ -2173,8 +1487,7 @@ impl Field {
 }
 
 impl View {
-    /// A view with nothing but a query — nothing to inherit ambiguously, which
-    /// is why it is the only thing `from` may name.
+    /// Query-only: nothing to inherit ambiguously; only such views may be `from`.
     pub fn is_query_only(&self) -> bool {
         self.route.is_none()
             && self.routes.is_empty()
@@ -2185,49 +1498,30 @@ impl View {
             && self.group_by.is_none()
     }
 
-    /// Whether this view materializes routes of its own.
     pub fn is_materialized(&self) -> bool {
         self.route.is_some() || !self.routes.is_empty()
     }
 
-    /// **The fold over every output**: no `from` at all (IO.md §4, I3).
-    ///
-    /// One field answers it because `check_absent_from` has already refused
-    /// absent-`from` on anything but a fold, so "has no pool named" and "folds
-    /// the whole pool" are the same fact by load time. It is the successor to
-    /// `From::is_star`, and the pool is the same pool: today's route set.
+    /// Fold over every output: no `from` (IO.md §4, I3).
     pub fn reads_all_outputs(&self) -> bool {
         self.from.is_none()
     }
 }
 
-/// A view's query, with the `from` chain flattened.
+/// Flattened `from` chain.
 #[derive(Debug)]
 pub struct Query {
-    /// The collections this ranges over — **empty** for a fold over every
-    /// output, which ranges over no collection at all (IO.md §4). More than
-    /// one is a union (§5c), and every member shares a kind — checked where
-    /// the chain terminates, so a materializer can read the kind off the
-    /// first.
+    /// Collections ranged over; empty = fold over every output (IO.md §4).
     pub base: Vec<String>,
-    /// Every filter along the chain, outermost view last. All must hold — so
-    /// a child narrows within its parent and can never widen out of it,
-    /// path scoping (`glob(path, …)`) included, that being an ordinary
-    /// clause of an ordinary `where` since MERGE.md G2.
+    /// Filters along the chain, outermost last; all must hold (MERGE.md G2).
     pub filters: Vec<String>,
-    /// The nearest `order_by` along the chain — nearest wins, like `fields`.
-    /// Re-sorting a parent's rows is ordinary; there is nothing to conjoin.
+    /// Nearest `order_by` (nearest wins).
     pub order_by: Option<String>,
-    /// A sentence per view along the chain whose `where` a profile replaced.
-    /// A profile's filter is type-checked by the pass that
-    /// evaluates it (§4a, MERGE.md C6a) — and that pass sees a conjunction of
-    /// the whole chain, so without this its error would name whichever
-    /// descendant happened to be built first and no text the author wrote.
+    /// Attribution for profile-replaced `where` clauses (MERGE.md C6a).
     pub patched: Vec<String>,
 }
 
 impl Query {
-    /// The conjunction of the chain, or None when nothing filters.
     pub fn predicate(&self) -> Option<String> {
         match self.filters.len() {
             0 => None,
