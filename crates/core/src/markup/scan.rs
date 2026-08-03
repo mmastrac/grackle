@@ -5,7 +5,8 @@
 //! stay verbatim.
 
 use anyhow::{bail, Result};
-use std::collections::BTreeMap;
+use grackle_source::config::WidgetDef;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A tag's leading name and the remainder (its arguments), e.g. `image` and
 /// `right a/b.png` or `youtube` and `id="x"`.
@@ -89,18 +90,20 @@ fn find_end_tag(s: &str, name: &str) -> Option<(usize, usize)> {
 pub fn expand(
     body: &str,
     source: &str,
-    widgets: Option<&BTreeMap<String, String>>,
+    widgets: Option<&BTreeMap<String, WidgetDef>>,
+    used: &mut BTreeSet<String>,
     mut on_tag: impl FnMut(&str, &str) -> Result<Option<String>>,
     mut on_var: impl FnMut(&str) -> Option<String>,
 ) -> Result<String> {
     // Dyn so nested widget bodies don't stack `impl FnMut` layers forever.
-    expand_inner(body, source, widgets, &mut on_tag, &mut on_var)
+    expand_inner(body, source, widgets, used, &mut on_tag, &mut on_var)
 }
 
 fn expand_inner(
     body: &str,
     source: &str,
-    widgets: Option<&BTreeMap<String, String>>,
+    widgets: Option<&BTreeMap<String, WidgetDef>>,
+    used: &mut BTreeSet<String>,
     on_tag: &mut dyn FnMut(&str, &str) -> Result<Option<String>>,
     on_var: &mut dyn FnMut(&str) -> Option<String>,
 ) -> Result<String> {
@@ -126,7 +129,9 @@ fn expand_inner(
 
         if is_tag {
             let (name, args_str) = split_name(&inner);
-            if let Some(tmpl) = widgets.and_then(|w| w.get(name)) {
+            if let Some(def) = widgets.and_then(|w| w.get(name)) {
+                used.insert(name.to_string());
+                let tmpl = def.template.as_str();
                 let args = parse_args(args_str)
                     .map_err(|e| anyhow::anyhow!("{source}: {{% {name} %}}: {e}"))?;
                 // `{body}` in the template makes the widget paired; without it
@@ -136,8 +141,14 @@ fn expand_inner(
                     let Some((body_end, resume)) = find_end_tag(after, name) else {
                         bail!("{source}: {{% {name} %}} has no matching {{% end{name} %}}");
                     };
-                    let nested =
-                        expand_inner(after[..body_end].trim(), source, widgets, on_tag, on_var)?;
+                    let nested = expand_inner(
+                        after[..body_end].trim(),
+                        source,
+                        widgets,
+                        used,
+                        on_tag,
+                        on_var,
+                    )?;
                     out.push_str(&fill(tmpl, &args, Some(&nested)));
                     rest = &after[resume..];
                 } else {
@@ -169,17 +180,40 @@ fn expand_inner(
 mod tests {
     use super::*;
 
-    #[test]
-    fn unknown_stays_verbatim() {
-        let out = expand(
-            "a {% foo %} b {{ bar }} c",
+    /// Expand with no engine tag/var handlers, discarding the used set.
+    fn go(body: &str, w: Option<&BTreeMap<String, WidgetDef>>) -> String {
+        expand(
+            body,
             "t",
-            None,
+            w,
+            &mut BTreeSet::new(),
             |_, _| Ok(None),
             |_| None,
         )
-        .unwrap();
-        assert_eq!(out, "a {% foo %} b {{ bar }} c");
+        .unwrap()
+    }
+
+    fn widgets(pairs: &[(&str, &str)]) -> BTreeMap<String, WidgetDef> {
+        pairs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    WidgetDef {
+                        template: v.to_string(),
+                        head: None,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unknown_stays_verbatim() {
+        assert_eq!(
+            go("a {% foo %} b {{ bar }} c", None),
+            "a {% foo %} b {{ bar }} c"
+        );
     }
 
     #[test]
@@ -188,6 +222,7 @@ mod tests {
             "{% hi there %} / {{ x }}",
             "t",
             None,
+            &mut BTreeSet::new(),
             |name, arg| {
                 assert_eq!(name, "hi");
                 Ok(Some(format!("<{arg}>")))
@@ -201,29 +236,17 @@ mod tests {
         assert_eq!(out, "<there> / X");
     }
 
-    fn widgets(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect()
-    }
-
     #[test]
     fn paired_widget_takes_args_and_body() {
         let w = widgets(&[(
             "figure",
             "<figure><img src=\"{src}\" alt=\"{caption}\">{body}</figure>",
         )]);
-        let out = expand(
-            r#"{% figure src="cat.png" caption="A cat" %}A caption{% endfigure %}"#,
-            "t",
-            Some(&w),
-            |_, _| Ok(None),
-            |_| None,
-        )
-        .unwrap();
         assert_eq!(
-            out,
+            go(
+                r#"{% figure src="cat.png" caption="A cat" %}A caption{% endfigure %}"#,
+                Some(&w)
+            ),
             r#"<figure><img src="cat.png" alt="A cat">A caption</figure>"#
         );
     }
@@ -231,35 +254,40 @@ mod tests {
     #[test]
     fn self_closing_widget_has_no_body_and_no_end_tag() {
         let w = widgets(&[("youtube", r#"<iframe src="https://x/{id}"></iframe>"#)]);
-        let out = expand(
-            r#"a {% youtube id="abc" %} b"#,
-            "t",
-            Some(&w),
-            |_, _| Ok(None),
-            |_| None,
-        )
-        .unwrap();
-        assert_eq!(out, r#"a <iframe src="https://x/abc"></iframe> b"#);
+        assert_eq!(
+            go(r#"a {% youtube id="abc" %} b"#, Some(&w)),
+            r#"a <iframe src="https://x/abc"></iframe> b"#
+        );
     }
 
     #[test]
     fn arg_values_are_html_escaped() {
         let w = widgets(&[("q", "<b>{x}</b>")]);
-        let out = expand(
-            r#"{% q x="<script>&" %}"#,
-            "t",
-            Some(&w),
-            |_, _| Ok(None),
-            |_| None,
-        )
-        .unwrap();
-        assert_eq!(out, "<b>&lt;script&gt;&amp;</b>");
+        assert_eq!(
+            go(r#"{% q x="<script>&" %}"#, Some(&w)),
+            "<b>&lt;script&gt;&amp;</b>"
+        );
     }
 
     #[test]
     fn bodyless_argless_widget_still_works() {
         let w = widgets(&[("hr", "<hr class=fancy>")]);
-        let out = expand("{% hr %}", "t", Some(&w), |_, _| Ok(None), |_| None).unwrap();
-        assert_eq!(out, "<hr class=fancy>");
+        assert_eq!(go("{% hr %}", Some(&w)), "<hr class=fancy>");
+    }
+
+    #[test]
+    fn used_records_the_widgets_that_fired() {
+        let w = widgets(&[("a", "A{body}"), ("b", "B"), ("c", "C")]);
+        let mut used = BTreeSet::new();
+        expand(
+            "{% a %}x{% enda %} {% b %}",
+            "t",
+            Some(&w),
+            &mut used,
+            |_, _| Ok(None),
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(used.iter().cloned().collect::<Vec<_>>(), ["a", "b"]);
     }
 }

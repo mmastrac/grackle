@@ -80,6 +80,7 @@ pub(crate) fn run(
             // whole difference between an alternative form and a duplicate
             // page. For a row on no axis this is the route's own URL anyway.
             head.meta = render::eval_metas(metas, p, &site, &head.title, &p.url);
+            head.injected = bodies[&p.key].heads.clone();
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
             // §6e: toc rows carry outline from the same rendered bytes.
@@ -460,10 +461,13 @@ pub(crate) fn run(
                 let lang = lang.as_str();
                 let site = site.with_title(cfg.site_title(lang));
                 // Metas read the ROW when present; sourceless routes use the route.
-                let head = match row {
+                let mut head = match row {
                     Some(p) => render::head_for(&title, &p.url, &site, metas, p),
                     None => render::head_for(&title, &r.url, &site, metas, r),
                 };
+                if let Some(doc) = &pb.doc {
+                    head.injected = doc.heads.clone();
+                }
                 // IO.md §4: the output picks its map shell. `raw` is the
                 // transparent one — the body IS the output, so an imported
                 // document can carry front matter (title, tags, hidden)

@@ -52,6 +52,9 @@ pub struct Head {
     /// alternate = { from = "axis.locale", … }`); other axis forms still land
     /// here from the engine until they get their own expands.
     pub alternates: Vec<Alternate>,
+    /// Head fragments pulled in by the widgets the body used (script/style/link),
+    /// deduped, emitted verbatim.
+    pub injected: Vec<String>,
 }
 
 /// One evaluated `[html.head.*]` tag (§4e). `value` is `content`/`href`;
@@ -607,6 +610,7 @@ impl Head {
             meta: Vec::new(),
             jsonld: None,
             alternates: Vec::new(),
+            injected: Vec::new(),
         }
     }
 }
@@ -794,6 +798,9 @@ pub fn head_html(head: &Head, css: &str) -> String {
             h,
             "\n\t<script type=\"application/ld+json\">\n\t{j}\n\t</script>"
         );
+    }
+    for frag in &head.injected {
+        let _ = write!(h, "\n\t{frag}");
     }
     h.push_str("\n\t<meta charset=\"utf-8\">");
     let _ = write!(

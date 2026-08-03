@@ -57,7 +57,7 @@ pub struct Config {
     pub schema: SchemaBag,
     /// `{% name %}...{% endname %}` expands with `{body}` (§5d).
     #[serde(default)]
-    pub widgets: BTreeMap<String, String>,
+    pub widgets: BTreeMap<String, WidgetDef>,
     /// External command shells: stdin JSON, stdout at the route (§5g).
     #[serde(default)]
     pub shells: BTreeMap<String, ShellDef>,
@@ -380,6 +380,7 @@ definitions![
     View,
     Axis,
     ShellDef,
+    WidgetDef,
     ProfileCfg,
     RecordCfg,
     RelationCfg,
@@ -775,6 +776,36 @@ fn default_true() -> bool {
 #[serde(deny_unknown_fields)]
 pub struct ShellDef {
     pub command: String,
+}
+
+/// A custom widget: a wrapper template plus an optional `<head>` fragment
+/// pulled in on any page that uses it. `name = "<tmpl>"` is the template alone;
+/// `[widgets.name] template = … head = …` carries both.
+#[derive(Debug, Clone)]
+pub struct WidgetDef {
+    pub template: String,
+    pub head: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for WidgetDef {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Template(String),
+            Full {
+                template: String,
+                head: Option<String>,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Template(template) => WidgetDef {
+                template,
+                head: None,
+            },
+            Raw::Full { template, head } => WidgetDef { template, head },
+        })
+    }
 }
 
 /// Embed policy for unrouted rows (IO.md §4a, I11). `/static/` prefix is fixed.

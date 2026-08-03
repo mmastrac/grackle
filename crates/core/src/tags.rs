@@ -31,9 +31,8 @@ pub struct Ctx<'a> {
     /// The theme, for embedded views ({% view %}) that render through
     /// fragments. None disables embedding.
     pub theme: Option<&'a crate::theme::Theme>,
-    /// Custom block widgets: `name → wrapper template with a {body} hole`
-    /// (§5d). None disables paired tags.
-    pub widgets: Option<&'a std::collections::BTreeMap<String, String>>,
+    /// Custom widgets by name. None disables them.
+    pub widgets: Option<&'a std::collections::BTreeMap<String, crate::config::WidgetDef>>,
     /// Site config — archive pills and `{% view %}` member fill need it.
     pub cfg: Option<&'a crate::config::Config>,
     /// IO.md §4a: the address book, for the affordances this expander
@@ -331,10 +330,22 @@ fn prepend_baseurl(inner: &str, cx: &Ctx) -> Option<String> {
 }
 
 pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
+    let mut used = std::collections::BTreeSet::new();
+    expand_used(body, cx, &mut used)
+}
+
+/// Expand, recording into `used` which widgets fired so a caller can pull in
+/// their head fragments.
+pub fn expand_used(
+    body: &str,
+    cx: &Ctx,
+    used: &mut std::collections::BTreeSet<String>,
+) -> Result<String> {
     scan::expand(
         body,
         &cx.source,
         cx.widgets,
+        used,
         |name, arg| match name {
             "image" => Ok(Some(image(arg, cx)?)),
             "view" => Ok(Some(view(arg, cx)?)),
@@ -581,11 +592,14 @@ mod widget_tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    fn widgets() -> BTreeMap<String, String> {
+    fn widgets() -> BTreeMap<String, crate::config::WidgetDef> {
         let mut w = BTreeMap::new();
         w.insert(
             "callout".to_string(),
-            "<callout>\n<div>\n\n{body}\n\n</div>\n</callout>\n".to_string(),
+            crate::config::WidgetDef {
+                template: "<callout>\n<div>\n\n{body}\n\n</div>\n</callout>\n".to_string(),
+                head: None,
+            },
         );
         w
     }

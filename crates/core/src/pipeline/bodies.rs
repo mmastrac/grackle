@@ -15,6 +15,20 @@ use crate::store::split_front_matter;
 use crate::tags;
 use crate::theme;
 
+/// The head fragments of the widgets a body used, in name order, deduped by
+/// content so a widget used twice contributes its head once.
+fn widget_heads(cfg: &Config, used: &std::collections::BTreeSet<String>) -> Vec<String> {
+    let mut heads = Vec::new();
+    for name in used {
+        if let Some(h) = cfg.widgets.get(name).and_then(|d| d.head.as_ref()) {
+            if !heads.contains(h) {
+                heads.push(h.clone());
+            }
+        }
+    }
+    heads
+}
+
 /// ONE render per post (§6d). Expand + parse once; the same parse yields the
 /// whole document (posts, feed) and the block sequence each listing view
 /// projects its summaries from.
@@ -45,7 +59,8 @@ pub(crate) fn render_bodies<'a>(
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let body = crate::store::read_body(&p.path)?;
-            let expanded = tags::expand(&body, &cx)?;
+            let mut used = std::collections::BTreeSet::new();
+            let expanded = tags::expand_used(&body, &cx, &mut used)?;
             // §6a row/view links: destinations resolve against the
             // database, relative to this post's source directory.
             let dir = p
@@ -75,6 +90,10 @@ pub(crate) fn render_bodies<'a>(
                     href,
                 )
             })?;
+            let doc = crate::markdown::Doc {
+                heads: widget_heads(cfg, &used),
+                ..doc
+            };
             Ok((&p.key, doc))
         })
         .collect()
@@ -124,7 +143,8 @@ pub(crate) fn render_page_bodies(
             links: Some(linkspace),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
-        let expanded = tags::expand(body, &cx)?;
+        let mut used = std::collections::BTreeSet::new();
+        let expanded = tags::expand_used(body, &cx, &mut used)?;
         if expanded.contains("{%") {
             out.insert(
                 r.url.clone(),
@@ -175,6 +195,10 @@ pub(crate) fn render_page_bodies(
         } else {
             (crate::rewrite::resolve_links(&expanded, &guarded)?, None)
         };
+        let doc = doc.map(|mut d| {
+            d.heads = widget_heads(cfg, &used);
+            d
+        });
         out.insert(
             r.url.clone(),
             PageBody {

@@ -137,6 +137,9 @@ pub struct Doc {
     pub whole: String,
     /// Each top-level block's HTML, in order.
     pub blocks: Vec<String>,
+    /// Head fragments from the widgets this body used, deduped. Set by the body
+    /// pass after expansion; the renderer merges them into the page head.
+    pub heads: Vec<String>,
 }
 
 pub fn render_doc(src: &str) -> Doc {
@@ -199,7 +202,11 @@ pub fn render_doc_with(
         format_html(child, &opts, &mut html).expect("writing to a String cannot fail");
         blocks.push(html);
     }
-    Ok(Doc { whole, blocks })
+    Ok(Doc {
+        whole,
+        blocks,
+        heads: Vec::new(),
+    })
 }
 
 /// Markdown or raw HTML through the same link resolver.

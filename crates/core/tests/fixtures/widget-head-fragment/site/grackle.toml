@@ -1,0 +1,9 @@
+root = "."
+[site]
+url = "https://example.test"
+title = "W"
+author = "T"
+
+[widgets.math]
+template = "<span class=\"math\">{body}</span>"
+head = "<link rel=\"stylesheet\" href=\"/katex.css\">"
