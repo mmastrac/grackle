@@ -13,37 +13,45 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Two axes</a>
 	
-	<nav aria-label="Other versions" data-slot="axes"><details data-axis="flavor" aria-label="flavor" data-kind="axis">
-	<summary data-slot="current">sweet</summary>
-	<div data-slot="items"><a href="/plain/sweet/page/" data-current="true" data-kind="axis_member">
-	<span data-slot="label">sweet</span>
-</a>
-<a href="/plain/salty/page/" data-kind="axis_member">
-	<span data-slot="label">salty</span>
-</a>
-</div>
-</details>
-<details data-axis="palette" aria-label="palette" data-kind="axis">
-	<summary data-slot="current">plain</summary>
-	<div data-slot="items"><a href="/plain/sweet/page/" data-current="true" data-kind="axis_member">
-	<span data-slot="label">plain</span>
-</a>
-<a href="/fancy/sweet/page/" data-kind="axis_member">
-	<span data-slot="label">fancy</span>
-</a>
-</div>
-</details>
-</nav>
+	<nav aria-label="Other versions" data-slot="axes">
+		<details data-axis="flavor" aria-label="flavor" data-kind="axis">
+			<summary data-slot="current">sweet</summary>
+			<div data-slot="items">
+				<a href="/plain/sweet/page/" data-current="true" data-kind="axis_member">
+					<span data-slot="label">sweet</span>
+				</a>
+			
+				<a href="/plain/salty/page/" data-kind="axis_member">
+					<span data-slot="label">salty</span>
+				</a>
+			</div>
+		</details>
+	
+		<details data-axis="palette" aria-label="palette" data-kind="axis">
+			<summary data-slot="current">plain</summary>
+			<div data-slot="items">
+				<a href="/plain/sweet/page/" data-current="true" data-kind="axis_member">
+					<span data-slot="label">plain</span>
+				</a>
+			
+				<a href="/fancy/sweet/page/" data-kind="axis_member">
+					<span data-slot="label">fancy</span>
+				</a>
+			</div>
+		</details>
+	</nav>
 </header>
 <main data-frame data-slot="content"><article data-kind="row" data-tree>
-	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
-<span data-kind="crumb"><a data-slot="label">Page</a></span>
-</nav>
+	<nav aria-label="Breadcrumbs" data-slot="crumbs">
+		<span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+	
+		<span data-kind="crumb"><a data-slot="label">Page</a></span>
+	</nav>
 	<header>
 		<h1 data-slot="title">Page</h1>
 		
 	</header>
-	
+	<aside class="doc-hero"><img alt="Page"></aside>
 	
 	
 	

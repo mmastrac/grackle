@@ -10,42 +10,39 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Axis spelling</a>
 	
-	<nav aria-label="Other versions" data-slot="axes"><details data-axis="look" aria-label="look" data-kind="axis">
-	<summary data-slot="current">plain</summary>
-	<div data-slot="items"><a href="/note/" data-current="true" data-kind="axis_member">
-	<span data-slot="label">plain</span>
-</a>
-<a href="/fancy/note/" data-kind="axis_member">
-	<span data-slot="label">fancy</span>
-</a>
-</div>
-</details>
-</nav>
+	<nav aria-label="Other versions" data-slot="axes">
+		<details data-axis="look" aria-label="look" data-kind="axis">
+			<summary data-slot="current">plain</summary>
+			<div data-slot="items">
+				<a href="/note/" data-current="true" data-kind="axis_member">
+					<span data-slot="label">plain</span>
+				</a>
+			
+				<a href="/fancy/note/" data-kind="axis_member">
+					<span data-slot="label">fancy</span>
+				</a>
+			</div>
+		</details>
+	</nav>
 </header>
 <main data-frame data-slot="content"><article data-kind="row" data-tree>
-	<nav aria-label="Breadcrumbs" data-slot="crumbs"><span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
-<span data-kind="crumb"><a data-slot="label">Note</a></span>
-</nav>
+	<nav aria-label="Breadcrumbs" data-slot="crumbs">
+		<span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+	
+		<span data-kind="crumb"><a data-slot="label">Note</a></span>
+	</nav>
 	<header>
 		<h1 data-slot="title">Note</h1>
 		
 	</header>
-	
+	<aside class="doc-hero"><img alt="Note"></aside>
 	
 	
 	
 	<div data-slot="content"><p>One row, two looks.</p>
 </div>
 	
-	<nav aria-label="Related" data-slot="relations"><section data-relation="linked_from" data-kind="relation">
-	<h2 data-slot="label">Linked from</h2>
-	<div data-slot="items"><a href="/" data-kind="neighbor">
 	
-	<span data-slot="title">Home</span>
-</a>
-</div>
-</section>
-</nav>
 </article>
 </main>
 <footer data-frame>
