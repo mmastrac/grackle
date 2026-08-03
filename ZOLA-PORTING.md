@@ -52,7 +52,7 @@ things wearing template syntax.
 | `{% extends %}` / `{% block %}` | `root.html` chrome + named **slots** |
 | `{% if x %}…{% endif %}` | a schema field (empty value deletes the element) |
 | `{% for x %}…{% endfor %}` | a **view** (`[sets]` / `[routes]`) |
-| shortcodes (`note`, `figure`, `youtube`) | `[widgets]` (a named HTML wrapper) or `{% image %}` |
+| shortcodes (`note`, `figure`, `youtube`) | `[widgets]` (named HTML with args, `{body}`, and `<head>` fragments) or `{% image %}` |
 | macros (`seo`, etc.) | `[html.head.meta]` — the `<head>` is config |
 | `feed.xml` template | a `feed`/`atom` output kind |
 | `static/` | an **objects** collection (assets), routed `/{path}` |
@@ -178,26 +178,57 @@ grouping recipes by a `category` field is the same one line.
 ### 3.6 Shortcodes
 
 First, check whether your *content* even uses them — many themes ship
-shortcodes the posts never call. For the ones you use:
+shortcodes the posts never call. For the ones you use, grackle has **widgets**,
+declared in `grackle.toml`. They cover the common Zola shortcode shapes:
 
-- Image/figure/embed shortcodes → the built-in `{% image path %}`.
-- Simple wrappers (callouts like `note`, `warning`) → a **widget**: a named
-  HTML shell with a `{body}` hole, declared in `grackle.toml` as a
-  `name = "template"` entry…
+- **Image/figure/embed** → the built-in `{% image path %}`, or a widget.
+- **A wrapper with a body** (a callout) — a template with a `{body}` hole, used
+  as a paired tag:
 
   ```toml
   [widgets]
   note = "<aside class='note'>{body}</aside>"
   ```
-
-  …and used in Markdown as a paired tag whose contents fill `{body}`:
-
   ```markdown
   {% note %}Cold butter is the secret.{% endnote %}
   ```
 
-- Shortcodes that take **arguments** or contain **logic** don't port directly
-  — that's the no-control-flow rule again. Rethink them as a field or a view.
+- **Arguments** fill `{name}` holes from `key="value"` pairs, and a template
+  with **no** `{body}` is self-closing (no end tag):
+
+  ```toml
+  [widgets]
+  figure  = "<figure><img src=\"{src}\"><figcaption>{body}</figcaption></figure>"
+  youtube = "<iframe src=\"https://youtube.com/embed/{id}\"></iframe>"
+  ```
+  ```markdown
+  {% figure src="/cat.png" %}A cat{% endfigure %}
+  {% youtube id="dQw4w9WgXcQ" %}
+  ```
+
+  A **quoted** value is a literal; a **bare** value is an expression over the
+  row, so `{% byline who=title %}` fills `{who}` from the row's `title` field.
+
+- **Head assets.** A widget can pull a `<script>`/`<style>`/`<link>` into the
+  `<head>` of the pages that use it (deduped) — the table form of a widget:
+
+  ```toml
+  [widgets.math]
+  template = "<span class='math'>{body}</span>"
+  head     = "<link rel=stylesheet href='…katex.css'><script defer src='…katex.js'></script>"
+  ```
+
+  This is how KaTeX, Mermaid, or a comment embed (giscus) load *only* on the
+  pages that use them, rather than site-wide.
+
+- **`$$…$$` display math desugars** to the `math` widget automatically (text
+  inside code fences is left alone). So a Zola site's math keeps working:
+  define a `math` widget as above and `$$E=mc^2$$` renders through it, KaTeX
+  and all. A `$$` with no `math` widget defined is a build error.
+
+The one shape that still doesn't port is **control flow inside a shortcode**
+(a Tera `{% for %}`/`{% if %}` in its body) — that's the no-logic rule; reshape
+it as a view or a field.
 
 ---
 
@@ -324,17 +355,19 @@ Be honest with yourself about these before you start:
   field (conditional). This is the whole job, not a footnote.
 - **Per-page template selection** (`template = "x.html"`) — gone; layout is
   inferred.
-- **Per-page conditional `<head>` includes** — e.g. loading KaTeX or Mermaid
-  only on pages that set a flag. The computed `<head>` is site-level, so
-  per-row conditional assets need a different approach (a widget, or a
-  site-wide include).
-- **Comment systems** (giscus, Disqus) — no built-in hook; add via the theme
-  `<head>` or a widget.
 - **Config-driven "about" home widgets** — serene builds an avatar/bio/socials
   block from `[extra]`. grackle has no matching config shape; author that
   block as content in the home file instead.
-- **Argument-carrying shortcodes** — the widget system is intentionally
-  argument-free.
+
+Two things that *used* to belong here now port cleanly, via widget head
+fragments (§3.6):
+
+- **Per-page conditional `<head>` includes** (KaTeX, Mermaid) — a widget with
+  a `head` fragment loads its assets only on the pages that use the widget,
+  and `$$…$$` desugars to a `math` widget so display math needs no markup
+  change.
+- **Comment systems** (giscus, Disqus) — a widget whose `head` fragment
+  injects the embed script, dropped into the pages that want comments.
 
 ---
 
