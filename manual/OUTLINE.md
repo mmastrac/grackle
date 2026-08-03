@@ -45,15 +45,18 @@ grackle/manual/
 | `[sets]` / `[routes]` split | `chapters` a set; `/reference/`, `/news/` routes |
 | landings mode B | `/reference/` and `/` |
 | `.schema.toml` on one row type | `reference/` pages carry `since:`, `status:` (q51: pages take typed fields) |
-| computed `summary` | `/news/` listing |
-| row `shell:` tiers | one imported/demo artifact shipped verbatim (§5g) |
-| base config (`extends`) | the manual's `grackle.toml` is almost empty — it inherits, then overrides (§4d) |
-| axes (`[axes.*]`) | a `shell`-axis md twin of every page (`/x/index.md`) is the obvious dogfood (§5g/q53) |
+| CEL computed fields | `summary`/`toc`/`hero` on `/news/` (`[sets.*.fields]`) |
+| `row` faces | `card` face on `/news/`; `row.html` for chapters |
+| row `shell:` tiers (`raw`/`html`) | one imported/demo artifact shipped verbatim |
+| base config (`extends`) | the manual's `grackle.toml` is almost empty — inherits, then overrides (§4d) |
+| axes (`[axes.*]`) | a `shell`-axis md twin of every page (`/x/index.md`) is the obvious dogfood (q53) |
+| sidecars | title/alt for an imported image or legacy page that can't carry front matter |
 | profiles + `_drafts` | chapters-in-progress drafted in the open, shipped under a `drafts` projection (§4a) |
-| search shell | manual search is the obvious real need |
-| themes: parts/slots/CSS | one theme that is *only its differences* over the base |
+| search fold | manual search is the obvious real need |
+| root `.style.scss` | one accent-token override, no theme edit |
+| themes: row faces / slots / CSS | one theme that is *only its differences* over the base |
 | the inspector | a screenshot of `/__debug/`'s source‖URL trees (§7c) |
-| i18n ★ | *not* enabled v1; named as the next dogfood |
+| i18n (locale axis) | now buildable — `[axes.locale]` + a `.fr.md` chapter is the next dogfood |
 
 Two rules carried over from the example sites: **no engine special-casing
 for the manual**, and **anything the manual can't express is a finding**,
@@ -168,29 +171,44 @@ word "view" before chapter 6.
 - `grackle explain` shows which rule wrote which key.
 
 ### 5. Routes: deciding where files land
-- Route templates and tokens: `{year} {month:02} {day} {slug} {dir}
-  {stem} {path}`.
+- **One token supplier** (built): a rule's `route` template can use
+  `{path} {dir} {stem} {name} {ext}` always, `{slug}` (extractor capture
+  or the stem) always, and `{year} {month:02} {day}` wherever the row has
+  a date — *regardless of collection*. So a post can route to an arbitrary
+  path now (`_posts/rust/hello.md` → `/rust/hello/`), not just
+  `/blog/{year}/…`. That refusal is gone.
+- **The date extractor is `file`, a rule key** (was collection-level
+  `filename_formats`): `file = ["{date.year}-{date.month}-{date.day}-{slug}"]`,
+  tried in order, first match wins, and a format needn't name every token
+  (`file = ["{slug}"]` is legal for undated drafts). A collection's `file`
+  is the default its rules inherit.
 - Rules are ordered; first writer wins; catch-all `**` goes last.
-- Pretty URLs vs literal passthrough: `front_matter = true` as the switch
-  (the Jekyll behaviour, made explicit).
-- Related but distinct, so name the difference here and defer: front
-  matter *presence* decides whether a file is a row at all; `shell:`
-  decides how much wrapper a row wears (ch. 19). A file with no front
-  matter ships verbatim and is invisible to every query.
-- **`[[collections]]` is an array of tables** — each a *source* with a
-  `kind` (`posts`/`tree`/`objects`), name defaulting from the source dir;
-  the three kinds and the disjoint order (posts → objects → tree) are all
-  a user needs. The base already declares all three, so this chapter is
-  mostly *reading* what you inherited and adding a rule that **prepends**
-  (nearest wins, so your route beats the base's `**`).
-- **A row renders at exactly one route** — the constraint worth naming
-  here, because its errors are the ones you'll hit: two rows on one URL,
-  or one row on two URLs, are both load errors naming the file(s). The
-  legal member counts are 0 (a landing claimed it, ch. 18, or it's an
-  unreferenced on-demand asset), 1 (everything else), and **N only along
-  an axis** (ch. 20) — the single sanctioned way to break it.
-- Other errors, shown: dated route on an undated row; dead rule warning.
-  `grackle urls` lists the result.
+- **A rule selects on a fact, and claims what it matches.** `front_matter
+  = true` on a rule matches only files that carry an identity block (pretty
+  URL); the catch-all takes the rest at their literal path. A rule's glob
+  names the extensions its scope *claims* — and **a scope owns its source**:
+  what a rule doesn't claim isn't content at all (not an object, not a byte
+  copy), so widening a glob is how you admit a bundle. Whether a row then
+  *renders* is a separate law (ch. 19): `front_mattered || shell ∈
+  {html, light_html}`.
+- **`[[collections]]` is an array of *sources*, no `kind`** (that field is
+  gone): each is a `source` (a dir) or a `name` with rules; "objects" is
+  just a collection whose rules match asset extensions and set `shell =
+  "raw"` (+ `on_demand`). The base declares posts, drafts, objects and the
+  tree already, so this chapter is mostly *reading* what you inherited and
+  adding a rule that **prepends** (nearest wins).
+- **Four content layers** decide what's even seen: `.gitignore`
+  (artifacts), the dot/underscore skip (`_layouts`, `_sass`, unless a
+  scope declares that dir as its `source`), `exclude` (tracked non-content
+  — tree-collection key only), and **position** (the engine reads the
+  site's own `grackle.toml` and `themes/` by *where they sit*, so no site
+  excludes them). `include`/`included_dir` is the escape hatch over all.
+- **A row renders at exactly one route** — its errors are the ones you'll
+  hit: two rows on one URL, or one row on two, are load errors naming the
+  file(s). Legal counts: 0 (claimed by a landing, ch. 18, or an
+  unreferenced on-demand asset), 1 (everything else), **N only along an
+  axis** (ch. 20). Other errors: dated route on an undated row; dead-rule
+  warning. `grackle urls` lists the result.
 
 ### 6. Your first query: a set, then a route
 - The pitch: you never write a loop, you name a set — and **`published`,
@@ -234,15 +252,26 @@ word "view" before chapter 6.
 
 ### 7. Listings that don't ship the whole blog
 - The problem: full bodies hidden by CSS.
-- `[sets.published.fields] summary = 'truncate_chars(truncate_blocks(content, 4), 700)'`.
+- **A computed field is a CEL expression** (the `truncate = {…}` struct
+  stopgap is gone): `[sets.published.fields] summary =
+  'truncate_chars(truncate_blocks(content, 4), 700)'`. A TOML *string* is
+  an expression; any other TOML type is a literal. Same expression surface
+  as `where`/`rank`/head (§5f) — this is the reader's first real sighting.
+- The `fields` table also carries the manual's other stock derivations:
+  `toc = 'outline(content, 3)'` (feeds a `toc: true` row) and
+  `hero = 'cover ? cover : image ? image : images(content)[0]'`.
 - Computed fields inherit down `from` chains; nearest declaration wins.
-- `summary` is the one preview kind, by convention. No summary field ⇒
-  full bodies (intended, not a bug).
-- Measured: `/blog/` 160 KB → 15.7 KB.
-- `truncated` becomes `data-truncated`, which the theme styles. First
-  sighting of "a fact becomes an attribute".
-- `Content` is an internal CEL type; the two wrappers compose. Same
-  expression surface as `where` / `rank` / head (§5f).
+- The `summary` field feeds the **card face** (ch. 14) by convention; no
+  summary field ⇒ full bodies (intended, not a bug). Measured: `/blog/`
+  160 KB → 15.7 KB. `truncate_*` stamps the `truncated` fact →
+  `data-truncated` (first "a fact becomes an attribute").
+- **The `Content` type** (what `content` is): three kinds — `html` /
+  `markdown` / `text` — with coercion (`as_html`) and `word_count`;
+  `truncate_*`/`outline` are HTML-only. Block helpers: `filter_blocks`
+  (list of matching blocks, for indexing — `filter_blocks(content, "p")[0]`
+  = lede), `keep_blocks` (Content with only those tags), both multi-tag;
+  plus `links`/`images` extractors and list indexing. Keep this a
+  reference-flavored list; the point is *the surface exists*, not memorize.
 
 ### 8. Tags and archives for free
 - `[routes.tag_index]` with `group_by = "tags"` + `path =
@@ -270,25 +299,27 @@ word "view" before chapter 6.
 - New error worth showing: a paginated view given a single `path` (not
   `paths`) — used to collide page 2 onto page 1, or emit nothing.
 
-### 9. Feeds, sitemap, and `from = "*"`
+### 9. Feeds, sitemap, and fold shells
 - **You already have `/atom.xml` and `/sitemap.xml`** — both inherited
   from the base (which ships exactly the URLs whose *absence* would be a
-  bug anywhere; tag pages and search are not among them, since plenty of
-  sites want neither). So this chapter explains them rather than builds
-  them, and introduces `shell` in one sentence — *how a route is
-  serialized* (`atom`/`sitemap`), full treatment in ch. 19.
-- `from = "*"` = every routable row.
+  bug anywhere; tag pages and search aren't among them, plenty of sites
+  want neither). So this chapter *explains* them, and introduces `shell`
+  in one sentence — *how a route is serialized* (`atom`/`sitemap`), full
+  treatment in ch. 19.
+- **Fold shells read every output** — a fold (`atom`/`sitemap`/`search`)
+  may omit `from`; it folds over the whole materialized site. (`from =
+  "*"` is retired, a hard cutoff.) A *listing* route with no `from`, by
+  contrast, is a load error naming the fold shells.
 - **Inherited-empty is silent; declared-empty is not.** A base route with
   no members (no `_posts/` ⇒ no feed) simply doesn't materialize, so a
   blogless site pays nothing for the inherited feed. But a route *you*
   declare materializes even when empty — the difference answers a real
-  "why did/didn't this page appear" and is worth the one line.
-- **The footgun, called out loudly**: a `from = "*"` route ranges over
-  *routes*, and a routed row is routed whatever its flags say — so any new
-  one must repeat `!draft && !hidden` or it leaks (the base's sitemap
-  already does). Profiles (ch. 24) don't rescue this; cautionary tale
-  there. ★ A validator to refuse a site-declared star route missing the
-  flags is a pre-1.0 checkbox.
+  "why did/didn't this page appear."
+- **The footgun**: a fold sees *every output*, and a routed row is routed
+  whatever its flags say — so the sitemap must filter for itself
+  (`where = '!draft && !hidden && …'`, which the base's does). Profiles
+  (ch. 24) don't rescue this. ★ A validator to refuse a site fold whose
+  `where` omits the flags is a pre-1.0 checkbox.
 
 ### 10. Images and links
 - Bare name vs path: contains `/` or `://` → path; otherwise → name,
@@ -301,6 +332,12 @@ word "view" before chapter 6.
   *bodies* still ship without dimensions (q26).
 - **Link to sources, not URLs**: `[a](carbonara.md)`,
   `[b](view:blog_index)`, `[c](view:tag_index/rust)`.
+- **Naming an axis member**: `[x](page.md?theme=ledger)` (and
+  `view:notes_index?theme=ledger`), plus the **self-pivot** `[fr](.?locale=fr)`
+  — path `.` is this page, the selector pivots it onto that axis (how you
+  hand-write a switcher entry). A link otherwise resolves to a row's
+  *canonical* URL; an undeclared value is a load error, and only declared
+  axis names read this way (`?utm=x` stays literal). Forward-ref to ch. 20.
 - **Strict links are the default now** (not opt-in) — a raw internal URL
   is an error answering with the correct source-or-`view:` form. Show it.
   Note the corpus "earned" this: `{% post_url %}` is retired, replaced by
@@ -326,26 +363,39 @@ sitemap, in ~60 lines of config.*
 Target reader: has Part I working, wants it to look like something. The
 whole part rests on one idea, delivered in ch. 12 and never contradicted.
 
-### 12. Parts, slots, and the reason there is no `{% if %}`
-- **Layout kind = which parts. Theme = which arrangement. Shell = which
-  serialization.** Three independent axes; state once, repeat as needed.
-- A layout kind emits a *part map*, not a page. The four kinds are
-  `document`, `listing`, `feed`, `raw`; the previews (`summary`) and
-  sub-parts are their own kinds in the vocabulary (ch. 33c).
-- **The kind is inferred, never declared** — a row/page → `document`, a
-  grouped-or-paginated route → `listing`, a feed/sitemap route → `feed`,
-  an opt-out row → `raw`. You do not write `layout: document`. (One row
-  type, q51, is why a *page* infers `document` the same as a post does.)
-- Do **not** teach `layout:` as the way to pick furniture — it **has
-  dissolved** (q33(f) settled): absent `layout:` means a `document`, the
-  kind is inferred (above), and the old `page`/`post` values are inert.
-  Teach `shell:` (ch. 19) for wrapper choice; `layout:` survives only as a
-  past-tense **migration note** for Jekyll sources and a reference entry.
+### 12. One kind, many faces, and the reason there is no `{% if %}`
+**Rewritten to the 2026-07-28 theme model (THEME.md).** The old
+document/listing/summary/link *kinds* collapsed into one — this is the new
+conceptual headline of Part II, so it leads.
+- **One kind: `row`.** Every rendered thing is a `row` part map; there are
+  no separate `document`/`summary`/`link`/`listing` kinds anymore. A row
+  wears a **face** — a fragment variant — for the job at hand:
+
+  | face | fragment | is |
+  |---|---|---|
+  | *(default)* | `row.html` | the full page (ex-`document`) |
+  | `card` | `row--card.html` | a listing preview (ex-`summary`) |
+  | `link` | `row--link.html` | a bare link in a list |
+  | `figure` | `row--figure.html` | an image preview |
+  | `gallery`/`cards`/… | `row--{face}.html` | any view-declared face |
+
+- **The three orthogonal words** (state once, the spine of the part):
+  **Layout** = the fragment that turns a part map into the HTML filling the
+  parent's `content` hole (i.e. the face). **Slot** = which rung receives
+  it (`document` furniture stack vs `root` chrome). **Shell** = whether the
+  HTML chain runs at all (`raw`/`html`/`light_html`, ch. 19).
+- **A listing is HTML concatenation, not a kind.** Members each render
+  through a face; the aggregate `content` is those HTML strings
+  concatenated, with title/crumbs/intro/pagination set on a **wrapper
+  `row`**. First-member emphasis (book-of-the-month) is CSS `:first-child`,
+  not a flag. `{% view name | face %}` picks the member face per embed.
+- **The kind is presence-driven, never declared.** Absent front-matter
+  `layout:` (gone) just means a full row; the schema is the *union* of all
+  part fields, and the hole algebra deletes the ones a given row lacks.
 - **The rule**: want an `if` → you're missing a fact. Want a `for` →
-  you're missing a view. Both are design bugs. The load checker is the
-  tripwire.
-- Evidence, briefly: of ~60 Liquid constructs on grack.com, 3 were
-  genuine display iteration.
+  you're missing a view. Both are design bugs; the load checker is the
+  tripwire. (Evidence: of ~60 Liquid constructs on grack.com, 3 were
+  genuine display iteration.)
 
 ### 13. Themes you don't write
 **New chapter (base theme landed 2026-07-24).** Comes before "writing a
@@ -415,12 +465,36 @@ the binary.
   `/miroir/blog/` are the same rows in the same shapes — compare in two
   tabs. `grackle --config grackle/examples/theme-preview/grackle.toml serve`.
 
-### 14. Writing a theme: the hole algebra
+### 14. Writing a theme: faces and the hole algebra
 - **A theme is only its differences.** It inherits the base; a fragment
   replaces the base's of the same name, and every kind you decline keeps
   the base arrangement. Three of the six gallery themes are four files.
 - A theme is a directory of data: `_tokens.scss`, `theme.scss`,
-  `shell.html`, `<kind>.html`, `<kind>--<variant>.html`. All optional.
+  `shell.html`, `row.html`, and face variants `row--card.html` /
+  `row--figure.html` / `row--{face}.html`. All optional.
+- **Faces, in depth** (merged from the old faces chapter): a face is a
+  fragment variant of the one `row` kind, and one schema — the union of
+  all row parts — backs every face. `row.html` is the full page; a card
+  wears title/date/summary, a figure wears the image parts, and the hole
+  algebra deletes the rest. This is the cleanest illustration of "one
+  kind, many faces."
+  - **A view picks the member face** with `layout` (or `variant`) on the
+    route; `{% view name | face %}` overrides per embed. Resolution:
+    `row--{face}` → `row` → base. A **listing is the concatenation** of
+    its members through that face, furniture on the wrapper `row` (ch. 12)
+    — there is no `listing`/`link_list` fragment to write.
+  - **A face a theme doesn't ship degrades**: a view asking for
+    `row--cards` under a theme without it falls back to the default `row`
+    face — *requests, not demands*, which is what lets any site render
+    under any theme. (An *unclaimed* aggregate whose `layout` face is
+    missing is a **build error**, though — it has to render as something.)
+    `examples/theme-preview/` shows this side by side.
+  - Galleries and cards are the worked examples (object rows, `order_by`).
+  - ★ q45/q50 leftover: a face missing a hole drops that part silently
+    (a deliberate omission is byte-identical to a forgotten one).
+    Workaround: **`grackle explain <url> --parts`** (specced, pre-1.0)
+    lists which parts nothing placed; until then, diff against the base
+    face.
 - **You can `@import "tokens" | "base" | "search" | "type" | "skin"` and
   the base's partial resolves out of the binary** — your own `_<name>.scss`
   wins if you ship one. So a theme reuses the reset, the search overlay, or
@@ -463,23 +537,34 @@ the binary.
   full-bleed bar (`atlas`) or a fixed rail (`miroir`) would be actively
   wrong inside a centred `--measure` column. Best example in the manual of
   "opting out is a decision, not an accident."
-- **An arrangement may decline a part; `canonical()` may not.**
+- **The part vocabulary is *derived*, not a file** (2026-07-28): there is
+  no handwritten `parts.toml` anymore. At theme load the engine derives the
+  `row` vocabulary from the base + theme fragments plus the declared field
+  schemas (`[schema]` / a theme's `.schema.toml`). A theme's `.schema.toml`
+  may *add* fields as parts on `row` (it may not retype existing ones).
+- **Stream/map slots must name their child with `data-fragment`** —
+  `<nav data-slot="crumbs" data-fragment="crumb">`. And a stream/map hole
+  may **embed the default body inline** instead of shipping a separate
+  file: put the child markup inside the hole and it registers as fragment
+  `crumb`; ship `crumb.html` and the file wins everywhere. Same rule for
+  faces (`data-fragment="row--figure"` with an inline body). Lets a small
+  theme stay one file.
+- **`data-slot="main"` is now `data-slot="content"`** (the row's body
+  hole) — flag it, since every existing shell used `main`.
+- **An arrangement may decline a part; the canonical fallback may not.**
   Completeness is the *parts layer's* obligation, not the theme's —
-  `terminal` drops tags from its summary on purpose, a card is a jacket
-  with no prose. The base's own exemptions are declared with reasons.
-  Worth one worked example because it teaches rule 2's exact edge:
-  `summary.src` is exempt because rule 2 deletes an element with an empty
-  **content** slot, and an `<img>` has only *attribute* holes — so a plain
-  summary trying to show a cover would emit a broken image on every text
-  row.
+  `terminal` drops tags from its card on purpose, a card is a jacket with
+  no prose. The base's own exemptions are declared with reasons. Worth one
+  worked example because it teaches rule 2's exact edge: the row's image
+  part is exempt because rule 2 deletes an element with an empty **content**
+  slot, and an `<img>` has only *attribute* holes — so a plain card trying
+  to show a cover would emit a broken image on every text row.
 - **The grouped-parts tax**: rule 2 deletes an empty part's element, not a
   wrapper *your fragment* invented. Group two parts in a meta bar and you
   pay `:not(:has(*)) { display: none }` — direct-child-scoped.
-- Errors, shown: unknown slot (lists the kind's parts), flag-as-content
-  slot, `data-fragment` on a scalar.
-- Order note (narrow): unarranged kinds emit in `parts.toml`'s **declared
-  order**, enforced at the schema position, not the order the engine
-  produced them. Matters only for kinds nobody arranges.
+- Errors, shown: unknown slot (lists the row parts), flag-as-content slot,
+  a stream/map slot missing `data-fragment`, a missing `layout` face on an
+  aggregate (build error).
 - **The `<head>` is config, not (mostly) a theme concern.** It's declared
   in `[html.head.meta|property|link]` (three tables = the three elements)
   as **text expressions over the row plus `site.*`** — with `+`
@@ -505,14 +590,14 @@ the binary.
   **`data-relation`** (was `data-axis`), so per-relation CSS
   (`.relation[data-relation="related"]`) targets that. Translations, an
   *axis*, keep `data-axis`. (ch. 29 for the split.)
-- **Canonical (unarranged) markup emits in `parts.toml`'s declared order**
-  — the reading order a screen reader or the null theme sees. It's the
-  schema's order, enforced, not the producer's incidental one (ch. 13).
+- **Unarranged markup emits in the *derived* schema order** — the reading
+  order a screen reader or the base sees. The part vocabulary is derived
+  from fragments + field schemas at load (no `parts.toml`, ch. 14), and
+  that order is enforced, not the producer's incidental one.
 - **The cascade order is declared in full: `@layer reset, base, theme,
-  overlay, post`.** Only `base` and `theme` carry content today (`reset`
-  ships inside `base`; `overlay` for `.style.scss` and `post` for per-post
-  `<style>` are ★ unbuilt), but the order is stated now so those slot in
-  rather than sorting last by accident. The point that matters: a theme
+  overlay, post`.** `reset`/`base`/`theme` carry content, and **`overlay`
+  is now filled** by the root `.style.scss` (ch. 13); only `post`
+  (per-post `<style>`) stays ★ unbuilt. The point that matters: a theme
   rule beats the base's regardless of selector specificity — no arms race,
   and it's why a four-file theme can restyle a page it didn't arrange.
 - **The token contract** — the file you actually edit is `_tokens.scss`;
@@ -558,36 +643,11 @@ the binary.
   fixed set (rust, c, java, nasm/asm, bash/sh, yaml, json); anything else
   falls through to plain escaped text, deliberately.
 
-### 16. Variants: one kind, several looks
-- **The preview kind is `summary`, full stop.** `figure` and `gallery`
-  folded into it (2026-07) — one schema carries both the text-card fields
-  (`title`, `date`, `content`, `truncated`) and the image fields (`src`,
-  `width`, `height`). A card and a figure are the *same kind* wearing
-  different fragments. This is the cleanest possible illustration of
-  "kind = which parts, fragment = which look" and should be taught as
-  such.
-- `variant = "cards"` on a route → `summary--card.html`; resolution is
-  `{kind}--{variant}` → `{kind}` → base → canonical. Real fragments in
-  `field-notes`: `summary--card.html`, `summary--figure.html`,
-  `listing--cards.html`, `listing--gallery.html`.
-- **A variant a theme doesn't have degrades silently, and that's the
-  design**: a row asking for `listing--cards` under a theme without it
-  gets plain `listing`. Row-declared variants are *requests, not demands*
-  — which is what lets any site render under any theme. The base ships
-  `summary--figure` but no card/gallery variants, so four of the six
-  gallery themes fall back in public; the preview site shows it side by
-  side on purpose. (Contrast: a *fragment's own* `data-fragment=`
-  override naming a missing fragment IS a load error — intra-theme, so
-  correctly strict.)
-- `data-fragment` as an explicit override on a stream.
-- Galleries as the worked example (object rows, `order_by` required).
-- ★ known silent failure: a variant fragment missing a hole drops that
-  part with no warning (q45 leftover). Blocked, not merely unbuilt — a
-  *deliberate* omission is byte-identical to a forgotten one, so the
-  warning can't exist until a theme can say "I don't place this part"
-  (q50). Workaround: **`grackle explain <url> --parts`** (specced,
-  pre-1.0) lists which parts nothing placed — the partial answer that
-  needs no q50 settlement first. Until it ships, diff against canonical.
+### 16. — *retired (faces merged into ch. 14)*
+Number left as a deliberate gap for now, not reused, so later chapter
+references and the reader's mental index don't shift. The row-and-faces
+material lives in ch. 14 ("Faces, in depth"). Close the gap in a later
+renumbering pass.
 
 ### 17. Where the site's own words live: `.slots/`
 - Problem: no theme file should contain your nav or your copyright line.
@@ -621,58 +681,68 @@ the binary.
 ### 19. Shells: how much wrapper the output wears
 - Two scopes, same word, and the chapter must separate them in its first
   paragraph:
-  - **Route shells** — `shell = "html" | "atom" | "sitemap" | "search"`
-    on a `[routes.*]`: how a whole route is serialized.
-  - **Row shells** — `shell:` in a row's front matter (built
-    2026-07-19): how much wrapper *one page* wears.
-  - These are genuinely two axes on one word — disjoint value domains,
-    disjoint passes, a row never meets a route's shell. Say so once
-    (§5g "one word, two axes").
-- **The row tiers**, the chapter's centrepiece. `shell:` picks one of
-  three; the fourth (`object`) isn't a `shell:` value because objects
-  never enter the pipeline — worth showing all four so the head-size
-  jumps are legible:
+  - **Row shells** (the *map* family) — `shell:` on a row (front matter,
+    or a rule `defaults`): how much wrapper *one page* wears.
+  - **Fold shells** — `shell = "atom" | "sitemap" | "search"` plus
+    `[shells.*]` script shells on a `[routes.*]`: how a whole route is
+    serialized.
+  - Disjoint value domains, disjoint passes — a row never meets a fold
+    shell. Say so once.
+- **The row tiers**, the chapter's centrepiece. **The set is `raw` /
+  `light_html` / `html`** (renamed 2026-07 from the old `none`/`light`;
+  `none`→`raw`, `light`→`light_html`, hard cutoffs). Show `object` too so
+  the head-size jumps read:
 
   | tier | selected by | head | body |
   |---|---|---|---|
-  | `object` | extension (an asset) | — | bytes off disk |
-  | `none` | `shell: none` | — | rendered parts, emitted verbatim |
-  | `light` | `shell: light` | minimal (~85 B) | canonical parts, no theme |
-  | `html` | `shell: html` / default | full (~739 B) | theme fragments |
+  | `object` | an asset rule (extension glob) | — | bytes off disk |
+  | `raw` | `shell: raw` | — | rendered parts, emitted verbatim |
+  | `light_html` | `shell: light_html` | minimal (~85 B) | canonical parts, no theme |
+  | `html` | `shell: html` / default | full | theme fragments |
 
-- Closed vocabulary, checked at load and named with the file — a typo'd
-  shell would otherwise render the wrong tier silently.
-- **Correction worth stating** (the doc got this wrong twice, so readers
-  will too): `light` is a *tier*, **not the null theme**. It bypasses the
-  theme registry and takes a minimal computed head; there is no
-  `themes/light/` directory. The null theme (ch. 13) is a *theme with no
-  fragments* — full computed head, stylesheet link, everything but body
-  chrome. And `shell: light` ≠ `theme: light`: a theme only chooses body
-  chrome, never the head.
-- **`none` is a capability, not a spelling**, and it's the chapter's
-  worked example: an imported artifact (an old demo, a hand-built HTML
-  page) can now carry front matter *and* still emit itself. Before, front
-  matter nested the whole `<!doctype html>` inside a second document, so
-  shipping it verbatim meant having no front matter — which meant it
-  wasn't a row: no title, no metadata, invisible to every query. Now it's
-  a row the database can see *and* a byte-exact artifact.
+- Where it's declared: **rule `defaults`** carry the site's shells (the
+  base gives posts/pages `html`, the tree/objects catch-all `raw`); front
+  matter `shell:` beats them. Closed vocabulary, checked at load.
+- **The render gate**, worth stating plainly: a row renders iff
+  **`front_mattered || shell ∈ {html, light_html}`**. So a front-mattered
+  file with `shell: raw` renders and then ships verbatim; an
+  identity-less file sent through `html` renders anyway (a *warning*, the
+  "degenerate row," title derived from the slug).
+- **`light_html` is a *tier*, not the null theme**: it bypasses the theme
+  registry for a minimal computed head — that's *why* it's `light_html`,
+  not `light` (there is no `themes/light/`). The null theme (ch. 13) is a
+  theme with no fragments — full head, everything but body chrome.
+- **`raw` is a capability, not a spelling**, and the chapter's worked
+  example: an imported artifact can carry front matter *and* still emit
+  itself byte-exact. Before, front matter nested the whole `<!doctype
+  html>` in a second document, so shipping it verbatim meant no front
+  matter — which meant it wasn't a row at all: no title, no metadata,
+  invisible to every query. `raw` makes it a row the database sees *and* a
+  byte-exact artifact.
+- Row front-matter `layout:` is **gone** (dissolved into shell + inferred
+  face); `layout: default` survives only as the "chrome, no row furniture"
+  escape (`slot: root`).
 - Pair it with `hidden: true` — the honest way to keep an imported
   artifact out of the sitemap and the search index while keeping it
   linkable by source path (ties to ch. 10 and ch. 24).
-- ★ What `none` does *not* do: lift the meat out of an imported page and
-  render it through the theme. That's q50, and it's two operations
-  (extraction, then chrome), deliberately not fused.
-- Script shells: `[shells.llms] command = "python3 shells/llms.py"`;
-  rows arrive as JSON on stdin, stdout is written at the route, non-zero
-  exit fails the build. The experimental bench.
-- **Gotcha with a real scar**: a script shell's source is a file in your
-  tree, so it will be routed and *published* unless excluded. The example
-  site shipped `shells/llms.py` this way. Add `shells/**` to `exclude`;
-  `/llms.txt` still builds, because the command comes from config, not
-  from a content row.
+- ★ What `raw` does *not* do: lift the meat out of an imported page and
+  render it through the theme. That's q50, two operations (extraction,
+  then chrome), deliberately not fused.
+- **Fold shells** (`atom`/`sitemap`/`search`) may omit `from` — they read
+  every output; a *listing* view with no `from` is a load error naming
+  them. (`from = "*"` is retired, a hard cutoff.) A set may not wear a
+  shell or route.
+- Script shells: `[shells.llms] command = "python3 shells/llms.py"`; the
+  view opts in with `shell = "llms"` and **must name a `from`** (a
+  `from`-less script shell was silently fed empty rows — now a load
+  error). Rows arrive as JSON on stdin (`"schema":"grackle-shell/0"`,
+  provisional), stdout is written at the route, non-zero exit fails the
+  build.
+- **Gotcha with a real scar**: a script shell's source lives in your
+  tree (`examples/field-notes/shells/llms.py`), so it's routed and
+  *published* unless excluded. Add `shells/**` to `exclude`; `/llms.txt`
+  still builds because the command comes from config, not a content row.
 - ★ `md` shell specced; `/llms.txt` currently ships via a script shell.
-- ★ Still open in q44: atom/sitemap becoming true part-map consumers; a
-  `json` shell (though `cat` as a script shell already is one).
 
 ### 20. Axes: one row, several forms
 **New chapter (built 2026-07-25).** The third member of the route cluster:
@@ -683,48 +753,52 @@ ch. 18 a route owns a URL, ch. 19 how much wrapper a row wears, and now —
   is the **only** mechanism allowed to break "a row renders at exactly one
   route" (ch. 5) — everything else producing a second route on one row is
   a load error.
-- The config, and it must be fully explicit (an axis multiplies URL space,
-  so nothing is implicit):
+- **The axis declares only its values and its field** — *not* where
+  members land (the `url`/`match` keys retired):
 
   ```toml
   [axes.theme]
-  values = ["ledger", "atlas"]   # the members; FIRST is canonical
+  values = ["ledger", "atlas"]   # members; first is CANONICAL
   field  = "theme"               # the row field each member sets
-  url    = "/{value}{url}"       # an alternate's URL; canonical keeps the row's
-  match  = "notes/**"            # which rows multiply (absent = all — rarely wanted)
   ```
 
-- **Canonical vs alternate** — the load-bearing idea: the first value is
-  canonical and keeps the row's own URL; alternates are templated over
-  `{value}` and `{url}`. Every member's `rel="canonical"` and `og:url`
-  name the *canonical* form (the head describes the document, not the
-  form), and a `*` view (sitemap, search) sees **canonical members only** —
-  otherwise a crawler reads six renderings as six documents, which is
-  exactly what `rel="canonical"` denies.
-- **Two built uses, both real**: `field = "theme"` renders one corpus
-  several ways with no row copies — it's what `theme-preview/`'s six
-  duplicate trees were faking; `field = "shell"` is q44's md twin (`url =
-  "{url}index.{value}"` → `/notes/one/index.md`), working the day the axis
-  landed. The field is *named*, not assumed, so the mechanism isn't "a
-  theme feature wearing a general name."
-- **Correction worth stating** (it revises earlier drafts, incl. this
-  outline): **locale/translations is NOT an axis.** `dal.md` and
-  `dal.fr.md` are *two rows*, one route each, paired after the fact by
-  logical path (ch. 31). It still emits hreflang and keeps `data-axis`,
-  but it isn't `[axes.*]` — so the axis is a genuinely new mechanism, not
-  the generalization of locale it was once pitched as.
-- ★ Honest edges, all real:
-  - **Composition with locale isn't built** — a row on both axes wants the
-    cartesian product (`/fr/ledger/notes/one/`); the (row, member)
-    constraint makes two axes collide today. The next thing to build if a
-    site needs it.
-  - **A `field` no render path consults multiplies URLs without changing
-    bytes** — only `theme` and `shell` are wired; a made-up field is a
-    silent footgun that *should* be a load error and isn't yet.
-  - **`rel="alternate"` for axes** is config: `from = "axis.<name>"` expands
-    over any declared axis's include-self pool (base ships the i18n hreflang
-    expand). The `light` tier's minimal head still carries no canonical — an
-    alternate there advertises nothing.
+- **The route template *spends* the axis, and the rule that spends it
+  opts the rows in** — a `{theme}` (or `{axis:theme}`) segment in a
+  collection rule's `route` or a `[routes.*] path`. A **list of templates**
+  lets the canonical member drop its segment: `route = ["/{theme}/{axis:
+  locale}/", "/{theme}/", "/"]` — engine picks the shortest that still
+  spends every non-canonical axis. Canonical is a *declaration*: which
+  member `rel="canonical"`/`og:url` name and which one a fold (sitemap,
+  search) sees — **canonical only**, so a crawler doesn't read N
+  renderings as N documents.
+- **Two kinds of axis — the frame master uses**: a **reuse axis** (`field
+  = "theme"`) renders one row N ways, members share the canonical row's
+  content, none is ever missing; a **file axis** (`locale`) gives each
+  member its own file (`index.fr.md`), and a member with no file just
+  doesn't materialize. So **locale IS an axis** (a file axis), exposed
+  through this interface — the reversal to state plainly.
+- **Built uses**: `field = "theme"` (one corpus, several looks — what
+  `theme-preview/`'s duplicate trees faked); `field = "shell"` (q44's md
+  twin). A `field` the engine doesn't consume is *fine* — a CSS-only axis
+  keying `data-axis-theme` is legitimate, not a footgun.
+- **Members are readable from CSS, two ways**: `data-axis-theme="ledger"`
+  (selecting) and `--axis-theme: "ledger"` (reading via `var()`; `attr()`
+  can't reach the root). **Members emit `rel="alternate"`** — config
+  `[html.head.link] alternate = { from = "axis.<name>", … }`; locale
+  carries `hreflang`, a different-format form (md twin) carries `type`
+  (from `[media_types]`), a same-format restyle carries neither.
+- **The switcher is the `axes` shell slot** (built, closes q47):
+  `data-slot="axes"` in the shell, rendered as a `<details>` dropdown by
+  the base; works for **listing views too** (`/fr/blog/` → `/blog/`);
+  superseded the `translations` relation. Self-pivot links pick a member
+  by hand: `[fr](.?locale=fr)`, `[dark](.?theme=ledger)`.
+- **Composition is built**: multiple axes over one row → the cartesian
+  product, the constraint keyed on the member-*tuple* (`axis = ["palette",
+  "flavor"]` → `/plain/sweet/…`); canonical is the tuple of first-declared
+  members; each axis needs its own segment.
+- ★ Honest edge, now nearly the only one: the `light_html` tier's minimal
+  head carries no canonical and no alternates, so an alternate at that
+  tier advertises nothing.
 
 *Exit check for Part II: a theme of your own, with cards, a nav, a landing
 page — and, if you want it, the same content under two looks.*
@@ -749,22 +823,30 @@ author. Here the database framing pays off and can finally be used.
 - Practical: hide a subtree from search with one `touch`.
 
 ### 22. Typed fields per subtree: `.schema.toml`
-- `github_link = { type = "url" }`; types `string int bool list url image`.
-- **Three scopes, one precedence** — worth teaching as a unit, since the
-  reader will meet all three: positional `.schema.toml` (a subtree),
-  `[collections.<name>.schema]` (a whole collection), and site-wide
-  `[schema]` (ch. 24 — where the base puts the flags). Nearest wins:
-  positional > collection > site-wide. Same law as everywhere.
-- Buys **four** things now: front-matter validation, filter type-checking,
-  slot/field checking, and — since the field-display arc landed — **the
-  field renders**. A `list` field fills a stream of `item` parts, an
-  `image` field fills a `url` part (thumbnailed like any object). So a
-  typed field is presentation, not just a guard.
+- `github_link = { type = "url" }`; types `string int bool list url image
+  date records`.
+- **Three scopes, one precedence** — teach as a unit: positional
+  `.schema.toml` (a subtree), `[collections.<name>.schema]` (a whole
+  collection), and site-wide `[schema]` (ch. 24 — where the base puts the
+  flags). Nearest wins: positional > collection > site-wide. Same law.
+- Buys **four** things: front-matter validation, filter type-checking,
+  slot checking, and — a declared field **becomes a part on `row`**
+  (ch. 12/14), so it *renders*. A theme's `.schema.toml` may add fields as
+  parts (not retype existing ones). A typed field is presentation, not
+  just a guard.
 - Governed rows are strict (unknown key = load error naming the file);
   ungoverned rows stay tolerant.
 - Worked example: `recipes/` with `course`, `time`; then group by it.
-- ★ list-of-records first slice: `type = "records"` (q40); JSON-LD Recipe
-  emission still open.
+- **`records` — a list-of-records field** (q40 first slice, built): a
+  typed table in front matter. `ingredients = { type = "records", fields
+  = { amount = "string", name = "string", note = "string" } }`; the row's
+  front matter carries a YAML list of maps, and the field fills a
+  multi-column stream the theme renders as a table (`field-notes` dogfoods
+  `ingredients` this way). ★ JSON-LD Recipe emission still open.
+- **Don't confuse it with `[records.<field>.<id>]`** (ch. 31) — that's the
+  *enum-records* table naming a grouped field's value domain (tag/course
+  slug/name/intro). Same word, unrelated mechanism; worth one sentence so
+  a reader isn't tripped.
 
 ### 23. Hierarchy: the page's tree and the tree's tree
 - Two axes, one recursive part kind (`outline_entry`), one fragment.
@@ -792,12 +874,12 @@ author. Here the database framing pays off and can finally be used.
   silently matches everything. Also why flags work on *any* row (a page
   hides exactly as a post does) — they're row properties, not a post
   feature.
-- **Drafts live in `_drafts/`** — a *second source* for the posts table
-  (ch. 5), not a second table: `[[collections]]` with `kind = "posts"`,
-  `source = "_drafts"`, `filename_formats = ["{slug}"]` (a draft has no
-  date until it publishes). Ordinary rows otherwise — routed, in the link
-  graph, visible to the inspector — kept out of feeds and listings by the
-  `!draft` filter the queries already carry.
+- **Drafts live in `_drafts/`** — a *second source* for the posts table,
+  not a second table: `[[collections]] source = "_drafts"` with a rule
+  `file = ["{slug}"]` (a draft has no date until it publishes) and
+  `defaults = { draft = true, shell = "html" }`. Ordinary rows otherwise —
+  routed, in the link graph, visible to the inspector — kept out of feeds
+  and listings by the `!draft` filter the queries already carry.
 - **The union that makes this work** (post-`from`-scoping, ch. 6): the
   `published` set must name *both* sources — `from = ["posts", "drafts"]`
   — or the drafts silently leave every listing. This is the sharp edge of
@@ -818,12 +900,12 @@ author. Here the database framing pays off and can finally be used.
   default projection; `serve` defaults to `dev`. Full config below.
 
   ```toml
-  [profiles.drafts]
-  noindex = true                        # the whole projection, one key
-    [profiles.drafts.sets.published]    # patch a set → patch a query
-    where = "!hidden"
-    [profiles.drafts.routes.search]     # patch a route → patch a landing
-    where = 'kind == "post" && !hidden'
+  [profiles.drafts.force]               # forced facts for the projection
+  noindex = true
+  [profiles.drafts.sets.published]      # patch a set → patch a query
+  where = "!hidden"
+  [profiles.drafts.routes.search]       # patch a route → patch a landing
+  where = 'kind == "post" && !hidden'
   ```
 
 - **Selection stays the query's job.** Relax `published` and every
@@ -850,15 +932,15 @@ than the tags they use.
   | the file is… | you do | it becomes |
   |---|---|---|
   | fine as-is, and you don't need it in queries | nothing | verbatim bytes, not a row |
-  | fine as-is, but should be titled/searchable/linkable | front matter + `shell: none` | a row that emits itself |
-  | worth engine chrome but not your theme | `shell: light` | canonical parts, null theme |
+  | fine as-is, but should be titled/searchable/linkable | front matter (or a sidecar) + `shell: raw` | a row that emits itself |
+  | worth engine chrome but not your theme | `shell: light_html` | canonical parts, minimal head |
   | real content | front matter + markdown | an ordinary page |
 
   Most files stay in the top two rows. Say that plainly — a migration
   that demands rewriting 187 files is a migration nobody finishes.
 
-- **The move that unlocks the rest**: `shell: none` means a file can be
-  a database row *and* byte-exact output. Before, those were mutually
+- **The move that unlocks the rest**: `shell: raw` means a file can be a
+  database row *and* byte-exact output. Before, those were mutually
   exclusive — front matter nested the artifact inside a second `<html>`,
   and skipping front matter meant no title, no metadata, invisible to
   every query. Recover the whole tree's addressability without touching
@@ -883,28 +965,29 @@ than the tags they use.
   an artifact linkable but out of the sitemap and the search index; a
   `.noindex` marker does a whole subtree at once (ch. 21). This is the
   honest answer for demos and legacy trees, and it's one `touch`.
-- **Where metadata comes from when the file can't carry front matter**
-  (q49, ★ mostly unbuilt) — teach the precedence, since it's the shape
-  the answer will take:
-  1. **Derive** from the artifact. Measured: 14 of 57 raw HTML files
-     carry a real `<title>` the database currently ignores, leaving 39
-     user-facing rows titleless; object rows could carry their own
-     bounds and format.
-  2. **Declare** in a `.p01.png.toml` sidecar — the file-scoped member
-     of the family that already exists at directory scope (`[markers]`,
-     `.schema.toml`, `.section`).
-  - ★ Neither half is built. Today the answer is front matter or nothing.
-  - Worth stating as a principle, because it explains behaviour the
-    reader will otherwise find arbitrary: **grackle reads what a file
-    says; it does not guess from what a file omits.** A missing `<title>`
-    does not mean "this is a fragment" — a 1996 page can be complete
-    without `<html>`, and a real demo can have no title at all. Guessing
-    fails toward not rendering something.
+- **Sidecars: metadata for a file that can't carry front matter** (q49,
+  **built**). Drop `X.toml` beside `X` — `kite.png.toml` beside `kite.png`
+  — a TOML front-matter block (`title`, `alt`, `date`, any declared field).
+  It grants **identity, not bytes**: the row becomes `front_mattered`,
+  governed, titled, linkable, in the graph — but not a document (an image
+  stays its bytes). Read on the declaration walk beside markers, so an
+  `exclude = ["*.toml"]` can't unspeak it; a `.toml` with no file beside it
+  (`Cargo.toml`, `.schema.toml`) is ordinary content, no exception list.
+  - ★ Still open: an image sidecar wearing `shell: html` (a *description
+    page* — a second HTML output from an asset) is refused-with-reason,
+    pending the outputs model.
+  - The principle to state, because it explains otherwise-arbitrary
+    behaviour: **grackle reads what a file says; it does not guess from
+    what a file omits.** A raw HTML file's real `<title>` is derivation the
+    engine could do (★ not yet — 39 user-facing rows are titleless today);
+    inferring "fragment vs page" from a *missing* `<title>` is guessing —
+    a 1996 page can be complete without `<html>`, a real demo can have no
+    title — and it fails toward not rendering something.
 - ★ **Transplanting** — keeping an imported page's content but rendering
   it through your theme — is q50, and doesn't exist yet. Two operations,
   deliberately unfused: *extraction* (where's the meat: `<body>`'s
   children, or a selector) and *how much chrome the result wears*
-  (`shell:`, which does exist). Today: `none` or rewrite by hand.
+  (`shell:`, which does exist). Today: `raw`, or rewrite by hand.
 - **Order of operations**, the chapter's takeaway checklist: point
   `grackle.toml` at the tree → get the URL set to parity → add front
   matter only where a row must be queryable → pick shells → flag what
@@ -968,7 +1051,7 @@ writes a real expression.
 
   ```toml
   [collections.relations.related]
-  over     = "published"        # candidate pool: a set, or a derived relation
+  from     = "published"        # candidate pool: a set, or a derived relation
   where    = "!(candidate in earlier) && !(candidate in later)"
   rank     = "embedding_similarity(self, candidate)"   # double, bigger wins
   min_rank = 0.4
@@ -976,7 +1059,9 @@ writes a real expression.
   # also: match (glob — scopes self AND names the schema), label ("@ref")
   ```
 
-  Pipeline per row: **`over → where → rank (+min_rank) → limit`**.
+  Pipeline per row: **`from → where → rank (+min_rank) → limit`**. (`from`
+  is the same reach keyword sets and routes use; the base ships the four
+  defaults in `base.toml` now, not Rust.)
 - **The environment is exactly two rows**: `self` (the row being rendered)
   and `candidate`. Field access must be qualified — a bare `tags` is a load
   error (ambiguous). This is §5f's one sanctioned exception to "a function
@@ -1005,7 +1090,7 @@ writes a real expression.
 - **Graph and path families are *derived names*** the engine always
   provides — `linked_from`, `ancestors`, `children`, `siblings`, … — usable
   two ways: in `where` (`!(candidate in ancestors)`) or as the pool
-  (`over = "linked_from"`). Only a *declared* relation emits a group; a
+  (`from = "linked_from"`). Only a *declared* relation emits a group; a
   derived name can exist unrendered.
 - **The defaults fix real bugs, so output moves** (eye-check, not byte
   diff): Related used to re-show the Earlier/Later neighbours; "Linked
@@ -1022,9 +1107,9 @@ writes a real expression.
   rows; an *axis* points at other **forms of the same row** (ch. 20).
   Site-defined relations now stamp **`data-relation`** (the old
   `data-axis`, renamed in this change) — a deliberate theme-contract
-  change. `translations` keeps `data-axis` and reaches the head as
-  `rel="alternate" hreflang` (ch. 31) — it's axis-*shaped*, but note it's
-  a distinct mechanism (paired rows), **not** the `[axes.*]` one (ch. 20).
+  change. **`translations` is no longer a relation at all** — it became
+  the `locale` group of the `axes` switcher slot (ch. 20/31), so the
+  relation set is now four: `earlier`, `later`, `related`, `linked_from`.
 - **Backlinks carry the citing row's date**, newest first; `linked_from`
   is the honest *mixed* example (a citing page has no date). One real fix
   rides here: the homepage's recent-posts arrangement no longer counts as
@@ -1043,10 +1128,10 @@ writes a real expression.
   `related`, `linked_from`, then site-defined relations by name. Only
   *evaluation* is dependency-ordered (because `related` reads `earlier`);
   a reference cycle is a load error, never a render surprise.
-- **The default pool won't leak drafts**: when `over` is omitted, the
+- **The default pool won't leak drafts**: when `from` is omitted, the
   fallback is `[sets.published]` if you have one, else the collection
   filtered `!draft && !hidden`. State the rule crisply — **an explicit
-  `over` is taken verbatim; only the default's fallback adds the filter**
+  `from` is taken verbatim; only the default's fallback adds the filter**
   — because it's the kind of implicit behaviour that's otherwise
   surprising in both directions.
 - Determinism: ties break `(rank, date desc, url)`. ★ Small known edge:
@@ -1071,7 +1156,7 @@ writes a real expression.
 - **The index holds prose, not markup**: raw-text elements (`<style>`,
   `<script>`) are skipped, so a styled post doesn't make `rgba` and
   `ffffff` searchable — while `margin` stays findable when a post
-  actually discusses it. Relevant to anyone shipping `shell: none` rows
+  actually discusses it. Relevant to anyone shipping `shell: raw` rows
   or per-post CSS.
 - Keeping things out of the index: `hidden: true` on the row, or narrow
   the route's `where`. The searchable set is a query, so this is the
@@ -1079,32 +1164,53 @@ writes a real expression.
 - ★ overlay strings not localized.
 
 ### 31. More than one language
-- `[i18n] default`, `locales`, `selector = "suffix" | "prefix"`.
-- The load-time split: everything downstream sees the **logical** path.
-  i18n off is a byte-identical no-op.
-- **A translation is a row, not a site copy** — and this is why locale is
-  *not* the `[axes.*]` mechanism (ch. 20): `dal.md` and `dal.fr.md` are two
-  rows, one route each, paired by logical path. Axis-shaped in spirit
-  (alternative forms), separate in build.
-- The switcher is `translations` — zero fragment changes for the body
-  chip, **and** it reaches the head as `<link rel="alternate" hreflang>`
-  (built 2026-07-20), the SEO-correct place. (Note: `[axes.*]` members do
-  *not* yet emit `rel="alternate"` — only this locale path does.)
-- `LocalizedStr` anywhere a display name goes; the **three-level
-  hierarchy**: inline > `[i18n.strings]` > engine built-in. `@key`
-  references; `@@` escapes.
-- Enum records for grouped-field value domains: `name` displays, `slug`
-  routes, id stays the key.
-- Locale-parallel views are **default-on**; opt out with `locales =
-  "default"`. Empty locale ⇒ no routes.
-- ★ Honest edges: embedded views don't follow locale yet, prefix selector
+**Reworked to master's locale-as-axis model.** Locale is no longer a
+bespoke mechanism — it's the `locale` **file axis** (ch. 20), which is the
+frame to lead with.
+- **Turn on French in one line**: add it to the axis's values.
+
+  ```toml
+  [axes.locale]
+  values = ["en", "fr"]   # first is canonical
+  field  = "locale"
+  [i18n]
+  axis = "locale"          # which axis does the pairing (default "locale")
+  ```
+
+  Gone: `[i18n] default`, `[i18n] locales`, `[i18n] selector` — the locale
+  *set* is `[axes.locale] values`, canonical is `values[0]`, and *where*
+  the segment lands is a `{axis:locale}` token in a rule's `route`/`file`
+  (suffix `{stem}.{axis:locale}` or prefix `{axis:locale}/{stem}`), not a
+  selector key.
+- **A translation is a row, not a site copy** — `dal.md` and `dal.fr.md`
+  are two rows paired by logical path. As a *file* axis (ch. 20) each
+  member owns its file, and a member with no file just doesn't
+  materialize. `locale` is an ordinary declared `[schema]` field; filters
+  see it like any field.
+- **The switcher is the `axes` shell slot** (ch. 20), which is what closes
+  the old q47 — it works for **listing views too** (`/fr/blog/` links back
+  to `/blog/`), because a view's members are read off its own routes.
+  Members emit `<link rel="alternate" hreflang>` in the head (config:
+  `[html.head.link] alternate = { from = "axis.locale", hreflang = 'locale',
+  href = 'site.url + url' }`), and `[html.html.attribute] lang = 'locale'`.
+- **Display strings and dates are `[i18n]` data**: `[i18n.strings]` (a
+  `LocalizedStr` map, `@key` refs, `@@` escapes) holds search-overlay
+  strings and date *templates* (`medium_date = "{day} @months[{month}]
+  {year}"`); `[i18n.tables.months]` (decimal-keyed `LocalizedStr`) is the
+  month names — referenced anywhere with `@months[{month}]`. `site.title`
+  is a `LocalizedStr` too. Precedence for a name: inline > `[i18n.strings]`
+  > engine built-in.
+- **Enum records** name a grouped field's value domain:
+  `[records.<field>.<id>]` with `name` (displays, `LocalizedStr`), `slug`
+  (routes, locale-independent), `intro` (the value's landing prose). Id
+  stays the key. (Distinct from the `records` *field type*, ch. 22.)
+- **`partition`** (was `View.locales`) controls per-member materialization
+  — **default-on**, so every row-query view gets its `/fr/` parallel; opt
+  out with `partition = "default"`. A member with no rows materializes
+  nothing. Object views can't declare it (load error).
+- ★ Honest edges: embedded views don't follow their page's locale yet;
+  listing-surface resolution is default-locale today; prefix selector
   unexercised by a real corpus.
-- ★ **The one a reader will actually hit (q47): listing views render no
-  language switcher.** The `translations` axis is a *row* relation, so
-  rows and mode-B landings get the switcher and a plain listing doesn't
-  — a French reader landing on `/fr/blog/` has no way back. Say this
-  outright and give the workaround (a `.slots/` locale link, or make the
-  landing mode B).
 
 ### 32. The inspector: the database explaining itself
 Placed last in Part III because it *displays* everything Parts I–III
@@ -1169,33 +1275,35 @@ the chapter that teaches it.
   (array-of-tables; name from source dir), `[markers]`, **`[sets.*]`** and
   **`[routes.*]`** (the split; route-only keys incl. **`default_content`**
   vs shared keys), `[sets.*.fields.*]`, `[profiles.*]` (+ nested
-  `.sets.*`/`.routes.*`), `[widgets]`, `[records.*]`,
-  **`[collections.relations.*]`** (`over`/`where`/`rank`/`min_rank`/
-  `limit`/`match`/`label`), **`[collections.<name>.schema]`** (the middle
-  of the three schema scopes, ch. 22), `[i18n]`, `[i18n.names]`,
-  `[i18n.strings]`, `[shells.*]`, `[cache]`, `[static]`. Gone:
-  **`[related]`**, collection
-  **`adjacency`**, required **`[links]`** (strict is default; `policy =
-  "loose"` opts out). Mark built/specced per key. ★ flag keys that don't
-  mean what they say (`layout` on listings, `template` = "claims a file",
-  row `layout:` deprecated toward `shell:`) pending q33.
-- **33b. Filter (`where`) language** — grammar, operators, truthiness
-  table, the functions (`glob`, `under`), and the field vocabularies
-  (row / object / route). Note `match` is a *separate* source-path glob,
-  not part of `where`.
-- **33c. Part kinds** — the table from `assets/parts.toml`; this *is* the
-  theme API. Kind → parts → types (`text url html stream:<k> map:<k>
-  flag`). Three things to state: it's **engine-owned data** (themes are
-  checked against it; users don't edit it); the **declared order is the
-  canonical fallback reading order**, enforced (so this table doubles as
-  "what an unarranged kind renders like, and in what order"); and the
-  merged preview kind — `figure`/`gallery` are gone, `summary` carries
-  both card and image fields. Generate this section from the file, not by
-  hand (see open question 8).
-- **33d. Front matter** — reserved keys. One row type now (q51): `date`,
-  `tags`, flags, `order`, `theme`, `shell`, `permalink` (route override),
-  typed fields — all apply to *any* row, not just posts. `shell:`
-  (`none`/`light`/`html`); `layout:` deprecated.
+  `.sets.*`/`.routes.*`, `.force`), `[widgets]`, `[records.*]` (enum
+  records), **`[collections.relations.*]`** (`from`/`where`/`rank`/
+  `min_rank`/`limit`/`match`/`label`), **`[collections.<name>.schema]`**
+  (the middle of the three schema scopes, ch. 22), **`[axes.*]`**
+  (`values`/`field`) + route `axis =`, **`[media_types]`**, `[i18n]`
+  (`axis`/`names`/`strings`/`tables`), `[shells.*]`, `[cache]`, `[static]`.
+  Gone: **`[related]`**, collection **`adjacency`**, collection **`kind`**,
+  **`[i18n] default`/`locales`/`selector`**, required **`[links]`** (strict
+  default; `policy = "loose"` opts out). Route extractor is now the rule
+  key **`file`** (was `filename_formats`). Mark built/specced per key.
+- **33b. Filter/expression (`where` and `fields`) language** — grammar,
+  operators, truthiness, the function registry (`truncate_blocks`/
+  `truncate_chars`/`outline`/`filter_blocks`/`keep_blocks`/`links`/
+  `images`/`word_count`/`to_json`/`glob`; relation-only
+  `embedding_similarity`/`levenshtein`), the `Content` type
+  (html/markdown/text + coercion), map literals, list indexing, and the
+  field vocabularies (row / object / route). `match` is a *separate*
+  source-path glob.
+- **33c. Row parts** — the derived vocabulary (no `parts.toml`): the union
+  of `row` part fields from base + theme fragments + declared schemas.
+  State it's **engine-derived** (a theme's `.schema.toml` adds parts, can't
+  retype), lists faces (`row`/`row--card`/`row--figure`/…) and the shell
+  parts (`content`, `axes`, …), and that unarranged parts emit in schema
+  order. Generate this from the source, not by hand (open question 8).
+- **33d. Front matter** — reserved keys. One row type (q51): `date`,
+  `tags`, flags, `order`, `theme`, `shell`, `permalink`, typed fields —
+  on *any* row. `shell:` is **`raw`/`html`/`light_html`**; `layout:` is
+  **gone** (a row no longer declares its face). Sidecars: an `X.toml`
+  beside `X` carries the same front-matter keys for a file that can't.
 - **33e. Tags in markdown** — `{% image %} {% view %} {% include %}`
   (parameterless) + widgets. `{% post_url %}` is **retired** — use an
   ordinary file-relative link. Unrecognised tags emit verbatim.
@@ -1235,72 +1343,61 @@ rather than memorize it.
 - The one honest weakness left: a new *part vocabulary* needs Rust
   (fragments and CSS don't; the head is now config-declared, ch. 14).
 - Worth a section of its own: **inherit-then-override, everywhere.** The
-  base config, the base theme, and `parts.toml` are the same move — a
-  binary-embedded default a site extends and cannot forget to copy — and
-  they decompose into the *same three merge rules* (by-source / by-name /
-  per-key) the engine already had. State it once as the unifying idea.
+  base config and the base theme are the same move — a binary-embedded
+  default a site extends and cannot forget to copy (the part vocabulary is
+  now *derived* rather than a shipped `parts.toml`, but the principle is
+  identical) — and config merges decompose into the *same three rules*
+  (by-source / by-name / per-key) the engine already had. State it once.
 - Pointer to `DESIGN.md` for anyone who wants the full argument.
 
 ### 36. What isn't real yet
-- The ledger, in one table: `.style.scss`, `.slots/` typed fills,
-  **authored `.rewrite.toml` rules**, **the notes/footnote stream +
-  sidenotes**, per-post `<style>`, md shell, **`hero` / `lede`
-  field expressions** (`summary` / `toc` already on §5f), board
-  kind, serve v2, pagination × subdivision, per-block facts, audio/video
-  field types, faceted filtering, transclusion, profile `baseurl`, the
-  route-token supply merge (q51's remainder — a post still can't route to
-  an arbitrary path).
-- **Axis edges (the mechanism is built, ch. 20; these aren't):** axis ×
-  locale composition (the cartesian product — two axes on one row collide
-  today); a `rel="alternate"` for axis members (`Head.alternates` is
-  hreflang-shaped, so only the locale path fills it); a load error for an
-  axis whose `field` no render path consults (silent URL multiplication is
-  the footgun); and a canonical link at the `light` tier (its minimal head
-  carries none, so an alternate there advertises nothing).
-- **Theme *distribution* is still specced** (the built base + `[site]
-  theme` make it look closer than it is): theme-level `theme.toml` +
-  `extends` chains, the `grackle theme` subcommand family
-  (`add`/`update`/`list`/`new`/`derive`/`check`/`try`) with
-  `themes/.lock.toml`, and `?theme=` dev override. Today: install is `cp
-  -r` + `[site] theme`, no update path. Also specced: the `overlay`/`post`
-  cascade layers (declared, unfilled — only `base`/`theme` carry rules).
-- **Pre-1.0 tooling the manual leans on but that isn't built**: the
-  top-level `grackle explain` alias (it's `query explain` today),
-  `config --effective` (merged-config provenance — the `extends`
-  inspector), and `explain --parts` (part map + unplaced parts). These
-  come from the 1.0 checklist, not `DESIGN.md`; keep them ★ until they land.
+- The ledger, in one table (sourced from `TODO-1.0.md`, master):
+  **subtree/positional `.style.scss`** (the *root* one is built, ch. 13),
+  **`.slots/` typed fills**, **authored `.rewrite.toml` rules**, **the
+  notes/footnote stream + sidenotes**, **per-post `<style>`**, **the `md`
+  shell**, **board kind**, **serve v2** (incremental invalidation; the
+  fanout graph is built but serve still rebuilds), **pagination ×
+  subdivision** (q30), per-block facts, audio/video field types, faceted
+  filtering, transclusion, profile `baseurl`, JSON-LD from `records` (q40),
+  **`light_html` folding into the one chain**, **collapse `variant`/
+  `layout` to one face key**.
+- **Theme distribution** is the big specced block: theme-level `theme.toml`
+  + `extends` chains, `head.html`, per-theme head-fact selection, the
+  `grackle theme` subcommand family
+  (`add`/`update`/`list`/`new`/`derive`/`check`/`try`) + `themes/.lock.toml`,
+  the `?theme=` dev override, nested `@layer` down the chain, child-on-
+  ancestor invalidation. Today: install is `cp -r` + `[site] theme`, no
+  update path.
+- **Pre-1.0 tooling the manual leans on**: the top-level `grackle explain`
+  alias (it's `query explain`), `config --effective` (merged-config
+  provenance), `explain --parts`. Keep ★ until they land.
 - Each row: what it would look like, what blocks it, the q number.
-- **Landed since earlier drafts** — out of the ledger, into the chapters
-  named: row shells (ch. 19), page flags + **profiles** + **`_drafts` as a
-  second source** (ch. 24), search-skips-markup (ch. 30), **the inspector**
-  (ch. 32), **one row type / q51** (pervasive — pages carry dates, tags,
-  flags, typed fields), **`[sets]`/`[routes]` split** (ch. 6), **strict
-  links by default** (ch. 10), **q26 body-image dimensions** (ch. 27),
-  **the narrow HTML-link rewrite** (ch. 27), **locale hreflang** (ch. 31),
-  **declare-your-own relations + the §5f expression language / q52**
-  (ch. 29 — it also built arithmetic, unary minus, the two-row function
-  registry, and the `Double` type), **the base theme in the binary**
-  (ch. 13/14 — this is the other big one: the null theme went from
-  complete-but-unusable to a real default, and the gallery shrank from 109
-  files to 32), **syntax highlighting** (ch. 15 — built, unconfigurable,
-  theme supplies the four token classes), **the base config** (ch. 3 — an
-  empty `grackle.toml` is valid; `extends`, `default_content`, the head as
-  `[html.head.*]` config, `[site] theme`), **flags as declared bools**
-  (ch. 24 — `draft`/`hidden`/`noindex` left engine vocabulary for the
-  base's `[schema]`), **axes** (ch. 20 — one row, several forms; q53 built,
-  and locale reclassified as *not* an axis), **`from` unions + one
-  materializer** (ch. 6/8 — `from = [list]`, and grouping/pagination now
-  work over objects, inside partitions), and **a route may name a theme**
-  (ch. 13).
+- **Landed since the site-theme drafts — moved out of the ledger** into the
+  chapters named (this is the big resync): the **new theme model** (ch. 12
+  — one `row` kind + faces, listing = concatenation, `parts.toml` gone,
+  `main`→`content`); **CEL computed fields** (ch. 7 — `truncate_*`/
+  `outline`/`hero`/`filter_blocks`, the `Content` type, replacing the
+  `truncate={}` struct); **`records` field type** (ch. 22); **shell rename**
+  to `raw`/`html`/`light_html` (ch. 19); **route-token one supplier** — a
+  post routes anywhere now (ch. 5), retiring q51's remainder; **sidecars /
+  q49** (ch. 25); **four content layers + positional** (ch. 5);
+  **collections lost `kind`; `filename_formats`→`file`** (ch. 5); **`from`
+  unions + one materializer** (ch. 6/8); **the base config** (ch. 3);
+  **flags as declared bools** (ch. 24); **axes fully landed** (ch. 20 —
+  switcher slot closes q47, composition, member `rel="alternate"`, locale
+  reclassified **AS** a file axis); **`[media_types]`** (ch. 20/33);
+  **`[site] theme` + root `.style.scss`** (ch. 13); **i18n as the locale
+  axis** (ch. 31 — `[i18n] axis`, `[i18n.tables]`, `site.title` localized);
+  **the base theme + gallery** (ch. 13, now 8 themes); **the inspector**
+  (ch. 32); **profiles + `_drafts`** (ch. 24); **relations / §5f** (ch. 29).
 - **Still-open arrivals a reader would notice:**
-  - q47 — no language switcher on listing routes (ch. 30).
   - q48 — `type:` as row data. Held until something other than the
     renderer consumes it; today the answer is subtree position +
     `.schema.toml`.
-  - q49 — metadata for files that can't carry front matter (derive, then
-    a `.p01.png.toml` sidecar). Ch. 23.
-  - q50 — transplanting an imported page, and the blocked "deliberate
-    omission vs forgotten hole" underneath it (ch. 16).
+  - q50 — transplanting an imported page (extraction + chrome), and the
+    blocked forgotten-hole warning under it (ch. 14). Sidecars (q49) built.
+  - q28 — redirects for restructured URL trees; q26 — body-image
+    dimensions; q30 — pagination × subdivision.
 - Kept current or deleted. A stale version of this page is worse than no
   page.
 
@@ -1308,15 +1405,18 @@ rather than memorize it.
 
 ## Open questions about the manual itself
 
-1. **Chapter count.** 35 is a lot, and the base config just made three
-   Part I chapters (3, 6, 9) shorter — they *read* inherited defaults
-   rather than build from scratch, so Part I could plausibly drop to ~8
-   chapters. Concrete merges to consider: **3+5+6** into one
-   "inherit-then-override" chapter (the empty config makes them one
-   story now); **15+16** (CSS + variants); **26+27** (blocks + per-post
-   CSS, both largely ★); **33+34** (non-goals + rationale). My
-   recommendation: do 15+16 and 26+27 now (clean), hold the Part I merge
-   until prose, since it's the pedagogically load-bearing stretch.
+0. **This pass was a resync against `master`, not the `site-theme` branch
+   the outline grew up on.** Big model changes folded in: the row+faces
+   theme model (ch. 12–16), CEL fields (ch. 7/22), the shell rename
+   (ch. 19), route-token unification + four content layers + sidecars
+   (ch. 5/25), and i18n-as-locale-axis (ch. 31). A couple of chapters are
+   now *thinner* than their neighbours (16 especially) — see merges below.
+1. **Chapter count.** **16 (faces) has been merged into 14** — its number
+   is now a deliberate gap (not reused), to be closed in a later
+   renumbering pass. Remaining merges to consider: **3+5+6** into one
+   "inherit-then-override" chapter (the empty base config makes them one
+   story); **27+28** (blocks + per-post CSS, both largely ★); **34+35**
+   (non-goals + rationale). Hold the Part I merge until prose.
 2. ~~**Does Part I need a theme?**~~ **Answered by the engine, 2026-07-24:
    no.** The base theme ships in the binary, so ch. 3's first `serve`
    already looks like a real site with zero configuration. That was the
@@ -1331,14 +1431,14 @@ rather than memorize it.
 5. **Where does the manual site live and deploy?** `grackle/manual/` in
    this repo, served at `grack.com/grackle/`? Own repo later?
 6. **Ch. 23 (migration) is half ★ — does it ship in v1?** The built half
-   stands on its own (the four tiers, `shell: none`, flags, `grackle
+   stands on its own (the four tiers, `shell: raw`, flags, `grackle
    urls` parity, wholesale legacy publishing). The unbuilt half is the
    ending: q49 metadata derivation, q50 transplant, q28 redirects — the
    questions a migrator asks first. Ship with the ★s loud, or hold until
    q49's cheap derive half (reading a `<title>` already there) lands.
 7. **Does ch. 25 want a worked migration?** A before/after on a small
    imported tree would carry it better than prose. `field-notes` now has
-   `demos/pane.html` (`shell: none`); a second row at the `light` tier
+   `demos/pane.html` (`shell: raw`); a second row at the `light_html` tier
    would make the spectrum visible.
 8. **Reference sections must be generated — a `grackle docs` subcommand.**
    32a (config keys), 32b (`where` functions), 32c (part kinds), 32d
