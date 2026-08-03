@@ -1,16 +1,24 @@
 //! The last-modified instant of a row, and of a set of rows.
 //!
 //! One source the sitemap's per-URL `<lastmod>` and the feed's `<updated>`
-//! both read: the row's `date`. That keeps a build a pure function of its
-//! inputs, with no wall-clock. A git commit-date source would extend this one
-//! module, and both shells follow.
+//! both read, so the two agree. It is `git.lastmod` — the last commit to touch
+//! the file — when `metadata = ["git"]` filled it, else the published `date`.
+//! Either keeps a build a pure function of its inputs, with no wall-clock.
 
 use chrono::NaiveDate;
+use grackle_db::filter::{Row as _, Value};
 
-use crate::model::Row;
+use crate::model::{parse_date_str, Row};
 
-/// A row's last-modified date, or `None` if it carries no date.
+/// A row's last-modified date, or `None` if it carries no date. Git's
+/// commit date (last *edit*) beats the front-matter `date` (publication) when
+/// the provider supplied it.
 pub(crate) fn of(p: &Row) -> Option<NaiveDate> {
+    if let Value::Str(s) = p.field("git.lastmod") {
+        if let Some(d) = parse_date_str(&s) {
+            return Some(d);
+        }
+    }
     p.as_date("date")
 }
 
