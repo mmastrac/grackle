@@ -7,6 +7,64 @@
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 
+/// A tag's leading name and the remainder (its arguments), e.g. `image` and
+/// `right a/b.png` or `youtube` and `id="x"`.
+fn split_name(inner: &str) -> (&str, &str) {
+    match inner.split_once(char::is_whitespace) {
+        Some((n, a)) => (n, a.trim()),
+        None => (inner, ""),
+    }
+}
+
+/// Parse `key="value" key2='value2'` widget arguments. Values are quoted so
+/// they may hold spaces; the quote may be single or double.
+fn parse_args(mut rest: &str) -> Result<Vec<(String, String)>, String> {
+    let mut args = Vec::new();
+    rest = rest.trim_start();
+    while !rest.is_empty() {
+        let eq = rest
+            .find('=')
+            .ok_or_else(|| format!("expected name=\"value\", got {rest:?}"))?;
+        let key = rest[..eq].trim();
+        if key.is_empty() || !key.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(format!("{key:?} is not an argument name"));
+        }
+        let after = rest[eq + 1..].trim_start();
+        let quote = match after.chars().next() {
+            Some(q @ ('"' | '\'')) => q,
+            _ => return Err(format!("argument `{key}` needs a quoted value")),
+        };
+        let val = &after[1..];
+        let end = val
+            .find(quote)
+            .ok_or_else(|| format!("unterminated value for `{key}`"))?;
+        args.push((key.to_string(), val[..end].to_string()));
+        rest = val[end + 1..].trim_start();
+    }
+    Ok(args)
+}
+
+/// Fill a widget template: `{body}` takes the expanded body verbatim (trusted
+/// HTML), each `{name}` takes its argument escaped (author text).
+fn fill(tmpl: &str, args: &[(String, String)], body: Option<&str>) -> String {
+    let mut s = tmpl.to_string();
+    if let Some(b) = body {
+        s = s.replace("{body}", b);
+    }
+    for (k, v) in args {
+        s = s.replace(&format!("{{{k}}}"), &esc(v));
+    }
+    s
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 /// Find `{% endNAME %}` after an opening paired tag; returns (body_end, resume).
 fn find_end_tag(s: &str, name: &str) -> Option<(usize, usize)> {
     let want = format!("end{name}");
@@ -26,7 +84,8 @@ fn find_end_tag(s: &str, name: &str) -> Option<(usize, usize)> {
 ///
 /// - `on_tag(name, arg)` — `{% name arg %}`; `Ok(None)` leaves the tag verbatim.
 /// - `on_var(inner)` — `{{ inner }}`; `None` leaves the var verbatim.
-/// - `widgets` — paired tags `{% name %}…{% endname %}` with a `{body}` hole.
+/// - `widgets` — `{% name arg="v" %}`, filling `{name}` holes; a `{body}` hole
+///   makes it paired (`… {% endname %}`), its absence self-closing.
 pub fn expand(
     body: &str,
     source: &str,
@@ -66,24 +125,32 @@ fn expand_inner(
         out.push_str(&rest[..next]);
 
         if is_tag {
-            if let Some(tmpl) = widgets.and_then(|w| w.get(inner.as_str())) {
-                let after = &rest[next + end + close.len()..];
-                let Some((body_end, resume)) = find_end_tag(after, &inner) else {
-                    bail!("{source}: {{% {inner} %}} has no matching {{% end{inner} %}}");
-                };
-                let nested =
-                    expand_inner(after[..body_end].trim(), source, widgets, on_tag, on_var)?;
-                out.push_str(&tmpl.replace("{body}", &nested));
-                rest = &after[resume..];
+            let (name, args_str) = split_name(&inner);
+            if let Some(tmpl) = widgets.and_then(|w| w.get(name)) {
+                let args = parse_args(args_str)
+                    .map_err(|e| anyhow::anyhow!("{source}: {{% {name} %}}: {e}"))?;
+                // `{body}` in the template makes the widget paired; without it
+                // the widget is self-closing and takes no body.
+                if tmpl.contains("{body}") {
+                    let after = &rest[next + end + close.len()..];
+                    let Some((body_end, resume)) = find_end_tag(after, name) else {
+                        bail!("{source}: {{% {name} %}} has no matching {{% end{name} %}}");
+                    };
+                    let nested =
+                        expand_inner(after[..body_end].trim(), source, widgets, on_tag, on_var)?;
+                    out.push_str(&fill(tmpl, &args, Some(&nested)));
+                    rest = &after[resume..];
+                } else {
+                    out.push_str(&fill(tmpl, &args, None));
+                    rest = &rest[next + end + close.len()..];
+                }
                 continue;
             }
         }
 
         let replacement = if is_tag {
-            match inner.split_once(char::is_whitespace) {
-                Some((name, arg)) => on_tag(name, arg.trim())?,
-                None => on_tag(inner.as_str(), "")?,
-            }
+            let (name, arg) = split_name(&inner);
+            on_tag(name, arg)?
         } else {
             on_var(&inner)
         };
@@ -132,5 +199,67 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out, "<there> / X");
+    }
+
+    fn widgets(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn paired_widget_takes_args_and_body() {
+        let w = widgets(&[(
+            "figure",
+            "<figure><img src=\"{src}\" alt=\"{caption}\">{body}</figure>",
+        )]);
+        let out = expand(
+            r#"{% figure src="cat.png" caption="A cat" %}A caption{% endfigure %}"#,
+            "t",
+            Some(&w),
+            |_, _| Ok(None),
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"<figure><img src="cat.png" alt="A cat">A caption</figure>"#
+        );
+    }
+
+    #[test]
+    fn self_closing_widget_has_no_body_and_no_end_tag() {
+        let w = widgets(&[("youtube", r#"<iframe src="https://x/{id}"></iframe>"#)]);
+        let out = expand(
+            r#"a {% youtube id="abc" %} b"#,
+            "t",
+            Some(&w),
+            |_, _| Ok(None),
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(out, r#"a <iframe src="https://x/abc"></iframe> b"#);
+    }
+
+    #[test]
+    fn arg_values_are_html_escaped() {
+        let w = widgets(&[("q", "<b>{x}</b>")]);
+        let out = expand(
+            r#"{% q x="<script>&" %}"#,
+            "t",
+            Some(&w),
+            |_, _| Ok(None),
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(out, "<b>&lt;script&gt;&amp;</b>");
+    }
+
+    #[test]
+    fn bodyless_argless_widget_still_works() {
+        let w = widgets(&[("hr", "<hr class=fancy>")]);
+        let out = expand("{% hr %}", "t", Some(&w), |_, _| Ok(None), |_| None).unwrap();
+        assert_eq!(out, "<hr class=fancy>");
     }
 }

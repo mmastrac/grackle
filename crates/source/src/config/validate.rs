@@ -240,14 +240,6 @@ impl Config {
                 }
             }
         }
-        for (name, tmpl) in &cfg.widgets {
-            if !tmpl.contains("{body}") {
-                anyhow::bail!(
-                    "widget {name:?}: wrapper template has no {{body}} hole, \
-                     so the author's markdown would be dropped"
-                );
-            }
-        }
         // q32 archives
         {
             let mut declared: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
