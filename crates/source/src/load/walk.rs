@@ -207,6 +207,8 @@ pub(crate) fn walk_site(
             }
         }
         schema::apply_defaults(&schema, &defaults, &mut checked, &f.path)?;
+        let schema_defaults = schemas.schema_defaults(scope.name, &parent);
+        schema::apply_schema_defaults(&schema, &schema_defaults, &mut checked, &f.path)?;
         schema::force(&cfg.forced, &schema, &mut checked, &f.path)?;
         let worn = cascade(&checked, &f.rel)?;
 

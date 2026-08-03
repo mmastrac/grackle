@@ -1,7 +1,8 @@
-# A field declaration says one thing — its type. `default`, `required` and
-# `label` all read like they belong beside it, and all of them were read as
-# part of the table and thrown away, leaving a declaration that looked richer
-# than the engine ever treated it.
+# A field declaration takes its type and an optional `default` (§5b). Other
+# lookalikes — `required`, `label` — read like they belong beside them but do
+# not, and were once read as part of the table and thrown away, leaving a
+# declaration that looked richer than the engine ever treated it. Now the
+# stray key is a load error rather than a quiet demotion.
 #
 # Declared here rather than in a `.schema.toml` beside the rows, which is the
 # case this is really about: when this fixture was written the `.schema.toml`
@@ -60,7 +61,7 @@ long_date = "@months[{month}] {day}, {year}"
 11 = "Nov"
 12 = "Dec"
 [schema]
-summary = { type = "string", default = "" }
+summary = { type = "string", required = true }
 
 [[collections]]
 source = "."

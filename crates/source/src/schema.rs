@@ -2,7 +2,7 @@
 //! Undeclared or mistyped front matter is a load error; also feeds view `order_by`.
 
 use anyhow::{bail, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use grackle_db::filter::{self, Schema, Value};
@@ -72,8 +72,13 @@ pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
     CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| t.clone())
 }
 
-/// One rung's declarations plus writer (for collision messages).
-type Declared = (String, BTreeMap<String, FieldType>);
+/// One rung's writer (for collision messages), its typed fields, and the
+/// `default =` value each declaration carried (§5b), keyed the same as fields.
+type Declared = (
+    String,
+    BTreeMap<String, FieldType>,
+    BTreeMap<String, toml::Value>,
+);
 
 #[derive(Debug)]
 pub struct Schemas {
@@ -82,6 +87,8 @@ pub struct Schemas {
     by_collection: BTreeMap<String, Declared>,
     /// `[schema]`: site-wide fields.
     site: BTreeMap<String, FieldType>,
+    /// `default =` values from the site `[schema]` rung, keyed like `site`.
+    site_defaults: BTreeMap<String, toml::Value>,
     /// Names `Row::field` owns first; declaring one is unread. No `Default`:
     /// an empty reserved set would accept shadows in silence.
     reserved: Schema,
@@ -114,6 +121,7 @@ impl Schemas {
             by_dir: BTreeMap::new(),
             by_collection: BTreeMap::new(),
             site: BTreeMap::new(),
+            site_defaults: BTreeMap::new(),
             reserved,
         }
     }
@@ -123,9 +131,10 @@ impl Schemas {
             .parse()
             .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
         let whose = file.display().to_string();
-        let fields = parse_fields(table, &whose, &self.reserved)?;
+        let (fields, defaults) = parse_fields(table, &whose, &self.reserved)?;
         self.check_positional_collision(dir, &whose, &fields)?;
-        self.by_dir.insert(dir.to_path_buf(), (whose, fields));
+        self.by_dir
+            .insert(dir.to_path_buf(), (whose, fields, defaults));
         Ok(())
     }
 
@@ -138,7 +147,7 @@ impl Schemas {
         fields: &BTreeMap<String, FieldType>,
     ) -> Result<()> {
         for (name, ty) in fields {
-            for (other_dir, (other_whose, other_fields)) in &self.by_dir {
+            for (other_dir, (other_whose, other_fields, _)) in &self.by_dir {
                 let Some(other) = other_fields.get(name) else {
                     continue;
                 };
@@ -160,15 +169,17 @@ impl Schemas {
 
     /// `[schema]` in `grackle.toml`: site-wide fields (§4d flags live here).
     pub fn set_site(&mut self, table: toml::Table, whose: &str) -> Result<()> {
-        self.site = parse_fields(table, whose, &self.reserved)?;
+        let (fields, defaults) = parse_fields(table, whose, &self.reserved)?;
+        self.site = fields;
+        self.site_defaults = defaults;
         Ok(())
     }
 
     /// `[collections.<name>.schema]`: one collection across several sources (§4).
     pub fn add_collection(&mut self, name: &str, table: toml::Table, whose: &str) -> Result<()> {
-        let fields = parse_fields(table, whose, &self.reserved)?;
+        let (fields, defaults) = parse_fields(table, whose, &self.reserved)?;
         // Sibling collections: no nearness; disagreement would be alphabetical.
-        for (other_name, (other_whose, other_fields)) in &self.by_collection {
+        for (other_name, (other_whose, other_fields, _)) in &self.by_collection {
             if other_name == name {
                 continue;
             }
@@ -189,7 +200,7 @@ impl Schemas {
             }
         }
         self.by_collection
-            .insert(name.to_string(), (whose.to_string(), fields));
+            .insert(name.to_string(), (whose.to_string(), fields, defaults));
         Ok(())
     }
 
@@ -199,7 +210,7 @@ impl Schemas {
         let mut out: BTreeMap<&str, FieldType> = BTreeMap::new();
         let mut cur = Some(dir);
         while let Some(d) = cur {
-            if let Some((_, fields)) = self.by_dir.get(d) {
+            if let Some((_, fields, _)) = self.by_dir.get(d) {
                 for (k, t) in fields {
                     out.entry(k.as_str()).or_insert_with(|| t.clone());
                 }
@@ -210,7 +221,7 @@ impl Schemas {
             cur = d.parent();
         }
         for src in [
-            self.by_collection.get(collection).map(|(_, f)| f),
+            self.by_collection.get(collection).map(|(_, f, _)| f),
             Some(&self.site),
         ] {
             let Some(fields) = src else { continue };
@@ -221,14 +232,39 @@ impl Schemas {
         out
     }
 
+    /// Declared defaults (§5b `default =`), resolved by the same nearest-wins
+    /// walk as [`resolve`]: the nearest rung that *declares* a name owns its
+    /// default, and a nearer redeclaration carrying no `default` shadows a
+    /// farther one that did (whole-entry shadowing, §4d). The floor of the
+    /// value ladder; `apply_schema_defaults` spends it.
+    pub fn schema_defaults(&self, collection: &str, dir: &Path) -> BTreeMap<&str, &toml::Value> {
+        let mut claimed: BTreeSet<&str> = BTreeSet::new();
+        let mut out: BTreeMap<&str, &toml::Value> = BTreeMap::new();
+        let mut cur = Some(dir);
+        while let Some(d) = cur {
+            if let Some((_, fields, defs)) = self.by_dir.get(d) {
+                claim_defaults(fields, defs, &mut claimed, &mut out);
+            }
+            if d.as_os_str().is_empty() {
+                break;
+            }
+            cur = d.parent();
+        }
+        if let Some((_, fields, defs)) = self.by_collection.get(collection) {
+            claim_defaults(fields, defs, &mut claimed, &mut out);
+        }
+        claim_defaults(&self.site, &self.site_defaults, &mut claimed, &mut out);
+        out
+    }
+
     /// Site-wide declared vocabulary for view `where`/`order_by` (§5b).
     pub fn declared(&self) -> BTreeMap<&str, FieldType> {
         let mut out = BTreeMap::new();
         for fields in self
             .by_dir
             .values()
-            .map(|(_, f)| f)
-            .chain(self.by_collection.values().map(|(_, f)| f))
+            .map(|(_, f, _)| f)
+            .chain(self.by_collection.values().map(|(_, f, _)| f))
             .chain(std::iter::once(&self.site))
         {
             for (k, t) in fields {
@@ -259,6 +295,24 @@ impl Schemas {
     }
 }
 
+/// One rung's contribution to [`Schemas::schema_defaults`]: the first (nearest)
+/// rung to name a field claims it, so its `default` — or its silence — shadows
+/// any farther rung's default for the same name.
+fn claim_defaults<'a>(
+    fields: &'a BTreeMap<String, FieldType>,
+    defs: &'a BTreeMap<String, toml::Value>,
+    claimed: &mut BTreeSet<&'a str>,
+    out: &mut BTreeMap<&'a str, &'a toml::Value>,
+) {
+    for name in fields.keys() {
+        if claimed.insert(name.as_str()) {
+            if let Some(v) = defs.get(name) {
+                out.insert(name.as_str(), v);
+            }
+        }
+    }
+}
+
 fn insert_declared(s: &mut Schema, name: &str, ty: FieldType) {
     let key = grackle_model::intern(name.to_string());
     s.insert(key, ty.filter_type());
@@ -278,8 +332,9 @@ fn parse_fields(
     table: toml::Table,
     whose: &str,
     reserved: &Schema,
-) -> Result<BTreeMap<String, FieldType>> {
+) -> Result<(BTreeMap<String, FieldType>, BTreeMap<String, toml::Value>)> {
     let mut fields = BTreeMap::new();
+    let mut defaults = BTreeMap::new();
     for (name, v) in table {
         let Some(t) = v.as_table() else {
             bail!(
@@ -321,9 +376,11 @@ fn parse_fields(
                  one. Rename the declaration."
             );
         }
+        // Records take no `default`: a map literal spells nothing a front-matter
+        // block would not, and checking it would drag whole-array coercion in.
         let allowed = match &ty {
             FieldType::Records { .. } => ["type", "fields"].as_slice(),
-            _ => ["type"].as_slice(),
+            _ => ["type", "default"].as_slice(),
         };
         let extra: Vec<&str> = t
             .keys()
@@ -338,9 +395,15 @@ fn parse_fields(
                 allowed.join(", ")
             );
         }
+        if let Some(def) = t.get("default") {
+            // Type-check now so a mismatch names this declaration, not a far-off
+            // row; the raw value re-coerces through `write_typed` at fill time.
+            typed(&ty, &name, def, whose)?;
+            defaults.insert(name.clone(), def.clone());
+        }
         fields.insert(name, ty);
     }
-    Ok(fields)
+    Ok((fields, defaults))
 }
 
 fn parse_records_fields(
@@ -394,7 +457,7 @@ fn parse_records_fields(
 /// Site `[schema]` alone: what `Config` knows before the tree walk (MERGE.md E1).
 /// Profile `force` may only name this rung (not positional/collection schemas).
 pub(crate) fn site_fields(table: &toml::Table, whose: &str) -> Result<BTreeMap<String, FieldType>> {
-    parse_fields(table.clone(), whose, &grackle_model::row_schema())
+    Ok(parse_fields(table.clone(), whose, &grackle_model::row_schema())?.0)
 }
 
 /// Fold marker/rule defaults into declared fields (§4b, §4). Front matter
@@ -417,6 +480,28 @@ pub fn apply_defaults(
         if fields.values.contains_key(*name) {
             continue; // front matter is nearer
         }
+        write_typed(ty.clone(), name, v, fields, &whose)?;
+    }
+    Ok(())
+}
+
+/// The floor of the value ladder (§5b `default =`): fill declared defaults
+/// only where every nearer writer — front matter, filename captures, markers,
+/// rules — left the key unset. Runs below `force`, which still overwrites.
+/// Types were checked when the default parsed, so a mismatch is impossible;
+/// the `schema` lookup only supplies the coercion type.
+pub fn apply_schema_defaults(
+    schema: &BTreeMap<&str, FieldType>,
+    defaults: &BTreeMap<&str, &toml::Value>,
+    fields: &mut Fields,
+    path: &Path,
+) -> Result<()> {
+    let whose = format!("{}: a schema default", path.display());
+    for (name, v) in defaults {
+        if fields.values.contains_key(*name) {
+            continue; // a nearer writer already spoke
+        }
+        let Some(ty) = schema.get(name) else { continue };
         write_typed(ty.clone(), name, v, fields, &whose)?;
     }
     Ok(())
@@ -845,6 +930,99 @@ mod tests {
         assert!(e.contains("declared bool"), "{e}");
     }
 
+    /// §5b `default =`: a declared default fills only where nothing nearer did.
+    #[test]
+    fn a_schema_default_is_the_floor_of_the_ladder() {
+        let mut s = schemas();
+        s.set_site(
+            "show_toc = { type = \"bool\", default = false }\n\
+             show_hero = { type = \"bool\", default = true }\n"
+                .parse()
+                .unwrap(),
+            "[schema]",
+        )
+        .unwrap();
+        let schema = s.resolve("notes", Path::new("books"));
+        let defaults = s.schema_defaults("notes", Path::new("books"));
+        assert_eq!(defaults.len(), 2, "both defaults resolve: {defaults:?}");
+
+        // Front matter is nearer, so the floor leaves it alone.
+        let mut fields = Fields::default();
+        fields.values.insert("show_hero".into(), Value::Bool(false));
+        apply_schema_defaults(&schema, &defaults, &mut fields, Path::new("x.md")).unwrap();
+        assert_eq!(
+            fields.values["show_hero"],
+            Value::Bool(false),
+            "a nearer writer wins the key"
+        );
+        assert_eq!(
+            fields.values["show_toc"],
+            Value::Bool(false),
+            "the unset key takes its declared default"
+        );
+    }
+
+    /// A `default` is type-checked where it is declared, not at some far row.
+    #[test]
+    fn a_mistyped_default_names_its_declaration() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        let e = s
+            .add(
+                Path::new("books"),
+                "show_toc = { type = \"bool\", default = \"yes\" }\n",
+                Path::new("books/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("books/.schema.toml"), "{e}");
+        assert!(e.contains("declared bool"), "{e}");
+    }
+
+    /// Whole-entry shadowing (§4d): a nearer redeclaration carrying no
+    /// `default` silences a farther one that did.
+    #[test]
+    fn a_nearer_redeclaration_shadows_a_farther_default() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        s.add(
+            Path::new("books"),
+            "toc = { type = \"bool\", default = true }\n",
+            Path::new("books/.schema.toml"),
+        )
+        .unwrap();
+        s.add(
+            Path::new("books/special"),
+            "toc = { type = \"bool\" }\n", // redeclared, no default
+            Path::new("books/special/.schema.toml"),
+        )
+        .unwrap();
+        assert!(
+            s.schema_defaults("notes", Path::new("books/special"))
+                .is_empty(),
+            "the nearer silent declaration wins the whole entry"
+        );
+        assert_eq!(
+            s.schema_defaults("notes", Path::new("books")).len(),
+            1,
+            "farther down, the default still stands"
+        );
+    }
+
+    /// `records` fields take no `default`; the key is rejected by name.
+    #[test]
+    fn a_records_field_declines_a_default() {
+        let mut s = Schemas::new(grackle_model::row_schema());
+        let e = s
+            .add(
+                Path::new("books"),
+                "links = { type = \"records\", fields = { url = \"string\" }, \
+                 default = [] }\n",
+                Path::new("books/.schema.toml"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("unknown key(s) default"), "{e}");
+    }
+
     #[test]
     fn undeclared_and_mistyped_fields_are_load_errors() {
         let s = schemas();
@@ -1037,14 +1215,14 @@ mod tests {
         let e = s
             .add(
                 Path::new("books"),
-                "blurb = { type = \"string\", default = \"\", required = true }\n",
+                "blurb = { type = \"string\", optional = true, required = true }\n",
                 Path::new("books/.schema.toml"),
             )
             .unwrap_err()
             .to_string();
         assert!(e.contains("books/.schema.toml"), "{e}");
-        assert!(e.contains("unknown key(s) default, required"), "{e}");
-        assert!(e.contains("takes: type"), "{e}");
+        assert!(e.contains("unknown key(s) optional, required"), "{e}");
+        assert!(e.contains("takes: type, default"), "{e}");
     }
 
     /// MERGE.md A4: unrelated same-rung type disagreement is an error.
