@@ -264,9 +264,11 @@ pub fn row_schema() -> filter::Schema {
     s.insert("collection", Str);
     s.insert("name", Str);
     s.insert("ext", Str);
-    s.insert("size", Int);
-    s.insert("width", Int);
-    s.insert("height", Int);
+    // Metadata namespaces: `.file.*` (filesystem), `.image.*` (decoded image
+    // header, absent off images). Each is a provider over the row.
+    s.insert("file.size", Int);
+    s.insert("image.width", Int);
+    s.insert("image.height", Int);
     s
 }
 
@@ -364,6 +366,8 @@ mod row_column_tests {
         Row {
             rel: PathBuf::from(rel),
             size: 42,
+            width: Some(800),
+            height: Some(600),
             ..Default::default()
         }
     }
@@ -373,7 +377,25 @@ mod row_column_tests {
         let r = row("photos/holiday/beach.JPG");
         assert_eq!(r.field("name"), filter::Value::Str("beach.JPG".into()));
         assert_eq!(r.field("dir"), filter::Value::Str("photos/holiday".into()));
-        assert_eq!(r.field("size"), filter::Value::Int(42));
+    }
+
+    #[test]
+    fn file_and_image_metadata_are_namespaced() {
+        use filter::Value as V;
+        let img = row("photos/beach.jpg");
+        assert_eq!(img.field("file.size"), V::Int(42));
+        assert_eq!(img.field("image.width"), V::Int(800));
+        assert_eq!(img.field("image.height"), V::Int(600));
+        // The flat names moved under their namespace.
+        assert_eq!(img.field("size"), V::Null);
+        assert_eq!(img.field("width"), V::Null);
+        // `.image.*` is Null off an image.
+        let doc = Row {
+            size: 10,
+            ..Default::default()
+        };
+        assert_eq!(doc.field("image.width"), V::Null);
+        assert_eq!(doc.field("file.size"), V::Int(10));
     }
 
     #[test]

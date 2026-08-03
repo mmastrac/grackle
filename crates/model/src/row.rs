@@ -163,10 +163,12 @@ impl filter::Row for Row {
             "ext" => self.rel.extension().map_or(V::Str(String::new()), |s| {
                 V::Str(s.to_string_lossy().to_lowercase())
             }),
-            "size" => V::Int(self.size as i64),
-            "width" => self.width.map_or(V::Null, |w| V::Int(w as i64)),
-            "height" => self.height.map_or(V::Null, |h| V::Int(h as i64)),
             other => match other.split_once('.') {
+                // Metadata namespaces. `.file.*` is filesystem, `.image.*` the
+                // decoded header (`Null` off images).
+                Some(("file", "size")) => V::Int(self.size as i64),
+                Some(("image", "width")) => self.width.map_or(V::Null, |w| V::Int(w as i64)),
+                Some(("image", "height")) => self.height.map_or(V::Null, |h| V::Int(h as i64)),
                 Some((field, "year")) => self
                     .as_date(field)
                     .map_or(V::Null, |d| V::Int(d.year() as i64)),

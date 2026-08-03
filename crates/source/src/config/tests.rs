@@ -1433,11 +1433,13 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
     assert!(routes.contains_key("kind") && routes.contains_key("hidden"));
     assert!(!routes.contains_key("title"), "a route has no title");
 
-    // A gallery reads the ONE row schema now: the object columns (`width`)
-    // and every declared field (`hidden`) alike — the narrow object
-    // vocabulary is gone with `kind`.
+    // A gallery reads the one row schema: the image columns (`image.width`)
+    // and every declared field (`hidden`) alike.
     let objects = c.view_filter_schema("gallery");
-    assert!(objects.contains_key("width"), "an object has dimensions");
+    assert!(
+        objects.contains_key("image.width"),
+        "an object has dimensions"
+    );
     assert!(objects.contains_key("hidden"), "and the declared fields");
 
     // The collision that rules the union out, stated rather than implied.
