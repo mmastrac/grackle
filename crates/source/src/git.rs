@@ -1,6 +1,14 @@
 //! git as a metadata provider: each tracked file's last non-merge commit.
+//!
+//! Cached by HEAD. Git data changes only when a commit lands, so HEAD is the
+//! whole key — a file's last commit cannot move while HEAD stands, whatever
+//! its mtime does. Repeated builds between commits reuse the cache and never
+//! walk history. (A content-derived overlay like outbound links would cache by
+//! the row's `version`, the mtime/size fingerprint — the other layer, for
+//! when such an overlay exists.)
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -13,6 +21,77 @@ pub struct GitMeta {
     pub date: String,
     pub author: String,
     pub subject: String,
+}
+
+/// [`last_commits`], but served from `cache_dir` while HEAD is unchanged and
+/// the history walk skipped. A tree with no HEAD (no repo) falls through
+/// uncached.
+pub fn last_commits_cached(root: &Path, cache_dir: &Path) -> HashMap<PathBuf, GitMeta> {
+    let Some(head) = head(root) else {
+        return last_commits(root);
+    };
+    if let Some((cached_head, map)) = read_cache(cache_dir) {
+        if cached_head == head {
+            return map;
+        }
+    }
+    let map = last_commits(root);
+    write_cache(cache_dir, &head, &map);
+    map
+}
+
+fn head(root: &Path) -> Option<String> {
+    run(root, &["rev-parse", "HEAD"])
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// `<head>\n` then one `rel\x1fcommit\x1fdate\x1fauthor\x1fsubject` line per
+/// file. The unit separator cannot appear in a path or a one-line subject.
+fn cache_file(dir: &Path) -> PathBuf {
+    dir.join("git.txt")
+}
+
+fn read_cache(dir: &Path) -> Option<(String, HashMap<PathBuf, GitMeta>)> {
+    let text = std::fs::read_to_string(cache_file(dir)).ok()?;
+    let mut lines = text.lines();
+    let head = lines.next()?.to_string();
+    let mut map = HashMap::new();
+    for line in lines {
+        let mut f = line.split('\u{1f}');
+        let (Some(rel), Some(commit), Some(date), Some(author), Some(subject)) =
+            (f.next(), f.next(), f.next(), f.next(), f.next())
+        else {
+            continue;
+        };
+        map.insert(
+            PathBuf::from(rel),
+            GitMeta {
+                commit: commit.into(),
+                date: date.into(),
+                author: author.into(),
+                subject: subject.into(),
+            },
+        );
+    }
+    Some((head, map))
+}
+
+fn write_cache(dir: &Path, head: &str, map: &HashMap<PathBuf, GitMeta>) {
+    let mut out = format!("{head}\n");
+    for (rel, m) in map {
+        let _ = writeln!(
+            out,
+            "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            rel.display(),
+            m.commit,
+            m.date,
+            m.author,
+            m.subject
+        );
+    }
+    let _ = std::fs::create_dir_all(dir);
+    let _ = std::fs::write(cache_file(dir), out);
 }
 
 /// Every tracked file's last non-merge commit, root-relative. Empty when the
@@ -110,5 +189,27 @@ mod tests {
     #[test]
     fn empty_output_is_empty_map() {
         assert!(parse("").is_empty());
+    }
+
+    #[test]
+    fn cache_round_trips() {
+        let dir = std::env::temp_dir().join("grackle-git-cache-round-trip");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut map = HashMap::new();
+        map.insert(
+            PathBuf::from("a.md"),
+            GitMeta {
+                commit: "h1".into(),
+                date: "2026-07-20".into(),
+                author: "Ada".into(),
+                subject: "fix a".into(),
+            },
+        );
+        write_cache(&dir, "HEADSHA", &map);
+        let (head, back) = read_cache(&dir).expect("the cache reads back");
+        assert_eq!(head, "HEADSHA");
+        assert_eq!(back[&PathBuf::from("a.md")].date, "2026-07-20");
+        assert_eq!(back[&PathBuf::from("a.md")].subject, "fix a");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

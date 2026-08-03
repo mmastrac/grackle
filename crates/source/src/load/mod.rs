@@ -761,7 +761,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     )?;
     walk::resolve_image_fields(&db, &schemas)?;
     if cfg.metadata.iter().any(|m| m == "git") {
-        let commits = crate::git::last_commits(&root);
+        let commits = crate::git::last_commits_cached(&root, &root.join("_cache/metadata"));
         for row in db.rows.iter_mut() {
             let Some(m) = commits.get(&row.rel) else {
                 continue;
