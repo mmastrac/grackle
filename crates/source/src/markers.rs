@@ -263,7 +263,10 @@ mod tests {
             "blog",
             &[
                 (".featured", payload(&[("theme", s("b"))])),
-                (".draft", payload(&[("draft", true.into()), ("theme", s("a"))])),
+                (
+                    ".draft",
+                    payload(&[("draft", true.into()), ("theme", s("a"))]),
+                ),
             ],
         )
         .expect_err("still a conflict the other way round")

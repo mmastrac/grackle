@@ -188,7 +188,9 @@ fn fill_logical(template: &str, captures: &BTreeMap<String, String>) -> String {
 }
 
 /// `(field, "YYYY-MM-DD")` per field with a year capture; missing month/day = `01`.
-pub fn dates_from_captures(captures: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
+pub fn dates_from_captures(
+    captures: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>> {
     let mut parts: BTreeMap<String, (Option<&str>, Option<&str>, Option<&str>)> = BTreeMap::new();
     for (key, raw) in captures {
         let Some((field, part)) = key.split_once('.') else {
@@ -205,7 +207,9 @@ pub fn dates_from_captures(captures: &BTreeMap<String, String>) -> Result<BTreeM
     let mut out = BTreeMap::new();
     for (field, (y, m, d)) in parts {
         let Some(y) = y else {
-            bail!("file pattern captured {{{field}.month}}/{{{field}.day}} without {{{field}.year}}");
+            bail!(
+                "file pattern captured {{{field}.month}}/{{{field}.day}} without {{{field}.year}}"
+            );
         };
         let y: i32 = y
             .parse()
@@ -213,9 +217,10 @@ pub fn dates_from_captures(captures: &BTreeMap<String, String>) -> Result<BTreeM
         let m: u32 = m.unwrap_or("1").parse().with_context(|| {
             format!("{{{field}.month}}: {:?} is not a number", m.unwrap_or("1"))
         })?;
-        let d: u32 = d.unwrap_or("1").parse().with_context(|| {
-            format!("{{{field}.day}}: {:?} is not a number", d.unwrap_or("1"))
-        })?;
+        let d: u32 = d
+            .unwrap_or("1")
+            .parse()
+            .with_context(|| format!("{{{field}.day}}: {:?} is not a number", d.unwrap_or("1")))?;
         let date = chrono::NaiveDate::from_ymd_opt(y, m, d).with_context(|| {
             format!("{{{field}.*}}: {y}-{m:02}-{d:02} is not a real calendar day")
         })?;
@@ -258,7 +263,10 @@ mod tests {
         assert_eq!(k.get("slug"), Some("the-next-decade-part-2"));
         assert_eq!(k.logical_stem, "2014-12-06-the-next-decade-part-2");
         assert_eq!(
-            dates_from_captures(&k.captures).unwrap().get("date").map(String::as_str),
+            dates_from_captures(&k.captures)
+                .unwrap()
+                .get("date")
+                .map(String::as_str),
             Some("2014-12-06")
         );
     }
@@ -330,8 +338,7 @@ mod tests {
     #[test]
     fn published_field_components() {
         let axes = BTreeMap::new();
-        let f =
-            FilePattern::compile("{published.year}-{published.month}-{slug}", &axes).unwrap();
+        let f = FilePattern::compile("{published.year}-{published.month}-{slug}", &axes).unwrap();
         let k = f.parse("2020-3-hello").unwrap();
         assert_eq!(
             dates_from_captures(&k.captures)

@@ -1960,21 +1960,12 @@ fn render_localized_resolves_table_refs() {
         _ => None,
     };
     let crumb = LocalizedStr::One("@months[{month}]".into());
-    assert_eq!(
-        c.render_localized(&crumb, "fr", &get).unwrap(),
-        "juillet"
-    );
+    assert_eq!(c.render_localized(&crumb, "fr", &get).unwrap(), "juillet");
     let title = LocalizedStr::One("{year} @months[{month}]".into());
-    assert_eq!(
-        c.render_localized(&title, "en", &get).unwrap(),
-        "2022 July"
-    );
+    assert_eq!(c.render_localized(&title, "en", &get).unwrap(), "2022 July");
     // `@@` keeps a literal `@months[…]`.
     let lit = LocalizedStr::One("@@months[{month}]".into());
-    assert_eq!(
-        c.render_localized(&lit, "en", &get).unwrap(),
-        "@months[07]"
-    );
+    assert_eq!(c.render_localized(&lit, "en", &get).unwrap(), "@months[07]");
 }
 
 #[test]
@@ -2007,7 +1998,10 @@ fn unknown_i18n_table_ref_is_a_load_error() {
          group_by = \"date.month\"\ncrumb = \"@nope[{month}]\"\n",
     );
     assert!(e.contains("@nope"), "{e}");
-    assert!(e.contains("names no table") || e.contains("no table"), "{e}");
+    assert!(
+        e.contains("names no table") || e.contains("no table"),
+        "{e}"
+    );
 }
 
 #[test]

@@ -104,8 +104,12 @@ pub(crate) fn run(
                 members.sort_by_key(|m| m.url != r.url.as_str());
                 members
             });
-            head.alternates
-                .extend(prepass::axis_alternates(db, &cfg.site.url, r, &cfg.media_types));
+            head.alternates.extend(prepass::axis_alternates(
+                db,
+                &cfg.site.url,
+                r,
+                &cfg.media_types,
+            ));
             let (theme_name, subtheme) = preview::resolve_theme(themes, r, p.theme.as_deref());
             let row_thm = themes.get(theme_name)?;
             let groups = parts::relation_groups(
@@ -320,9 +324,9 @@ pub(crate) fn run(
         // The landing's locale switcher and any axis are the `axes` slot now,
         // computed per route by `axes_part` — a landing per locale IS the
         // translation set (a fallback landing is still the French landing).
-        let pairing_keep = cfg.pairing_axis().map(|(_, a)| {
-            (a.field.as_str(), a.canonical().unwrap_or(""))
-        });
+        let pairing_keep = cfg
+            .pairing_axis()
+            .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
         let section = section_parts(db, &mut section_trees, &row.rel, &r.url, pairing_keep);
         let groups = parts::relation_groups(
             cfg,
@@ -435,19 +439,15 @@ pub(crate) fn run(
                 let frag = &pb.frag;
                 // §6e heading axis for `toc:` pages, from the prepass Doc.
                 let outline = match (&pb.doc, row) {
-                    (Some(d), Some(p)) if p.flag("toc") => {
-                        heading_outline(cfg, p, d, &r.url)
-                    }
+                    (Some(d), Some(p)) if p.flag("toc") => heading_outline(cfg, p, d, &r.url),
                     _ => Vec::new(),
                 };
 
-                let pairing_keep = cfg.pairing_axis().map(|(_, a)| {
-                    (a.field.as_str(), a.canonical().unwrap_or(""))
-                });
+                let pairing_keep = cfg
+                    .pairing_axis()
+                    .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
                 let section = row
-                    .map(|p| {
-                        section_parts(db, &mut section_trees, &p.rel, &r.url, pairing_keep)
-                    })
+                    .map(|p| section_parts(db, &mut section_trees, &p.rel, &r.url, pairing_keep))
                     .unwrap_or_default();
 
                 // Theme per row (§5a); axis theme beats the row's (q53).
@@ -455,9 +455,7 @@ pub(crate) fn run(
                     preview::resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref()));
                 let row_thm = themes.get(theme_name)?;
                 let row_css = theme::css_url(&cfg.site.baseurl, theme_name);
-                let lang = row
-                    .map(|p| cfg.pairing_member(p))
-                    .unwrap_or_default();
+                let lang = row.map(|p| cfg.pairing_member(p)).unwrap_or_default();
                 let lang = lang.as_str();
                 let site = site.with_title(cfg.site_title(lang));
                 // Metas read the ROW when present; sourceless routes use the route.
@@ -521,13 +519,12 @@ pub(crate) fn run(
                             members.sort_by_key(|m| m.url != r.url.as_str());
                             members
                         });
-                        head.alternates
-                            .extend(prepass::axis_alternates(
-                                db,
-                                &cfg.site.url,
-                                r,
-                                &cfg.media_types,
-                            ));
+                        head.alternates.extend(prepass::axis_alternates(
+                            db,
+                            &cfg.site.url,
+                            r,
+                            &cfg.media_types,
+                        ));
                         let doc = parts::document_tree(
                             cfg,
                             lang,

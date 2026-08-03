@@ -750,15 +750,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     let t_index = std::time::Instant::now();
-    let pairing_keep = cfg.pairing_axis().map(|(_, a)| {
-        (a.field.as_str(), a.canonical().unwrap_or(""))
-    });
-    db.insert_rows(
-        sort_posts(post_rows),
-        page_rows,
-        objects,
-        pairing_keep,
-    )?;
+    let pairing_keep = cfg
+        .pairing_axis()
+        .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
+    db.insert_rows(sort_posts(post_rows), page_rows, objects, pairing_keep)?;
     walk::resolve_image_fields(&db, &schemas)?;
     if cfg.metadata.iter().any(|m| m == "git") {
         let commits = crate::git::last_commits_cached(&root, &root.join("_cache/metadata"));

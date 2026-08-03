@@ -75,11 +75,7 @@ impl Dir {
 /// root's own index first, then the nested pages and directories beneath.
 /// Derived once per section per build; `current` moves per page in
 /// `to_parts`.
-pub fn section_tree(
-    db: &SiteDb,
-    root: &Path,
-    pairing_keep: Option<(&str, &str)>,
-) -> Vec<Node> {
+pub fn section_tree(db: &SiteDb, root: &Path, pairing_keep: Option<(&str, &str)>) -> Vec<Node> {
     let mut top = Dir::default();
     let mut root_index: Option<Node> = None;
 

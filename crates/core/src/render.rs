@@ -494,18 +494,13 @@ fn eval_jsonld_object(
     (!out.is_empty()).then_some(out)
 }
 
-fn eval_jsonld_node(
-    node: &JsonLdNode,
-    env: &impl crate::filter::Row,
-) -> Option<serde_json::Value> {
+fn eval_jsonld_node(node: &JsonLdNode, env: &impl crate::filter::Row) -> Option<serde_json::Value> {
     match node {
         JsonLdNode::Expr(expr) => {
             let s = expr.eval(env);
             (!s.is_empty()).then(|| serde_json::Value::String(s))
         }
-        JsonLdNode::Object(map) => {
-            eval_jsonld_object(map, env).map(serde_json::Value::Object)
-        }
+        JsonLdNode::Object(map) => eval_jsonld_object(map, env).map(serde_json::Value::Object),
     }
 }
 
@@ -1017,11 +1012,7 @@ mod meta_tests {
         );
         head.meta = vec![
             MetaItem::simple(Tag::Meta, "a".into(), "one".into()),
-            MetaItem::simple(
-                Tag::Property,
-                "b".into(),
-                "a \"quoted\" & escaped".into(),
-            ),
+            MetaItem::simple(Tag::Property, "b".into(), "a \"quoted\" & escaped".into()),
             MetaItem::simple(Tag::Link, "canonical".into(), "https://e.com/".into()),
         ];
         let out = meta_tags(&head);
@@ -1097,9 +1088,10 @@ mod meta_tests {
         decl.insert("date", crate::filter::Type::Str);
         let m = compile_metas(&c, &decl).unwrap();
         let mut dated = grackle_model::Row::default();
-        dated
-            .fields
-            .insert("date".into(), crate::filter::Value::Str("2026-01-02".into()));
+        dated.fields.insert(
+            "date".into(),
+            crate::filter::Value::Str("2026-01-02".into()),
+        );
         let j = eval_jsonld(&m, &dated, &site(), "Hello", "/p/").unwrap();
         let v: serde_json::Value = serde_json::from_str(&j).unwrap();
         assert_eq!(v["@type"], "BlogPosting");

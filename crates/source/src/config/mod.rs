@@ -290,13 +290,19 @@ impl Config {
     pub fn is_file_axis(&self, name: &str) -> bool {
         let bare = format!("{{{name}}}");
         let namespaced = format!("{{axis:{name}}}");
-        self.collections
-            .values()
-            .any(|c| c.file.iter().any(|f| f.contains(&bare) || f.contains(&namespaced)))
+        self.collections.values().any(|c| {
+            c.file
+                .iter()
+                .any(|f| f.contains(&bare) || f.contains(&namespaced))
+        })
     }
 
     /// Axis field value, or canonical when unstamped/empty.
-    pub fn axis_on(&self, row: &(impl grackle_db::filter::Row + ?Sized), axis_name: &str) -> Option<String> {
+    pub fn axis_on(
+        &self,
+        row: &(impl grackle_db::filter::Row + ?Sized),
+        axis_name: &str,
+    ) -> Option<String> {
         let axis = self.axes.get(axis_name)?;
         Some(match row.field(&axis.field) {
             grackle_db::Value::Str(s) if !s.is_empty() => s,
@@ -373,12 +379,7 @@ impl Config {
     }
 
     /// Render LocalizedStr: `@key` / `@table[index]` / inline + embedded tables (§6f).
-    pub fn render_localized<F>(
-        &self,
-        s: &LocalizedStr,
-        member: &str,
-        get: &F,
-    ) -> Result<String>
+    pub fn render_localized<F>(&self, s: &LocalizedStr, member: &str, get: &F) -> Result<String>
     where
         F: Fn(&str) -> Option<String>,
     {
@@ -416,12 +417,7 @@ impl Config {
     }
 
     /// Format date via `[i18n.strings]` style key; missing => `""`.
-    pub fn format_date(
-        &self,
-        d: chrono::NaiveDate,
-        style: &str,
-        member: &str,
-    ) -> String {
+    pub fn format_date(&self, d: chrono::NaiveDate, style: &str, member: &str) -> String {
         use chrono::Datelike;
         let get = |tok: &str| -> Option<String> {
             match tok {
@@ -432,8 +428,7 @@ impl Config {
             }
         };
         let s = LocalizedStr::One(format!("@{style}"));
-        self.render_localized(&s, member, &get)
-            .unwrap_or_default()
+        self.render_localized(&s, member, &get).unwrap_or_default()
     }
 
     pub fn axis_values_for_file(&self) -> crate::filename::AxisValues<'_> {
@@ -564,8 +559,8 @@ impl Config {
     /// Schema from config only (no `.schema.toml` yet).
     fn config_declared_schema(&self) -> grackle_db::filter::Schema {
         let mut s = grackle_db::filter::Schema::new();
-        let tables = std::iter::once(&self.schema.decls)
-            .chain(self.collections.values().map(|c| &c.schema));
+        let tables =
+            std::iter::once(&self.schema.decls).chain(self.collections.values().map(|c| &c.schema));
         for t in tables {
             for (name, v) in t {
                 let ty = v

@@ -622,7 +622,6 @@ pub(crate) fn search_and_css(
     Ok(warnings)
 }
 
-
 /// Citations, on-demand publish, rendition joins, strip splice markers.
 pub(crate) fn citations(
     cfg: &Config,

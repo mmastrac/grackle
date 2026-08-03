@@ -57,13 +57,10 @@ pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
         if let Some(logical) = claimed {
             // §6f: landing route is per pairing-axis member; so is the claimed row.
             for k in db.by_logical.get(&logical).into_iter().flatten() {
-                let matches = db
-                    .rows
-                    .get(k)
-                    .is_some_and(|row| match cfg.pairing_axis() {
-                        Some((n, _)) => cfg.same_on(row, r, n),
-                        None => true,
-                    });
+                let matches = db.rows.get(k).is_some_and(|row| match cfg.pairing_axis() {
+                    Some((n, _)) => cfg.same_on(row, r, n),
+                    None => true,
+                });
                 if matches {
                     ins.push(k.clone());
                 }

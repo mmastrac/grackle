@@ -260,10 +260,8 @@ order_by = "-date"
     /// compiled in Rust.
     #[test]
     fn inheriting_base_ships_posts_and_tree_relations() {
-        let cfg = Config::from_toml(
-            "root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n",
-        )
-        .expect("empty site inherits base");
+        let cfg = Config::from_toml("root=\".\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n")
+            .expect("empty site inherits base");
         let posts = &cfg.collections["posts"].relations;
         for want in ["earlier", "later", "related", "linked_from"] {
             assert!(posts.contains_key(want), "posts missing {want}: {posts:?}");
@@ -403,10 +401,8 @@ where = "!draft && !hidden"
     /// name. The base writes `from = "published"` explicitly.
     #[test]
     fn absent_from_is_the_collection_itself() {
-        let rels = compile(
-            "[collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n",
-        )
-        .unwrap();
+        let rels =
+            compile("[collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n").unwrap();
         assert!(
             matches!(
                 &relation(&rels, "x").pool,
@@ -425,11 +421,9 @@ where = "!draft && !hidden"
             .filter
             .referenced_fields();
         assert!(!refs.iter().any(|f| f == "candidate.draft"), "{refs:?}");
-        assert!(
-            matches!(
-                &relation(&compile(POSTS_DEFAULTS).unwrap(), "earlier").pool,
-                Pool::Set(n) if n == "published"
-            )
-        );
+        assert!(matches!(
+            &relation(&compile(POSTS_DEFAULTS).unwrap(), "earlier").pool,
+            Pool::Set(n) if n == "published"
+        ));
     }
 }

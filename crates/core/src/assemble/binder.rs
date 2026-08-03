@@ -283,11 +283,16 @@ fn extract_inline_nodes(nodes: &mut Vec<Node>, frags: &mut Fragments, parent_fil
         }
         let children = std::mem::take(&mut el.children);
         let kind = kind_of_name(&fname).to_string();
-        frags.map.insert(fname.clone(), Fragment { kind, nodes: children });
-        frags.files.insert(
+        frags.map.insert(
             fname.clone(),
-            format!("{parent_file} (inline `{fname}`)"),
+            Fragment {
+                kind,
+                nodes: children,
+            },
         );
+        frags
+            .files
+            .insert(fname.clone(), format!("{parent_file} (inline `{fname}`)"));
         frags.order.push(fname.clone());
         // Nested inlines inside the new body (order walk picks it up too;
         // extract now so a same-pass sibling can see the name).
@@ -1140,7 +1145,10 @@ mod tests {
         assert!(!out.contains("<time"), "{out}");
         // And an empty stream deletes its container too.
         let f = frags(&[
-            ("row", r#"<article><div data-slot="tags" data-fragment="tag"></div></article>"#),
+            (
+                "row",
+                r#"<article><div data-slot="tags" data-fragment="tag"></div></article>"#,
+            ),
             ("tag", r#"<a data-slot="name"></a>"#),
         ])
         .unwrap();
@@ -1151,7 +1159,10 @@ mod tests {
     #[test]
     fn stream_maps_child_fragment_per_item() {
         let f = frags(&[
-            ("row", r#"<nav data-slot="crumbs" data-fragment="crumb"></nav>"#),
+            (
+                "row",
+                r#"<nav data-slot="crumbs" data-fragment="crumb"></nav>"#,
+            ),
             (
                 "crumb",
                 r#"<span><a data-slot-href="url" data-slot="label"></a></span>"#,
@@ -1485,7 +1496,10 @@ mod tests {
         let mut m = PartMap::new("row");
         m.set("crumbs", Part::Stream(vec![crumb("Here", None)]));
         let out = f.render(&m);
-        assert!(out.contains(r#"class="crumb""#), "theme inline must win: {out}");
+        assert!(
+            out.contains(r#"class="crumb""#),
+            "theme inline must win: {out}"
+        );
         assert!(!out.contains("BASE"), "{out}");
     }
 

@@ -87,7 +87,14 @@ pub fn document_page(
 ) -> Result<String> {
     let mut doc = doc;
     if let Some(row) = row {
-        parts::fill_from_fields(cfg, &mut doc, row, page.theme.schemas(), resolve_asset, fill)?;
+        parts::fill_from_fields(
+            cfg,
+            &mut doc,
+            row,
+            page.theme.schemas(),
+            resolve_asset,
+            fill,
+        )?;
     }
     let inner = match Slot::of_row(row) {
         Slot::Root => body.to_string(),

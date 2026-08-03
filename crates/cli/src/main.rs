@@ -462,7 +462,11 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                         continue;
                     }
                 }
-                println!("{}  {}", fmt_date(r, &db.declared), r.title.as_deref().unwrap_or("-"));
+                println!(
+                    "{}  {}",
+                    fmt_date(r, &db.declared),
+                    r.title.as_deref().unwrap_or("-")
+                );
                 println!("    {}", r.url);
                 n += 1;
                 if n >= limit {

@@ -199,7 +199,15 @@ impl Shaped for Config {
 
 /// Keys a profile may write (§4a, MERGE.md E2). Exhaustive with [`NOT_PROJECTABLE`].
 pub(crate) const PROJECTABLE: &[&str] = &[
-    "site", "html", "sets", "routes", "i18n", "records", "widgets", "shells", "axes",
+    "site",
+    "html",
+    "sets",
+    "routes",
+    "i18n",
+    "records",
+    "widgets",
+    "shells",
+    "axes",
     "media_types",
 ];
 
@@ -916,13 +924,7 @@ impl I18nCfg {
             .unwrap_or("")
     }
 
-    pub fn table<'a>(
-        &'a self,
-        name: &str,
-        index: &str,
-        member: &str,
-        canonical: &str,
-    ) -> &'a str {
+    pub fn table<'a>(&'a self, name: &str, index: &str, member: &str, canonical: &str) -> &'a str {
         self.tables
             .get(name)
             .and_then(|t| t.get(index))
@@ -1166,11 +1168,7 @@ impl PartialEq<String> for LocalizedStr {
 pub fn parse_table_ref(s: &str) -> Option<(&str, &str)> {
     let rest = s.strip_prefix('@').filter(|r| !r.starts_with('@'))?;
     let (name, after) = rest.split_once('[')?;
-    if name.is_empty()
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    {
+    if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         return None;
     }
     let close = after.find(']')?;
@@ -1249,9 +1247,7 @@ impl LocalizedStr {
             LocalizedStr::One(s) => {
                 if s.starts_with("@@") {
                     s.strip_prefix('@').unwrap_or(s)
-                } else if parse_table_ref(s).is_some()
-                    || (s.starts_with('@') && s.contains('['))
-                {
+                } else if parse_table_ref(s).is_some() || (s.starts_with('@') && s.contains('[')) {
                     s
                 } else {
                     s.strip_prefix('@').unwrap_or(s)

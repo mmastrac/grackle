@@ -18,7 +18,9 @@ pub enum FieldType {
     /// `YYYY-MM-DD` (bare `YYYY-MM` = first of month); ISO so filters order.
     Date,
     /// List of maps (q40); nested `fields` are scalars; group_by does not multi-key.
-    Records { fields: BTreeMap<String, FieldType> },
+    Records {
+        fields: BTreeMap<String, FieldType>,
+    },
 }
 
 impl FieldType {
@@ -69,7 +71,10 @@ pub const CASCADE: &[(&str, FieldType)] = &[
 ];
 
 pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
-    CASCADE.iter().find(|(n, _)| *n == name).map(|(_, t)| t.clone())
+    CASCADE
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, t)| t.clone())
 }
 
 /// One rung's writer (for collision messages), its typed fields, and the
@@ -406,11 +411,7 @@ fn parse_fields(
     Ok((fields, defaults))
 }
 
-fn parse_records_fields(
-    table: &toml::Table,
-    name: &str,
-    whose: &str,
-) -> Result<FieldType> {
+fn parse_records_fields(table: &toml::Table, name: &str, whose: &str) -> Result<FieldType> {
     let Some(fields_v) = table.get("fields") else {
         bail!(
             "{whose}: field {name:?} is type = \"records\" and needs \
@@ -427,23 +428,20 @@ fn parse_records_fields(
     for (k, v) in fields_t {
         let ty_name = match v {
             toml::Value::String(s) => s.as_str(),
-            toml::Value::Table(t) => t
-                .get("type")
-                .and_then(|x| x.as_str())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "{whose}: field {name:?}.fields.{k} needs type = \
+            toml::Value::Table(t) => t.get("type").and_then(|x| x.as_str()).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "{whose}: field {name:?}.fields.{k} needs type = \
                          \"string\" | \"int\" | \"bool\""
-                    )
-                })?,
+                )
+            })?,
             other => bail!(
                 "{whose}: field {name:?}.fields.{k} must be a type name or \
                  {{ type = … }}, got {other}"
             ),
         };
-        let Some(ty) = FieldType::parse(ty_name).filter(|t| {
-            matches!(t, FieldType::Str | FieldType::Int | FieldType::Bool)
-        }) else {
+        let Some(ty) = FieldType::parse(ty_name)
+            .filter(|t| matches!(t, FieldType::Str | FieldType::Int | FieldType::Bool))
+        else {
             bail!(
                 "{whose}: field {name:?}.fields.{k} must be \"string\", \
                  \"int\", or \"bool\" (got {ty_name:?})"
@@ -1131,10 +1129,9 @@ mod tests {
         assert_eq!(fields["amount"], FieldType::Str);
         assert_eq!(fields["name"], FieldType::Str);
 
-        let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(
-            "- amount: 200 g\n  name: spaghetti\n- name: pepper\n",
-        )
-        .unwrap();
+        let yaml: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str("- amount: 200 g\n  name: spaghetti\n- name: pepper\n")
+                .unwrap();
         let mut extra = BTreeMap::new();
         extra.insert("ingredients".into(), yaml);
         let fields = validate(&schema, &extra, Path::new("recipes/x.md")).unwrap();
@@ -1170,8 +1167,7 @@ mod tests {
         )
         .unwrap();
         let schema = s.resolve("pages", Path::new("r"));
-        let yaml: serde_yaml_ng::Value =
-            serde_yaml_ng::from_str("- name: x\n  qty: 1\n").unwrap();
+        let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str("- name: x\n  qty: 1\n").unwrap();
         let mut extra = BTreeMap::new();
         extra.insert("ingredients".into(), yaml);
         let e = validate(&schema, &extra, Path::new("r/x.md"))

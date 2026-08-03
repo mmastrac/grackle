@@ -268,10 +268,7 @@ impl Schemas {
             .map(|(k, parts)| {
                 (
                     k,
-                    parts
-                        .into_iter()
-                        .map(|(n, t)| (n.to_string(), t))
-                        .collect(),
+                    parts.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
                 )
             })
             .collect()
@@ -384,8 +381,8 @@ fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
             .iter()
             .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
             .collect();
-        let frags = crate::assemble::binder::Fragments::parse(sources)
-            .expect("base fragments must parse");
+        let frags =
+            crate::assemble::binder::Fragments::parse(sources).expect("base fragments must parse");
         Schemas::derive(&frags, &[]).into_static()
     })
 }
@@ -919,10 +916,7 @@ pub fn fill_from_fields(
                 continue;
             };
             let member = cfg.pairing_member(row);
-            m.set_declared(
-                name,
-                Part::Text(cfg.format_date(d, "medium_date", &member)),
-            );
+            m.set_declared(name, Part::Text(cfg.format_date(d, "medium_date", &member)));
             continue;
         }
         let v = FilterRow::field(row, name);
@@ -952,9 +946,7 @@ pub fn fill_from_fields(
                         items
                             .iter()
                             .filter_map(|v| match v {
-                                V::Map(entries) => {
-                                    Some(record_part_map(child, shape, entries))
-                                }
+                                V::Map(entries) => Some(record_part_map(child, shape, entries)),
                                 _ => None,
                             })
                             .collect(),
@@ -1039,12 +1031,9 @@ fn fill_computed_str_fields(
         if !matches!(ty, PartType::Url | PartType::Text) {
             continue;
         }
-        let expr = grackle_db::FieldExpr::parse(
-            src,
-            &cfg.field_expr_schema(),
-            grackle_db::Type::Str,
-        )
-        .expect("computed field validated at load");
+        let expr =
+            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Str)
+                .expect("computed field validated at load");
         let grackle_db::Value::Str(s) = expr.eval(&bind) else {
             continue;
         };
@@ -1081,12 +1070,9 @@ fn fill_computed_content_fields(
         if !matches!(ty, PartType::Html) {
             continue;
         }
-        let expr = grackle_db::FieldExpr::parse(
-            src,
-            &cfg.field_expr_schema(),
-            grackle_db::Type::Content,
-        )
-        .expect("computed field validated at load");
+        let expr =
+            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Content)
+                .expect("computed field validated at load");
         let grackle_db::Value::Content(c) = expr.eval(&bind) else {
             continue;
         };
@@ -1456,10 +1442,14 @@ mod schema_asset_tests {
         ];
         let schemas = Schemas::derive(&frags, &fields);
         let row = schemas.get("row").unwrap();
-        assert!(row.iter().any(|(n, t)| *n == "date" && *t == PartType::Text));
+        assert!(row
+            .iter()
+            .any(|(n, t)| *n == "date" && *t == PartType::Text));
         // description is a card-face slot; score arrives only via overlay
         assert!(row.iter().any(|(n, _)| *n == "description"));
-        assert!(row.iter().any(|(n, t)| *n == "score" && *t == PartType::Text));
+        assert!(row
+            .iter()
+            .any(|(n, t)| *n == "score" && *t == PartType::Text));
     }
 
     #[test]
@@ -1485,7 +1475,8 @@ mod schema_asset_tests {
             rel: "posts/hello.md".into(),
             ..Default::default()
         };
-        row.fields.insert("date".into(), V::Str("2026-07-30".into()));
+        row.fields
+            .insert("date".into(), V::Str("2026-07-30".into()));
         row.fields
             .insert("description".into(), V::Str("a blurb".into()));
 

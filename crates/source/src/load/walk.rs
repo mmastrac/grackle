@@ -321,10 +321,8 @@ pub(crate) fn walk_site(
                 if let Some(m) = &extracted {
                     for (axis_name, value) in &m.axes {
                         if let Some(axis) = cfg.axes.get(axis_name) {
-                            values.insert(
-                                axis.field.clone(),
-                                grackle_db::Value::Str(value.clone()),
-                            );
+                            values
+                                .insert(axis.field.clone(), grackle_db::Value::Str(value.clone()));
                         }
                     }
                 }

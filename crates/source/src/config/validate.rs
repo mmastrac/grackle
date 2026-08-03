@@ -146,7 +146,9 @@ impl Config {
             }
             // A known computed field is derived; a literal cannot supply it.
             Field::Value(_) if grackle_db::field_return_type(fname).is_some() => {
-                anyhow::bail!("{whose}: field {fname:?} must be an expression, not a literal value");
+                anyhow::bail!(
+                    "{whose}: field {fname:?} must be an expression, not a literal value"
+                );
             }
             Field::Value(_) => {}
         }
@@ -286,9 +288,7 @@ impl Config {
                 let views: Vec<&str> = cfg
                     .views
                     .iter()
-                    .filter(|(_, v)| {
-                        v.group_by.as_deref() == Some(field)
-                    })
+                    .filter(|(_, v)| v.group_by.as_deref() == Some(field))
                     .map(|(n, _)| n.as_str())
                     .collect();
                 if !declared.contains_key(field) && views.len() > 1 {
@@ -330,14 +330,12 @@ impl Config {
                         "probe",
                         cfg.pairing_axis().map(|(n, _)| n).unwrap_or(""),
                     )
-                    .with_context(
-                        || {
-                            format!(
-                                "view {name}: archive route for {field} needs more \
+                    .with_context(|| {
+                        format!(
+                            "view {name}: archive route for {field} needs more \
                                  than {{key}}"
-                            )
-                        },
-                    )?;
+                        )
+                    })?;
                 }
             }
         }

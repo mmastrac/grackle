@@ -350,9 +350,7 @@ impl Content {
 
     fn html_for_scan(&self) -> Option<String> {
         match &self.body {
-            ContentBody::Html { blocks } => {
-                Some(blocks.iter().map(|b| b.html.as_str()).collect())
-            }
+            ContentBody::Html { blocks } => Some(blocks.iter().map(|b| b.html.as_str()).collect()),
             ContentBody::Markdown(_) => self.as_html().map(|c| c.html_string()),
             ContentBody::Text(_) => None,
         }
@@ -438,10 +436,7 @@ fn collect_html_blocks(html: &str, out: &mut Vec<Block>) {
             }
             let text = html[start..i].trim();
             if !text.is_empty() {
-                out.push(Block::tagged(
-                    "p",
-                    format!("<p>{}</p>", escape_text(text)),
-                ));
+                out.push(Block::tagged("p", format!("<p>{}</p>", escape_text(text))));
             }
             continue;
         }
@@ -3370,11 +3365,7 @@ mod tests {
         assert_eq!(by_chars.blocks().unwrap().len(), 1);
         assert!(by_chars.truncated);
 
-        let composed = c
-            .truncate_blocks(4)
-            .unwrap()
-            .truncate_chars(12)
-            .unwrap();
+        let composed = c.truncate_blocks(4).unwrap().truncate_chars(12).unwrap();
         assert_eq!(composed.blocks().unwrap().len(), 1);
         assert!(composed.truncated);
 
@@ -3474,10 +3465,7 @@ mod tests {
     #[test]
     fn empty_map_and_trailing_comma() {
         let s = Schema::new();
-        assert_eq!(
-            Text::parse("to_json({})", &s).unwrap().eval(&Empty),
-            "{}"
-        );
+        assert_eq!(Text::parse("to_json({})", &s).unwrap().eval(&Empty), "{}");
         let t = Text::parse(r#"to_json({"a": 1,})"#, &s).unwrap();
         assert_eq!(t.eval(&Empty), r#"{"a":1}"#);
     }
@@ -3651,9 +3639,7 @@ mod tests {
                 }
             }
         }
-        let body = Content::new(vec![
-            r#"<p><img src="from-body.png"></p>"#.into(),
-        ]);
+        let body = Content::new(vec![r#"<p><img src="from-body.png"></p>"#.into()]);
         assert_eq!(
             expr.eval(&R {
                 cover: "cover.png",
@@ -3682,9 +3668,8 @@ mod tests {
 
     #[test]
     fn html_drills_through_divs_and_text_chunks_paragraphs() {
-        let c = Content::from_html_document(
-            r#"<div><div><h1>T</h1><p>one</p></div><p>two</p></div>"#,
-        );
+        let c =
+            Content::from_html_document(r#"<div><div><h1>T</h1><p>one</p></div><p>two</p></div>"#);
         let tags: Vec<_> = c.blocks().unwrap().iter().map(|b| b.tag.as_str()).collect();
         assert_eq!(tags, ["h1", "p", "p"]);
 
@@ -3736,7 +3721,12 @@ mod tests {
             "<p>two</p>".into(),
         ]);
         let kept = c.keep_blocks(&["p", "h1"]);
-        let tags: Vec<_> = kept.blocks().unwrap().iter().map(|b| b.tag.as_str()).collect();
+        let tags: Vec<_> = kept
+            .blocks()
+            .unwrap()
+            .iter()
+            .map(|b| b.tag.as_str())
+            .collect();
         assert_eq!(tags, ["h1", "p", "p"]);
         assert!(kept.truncated);
 

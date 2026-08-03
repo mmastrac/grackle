@@ -941,10 +941,7 @@ mod grouping_tests {
         let p = post(Some("2022-12-16"), &[]);
         let keys = group_keys(&p, "date.month");
         assert!(keys[0].params.contains(&("month".into(), "12".into())));
-        assert!(keys[0]
-            .params
-            .iter()
-            .all(|(k, _)| k != "month_name"));
+        assert!(keys[0].params.iter().all(|(k, _)| k != "month_name"));
     }
 }
 

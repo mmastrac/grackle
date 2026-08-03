@@ -223,10 +223,7 @@ fn part_fields_from_cfg(cfg: &Config) -> Vec<(String, grackle_source::schema::Fi
         .iter()
         .filter_map(|(name, val)| {
             let ty = val.get("type")?.as_str()?;
-            Some((
-                name.clone(),
-                grackle_source::schema::FieldType::parse(ty)?,
-            ))
+            Some((name.clone(), grackle_source::schema::FieldType::parse(ty)?))
         })
         .collect()
 }

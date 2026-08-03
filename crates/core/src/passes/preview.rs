@@ -142,11 +142,9 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
                     )
                 })
                 .collect();
-            if let Some(g) = parts::axis_group(
-                name,
-                cfg.i18n_string("translations", &cur_pairing),
-                members,
-            ) {
+            if let Some(g) =
+                parts::axis_group(name, cfg.i18n_string("translations", &cur_pairing), members)
+            {
                 groups.push(g);
             }
         }
@@ -309,12 +307,8 @@ pub(crate) fn member_rows(
         .get("summary")
         .and_then(|f| f.as_expr())
         .map(|src| {
-            grackle_db::FieldExpr::parse(
-                src,
-                &cfg.field_expr_schema(),
-                grackle_db::Type::Content,
-            )
-            .expect("summary field validated at load")
+            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Content)
+                .expect("summary field validated at load")
         });
     let mut out = Vec::new();
     for k in members {

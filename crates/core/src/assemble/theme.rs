@@ -258,8 +258,8 @@ impl Theme {
             .iter()
             .map(|(n, src)| (n.to_string(), src.to_string(), format!("<base>/{n}.html")))
             .collect();
-        let mut fragments = Fragments::parse(base_sources)
-            .with_context(|| format!("parsing theme {what}"))?;
+        let mut fragments =
+            Fragments::parse(base_sources).with_context(|| format!("parsing theme {what}"))?;
         // Overlay after base parse so inline defaults from a replaced parent
         // (e.g. base `row` → crumb/tag) remain unless the theme ships that name.
         if !own.is_empty() {
@@ -360,13 +360,7 @@ impl Theme {
         m.set("content", Part::Html(main));
         let body = self.fragments.render_body(&m);
         Ok(crate::render::root_shell(
-            &head_html,
-            html_attrs,
-            body_attrs,
-            subtheme,
-            profile,
-            axis,
-            &body,
+            &head_html, html_attrs, body_attrs, subtheme, profile, axis, &body,
         ))
     }
 }
@@ -601,7 +595,7 @@ mod tests {
         for stem in ["nav", "copyright", "copyrite"] {
             std::fs::write(dir.join(".slots").join(format!("{stem}.md")), "words").unwrap();
         }
-                let themes =
+        let themes =
             Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("two roots load");
         assert_eq!(
             themes.identity_slots(),
