@@ -946,9 +946,14 @@ pub struct SchemaBag {
     pub embeddings: EmbeddingsSchema,
     #[serde(default)]
     pub search: SearchSchema,
-    /// Flattened field decls (`draft = { type = "bool" }`, ...).
+    /// `[schema.fields]`: computed columns on every row (§5f), the document-
+    /// level home for `hero`/`outline`/… — a set's `[sets.*.fields]` adds to
+    /// these for its own rows.
+    #[serde(default)]
+    pub fields: BTreeMap<String, Field>,
+    /// Typed field decls (`draft = { type = "bool" }`, ...), the rest of `[schema]`.
     #[serde(flatten)]
-    pub fields: toml::Table,
+    pub decls: toml::Table,
 }
 
 /// Embed text template; `{body}` + row fields (lists join with `", "`).
@@ -1508,7 +1513,7 @@ pub struct View {
 }
 
 /// Computed field: TOML string = CEL expr; other types = literals (§5f / §6d).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Field {
     Expr(String),

@@ -70,6 +70,13 @@ slot = { type = "string" }
 # usual spelling; a site that renames the axis declares that field instead.
 locale = { type = "string" }
 
+# Computed columns every row carries (§5f): filled on a document render and,
+# via `fields_for`, on a listing's cards. A set's `[sets.*.fields]` adds its
+# own; hero is cover, then image, then the first body <img>. Sites redeclare
+# this table whole to change it (registry shadowing, §4d).
+[schema.fields]
+hero = 'cover ? cover : image ? image : images(content)[0]'
+
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"
 
@@ -439,11 +446,6 @@ source = "."
 from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
-
-  # Computed columns (§5f / §6d). Sites redeclare to change budgets; hero is
-  # cover, then image, then the first body <img>.
-  [sets.published.fields]
-  hero = 'cover ? cover : image ? image : images(content)[0]'
 
 # ---------------------------------------------------------------- routes
 

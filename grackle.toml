@@ -218,7 +218,6 @@ order_by = "-date"
   [sets.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
   toc = 'outline(content, 3)'
-  hero = 'cover ? cover : image ? image : images(content)[0]'
 
 # No route: `/` embeds this one (DESIGN.md §5c). index.html counted to 3 by hand
 # with `{% assign latest_count %}` because `site.posts | limit: 3` slices before

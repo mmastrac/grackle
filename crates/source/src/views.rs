@@ -288,7 +288,7 @@ fn view_fields(
 }
 
 pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
-    let route_schema = crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
+    let route_schema = crate::schema::site_fields(&cfg.schema.decls, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
         // No-`from` folds run later (`build_pool_folds`); inline would see a partial set.
         if v.reads_all_outputs() {
@@ -639,7 +639,7 @@ fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<fil
 
 /// Folds with no `from` (IO.md §4): sitemap, search index; after other routes exist.
 pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
-    let route_schema = crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
+    let route_schema = crate::schema::site_fields(&cfg.schema.decls, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
         if !v.reads_all_outputs() {
             continue;
@@ -991,7 +991,7 @@ mod adjacency_tests {
 
     fn schemas(c: &Config) -> Schemas {
         let mut s = Schemas::new(row_schema());
-        s.set_site(c.schema.fields.clone(), "[schema]")
+        s.set_site(c.schema.decls.clone(), "[schema]")
             .expect("test schema");
         s
     }

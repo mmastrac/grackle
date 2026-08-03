@@ -700,7 +700,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     db.stats.markers = markers.found;
 
     let mut schemas = Schemas::new(grackle_model::row_schema());
-    schemas.set_site(cfg.schema.fields.clone(), "grackle.toml [schema]")?;
+    schemas.set_site(cfg.schema.decls.clone(), "grackle.toml [schema]")?;
     for (cname, c) in &cfg.collections {
         schemas.add_collection(
             cname,

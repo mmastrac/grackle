@@ -564,7 +564,7 @@ impl Config {
     /// Schema from config only (no `.schema.toml` yet).
     fn config_declared_schema(&self) -> grackle_db::filter::Schema {
         let mut s = grackle_db::filter::Schema::new();
-        let tables = std::iter::once(&self.schema.fields)
+        let tables = std::iter::once(&self.schema.decls)
             .chain(self.collections.values().map(|c| &c.schema));
         for t in tables {
             for (name, v) in t {
@@ -800,7 +800,8 @@ impl Config {
         v
     }
 
-    /// Computed fields along `from`; nearest wins (§5c).
+    /// Computed fields along `from`, then the `[schema.fields]` bag; nearest
+    /// wins (§5c). A set field shadows a schema field of the same name.
     pub fn fields_for(&self, view: &str) -> BTreeMap<&str, &Field> {
         let mut out: BTreeMap<&str, &Field> = BTreeMap::new();
         for (_, v) in self.chain(view) {
@@ -808,7 +809,16 @@ impl Config {
                 out.entry(name.as_str()).or_insert(f);
             }
         }
+        for (name, f) in &self.schema.fields {
+            out.entry(name.as_str()).or_insert(f);
+        }
         out
+    }
+
+    /// `[schema.fields]`: computed columns every row carries, whatever view (if
+    /// any) renders it. The document filler reads these directly (§5f).
+    pub fn schema_fields(&self) -> &BTreeMap<String, Field> {
+        &self.schema.fields
     }
 
     pub fn field_expr(&self, name: &str) -> Option<&str> {

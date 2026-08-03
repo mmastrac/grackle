@@ -1029,7 +1029,7 @@ fn fill_computed_str_fields(
 ) {
     let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
     let bind = crate::passes::preview::FieldBind { row, content };
-    for (name, src) in str_field_exprs(cfg, opts.view) {
+    for (name, src) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Str) {
         if m.get(name).is_some() {
             continue;
         }
@@ -1071,7 +1071,7 @@ fn fill_computed_content_fields(
 ) {
     let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
     let bind = crate::passes::preview::FieldBind { row, content };
-    for (name, src) in content_field_exprs(cfg, opts.view) {
+    for (name, src) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Content) {
         if m.get(name).is_some() {
             continue;
         }
@@ -1101,50 +1101,27 @@ fn fill_computed_content_fields(
     }
 }
 
-fn str_field_exprs<'a>(
+/// Computed field expressions of one return type: a view's `fields_for`
+/// (which already folds in `[schema.fields]`), or the bag alone for a
+/// document render. Names outside the closed set (§5f) never type-match.
+fn computed_field_exprs<'a>(
     cfg: &'a crate::config::Config,
     view: Option<&str>,
+    ty: grackle_db::Type,
 ) -> Vec<(&'a str, &'a str)> {
-    match view {
-        Some(v) => cfg
-            .fields_for(v)
-            .into_iter()
-            .filter_map(|(name, f)| {
-                if grackle_db::field_return_type(name) != Some(grackle_db::Type::Str) {
-                    return None;
-                }
-                f.as_expr().map(|src| (name, src))
-            })
+    let named: Vec<(&str, &crate::config::Field)> = match view {
+        Some(v) => cfg.fields_for(v).into_iter().collect(),
+        None => cfg
+            .schema_fields()
+            .iter()
+            .map(|(n, f)| (n.as_str(), f))
             .collect(),
-        None => ["hero"]
-            .into_iter()
-            .filter(|n| grackle_db::field_return_type(n) == Some(grackle_db::Type::Str))
-            .filter_map(|n| cfg.field_expr(n).map(|src| (n, src)))
-            .collect(),
-    }
-}
-
-fn content_field_exprs<'a>(
-    cfg: &'a crate::config::Config,
-    view: Option<&str>,
-) -> Vec<(&'a str, &'a str)> {
-    match view {
-        Some(v) => cfg
-            .fields_for(v)
-            .into_iter()
-            .filter_map(|(name, f)| {
-                if grackle_db::field_return_type(name) != Some(grackle_db::Type::Content) {
-                    return None;
-                }
-                f.as_expr().map(|src| (name, src))
-            })
-            .collect(),
-        None => ["lede", "summary"]
-            .into_iter()
-            .filter(|n| grackle_db::field_return_type(n) == Some(grackle_db::Type::Content))
-            .filter_map(|n| cfg.field_expr(n).map(|src| (n, src)))
-            .collect(),
-    }
+    };
+    named
+        .into_iter()
+        .filter(|(n, _)| grackle_db::field_return_type(n) == Some(ty))
+        .filter_map(|(n, f)| f.as_expr().map(|src| (n, src)))
+        .collect()
 }
 
 /// Wrapper `row` for an aggregate page: furniture around already-concatenated

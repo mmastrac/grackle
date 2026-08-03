@@ -57,6 +57,9 @@ slot = { type = "string" }
 # usual spelling; a site that renames the axis declares that field instead.
 locale = { type = "string" }
 
+[schema.fields]
+hero = 'cover ? cover : image ? image : images(content)[0]'
+
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"
 
@@ -277,9 +280,6 @@ source = "."
 from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
-
-  [sets.published.fields]
-  hero = 'cover ? cover : image ? image : images(content)[0]'
 
 [routes.home]
 path = "/"

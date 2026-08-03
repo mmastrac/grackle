@@ -76,7 +76,7 @@ impl Config {
     /// Fence + rung-0 typing for every declared profile (§4a, MERGE.md E1/E2/R5).
     pub(crate) fn check_profiles(&self) -> Result<()> {
         // Site [schema] only (not .schema.toml); same parser as Schemas::set_site.
-        let declared = crate::schema::site_fields(&self.schema.fields, "grackle.toml [schema]")?;
+        let declared = crate::schema::site_fields(&self.schema.decls, "grackle.toml [schema]")?;
         let field_knowns = || {
             let mut names: Vec<&str> = declared.keys().map(String::as_str).collect();
             names.sort_unstable();
@@ -130,6 +130,29 @@ impl Config {
         Ok(())
     }
 
+    /// One computed field (§5f): an expression of a known return type, or a
+    /// literal where the field permits one. `whose` names the table for errors.
+    fn check_computed_field(&self, fname: &str, f: &Field, whose: &str) -> Result<()> {
+        match f {
+            Field::Expr(src) => {
+                let want = grackle_db::field_return_type(fname).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{whose}: field {fname:?} is not a known computed field \
+                         (have: summary, lede, toc, hero)"
+                    )
+                })?;
+                grackle_db::FieldExpr::parse(src, &self.field_expr_schema(), want)
+                    .map_err(|e| anyhow::anyhow!("{whose}: field {fname:?}: {e}"))?;
+            }
+            // A known computed field is derived; a literal cannot supply it.
+            Field::Value(_) if grackle_db::field_return_type(fname).is_some() => {
+                anyhow::bail!("{whose}: field {fname:?} must be an expression, not a literal value");
+            }
+            Field::Value(_) => {}
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         let cfg = self;
         for m in &cfg.metadata {
@@ -148,7 +171,7 @@ impl Config {
             );
         }
         let declared_route =
-            crate::schema::site_fields(&cfg.schema.fields, "grackle.toml [schema]")?;
+            crate::schema::site_fields(&cfg.schema.decls, "grackle.toml [schema]")?;
         {
             let row = grackle_model::row_schema();
             for (slot, fields) in [
@@ -215,30 +238,11 @@ impl Config {
                 }
             }
             for (fname, f) in &v.fields {
-                match f {
-                    Field::Expr(src) => {
-                        let want = grackle_db::field_return_type(fname).ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "view {vname}: field {fname:?} is not a known computed \
-                                 field (have: summary, toc, hero)"
-                            )
-                        })?;
-                        grackle_db::FieldExpr::parse(
-                            src,
-                            &self.field_expr_schema(),
-                            want,
-                        )
-                        .map_err(|e| anyhow::anyhow!("view {vname}: field {fname:?}: {e}"))?;
-                    }
-                    Field::Value(_) if fname == "summary" || fname == "toc" || fname == "hero" => {
-                        anyhow::bail!(
-                            "view {vname}: field {fname:?} must be an expression, \
-                             not a literal value"
-                        );
-                    }
-                    Field::Value(_) => {}
-                }
+                self.check_computed_field(fname, f, &format!("view {vname}"))?;
             }
+        }
+        for (fname, f) in &cfg.schema.fields {
+            self.check_computed_field(fname, f, "[schema.fields]")?;
         }
         // q32 archives
         {

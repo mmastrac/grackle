@@ -219,7 +219,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 /// Declared `[schema]` fields as part types for vocabulary derivation.
 fn part_fields_from_cfg(cfg: &Config) -> Vec<(String, grackle_source::schema::FieldType)> {
     cfg.schema
-        .fields
+        .decls
         .iter()
         .filter_map(|(name, val)| {
             let ty = val.get("type")?.as_str()?;

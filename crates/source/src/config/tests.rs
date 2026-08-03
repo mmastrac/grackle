@@ -82,6 +82,34 @@ fn chain_flattens_and_conjoins_filters() {
     assert_eq!(q.predicate().unwrap(), "(!draft && !hidden) && (!noindex)");
 }
 
+/// §5f: `[schema.fields]` is read as a bag and unions into every view, so a
+/// listing that declares no fields of its own still carries the row's hero.
+#[test]
+fn schema_fields_union_into_a_view() {
+    let c = cfg("[sets.recent]\nfrom = \"blog\"\n\
+         [schema.fields]\nhero = 'images(content)[0]'\n");
+    assert!(c.schema_fields().contains_key("hero"));
+    assert!(
+        c.fields_for("recent").contains_key("hero"),
+        "the bag reaches a view with no fields table"
+    );
+}
+
+/// A name outside the closed computed-field set (§5f) is a load error.
+#[test]
+fn an_unknown_schema_field_is_a_load_error() {
+    let e = cfg_err("[schema.fields]\nbogus = 'images(content)[0]'\n");
+    assert!(e.contains("[schema.fields]"), "{e}");
+    assert!(e.contains("not a known computed field"), "{e}");
+}
+
+/// A computed field wants an expression; a literal is a load error.
+#[test]
+fn a_schema_field_literal_is_a_load_error() {
+    let e = cfg_err("[schema.fields]\nhero = 42\n");
+    assert!(e.contains("must be an expression"), "{e}");
+}
+
 #[test]
 fn single_filter_is_not_parenthesised() {
     let c = cfg("[sets.published]\nfrom = \"blog\"\nwhere = \"!draft\"\n");
