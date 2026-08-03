@@ -59,6 +59,11 @@ pub(crate) fn render_bodies<'a>(
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
             let body = crate::store::read_body(&p.path)?;
+            let body = tags::desugar_math(
+                &body,
+                &p.path.display().to_string(),
+                cfg.widgets.contains_key("math"),
+            )?;
             let mut used = std::collections::BTreeSet::new();
             let expanded = tags::expand_used(&body, &cx, &mut used)?;
             // §6a row/view links: destinations resolve against the
@@ -143,8 +148,13 @@ pub(crate) fn render_page_bodies(
             links: Some(linkspace),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
+        let body = tags::desugar_math(
+            body,
+            &src.display().to_string(),
+            cfg.widgets.contains_key("math"),
+        )?;
         let mut used = std::collections::BTreeSet::new();
-        let expanded = tags::expand_used(body, &cx, &mut used)?;
+        let expanded = tags::expand_used(&body, &cx, &mut used)?;
         if expanded.contains("{%") {
             out.insert(
                 r.url.clone(),

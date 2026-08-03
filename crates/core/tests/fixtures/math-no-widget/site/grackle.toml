@@ -1,0 +1,5 @@
+root="."
+[site]
+url="https://example.test"
+title="X"
+author="T"

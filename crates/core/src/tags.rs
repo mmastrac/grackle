@@ -334,6 +334,61 @@ pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
     expand_used(body, cx, &mut used)
 }
 
+/// Desugar `$$…$$` display math to `{% math %}…{% endmath %}` so the `math`
+/// widget renders it (and pulls in its head). `$$` inside a fenced code block
+/// is left alone. A `$$` outside code with no `math` widget defined is an
+/// error, since the author asked for math the site cannot render.
+pub fn desugar_math(body: &str, source: &str, has_math_widget: bool) -> Result<String> {
+    if !body.contains("$$") {
+        return Ok(body.to_string());
+    }
+    let mut out = String::with_capacity(body.len() + 64);
+    let mut fence: Option<char> = None;
+    let mut replaced = false;
+    for line in body.split_inclusive('\n') {
+        let t = line.trim_start();
+        let opener = t
+            .starts_with("```")
+            .then_some('`')
+            .or_else(|| t.starts_with("~~~").then_some('~'));
+        match (fence, opener) {
+            (Some(c), Some(o)) if c == o => {
+                fence = None;
+                out.push_str(line);
+            }
+            (Some(_), _) => out.push_str(line),
+            (None, Some(o)) => {
+                fence = Some(o);
+                out.push_str(line);
+            }
+            (None, None) => replace_math(line, &mut out, &mut replaced),
+        }
+    }
+    if replaced && !has_math_widget {
+        bail!("{source}: `$$` math needs a `math` widget — declare one under [widgets]");
+    }
+    Ok(out)
+}
+
+/// Replace each `$$…$$` pair in one code-free span. An unpaired `$$` is left
+/// verbatim.
+fn replace_math(text: &str, out: &mut String, replaced: &mut bool) {
+    let mut rest = text;
+    while let Some(open) = rest.find("$$") {
+        let after = &rest[open + 2..];
+        let Some(close) = after.find("$$") else {
+            break;
+        };
+        out.push_str(&rest[..open]);
+        out.push_str("{% math %}");
+        out.push_str(&after[..close]);
+        out.push_str("{% endmath %}");
+        *replaced = true;
+        rest = &after[close + 2..];
+    }
+    out.push_str(rest);
+}
+
 /// Expand, recording into `used` which widgets fired so a caller can pull in
 /// their head fragments.
 pub fn expand_used(
@@ -602,6 +657,33 @@ mod widget_tests {
             },
         );
         w
+    }
+
+    #[test]
+    fn dollar_math_desugars_to_the_math_widget() {
+        let out = desugar_math("see $$a+b$$ now", "t", true).unwrap();
+        assert_eq!(out, "see {% math %}a+b{% endmath %} now");
+    }
+
+    #[test]
+    fn math_inside_a_code_fence_is_left_alone() {
+        let src = "before\n```\n$$x$$\n```\nafter $$y$$";
+        let out = desugar_math(src, "t", true).unwrap();
+        assert!(out.contains("```\n$$x$$\n```"), "{out}");
+        assert!(out.contains("after {% math %}y{% endmath %}"), "{out}");
+    }
+
+    #[test]
+    fn math_without_a_math_widget_is_an_error() {
+        let e = desugar_math("a $$b$$ c", "post.md", false)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("post.md") && e.contains("widget"), "{e}");
+    }
+
+    #[test]
+    fn an_unpaired_dollar_dollar_is_left_verbatim() {
+        assert_eq!(desugar_math("a $$ b", "t", true).unwrap(), "a $$ b");
     }
 
     #[test]
