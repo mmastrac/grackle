@@ -591,8 +591,8 @@ impl Config {
 
     /// The full row vocabulary a widget's expression argument may name: the
     /// built-in columns plus the `[schema]`-declared fields. (Per-subtree
-    /// `.schema.toml` fields are not in it — those live in the loader's
-    /// schemas, not the config.)
+    /// `.schema.toml` fields live in the loader's schemas, not the config, so
+    /// they are out of scope here.)
     pub fn row_expr_schema(&self) -> grackle_db::filter::Schema {
         let mut s = grackle_model::row_schema();
         for (k, t) in self.config_declared_schema() {

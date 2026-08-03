@@ -108,8 +108,8 @@ fn find_end_tag(s: &str, name: &str) -> Option<(usize, usize)> {
 ///
 /// - `on_tag(name, arg)` — `{% name arg %}`; `Ok(None)` leaves the tag verbatim.
 /// - `on_var(inner)` — `{{ inner }}`; `None` leaves the var verbatim.
-/// - `widgets` — `{% name arg="v" %}`, filling `{name}` holes; a `{body}` hole
-///   makes it paired (`… {% endname %}`), its absence self-closing.
+/// - `widgets` are `{% name arg="v" %}`, filling `{name}` holes. A `{body}`
+///   hole makes it paired (`{% endname %}`), its absence self-closing.
 pub fn expand(
     body: &str,
     source: &str,

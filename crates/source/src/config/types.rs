@@ -780,7 +780,7 @@ pub struct ShellDef {
 
 /// A custom widget: a wrapper template plus an optional `<head>` fragment
 /// pulled in on any page that uses it. `name = "<tmpl>"` is the template alone;
-/// `[widgets.name] template = … head = …` carries both.
+/// `[widgets.name] template = "..." head = "..."` carries both.
 #[derive(Debug, Clone)]
 pub struct WidgetDef {
     pub template: String,

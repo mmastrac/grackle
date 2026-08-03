@@ -338,7 +338,7 @@ pub fn expand(body: &str, cx: &Ctx) -> Result<String> {
     expand_used(body, cx, &mut used)
 }
 
-/// Desugar `$$…$$` display math to `{% math %}…{% endmath %}` so the `math`
+/// Desugar `$$...$$` display math to `{% math %}...{% endmath %}` so the `math`
 /// widget renders it (and pulls in its head). `$$` inside a fenced code block
 /// is left alone. A `$$` outside code with no `math` widget defined is an
 /// error, since the author asked for math the site cannot render.
@@ -369,12 +369,12 @@ pub fn desugar_math(body: &str, source: &str, has_math_widget: bool) -> Result<S
         }
     }
     if replaced && !has_math_widget {
-        bail!("{source}: `$$` math needs a `math` widget — declare one under [widgets]");
+        bail!("{source}: `$$` math needs a `math` widget: declare one under [widgets]");
     }
     Ok(out)
 }
 
-/// Replace each `$$…$$` pair in one code-free span. An unpaired `$$` is left
+/// Replace each `$$...$$` pair in one code-free span. An unpaired `$$` is left
 /// verbatim.
 fn replace_math(text: &str, out: &mut String, replaced: &mut bool) {
     let mut rest = text;
