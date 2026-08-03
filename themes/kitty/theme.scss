@@ -1,0 +1,258 @@
+// kitty: a centered reading column, IBM Plex, blue links, a full-bleed blurred
+// header, light/dark by OS preference. A port of the Zola "serene" theme, as
+// worn by the midnight-kitty recipe blog — dark centered chrome, recipe prose,
+// tables and callout blockquotes.
+//
+// Every literal lives in `_tokens.scss`; nothing below names a colour or font.
+
+@import "tokens";
+
+html {
+	background: var(--bg);
+	color: var(--fg);
+}
+
+body {
+	margin: 0 auto;
+	max-width: var(--measure);
+	padding: 0 15px 3rem;
+	font: 16px/1.5 var(--font-body);
+	color: var(--fg);
+	background: var(--bg);
+}
+
+a {
+	color: var(--accent);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+}
+
+// ------------------------------------------------------------------ header
+.site-header {
+	// serene's `blur_effect`: a sticky bar with a slightly transparent,
+	// backdrop-blurred background — content scrolls under it, softened. The
+	// tint keeps text legible where a pure backdrop-filter would not.
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	margin-bottom: 1.5rem;
+	background: color-mix(in srgb, var(--bg) 72%, transparent);
+	-webkit-backdrop-filter: blur(8px);
+	backdrop-filter: blur(8px);
+	border-bottom: 1.5px solid var(--accent);
+
+	// Full-bleed: the body is a centered max-width column, so this margin pair
+	// pulls the bar out to the viewport edges regardless of column width. The
+	// content re-centers itself in .header-inner.
+	margin-left: calc(50% - 50vw);
+	margin-right: calc(50% - 50vw);
+
+	.header-inner {
+		max-width: var(--measure);
+		margin: 0 auto;
+		padding: 0.85rem 15px;
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 0.5em 1.25em;
+	}
+
+	.site-title {
+		font-size: 1.35rem;
+		font-weight: bold;
+		text-decoration: none;
+		color: var(--fg);
+	}
+
+	.site-nav ul {
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1em;
+		margin: 0;
+		padding: 0;
+
+		a {
+			text-decoration: none;
+			color: var(--fg-muted);
+
+			&:hover {
+				color: var(--accent);
+			}
+		}
+	}
+}
+
+// ------------------------------------------------------------------ document
+.prose {
+	.crumbs {
+		font-size: 0.85rem;
+		color: var(--fg-muted);
+		margin-bottom: 1rem;
+
+		.crumb:not(:last-child)::after {
+			content: " :: ";
+			color: var(--fg-muted);
+		}
+		a {
+			text-decoration: none;
+		}
+	}
+
+	.doc-title {
+		font-size: 1.9rem;
+		line-height: 1.2;
+		margin: 0 0 0.4em;
+	}
+
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4em;
+		margin: 0 0 1.5em;
+		padding: 0;
+
+		.pill {
+			font-size: 0.8rem;
+			text-decoration: none;
+			color: var(--accent);
+			background: var(--accent-pale);
+			padding: 0.15em 0.6em;
+			border-radius: 999px;
+		}
+	}
+
+	// No hero: serene showed a recipe's photo inline in the body, once. The
+	// derived `hero` field is just the first body image, so a doc-hero would
+	// duplicate it (row.html drops the slot).
+	.doc-body img {
+		max-width: 100%;
+		height: auto;
+		border-radius: var(--radius);
+		display: block;
+		margin: 1.5em auto;
+	}
+
+	.doc-body {
+		h1, h2, h3, h4 {
+			line-height: 1.25;
+			margin: 1.6em 0 0.6em;
+		}
+
+		p {
+			margin: 0.9em 0;
+		}
+
+		a {
+			color: var(--accent);
+		}
+
+		blockquote {
+			margin: 1.2em 0;
+			padding: 0.4em 1em;
+			border-left: 3px solid var(--accent);
+			background: var(--accent-pale);
+			color: var(--fg-muted);
+
+			p { margin: 0.4em 0; }
+		}
+
+		:not(pre) > code {
+			font-family: var(--font-mono);
+			font-size: 0.9em;
+			color: var(--code-fg);
+			background: var(--accent-pale);
+			padding: 0.1em 0.35em;
+			border-radius: 2px;
+		}
+
+		pre {
+			font-family: var(--font-mono);
+			font-size: 0.88em;
+			background: var(--accent-pale);
+			padding: 0.9em 1em;
+			border-radius: var(--radius);
+			overflow-x: auto;
+			line-height: 1.45;
+
+			code { background: none; padding: 0; }
+		}
+
+		table {
+			border-collapse: collapse;
+			width: 100%;
+			margin: 1.3em 0;
+			font-size: 0.95em;
+
+			th, td {
+				border: 1px solid var(--line);
+				padding: 0.5em 0.7em;
+				text-align: left;
+			}
+			th {
+				background: var(--accent-pale);
+			}
+		}
+
+		hr {
+			border: none;
+			border-top: 1px solid var(--line);
+			margin: 2em 0;
+		}
+	}
+}
+
+// ------------------------------------------------------------------ listings
+// A listing (recipes landing, blog index): one link per row, description below.
+.post {
+	display: block;
+	text-decoration: none;
+	color: var(--accent);
+	padding: 0.5em 0.7em;
+	margin: 2px 0;
+	border-radius: 2px;
+
+	&:hover {
+		background: var(--accent-pale);
+	}
+
+	.post-title {
+		font-size: 1.15em;
+		font-weight: bold;
+	}
+
+	.post-note {
+		display: block;
+		color: var(--fg-muted);
+		font-size: 0.9em;
+		margin-top: 0.15em;
+	}
+}
+
+// ------------------------------------------------------------------ relations
+.relations {
+	margin-top: 2.5em;
+	border-top: 1px solid var(--line);
+	padding-top: 1em;
+
+	.relation-label {
+		font-size: 1rem;
+		color: var(--fg-muted);
+	}
+	.neighbor {
+		display: block;
+		padding: 0.2em 0;
+	}
+}
+
+// ------------------------------------------------------------------ footer
+.site-footer {
+	margin-top: 3rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+	text-align: center;
+
+	a { color: var(--fg-muted); }
+}

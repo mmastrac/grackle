@@ -1,0 +1,22 @@
+<article class="prose">
+	<nav class="crumbs" data-slot="crumbs" data-fragment="crumb" aria-label="Breadcrumbs">
+		<span class="crumb"><a data-slot-href="url" data-slot="label"></a></span>
+	</nav>
+	<h1 class="doc-title" data-slot="title"></h1>
+	<p class="tags" data-slot="tags" data-fragment="tag">
+		<a class="pill" data-slot-href="url" data-slot="name"></a>
+	</p>
+	<div data-slot="intro"></div>
+	<div class="doc-body" data-slot="content"></div>
+	<nav class="pagination" data-slot="pagination" data-fragment="pagination" aria-label="Pagination"></nav>
+	<nav class="relations" data-slot="relations" data-fragment="relation" aria-label="Related">
+		<section class="relation" data-slot-data-relation="relation">
+			<h3 class="relation-label" data-slot="label"></h3>
+			<div class="relation-items" data-slot="items" data-fragment="row--neighbor">
+				<a class="neighbor" data-slot-href="url">
+					<span class="neighbor-title" data-slot="title"></span>
+				</a>
+			</div>
+		</section>
+	</nav>
+</article>

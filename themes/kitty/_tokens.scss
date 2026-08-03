@@ -1,0 +1,37 @@
+// kitty — the knob panel. Every literal this theme owns lives here: no colour
+// or font name appears anywhere below it, so retuning is editing this file and
+// nothing else. A port of the Zola "serene" palette (its light/dark blues),
+// moved from a JS `.dark` toggle to `prefers-color-scheme` — same look, no
+// script. kitty keeps its own short palette rather than the full gallery
+// vocabulary; the names still say what they paint.
+
+:root {
+	--bg: #fff;
+	--fg: #444;
+	--fg-muted: #545967;
+	--accent: #376dd9;
+	--accent-pale: #698bcf1c;
+	--line: #e6e6e6;
+	--code-fg: #444;
+
+	// IBM Plex if the reader has it, a system stack otherwise — a gallery
+	// theme ships no font files (themes/ is not served), so the webfont is an
+	// enhancement, never a dependency.
+	--font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+	--measure: 750px;
+	--radius: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #202124;
+		--fg: #ddd;
+		--fg-muted: #a0a0a0;
+		--accent: #689afd;
+		--accent-pale: #93acdd1c;
+		--line: #34363b;
+		--code-fg: #d2d2d2;
+	}
+}
