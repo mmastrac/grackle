@@ -1,0 +1,8 @@
+root = "."
+[site]
+url = "https://example.test"
+title = "W"
+author = "T"
+
+[widgets]
+byline = "<p class=\"byline\">{who}: {label}</p>"

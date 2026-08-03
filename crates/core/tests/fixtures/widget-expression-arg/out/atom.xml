@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+	<feed xmlns="http://www.w3.org/2005/Atom">
+	<title><![CDATA[W]]></title>
+	<link href="https://example.test/atom.xml" rel="self"/>
+	<link href="https://example.test/"/>
+	<updated>2026-01-01T00:00:00+00:00</updated>
+	<id>https://example.test/</id>
+	<author>
+		<name><![CDATA[T]]></name>
+	</author>
+	<generator uri="http://jekyllrb.com/">Jekyll</generator>
+	<entry>
+		<title type="html"><![CDATA[Hello]]></title>
+		<link href="https://example.test/blog/2026/01/01/hello/"/>
+		<updated>2026-01-01T00:00:00+00:00</updated>
+		<id>https://example.test/blog/2026/01/01/hello</id>
+		<content type="html"><![CDATA[<p class="byline">Hello: posted</p>
+]]></content>
+	</entry>
+</feed>

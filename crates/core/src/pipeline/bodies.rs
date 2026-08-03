@@ -55,6 +55,7 @@ pub(crate) fn render_bodies<'a>(
                 thumbs: Some(thumbs),
                 widgets: Some(&cfg.widgets),
                 cfg: Some(cfg),
+                row: Some(p),
                 links: Some(linkspace),
                 ..tags::Ctx::new(db, &cfg.site.baseurl, p.path.display().to_string())
             };
@@ -145,6 +146,7 @@ pub(crate) fn render_page_bodies(
             theme: Some(row_thm),
             widgets: Some(&cfg.widgets),
             cfg: Some(cfg),
+            row,
             links: Some(linkspace),
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };

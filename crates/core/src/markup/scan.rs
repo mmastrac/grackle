@@ -17,45 +17,68 @@ fn split_name(inner: &str) -> (&str, &str) {
     }
 }
 
-/// Parse `key="value" key2='value2'` widget arguments. Values are quoted so
-/// they may hold spaces; the quote may be single or double.
-fn parse_args(mut rest: &str) -> Result<Vec<(String, String)>, String> {
+/// A widget argument's value: a quoted literal, or a bare expression evaluated
+/// against the row in the filter language.
+enum Arg {
+    Literal(String),
+    Expr(String),
+}
+
+/// Parse `key="literal" key2=expr` widget arguments. A quoted value (single or
+/// double, so it may hold spaces) is a literal; a bare token is an expression.
+fn parse_args(mut rest: &str) -> Result<Vec<(String, Arg)>, String> {
     let mut args = Vec::new();
     rest = rest.trim_start();
     while !rest.is_empty() {
         let eq = rest
             .find('=')
-            .ok_or_else(|| format!("expected name=\"value\", got {rest:?}"))?;
+            .ok_or_else(|| format!("expected name=value, got {rest:?}"))?;
         let key = rest[..eq].trim();
         if key.is_empty() || !key.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(format!("{key:?} is not an argument name"));
         }
         let after = rest[eq + 1..].trim_start();
-        let quote = match after.chars().next() {
-            Some(q @ ('"' | '\'')) => q,
-            _ => return Err(format!("argument `{key}` needs a quoted value")),
+        let (arg, tail) = match after.chars().next() {
+            Some(quote @ ('"' | '\'')) => {
+                let val = &after[1..];
+                let end = val
+                    .find(quote)
+                    .ok_or_else(|| format!("unterminated value for `{key}`"))?;
+                (Arg::Literal(val[..end].to_string()), &val[end + 1..])
+            }
+            None => return Err(format!("argument `{key}` has no value")),
+            _ => {
+                let end = after.find(char::is_whitespace).unwrap_or(after.len());
+                (Arg::Expr(after[..end].to_string()), &after[end..])
+            }
         };
-        let val = &after[1..];
-        let end = val
-            .find(quote)
-            .ok_or_else(|| format!("unterminated value for `{key}`"))?;
-        args.push((key.to_string(), val[..end].to_string()));
-        rest = val[end + 1..].trim_start();
+        args.push((key.to_string(), arg));
+        rest = tail.trim_start();
     }
     Ok(args)
 }
 
 /// Fill a widget template: `{body}` takes the expanded body verbatim (trusted
-/// HTML), each `{name}` takes its argument escaped (author text).
-fn fill(tmpl: &str, args: &[(String, String)], body: Option<&str>) -> String {
+/// HTML), each `{name}` takes its argument escaped (author text). A bare
+/// argument is evaluated by `eval_arg` first.
+fn fill(
+    tmpl: &str,
+    args: &[(String, Arg)],
+    body: Option<&str>,
+    eval_arg: &mut dyn FnMut(&str) -> Result<String>,
+) -> Result<String> {
     let mut s = tmpl.to_string();
     if let Some(b) = body {
         s = s.replace("{body}", b);
     }
     for (k, v) in args {
-        s = s.replace(&format!("{{{k}}}"), &esc(v));
+        let value = match v {
+            Arg::Literal(v) => v.clone(),
+            Arg::Expr(e) => eval_arg(e)?,
+        };
+        s = s.replace(&format!("{{{k}}}"), &esc(&value));
     }
-    s
+    Ok(s)
 }
 
 fn esc(s: &str) -> String {
@@ -94,9 +117,18 @@ pub fn expand(
     used: &mut BTreeSet<String>,
     mut on_tag: impl FnMut(&str, &str) -> Result<Option<String>>,
     mut on_var: impl FnMut(&str) -> Option<String>,
+    mut eval_arg: impl FnMut(&str) -> Result<String>,
 ) -> Result<String> {
     // Dyn so nested widget bodies don't stack `impl FnMut` layers forever.
-    expand_inner(body, source, widgets, used, &mut on_tag, &mut on_var)
+    expand_inner(
+        body,
+        source,
+        widgets,
+        used,
+        &mut on_tag,
+        &mut on_var,
+        &mut eval_arg,
+    )
 }
 
 fn expand_inner(
@@ -106,6 +138,7 @@ fn expand_inner(
     used: &mut BTreeSet<String>,
     on_tag: &mut dyn FnMut(&str, &str) -> Result<Option<String>>,
     on_var: &mut dyn FnMut(&str) -> Option<String>,
+    eval_arg: &mut dyn FnMut(&str) -> Result<String>,
 ) -> Result<String> {
     let mut out = String::with_capacity(body.len() + 256);
     let mut rest = body;
@@ -148,11 +181,12 @@ fn expand_inner(
                         used,
                         on_tag,
                         on_var,
+                        eval_arg,
                     )?;
-                    out.push_str(&fill(tmpl, &args, Some(&nested)));
+                    out.push_str(&fill(tmpl, &args, Some(&nested), eval_arg)?);
                     rest = &after[resume..];
                 } else {
-                    out.push_str(&fill(tmpl, &args, None));
+                    out.push_str(&fill(tmpl, &args, None, eval_arg)?);
                     rest = &rest[next + end + close.len()..];
                 }
                 continue;
@@ -180,7 +214,7 @@ fn expand_inner(
 mod tests {
     use super::*;
 
-    /// Expand with no engine tag/var handlers, discarding the used set.
+    /// Expand with no engine tag/var handlers; expression args echo as `[expr]`.
     fn go(body: &str, w: Option<&BTreeMap<String, WidgetDef>>) -> String {
         expand(
             body,
@@ -189,6 +223,7 @@ mod tests {
             &mut BTreeSet::new(),
             |_, _| Ok(None),
             |_| None,
+            |e| Ok(format!("[{e}]")),
         )
         .unwrap()
     }
@@ -231,6 +266,7 @@ mod tests {
                 assert_eq!(inner, "x");
                 Some("X".into())
             },
+            |_| Ok(String::new()),
         )
         .unwrap();
         assert_eq!(out, "<there> / X");
@@ -286,8 +322,19 @@ mod tests {
             &mut used,
             |_, _| Ok(None),
             |_| None,
+            |_| Ok(String::new()),
         )
         .unwrap();
         assert_eq!(used.iter().cloned().collect::<Vec<_>>(), ["a", "b"]);
+    }
+
+    #[test]
+    fn bare_arg_is_an_expression_quoted_is_literal() {
+        let w = widgets(&[("t", "<i>{a}</i><i>{b}</i>")]);
+        // `a=title` is an expression (echoed [title]); `b="raw"` is a literal.
+        assert_eq!(
+            go(r#"{% t a=title b="raw" %}"#, Some(&w)),
+            "<i>[title]</i><i>raw</i>"
+        );
     }
 }

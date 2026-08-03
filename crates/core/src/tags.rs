@@ -35,6 +35,9 @@ pub struct Ctx<'a> {
     pub widgets: Option<&'a std::collections::BTreeMap<String, crate::config::WidgetDef>>,
     /// Site config — archive pills and `{% view %}` member fill need it.
     pub cfg: Option<&'a crate::config::Config>,
+    /// The row being expanded, against which a widget's expression arguments
+    /// evaluate. None disables expression arguments.
+    pub row: Option<&'a crate::model::Row>,
     /// IO.md §4a: the address book, for the affordances this expander
     /// generates. None leaves `{% image %}` with the source path it was given,
     /// which is what every caller that has no `LinkSpace` (the unit tests) is
@@ -59,6 +62,7 @@ impl<'a> Ctx<'a> {
             theme: None,
             widgets: None,
             cfg: None,
+            row: None,
             links: None,
             embed: None,
         }
@@ -414,7 +418,32 @@ pub fn expand_used(
                 prepend_baseurl(inner, cx)
             }
         },
+        |expr| eval_arg(cx, expr),
     )
+}
+
+/// Evaluate a bare widget argument as a filter expression over the row.
+fn eval_arg(cx: &Ctx, expr: &str) -> Result<String> {
+    use grackle_db::Value;
+    let (Some(cfg), Some(row)) = (cx.cfg, cx.row) else {
+        bail!(
+            "{}: widget argument `{expr}` is an expression, which needs a row",
+            cx.source
+        );
+    };
+    let parsed = grackle_db::FieldExpr::parse(expr, &cfg.row_expr_schema(), grackle_db::Type::Str)
+        .map_err(|e| anyhow::anyhow!("{}: widget argument `{expr}`: {e}", cx.source))?;
+    let bind = crate::passes::preview::FieldBind {
+        row,
+        content: grackle_db::Content::new(Vec::new()),
+    };
+    Ok(match parsed.eval(&bind) {
+        Value::Str(s) => s,
+        Value::Int(i) => i.to_string(),
+        Value::Double(d) => d.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    })
 }
 
 #[cfg(test)]
