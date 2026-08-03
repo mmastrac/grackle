@@ -684,6 +684,23 @@ impl Fragments {
             None => None,
         };
 
+        // Rule 2b: a source-less media element deletes itself. An <img> (or
+        // <iframe>, <video>…) whose `src` comes from an absent or empty part
+        // has nothing to show — the attribute-hole equivalent of rule 2's
+        // empty content. A missing `href` on an <a> is deliberately different
+        // (rule 3 leaves the inert link, because its text still means
+        // something); `src` is the one attribute whose absence empties the
+        // element. So an imageless `hero` collapses instead of shipping a
+        // broken <img>.
+        for a in &el.attrs {
+            if let Attr::Slot(attr, pname) = a {
+                if attr == "src" && !matches!(m.get(pname), Some(Part::Text(s)) if !s.is_empty()) {
+                    return;
+                }
+            }
+        }
+
+        let start = out.len();
         out.push('<');
         out.push_str(&el.tag);
         for a in &el.attrs {
@@ -720,6 +737,7 @@ impl Fragments {
             return;
         }
         out.push('>');
+        let body_start = out.len();
 
         // Rule 1: a slotted element's content is the part, not its children.
         match part {
@@ -747,8 +765,39 @@ impl Fragments {
             None => self.render_nodes(&el.children, m, out, false),
         }
 
+        // Rule 2c: a media wrapper whose image collapsed collapses too. When an
+        // <img> loses its `src` (rule 2b) the `<figure>`/`<div>` around it
+        // renders empty, and an empty box still paints a theme's `.doc-hero`
+        // border or margin — so an imageless hero must leave nothing at all.
+        // Scoped tightly: the wrapper collapses only if its whole subtree holds
+        // NO content slot, just attribute-holes (`data-slot-src`, …). That is
+        // what tells a hero (`<img data-slot-src>`) apart from a footer
+        // (`<p data-slot="copyright">`) or a card link — those own a content
+        // slot, so rule 2 governs their emptiness and the landmark stays. The
+        // check propagates bottom-up through nested media wrappers and never
+        // touches the root (it always carries the document).
+        if el.slot.is_none()
+            && !root
+            && out[body_start..].trim().is_empty()
+            && el.children.iter().any(|n| matches!(n, Node::Element(_)))
+            && !any_content_slot(&el.children)
+        {
+            out.truncate(start);
+            return;
+        }
+
         let _ = write!(out, "</{}>", el.tag);
     }
+}
+
+/// Does any element in this subtree carry a content slot (`data-slot`)? Used
+/// by rule 2c to keep the collapse to pure-media wrappers (an imageless hero),
+/// never a wrapper around a content slot the theme placed on purpose.
+fn any_content_slot(nodes: &[Node]) -> bool {
+    nodes.iter().any(|n| match n {
+        Node::Element(el) => el.slot.is_some() || any_content_slot(&el.children),
+        _ => false,
+    })
 }
 
 fn collect_slot_tags(nodes: &[Node], out: &mut Vec<(String, String)>) {
