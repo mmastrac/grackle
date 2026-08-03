@@ -43,7 +43,9 @@ extends = "none"
 # here for guide pages (MERGE.md C1 / §4e). `shell` and `slot` join them for
 # the rules below to write (IO.md I7c). `theme` is still NOT declared — the
 # theme axis sets it per member at render, and declaring what nothing writes
-# is how a vocabulary stops meaning anything.
+# is how a vocabulary stops meaning anything. `cover`/`image` are the hero
+# sources the `published` set's `hero` field reads (below): declining the base
+# declined them too, so they are restated here like everything else it wrote.
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
@@ -54,6 +56,8 @@ description = { type = "string" }
 date = { type = "date" }
 slot = { type = "string" }
 shell = { type = "string" }
+cover = { type = "image" }
+image = { type = "image" }
 
 # Declining the base also declines its head (§4e). This block is the base's,
 # copied — which is the honest cost of `extends = "none"` and worth seeing in
@@ -120,6 +124,7 @@ values = [
   'miroir', 'miroir:rose', 'miroir:forest', 'miroir:slate',
   'almanac',
   'recipes', 'recipes:spicy',
+  'kitty',
 ]
 field = "theme"
 
