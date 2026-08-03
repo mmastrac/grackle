@@ -2,7 +2,9 @@
 //! against schemas, fill from part maps at render.
 //!
 //! Hole algebra: `data-slot` replaces content (empty → delete element);
-//! `data-slot-attr` sets/omits attributes; flags stamp `data-*` on the root.
+//! `data-slot-attr` sets/omits attributes; a source-less media element and an
+//! empty wrapper both collapse (rules 2b/2c below), unless the wrapper carries
+//! `data-no-collapse`; flags stamp `data-*` on the root.
 //! Load-time checks only — render is infallible.
 
 use anyhow::{bail, Result};
@@ -61,6 +63,9 @@ struct Element {
     slot: Option<String>,
     /// `data-fragment` — override the child fragment for a stream/map slot.
     fragment: Option<String>,
+    /// `data-no-collapse` — keep this element even when it renders empty
+    /// (rule 2c's opt-out). A frame a theme wants present regardless.
+    no_collapse: bool,
     children: Vec<Node>,
     void: bool,
     line: usize,
@@ -765,22 +770,20 @@ impl Fragments {
             None => self.render_nodes(&el.children, m, out, false),
         }
 
-        // Rule 2c: a media wrapper whose image collapsed collapses too. When an
-        // <img> loses its `src` (rule 2b) the `<figure>`/`<div>` around it
-        // renders empty, and an empty box still paints a theme's `.doc-hero`
-        // border or margin — so an imageless hero must leave nothing at all.
-        // Scoped tightly: the wrapper collapses only if its whole subtree holds
-        // NO content slot, just attribute-holes (`data-slot-src`, …). That is
-        // what tells a hero (`<img data-slot-src>`) apart from a footer
-        // (`<p data-slot="copyright">`) or a card link — those own a content
-        // slot, so rule 2 governs their emptiness and the landmark stays. The
-        // check propagates bottom-up through nested media wrappers and never
-        // touches the root (it always carries the document).
+        // Rule 2c: an empty wrapper collapses. A non-slot element that had
+        // element children (so it is a wrapper, not an authored-empty `<div>`)
+        // but rendered nothing had only holes, and they are all gone — an empty
+        // box still paints a theme's border, margin or frame, so rewind past
+        // it. This is what makes an imageless hero, a copyright-less footer, or
+        // an empty section leave no trace; it propagates bottom-up through
+        // nesting. A theme keeps a frame it wants present regardless with
+        // `data-no-collapse`, and the root element never collapses (it always
+        // carries the document).
         if el.slot.is_none()
             && !root
+            && !el.no_collapse
             && out[body_start..].trim().is_empty()
             && el.children.iter().any(|n| matches!(n, Node::Element(_)))
-            && !any_content_slot(&el.children)
         {
             out.truncate(start);
             return;
@@ -788,16 +791,6 @@ impl Fragments {
 
         let _ = write!(out, "</{}>", el.tag);
     }
-}
-
-/// Does any element in this subtree carry a content slot (`data-slot`)? Used
-/// by rule 2c to keep the collapse to pure-media wrappers (an imageless hero),
-/// never a wrapper around a content slot the theme placed on purpose.
-fn any_content_slot(nodes: &[Node]) -> bool {
-    nodes.iter().any(|n| match n {
-        Node::Element(el) => el.slot.is_some() || any_content_slot(&el.children),
-        _ => false,
-    })
 }
 
 fn collect_slot_tags(nodes: &[Node], out: &mut Vec<(String, String)>) {
@@ -982,6 +975,7 @@ impl<'a> Parser<'a> {
             attrs: Vec::new(),
             slot: None,
             fragment: None,
+            no_collapse: false,
             children: Vec::new(),
             void: VOID.contains(&tag.as_str()),
             line,
@@ -1026,6 +1020,9 @@ impl<'a> Parser<'a> {
                     el.fragment =
                         Some(value.ok_or_else(|| self.err("data-fragment needs a value"))?)
                 }
+                // A directive, consumed like data-fragment: a build hint, not
+                // emitted. `<footer data-no-collapse>` renders even when empty.
+                "data-no-collapse" => el.no_collapse = true,
                 _ if name.starts_with("data-slot-") => {
                     let attr = name["data-slot-".len()..].to_string();
                     let part = value.ok_or_else(|| self.err(&format!("{name} needs a value")))?;

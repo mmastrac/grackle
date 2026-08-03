@@ -1,0 +1,10 @@
+root = "."
+[site]
+url = "https://example.test"
+title = "Framed"
+author = "Tester"
+theme = "framed"
+
+[[collections]]
+source = "."
+exclude = ["themes/**"]

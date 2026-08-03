@@ -309,9 +309,10 @@ need the *site* to add the script, not the theme.)
   the body." If your theme has a hero slot *and* the image is also in the
   body, it shows twice. Either drop the hero slot (if photos live in the body)
   or move the image to a `cover:` field that isn't in the body.
-- **A blank broken image.** A page with no hero image still emits an empty
-  `<img>`. Hide it in CSS (`.hero img:not([src]) { display:none }`) or don't
-  place the hero slot.
+- **A blank hero on imageless pages.** The engine handles this for you: an
+  `<img>` with no source, and the empty wrapper around it, collapse to nothing
+  (so no broken icon and no stray bordered box). If you *want* a frame to
+  render even when empty, mark it `data-no-collapse`.
 
 ---
 
