@@ -67,30 +67,8 @@ fn url_to_path(url: &str) -> String {
     }
 }
 
-/// The one value in a rendered site that is not a function of its input: the
-/// feed's `<updated>`, which is wall-clock. Everything else that looks like a
-/// timestamp — per-entry `<updated>`, the sitemap's `<lastmod>` — is derived
-/// from a row's `date` and is stable across runs.
-fn normalize(path: &str, bytes: &[u8]) -> Vec<u8> {
-    if !path.ends_with(".xml") {
-        return bytes.to_vec();
-    }
-    let text = String::from_utf8_lossy(bytes);
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text.as_ref();
-    // Only the FIRST `<updated>` — the feed's own. Entry-level ones follow it
-    // and are content-derived, so blanking them would hide a real regression.
-    if let Some(i) = rest.find("<updated>") {
-        let j = rest[i..].find("</updated>").map(|k| i + k);
-        if let Some(j) = j {
-            out.push_str(&rest[..i]);
-            out.push_str("<updated>{{WALL-CLOCK}}");
-            rest = &rest[j..];
-        }
-    }
-    out.push_str(rest);
-    out.into_bytes()
-}
+// A build is a pure function of its inputs: the feed's `<updated>` reads the
+// newest entry's date (`shells::modified`), so fixtures compare raw bytes.
 
 fn read_tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut out = BTreeMap::new();
@@ -144,13 +122,15 @@ fn compare(
         let Some(got) = actual.get(name) else {
             continue;
         };
-        let (want, got) = (normalize(name, want), normalize(name, got));
         if want == got {
             continue;
         }
         let (sizes, texts) = (
             (want.len(), got.len()),
-            (String::from_utf8(want), String::from_utf8(got)),
+            (
+                String::from_utf8(want.clone()),
+                String::from_utf8(got.clone()),
+            ),
         );
         problems.push(match texts {
             (Ok(w), Ok(g)) => format!("{name} differs:{}", first_line_diff(&w, &g)),

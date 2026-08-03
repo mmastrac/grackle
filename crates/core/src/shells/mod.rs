@@ -6,6 +6,7 @@
 
 pub mod atom;
 pub mod css;
+pub mod modified;
 pub mod script;
 pub mod search;
 pub mod sitemap;

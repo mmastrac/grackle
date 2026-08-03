@@ -56,11 +56,12 @@ pub(crate) fn emit(
             .filter_map(|k| db.routes.get(k))
             .map(|r| {
                 let loc = format!("{}{}", site.url, r.url);
-                // `lastmod` follows the DATE, not the table — a dated tree
-                // row gets one too (q51).
+                // `lastmod` follows the date, not the table: a dated tree row
+                // gets one too. Same `modified` source the feed's `<updated>`
+                // reads, so the two agree by construction.
                 let lastmod = db
                     .row_by_url(&r.url)
-                    .and_then(|p| p.as_date("date"))
+                    .and_then(super::modified::of)
                     .map(render::xmlschema);
                 (loc, lastmod)
             })

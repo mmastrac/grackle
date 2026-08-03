@@ -91,7 +91,9 @@ pub fn xml(site: &Site, self_path: &str, updated: &str, entries: &[(&Row, &str)]
     s.push_str("\t<generator uri=\"http://jekyllrb.com/\">Jekyll</generator>\n");
     for (p, body) in entries {
         let content = cdata_escape(&feed_images(&expand_urls(body, site.url)));
-        let updated = p.as_date("date").map(render::xmlschema).unwrap_or_default();
+        let updated = super::modified::of(p)
+            .map(render::xmlschema)
+            .unwrap_or_default();
         s.push_str("\t<entry>\n");
         let _ = writeln!(
             s,
@@ -131,9 +133,6 @@ pub(crate) fn emit(
     out_map: &mut SiteOutput,
     stats: &mut Stats,
 ) {
-    let updated = chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%S+00:00")
-        .to_string();
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
         let Some(v) = cfg.views.get(view) else {
@@ -158,10 +157,25 @@ pub(crate) fn emit(
                 )
             })
             .collect();
+        // The feed's <updated> is the newest entry it carries, a pure function
+        // of the posts. A feed with no dated entry falls back to build time so
+        // the required element stays valid. Posts are dated, so a real feed
+        // never does.
+        let updated = super::modified::latest(entries.iter().map(|(p, _)| *p))
+            .map(render::xmlschema)
+            .unwrap_or_else(build_time);
         let body = xml(site, &r.url, &updated, &entries);
         out_map.insert(r.url.clone(), body.into_bytes());
         stats.serialized += 1;
     }
+}
+
+/// Build wall-clock: the fallback that keeps a dateless feed's required
+/// `<updated>` valid. A feed with posts never reaches it.
+fn build_time() -> String {
+    chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S+00:00")
+        .to_string()
 }
 
 #[cfg(test)]
