@@ -1,11 +1,11 @@
 //! git as a metadata provider: each tracked file's last non-merge commit.
 //!
 //! Cached by HEAD. Git data changes only when a commit lands, so HEAD is the
-//! whole key — a file's last commit cannot move while HEAD stands, whatever
-//! its mtime does. Repeated builds between commits reuse the cache and never
-//! walk history. (A content-derived overlay like outbound links would cache by
-//! the row's `version`, the mtime/size fingerprint — the other layer, for
-//! when such an overlay exists.)
+//! whole key: a file's last commit cannot move while HEAD stands, whatever its
+//! mtime does. Repeated builds between commits reuse the cache and never walk
+//! history. (A content-derived overlay like outbound links would cache by the
+//! row's `version`, the mtime/size fingerprint, instead: the other keying
+//! layer, for when such an overlay exists.)
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -17,7 +17,7 @@ use std::process::Command;
 #[derive(Clone, Debug)]
 pub struct GitMeta {
     pub commit: String,
-    /// Committer date, `YYYY-MM-DD` — same shape as a `date` field.
+    /// Committer date, `YYYY-MM-DD`, the shape a `date` field takes.
     pub date: String,
     pub author: String,
     pub subject: String,
@@ -95,9 +95,9 @@ fn write_cache(dir: &Path, head: &str, map: &HashMap<PathBuf, GitMeta>) {
 }
 
 /// Every tracked file's last non-merge commit, root-relative. Empty when the
-/// tree is no usable git repo — no git, no repo, or shallow. A shallow clone
+/// tree is no usable git repo (no git, no repo, or shallow). A shallow clone
 /// warns: its truncated history would report one commit for every file, and
-/// the metadata was asked for, so silence would ship wrong dates.
+/// the site asked for the metadata, so silence would ship wrong dates.
 pub fn last_commits(root: &Path) -> HashMap<PathBuf, GitMeta> {
     if is_shallow(root) {
         eprintln!(
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn newest_commit_per_path_wins() {
-        // Two records, newest first. `a.md` appears in both; the newer wins.
+        // Two records, newest first. `a.md` appears in both, so the newer wins.
         let out = "\u{1e}h1\u{1f}2026-07-20\u{1f}Ada\u{1f}fix a\n\
                    a.md\nb.md\n\n\
                    \u{1e}h0\u{1f}2026-01-01\u{1f}Ada\u{1f}add a\n\

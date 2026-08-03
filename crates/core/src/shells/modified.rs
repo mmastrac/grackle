@@ -1,8 +1,8 @@
 //! The last-modified instant of a row, and of a set of rows.
 //!
 //! One source the sitemap's per-URL `<lastmod>` and the feed's `<updated>`
-//! both read, so the two agree. It is `git.lastmod` — the last commit to touch
-//! the file — when `metadata = ["git"]` filled it, else the published `date`.
+//! both read, so the two agree. It is `git.lastmod` (the last commit to touch
+//! the file) when `metadata = ["git"]` filled it, else the published `date`.
 //! Either keeps a build a pure function of its inputs, with no wall-clock.
 
 use chrono::NaiveDate;
