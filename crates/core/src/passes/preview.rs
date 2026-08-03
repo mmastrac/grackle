@@ -419,7 +419,14 @@ pub(crate) fn is_absolute_url(s: &str) -> bool {
 }
 
 pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
-    if is_absolute_url(s) {
+    // `s` is absolute in two ways, both of which must pass through untouched:
+    // an external URL (`https://`, `//host`), or a site-root path the renderer
+    // already resolved — a `/static/{hash}` thumb (baseurl-free by design,
+    // thumbs.rs) or any leading-`/` ref. A source asset is root-RELATIVE
+    // (`foo/bar.png`), so only those get the baseurl prefix. Without the
+    // leading-`/` guard a resolved hero — `images(content)[0]`, read back from
+    // already-rendered body HTML (q23) — becomes `//static/…` and 404s.
+    if is_absolute_url(s) || s.starts_with('/') {
         s.to_string()
     } else {
         format!("{baseurl}/{s}")

@@ -101,7 +101,7 @@ pub(crate) fn css_pass(
     let tokens_only = own.as_deref() == Some(tokens.as_path());
     if let Some(src) = own {
         let text = std::fs::read_to_string(&src)?;
-        let (_, body) = split_front_matter(&text);
+        let (_, _, body) = split_front_matter(&text);
         let mut seen = Vec::new();
         let flat = inline_imports(body, theme_dir, &mut seen)?;
         imported.append(&mut seen);

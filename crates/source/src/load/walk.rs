@@ -375,11 +375,17 @@ pub(crate) fn walk_site(
 pub(crate) fn read_front_matter(path: &Path) -> Result<(store::FrontMatter, usize)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let (yaml, body) = store::split_front_matter(&text);
-    let fm = match yaml.trim().is_empty() {
-        true => store::FrontMatter::default(),
-        false => serde_yaml_ng::from_str(yaml)
-            .with_context(|| format!("front matter of {}", path.display()))?,
+    let (fmt, block, body) = store::split_front_matter(&text);
+    let fm = if block.trim().is_empty() {
+        store::FrontMatter::default()
+    } else {
+        match fmt {
+            // A `+++` block is TOML — the same deserialization a sidecar uses.
+            Some(store::FmFmt::Toml) => toml::from_str(block)
+                .with_context(|| format!("front matter of {}", path.display()))?,
+            _ => serde_yaml_ng::from_str(block)
+                .with_context(|| format!("front matter of {}", path.display()))?,
+        }
     };
     Ok((fm, body.len()))
 }

@@ -170,7 +170,7 @@ pub(crate) fn thumbs_pass(
         if r.kind == RouteKind::Page {
             if let Some(src) = &r.source {
                 if let Ok(text) = std::fs::read_to_string(src) {
-                    let (_, body) = split_front_matter(&text);
+                    let (_, _, body) = split_front_matter(&text);
                     asks.extend(tags::image_asks(body));
                 }
             }

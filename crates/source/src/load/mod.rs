@@ -923,7 +923,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                     .filter_map(|k| db.rows.get(k))
                     .any(|row| {
                         std::fs::read_to_string(&row.path)
-                            .map(|t| store::split_front_matter(&t).1.contains(&tag))
+                            .map(|t| store::split_front_matter(&t).2.contains(&tag))
                             .unwrap_or(false)
                     });
                 if !places {

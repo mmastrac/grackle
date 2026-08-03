@@ -54,7 +54,16 @@ pub(crate) fn render_bodies<'a>(
                 .ok()
                 .and_then(|r| r.parent().map(Path::to_path_buf))
                 .unwrap_or_default();
+            // The AST walk now descends into raw-HTML blocks (markdown.rs), so a
+            // `{% view %}` splice's engine-DERIVED route URLs meet the resolver
+            // here just as they do on the raw-HTML path — leave an already-
+            // materialized route alone rather than answering it with strict's
+            // "link the source instead" (the asymmetry note in render_page_bodies).
+            let embeds = body.contains("{% view");
             let doc = crate::markdown::render_doc_with(&expanded, &|form, href| {
+                if embeds && linkspace.is_route(href) {
+                    return Ok(None);
+                }
                 crate::links::resolve(
                     cfg,
                     linkspace,
@@ -95,7 +104,7 @@ pub(crate) fn render_page_bodies(
         }
         let text =
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
-        let (_, body) = split_front_matter(&text);
+        let (_, _, body) = split_front_matter(&text);
         // The row first: what the expander renders an embed WITH is the
         // row's theme, not the site default (§5a). A `{% view %}` in a
         // themed page's body arranges its rows the way that page's theme
@@ -143,28 +152,28 @@ pub(crate) fn render_page_bodies(
         let resolve = |form: crate::links::Cite, href: &str| {
             crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, form, href)
         };
+        // A `{% view %}` splice expands engine-DERIVED URLs INTO the body, so
+        // where an embed is present the resolver meets derived URLs beside
+        // authored ones and cannot tell them apart — a URL already naming a
+        // materialized route is left alone instead of being answered with
+        // strict's "link the source instead". A page with no embed is all
+        // authored, so it gets strict whole. Either way the other strict
+        // branch — a link matching nothing at all — fails the build, and
+        // catching those is what this seam existed to gain. Both source shapes
+        // need the guard now: the markdown AST walk descends into raw-HTML
+        // blocks (markdown.rs), so it meets the same splice URLs the lol_html
+        // path always did — the asymmetry that let comrak skip them is gone.
+        let embeds = body.contains("{% view");
+        let guarded = |form: crate::links::Cite, href: &str| {
+            if embeds && linkspace.is_route(href) {
+                return Ok(None);
+            }
+            resolve(form, href)
+        };
         let (frag, doc) = if src.extension().is_some_and(|e| e == "md") {
-            crate::markdown::render_source(&expanded, true, &resolve)?
+            crate::markdown::render_source(&expanded, true, &guarded)?
         } else {
-            // One deliberate asymmetry, scoped as tightly as it can be. A
-            // raw-HTML body has `{% view %}` expanded INTO it, so where an
-            // embed is present the rewriter meets engine-DERIVED URLs beside
-            // authored ones and cannot tell them apart — the AST path never
-            // had to, because comrak sees an embed as an opaque HtmlBlock and
-            // never walks inside one. On those pages a URL already naming a
-            // materialized route is left alone instead of being answered with
-            // strict's "link the source instead". A page with no embed is all
-            // authored, so it gets strict whole. Either way the other strict
-            // branch — a link matching nothing at all — fails the build, and
-            // catching those is what this seam existed to gain.
-            let embeds = body.contains("{% view");
-            let raw = |form: crate::links::Cite, href: &str| {
-                if embeds && linkspace.is_route(href) {
-                    return Ok(None);
-                }
-                resolve(form, href)
-            };
-            (crate::rewrite::resolve_links(&expanded, &raw)?, None)
+            (crate::rewrite::resolve_links(&expanded, &guarded)?, None)
         };
         out.insert(
             r.url.clone(),

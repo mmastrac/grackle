@@ -1,0 +1,6 @@
+root = "."
+
+[site]
+url = "https://example.test"
+title = "FM Test"
+author = "Tester"

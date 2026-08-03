@@ -261,7 +261,7 @@ pub(crate) fn run(
         // embed — see `resolve_default_content` — so this stays exact.)
         let text =
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
-        let (_, body) = split_front_matter(&text);
+        let (_, _, body) = split_front_matter(&text);
         let tag = format!("{{% view {view} %}}");
         if !body.contains(&tag) {
             bail!(

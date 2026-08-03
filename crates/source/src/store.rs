@@ -31,26 +31,40 @@ pub struct FrontMatter {
 pub fn read_body(path: &Path) -> Result<String> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    Ok(split_front_matter(&text).1.to_string())
+    Ok(split_front_matter(&text).2.to_string())
 }
 
-/// Split `---\nyaml\n---\nbody`. No fence means all body.
-pub fn split_front_matter(text: &str) -> (&str, &str) {
-    let Some(rest) = text.strip_prefix("---") else {
-        return ("", text);
+/// Which parser a front-matter fence selects: `---` is YAML (the native form),
+/// `+++` is TOML (the form Zola/Hugo write). Both deserialize into the one
+/// `FrontMatter` struct — the same struct TOML sidecars already use (IO.md I8).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FmFmt {
+    Yaml,
+    Toml,
+}
+
+/// Split `---\nyaml\n---\nbody` or `+++\ntoml\n+++\nbody`, returning the fence's
+/// format alongside the block and the body. The close fence must match the
+/// open. No fence means all body — `(None, "", text)`.
+pub fn split_front_matter(text: &str) -> (Option<FmFmt>, &str, &str) {
+    let (fence, fmt) = match text.as_bytes() {
+        [b'-', b'-', b'-', ..] => ("---", FmFmt::Yaml),
+        [b'+', b'+', b'+', ..] => ("+++", FmFmt::Toml),
+        _ => return (None, "", text),
     };
+    let rest = &text[fence.len()..];
     let rest = rest.strip_prefix('\n').unwrap_or(rest);
     let mut offset = 0usize;
     for line in rest.split_inclusive('\n') {
         let trimmed = line.trim_end_matches(['\n', '\r']);
-        if trimmed == "---" {
-            let yaml = &rest[..offset];
+        if trimmed == fence {
+            let block = &rest[..offset];
             let body = &rest[offset + line.len()..];
-            return (yaml, body);
+            return (Some(fmt), block, body);
         }
         offset += line.len();
     }
-    ("", text)
+    (None, "", text)
 }
 
 /// mtime xor length; shared with sidecar scan (IO.md I8).
@@ -77,7 +91,10 @@ pub fn peek_front_matter(path: &Path) -> bool {
 }
 
 fn opens_front_matter(text: impl AsRef<[u8]>) -> bool {
-    matches!(text.as_ref(), [b'-', b'-', b'-', b'\n' | b'\r', ..])
+    matches!(
+        text.as_ref(),
+        [b'-', b'-', b'-', b'\n' | b'\r', ..] | [b'+', b'+', b'+', b'\n' | b'\r', ..]
+    )
 }
 
 #[derive(Debug)]
@@ -327,15 +344,36 @@ mod tests {
 
     #[test]
     fn splits_front_matter() {
-        let (yaml, body) = split_front_matter("---\ntitle: x\n---\nhello\n");
+        let (fmt, yaml, body) = split_front_matter("---\ntitle: x\n---\nhello\n");
+        assert_eq!(fmt, Some(FmFmt::Yaml));
         assert_eq!(yaml, "title: x\n");
         assert_eq!(body, "hello\n");
     }
 
     #[test]
+    fn splits_toml_front_matter() {
+        // `+++` opens a TOML block (the Zola/Hugo form). Close fence matches.
+        let (fmt, toml, body) = split_front_matter("+++\ntitle = \"x\"\n+++\nhello\n");
+        assert_eq!(fmt, Some(FmFmt::Toml));
+        assert_eq!(toml, "title = \"x\"\n");
+        assert_eq!(body, "hello\n");
+    }
+
+    #[test]
+    fn a_toml_block_needs_a_toml_close() {
+        // A `+++` open closed by `---` is not a block: the fences must match,
+        // so the whole thing is body (no valid front matter).
+        let (fmt, block, body) = split_front_matter("+++\ntitle = \"x\"\n---\nhello\n");
+        assert_eq!(fmt, None);
+        assert_eq!(block, "");
+        assert_eq!(body, "+++\ntitle = \"x\"\n---\nhello\n");
+    }
+
+    #[test]
     fn handles_no_front_matter() {
-        let (yaml, body) = split_front_matter("just text");
-        assert_eq!(yaml, "");
+        let (fmt, block, body) = split_front_matter("just text");
+        assert_eq!(fmt, None);
+        assert_eq!(block, "");
         assert_eq!(body, "just text");
     }
 
@@ -343,7 +381,8 @@ mod tests {
     fn body_containing_hr_is_not_a_terminator() {
         // A `---` inside the body must not be mistaken for the closing fence
         // once we've already closed.
-        let (yaml, body) = split_front_matter("---\na: 1\n---\nx\n\n---\n\ny\n");
+        let (fmt, yaml, body) = split_front_matter("---\na: 1\n---\nx\n\n---\n\ny\n");
+        assert_eq!(fmt, Some(FmFmt::Yaml));
         assert_eq!(yaml, "a: 1\n");
         assert_eq!(body, "x\n\n---\n\ny\n");
     }

@@ -176,6 +176,18 @@ pub fn render_doc_with(
                     img.url = url;
                 }
             }
+            // Raw HTML embedded in markdown (`<img src=…>`, `<a href=…>`, an
+            // `<iframe>`) is an opaque Html node comrak never descends into, so
+            // its citations bypassed the resolver — a relative `<img src>` in a
+            // markdown body shipped a 404. Run the literal through the same
+            // raw-HTML rewriter the non-markdown path uses (`render_source`),
+            // so both paths offer both forms (the doc above).
+            comrak::nodes::NodeValue::HtmlBlock(ref mut block) => {
+                block.literal = crate::rewrite::resolve_links(&block.literal, resolve)?;
+            }
+            comrak::nodes::NodeValue::HtmlInline(ref mut html) => {
+                *html = crate::rewrite::resolve_links(html, resolve)?;
+            }
             _ => {}
         }
     }
@@ -389,7 +401,7 @@ mod block_tests {
                 continue;
             }
             let text = std::fs::read_to_string(e.path()).unwrap();
-            let (_, body) = crate::store::split_front_matter(&text);
+            let (_, _, body) = crate::store::split_front_matter(&text);
             let d = render_doc(body);
             n += 1;
             let cat: String = d.blocks.concat();
