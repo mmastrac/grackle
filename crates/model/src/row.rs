@@ -34,6 +34,10 @@ pub struct Row {
     /// Declared schema fields (lists, flags, strings, …).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, filter::Value>,
+    /// Provider overlay, keyed by qualified name (`git.commit`). Filled at load
+    /// when `metadata` enables a provider; read by `field` under its namespace.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, filter::Value>,
     /// Image-typed fields: name -> resolved source (site row or absolute URL).
     #[serde(skip)]
     pub images: BTreeMap<String, String>,
@@ -178,7 +182,14 @@ impl filter::Row for Row {
                 Some((field, "day")) => self
                     .as_date(field)
                     .map_or(V::Null, |d| V::Int(d.day() as i64)),
-                _ => self.fields.get(other).cloned().unwrap_or(V::Null),
+                // Provider namespaces (`git.commit`, …) live in the overlay;
+                // declared fields fall through to it.
+                _ => self
+                    .metadata
+                    .get(other)
+                    .or_else(|| self.fields.get(other))
+                    .cloned()
+                    .unwrap_or(V::Null),
             },
         }
     }

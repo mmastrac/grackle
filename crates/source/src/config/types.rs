@@ -19,6 +19,10 @@ pub struct Config {
     /// Honour .gitignore when walking (default true); see store::walker.
     #[serde(default = "default_true")]
     pub gitignore: bool,
+    /// Metadata providers overlaid on every row, each under its own accessor
+    /// namespace (`["git"]` -> `.git.*`). Empty means no overlay, no cost.
+    #[serde(default)]
+    pub metadata: Vec<String>,
     pub site: Site,
     /// Keyed by table name; built at load from `declared_collections`.
     #[serde(skip)]
@@ -133,6 +137,7 @@ fn every_config_key_has_a_law(c: Config) {
         extends: _,
         root: _,
         gitignore: _,
+        metadata: _,
         site: _,
         declared_collections: _,
         sets: _,
@@ -166,6 +171,7 @@ impl Shaped for Config {
             field("extends", |c: &Config| &c.extends),
             field("root", |c: &Config| &c.root),
             field("gitignore", |c: &Config| &c.gitignore),
+            field("metadata", |c: &Config| &c.metadata),
             field("site", |c: &Config| &c.site),
             // TOML name (serde rename); Law::Collections: identity is physical (§1).
             annotated(
@@ -207,6 +213,7 @@ pub(crate) const NOT_PROJECTABLE: &[&str] = &[
     "markers",
     "root",
     "gitignore",
+    "metadata",
     "extends",
     "links",
     "profiles",

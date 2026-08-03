@@ -265,10 +265,16 @@ pub fn row_schema() -> filter::Schema {
     s.insert("name", Str);
     s.insert("ext", Str);
     // Metadata namespaces: `.file.*` (filesystem), `.image.*` (decoded image
-    // header, absent off images). Each is a provider over the row.
+    // header, absent off images), `.git.*` (last commit, absent unless
+    // `metadata = ["git"]`). Each is a provider over the row, `Null` where it
+    // has nothing to say.
     s.insert("file.size", Int);
     s.insert("image.width", Int);
     s.insert("image.height", Int);
+    s.insert("git.commit", Str);
+    s.insert("git.lastmod", Str);
+    s.insert("git.author", Str);
+    s.insert("git.comment", Str);
     s
 }
 

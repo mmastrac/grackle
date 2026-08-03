@@ -760,6 +760,20 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         pairing_keep,
     )?;
     walk::resolve_image_fields(&db, &schemas)?;
+    if cfg.metadata.iter().any(|m| m == "git") {
+        let commits = crate::git::last_commits(&root);
+        for row in db.rows.iter_mut() {
+            let Some(m) = commits.get(&row.rel) else {
+                continue;
+            };
+            use grackle_db::Value::Str;
+            let md = &mut row.metadata;
+            md.insert("git.commit".into(), Str(m.commit.clone()));
+            md.insert("git.lastmod".into(), Str(m.date.clone()));
+            md.insert("git.author".into(), Str(m.author.clone()));
+            md.insert("git.comment".into(), Str(m.subject.clone()));
+        }
+    }
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
     let t = std::time::Instant::now();

@@ -132,6 +132,11 @@ impl Config {
 
     pub(crate) fn validate(&self) -> Result<()> {
         let cfg = self;
+        for m in &cfg.metadata {
+            if m != "git" {
+                anyhow::bail!("metadata: unknown provider {m:?}, the providers are: git");
+            }
+        }
         if cfg.collections.is_empty() {
             anyhow::bail!(
                 "no collections declared — nothing would be built. A site \

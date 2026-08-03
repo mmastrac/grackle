@@ -333,6 +333,7 @@ pub(crate) fn walk_site(
                 }
                 values
             },
+            metadata: Default::default(),
             images: checked.images,
             logical,
             claimed,

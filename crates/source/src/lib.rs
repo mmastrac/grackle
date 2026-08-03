@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod filename;
+pub mod git;
 pub mod load;
 pub mod markers;
 pub mod relations;
