@@ -1,20 +1,14 @@
 //! Engine asset URL addressing (DESIGN.md q54).
 //!
-//! One choke point turns an asset's *bytes* plus the site's `[assets]
-//! addressing` choice into the URL its referrer names. Today it governs the
-//! `<head>` stylesheet — the "global row": one URL, in every page. `stable`
-//! keeps the human path (`/css/main.css`) and a revalidating cache, churning
-//! nothing; `hashed` mints a content address under `/static` for immutable
-//! caching, at the cost of rewriting every page's `<link>` when the bytes
-//! move. The sub-asset / pinned / local rows are not knobs (they follow from
-//! properties the engine already knows) and are not built here yet.
+//! One choke point turns an asset's bytes plus the site's `[assets] addressing`
+//! choice into the URL its referrer names. Today it governs the one stylesheet
+//! every page links: `stable` keeps the human path (`/css/main.css`); `hashed`
+//! mints a content address under `/static` for immutable caching, at the cost
+//! of rewriting every page's `<link>` when the bytes move.
 //!
-//! The mechanism the design calls `asset()`: because a hashed URL is a
-//! function of the compiled bytes, the sheet must be compiled BEFORE the pages
-//! that link it render — the post-order the reference DAG implies. So the
-//! stylesheets compile first, their URLs land in [`CssUrls`], and every
-//! `<head>` reads the resolved URL from there instead of recomputing the
-//! convention.
+//! Because a hashed URL is a function of the compiled bytes, the sheet is
+//! compiled ahead of the pages that link it: the sheets compile first, their
+//! URLs land in [`CssUrls`], and every `<head>` reads the resolved URL there.
 
 use anyhow::{bail, Result};
 use std::collections::HashMap;
@@ -22,21 +16,20 @@ use std::collections::HashMap;
 /// The site's addressing choice, parsed from `[assets] addressing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addressing {
-    /// `/css/main.css` — human path, revalidating cache, no churn.
+    /// `/css/main.css`: human path, revalidating cache, no churn.
     Stable,
-    /// `/static/{hash}.css` — content address, immutable cache, churns every
+    /// `/static/{hash}.css`: content address, immutable cache, churns every
     /// page that links it.
     Hashed,
 }
 
-/// The content-addressing variant tag for a compiled stylesheet — part of the
-/// hash key, so a rendition of the same bytes can never collide with it (the
-/// §6b law, see `strong`).
+/// Content-addressing variant tag for a compiled stylesheet: part of the hash
+/// key, so a rendition of the same bytes cannot collide with it (see `strong`).
 const CSS_VARIANT: &str = "css-v1";
 
 impl Addressing {
-    /// Parse the raw config string. Unknown modes are a build error naming the
-    /// vocabulary rather than a silent fall-through to `stable`.
+    /// Parse the raw config string; an unknown mode is a build error naming the
+    /// vocabulary.
     pub fn parse(s: &str) -> Result<Self> {
         match s {
             "stable" => Ok(Addressing::Stable),
@@ -47,10 +40,10 @@ impl Addressing {
         }
     }
 
-    /// The URL a compiled stylesheet is emitted at and linked by, given the
+    /// The URL a compiled stylesheet is emitted at and linked by, from the
     /// theme's stable convention URL and its compiled bytes. `stable` returns
-    /// the convention untouched; `hashed` replaces it with the content
-    /// address (baseurl-prefixed like the convention).
+    /// the convention untouched. `hashed` replaces it with the content address,
+    /// baseurl-prefixed like the convention.
     pub fn css_url(self, baseurl: &str, stable: &str, bytes: &[u8]) -> String {
         match self {
             Addressing::Stable => stable.to_string(),
@@ -65,16 +58,15 @@ impl Addressing {
 }
 
 /// The resolved stylesheet URL of each theme, built once after the sheets
-/// compile and read at render time — so every `<head>` links the exact URL the
-/// bytes were emitted at, hash and all. Keyed by theme name, with the default
-/// theme canonicalized to `None` (the convention treats `None` and
-/// `Some("default")` alike).
+/// compile and read at render time, so every `<head>` links the exact URL the
+/// bytes were emitted at. Keyed by theme name, with the default theme
+/// canonicalized to `None`.
 #[derive(Debug, Default)]
 pub struct CssUrls {
     map: HashMap<Option<String>, String>,
 }
 
-/// `Some("default")` and `None` are one theme; collapse them so a lookup by
+/// `Some("default")` and `None` are one theme. Collapse them so a lookup by
 /// either finds the same URL.
 fn key(theme: Option<&str>) -> Option<String> {
     match theme {
@@ -88,9 +80,8 @@ impl CssUrls {
         self.map.insert(key(theme), url);
     }
 
-    /// The URL for a theme's sheet. Falls back to the stable convention if a
-    /// theme somehow never compiled one — it always does, but keeping this
-    /// total beats a panic during render.
+    /// The URL for a theme's sheet, falling back to the stable convention if a
+    /// theme never compiled one, so lookup stays total instead of panicking.
     pub fn of(&self, baseurl: &str, theme: Option<&str>) -> String {
         self.map
             .get(&key(theme))
@@ -119,7 +110,8 @@ mod tests {
             one.starts_with("/static/") && one.ends_with(".css"),
             "{one}"
         );
-        // A one-byte change is a different URL — this IS the churn q54 weighs.
+        // A one-byte change is a different URL: the churn hashed trades for
+        // immutable caching.
         assert_ne!(one, a.css_url("", "/css/main.css", b"body{ }"));
         // Same bytes, same URL, regardless of the convention it replaces.
         assert_eq!(one, a.css_url("", "/css/other.css", b"body{}"));

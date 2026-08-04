@@ -67,7 +67,7 @@ pub struct Config {
     /// Unrouted-asset embed policy (IO.md §4a, I11). Base ships on.
     #[serde(default)]
     pub embeds: EmbedsCfg,
-    /// Engine-emitted asset URL addressing (DESIGN.md q54). Default `stable`.
+    /// Engine-emitted asset URL addressing. Default `stable`.
     #[serde(default)]
     pub assets: AssetsCfg,
     /// `[records.<field>.<id>]`: slug, locale names, intro for grouped values (§6f).
@@ -214,8 +214,8 @@ pub(crate) const PROJECTABLE: &[&str] = &[
     "shells",
     "axes",
     "media_types",
-    // Addressing forms output URLs; it never changes what loads, so a `dev`
-    // profile may pick `stable` while prod hashes (DESIGN.md q54).
+    // Addressing forms output URLs and never changes what loads, so a `dev`
+    // profile may pick `stable` while prod hashes.
     "assets",
 ];
 
@@ -852,12 +852,10 @@ impl Default for EmbedsCfg {
     }
 }
 
-/// Engine-emitted asset URLs: how the `<head>` stylesheet (and, later, the
-/// other global assets) is addressed (DESIGN.md q54). `stable` keeps the
-/// human path and a revalidating cache; `hashed` mints a content address
-/// under `/static` for immutable caching, at the cost of churning every page
-/// that links it. The behavior enum lives in `grackle_core`; this carries the
-/// site's raw choice and nothing else.
+/// How the `<head>` stylesheet URL is addressed. `stable` keeps the human path
+/// and a revalidating cache. `hashed` mints a content address under `/static`
+/// for immutable caching, at the cost of churning every page that links it.
+/// The behavior enum lives in `grackle_core`, and this carries the raw choice.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AssetsCfg {

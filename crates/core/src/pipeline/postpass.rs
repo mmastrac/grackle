@@ -582,12 +582,11 @@ mod cited_url_tests {
 
 #[allow(clippy::too_many_arguments)]
 /// Search index and CSS compilation.
-/// Compile every theme's stylesheet and resolve the URL each is linked at,
-/// per `[assets] addressing` (DESIGN.md q54). Runs BEFORE `emit`, because in
-/// `hashed` mode a sheet's URL is a function of its compiled bytes, so the
-/// pages that link it must render knowing the resolved URL — the post-order
-/// the reference DAG implies. The bytes land in `out_map` at their resolved
-/// URL; the returned [`CssUrls`] carries theme → URL for the render passes.
+/// Compile every theme's stylesheet and resolve the URL each is linked at, per
+/// `[assets] addressing`. Runs ahead of `emit`: in `hashed` mode a sheet's URL
+/// is a function of its compiled bytes, so the pages that link it must render
+/// knowing the resolved URL. The bytes land in `out_map` at that URL, and the
+/// returned [`CssUrls`] carries the theme-to-URL map for the render passes.
 pub(crate) fn stylesheets(
     cfg: &Config,
     themes: &crate::theme::Themes,
@@ -600,7 +599,7 @@ pub(crate) fn stylesheets(
     let overlay = crate::shells::css::site_overlay(root, stats);
     let mut urls = crate::assets::CssUrls::default();
 
-    // The default theme's dir is passed in; the rest live under themes/<name>.
+    // The default theme's dir is passed in. The rest live under themes/<name>.
     let mut targets: Vec<(Option<&str>, std::path::PathBuf)> =
         vec![(None, theme_dir.to_path_buf())];
     for name in themes.names().filter(|n| *n != "default") {
@@ -617,7 +616,7 @@ pub(crate) fn stylesheets(
     Ok(urls)
 }
 
-/// The search index shell (§6b) and the link warnings drained after render.
+/// The search index shell and the link warnings drained after render.
 pub(crate) fn search(
     cfg: &Config,
     db: &SiteDb,

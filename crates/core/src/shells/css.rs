@@ -48,10 +48,10 @@ pub(crate) fn strip_charset(css: &str) -> &str {
 /// preserves I4's inline emission: a `<style>` last in a `<head>` outranked
 /// the stylesheet link above it, and staying last keeps the same rule
 /// winning after the move.
-/// Returns the compiled sheet's BYTES; the caller chooses the URL it lands at
-/// (the stable convention, or a content address — DESIGN.md q54, [`crate::assets`])
-/// and inserts it. The URL is no longer this pass's concern, because in
-/// `hashed` mode it is a function of the very bytes this computes.
+/// Returns the compiled sheet's bytes. The caller chooses the URL it lands at
+/// and inserts it (the stable convention or a content address, see
+/// [`crate::assets`]), because in `hashed` mode the URL is a function of these
+/// bytes.
 pub(crate) fn css_pass(
     theme_dir: &Path,
     head_style: &str,
