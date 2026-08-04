@@ -331,6 +331,14 @@ fn insert_declared(s: &mut Schema, name: &str, ty: FieldType) {
     }
 }
 
+/// The error a `[schema.fields]` entry raises when it lacks a valid `type =`.
+fn needs_type_error(whose: &str, name: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
+         \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
+    )
+}
+
 /// Parse a declaration table into typed names. Free fn so `Config` can
 /// type-check profile `force` before a [`Schemas`] exists (MERGE.md E1).
 fn parse_fields(
@@ -342,25 +350,16 @@ fn parse_fields(
     let mut defaults = BTreeMap::new();
     for (name, v) in table {
         let Some(t) = v.as_table() else {
-            bail!(
-                "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
-                 \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
-            );
+            return Err(needs_type_error(whose, &name));
         };
         let Some(ty_name) = t.get("type").and_then(|x| x.as_str()) else {
-            bail!(
-                "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
-                 \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
-            );
+            return Err(needs_type_error(whose, &name));
         };
         let ty = if ty_name == "records" {
             parse_records_fields(t, &name, whose)?
         } else {
             let Some(ty) = FieldType::parse(ty_name) else {
-                bail!(
-                    "{whose}: field {name:?} needs type = \"string\" | \"int\" | \
-                     \"bool\" | \"list\" | \"image\" | \"date\" | \"records\""
-                );
+                return Err(needs_type_error(whose, &name));
             };
             ty
         };
