@@ -3,8 +3,10 @@
 // moves bytes and pixels; every search decision (stemming, ranking,
 // prefix-matching the token being typed) lives in the wasm.
 //
-// `__SEARCH_I18N__` is replaced at emit with a per-locale string map from
-// `[i18n.strings]` (`search` / `search_placeholder` / `search_empty`).
+// The I18N sentinel on the assignment below is replaced at emit with a
+// per-locale string map from `[i18n.strings]` (`search` / `search_placeholder`
+// / `search_empty`). Keep the token off every other line: the emitter fills
+// each occurrence, and a copy in prose would land the JSON in a comment.
 (function () {
   "use strict";
 

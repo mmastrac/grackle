@@ -143,7 +143,13 @@ fn search_js(cfg: &Config) -> Vec<u8> {
         }
     }
     let json = serde_json::Value::Object(map).to_string();
-    include_str!("../../assets/search.js")
-        .replacen("__SEARCH_I18N__", &json, 1)
-        .into_bytes()
+    // Every occurrence, not just the first: a stray mention of the sentinel in
+    // a comment used to shadow the real assignment, leaving `var I18N =
+    // __SEARCH_I18N__;` as a load-time ReferenceError that killed search.
+    let filled = include_str!("../../assets/search.js").replace("__SEARCH_I18N__", &json);
+    debug_assert!(
+        !filled.contains("__SEARCH_I18N__"),
+        "search.js i18n sentinel not substituted"
+    );
+    filled.into_bytes()
 }
