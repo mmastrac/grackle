@@ -3046,7 +3046,7 @@ Both `build` and `serve` use one render path: `build::render_site` produces `URL
   stand on, and a serve section that says which half is which.
 - **`grackle query`** — REPL/CLI over live DB (`urls`, `posts where tag=rust limit 5`, `explain <url>`, `pull <url>` — §5j's edge list and work order). Doubles as migration validator.
 - **`grackle urls --against _site-prod`** — URL-set parity. A **missing** URL exits non-zero; an **extra** is reported only. Derived assets exempt per q12.
-- **`grackle diff --against _site-prod`** — Golden comparison: normalized HTML per post body with summary matrix (identical / equivalent / differs / missing). Bodies only.
+- **`grackle diff` (retired 2026-08-03)** — a body-only comrak-vs-kramdown oracle from the Jekyll era. It anchored on `<article class="post">` markup the site stopped emitting when it adopted the `data-slot`/`data-kind` vocabulary, so it silently extracted empty reference bodies and reported 100% differ. Jekyll is gone and `_site-prod` is now a grackle-shaped published tree rsynced from the server, so the meaningful oracle is **whole-page byte parity** (`diff -rq _site _site-prod`, what `publish.sh` leans on) — not a body-only re-render. §8a's lesson stands; the instrument that taught it does not.
 
 ## 7a. The example site: the falsifier for site-independence *(started 2026-07)*
 

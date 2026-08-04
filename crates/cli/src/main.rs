@@ -1,6 +1,6 @@
 //! The CLI. Thin: parse args, load config, call into `grackle_core`.
 
-use grackle_core::{build, config, debug, diff, embed, filter, model, serve, store, urls, views};
+use grackle_core::{build, config, debug, embed, filter, model, serve, store, urls, views};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -48,21 +48,6 @@ enum Cmd {
         /// Pretty-print.
         #[arg(long)]
         pretty: bool,
-    },
-    /// Compare rendered output against a reference Jekyll build.
-    Diff {
-        /// Reference site directory (e.g. ../_site-prod).
-        #[arg(long)]
-        against: PathBuf,
-        /// Only compare posts whose body contains no liquid.
-        #[arg(long, default_value_t = true)]
-        liquid_free: bool,
-        /// Restrict to these source paths, one per line (e.g. the clean set).
-        #[arg(long)]
-        only: Option<PathBuf>,
-        /// Print the first delta for this URL and exit.
-        #[arg(long)]
-        show: Option<String>,
     },
     /// Render the site to a directory.
     Build {
@@ -243,12 +228,6 @@ fn main() -> Result<()> {
         }
         Cmd::Serve { port } => serve::serve(&cli.config, port, profile.as_deref())?,
         Cmd::Routes { depth, under } => routes_tree(&db, depth, under.as_deref()),
-        Cmd::Diff {
-            against,
-            liquid_free,
-            only,
-            show,
-        } => run_diff(&db, &against, liquid_free, only.as_deref(), show.as_deref())?,
     }
     Ok(())
 }
@@ -675,140 +654,4 @@ fn fmt_date(p: &model::Row, declared: &filter::Schema) -> String {
         .find_map(|f| p.as_date(f))
         .map(model::iso_date)
         .unwrap_or_else(|| "----------".into())
-}
-
-fn has_liquid(s: &str) -> bool {
-    s.contains("{%") || s.contains("{{")
-}
-
-fn run_diff(
-    db: &model::SiteDb,
-    against: &std::path::Path,
-    liquid_free: bool,
-    only: Option<&std::path::Path>,
-    show: Option<&str>,
-) -> Result<()> {
-    let allow: Option<std::collections::HashSet<String>> = match only {
-        Some(p) => Some(
-            std::fs::read_to_string(p)?
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect(),
-        ),
-        None => None,
-    };
-
-    let mut rows = Vec::new();
-    let mut skipped_liquid = 0usize;
-    for p in db.posts() {
-        if liquid_free && has_liquid(&store::read_body(&p.path)?) {
-            skipped_liquid += 1;
-            continue;
-        }
-        if let Some(a) = &allow {
-            // `only` lists repo-relative paths; rows carry absolute ones.
-            let hit = a.iter().any(|x| {
-                p.path
-                    .to_string_lossy()
-                    .ends_with(x.trim_start_matches("./"))
-            });
-            if !hit {
-                continue;
-            }
-        }
-        rows.push(diff::compare_post(
-            &p.url,
-            &store::read_body(&p.path)?,
-            against,
-        )?);
-    }
-
-    if let Some(url) = show {
-        let Some(r) = rows.iter().find(|r| r.url == url) else {
-            anyhow::bail!("{url} not in the compared set");
-        };
-        println!("{}  [{:?}]", r.url, r.verdict);
-        if let Some(c) = r.cause {
-            println!("cause: {c}\n");
-        }
-        let (a, b) = diff::first_delta(&r.reference, &r.mine);
-        println!("--- jekyll (kramdown)\n{a}\n");
-        println!("+++ grackle (comrak)\n{b}");
-        return Ok(());
-    }
-
-    let mut tally: diff::Tally = Default::default();
-    let mut causes: BTreeMap<&str, usize> = BTreeMap::new();
-    for r in &rows {
-        *tally.entry(r.verdict).or_default() += 1;
-        if let Some(c) = r.cause {
-            *causes.entry(c).or_default() += 1;
-        }
-    }
-    let n = rows.len().max(1);
-    println!(
-        "compared {} posts against {}",
-        rows.len(),
-        against.display()
-    );
-    if skipped_liquid > 0 {
-        println!("  ({skipped_liquid} skipped: body contains liquid)");
-    }
-    println!();
-    for v in [
-        diff::Verdict::Identical,
-        diff::Verdict::Equivalent,
-        diff::Verdict::Differs,
-        diff::Verdict::Missing,
-    ] {
-        let c = tally.get(&v).copied().unwrap_or(0);
-        println!(
-            "  {:<12} {:>4}   {:>5.1}%",
-            format!("{v:?}"),
-            c,
-            100.0 * c as f64 / n as f64
-        );
-    }
-    let ok = tally.get(&diff::Verdict::Identical).copied().unwrap_or(0)
-        + tally.get(&diff::Verdict::Equivalent).copied().unwrap_or(0);
-    println!(
-        "\n  usable (identical+equivalent): {ok}/{}  ({:.1}%)",
-        rows.len(),
-        100.0 * ok as f64 / n as f64
-    );
-
-    let q = rows.iter().filter(|r| r.quotes_only).count();
-    if q > 0 {
-        let d = tally.get(&diff::Verdict::Differs).copied().unwrap_or(0);
-        println!("\n  of the {d} that differ, {q} differ ONLY in curly-quote choice",);
-        println!(
-            "  (smartypants heuristic, not markup: {}/{} would be usable if matched -> {:.1}%)",
-            ok + q,
-            rows.len(),
-            100.0 * (ok + q) as f64 / n as f64
-        );
-    }
-
-    if !causes.is_empty() {
-        println!("\ndiffers, by cause:");
-        let mut cs: Vec<_> = causes.into_iter().collect();
-        cs.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-        for (c, n) in cs {
-            println!("  {n:>4}  {c}");
-        }
-        println!("\nexamples:");
-        for r in rows
-            .iter()
-            .filter(|r| r.verdict == diff::Verdict::Differs)
-            .take(5)
-        {
-            println!("  {}  ({})", r.url, r.cause.unwrap_or(""));
-        }
-        println!(
-            "\n  grackle diff --against {} --show <url>   to see a delta",
-            against.display()
-        );
-    }
-    Ok(())
 }

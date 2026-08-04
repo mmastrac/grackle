@@ -15,14 +15,9 @@ pub fn options() -> Options<'static> {
     // Without this every heading in the corpus diffs.
     //
     // comrak also injects an `<a class="anchor">` inside each heading, which
-    // kramdown does not. **We keep it, deliberately** (2026-07-21): 226 of
+    // kramdown did not. **We keep it, deliberately** (2026-07-21): 226 of
     // them across 44 posts, each carrying an aria-label, which is a heading
-    // affordance the Jekyll site never had and we want.
-    //
-    // A real divergence the body oracle CANNOT see: `diff::normalize` calls
-    // `strip_comrak_anchors` before comparing, so the parity figure is
-    // computed with these removed. §8a: agreement is not evidence unless it
-    // can disagree.
+    // affordance the old Jekyll site never had and we want.
     o.extension.header_id_prefix = Some(String::new());
 
     // kramdown runs smartypants by default: quotes -> curly, -- -> en dash.

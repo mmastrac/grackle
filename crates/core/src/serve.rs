@@ -362,9 +362,6 @@ fn is_content(p: &Path) -> bool {
         "/grackle/target",
         "/_site",
         "/node_modules",
-        "/vendor",
-        "/.jekyll-cache",
-        "/.sass-cache",
         "/_log",
     ];
     let s = p.to_string_lossy();

@@ -23,7 +23,6 @@ pub(crate) fn workspace_root() -> std::path::PathBuf {
 pub mod assemble;
 pub mod build;
 pub mod debug;
-pub mod diff;
 pub mod embed;
 pub mod highlight;
 pub mod links;
