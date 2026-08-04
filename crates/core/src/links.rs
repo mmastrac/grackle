@@ -289,11 +289,7 @@ pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Opt
         format!(
             "{source}: link {href:?} — {key:?} names no axis, so it ships as a literal \
              query string{hint}\n  declared axes: {}",
-            if names.is_empty() {
-                "(none)".to_string()
-            } else {
-                names.join(", ")
-            }
+            crate::util::join_or_none(&names)
         )
     };
     // Case first: an exact match but for case is the one wrong spelling an
@@ -640,11 +636,7 @@ fn view_link(
             let known: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
             bail!(
                 "{source}: view:{name}?{k}= names no axis\n  declared axes: {}",
-                if known.is_empty() {
-                    "(none)".into()
-                } else {
-                    known.join(", ")
-                }
+                crate::util::join_or_none(&known)
             );
         };
         if !v.axis.iter().any(|a| a == k) {

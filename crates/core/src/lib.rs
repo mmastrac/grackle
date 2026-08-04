@@ -43,3 +43,4 @@ pub use assemble::{base, binder, parts, slots, theme};
 pub mod thumbs;
 pub mod trails;
 pub mod urls;
+pub mod util;

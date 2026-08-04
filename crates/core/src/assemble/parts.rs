@@ -1196,11 +1196,7 @@ pub fn require_face<'a>(
     let known = fragments.faces();
     anyhow::bail!(
         "no row face {face:?} — theme has: {}",
-        if known.is_empty() {
-            "(none)".to_string()
-        } else {
-            known.join(", ")
-        }
+        crate::util::join_or_none(&known)
     )
 }
 

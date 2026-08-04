@@ -612,11 +612,7 @@ impl Fragments {
 
     fn known_fragments(&self) -> String {
         let v: Vec<&str> = self.map.keys().map(String::as_str).collect();
-        if v.is_empty() {
-            "(none)".into()
-        } else {
-            v.join(", ")
-        }
+        crate::util::join_or_none(&v)
     }
 
     /// `(slot name, element tag)` for every content hole in a fragment — the

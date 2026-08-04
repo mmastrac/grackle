@@ -103,11 +103,7 @@ impl Themes {
                     anyhow::bail!(
                         "[site] theme = {spec:?} names no theme — themes in {}: {}",
                         themes_dir.display(),
-                        if known.is_empty() {
-                            "(none)".into()
-                        } else {
-                            known.join(", ")
-                        }
+                        crate::util::join_or_none(&known)
                     );
                 }
                 (Some(n.to_string()), sub)
@@ -156,11 +152,7 @@ impl Themes {
                 let known: Vec<&str> = self.map.keys().map(String::as_str).collect();
                 anyhow::anyhow!(
                     "no theme named {n:?} — themes: {}",
-                    if known.is_empty() {
-                        "(none)".into()
-                    } else {
-                        known.join(", ")
-                    }
+                    crate::util::join_or_none(&known)
                 )
             }),
         }
