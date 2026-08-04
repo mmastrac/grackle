@@ -207,7 +207,7 @@ callout = """
     hero = 'cover ? cover : image ? image : images(content)[0]'
 
   [profiles.drafts.routes.search]
-  path = "/search.bin"
+  path = "/search.v1.bin"
   shell = "search"
   where = 'kind == "post" && !hidden'
 
@@ -261,7 +261,7 @@ shell = "atom"
 
 # The searchable set is a query: the same shape as the sitemap.
 [routes.search]
-path = "/search.bin"
+path = "/search.v1.bin"
 shell = "search"
 where = 'kind == "post" && !draft && !hidden'
 

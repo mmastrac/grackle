@@ -42,6 +42,17 @@ pub fn search_docs(
 /// wasm consumer + /search.js loader are engine assets embedded in the
 /// binary (they must version with the index format), emitted only when a
 /// search view exists, fetched only when a theme's trigger is clicked.
+/// Search-asset version, carried in the wasm and bin URLs so they bust their
+/// caches TOGETHER. The wasm reads the bin, and a fresh wasm against a
+/// cache-stale bin is a hard "bad index" — which is what happened when the
+/// index format changed and Cloudflare served a day-old bin beside a fresh
+/// wasm. A version in both filenames makes a format change a URL change, so no
+/// cache can hand back a mismatched pair. **Bump on any change to the
+/// `search-core` on-disk format**; the site's `[routes.search] path` must be
+/// `/search.{SEARCH_VER}.bin` to match what `search.js` fetches. (A stopgap
+/// until q54 makes derived-asset URLs content-addressed and retires it.)
+pub(crate) const SEARCH_VER: &str = "v1";
+
 pub(crate) fn search_pass(
     cfg: &Config,
     db: &SiteDb,
@@ -111,7 +122,7 @@ pub(crate) fn search_pass(
     if any {
         out_map.insert("/search.js".to_string(), search_js(cfg));
         out_map.insert(
-            "/search.wasm".to_string(),
+            format!("/search.{SEARCH_VER}.wasm"),
             include_bytes!("../../assets/search.wasm").to_vec(),
         );
     }
@@ -146,10 +157,12 @@ fn search_js(cfg: &Config) -> Vec<u8> {
     // Every occurrence, not just the first: a stray mention of the sentinel in
     // a comment used to shadow the real assignment, leaving `var I18N =
     // __SEARCH_I18N__;` as a load-time ReferenceError that killed search.
-    let filled = include_str!("../../assets/search.js").replace("__SEARCH_I18N__", &json);
+    let filled = include_str!("../../assets/search.js")
+        .replace("__SEARCH_I18N__", &json)
+        .replace("__SEARCH_VER__", SEARCH_VER);
     debug_assert!(
-        !filled.contains("__SEARCH_I18N__"),
-        "search.js i18n sentinel not substituted"
+        !filled.contains("__SEARCH_I18N__") && !filled.contains("__SEARCH_VER__"),
+        "search.js sentinel not substituted"
     );
     filled.into_bytes()
 }

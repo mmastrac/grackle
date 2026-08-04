@@ -24,11 +24,16 @@
     };
   }
 
+  // Versioned in lockstep (§6b): the wasm and bin carry the same `__SEARCH_VER__`
+  // so a format change is a URL change, and no cache can pair a fresh wasm with
+  // a stale bin ("bad index"). Must match the site's `[routes.search] path`.
+  var VER = "__SEARCH_VER__";
+
   function load() {
     if (wasm) return Promise.resolve(wasm);
     return Promise.all([
-      fetch("/search.wasm").then(function (r) { return r.arrayBuffer(); }),
-      fetch("/search.bin").then(function (r) { return r.arrayBuffer(); }),
+      fetch("/search." + VER + ".wasm").then(function (r) { return r.arrayBuffer(); }),
+      fetch("/search." + VER + ".bin").then(function (r) { return r.arrayBuffer(); }),
     ]).then(function (both) {
       return WebAssembly.instantiate(both[0], {}).then(function (mod) {
         var ex = mod.instance.exports;
