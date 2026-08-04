@@ -48,6 +48,38 @@ pub(crate) fn axis_alternates(
         .collect()
 }
 
+/// The full `<head>` alternate set for a route: the expand-driven `hreflang`
+/// members (self first, then twins), then the q53 axis alternates. The post
+/// and page render paths build it identically.
+pub(crate) fn head_alternates<'a>(
+    metas: &crate::render::Metas,
+    site: &crate::render::Site,
+    title: &str,
+    cfg: &'a Config,
+    db: &'a SiteDb,
+    r: &'a Route,
+    media_types: &std::collections::BTreeMap<String, String>,
+) -> Vec<crate::model::Alternate> {
+    let mut alternates = crate::render::eval_expands(metas, site, title, cfg, |name| {
+        let mut members: Vec<crate::render::ExpandMember<'a>> =
+            crate::passes::preview::axis_pool(cfg, db, r, name)
+                .into_iter()
+                .map(|m| crate::render::ExpandMember {
+                    row: m.row,
+                    // Self must name THIS route (hreflang lists the page you are
+                    // on); twins keep the row's canonical URL.
+                    url: if m.current { r.url.as_str() } else { m.url },
+                    member: m.member,
+                })
+                .collect();
+        // Self first, then twins.
+        members.sort_by_key(|m| m.url != r.url.as_str());
+        members
+    });
+    alternates.extend(axis_alternates(db, &cfg.site.url, r, media_types));
+    alternates
+}
+
 /// The media type a member URL advertises as a `rel="alternate"` `type`, or
 /// `None` for an ordinary HTML page (a restyle names no type — it is the same
 /// representation). Keyed off the URL's extension against `[media_types]`.

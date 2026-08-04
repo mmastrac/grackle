@@ -84,27 +84,8 @@ pub(crate) fn run(
             head.injected = bodies[&p.key].heads.clone();
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
-            head.alternates = render::eval_expands(metas, &site, &head.title, cfg, |name| {
-                let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
-                    .into_iter()
-                    .map(|m| render::ExpandMember {
-                        row: m.row,
-                        // Self must name THIS route (hreflang lists the page you
-                        // are on); twins keep the row's canonical URL.
-                        url: if m.current { r.url.as_str() } else { m.url },
-                        member: m.member,
-                    })
-                    .collect();
-                // Self first, then twins.
-                members.sort_by_key(|m| m.url != r.url.as_str());
-                members
-            });
-            head.alternates.extend(prepass::axis_alternates(
-                db,
-                &cfg.site.url,
-                r,
-                &cfg.media_types,
-            ));
+            head.alternates =
+                prepass::head_alternates(metas, &site, &head.title, cfg, db, r, &cfg.media_types);
             let (theme_name, subtheme) = preview::resolve_theme(themes, r, p.theme.as_deref());
             let row_thm = themes.get(theme_name)?;
             let groups = parts::relation_groups(
@@ -501,24 +482,15 @@ pub(crate) fn run(
                             rel_groups.get(&r.url).cloned().unwrap_or_default(),
                         )?;
                         let mut head = head;
-                        head.alternates = render::eval_expands(metas, &site, &title, cfg, |name| {
-                            let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
-                                .into_iter()
-                                .map(|m| render::ExpandMember {
-                                    row: m.row,
-                                    url: if m.current { r.url.as_str() } else { m.url },
-                                    member: m.member,
-                                })
-                                .collect();
-                            members.sort_by_key(|m| m.url != r.url.as_str());
-                            members
-                        });
-                        head.alternates.extend(prepass::axis_alternates(
+                        head.alternates = prepass::head_alternates(
+                            metas,
+                            &site,
+                            &title,
+                            cfg,
                             db,
-                            &cfg.site.url,
                             r,
                             &cfg.media_types,
-                        ));
+                        );
                         let doc = parts::document_tree(
                             cfg,
                             lang,

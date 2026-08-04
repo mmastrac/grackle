@@ -9,6 +9,23 @@ use crate::markdown::Doc;
 use crate::model::{Route, RouteKind, SiteDb};
 use crate::pipeline::types::{PageBody, SiteOutput, Stats};
 
+/// Rung 0 (IO.md I10, the law at load.rs's `force_route_fields`): minting an
+/// output is the graph event, so every seam that mints a route applies the
+/// profile's forced fields. The two minting seams here call this pair rather
+/// than each restating the law.
+fn forced_fields(db: &SiteDb) -> Vec<(String, grackle_db::filter::Value)> {
+    db.forced_fields
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+fn apply_forced(route: &mut Route, forced: &[(String, grackle_db::filter::Value)]) {
+    for (name, value) in forced {
+        route.fields.insert(name.clone(), value.clone());
+    }
+}
+
 /// The citation half of `Route.inputs` (IO.md §2), added once the bytes exist.
 ///
 /// **Facts at planning; content at materialization** — and `inputs` is the one
@@ -145,16 +162,7 @@ pub(crate) fn join_renditions(
     if thumbs.is_empty() {
         return;
     }
-    // Rung 0 reaches this seam too (IO.md I10's law, stated at load.rs's
-    // `force_route_fields`): minting an output is the graph event, so a seam
-    // that mints applies the profile's forced fields. I11 added a shape to an
-    // existing seam; this is the third seam, and the law is why it is one line
-    // rather than a rediscovery.
-    let forced: Vec<(String, grackle_db::filter::Value)> = db
-        .forced_fields
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let forced = forced_fields(db); // see `forced_fields`
 
     // One output per address; its inputs are every source whose bytes landed
     // there. The union is over ROWS, so a source no rule admitted contributes
@@ -185,9 +193,7 @@ pub(crate) fn join_renditions(
             rendition: Some(*rendition),
             ..Route::new(address.clone(), RouteKind::Object)
         };
-        for (name, value) in &forced {
-            route.fields.insert(name.clone(), value.clone());
-        }
+        apply_forced(&mut route, &forced);
         db.routes.push(route);
     }
 
@@ -273,15 +279,7 @@ pub(crate) fn materialize_referenced(
     }) {
         return Ok(0);
     }
-    // Rung 0 reaches the outputs minted here too (IO.md I10, closing E1's
-    // recorded hole): minting is the graph event, so the seam that mints
-    // applies the profile's forced fields rather than leaving a route the
-    // profile never saw.
-    let forced: Vec<(String, grackle_db::filter::Value)> = db
-        .forced_fields
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let forced = forced_fields(db); // see `forced_fields`
 
     let mut frontier: Vec<String> = cited.iter().flat_map(|(_, c)| c.iter().cloned()).collect();
 
@@ -358,24 +356,15 @@ pub(crate) fn materialize_referenced(
                     inputs: vec![key.clone()],
                     ..Route::new(at.clone(), RouteKind::Object)
                 };
-                // Rung 0 reaches BOTH shapes this seam mints (IO.md I10, the
-                // law at load.rs's `force_route_fields` call site): minting an
-                // output is the graph event, so every minting seam applies
-                // `SiteDb::forced_fields`. I11 adds a shape to this seam, not
-                // a seam — which is the cheapest possible way to stay inside
-                // the law, and the reason the strong mint was folded into this
-                // loop rather than written beside it.
-                for (name, value) in &forced {
-                    route.fields.insert(name.clone(), value.clone());
-                }
-                // IO.md §2, the pull model made literal: a lazily-published
-                // row's `output` is `None` for the whole of the build's
-                // queryable life and becomes `Some` exactly here — the moment
-                // a reference materialized it. "Bare `output` is truthy iff
-                // the row lands anywhere" is then true at every instant rather
-                // than true of a plan; what it costs is that a filter, which
-                // runs upstream of this pass, always sees the unreferenced
-                // answer.
+                apply_forced(&mut route, &forced); // see `forced_fields`
+                                                   // IO.md §2, the pull model made literal: a lazily-published
+                                                   // row's `output` is `None` for the whole of the build's
+                                                   // queryable life and becomes `Some` exactly here — the moment
+                                                   // a reference materialized it. "Bare `output` is truthy iff
+                                                   // the row lands anywhere" is then true at every instant rather
+                                                   // than true of a plan; what it costs is that a filter, which
+                                                   // runs upstream of this pass, always sees the unreferenced
+                                                   // answer.
                 if let Some(row) = db.rows.get_mut(&key) {
                     row.output = Some(route.id.clone());
                 }
