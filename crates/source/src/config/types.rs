@@ -323,6 +323,7 @@ impl Shaped for HeadCfg {
             field("property", |h: &HeadCfg| &h.property),
             field("link", |h: &HeadCfg| &h.link),
             field("jsonld", |h: &HeadCfg| &h.jsonld),
+            field("include", |h: &HeadCfg| &h.include),
         ])
     }
 }
@@ -1109,6 +1110,13 @@ pub struct HeadCfg {
     /// JSON-LD; nested tables -> objects; empty `@type` after eval => no script.
     #[serde(default)]
     pub jsonld: BTreeMap<String, JsonLdValue>,
+    /// Verbatim `<head>` fragments emitted on every page, in order. The escape
+    /// hatch for the third-party blobs the structured tables above cannot
+    /// express — an analytics tag, a site-verification `<meta>`, a `preconnect`.
+    /// Site config, trusted and emitted as written (like the jsonld payloads);
+    /// not a §5f expression and not per-row.
+    #[serde(default)]
+    pub include: Vec<String>,
 }
 
 /// Internal-link policy (§6a).

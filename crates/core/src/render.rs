@@ -771,10 +771,15 @@ fn meta_tags(head: &Head) -> String {
 /// `<head data-slot="head">` in the theme's shell fragment. `css` is the
 /// rendering theme's stylesheet URL — themes are per row (§5a), so the
 /// link is too.
-pub fn head_html(head: &Head, css: &str) -> String {
+pub fn head_html(head: &Head, css: &str, include: &[String]) -> String {
     let mut h = String::with_capacity(2048);
     let _ = write!(h, "\n\t<title>{}</title>", esc(&head.title));
     h.push_str(&meta_tags(head));
+    // `[html.head] include`: verbatim site fragments (§4e escape hatch), high
+    // in the head where an analytics tag wants to be. Emitted as written.
+    for frag in include {
+        let _ = write!(h, "\n\t{frag}");
+    }
     // q53: the axes in the head, each an alternate FORM of this row. Locale
     // hreflang comes from a declared expand; other axis forms still land here
     // from the engine. NOT a single declared tag: a variable-length LIST.
@@ -1062,6 +1067,19 @@ mod meta_tests {
                 && out.contains("type=\"image/png\""),
             "{out}"
         );
+    }
+
+    #[test]
+    fn head_include_is_emitted_verbatim_and_empty_adds_nothing() {
+        let head = Head::empty("T".into());
+        let frag = "<script async src=\"https://x/g.js?id=G-1\"></script>";
+        let with = head_html(&head, "/c.css", std::slice::from_ref(&frag.to_string()));
+        assert!(with.contains(frag), "{with}");
+        // Trusted and verbatim: the `<` is NOT escaped into an entity.
+        assert!(!with.contains("&lt;script"), "{with}");
+        // Absent include changes nothing.
+        let without = head_html(&head, "/c.css", &[]);
+        assert_eq!(without, with.replace(&format!("\n\t{frag}"), ""));
     }
 
     #[test]

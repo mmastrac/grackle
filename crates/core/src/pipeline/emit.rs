@@ -125,6 +125,7 @@ pub(crate) fn run(
                     head_html: render::head_html(
                         &head,
                         &theme::css_url(&cfg.site.baseurl, theme_name),
+                        &cfg.html.head.include,
                     ),
                     site_title: site.title,
                     source_dir: dir,
@@ -350,7 +351,11 @@ pub(crate) fn run(
         let html = chain::document_page(
             chain::Page {
                 theme: row_thm,
-                head_html: render::head_html(&head, &theme::css_url(&cfg.site.baseurl, theme_name)),
+                head_html: render::head_html(
+                    &head,
+                    &theme::css_url(&cfg.site.baseurl, theme_name),
+                    &cfg.html.head.include,
+                ),
                 site_title: site.title,
                 source_dir: dir,
                 lang: loc,
@@ -527,7 +532,7 @@ pub(crate) fn run(
                         chain::document_page(
                             chain::Page {
                                 theme: row_thm,
-                                head_html: render::head_html(&head, &row_css),
+                                head_html: render::head_html(&head, &row_css, &cfg.html.head.include),
                                 site_title: site.title,
                                 source_dir: dir,
                                 lang,

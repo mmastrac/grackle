@@ -74,7 +74,7 @@ impl Pass for Listing {
         let html = chain::wrap(
             chain::Page {
                 theme: row_thm,
-                head_html: render::head_html(&head, &ctx.css_of(theme_name)),
+                head_html: render::head_html(&head, &ctx.css_of(theme_name), &cfg.html.head.include),
                 site_title: site.title,
                 source_dir: ctx.root_path(),
                 lang: loc.as_str(),

@@ -1210,6 +1210,26 @@ Verified by mutation: deleting `[html.head.meta]` from `base.toml` drops every
 otherwise byte-identical — which is the proof the tag was coming from config
 and not from the engine.
 
+**The escape hatch: `[html.head] include`.** The tables above are *structured*
+— a `<meta>`, a `<link>`, a JSON-LD object — evaluated per row. A third-party
+blob has no such shape: an analytics tag is two `<script>`s, a Search-Console
+`<meta>` is a token nobody derives, a `preconnect` is a constant. `include` is
+a list of verbatim fragments emitted into every page's `<head>`, in order, high
+enough for an analytics tag to want:
+
+```toml
+[html.head]
+include = ['''<script async src="…/gtag/js?id=G-…"></script><script>…</script>''']
+```
+
+It is site config, trusted and emitted **as written** — the same trust the
+jsonld payloads already carry, not a §5f expression and not escaped. Kept
+deliberately narrow: it is the one place the head is *not* declared structure,
+so a fragment that *could* be a table (a `<meta name>`) belongs in the table,
+and only what the tables cannot express belongs here. Empty by default, so a
+site that adds none is byte-identical (the examples prove it). grack.com uses
+exactly one: GA4, beside the Cloudflare Web Analytics beacon the edge injects.
+
 ### The producers, and which of them fold
 
 The head's contents sort into five classes by where their value comes from.

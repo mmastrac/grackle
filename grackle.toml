@@ -1,6 +1,20 @@
 # Paths are relative to this file's directory.
 root = ".."
 
+# Google Analytics (GA4), site-wide (§4e `include`). Cloudflare already injects
+# its own Web Analytics beacon at the edge; this is the Google property, owned
+# in-repo and emitted verbatim into every page's <head>.
+[html.head]
+include = ['''
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-STPMRBZ9Z1"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-STPMRBZ9Z1');
+</script>''']
+
 [html.head.meta]
 apple-mobile-web-app-title = 'site.title'
 application-name = 'site.title'
