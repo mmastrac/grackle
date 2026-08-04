@@ -534,7 +534,11 @@ pub(crate) fn run(
                         chain::document_page(
                             chain::Page {
                                 theme: row_thm,
-                                head_html: render::head_html(&head, &row_css, &cfg.html.head.include),
+                                head_html: render::head_html(
+                                    &head,
+                                    &row_css,
+                                    &cfg.html.head.include,
+                                ),
                                 site_title: site.title,
                                 source_dir: dir,
                                 lang,
