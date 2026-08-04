@@ -59,6 +59,12 @@ shell = { type = "string" }
 cover = { type = "image" }
 image = { type = "image" }
 
+# Computed columns for every row (§5f). Declaring the base means declining its
+# `[schema.fields]` too, so the gallery restates `outline`, which feeds the
+# tokens guide's table of contents.
+[schema.fields]
+outline = 'toc ? outline(content, 3) : outline(content, 0)'
+
 # Declining the base also declines its head (§4e). This block is the base's,
 # copied — which is the honest cost of `extends = "none"` and worth seeing in
 # the repo next to a site that pays nothing for the same thing.
@@ -213,7 +219,6 @@ order_by = "-date"
 
   [sets.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 1), 180)'
-  toc = 'outline(content, 3)'
 
 # Path scoping is a clause of the predicate, not a key of its own: `glob` is
 # a registered filter function (§5f), so the subtree narrowing conjoins along

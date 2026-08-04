@@ -816,15 +816,6 @@ impl Config {
         &self.schema.fields
     }
 
-    pub fn field_expr(&self, name: &str) -> Option<&str> {
-        for vname in self.views.keys() {
-            if let Some(src) = self.fields_for(vname).get(name).and_then(|f| f.as_expr()) {
-                return Some(src);
-            }
-        }
-        None
-    }
-
     pub fn root(&self) -> PathBuf {
         let joined = self.dir.join(&self.root);
         std::fs::canonicalize(&joined).unwrap_or(joined)

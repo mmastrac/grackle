@@ -138,7 +138,7 @@ impl Config {
                 let want = grackle_db::field_return_type(fname).ok_or_else(|| {
                     anyhow::anyhow!(
                         "{whose}: field {fname:?} is not a known computed field \
-                         (have: summary, lede, toc, hero)"
+                         (have: summary, lede, outline, hero)"
                     )
                 })?;
                 grackle_db::FieldExpr::parse(src, &self.field_expr_schema(), want)

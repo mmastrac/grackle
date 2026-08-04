@@ -2501,7 +2501,7 @@ pub fn field_schema() -> Schema {
 pub fn field_return_type(name: &str) -> Option<Type> {
     match name {
         "summary" | "lede" => Some(Type::Content),
-        "toc" => Some(Type::Outline),
+        "outline" => Some(Type::Outline),
         "hero" => Some(Type::Str),
         _ => None,
     }

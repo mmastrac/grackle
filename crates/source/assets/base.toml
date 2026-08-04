@@ -72,10 +72,14 @@ locale = { type = "string" }
 
 # Computed columns every row carries (§5f): filled on a document render and,
 # via `fields_for`, on a listing's cards. A set's `[sets.*.fields]` adds its
-# own; hero is cover, then image, then the first body <img>. Sites redeclare
-# this table whole to change it (registry shadowing, §4d).
+# own; sites redeclare this table whole to change it (registry shadowing, §4d).
+#
+#   hero:    cover, then image, then the first body <img>.
+#   outline: the heading tree when `toc` is set, else an empty one (depth 0
+#            spans no levels) — which collapses the outline slot (§5e).
 [schema.fields]
 hero = 'cover ? cover : image ? image : images(content)[0]'
+outline = 'toc ? outline(content, 3) : outline(content, 0)'
 
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"

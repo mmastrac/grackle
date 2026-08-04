@@ -708,7 +708,6 @@ pub fn row(
     tree: bool,
     crumbs: Vec<(String, Option<String>)>,
     section: Vec<PartMap>,
-    outline: Vec<PartMap>,
     content: &str,
     relations: Vec<PartMap>,
 ) -> PartMap {
@@ -722,9 +721,6 @@ pub fn row(
     if !section.is_empty() {
         m.set("section", Part::Stream(section));
     }
-    if !outline.is_empty() {
-        m.set("outline", Part::Stream(outline));
-    }
     m.set("content", Part::Html(content.to_string()));
     if !relations.is_empty() {
         m.set("relations", Part::Stream(relations));
@@ -737,7 +733,6 @@ pub fn document(
     content: &str,
     trail: Vec<(String, Option<String>)>,
     relation_groups: Vec<PartMap>,
-    outline: Vec<PartMap>,
 ) -> PartMap {
     row(
         p.title.clone().unwrap_or_default(),
@@ -745,7 +740,6 @@ pub fn document(
         false,
         trail,
         Vec::new(),
-        outline,
         content,
         relation_groups,
     )
@@ -779,7 +773,6 @@ pub fn document_tree(
     url: &str,
     ancestors: &[(String, String)],
     section: Vec<PartMap>,
-    outline: Vec<PartMap>,
     relation_groups: Vec<PartMap>,
     content: &str,
 ) -> PartMap {
@@ -789,7 +782,6 @@ pub fn document_tree(
         true,
         tree_trail(cfg, locale, home, title, ancestors),
         section,
-        outline,
         content,
         relation_groups,
     )
@@ -984,6 +976,7 @@ pub fn fill_from_fields(
     }
     fill_computed_str_fields(cfg, m, row, decl, resolve_asset, &opts);
     fill_computed_content_fields(cfg, m, row, decl, &opts);
+    fill_computed_outline_fields(cfg, m, row, decl, &opts);
     Ok(())
 }
 
@@ -1047,6 +1040,51 @@ fn fill_computed_str_fields(
             }
             _ => {}
         }
+    }
+}
+
+/// Eval a computed Outline field (`fields.outline`) into an empty
+/// `outline_entry` stream; heading anchors resolve against the row's URL.
+fn fill_computed_outline_fields(
+    cfg: &crate::config::Config,
+    m: &mut PartMap,
+    row: &Row,
+    decl: &[(&'static str, PartType)],
+    opts: &FillOpts<'_>,
+) {
+    let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
+    let bind = crate::passes::preview::FieldBind { row, content };
+    for (name, src) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Outline) {
+        if m.get(name).is_some() {
+            continue;
+        }
+        let Some(&(static_name, ty)) = decl.iter().find(|(n, _)| *n == name) else {
+            continue;
+        };
+        if !matches!(ty, PartType::Stream(_)) {
+            continue;
+        }
+        let expr =
+            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Outline)
+                .expect("computed field validated at load");
+        let grackle_db::Value::Outline(nodes) = expr.eval(&bind) else {
+            continue;
+        };
+        let tree: Vec<crate::outline::Node> = nodes.into_iter().map(db_outline_to_node).collect();
+        let parts = crate::outline::to_parts(&tree, &row.url);
+        if parts.is_empty() {
+            continue;
+        }
+        m.set_declared(static_name, Part::Stream(parts));
+    }
+}
+
+fn db_outline_to_node(n: grackle_db::OutlineNode) -> crate::outline::Node {
+    crate::outline::Node {
+        label: n.label,
+        url: n.url,
+        order: None,
+        children: n.children.into_iter().map(db_outline_to_node).collect(),
     }
 }
 
@@ -1317,7 +1355,7 @@ mod tests {
                 (p.title.clone().unwrap_or_default(), None),
             ];
             let body = crate::store::read_body(&p.path).unwrap_or_default();
-            let m = document(p, &body, trail, Vec::new(), Vec::new());
+            let m = document(p, &body, trail, Vec::new());
             let out = canonical(&m);
             assert!(complete(&m, &out), "post {} dropped a part", p.url);
         }
@@ -1370,7 +1408,6 @@ mod tests {
                 &title,
                 &pg.url,
                 &[("/code/".to_string(), "Code".to_string())],
-                Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 "<p>body</p>",

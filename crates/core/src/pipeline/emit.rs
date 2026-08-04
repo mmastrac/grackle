@@ -83,12 +83,6 @@ pub(crate) fn run(
             head.injected = bodies[&p.key].heads.clone();
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
-            // §6e: toc rows carry outline from the same rendered bytes.
-            let outline = if p.flag("toc") {
-                heading_outline(cfg, p, &bodies[&p.key], &p.url)
-            } else {
-                Vec::new()
-            };
             head.alternates = render::eval_expands(metas, &site, &head.title, cfg, |name| {
                 let mut members: Vec<_> = preview::axis_pool(cfg, db, r, name)
                     .into_iter()
@@ -119,7 +113,7 @@ pub(crate) fn run(
                 &resolve_asset,
                 rel_groups.get(&p.url).cloned().unwrap_or_default(),
             )?;
-            let doc = parts::document(p, whole, trail, groups, outline);
+            let doc = parts::document(p, whole, trail, groups);
             let dir = p.path.parent().unwrap_or(root);
             let (html_attrs, body_attrs) = (
                 render::eval_attrs(&attrs.html, cfg, p, &site, &head.title, &p.url),
@@ -343,7 +337,6 @@ pub(crate) fn run(
             &r.url,
             &crate::trails::ancestors(cfg, db, &r.url),
             section,
-            Vec::new(),
             groups,
             &frag,
         );
@@ -437,12 +430,6 @@ pub(crate) fn run(
                     continue;
                 }
                 let frag = &pb.frag;
-                // §6e heading axis for `toc:` pages, from the prepass Doc.
-                let outline = match (&pb.doc, row) {
-                    (Some(d), Some(p)) if p.flag("toc") => heading_outline(cfg, p, d, &r.url),
-                    _ => Vec::new(),
-                };
-
                 let pairing_keep = cfg
                     .pairing_axis()
                     .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
@@ -533,7 +520,6 @@ pub(crate) fn run(
                             &r.url,
                             &crate::trails::ancestors(cfg, db, &r.url),
                             section,
-                            outline,
                             groups,
                             frag,
                         );
@@ -574,47 +560,6 @@ pub(crate) fn run(
     }
 
     Ok(())
-}
-
-/// §6e heading axis: when `toc` is set on the row, build the outline from
-/// rendered content. Depth comes from `fields.toc = 'outline(content, n)'`
-/// when declared; otherwise max level 3 (the old h2–h3 window).
-fn heading_outline(
-    cfg: &Config,
-    row: &crate::model::Row,
-    doc: &Doc,
-    current_url: &str,
-) -> Vec<parts::PartMap> {
-    let content = grackle_db::Content::new(doc.blocks.clone());
-    let nodes = match cfg.field_expr("toc") {
-        Some(src) => {
-            let expr = grackle_db::FieldExpr::parse(
-                src,
-                &cfg.field_expr_schema(),
-                grackle_db::Type::Outline,
-            )
-            .expect("toc field validated at load");
-            match expr.eval(&preview::FieldBind {
-                row,
-                content: content.clone(),
-            }) {
-                grackle_db::Value::Outline(nodes) => nodes,
-                _ => content.outline(3),
-            }
-        }
-        None => content.outline(3),
-    };
-    let tree: Vec<crate::outline::Node> = nodes.into_iter().map(db_outline_to_node).collect();
-    crate::outline::to_parts(&tree, current_url)
-}
-
-fn db_outline_to_node(n: grackle_db::OutlineNode) -> crate::outline::Node {
-    crate::outline::Node {
-        label: n.label,
-        url: n.url,
-        order: None,
-        children: n.children.into_iter().map(db_outline_to_node).collect(),
-    }
 }
 
 /// Section outline for a row inside a `.section` unit (§6e), cached per unit.

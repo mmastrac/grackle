@@ -59,6 +59,7 @@ locale = { type = "string" }
 
 [schema.fields]
 hero = 'cover ? cover : image ? image : images(content)[0]'
+outline = 'toc ? outline(content, 3) : outline(content, 0)'
 
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"
