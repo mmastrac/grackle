@@ -140,6 +140,16 @@
     if (overlay) overlay.classList.remove("is-open");
   }
 
-  window.gs = { open: open, close: close };
-  open();
+  // Programmatic query for consumers that want hits without the overlay —
+  // the 404 page suggests real pages from the mistyped path. Returns a
+  // Promise of `[url, title, date]` tuples, straight from the same wasm.
+  function suggest(q) {
+    return load().then(function (ex) { return query(ex, q); });
+  }
+
+  window.gs = { open: open, close: close, suggest: suggest };
+  // The shell's button injects this script AS the open action, so loading it
+  // opens the overlay by default. A consumer that only wants `suggest` sets
+  // `window.__gsQuiet` first, to load the module without popping the overlay.
+  if (!window.__gsQuiet) open();
 })();
