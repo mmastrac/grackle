@@ -67,6 +67,9 @@ pub struct Config {
     /// Unrouted-asset embed policy (IO.md §4a, I11). Base ships on.
     #[serde(default)]
     pub embeds: EmbedsCfg,
+    /// Engine-emitted asset URL addressing (DESIGN.md q54). Default `stable`.
+    #[serde(default)]
+    pub assets: AssetsCfg,
     /// `[records.<field>.<id>]`: slug, locale names, intro for grouped values (§6f).
     #[serde(default)]
     pub records: BTreeMap<String, BTreeMap<String, RecordCfg>>,
@@ -151,6 +154,7 @@ fn every_config_key_has_a_law(c: Config) {
         shells: _,
         i18n: _,
         embeds: _,
+        assets: _,
         records: _,
         profiles: _,
         links: _,
@@ -190,6 +194,7 @@ impl Shaped for Config {
             field("shells", |c: &Config| &c.shells),
             field("i18n", |c: &Config| &c.i18n),
             field("embeds", |c: &Config| &c.embeds),
+            field("assets", |c: &Config| &c.assets),
             field("records", |c: &Config| &c.records),
             field("profiles", |c: &Config| &c.profiles),
             field("links", |c: &Config| &c.links),
@@ -209,6 +214,9 @@ pub(crate) const PROJECTABLE: &[&str] = &[
     "shells",
     "axes",
     "media_types",
+    // Addressing forms output URLs; it never changes what loads, so a `dev`
+    // profile may pick `stable` while prod hashes (DESIGN.md q54).
+    "assets",
 ];
 
 /// Keys a profile may not write: what loads. Database identical under every
@@ -352,6 +360,12 @@ impl Shaped for EmbedsCfg {
             // TOML name `match`, not Rust's `patterns`.
             field("match", |e: &EmbedsCfg| &e.patterns),
         ])
+    }
+}
+
+impl Shaped for AssetsCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![field("addressing", |a: &AssetsCfg| &a.addressing)])
     }
 }
 
@@ -836,6 +850,32 @@ impl Default for EmbedsCfg {
             patterns: Vec::new(),
         }
     }
+}
+
+/// Engine-emitted asset URLs: how the `<head>` stylesheet (and, later, the
+/// other global assets) is addressed (DESIGN.md q54). `stable` keeps the
+/// human path and a revalidating cache; `hashed` mints a content address
+/// under `/static` for immutable caching, at the cost of churning every page
+/// that links it. The behavior enum lives in `grackle_core`; this carries the
+/// site's raw choice and nothing else.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssetsCfg {
+    /// `stable` (default) | `hashed`. Parsed and validated by core at use.
+    #[serde(default = "default_addressing")]
+    pub addressing: String,
+}
+
+impl Default for AssetsCfg {
+    fn default() -> Self {
+        AssetsCfg {
+            addressing: default_addressing(),
+        }
+    }
+}
+
+fn default_addressing() -> String {
+    "stable".to_string()
 }
 
 impl EmbedsCfg {

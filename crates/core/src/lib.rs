@@ -20,6 +20,7 @@ pub(crate) fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+pub mod assets;
 pub mod assemble;
 pub mod build;
 pub mod debug;

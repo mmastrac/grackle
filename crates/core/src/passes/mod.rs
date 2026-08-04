@@ -35,6 +35,8 @@ pub struct Ctx<'a> {
     pub page_bodies: &'a HashMap<String, PageBody>,
     pub linkspace: &'a crate::links::LinkSpace,
     pub backlinks: &'a HashMap<String, Vec<Backlink>>,
+    /// Theme → stylesheet URL, resolved once after the sheets compile (q54).
+    pub css_urls: &'a crate::assets::CssUrls,
     pub root: PathBuf,
     pub profile: Option<&'a str>,
     /// `[html.head.meta]`, compiled once (§4e).
@@ -47,9 +49,11 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    /// Each theme compiles its own stylesheet; `default` keeps `/css/main.css`.
+    /// Each theme compiles its own stylesheet; the URL it is linked at is
+    /// resolved per `[assets] addressing` (q54) — `stable` keeps
+    /// `/css/main.css`, `hashed` a content address.
     pub fn css_of(&self, theme: Option<&str>) -> String {
-        crate::theme::css_url(&self.cfg.site.baseurl, theme)
+        self.css_urls.of(&self.cfg.site.baseurl, theme)
     }
 
     /// The route's pairing-axis member, or the site default.

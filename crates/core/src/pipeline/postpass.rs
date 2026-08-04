@@ -582,14 +582,47 @@ mod cited_url_tests {
 
 #[allow(clippy::too_many_arguments)]
 /// Search index and CSS compilation.
-pub(crate) fn search_and_css(
+/// Compile every theme's stylesheet and resolve the URL each is linked at,
+/// per `[assets] addressing` (DESIGN.md q54). Runs BEFORE `emit`, because in
+/// `hashed` mode a sheet's URL is a function of its compiled bytes, so the
+/// pages that link it must render knowing the resolved URL — the post-order
+/// the reference DAG implies. The bytes land in `out_map` at their resolved
+/// URL; the returned [`CssUrls`] carries theme → URL for the render passes.
+pub(crate) fn stylesheets(
+    cfg: &Config,
+    themes: &crate::theme::Themes,
+    root: &Path,
+    theme_dir: &Path,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) -> Result<crate::assets::CssUrls> {
+    let addressing = crate::assets::Addressing::parse(&cfg.assets.addressing)?;
+    let overlay = crate::shells::css::site_overlay(root, stats);
+    let mut urls = crate::assets::CssUrls::default();
+
+    // The default theme's dir is passed in; the rest live under themes/<name>.
+    let mut targets: Vec<(Option<&str>, std::path::PathBuf)> =
+        vec![(None, theme_dir.to_path_buf())];
+    for name in themes.names().filter(|n| *n != "default") {
+        targets.push((Some(name), root.join("themes").join(name)));
+    }
+    for (theme, dir) in targets {
+        let head_style = themes.get(theme)?.head_style();
+        let bytes = crate::shells::css::css_pass(&dir, head_style, overlay.as_deref(), stats)?;
+        let stable = crate::theme::css_url(&cfg.site.baseurl, theme);
+        let url = addressing.css_url(&cfg.site.baseurl, &stable, &bytes);
+        out_map.insert(url.clone(), bytes);
+        urls.insert(theme, url);
+    }
+    Ok(urls)
+}
+
+/// The search index shell (§6b) and the link warnings drained after render.
+pub(crate) fn search(
     cfg: &Config,
     db: &SiteDb,
     bodies: &HashMap<&grackle_db::Key, Doc>,
     page_bodies: &HashMap<String, PageBody>,
-    themes: &crate::theme::Themes,
-    root: &Path,
-    theme_dir: &Path,
     linkspace: &crate::links::LinkSpace,
     out_map: &mut SiteOutput,
     stats: &mut Stats,
@@ -599,25 +632,6 @@ pub(crate) fn search_and_css(
     for w in linkspace.take_warnings() {
         eprintln!("grackle: {w}");
         warnings.push(w);
-    }
-    let overlay = crate::shells::css::site_overlay(root, stats);
-    crate::shells::css::css_pass(
-        theme_dir,
-        themes.get(None)?.head_style(),
-        "/css/main.css",
-        overlay.as_deref(),
-        out_map,
-        stats,
-    )?;
-    for name in themes.names().filter(|n| *n != "default") {
-        crate::shells::css::css_pass(
-            &root.join("themes").join(name),
-            themes.get(Some(name))?.head_style(),
-            &format!("/css/{name}.css"),
-            overlay.as_deref(),
-            out_map,
-            stats,
-        )?;
     }
     Ok(warnings)
 }

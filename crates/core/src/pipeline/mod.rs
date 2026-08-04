@@ -177,6 +177,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             .collect()
     };
 
+    // Stylesheets compile BEFORE the pages that link them: in `hashed` mode a
+    // sheet's URL is its content address, so the `<head>` must know it at
+    // render time (DESIGN.md q54, the post-order the reference DAG implies).
+    let css_urls =
+        postpass::stylesheets(cfg, &themes, &root, &theme_dir, &mut out_map, &mut stats)?;
+
     emit::run(
         cfg,
         db,
@@ -190,20 +196,18 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         &linkspace,
         &backlinks,
         &rel_groups,
+        &css_urls,
         &root,
         profile,
         &mut out_map,
         &mut stats,
     )?;
 
-    let warnings = postpass::search_and_css(
+    let warnings = postpass::search(
         cfg,
         db,
         &bodies,
         &page_bodies,
-        &themes,
-        &root,
-        &theme_dir,
         &linkspace,
         &mut out_map,
         &mut stats,

@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-use crate::pipeline::types::{SiteOutput, Stats};
+use crate::pipeline::types::Stats;
 use crate::store::split_front_matter;
 
 /// `@charset` is only legal as the very first thing in a stylesheet, and
@@ -48,14 +48,16 @@ pub(crate) fn strip_charset(css: &str) -> &str {
 /// preserves I4's inline emission: a `<style>` last in a `<head>` outranked
 /// the stylesheet link above it, and staying last keeps the same rule
 /// winning after the move.
+/// Returns the compiled sheet's BYTES; the caller chooses the URL it lands at
+/// (the stable convention, or a content address — DESIGN.md q54, [`crate::assets`])
+/// and inserts it. The URL is no longer this pass's concern, because in
+/// `hashed` mode it is a function of the very bytes this computes.
 pub(crate) fn css_pass(
     theme_dir: &Path,
     head_style: &str,
-    url: &str,
     overlay: Option<&str>,
-    out_map: &mut SiteOutput,
     stats: &mut Stats,
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     // `theme.scss` if the theme wrote one, else `_tokens.scss` on its own.
     // `wants_skin` is the ONLY thing a sheet's presence now decides: the
     // heading ladder and block rhythm always apply (measured inert under a
@@ -188,8 +190,7 @@ pub(crate) fn css_pass(
         css.push_str(&format!("@layer overlay {{\n{}\n}}\n", strip_charset(o)));
     }
     stats.css += css.len();
-    out_map.insert(url.to_string(), css.into_bytes());
-    Ok(())
+    Ok(css.into_bytes())
 }
 
 /// The site's own stylesheet: `.style.scss` at the root, compiled once and
@@ -274,7 +275,7 @@ pub(crate) fn inline_imports(src: &str, load: &Path, seen: &mut Vec<String>) -> 
 #[cfg(test)]
 mod css_pass_tests {
     use super::*;
-    use crate::pipeline::types::{SiteOutput, Stats};
+    use crate::pipeline::types::Stats;
 
     /// `who` names the caller: these run in parallel threads, and a shared
     /// scratch directory means one test compiles another's theme.
@@ -287,11 +288,10 @@ mod css_pass_tests {
         for (name, body) in files {
             std::fs::write(dir.join(name), body).unwrap();
         }
-        let mut out = SiteOutput::new();
         let mut stats = Stats::default();
-        css_pass(&dir, "", "/css/t.css", None, &mut out, &mut stats).unwrap();
+        let bytes = css_pass(&dir, "", None, &mut stats).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
-        String::from_utf8(out.remove("/css/t.css").expect("a sheet is always emitted")).unwrap()
+        String::from_utf8(bytes).unwrap()
     }
 
     /// The smallest theme worth having: retune the palette, inherit every

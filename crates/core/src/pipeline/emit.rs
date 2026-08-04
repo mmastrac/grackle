@@ -33,6 +33,7 @@ pub(crate) fn run(
     linkspace: &crate::links::LinkSpace,
     backlinks: &HashMap<String, Vec<crate::pipeline::Backlink>>,
     rel_groups: &HashMap<String, Vec<crate::relate::Group>>,
+    css_urls: &crate::assets::CssUrls,
     root: &Path,
     profile: Option<&str>,
     out_map: &mut SiteOutput,
@@ -124,7 +125,7 @@ pub(crate) fn run(
                     theme: row_thm,
                     head_html: render::head_html(
                         &head,
-                        &theme::css_url(&cfg.site.baseurl, theme_name),
+                        &css_urls.of(&cfg.site.baseurl, theme_name),
                         &cfg.html.head.include,
                     ),
                     site_title: site.title,
@@ -174,6 +175,7 @@ pub(crate) fn run(
             page_bodies,
             linkspace,
             backlinks,
+            css_urls,
             root: root.to_path_buf(),
             profile,
             objects: db.object_ix.iter().collect(),
@@ -353,7 +355,7 @@ pub(crate) fn run(
                 theme: row_thm,
                 head_html: render::head_html(
                     &head,
-                    &theme::css_url(&cfg.site.baseurl, theme_name),
+                    &css_urls.of(&cfg.site.baseurl, theme_name),
                     &cfg.html.head.include,
                 ),
                 site_title: site.title,
@@ -446,7 +448,7 @@ pub(crate) fn run(
                 let (theme_name, subtheme) =
                     preview::resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref()));
                 let row_thm = themes.get(theme_name)?;
-                let row_css = theme::css_url(&cfg.site.baseurl, theme_name);
+                let row_css = css_urls.of(&cfg.site.baseurl, theme_name);
                 let lang = row.map(|p| cfg.pairing_member(p)).unwrap_or_default();
                 let lang = lang.as_str();
                 let site = site.with_title(cfg.site_title(lang));
