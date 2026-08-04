@@ -206,25 +206,22 @@ impl Content {
 
     /// Keep the first `n` blocks. HTML only; `None` if not HTML.
     pub fn truncate_blocks(&self, n: usize) -> Option<Self> {
-        let ContentBody::Html { blocks } = &self.body else {
-            return None;
-        };
-        let cut = cut_prefix(blocks, Some(n), None);
-        Some(Self {
-            body: ContentBody::Html {
-                blocks: blocks[..cut].to_vec(),
-            },
-            truncated: self.truncated || cut < blocks.len(),
-        })
+        self.truncate_with(Some(n), None)
     }
 
     /// Keep blocks from the start until visible text would exceed `n`.
     /// HTML only; `None` if not HTML.
     pub fn truncate_chars(&self, n: usize) -> Option<Self> {
+        self.truncate_with(None, Some(n))
+    }
+
+    /// Keep a prefix of blocks bounded by a block count and/or a char budget
+    /// (see `cut_prefix`). HTML only; `None` if not HTML.
+    fn truncate_with(&self, max_blocks: Option<usize>, max_chars: Option<usize>) -> Option<Self> {
         let ContentBody::Html { blocks } = &self.body else {
             return None;
         };
-        let cut = cut_prefix(blocks, None, Some(n));
+        let cut = cut_prefix(blocks, max_blocks, max_chars);
         Some(Self {
             body: ContentBody::Html {
                 blocks: blocks[..cut].to_vec(),
@@ -1016,6 +1013,31 @@ fn url_pair(args: &[Value]) -> Option<(&str, &str)> {
     }
 }
 
+/// The first argument as a string, `None` if absent or not a `Str` — the
+/// shape every single-string constructor shares.
+fn str_arg(args: &[Value]) -> Option<&str> {
+    match args.first() {
+        Some(Value::Str(s)) => Some(s),
+        _ => None,
+    }
+}
+
+/// The first argument as content, `None` otherwise.
+fn content_arg(args: &[Value]) -> Option<&Content> {
+    match args.first() {
+        Some(Value::Content(c)) => Some(c),
+        _ => None,
+    }
+}
+
+/// The first two arguments as (content, int), `None` unless both fit.
+fn content_int_arg(args: &[Value]) -> Option<(&Content, i64)> {
+    match (args.first(), args.get(1)) {
+        (Some(Value::Content(c)), Some(Value::Int(n))) => Some((c, *n)),
+        _ => None,
+    }
+}
+
 fn eval_embedding_similarity(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
     url_pair(args)
         .and_then(|(a, b)| ctx.similarity(a, b))
@@ -1031,115 +1053,85 @@ fn eval_year_gap(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
 /// Edit distance between two strings — pure, no ctx. Wears a minus sign in a
 /// `rank` (`-levenshtein(...)`) because bigger always wins (§6g).
 fn eval_levenshtein(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match (args.first(), args.get(1)) {
-        (Some(Value::Str(a)), Some(Value::Str(b))) => Value::Int(levenshtein(a, b) as i64),
-        _ => Value::Null,
-    }
+    url_pair(args).map_or(Value::Null, |(a, b)| Value::Int(levenshtein(a, b) as i64))
 }
 
 fn eval_truncate_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match (args.first(), args.get(1)) {
-        (Some(Value::Content(c)), Some(Value::Int(n))) => c
-            .truncate_blocks((*n).max(0) as usize)
-            .map_or(Value::Null, Value::Content),
-        _ => Value::Null,
-    }
+    content_int_arg(args)
+        .and_then(|(c, n)| c.truncate_blocks(n.max(0) as usize))
+        .map_or(Value::Null, Value::Content)
 }
 
 fn eval_truncate_chars(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match (args.first(), args.get(1)) {
-        (Some(Value::Content(c)), Some(Value::Int(n))) => c
-            .truncate_chars((*n).max(0) as usize)
-            .map_or(Value::Null, Value::Content),
-        _ => Value::Null,
-    }
+    content_int_arg(args)
+        .and_then(|(c, n)| c.truncate_chars(n.max(0) as usize))
+        .map_or(Value::Null, Value::Content)
 }
 
 fn eval_outline(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match (args.first(), args.get(1)) {
-        (Some(Value::Content(c)), Some(Value::Int(n))) => {
-            if c.blocks().is_none() {
-                return Value::Null;
-            }
-            let max = (*n).clamp(1, 6) as u8;
-            Value::Outline(c.outline(max))
-        }
-        _ => Value::Null,
-    }
+    content_int_arg(args)
+        .filter(|(c, _)| c.blocks().is_some())
+        .map_or(Value::Null, |(c, n)| {
+            Value::Outline(c.outline(n.clamp(1, 6) as u8))
+        })
 }
 
 fn eval_html(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Str(s)) => Value::Content(Content::from_html_document(s)),
-        _ => Value::Null,
-    }
+    str_arg(args).map_or(Value::Null, |s| {
+        Value::Content(Content::from_html_document(s))
+    })
 }
 
 fn eval_markdown(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Str(s)) => Value::Content(Content::markdown(s.clone())),
-        _ => Value::Null,
-    }
+    str_arg(args).map_or(Value::Null, |s| {
+        Value::Content(Content::markdown(s.to_string()))
+    })
 }
 
 fn eval_text_ctor(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Str(s)) => Value::Content(Content::text(s.clone())),
-        _ => Value::Null,
-    }
+    str_arg(args).map_or(Value::Null, |s| {
+        Value::Content(Content::text(s.to_string()))
+    })
 }
 
 fn eval_kind(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => Value::Str(c.kind_name().into()),
-        _ => Value::Null,
-    }
+    content_arg(args).map_or(Value::Null, |c| Value::Str(c.kind_name().into()))
 }
 
 fn eval_as_html(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => c.as_html().map_or(Value::Null, Value::Content),
-        _ => Value::Null,
-    }
+    content_arg(args)
+        .and_then(Content::as_html)
+        .map_or(Value::Null, Value::Content)
 }
 
 fn eval_as_markdown(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => c.as_markdown().map_or(Value::Null, Value::Content),
-        _ => Value::Null,
-    }
+    content_arg(args)
+        .and_then(Content::as_markdown)
+        .map_or(Value::Null, Value::Content)
 }
 
 fn eval_as_text(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => c.as_text().map_or(Value::Null, Value::Content),
-        _ => Value::Null,
-    }
+    content_arg(args)
+        .and_then(Content::as_text)
+        .map_or(Value::Null, Value::Content)
 }
 
 fn eval_word_count(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => c.word_count().map_or(Value::Null, Value::Int),
-        _ => Value::Null,
-    }
+    content_arg(args)
+        .and_then(Content::word_count)
+        .map_or(Value::Null, Value::Int)
 }
 
 fn eval_links(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => Value::str_list(c.links()),
-        _ => Value::Null,
-    }
+    content_arg(args).map_or(Value::Null, |c| Value::str_list(c.links()))
 }
 
 fn eval_images(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    match args.first() {
-        Some(Value::Content(c)) => Value::str_list(c.images()),
-        _ => Value::Null,
-    }
+    content_arg(args).map_or(Value::Null, |c| Value::str_list(c.images()))
 }
 
 fn eval_filter_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    let Some(Value::Content(c)) = args.first() else {
+    let Some(c) = content_arg(args) else {
         return Value::Null;
     };
     let tags = str_args_from(1, args);
@@ -1156,7 +1148,7 @@ fn eval_filter_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
 }
 
 fn eval_keep_blocks(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
-    let Some(Value::Content(c)) = args.first() else {
+    let Some(c) = content_arg(args) else {
         return Value::Null;
     };
     let tags = str_args_from(1, args);
@@ -1265,6 +1257,44 @@ fn path_under(p: &str, base: &str) -> bool {
     base.split('/').all(|b| parts.next() == Some(b))
 }
 
+impl Func {
+    /// A function with no parse-time preparation and no rest args — every
+    /// entry below except `under`/`glob`, which carry their own `eval`/`prepare`.
+    const fn simple(
+        name: &'static str,
+        params: &'static [Type],
+        returns: Type,
+        eval: fn(&Prepared, &[Value], &dyn Ctx) -> Value,
+    ) -> Func {
+        Func {
+            name,
+            params,
+            rest: None,
+            returns,
+            prepare: no_prep,
+            eval,
+        }
+    }
+
+    /// [`Func::simple`] with a `rest` type: further args of that type after `params`.
+    const fn simple_rest(
+        name: &'static str,
+        params: &'static [Type],
+        rest: Type,
+        returns: Type,
+        eval: fn(&Prepared, &[Value], &dyn Ctx) -> Value,
+    ) -> Func {
+        Func {
+            name,
+            params,
+            rest: Some(rest),
+            returns,
+            prepare: no_prep,
+            eval,
+        }
+    }
+}
+
 const FUNCS: &[Func] = &[
     Func {
         name: "under",
@@ -1302,165 +1332,79 @@ const FUNCS: &[Func] = &[
     // in the one shared table (§5f): a view filter *could* name them, but its
     // single-row schema has no `self`/`candidate`, so the argument would not
     // resolve — the language is one, the environment gates the reach.
-    Func {
-        name: "embedding_similarity",
-        params: &[Type::Str, Type::Str],
-        rest: None,
-        returns: Type::Double,
-        prepare: no_prep,
-        eval: eval_embedding_similarity,
-    },
-    Func {
-        name: "year_gap",
-        params: &[Type::Str, Type::Str],
-        rest: None,
-        returns: Type::Double,
-        prepare: no_prep,
-        eval: eval_year_gap,
-    },
-    Func {
-        name: "levenshtein",
-        params: &[Type::Str, Type::Str],
-        rest: None,
-        returns: Type::Int,
-        prepare: no_prep,
-        eval: eval_levenshtein,
-    },
+    Func::simple(
+        "embedding_similarity",
+        &[Type::Str, Type::Str],
+        Type::Double,
+        eval_embedding_similarity,
+    ),
+    Func::simple(
+        "year_gap",
+        &[Type::Str, Type::Str],
+        Type::Double,
+        eval_year_gap,
+    ),
+    Func::simple(
+        "levenshtein",
+        &[Type::Str, Type::Str],
+        Type::Int,
+        eval_levenshtein,
+    ),
     // §5f field derivers: wrappers on Content. Compose for both budgets
     // (`truncate_chars(truncate_blocks(content, 4), 700)`) rather than a
     // map-literal options bag. Facts ride on the value (`truncated`).
     // HTML-only; coerce with as_html first when the source is markdown.
-    Func {
-        name: "truncate_blocks",
-        params: &[Type::Content, Type::Int],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_truncate_blocks,
-    },
-    Func {
-        name: "truncate_chars",
-        params: &[Type::Content, Type::Int],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_truncate_chars,
-    },
+    Func::simple(
+        "truncate_blocks",
+        &[Type::Content, Type::Int],
+        Type::Content,
+        eval_truncate_blocks,
+    ),
+    Func::simple(
+        "truncate_chars",
+        &[Type::Content, Type::Int],
+        Type::Content,
+        eval_truncate_chars,
+    ),
     // §6e heading ToC: max level is positional (3 ≡ today's h2–h3 window);
     // min stays 2 so the page title is never an entry. HTML only.
-    Func {
-        name: "outline",
-        params: &[Type::Content, Type::Int],
-        rest: None,
-        returns: Type::Outline,
-        prepare: no_prep,
-        eval: eval_outline,
-    },
+    Func::simple(
+        "outline",
+        &[Type::Content, Type::Int],
+        Type::Outline,
+        eval_outline,
+    ),
     // Content constructors and kind coercion (§5f).
-    Func {
-        name: "html",
-        params: &[Type::Str],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_html,
-    },
-    Func {
-        name: "markdown",
-        params: &[Type::Str],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_markdown,
-    },
-    Func {
-        name: "text",
-        params: &[Type::Str],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_text_ctor,
-    },
-    Func {
-        name: "kind",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::Str,
-        prepare: no_prep,
-        eval: eval_kind,
-    },
-    Func {
-        name: "as_html",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_as_html,
-    },
-    Func {
-        name: "as_markdown",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_as_markdown,
-    },
-    Func {
-        name: "as_text",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_as_text,
-    },
-    Func {
-        name: "word_count",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::Int,
-        prepare: no_prep,
-        eval: eval_word_count,
-    },
-    Func {
-        name: "links",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::List,
-        prepare: no_prep,
-        eval: eval_links,
-    },
-    Func {
-        name: "images",
-        params: &[Type::Content],
-        rest: None,
-        returns: Type::List,
-        prepare: no_prep,
-        eval: eval_images,
-    },
-    Func {
-        name: "filter_blocks",
-        params: &[Type::Content],
-        rest: Some(Type::Str),
-        returns: Type::List,
-        prepare: no_prep,
-        eval: eval_filter_blocks,
-    },
-    Func {
-        name: "keep_blocks",
-        params: &[Type::Content],
-        rest: Some(Type::Str),
-        returns: Type::Content,
-        prepare: no_prep,
-        eval: eval_keep_blocks,
-    },
-    Func {
-        name: "to_json",
-        params: &[Type::Any],
-        rest: None,
-        returns: Type::Str,
-        prepare: no_prep,
-        eval: eval_to_json,
-    },
+    Func::simple("html", &[Type::Str], Type::Content, eval_html),
+    Func::simple("markdown", &[Type::Str], Type::Content, eval_markdown),
+    Func::simple("text", &[Type::Str], Type::Content, eval_text_ctor),
+    Func::simple("kind", &[Type::Content], Type::Str, eval_kind),
+    Func::simple("as_html", &[Type::Content], Type::Content, eval_as_html),
+    Func::simple(
+        "as_markdown",
+        &[Type::Content],
+        Type::Content,
+        eval_as_markdown,
+    ),
+    Func::simple("as_text", &[Type::Content], Type::Content, eval_as_text),
+    Func::simple("word_count", &[Type::Content], Type::Int, eval_word_count),
+    Func::simple("links", &[Type::Content], Type::List, eval_links),
+    Func::simple("images", &[Type::Content], Type::List, eval_images),
+    Func::simple_rest(
+        "filter_blocks",
+        &[Type::Content],
+        Type::Str,
+        Type::List,
+        eval_filter_blocks,
+    ),
+    Func::simple_rest(
+        "keep_blocks",
+        &[Type::Content],
+        Type::Str,
+        Type::Content,
+        eval_keep_blocks,
+    ),
+    Func::simple("to_json", &[Type::Any], Type::Str, eval_to_json),
 ];
 
 fn lookup_func(name: &str) -> Result<&'static Func> {
@@ -1514,48 +1458,21 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
         let c = b[i];
         match c {
             c if c.is_whitespace() => i += 1,
-            '(' => {
-                out.push(Tok::LParen);
-                i += 1;
-            }
-            ')' => {
-                out.push(Tok::RParen);
-                i += 1;
-            }
-            '{' => {
-                out.push(Tok::LBrace);
-                i += 1;
-            }
-            '}' => {
-                out.push(Tok::RBrace);
-                i += 1;
-            }
-            '[' => {
-                out.push(Tok::LBracket);
-                i += 1;
-            }
-            ']' => {
-                out.push(Tok::RBracket);
-                i += 1;
-            }
-            ',' => {
-                out.push(Tok::Comma);
-                i += 1;
-            }
-            '?' => {
-                out.push(Tok::Question);
-                i += 1;
-            }
-            ':' => {
-                out.push(Tok::Colon);
-                i += 1;
-            }
-            '*' => {
-                out.push(Tok::Star);
-                i += 1;
-            }
-            '+' => {
-                out.push(Tok::Plus);
+            // Single-character punctuation tokens, one per char.
+            '(' | ')' | '{' | '}' | '[' | ']' | ',' | '?' | ':' | '*' | '+' => {
+                out.push(match c {
+                    '(' => Tok::LParen,
+                    ')' => Tok::RParen,
+                    '{' => Tok::LBrace,
+                    '}' => Tok::RBrace,
+                    '[' => Tok::LBracket,
+                    ']' => Tok::RBracket,
+                    ',' => Tok::Comma,
+                    '?' => Tok::Question,
+                    ':' => Tok::Colon,
+                    '*' => Tok::Star,
+                    _ => Tok::Plus,
+                });
                 i += 1;
             }
             // Always an operator token; a negative literal is unary minus over
@@ -2460,9 +2377,16 @@ impl FieldExpr {
     pub fn parse(src: &str, schema: &Schema, want: Type) -> Result<Self> {
         let e = Self::infer(src, schema)?;
         if e.returns != Type::Any && e.returns != want.scalar() {
-            bail!("a field expression must be {want}, but `{}` is {}", e.op, e.returns);
+            bail!(
+                "a field expression must be {want}, but `{}` is {}",
+                e.op,
+                e.returns
+            );
         }
-        Ok(FieldExpr { op: e.op, returns: want })
+        Ok(FieldExpr {
+            op: e.op,
+            returns: want,
+        })
     }
 
     pub fn returns(&self) -> Type {
