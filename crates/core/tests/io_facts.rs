@@ -11,7 +11,10 @@
 //! and read in a third (the route pool), and a unit test on `Route::field`
 //! would pass against a loader that never set it.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+mod support;
+use support::sitemap_urls as urls;
 
 /// One corpus, holding every shape the fact has an opinion about:
 ///
@@ -25,8 +28,6 @@ use std::path::{Path, PathBuf};
 /// reads every output (IO.md §4) — which is the shape the corpus filters this
 /// item migrates are written in.
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-facts-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
@@ -47,31 +48,7 @@ fn site(who: &str) -> PathBuf {
         ("legacy.html", "<p>Bytes, verbatim.</p>\n"),
         ("notes.txt", "Bytes, verbatim.\n"),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
-}
-
-/// Build, and hand back each probe's selected URL set.
-fn urls(dir: &Path, route: &str) -> Vec<String> {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    let xml = String::from_utf8(
-        out.get(route)
-            .unwrap_or_else(|| panic!("no route at {route} — routes: {:?}", out.keys()))
-            .clone(),
-    )
-    .expect("a sitemap is utf-8");
-    xml.lines()
-        .filter_map(|l| l.strip_prefix("<loc>")?.strip_suffix("</loc>"))
-        .map(|u| u.trim_start_matches("https://example.com").to_string())
-        .collect()
+    support::site("io-facts", who, &files)
 }
 
 /// The fact itself, on both sides of the line the item was written to expose.

@@ -21,8 +21,11 @@
 //! elsewhere.
 
 use grackle_core::model::graph::{Demand, Graph, Node};
-use grackle_core::model::{Key, SiteDb};
-use std::path::{Path, PathBuf};
+use grackle_core::model::Key;
+use std::path::PathBuf;
+
+mod support;
+use support::{load, render_profile as built};
 
 /// A 2×3 PNG — real bytes, so an image row is an image row.
 const PNG: &[u8] = &[
@@ -103,8 +106,6 @@ force = { draft = true }
 "#;
 
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-graph-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files: &[(&str, &[u8])] = &[
         ("grackle.toml", SITE.as_bytes()),
         (
@@ -116,27 +117,7 @@ fn site(who: &str) -> PathBuf {
         ("pics/kite.png", PNG),
         ("pics/unseen.png", PNG),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
-}
-
-fn load(dir: &Path) -> SiteDb {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    grackle_source::load(&cfg).expect("the site loads")
-}
-
-fn built(dir: &Path, profile: Option<&str>) -> (grackle_core::build::SiteOutput, SiteDb) {
-    let cfg = grackle_core::config::Config::load_profile(&dir.join("grackle.toml"), profile)
-        .expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    (out, db)
+    support::site("io-graph", who, files)
 }
 
 fn out(url: &str) -> Node {

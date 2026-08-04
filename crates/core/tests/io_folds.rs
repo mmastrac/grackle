@@ -18,7 +18,10 @@
 //! pools see forced fields, and `profile_force.rs` guards it in both
 //! directions.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+mod support;
+use support::render;
 
 /// One corpus with a document, a byte copy, and the base's own feed.
 ///
@@ -27,8 +30,6 @@ use std::path::{Path, PathBuf};
 /// the same shape with a predicate, because "reads all outputs" has to mean
 /// the pool it *starts* from rather than the set it ends with.
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-folds-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
@@ -43,21 +44,7 @@ fn site(who: &str) -> PathBuf {
         ),
         ("notes.txt", "Bytes, verbatim.\n"),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
-}
-
-fn render(dir: &Path) -> grackle_core::build::SiteOutput {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    out
+    support::site("io-folds", who, &files)
 }
 
 fn text(out: &grackle_core::build::SiteOutput, route: &str) -> String {
@@ -70,11 +57,7 @@ fn text(out: &grackle_core::build::SiteOutput, route: &str) -> String {
 }
 
 fn locs(out: &grackle_core::build::SiteOutput, route: &str) -> Vec<String> {
-    text(out, route)
-        .lines()
-        .filter_map(|l| l.strip_prefix("<loc>")?.strip_suffix("</loc>"))
-        .map(|u| u.trim_start_matches("https://example.com").to_string())
-        .collect()
+    support::sitemap_locs(&text(out, route))
 }
 
 /// **The respelling, landed.** A fold shell with no `from` lists every output

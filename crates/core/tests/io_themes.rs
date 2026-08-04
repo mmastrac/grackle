@@ -16,6 +16,9 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::{load, render};
+
 /// The gallery shape, minimised: a real theme under `themes/`, and its exact
 /// twin one directory over. The twin is the control — the same bytes at
 /// `pages/mine/` are ordinary content, so anything the theme copy loses it
@@ -76,26 +79,14 @@ fn site(who: &str, config: &str) -> PathBuf {
 }
 
 fn site_of(who: &str, config: &str, files: Vec<(&'static str, &'static str)>) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-themes-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("grackle.toml"), config).unwrap();
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    let mut all: Vec<(&str, &str)> = vec![("grackle.toml", config)];
+    all.extend(files);
+    support::site("io-themes", who, &all)
 }
 
 /// Every URL the build publishes — the set `grackle urls` prints.
 fn published(dir: &Path) -> Vec<String> {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    let mut urls: Vec<String> = out.keys().cloned().collect();
+    let mut urls: Vec<String> = render(dir).keys().cloned().collect();
     urls.sort();
     urls
 }
@@ -107,9 +98,7 @@ fn published(dir: &Path) -> Vec<String> {
 /// publishing — a declaration governs nothing it owns no rows of, and shows up
 /// only as a name in the site's vocabulary.
 fn declarations(dir: &Path) -> (Vec<String>, Vec<String>, usize) {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = load(dir);
     (
         db.declared.keys().map(|k| k.to_string()).collect(),
         db.sections

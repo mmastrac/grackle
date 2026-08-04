@@ -15,7 +15,10 @@
 
 use grackle_core::filter::{Filter, Row as _, Value};
 use grackle_core::model::SiteDb;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+mod support;
+use support::{built, load};
 
 /// A 2×3 PNG — real bytes, so an image row is an image row.
 const PNG: &[u8] = &[
@@ -27,30 +30,7 @@ const PNG: &[u8] = &[
 ];
 
 fn site(who: &str, files: &[(&str, &[u8])]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-join-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
-}
-
-fn load(dir: &Path) -> SiteDb {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    grackle_source::load(&cfg).expect("the site loads")
-}
-
-/// Load AND render, handing back the database the render pass wrote into.
-fn built(dir: &Path) -> (grackle_core::build::SiteOutput, SiteDb) {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    (out, db)
+    support::site("io-join", who, files)
 }
 
 /// A row by source path — identity, so a row with no URL is reachable.

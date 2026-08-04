@@ -18,9 +18,12 @@
 //! down: what the enum still carries that facts do not, and what it carries
 //! that they do.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use grackle_model::RouteKind;
+
+mod support;
+use support::load;
 
 /// One corpus with every route shape beside the others, because the claim is
 /// about the table as a whole rather than about any one row:
@@ -37,8 +40,6 @@ use grackle_model::RouteKind;
 ///   filtered `kind == "post"`, which is the spelling grack.com's search route
 ///   and its drafts restatement carry and the one I13 could not take.
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-kind-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files: [(&str, &[u8]); 6] = [
         (
             "grackle.toml",
@@ -75,18 +76,7 @@ fn site(who: &str) -> PathBuf {
             ],
         ),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
-}
-
-fn load(dir: &Path) -> grackle_core::model::SiteDb {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    grackle_source::load(&cfg).expect("the site loads")
+    support::site("io-kind", who, &files)
 }
 
 /// **The equality every I13 respelling stands on.**
@@ -190,19 +180,13 @@ fn the_byte_copy_arms_are_exactly_the_rows_that_do_not_render() {
 #[test]
 fn the_surviving_column_still_selects_the_blog_corpus() {
     let dir = site("column");
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
+    let (out, _) = support::built(&dir);
 
     let locs = |route: &str| -> Vec<String> {
-        String::from_utf8(out.get(route).expect("the fold published").clone())
-            .expect("a sitemap is utf-8")
-            .lines()
-            .filter_map(|l| l.strip_prefix("<loc>")?.strip_suffix("</loc>"))
-            .map(|u| u.trim_start_matches("https://example.com").to_string())
-            .collect()
+        support::sitemap_locs(
+            &String::from_utf8(out.get(route).expect("the fold published").clone())
+                .expect("a sitemap is utf-8"),
+        )
     };
 
     assert_eq!(

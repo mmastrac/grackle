@@ -14,14 +14,14 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+
 /// A site with one post, one listing, and a profile that forces `noindex`.
 ///
 /// The post declares `noindex: false` in its front matter — deliberately, and
 /// it is the whole of the rung-0 statement: front matter is rung 1 and wins
 /// against every other writer in the system, and it loses to this.
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-force-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
@@ -33,21 +33,12 @@ fn site(who: &str) -> PathBuf {
             "---\ntitle: Hello\nnoindex: false\n---\n\nProse.\n",
         ),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    support::site("force", who, &files)
 }
 
 /// Build the site, and hand back (post page, `/blog/` listing) as text.
 fn build(dir: &Path, profile: Option<&str>) -> (String, String) {
-    let cfg = grackle_core::config::Config::load_profile(&dir.join("grackle.toml"), profile)
-        .expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
+    let (out, _) = support::render_profile(dir, profile);
     let get = |url: &str| {
         String::from_utf8(
             out.get(url)
@@ -118,8 +109,6 @@ fn without_the_profile_the_row_keeps_its_own_answer() {
 /// changes which rows the views admit (§4a), and rung 0 is not exempt from
 /// that because it is the highest rung, it is *especially* not exempt.
 fn pools_site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-force-pools-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
@@ -135,21 +124,12 @@ fn pools_site(who: &str) -> PathBuf {
             "---\ntitle: Hello\n---\n\nProse.\n",
         ),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    support::site("force-pools", who, &files)
 }
 
 /// Build `pools_site` and hand back (row-pool listing, route-pool sitemap).
 fn build_pools(dir: &Path, profile: Option<&str>) -> (String, String) {
-    let cfg = grackle_core::config::Config::load_profile(&dir.join("grackle.toml"), profile)
-        .expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
+    let (out, _) = support::render_profile(dir, profile);
     let get = |url: &str| {
         String::from_utf8(
             out.get(url)

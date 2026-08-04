@@ -34,6 +34,8 @@
 
 use std::path::PathBuf;
 
+mod support;
+
 /// Four rows, chosen so that no two agree on the whole block.
 ///
 /// The first two are IR2's pair, and every fact differs across them: a dated
@@ -59,8 +61,6 @@ use std::path::PathBuf;
 /// `whose` keeps the tests off each other's tree: they run in parallel and
 /// each deletes its directory at both ends.
 fn site(whose: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-explain-{whose}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
@@ -86,12 +86,7 @@ fn site(whose: &str) -> PathBuf {
         // block under test is about addresses.
         ("assets/kite.png", "not a real png, and nothing reads it\n"),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    support::site("io-explain", whose, &files)
 }
 
 /// Mutation: put any one of the four values back as a literal — `"posts"`,
@@ -101,9 +96,7 @@ fn site(whose: &str) -> PathBuf {
 #[test]
 fn explain_reads_the_row_rather_than_a_literal() {
     let dir = site("facts");
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = support::load(&dir);
     let facts = |url: &str| {
         let r = db
             .by_url
@@ -155,9 +148,7 @@ fn explain_reads_the_row_rather_than_a_literal() {
 #[test]
 fn explain_prints_the_second_address_slot_and_the_reason_for_the_dash() {
     let dir = site("strong");
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = support::load(&dir);
     let kite = db
         .rows
         .iter()
@@ -213,9 +204,7 @@ fn explain_prints_the_second_address_slot_and_the_reason_for_the_dash() {
 #[test]
 fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
     let dir = site("rendered");
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = support::load(&dir);
     let facts = |url: &str| {
         let r = db
             .by_url
@@ -258,9 +247,7 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
 #[test]
 fn explain_prints_each_cascade_key_exactly_once() {
     let dir = site("cascade");
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = support::load(&dir);
     let fields = |url: &str| {
         let r = db
             .by_url

@@ -33,6 +33,8 @@ use grackle_core::model::graph::{Demand, Graph, Node};
 use grackle_core::model::{Key, Rendition, SiteDb};
 use std::path::{Path, PathBuf};
 
+mod support;
+
 /// A real PNG, big enough that the transform has something to do — 800×800 of
 /// noise, so the resize is visible and the re-encode changes the bytes.
 fn png_bytes(w: u32, h: u32, salt: u8) -> Vec<u8> {
@@ -114,8 +116,6 @@ force = { draft = true }
 "#;
 
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-renditions-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files: &[(&str, Vec<u8>)] = &[
         ("grackle.toml", SITE.as_bytes().to_vec()),
         (
@@ -134,12 +134,7 @@ fn site(who: &str) -> PathBuf {
         ("pics/cover.png", png_bytes(800, 800, 40)),
         ("pics/lonely.png", png_bytes(800, 800, 90)),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    support::site("io-renditions", who, files)
 }
 
 fn built(dir: &Path, profile: Option<&str>) -> (grackle_core::build::SiteOutput, SiteDb) {

@@ -11,23 +11,17 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::load;
+
 /// Write a site and hand back its directory.
 fn site(who: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-tokens-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    support::site("io-tokens", who, files)
 }
 
 /// Every row's source path and the URL it routed to.
 fn routes(dir: &Path) -> Vec<(String, String)> {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = load(dir);
     let mut out: Vec<(String, String)> = db
         .rows
         .iter()

@@ -8,6 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+
 // A `description` with a default, surfaced in the head so the rendered bytes
 // witness which value won. `shell` is declared because a rule defaults it.
 const HEAD: &str = "extends = \"none\"\n\
@@ -22,25 +24,14 @@ const HEAD: &str = "extends = \"none\"\n\
      defaults = { shell = \"html\" }\n";
 
 fn site(who: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-defaults-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("grackle.toml"), HEAD).unwrap();
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    let mut all: Vec<(&str, &str)> = vec![("grackle.toml", HEAD)];
+    all.extend_from_slice(files);
+    support::site("io-defaults", who, &all)
 }
 
 fn build(dir: &Path) -> std::collections::BTreeMap<String, String> {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    out.into_iter()
+    support::render(dir)
+        .into_iter()
         .map(|(u, b)| (u, String::from_utf8_lossy(&b).into_owned()))
         .collect()
 }

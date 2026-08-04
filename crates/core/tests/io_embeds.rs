@@ -26,6 +26,9 @@ use grackle_core::model::{Key, SiteDb};
 use grackle_source::strong;
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::{build_err, built, load};
+
 /// A 2×3 PNG — real bytes, so an image row is an image row.
 const PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -140,35 +143,19 @@ fn files() -> Vec<(String, Vec<u8>)> {
     ]
 }
 
-fn write(dir: &Path, files: &[(String, Vec<u8>)]) {
-    let _ = std::fs::remove_dir_all(dir);
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-}
-
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-embeds-{who}"));
-    write(&dir, &files());
-    dir
+    let f = files();
+    let refs: Vec<(&str, &[u8])> = f.iter().map(|(r, b)| (r.as_str(), b.as_slice())).collect();
+    support::site("io-embeds", who, &refs)
 }
 
 /// The same corpus with the config replaced — for the tests whose subject is a
 /// `[embeds]` table or a malformed rule.
 fn site_with(who: &str, config: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-embeds-{who}"));
     let mut f = files();
     f[0].1 = config.as_bytes().to_vec();
-    write(&dir, &f);
-    dir
-}
-
-fn load(dir: &Path) -> SiteDb {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    grackle_source::load(&cfg).expect("the site loads")
+    let refs: Vec<(&str, &[u8])> = f.iter().map(|(r, b)| (r.as_str(), b.as_slice())).collect();
+    support::site("io-embeds", who, &refs)
 }
 
 fn load_err(dir: &Path) -> String {
@@ -180,27 +167,6 @@ fn load_err(dir: &Path) -> String {
             grackle_source::load(&cfg).expect_err("the site must not load")
         ),
     }
-}
-
-fn built(dir: &Path) -> (grackle_core::build::SiteOutput, SiteDb) {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    (out, db)
-}
-
-fn build_err(dir: &Path) -> String {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let e = match grackle_core::build::render_site(&cfg, &mut db) {
-        Ok(_) => panic!("the render must fail"),
-        Err(e) => format!("{e:#}"),
-    };
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    e
 }
 
 fn row<'a>(db: &'a SiteDb, rel: &str) -> &'a grackle_core::model::Row {

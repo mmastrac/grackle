@@ -54,6 +54,8 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+
 /// One post and one theme, whose `root.html` is whatever the caller says.
 fn site(who: &str, root_html: &str) -> PathBuf {
     site_with(who, root_html, &[])
@@ -62,8 +64,6 @@ fn site(who: &str, root_html: &str) -> PathBuf {
 /// The same, plus any extra theme files the caller needs — `theme.scss`, for
 /// the tests about where a head style lands relative to it.
 fn site_with(who: &str, root_html: &str, extra: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-root-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let mut files = vec![
         (
             "grackle.toml".to_string(),
@@ -89,12 +89,11 @@ fn site_with(who: &str, root_html: &str, extra: &[(&str, &str)]) -> PathBuf {
             .iter()
             .map(|(rel, body)| (rel.to_string(), body.to_string())),
     );
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(r, b)| (r.as_str(), b.as_str()))
+        .collect();
+    support::site("io-root", who, &refs)
 }
 
 fn render(dir: &Path) -> grackle_core::build::SiteOutput {

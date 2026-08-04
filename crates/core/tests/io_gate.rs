@@ -20,6 +20,8 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+
 const HEAD: &str = "extends = \"none\"\n\
      [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
      [schema]\nshell = { type = \"string\" }\n\n\
@@ -29,16 +31,9 @@ const HEAD: &str = "extends = \"none\"\n\
 /// Write a site and hand back its directory. Per-test directories, because
 /// tests that share one temp tree and each clear it race (IR3).
 fn site(who: &str, config: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-gate-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("grackle.toml"), config).unwrap();
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    let mut all: Vec<(&str, &str)> = vec![("grackle.toml", config)];
+    all.extend_from_slice(files);
+    support::site("io-gate", who, &all)
 }
 
 /// The published bytes, and the warnings the load emitted — the two halves a

@@ -22,6 +22,9 @@
 
 use std::path::{Path, PathBuf};
 
+mod support;
+use support::{load, render};
+
 /// A site that declines the base, so every rule under test is written here
 /// rather than inherited. `$SCOPES` is the part each test varies.
 fn config(scopes: &str) -> String {
@@ -73,27 +76,15 @@ const GIF: &[u8] = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff\
 \x02\x44\x01\x00\x3b";
 
 fn site(who: &str, config: &str, files: &[(&str, &[u8])]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-walk-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("grackle.toml"), config).unwrap();
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
+    let mut all: Vec<(&str, &[u8])> = vec![("grackle.toml", config.as_bytes())];
+    all.extend_from_slice(files);
+    support::site("io-walk", who, &all)
 }
 
 /// Every URL the build publishes — the set `grackle urls` prints, which is
 /// also the set an on-demand row joins only once something cites it.
 fn published(dir: &Path) -> Vec<String> {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    let mut urls: Vec<String> = out.keys().cloned().collect();
+    let mut urls: Vec<String> = render(dir).keys().cloned().collect();
     urls.sort();
     urls
 }
@@ -101,9 +92,7 @@ fn published(dir: &Path) -> Vec<String> {
 /// `(collection, rule)` for the row at a URL — `grackle explain`'s two claim
 /// lines, which is where the ordering law becomes observable.
 fn claim(dir: &Path, url: &str) -> (String, String) {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let db = grackle_source::load(&cfg).expect("the site loads");
+    let db = load(dir);
     let r = db
         .by_url
         .get(url)

@@ -13,7 +13,10 @@
 //! nothing) and `shell == "atom"` selected **0** routes (a view's
 //! serialization was a declaration, not a field). Both probes are below.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+mod support;
+use support::sitemap_urls as urls;
 
 /// One corpus with every shape the axis has an opinion about, under the BASE
 /// config — which is the subject as much as the rows are, since the defaults
@@ -36,8 +39,6 @@ use std::path::{Path, PathBuf};
 /// the base's, because rule defaults accumulate from every matching rule while
 /// the address is decided once by the first that answers.
 fn site(who: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grackle-io-shell-{who}"));
-    let _ = std::fs::remove_dir_all(&dir);
     let files = [
         (
             "grackle.toml",
@@ -65,31 +66,7 @@ fn site(who: &str) -> PathBuf {
         ("frozen/index.html", "<p>An index nobody parses.</p>\n"),
         ("notes.txt", "Bytes, verbatim.\n"),
     ];
-    for (rel, body) in files {
-        let p = dir.join(rel);
-        std::fs::create_dir_all(p.parent().expect("a file has a directory")).unwrap();
-        std::fs::write(&p, body).unwrap();
-    }
-    dir
-}
-
-/// Build, and hand back one probe's selected URL set.
-fn urls(dir: &Path, route: &str) -> Vec<String> {
-    let cfg =
-        grackle_core::config::Config::load(&dir.join("grackle.toml")).expect("the config loads");
-    let mut db = grackle_source::load(&cfg).expect("the site loads");
-    let (out, _) = grackle_core::build::render_site(&cfg, &mut db).expect("the site renders");
-    let _ = std::fs::remove_dir_all(dir.join("_cache"));
-    let xml = String::from_utf8(
-        out.get(route)
-            .unwrap_or_else(|| panic!("no route at {route} — routes: {:?}", out.keys()))
-            .clone(),
-    )
-    .expect("a sitemap is utf-8");
-    xml.lines()
-        .filter_map(|l| l.strip_prefix("<loc>")?.strip_suffix("</loc>"))
-        .map(|u| u.trim_start_matches("https://example.com").to_string())
-        .collect()
+    support::site("io-shell", who, &files)
 }
 
 /// `shell == "html"` selects the documents AND the listings, and nothing else.
