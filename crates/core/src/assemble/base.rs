@@ -80,6 +80,16 @@ pub fn fragments() -> &'static [(&'static str, &'static str)] {
     FRAGMENTS
 }
 
+/// The base fragments as (name, source, `<base>/{n}.html` display-path) triples
+/// — the shape schema derivation and theme loading both read. Sharing it keeps
+/// the display names identical across their error messages.
+pub(crate) fn base_sources() -> Vec<(String, String, String)> {
+    fragments()
+        .iter()
+        .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
+        .collect()
+}
+
 /// The base stylesheet's partials, keyed the way `@import "x"` names them, so
 /// the base's own `theme.scss` resolves its imports with no disk underneath.
 const PARTIALS: &[(&str, &str)] = &[
@@ -203,10 +213,7 @@ mod tests {
     #[test]
     fn the_base_fragments_load() {
         let schemas = crate::parts::Schemas::engine_only();
-        let sources: Vec<_> = FRAGMENTS
-            .iter()
-            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
-            .collect();
+        let sources = base_sources();
         crate::assemble::Fragments::load(sources, &schemas).expect("base fragments load");
     }
 }

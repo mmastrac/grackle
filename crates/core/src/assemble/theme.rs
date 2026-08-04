@@ -246,10 +246,7 @@ impl Theme {
                 }
             }
         }
-        let base_sources: Vec<(String, String, String)> = base::fragments()
-            .iter()
-            .map(|(n, src)| (n.to_string(), src.to_string(), format!("<base>/{n}.html")))
-            .collect();
+        let base_sources = base::base_sources();
         let mut fragments =
             Fragments::parse(base_sources).with_context(|| format!("parsing theme {what}"))?;
         // Overlay after base parse so inline defaults from a replaced parent

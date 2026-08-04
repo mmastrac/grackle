@@ -377,10 +377,7 @@ fn engine() -> Vec<(String, Vec<(&'static str, PartType)>)> {
 
 fn schemas() -> &'static [(String, Vec<(String, PartType)>)] {
     SCHEMAS.get_or_init(|| {
-        let sources: Vec<_> = crate::base::fragments()
-            .iter()
-            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
-            .collect();
+        let sources = crate::base::base_sources();
         let frags =
             crate::assemble::binder::Fragments::parse(sources).expect("base fragments must parse");
         Schemas::derive(&frags, &[]).into_static()
@@ -1438,10 +1435,7 @@ mod schema_asset_tests {
 
     #[test]
     fn every_base_fragment_slot_is_declared() {
-        let sources: Vec<_> = crate::base::fragments()
-            .iter()
-            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
-            .collect();
+        let sources = crate::base::base_sources();
         let frags = crate::assemble::binder::Fragments::parse(sources).unwrap();
         let schemas = Schemas::derive(&frags, &[]);
         for (kind, uses) in frags.slot_uses() {
@@ -1460,10 +1454,7 @@ mod schema_asset_tests {
     #[test]
     fn field_schema_overlays_row() {
         use grackle_source::schema::FieldType;
-        let sources: Vec<_> = crate::base::fragments()
-            .iter()
-            .map(|(n, s)| (n.to_string(), s.to_string(), format!("<base>/{n}.html")))
-            .collect();
+        let sources = crate::base::base_sources();
         let frags = crate::assemble::binder::Fragments::parse(sources).unwrap();
         let fields = vec![
             ("date".into(), FieldType::Date),
