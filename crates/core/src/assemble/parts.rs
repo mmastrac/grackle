@@ -1014,7 +1014,7 @@ fn fill_computed_str_fields(
 ) {
     let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
     let bind = crate::passes::preview::FieldBind { row, content };
-    for (name, src) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Str) {
+    for (name, expr) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Str) {
         if m.get(name).is_some() {
             continue;
         }
@@ -1024,9 +1024,6 @@ fn fill_computed_str_fields(
         if !matches!(ty, PartType::Url | PartType::Text) {
             continue;
         }
-        let expr =
-            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Str)
-                .expect("computed field validated at load");
         let grackle_db::Value::Str(s) = expr.eval(&bind) else {
             continue;
         };
@@ -1054,7 +1051,7 @@ fn fill_computed_outline_fields(
 ) {
     let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
     let bind = crate::passes::preview::FieldBind { row, content };
-    for (name, src) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Outline) {
+    for (name, expr) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Outline) {
         if m.get(name).is_some() {
             continue;
         }
@@ -1064,9 +1061,6 @@ fn fill_computed_outline_fields(
         if !matches!(ty, PartType::Stream(_)) {
             continue;
         }
-        let expr =
-            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Outline)
-                .expect("computed field validated at load");
         let grackle_db::Value::Outline(nodes) = expr.eval(&bind) else {
             continue;
         };
@@ -1098,7 +1092,7 @@ fn fill_computed_content_fields(
 ) {
     let content = grackle_db::Content::new(opts.blocks.map(|b| b.to_vec()).unwrap_or_default());
     let bind = crate::passes::preview::FieldBind { row, content };
-    for (name, src) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Content) {
+    for (name, expr) in computed_field_exprs(cfg, opts.view, grackle_db::Type::Content) {
         if m.get(name).is_some() {
             continue;
         }
@@ -1108,9 +1102,6 @@ fn fill_computed_content_fields(
         if !matches!(ty, PartType::Html) {
             continue;
         }
-        let expr =
-            grackle_db::FieldExpr::parse(src, &cfg.field_expr_schema(), grackle_db::Type::Content)
-                .expect("computed field validated at load");
         let grackle_db::Value::Content(c) = expr.eval(&bind) else {
             continue;
         };
@@ -1127,12 +1118,13 @@ fn fill_computed_content_fields(
 
 /// Computed field expressions of one return type: a view's `fields_for`
 /// (which already folds in `[schema.fields]`), or the bag alone for a
-/// document render. Names outside the closed set (§5f) never type-match.
+/// document render. The type is inferred from each expression (§5f), so a
+/// field routes to the filler that wants its shape regardless of its name.
 fn computed_field_exprs<'a>(
     cfg: &'a crate::config::Config,
     view: Option<&str>,
     ty: grackle_db::Type,
-) -> Vec<(&'a str, &'a str)> {
+) -> Vec<(&'a str, grackle_db::FieldExpr)> {
     let named: Vec<(&str, &crate::config::Field)> = match view {
         Some(v) => cfg.fields_for(v).into_iter().collect(),
         None => cfg
@@ -1141,10 +1133,15 @@ fn computed_field_exprs<'a>(
             .map(|(n, f)| (n.as_str(), f))
             .collect(),
     };
+    let schema = cfg.field_expr_schema();
     named
         .into_iter()
-        .filter(|(n, _)| grackle_db::field_return_type(n) == Some(ty))
-        .filter_map(|(n, f)| f.as_expr().map(|src| (n, src)))
+        .filter_map(|(n, f)| Some((n, f.as_expr()?)))
+        .filter_map(|(n, src)| {
+            let expr = grackle_db::FieldExpr::infer(src, &schema)
+                .expect("computed field validated at load");
+            (expr.returns() == ty).then_some((n, expr))
+        })
         .collect()
 }
 

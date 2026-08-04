@@ -2436,7 +2436,10 @@ pub struct FieldExpr {
 }
 
 impl FieldExpr {
-    pub fn parse(src: &str, schema: &Schema, want: Type) -> Result<Self> {
+    /// Parse and infer the return type from the row schema. The type is a
+    /// property of the expression, not of the field's name — which is what
+    /// lets `[schema.fields]` carry any name the site cares to compute (§5f).
+    pub fn infer(src: &str, schema: &Schema) -> Result<Self> {
         let toks = lex(src)?;
         if toks.is_empty() {
             bail!("a field expression cannot be empty");
@@ -2446,11 +2449,20 @@ impl FieldExpr {
         if p.pos != p.toks.len() {
             bail!("trailing tokens after a complete expression");
         }
-        let t = operand_type(&op, schema)?;
-        if t.scalar() != Type::Any && t.scalar() != want.scalar() {
-            bail!("a field expression must be {want}, but `{op}` is {t}");
+        let returns = operand_type(&op, schema)?.scalar();
+        Ok(FieldExpr { op, returns })
+    }
+
+    /// Parse, then require the inferred type to be `want`. For the engine's
+    /// own fixed-type field uses — a card `summary` is content, a widget
+    /// argument is a string — where the surrounding code knows the shape it
+    /// needs. The open `[schema.fields]` bag uses [`infer`] instead.
+    pub fn parse(src: &str, schema: &Schema, want: Type) -> Result<Self> {
+        let e = Self::infer(src, schema)?;
+        if e.returns != Type::Any && e.returns != want.scalar() {
+            bail!("a field expression must be {want}, but `{}` is {}", e.op, e.returns);
         }
-        Ok(FieldExpr { op, returns: want })
+        Ok(FieldExpr { op: e.op, returns: want })
     }
 
     pub fn returns(&self) -> Type {
@@ -2495,16 +2507,6 @@ pub fn field_schema() -> Schema {
     let mut s = Schema::new();
     s.insert("content", Type::Content);
     s
-}
-
-/// Expected return type for a named computed field.
-pub fn field_return_type(name: &str) -> Option<Type> {
-    match name {
-        "summary" | "lede" => Some(Type::Content),
-        "outline" => Some(Type::Outline),
-        "hero" => Some(Type::Str),
-        _ => None,
-    }
 }
 
 fn collect_fields_expr(e: &Expr, out: &mut Vec<String>) {

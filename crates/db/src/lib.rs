@@ -18,7 +18,7 @@ pub mod view;
 mod index;
 
 pub use filter::{
-    field_return_type, field_schema, Block, Content, FieldExpr, Filter, Heading, OutlineNode, Row,
+    field_schema, Block, Content, FieldExpr, Filter, Heading, OutlineNode, Row,
     Schema, Text, Type, Value,
 };
 pub use index::Collision;

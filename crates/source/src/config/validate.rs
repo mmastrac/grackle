@@ -130,27 +130,22 @@ impl Config {
         Ok(())
     }
 
-    /// One computed field (§5f): an expression of a known return type, or a
-    /// literal where the field permits one. `whose` names the table for errors.
+    /// One computed field (§5f): a CEL expression over the row, whose return
+    /// type the checker infers — the name is free, so a site computes whatever
+    /// column it likes. `whose` names the table for errors.
     fn check_computed_field(&self, fname: &str, f: &Field, whose: &str) -> Result<()> {
         match f {
             Field::Expr(src) => {
-                let want = grackle_db::field_return_type(fname).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "{whose}: field {fname:?} is not a known computed field \
-                         (have: summary, lede, outline, hero)"
-                    )
-                })?;
-                grackle_db::FieldExpr::parse(src, &self.field_expr_schema(), want)
+                grackle_db::FieldExpr::infer(src, &self.field_expr_schema())
                     .map_err(|e| anyhow::anyhow!("{whose}: field {fname:?}: {e}"))?;
             }
-            // A known computed field is derived; a literal cannot supply it.
-            Field::Value(_) if grackle_db::field_return_type(fname).is_some() => {
+            // A computed column is derived from the row; a bare literal renders
+            // nothing, so it is a config mistake rather than a silent no-op.
+            Field::Value(_) => {
                 anyhow::bail!(
                     "{whose}: field {fname:?} must be an expression, not a literal value"
                 );
             }
-            Field::Value(_) => {}
         }
         Ok(())
     }

@@ -1872,7 +1872,7 @@ never a grackle-only dialect.
 | config key | expression type | status |
 |---|---|---|
 | `where =` | `bool` over the row schema | built — the §5 language, already CEL |
-| `fields.NAME =` | a typed value over the row (content, outline, …) | built for `summary` / `toc` / `hero` / `lede` |
+| `fields.NAME =` | a typed value over the row (content, outline, …) — type **inferred** from the expression, so `NAME` is free | built; corpus computes `summary` / `hero` / `lede` / `outline` |
 | future derivers | same | — |
 | relation `where =` (§6g) | `bool` over the two-row environment | built — §6g slice 1 |
 | relation `rank =` (§6g) | `double`, bigger wins | built — §6g slice 2; forced arithmetic, unary minus, the `Double` type and the two-row registry |
@@ -1902,7 +1902,7 @@ is not optional — an expression that doesn't type-check is a config error.
 ```toml
 [sets.published.fields]
 summary = 'truncate_chars(truncate_blocks(content, 4), 700)'
-toc = 'outline(content, 3)'
+outline = 'toc ? outline(content, 3) : outline(content, 0)'
 hero = 'cover ? cover : image ? image : images(content)[0]'
 ```
 
@@ -1933,7 +1933,9 @@ hero = 'cover ? cover : image ? image : images(content)[0]'
   the value's type, not a side channel. `outline` returns an outline tree
   the part layer turns into `outline_entry` maps.
 - **`fields.NAME` is an untagged Expr | Value** (same shape as `[html.head.*]`
-  entries): a TOML string is a CEL expression; other TOML types are literals.
+  entries): a TOML string is a CEL expression. A computed column is derived
+  from the row, so a bare literal here renders nothing — it is a load error
+  naming the field, not a silent no-op.
 - **The standard library is what we register, nothing more.** CEL's own
   stdlib (`size()`, `matches()`, timestamps…) arrives function-by-function
   when a config actually needs it, each behind the typed registry.

@@ -95,12 +95,21 @@ fn schema_fields_union_into_a_view() {
     );
 }
 
-/// A name outside the closed computed-field set (§5f) is a load error.
+/// The vocabulary is open (§5f): a name the engine has never heard of is a
+/// computed column like any other, typed by its expression.
 #[test]
-fn an_unknown_schema_field_is_a_load_error() {
-    let e = cfg_err("[schema.fields]\nbogus = 'images(content)[0]'\n");
+fn an_arbitrary_schema_field_is_accepted() {
+    let c = cfg("[schema.fields]\nblurb = 'truncate_chars(content, 50)'\n");
+    assert!(c.schema_fields().contains_key("blurb"));
+}
+
+/// The name is free, but the expression is still type-checked: a field whose
+/// body does not type is a load error naming the table and the field.
+#[test]
+fn a_malformed_schema_field_is_a_load_error() {
+    let e = cfg_err("[schema.fields]\nbogus = 'as_html(4)'\n");
     assert!(e.contains("[schema.fields]"), "{e}");
-    assert!(e.contains("not a known computed field"), "{e}");
+    assert!(e.contains("bogus"), "{e}");
 }
 
 /// A computed field wants an expression; a literal is a load error.
