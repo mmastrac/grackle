@@ -257,7 +257,10 @@ fn escape_into(out: &mut String, s: &str) {
     }
 }
 
-fn escape_plain(s: &str) -> String {
+/// HTML-escape `&`/`<`/`>` only (not quotes) — the escaping code blocks and
+/// inline `<code>` share. Using comrak's escaper instead yields `&quot;` and a
+/// diff on every code span containing a double quote.
+pub(crate) fn escape_plain(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     escape_into(&mut o, s);
     o

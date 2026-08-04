@@ -13,6 +13,34 @@ pub(crate) fn strip_charset(css: &str) -> &str {
     css.strip_prefix("@charset \"UTF-8\";\n").unwrap_or(css)
 }
 
+/// Inline `@import`s, compile with grass, and push the result into the theme
+/// layer — or, on failure, report and record it. `ctx_path` names the source
+/// in the error. Reported so `serve` shows it immediately, and recorded so
+/// `build` can refuse: the CSS half of a theme is not the lenient one, and a
+/// stylesheet that silently failed to compile looks deployable and is wrong.
+fn compile_theme_layer_fragment(
+    text: &str,
+    ctx_path: &Path,
+    theme_dir: &Path,
+    theme_layer: &mut Vec<String>,
+    imported: &mut Vec<String>,
+    stats: &mut Stats,
+) -> Result<()> {
+    let mut seen = Vec::new();
+    let flat = inline_imports(text, theme_dir, &mut seen)?;
+    imported.append(&mut seen);
+    match grass::from_string(flat, &grass::Options::default().load_path(theme_dir)) {
+        Ok(css) => theme_layer.push(strip_charset(&css).to_string()),
+        Err(e) => {
+            eprintln!("scss: {}: {e}", ctx_path.display());
+            stats
+                .css_errors
+                .push(format!("{}: {e}", ctx_path.display()));
+        }
+    }
+    Ok(())
+}
+
 /// A theme's stylesheet is the ENGINE BASE plus whatever the theme adds
 /// (§5e) — compiled to the URL the theme's pages link (`default` keeps
 /// /css/main.css for parity).
@@ -104,24 +132,14 @@ pub(crate) fn css_pass(
     if let Some(src) = own {
         let text = std::fs::read_to_string(&src)?;
         let (_, _, body) = split_front_matter(&text);
-        let mut seen = Vec::new();
-        let flat = inline_imports(body, theme_dir, &mut seen)?;
-        imported.append(&mut seen);
-
-        let opts = grass::Options::default().load_path(theme_dir);
-        match grass::from_string(flat, &opts) {
-            Ok(theme_css) => theme_layer.push(strip_charset(&theme_css).to_string()),
-            // Reported here so `serve` shows it immediately, and RECORDED so
-            // `build` can refuse: the binder treats a malformed fragment as
-            // a build error with file:line, and the CSS half of the same
-            // theme should not be the lenient one. Publishing a site whose
-            // stylesheet silently failed to compile is the worst outcome
-            // available — it looks deployable and is wrong.
-            Err(e) => {
-                eprintln!("scss: {}: {e}", src.display());
-                stats.css_errors.push(format!("{}: {e}", src.display()));
-            }
-        }
+        compile_theme_layer_fragment(
+            body,
+            &src,
+            theme_dir,
+            &mut theme_layer,
+            &mut imported,
+            stats,
+        )?;
     }
     // The theme root's head styles (IO.md §6), through the SAME pipeline as
     // `theme.scss`: `@import` inlining, then grass, with the theme directory
@@ -139,19 +157,14 @@ pub(crate) fn css_pass(
     // does not: reported, recorded, and a publishing build refuses.
     if !head_style.is_empty() {
         let root_html = theme_dir.join("root.html");
-        let mut seen = Vec::new();
-        let flat = inline_imports(head_style, theme_dir, &mut seen)?;
-        imported.append(&mut seen);
-        let opts = grass::Options::default().load_path(theme_dir);
-        match grass::from_string(flat, &opts) {
-            Ok(head_css) => theme_layer.push(strip_charset(&head_css).to_string()),
-            Err(e) => {
-                eprintln!("scss: {}: {e}", root_html.display());
-                stats
-                    .css_errors
-                    .push(format!("{}: {e}", root_html.display()));
-            }
-        }
+        compile_theme_layer_fragment(
+            head_style,
+            &root_html,
+            theme_dir,
+            &mut theme_layer,
+            &mut imported,
+            stats,
+        )?;
     }
     // A `_tokens.scss` nobody imports is the dead-file trap again, one arm
     // along: the sheet compiles, the tokens are simply never read, and the

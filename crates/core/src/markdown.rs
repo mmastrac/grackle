@@ -40,22 +40,6 @@ pub fn options() -> Options<'static> {
 /// 2236 of 2534 blocks in the reference build.
 const DEFAULT_LANG: &str = "text";
 
-/// Rouge escapes `&`, `<` and `>` — and, unlike comrak, leaves `"` alone.
-/// Using comrak's escaper here yields `&quot;` and a diff on every code block
-/// containing a double quote.
-fn escape_code(s: &str) -> String {
-    let mut o = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => o.push_str("&amp;"),
-            '<' => o.push_str("&lt;"),
-            '>' => o.push_str("&gt;"),
-            _ => o.push(c),
-        }
-    }
-    o
-}
-
 /// Rewrite every code block into Jekyll's Rouge markup.
 ///
 /// This is the AST escape hatch from §9a: we replace the node with a raw
@@ -97,7 +81,7 @@ pub fn rouge_code_blocks<'a>(root: &'a AstNode<'a>) {
                 // kramdown does with it too.
                 NodeValue::Code(nc) => Some(NodeValue::HtmlInline(format!(
                     "<code class=\"language-{DEFAULT_LANG} highlighter-rouge\">{}</code>",
-                    escape_code(&nc.literal)
+                    crate::highlight::escape_plain(&nc.literal)
                 ))),
                 _ => continue,
             }
@@ -108,14 +92,19 @@ pub fn rouge_code_blocks<'a>(root: &'a AstNode<'a>) {
     }
 }
 
+/// Format one node to HTML. Writing to a `String` is infallible.
+fn to_html<'a>(node: &'a AstNode<'a>, opts: &Options) -> String {
+    let mut html = String::new();
+    format_html(node, opts, &mut html).expect("writing to a String cannot fail");
+    html
+}
+
 pub fn render(src: &str) -> String {
     let arena = Arena::new();
     let opts = options();
     let root = parse_document(&arena, src, &opts);
     rouge_code_blocks(root);
-    let mut out = String::new();
-    format_html(root, &opts, &mut out).expect("writing to a String cannot fail");
-    out
+    to_html(root, &opts)
 }
 
 /// A rendered document as its top-level block sequence (§6d). `whole` is the
@@ -189,14 +178,8 @@ pub fn render_doc_with(
             _ => {}
         }
     }
-    let mut whole = String::new();
-    format_html(root, &opts, &mut whole).expect("writing to a String cannot fail");
-    let mut blocks = Vec::new();
-    for child in root.children() {
-        let mut html = String::new();
-        format_html(child, &opts, &mut html).expect("writing to a String cannot fail");
-        blocks.push(html);
-    }
+    let whole = to_html(root, &opts);
+    let blocks: Vec<String> = root.children().map(|c| to_html(c, &opts)).collect();
     Ok(Doc {
         whole,
         blocks,
