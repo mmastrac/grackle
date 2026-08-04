@@ -42,15 +42,14 @@ pub fn search_docs(
 /// wasm consumer + /search.js loader are engine assets embedded in the
 /// binary (they must version with the index format), emitted only when a
 /// search view exists, fetched only when a theme's trigger is clicked.
-/// Search-asset version, carried in the wasm and bin URLs so they bust their
-/// caches TOGETHER. The wasm reads the bin, and a fresh wasm against a
-/// cache-stale bin is a hard "bad index" — which is what happened when the
-/// index format changed and Cloudflare served a day-old bin beside a fresh
-/// wasm. A version in both filenames makes a format change a URL change, so no
-/// cache can hand back a mismatched pair. **Bump on any change to the
-/// `search-core` on-disk format**; the site's `[routes.search] path` must be
-/// `/search.{SEARCH_VER}.bin` to match what `search.js` fetches. (A stopgap
-/// until q54 makes derived-asset URLs content-addressed and retires it.)
+/// Version carried in the bin URL so a format change busts its cache. The wasm
+/// reads the bin, and a fresh wasm against a cache-stale bin is a hard "bad
+/// index", which is what happened when the index format changed and Cloudflare
+/// served a day-old bin beside a fresh wasm. The wasm is content-addressed now,
+/// so it busts on its own bytes; the volatile bin keeps a versioned path since
+/// content-addressing an index rebuilt every edit would only churn it. Bump on
+/// any change to the `search-core` on-disk format, and set the site's
+/// `[routes.search] path` to `/search.{SEARCH_VER}.bin` to match `search.js`.
 pub(crate) const SEARCH_VER: &str = "v1";
 
 pub(crate) fn search_pass(
@@ -120,17 +119,22 @@ pub(crate) fn search_pass(
         any = true;
     }
     if any {
-        out_map.insert("/search.js".to_string(), search_js(cfg));
-        out_map.insert(
-            format!("/search.{SEARCH_VER}.wasm"),
-            include_bytes!("../../assets/search.wasm").to_vec(),
-        );
+        // The wasm never changes between content edits, so it is the ideal
+        // immutable target: content-address it and let its bytes bust it. The
+        // firebreak is `/search.js` itself, which keeps its stable URL, so this
+        // hash lands in one file and no HTML page (DESIGN.md q54).
+        let wasm = include_bytes!("../../assets/search.wasm");
+        let wasm_url =
+            grackle_source::strong::address(wasm, grackle_source::strong::IDENTITY, "wasm");
+        out_map.insert("/search.js".to_string(), search_js(cfg, &wasm_url));
+        out_map.insert(wasm_url, wasm.to_vec());
     }
     Ok(())
 }
 
-/// `/search.js` with `[i18n.strings]` search vocabulary baked in per locale.
-fn search_js(cfg: &Config) -> Vec<u8> {
+/// `/search.js` with `[i18n.strings]` vocabulary baked in per locale and the
+/// content-addressed wasm URL filled in.
+fn search_js(cfg: &Config, wasm_url: &str) -> Vec<u8> {
     let members: Vec<&str> = match cfg.pairing_axis() {
         Some((_, a)) => a.values.iter().map(String::as_str).collect(),
         None => vec![""],
@@ -159,9 +163,12 @@ fn search_js(cfg: &Config) -> Vec<u8> {
     // __SEARCH_I18N__;` as a load-time ReferenceError that killed search.
     let filled = include_str!("../../assets/search.js")
         .replace("__SEARCH_I18N__", &json)
-        .replace("__SEARCH_VER__", SEARCH_VER);
+        .replace("__SEARCH_VER__", SEARCH_VER)
+        .replace("__SEARCH_WASM_URL__", wasm_url);
     debug_assert!(
-        !filled.contains("__SEARCH_I18N__") && !filled.contains("__SEARCH_VER__"),
+        !filled.contains("__SEARCH_I18N__")
+            && !filled.contains("__SEARCH_VER__")
+            && !filled.contains("__SEARCH_WASM_URL__"),
         "search.js sentinel not substituted"
     );
     filled.into_bytes()
