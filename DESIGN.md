@@ -3456,6 +3456,15 @@ question has 1.0 exposure it also has one line in `TODO-1.0.md`.
 
     **Why churn is not a cosmetic concern here.** It hits three grackle-specific grains: the **byte-diff oracle** (a one-line CSS edit reading as "all 1775 pages changed" buries every real diff), the **publish rsync** (`hashed`/`buster` re-upload every HTML file on a CSS change; `stable`/`redirect` upload one artifact), and **incremental serve-v2** (q1) (the hash-in-`<head>` modes invalidate every page's render; the stable-link modes invalidate only the CSS artifact).
 
+    **The wider frame: churn is a property of reference topology, not asset type.** WHERE an asset's URL appears sets its addressing cost, and every asset sorts onto one of four rows:
+
+    - **Global** — the URL is in every page's chrome: the `<head>` stylesheet, and the search button's `/search.js` `onclick`. Hashing churns every page. This is the row the knob is *for*.
+    - **Local** — cited by specific pages (images, and the q43 media). Hashing churns only those, and **images already own the choice**: `embed = true` mints `/static/{hash}`, `route = "/{path}"` keeps a literal path (§5k) — the same stable-vs-address decision, made at the routing layer, and the reason this question exists at all is that head-linked assets never got it.
+    - **Sub-asset** — referenced from another *asset*, not from HTML: fonts in the CSS's `@font-face`, `search.wasm` / `search.bin` inside `search.js`. Hashing churns only the one referencing file, so it is nearly free — and fonts are the ideal immutable target (they never change), currently stable under `/css/fonts/` with a hand-rolled `?0` buster on FontAwesome, which is this question already being answered badly by hand.
+    - **Pinned** — fetched at a well-known URL: `atom.xml` (feed readers poll it), `sitemap.xml` (crawlers), `robots.txt`, `/favicon.ico`. The URL is a contract, so `stable` is the only legal mode — no knob applies.
+
+    So `[assets] addressing` governs the *global* row; the *local* row is images' `route`/`embed`, shipped; the *sub-asset* row can hash for almost nothing regardless of the global setting; the *pinned* row has no choice to make.
+
     **Config shape** — a four-valued enum on the engine's own asset URLs (CSS today; `search.js` and by extension `search.wasm`/`.bin` are candidates for the same knob):
 
     ```toml
@@ -3468,7 +3477,7 @@ question has 1.0 exposure it also has one line in `TODO-1.0.md`.
 
     **Default:** `stable` while `redirect` is unbuilt — it matches the byte-diff / rsync / incremental grain, and revalidation is cheap for a personal site. `redirect` is the aspirational default *once q28 lands*: it strictly dominates `stable` (same no-churn, gains immutability) for one cacheable hop. `hashed` / `buster` are the opt-ins for a CDN-fronted site that redeploys wholesale and would rather churn than hop.
 
-    **Open:** whether the knob is per-site or per-theme; whether `redirect` waits on q28 or ships its own `.htaccess` emitter first (and what a non-Apache host does then); and whether search's three assets ride this value or want their own — they are fetched by script, not linked in `<head>`, so their churn is nil, and the knob may be CSS-only in practice.
+    **Open:** whether the knob is per-site or per-theme; whether `redirect` waits on q28 or ships its own `.htaccess` emitter first (and what a non-Apache host does then); and how far the knob reaches — `search.js` shares CSS's *global* topology (its URL is in every page's search button), so it belongs under the same value, while `search.wasm` / `search.bin` and the fonts are *sub-assets* that can be hashed nearly for free regardless. A plausible resolution: one `addressing` value for the global assets, and always-hash the sub-assets, since nothing links them from HTML.
 
 
 ### Settled ledger
