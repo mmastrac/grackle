@@ -3346,7 +3346,7 @@ question has 1.0 exposure it also has one line in `TODO-1.0.md`.
 22. **`_site-prod` refresh (§8a).** Jekyll fails on `{% view %}`; can no longer regenerate reference. Script refresh, or move behind a flag that stashes automatically?
 25. **Per-block facts (§5e).** Block-level directive surviving as `data-` attribute so theme can span it. Needs decided authoring syntax — IALs are kramdown, not CommonMark.
 26. **Dimension facts — the remainder.** Object rows carry width/height at load (queryable, §5b). Remains: post *bodies* — `{% image %}` gains dimensions at §6d rewrite stage.
-28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure.
+28. **Mindstorms restructure vs URL parity (§5 audit).** Gallery restructure retires 17 URLs carrying no `noindex`. Needs redirects or parity exemption; fix accidental indexability before restructure. The redirect mechanism this wants has a second consumer now — q54's `redirect` asset-URL mode — so building it once serves both.
 30. **Pagination × subdivision (§5c).** A grouped view can subdivide; paginated one cannot yet. Year archive could paginate while months subdivide — row-set semantics cohere but namespace shares. Collision (hard error today) vs pattern-space overlap (should warn or declare).
 33. **View-name policy in `build.rs` (§9b).** Settled: (a) listing `noindex` is a view declaration; (c) dead layout names renamed to `listing`; (f) row `layout:` dissolved. Remains: (b) `"blog_index"` fallback dies when view declares layout; (d) `template` no longer templates — it claims a legacy file; (e) sitemap filter's second evaluation.
 34. **Three "not content" lists (§9b).** §4c's layers are now one shared `store::NotContent`, read by the tree, declaration and marker walks (MERGE.md R1/R2). Remaining: `slots.rs` and `serve.rs` carry private skips — and `slots.rs`'s hard-coded `SKIP` is what keeps a fixture site's `.slots/` out of the host build (MERGE.md A6), so adopting the shared value means consulting the site's `exclude` too. Serve's `_cache/` stays its own (rebuild *writes* it). **IO.md I7b sharpened the case without paying it**: the tree walk now names `themes` positionally too, so the literal appears in `load.rs` and in `slots.rs`'s `SKIP` — where it means the same thing — and in `serve.rs`, where it means the OPPOSITE (theme sources are watched precisely because they are build input). Two of the three are the same fact stated twice; the third is a different fact wearing the same word, and any port has to keep them apart. **IR6 added a second reader of the not-content sense** (the declaration walks) and named the word once rather than a fourth time: `store::THEMES`, which `load.rs`'s `under_themes` and `walker_declarations` both take it from — so the census still reads three, and the two that mean "not content" are now one string.
@@ -3437,6 +3437,38 @@ question has 1.0 exposure it also has one line in `TODO-1.0.md`.
     **Axis members now emit `rel="alternate"`** *(built 2026-07)*. `Head.alternates` grew from a hreflang-shaped `(lang, url)` pair to an `Alternate { href, hreflang?, media_type? }` — the "variable-length head entries" shape (§4e), a list that can repeat `rel` and carry a second attribute. Each member lists its OTHER forms: the locale axis carries `hreflang` (as before), a different-FORMAT form (the md twin) carries `type`, and a same-format restyle — a theme member — carries neither, because it is the same representation at another URL and `rel="canonical"` already names the one that counts. Whether a form is a different representation is read off the member URL's extension. The `light_html` tier still carries no canonical and, by the same minimal head, no alternates — an alternate at that tier would advertise nothing.
 
     A cost paid earlier stands: `data-axis` was renamed `data-relation` for relations, with `data-axis` kept for translations.
+
+54. **Engine asset URLs: stable / hashed / buster / redirect** *(Matt, 2026-08-03; post-cutover)*.
+
+    The `<head>` links exactly one stylesheet, and its URL is engine-emitted (`head_html`, not the declared `[html.head.link]` table): `/css/main.css` for the default theme, `/css/{name}.css` for the rest. That path was chosen *for parity* with the Jekyll build (`css.rs`); the cutover retired the parity constraint, so the URL is now free to be anything — and the question is what it should be, because the choice is a real tradeoff the site should own rather than the engine assume by inertia.
+
+    The tension is the one §4 already names: **a content address changes the day the bytes do; a link is a promise that it will not.** Immutable caching (`Cache-Control: …, immutable`, §6b) is only honest on a content-addressed URL — but that address rides in every page's `<head>`, so re-hashing the CSS rewrites every HTML page. The volatile token has to live *somewhere*, and where it lives is the whole decision:
+
+    | | **not immutable** | **immutable** |
+    |---|---|---|
+    | **no HTML churn** | `stable` — `/css/main.css`, revalidate/ETag | `redirect` — `/css/main.css` → `/static/{hash}.css` |
+    | **churns every page** | — | `hashed` — `/static/{hash}.css` in `<head>` · `buster` — `/css/main.css?v={hash}` |
+
+    - **stable** — one file, stable path, no hash. No churn; no immutability (every load is a conditional 304). Where it sits today, minus the parity rationale.
+    - **buster** — `?v={hash}` in the `<head>`. Churns like `hashed`; keeps the human path and stays out of `/static`; caching is per-query immutable but exposed to legacy proxies that drop the query from the cache key. The token must be the content hash, not a build id, or it churns every build.
+    - **hashed** — the address in the path: `strong::address(bytes, "css-v1", "css")`, the §6b scheme thumbnails already mint. Bulletproof path-keyed immutability and CDN-friendly gradual rollout; churns every page; `rsync --delete` prunes the superseded file.
+    - **redirect** — the only cell that buys no-churn *and* immutable, by spending the one thing the others don't: a round-trip. The `<head>` keeps the stable link; the stable URL redirects to the hashed one. Needs a redirect mechanism the engine does not have — **this is where q28 gets a second consumer**: a build-emitted `.htaccess` rule (host-specific; this host is Apache and already ships one) or whatever q28 becomes.
+
+    **Why churn is not a cosmetic concern here.** It hits three grackle-specific grains: the **byte-diff oracle** (a one-line CSS edit reading as "all 1775 pages changed" buries every real diff), the **publish rsync** (`hashed`/`buster` re-upload every HTML file on a CSS change; `stable`/`redirect` upload one artifact), and **incremental serve-v2** (q1) (the hash-in-`<head>` modes invalidate every page's render; the stable-link modes invalidate only the CSS artifact).
+
+    **Config shape** — a four-valued enum on the engine's own asset URLs (CSS today; `search.js` and by extension `search.wasm`/`.bin` are candidates for the same knob):
+
+    ```toml
+    [assets]
+    addressing = "stable"    # default
+    #          = "buster"    # ?v={hash} — churns, no /static, no redirect infra
+    #          = "hashed"    # /static/{hash}.css — churns, immutable
+    #          = "redirect"  # stable link + immutable target — no churn, +1 hop, needs q28
+    ```
+
+    **Default:** `stable` while `redirect` is unbuilt — it matches the byte-diff / rsync / incremental grain, and revalidation is cheap for a personal site. `redirect` is the aspirational default *once q28 lands*: it strictly dominates `stable` (same no-churn, gains immutability) for one cacheable hop. `hashed` / `buster` are the opt-ins for a CDN-fronted site that redeploys wholesale and would rather churn than hop.
+
+    **Open:** whether the knob is per-site or per-theme; whether `redirect` waits on q28 or ships its own `.htaccess` emitter first (and what a non-Apache host does then); and whether search's three assets ride this value or want their own — they are fetched by script, not linked in `<head>`, so their churn is nil, and the knob may be CSS-only in practice.
 
 
 ### Settled ledger
