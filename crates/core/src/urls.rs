@@ -95,26 +95,25 @@ impl Parity {
 
     pub fn report(&self, limit: usize) {
         println!("  shared    {}", self.shared);
-        println!(
-            "  missing   {} (in the reference, not in ours)",
-            self.missing.len()
+        print_capped(
+            "missing",
+            "in the reference, not in ours",
+            &self.missing,
+            limit,
         );
-        for u in self.missing.iter().take(limit) {
-            println!("              {u}");
-        }
-        if self.missing.len() > limit {
-            println!("              … and {} more", self.missing.len() - limit);
-        }
-        println!(
-            "  extra     {} (ours, not in the reference)",
-            self.extra.len()
-        );
-        for u in self.extra.iter().take(limit) {
-            println!("              {u}");
-        }
-        if self.extra.len() > limit {
-            println!("              … and {} more", self.extra.len() - limit);
-        }
+        print_capped("extra", "ours, not in the reference", &self.extra, limit);
+    }
+}
+
+/// One capped, labelled list for the parity report — used for both missing and
+/// extra so the two cannot drift in format.
+fn print_capped(label: &str, note: &str, items: &[String], limit: usize) {
+    println!("  {label:<9} {} ({note})", items.len());
+    for u in items.iter().take(limit) {
+        println!("              {u}");
+    }
+    if items.len() > limit {
+        println!("              … and {} more", items.len() - limit);
     }
 }
 
