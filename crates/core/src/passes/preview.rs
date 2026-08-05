@@ -12,6 +12,71 @@ use crate::parts;
 use crate::pipeline::types::PageBody;
 use crate::theme;
 
+/// The site-global facts the chrome parts fill from: which capability
+/// routes materialized. Computed once per build.
+pub struct ChromeFacts {
+    /// A `shell = "search"` route exists.
+    search: bool,
+    /// The first `shell = "atom"` route's URL, in route order.
+    feed_url: Option<String>,
+}
+
+impl ChromeFacts {
+    pub(crate) fn of(cfg: &Config, db: &SiteDb) -> ChromeFacts {
+        let mut search = false;
+        let mut feed_url = None;
+        for r in &db.routes {
+            let Some(v) = r.view.as_ref().and_then(|v| cfg.views.get(v)) else {
+                continue;
+            };
+            match v.shell.as_deref() {
+                Some("search") => search = true,
+                Some("atom") => {
+                    if let Some(first) = &feed_url {
+                        eprintln!(
+                            "grackle: two atom routes ({first} and {}) — the feed \
+                             chrome part links the first",
+                            r.url
+                        );
+                    } else {
+                        feed_url = Some(r.url.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        ChromeFacts { search, feed_url }
+    }
+}
+
+/// The chrome-part inputs for one page: the facts, with labels resolved at
+/// the page's locale. The scheme fill decision stays with the theme
+/// (`Theme::scheme_choice_offered`); only its labels travel here.
+pub(crate) fn chrome_input(
+    cfg: &Config,
+    facts: &ChromeFacts,
+    lang: &str,
+) -> theme::ChromeInput {
+    let s = |key: &str| cfg.i18n_string(key, lang).to_string();
+    theme::ChromeInput {
+        search: facts.search.then(|| {
+            (
+                s("search"),
+                format!("{}/search.js", cfg.site.baseurl),
+            )
+        }),
+        feed: facts
+            .feed_url
+            .as_ref()
+            .map(|u| (s("feed"), format!("{}{u}", cfg.site.baseurl))),
+        scheme: theme::SchemeLabels {
+            auto: s("scheme_auto"),
+            light: s("scheme_light"),
+            dark: s("scheme_dark"),
+        },
+    }
+}
+
 /// One member of an axis pool for a route: the row/route expressions read,
 /// its published URL, the member code, and whether it is the current page.
 pub(crate) struct AxisPoolMember<'a> {

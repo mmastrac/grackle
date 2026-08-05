@@ -1,0 +1,7 @@
+# Declared subtheme tokens (themes/DESIGN.md): the vocabulary a spec may
+# name after the colon, validated at load. Both schemes declared is what
+# offers the runtime scheme control (themes/DESIGN.md) — the CSS pair in _tokens.scss
+# already implements the forcing.
+[subthemes]
+dark = { scheme = "dark" }
+light = { scheme = "light" }

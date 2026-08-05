@@ -1,0 +1,7 @@
+# The base theme's manifest. `[subthemes]` declares the token vocabulary a
+# spec may name after the colon (`theme: "default:dark"`), and a token that
+# carries `scheme` semantics forces that color scheme — the pair is what the
+# scheme chrome part (themes/DESIGN.md) reads as "this theme can switch".
+[subthemes]
+dark = { scheme = "dark" }
+light = { scheme = "light" }

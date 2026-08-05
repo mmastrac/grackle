@@ -90,6 +90,14 @@ pub(crate) fn base_sources() -> Vec<(String, String, String)> {
         .collect()
 }
 
+/// The base theme's own `theme.toml` — its `[subthemes]` declaration, parsed
+/// by the same path a directory theme's is.
+const MANIFEST: &str = include_str!("../../assets/base/theme.toml");
+
+pub(crate) fn manifest() -> &'static str {
+    from_disk("theme.toml").unwrap_or(MANIFEST)
+}
+
 /// The base stylesheet's partials, keyed the way `@import "x"` names them, so
 /// the base's own `theme.scss` resolves its imports with no disk underneath.
 const PARTIALS: &[(&str, &str)] = &[

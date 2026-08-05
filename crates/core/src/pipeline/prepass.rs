@@ -127,27 +127,30 @@ pub(crate) fn site_icon(cfg: &Config, db: &SiteDb) -> String {
 /// Name half only — subtheme tokens are CSS fodder. Themeless rows skip
 /// (site default already checked in `load_all`).
 pub(crate) fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Themes) -> Result<()> {
+    // `check_spec` covers both halves: the name against the registry, the
+    // subtheme tokens against the theme's `[subthemes]` declaration (a theme
+    // with no theme.toml declares nothing and validates nothing).
     for (name, axis) in &cfg.axes {
         if axis.field != "theme" {
             continue;
         }
         for value in &axis.values {
             themes
-                .get(Some(theme::split_spec(value).0))
+                .check_spec(value)
                 .with_context(|| format!("[axes.{name}] values: {value:?}"))?;
         }
     }
     for (name, v) in &cfg.views {
         if let Some(spec) = v.theme.as_deref() {
             themes
-                .get(Some(theme::split_spec(spec).0))
+                .check_spec(spec)
                 .with_context(|| format!("view {name}: theme = {spec:?}"))?;
         }
     }
     for row in db.rows.iter() {
         if let Some(spec) = row.theme.as_deref() {
             themes
-                .get(Some(theme::split_spec(spec).0))
+                .check_spec(spec)
                 .with_context(|| format!("{}: theme = {spec:?}", row.path.display()))?;
         }
     }

@@ -11,7 +11,8 @@ use crate::config::View;
 use crate::model::Route;
 use crate::parts;
 use crate::passes::preview::{
-    axes_part, fill_link_resolver, member_rows, pagination_parts, resolve_view_theme, route_intro,
+    axes_part, chrome_input, fill_link_resolver, member_rows, pagination_parts,
+    resolve_view_theme, route_intro,
 };
 use crate::pipeline::{SiteOutput, Stats};
 use crate::render;
@@ -89,6 +90,7 @@ impl Pass for Listing {
                 profile: ctx.profile,
                 axis: &r.axis,
                 axes: axes_part(cfg, ctx.db, r),
+                chrome: chrome_input(cfg, ctx.chrome, loc.as_str()),
             },
             main,
         )?;

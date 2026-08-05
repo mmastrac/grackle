@@ -301,7 +301,7 @@ fn field_type_enum_as_part(ty: &grackle_source::schema::FieldType) -> PartType {
 }
 
 const HTML_SLOTS: &[&str] = &["content", "intro", "nav", "copyright"];
-const MAP_SLOTS: &[&str] = &["pagination"];
+const MAP_SLOTS: &[&str] = &["pagination", "search", "scheme", "feed"];
 
 fn infer_part_type(u: &crate::assemble::binder::SlotUse) -> PartType {
     if let Some(target) = u.fragment.as_deref() {

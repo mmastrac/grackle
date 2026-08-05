@@ -44,6 +44,8 @@ pub(crate) fn run(
             .map(|t| t.url.clone())
             .unwrap_or_else(|| preview::asset_url(&cfg.site.baseurl, src))
     };
+    // Chrome-part facts, computed once per build.
+    let chrome_facts = preview::ChromeFacts::of(cfg, db);
     // ---- posts: document parts -> theme fragments -> shell
     //
     // Driven by the ROUTE table, like the `RouteKind::Page` arm below. It used
@@ -119,6 +121,7 @@ pub(crate) fn run(
                     profile,
                     axis: &r.axis,
                     axes: preview::axes_part(cfg, db, r),
+                    chrome: preview::chrome_input(cfg, &chrome_facts, lang.as_str()),
                 },
                 cfg,
                 Some(p),
@@ -160,6 +163,7 @@ pub(crate) fn run(
             root: root.to_path_buf(),
             profile,
             objects: db.object_ix.iter().collect(),
+            chrome: &chrome_facts,
         };
         crate::passes::run(&ctx, &crate::passes::all(), out_map, stats)?;
     }
@@ -349,6 +353,7 @@ pub(crate) fn run(
                 profile,
                 axis: &r.axis,
                 axes: preview::axes_part(cfg, db, r),
+                chrome: preview::chrome_input(cfg, &chrome_facts, loc),
             },
             cfg,
             Some(row),
@@ -521,6 +526,7 @@ pub(crate) fn run(
                                 profile,
                                 axis: &r.axis,
                                 axes: preview::axes_part(cfg, db, r),
+                                chrome: preview::chrome_input(cfg, &chrome_facts, lang),
                             },
                             cfg,
                             row,

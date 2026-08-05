@@ -10,11 +10,12 @@
 	<link href='/css/main.css' rel='stylesheet' type='text/css'>
 </head>
 <body>
+<script>try{var s=localStorage.getItem('grackle:scheme');if(s=='dark'||s=='light'){var h=document.documentElement,t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});t.push(s);h.setAttribute('data-subtheme',t.join(' '))}}catch(e){}</script>
 <header data-frame>
 	<a href="/" data-slot="site_title">Locale x axis</a>
 	
 	<nav aria-label="Other versions" data-slot="axes">
-		<details data-axis="locale" aria-label="Translations" data-kind="axis">
+		<details data-chrome="dropdown" data-axis="locale" aria-label="Translations" data-kind="axis">
 			<summary data-slot="current">fr</summary>
 			<div data-slot="items">
 				<a href="/fr/plain/note/" data-current="true" data-kind="axis_member">
@@ -27,7 +28,7 @@
 			</div>
 		</details>
 	
-		<details data-axis="look" aria-label="look" data-kind="axis">
+		<details data-chrome="dropdown" data-axis="look" aria-label="look" data-kind="axis">
 			<summary data-slot="current">fancy</summary>
 			<div data-slot="items">
 				<a href="/fr/plain/note/" data-kind="axis_member">
@@ -40,6 +41,12 @@
 			</div>
 		</details>
 	</nav>
+	
+	<span data-slot="scheme">
+		<button data-chrome="button" type="button" onclick="(function(b){try{var o=['auto','light','dark'],h=document.documentElement,c=localStorage.getItem('grackle:scheme')||'auto',n=o[(o.indexOf(c)+1)%3];n=='auto'?localStorage.removeItem('grackle:scheme'):localStorage.setItem('grackle:scheme',n);var t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});if(n!='auto')t.push(n);h.setAttribute('data-subtheme',t.join(' '));b.setAttribute('aria-label',b.getAttribute('data-l-'+n))}catch(e){}})(this)" data-kind="scheme_button">
+			<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"></path><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle></svg>
+		</button>
+	</span>
 </header>
 <main data-frame data-slot="content"><article data-kind="row" data-tree>
 	<nav aria-label="Breadcrumbs" data-slot="crumbs">

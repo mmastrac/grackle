@@ -65,6 +65,14 @@
   --overlay-max-h: 55vh;
 }
 
+:root[data-subtheme~=dark] {
+  color-scheme: dark;
+}
+
+:root[data-subtheme~=light] {
+  color-scheme: light;
+}
+
 *,
 *::before,
 *::after {
@@ -444,6 +452,14 @@ a[data-kind=axis_member][data-current] {
   --hero-width: 40%;
   --overlay-top: 12vh;
   --overlay-max-h: 55vh;
+}
+
+:root[data-subtheme~=dark] {
+  color-scheme: dark;
+}
+
+:root[data-subtheme~=light] {
+  color-scheme: light;
 }
 
 [data-kind=document] {

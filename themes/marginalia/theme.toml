@@ -1,0 +1,6 @@
+# Declared subtheme tokens (themes/DESIGN.md), validated at load. The
+# scheme pair offers the runtime control (themes/DESIGN.md); `wide` is a plain variant.
+[subthemes]
+dark = { scheme = "dark" }
+light = { scheme = "light" }
+wide = { }

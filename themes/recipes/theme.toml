@@ -1,0 +1,4 @@
+# Declared subtheme tokens (themes/DESIGN.md), validated at load. One
+# variant, no scheme pair — this theme offers no runtime scheme control.
+[subthemes]
+spicy = { }

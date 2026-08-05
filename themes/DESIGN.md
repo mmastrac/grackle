@@ -40,8 +40,9 @@ mechanical path back down (`theme derive`, §4).
 - **Token contract**: shared `--bg`, `--size`, `--space`, etc.; all gallery
   themes written entirely in `var(--…)`.
 - **`theme.toml`** is the per-theme config §3 specs — `extends` and
-  `[subthemes]`. **Specced here, unbuilt**: `theme.rs` reads no such file,
-  and no theme in the repo carries one.
+  `[subthemes]`. The `[subthemes]` half is **built** (2026-08-05): tokens
+  validate at load and the scheme pair feeds §10's control. `extends` /
+  `contract` are refused as unbuilt until the chain lands.
 - **Chrome parts** (§10): capability widgets — `axes` (built), `search`,
   `feed`, `scheme`, `profile_notice` — fill on the root part map from
   declared facts and delete by the empty-part rule when the fact is absent.
@@ -78,7 +79,8 @@ Each rung below 1 that is still unbuilt has a checkbox in `TODO-1.0.md`.
 
 ## 3. Inheritance: `extends`
 
-`theme.toml` — specced here, unbuilt, and this section is the spec — carries:
+`theme.toml` — the `[subthemes]` half built 2026-08-05, the `extends` half
+still spec — carries:
 
 ```toml
 name        = "mytheme"          # optional; directory name is identity
@@ -374,7 +376,7 @@ actually referenced, which is a pass this change did not want to invent.
   plugin — §10.
 
 
-## 10. Chrome parts: a widget is a fact's chrome *(specced 2026-08-05; unbuilt — TODO-1.0.md "Chrome parts")*
+## 10. Chrome parts: a widget is a fact's chrome *(specced 2026-08-05; fill rules + `[subthemes]` built 2026-08-05, rest in TODO-1.0.md "Chrome parts")*
 
 The scar this section closes: search shipped as a hand-pasted `<button>` —
 present in six of nine gallery roots, correct in five, and silently gone on a

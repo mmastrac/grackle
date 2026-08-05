@@ -55,6 +55,8 @@ pub struct Page<'a> {
     pub profile: Option<&'a str>,
     pub axis: &'a [AxisMember],
     pub axes: Vec<PartMap>,
+    /// Chrome-part inputs, localized per page.
+    pub chrome: super::theme::ChromeInput,
 }
 
 /// Wrap already-rendered inner HTML in theme chrome + root_shell.
@@ -72,6 +74,7 @@ pub fn wrap(page: Page<'_>, inner: String) -> Result<String> {
         page.profile,
         page.axis,
         page.axes,
+        &page.chrome,
     )
 }
 

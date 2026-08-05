@@ -34,7 +34,129 @@ pub struct Theme {
     root: PathBuf,
     identity: Vec<(&'static str, bool)>,
     style: String,
+    manifest: Manifest,
 }
+
+/// A theme's `theme.toml`: today only `[subthemes]`, the declared token
+/// vocabulary a spec may name after the colon. A token may carry scheme
+/// semantics. A theme with no manifest declares nothing: its tokens stay
+/// unvalidated (the pre-manifest behavior) and it offers no scheme choice.
+#[derive(Debug, Default)]
+pub struct Manifest {
+    declared: bool,
+    subthemes: std::collections::BTreeMap<String, Option<Scheme>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scheme {
+    Dark,
+    Light,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestFile {
+    name: Option<String>,
+    extends: Option<toml::Value>,
+    contract: Option<toml::Value>,
+    #[serde(default)]
+    subthemes: std::collections::BTreeMap<String, SubthemeDef>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubthemeDef {
+    scheme: Option<String>,
+}
+
+impl Manifest {
+    /// `what` names the theme in errors; `dir_name` is the identity the
+    /// optional `name` key must agree with (None for the base).
+    fn parse(src: &str, what: &str, dir_name: Option<&str>) -> Result<Manifest> {
+        let file: ManifestFile =
+            toml::from_str(src).with_context(|| format!("{what}: theme.toml"))?;
+        if file.extends.is_some() || file.contract.is_some() {
+            anyhow::bail!(
+                "{what}: theme.toml declares `extends`/`contract`, which are specced and \
+                 unbuilt (TODO-1.0.md, the theme ladder) — a derived theme cannot load \
+                 yet; copy the parent's files instead"
+            );
+        }
+        if let (Some(name), Some(dir)) = (file.name.as_deref(), dir_name) {
+            if name != dir {
+                anyhow::bail!(
+                    "{what}: theme.toml says name = {name:?} but the directory is \
+                     {dir:?} — the directory name is a theme's identity"
+                );
+            }
+        }
+        let mut subthemes = std::collections::BTreeMap::new();
+        for (token, def) in file.subthemes {
+            let scheme = match def.scheme.as_deref() {
+                None => None,
+                Some("dark") => Some(Scheme::Dark),
+                Some("light") => Some(Scheme::Light),
+                Some(other) => anyhow::bail!(
+                    "{what}: theme.toml subtheme {token:?} declares scheme = {other:?} — \
+                     a scheme is \"dark\" or \"light\""
+                ),
+            };
+            subthemes.insert(token, scheme);
+        }
+        Ok(Manifest {
+            declared: true,
+            subthemes,
+        })
+    }
+
+    fn scheme_of(&self, token: &str) -> Option<Scheme> {
+        self.subthemes.get(token).copied().flatten()
+    }
+
+    /// Both schemes declared — the scheme chrome part's capability fact.
+    fn covers_both_schemes(&self) -> bool {
+        let mut dark = false;
+        let mut light = false;
+        for s in self.subthemes.values().flatten() {
+            match s {
+                Scheme::Dark => dark = true,
+                Scheme::Light => light = true,
+            }
+        }
+        dark && light
+    }
+}
+
+/// Localized inputs for the chrome parts, built per page by
+/// `preview::chrome_input`. `None` means the capability's fact is absent
+/// (no route wears that shell) and the part stays empty, so the theme's
+/// hole deletes. The scheme fill decision is the theme's
+/// (`scheme_choice_offered`) and only its labels arrive here.
+#[derive(Debug, Default, Clone)]
+pub struct ChromeInput {
+    /// (label, loader URL) when a `shell = "search"` route materialized.
+    pub search: Option<(String, String)>,
+    /// (label, feed URL) when a `shell = "atom"` route materialized.
+    pub feed: Option<(String, String)>,
+    pub scheme: SchemeLabels,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SchemeLabels {
+    pub auto: String,
+    pub light: String,
+    pub dark: String,
+}
+
+/// Applies the reader's stored scheme choice before any content paints.
+/// Emitted as the first thing in `<body>` whenever the scheme control is
+/// offered, so a page never flashes the wrong palette. Touches only the two
+/// scheme tokens, so every other subtheme token survives.
+const SCHEME_BOOT: &str = "<script>try{var s=localStorage.getItem('grackle:scheme');\
+if(s=='dark'||s=='light'){var h=document.documentElement,\
+t=(h.getAttribute('data-subtheme')||'').split(' ')\
+.filter(function(x){return x&&x!='dark'&&x!='light'});t.push(s);\
+h.setAttribute('data-subtheme',t.join(' '))}}catch(e){}</script>";
 
 /// Split a row's theme spec: the directory name before the first `:`,
 /// subtheme tokens after it, space-joined — `"recipes:spicy"` renders
@@ -110,12 +232,18 @@ impl Themes {
             }
             None => (None, None),
         };
-        Ok(Themes {
+        let themes = Themes {
             map,
             null: Theme::null(site_root, fields)?,
             site_name,
             site_sub,
-        })
+        };
+        if let Some(spec) = site_theme {
+            themes
+                .check_spec(spec)
+                .with_context(|| format!("[site] theme = {spec:?}"))?;
+        }
+        Ok(themes)
     }
 
     /// The site default, split: `[site] theme` when there is one, else
@@ -190,6 +318,20 @@ impl Themes {
     pub fn fills(&self) -> &SlotFills {
         &self.null.fills
     }
+
+    /// Validate a full theme spec — name and subtheme tokens. The name half
+    /// is `get`'s existing error; the token half is the manifest's
+    /// declaration, and a theme without one validates nothing.
+    pub fn check_spec(&self, spec: &str) -> Result<()> {
+        let (name, tokens) = split_spec(spec);
+        let thm = self.get(Some(name))?;
+        if let Some(tokens) = tokens {
+            for t in tokens.split(' ') {
+                thm.check_token(t, name)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Theme {
@@ -200,7 +342,15 @@ impl Theme {
         site_root: &Path,
         fields: &[(String, grackle_source::schema::FieldType)],
     ) -> Result<Theme> {
-        Theme::from_sources(Vec::new(), site_root, fields, None, "the base theme")
+        let manifest = Manifest::parse(base::manifest(), "the base theme", None)?;
+        Theme::from_sources(
+            Vec::new(),
+            site_root,
+            fields,
+            None,
+            "the base theme",
+            manifest,
+        )
     }
 
     pub fn load(
@@ -210,16 +360,23 @@ impl Theme {
     ) -> Result<Theme> {
         if theme_dir.join("shell.html").exists() && !theme_dir.join("root.html").exists() {
             anyhow::bail!(
-                "{}: `shell.html` is `root.html` now (IO.md §6) — the chrome part kind \
-                 renamed shell → root, and a theme root may carry a <head> as well as \
-                 a body. Rename the file; its contents are the body chrome, unchanged.",
+                "{}: `shell.html` is `root.html` now — the chrome part kind renamed \
+                 shell → root, and a theme root may carry a <head> as well as a body. \
+                 Rename the file; its contents are the body chrome, unchanged.",
                 theme_dir.display()
             );
         }
         let own = binder::dir_sources(theme_dir)
             .with_context(|| format!("loading theme {}", theme_dir.display()))?;
         let what = theme_dir.display().to_string();
-        Theme::from_sources(own, site_root, fields, Some(theme_dir), &what)
+        let manifest = match std::fs::read_to_string(theme_dir.join("theme.toml")) {
+            Ok(src) => {
+                let dir_name = theme_dir.file_name().and_then(|n| n.to_str());
+                Manifest::parse(&src, &what, dir_name)?
+            }
+            Err(_) => Manifest::default(),
+        };
+        Theme::from_sources(own, site_root, fields, Some(theme_dir), &what, manifest)
     }
 
     pub fn schemas(&self) -> &Schemas {
@@ -232,6 +389,7 @@ impl Theme {
         fields: &[(String, grackle_source::schema::FieldType)],
         theme_dir: Option<&Path>,
         what: &str,
+        manifest: Manifest,
     ) -> Result<Theme> {
         let mut style = String::new();
         if let Some(i) = own.iter().position(|(n, _, _)| n == "root") {
@@ -286,7 +444,33 @@ impl Theme {
             root: site_root.to_path_buf(),
             identity,
             style,
+            manifest,
         })
+    }
+
+    /// Validate one subtheme token against the manifest. A theme with no
+    /// `theme.toml` declares nothing and validates nothing — the pre-manifest
+    /// behavior, kept so undeclared themes keep loading.
+    fn check_token(&self, token: &str, theme_name: &str) -> Result<()> {
+        if !self.manifest.declared || self.manifest.subthemes.contains_key(token) {
+            return Ok(());
+        }
+        let known: Vec<&str> = self.manifest.subthemes.keys().map(String::as_str).collect();
+        anyhow::bail!(
+            "theme {theme_name:?} declares no subtheme {token:?} — declared in its \
+             theme.toml: {}",
+            crate::util::join_or_none(&known)
+        )
+    }
+
+    /// The scheme chrome part's fill rule: the theme declares both schemes,
+    /// and no rung of the cascade forced one. A spec wearing a scheme token
+    /// has decided, so the offered control stands down.
+    pub fn scheme_choice_offered(&self, subtheme: Option<&str>) -> bool {
+        self.manifest.covers_both_schemes()
+            && !subtheme.is_some_and(|toks| {
+                toks.split(' ').any(|t| self.manifest.scheme_of(t).is_some())
+            })
     }
 
     /// The root slots this theme leaves for the tree to fill — what a
@@ -329,11 +513,36 @@ impl Theme {
         profile: Option<&str>,
         axis: &[grackle_model::AxisMember],
         axes: Vec<PartMap>,
+        chrome: &ChromeInput,
     ) -> Result<String> {
         let mut m = PartMap::new("root");
         m.set("site_title", Part::Text(site_title.to_string()));
         if !axes.is_empty() {
             m.set("axes", Part::Stream(axes));
+        }
+        // Chrome parts: each fills iff its fact holds. A theme root without
+        // the hole drops the part: placement is the theme's option, presence
+        // is the fact's.
+        if let Some((label, js)) = &chrome.search {
+            let mut b = PartMap::new("search_button");
+            b.set("label", Part::Text(label.clone()));
+            b.set("js", Part::Text(js.clone()));
+            m.set("search", Part::Map(b));
+        }
+        if let Some((label, url)) = &chrome.feed {
+            let mut f = PartMap::new("feed_link");
+            f.set("url", Part::Text(url.clone()));
+            f.set("label", Part::Text(label.clone()));
+            m.set("feed", Part::Map(f));
+        }
+        let scheme_on = self.scheme_choice_offered(subtheme);
+        if scheme_on {
+            let mut s = PartMap::new("scheme_button");
+            s.set("label", Part::Text(chrome.scheme.auto.clone()));
+            s.set("label_auto", Part::Text(chrome.scheme.auto.clone()));
+            s.set("label_light", Part::Text(chrome.scheme.light.clone()));
+            s.set("label_dark", Part::Text(chrome.scheme.dark.clone()));
+            m.set("scheme", Part::Map(s));
         }
         for (name, phrasing) in &self.identity {
             if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, lang) {
@@ -347,7 +556,10 @@ impl Theme {
             }
         }
         m.set("content", Part::Html(main));
-        let body = self.fragments.render_body(&m);
+        let mut body = self.fragments.render_body(&m);
+        if scheme_on {
+            body = format!("{SCHEME_BOOT}\n{body}");
+        }
         Ok(crate::render::root_shell(
             &head_html, html_attrs, body_attrs, subtheme, profile, axis, &body,
         ))
@@ -622,12 +834,18 @@ mod tests {
                 continue; // inherits the base's, nothing to drop
             }
             let own = slots_of(&std::fs::read_to_string(&root).unwrap());
-            let missing: Vec<&String> = base.difference(&own).collect();
+            let missing: Vec<&String> = base
+                .difference(&own)
+                // Capability slots are a theme's option: dropping one loses
+                // a widget, not the site's words, and the capability-without-
+                // slot warning is the guard there.
+                .filter(|s| !["search", "scheme", "feed"].contains(&s.as_str()))
+                .collect();
             assert!(
                 missing.is_empty(),
-                "{}: its root drops {missing:?} — every slot the base's root \
-                 places is a place the TREE fills, so dropping one loses the \
-                 site's own words with no error anywhere",
+                "{}: its root drops {missing:?} — every identity slot the \
+                 base's root places is a place the TREE fills, so dropping one \
+                 loses the site's own words with no error anywhere",
                 root.display()
             );
         }
@@ -644,6 +862,140 @@ mod tests {
         )])
         .expect("root parses");
         f.slot_tags("root").into_iter().map(|(s, _)| s).collect()
+    }
+
+    // ------------------------------------------------- chrome parts
+
+    /// The manifest's refusals, each naming its rule: `extends` is specced
+    /// and unbuilt; a scheme is dark or light; `name` must agree with the
+    /// directory; unknown keys are unknown.
+    #[test]
+    fn a_manifest_refuses_what_it_cannot_honor() {
+        let err = |src: &str| {
+            format!(
+                "{:#}",
+                super::Manifest::parse(src, "themes/t", Some("t")).expect_err("should refuse")
+            )
+        };
+        assert!(err("extends = \"ledger\"").contains("unbuilt"));
+        assert!(err("contract = 1").contains("unbuilt"));
+        assert!(err("name = \"other\"").contains("identity"));
+        assert!(err("[subthemes]\nd = { scheme = \"drak\" }").contains("\"dark\" or \"light\""));
+        assert!(err("wat = 1").contains("wat"));
+
+        let m = super::Manifest::parse(
+            "name = \"t\"\n[subthemes]\ndark = { scheme = \"dark\" }\nwide = { }\n",
+            "themes/t",
+            Some("t"),
+        )
+        .expect("a good manifest parses");
+        assert!(m.declared && !m.covers_both_schemes());
+        assert_eq!(m.scheme_of("dark"), Some(super::Scheme::Dark));
+        assert_eq!(m.scheme_of("wide"), None);
+    }
+
+    /// Spec tokens validate against the declaration — and only against one:
+    /// a theme with no theme.toml declares nothing and keeps accepting any
+    /// token, which is what lets undeclared themes load unchanged.
+    #[test]
+    fn subtheme_tokens_validate_against_the_manifest() {
+        let dir = std::env::temp_dir().join("grackle-subtheme-validation");
+        let _ = std::fs::remove_dir_all(&dir);
+        for (theme, manifest) in [("declared", true), ("grandfathered", false)] {
+            let d = dir.join("themes").join(theme);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("root.html"),
+                "<a data-slot=\"site_title\"></a><main data-slot=\"content\"></main>",
+            )
+            .unwrap();
+            if manifest {
+                std::fs::write(
+                    d.join("theme.toml"),
+                    "[subthemes]\ndark = { scheme = \"dark\" }\n",
+                )
+                .unwrap();
+            }
+        }
+        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("load");
+        themes.check_spec("declared:dark").expect("declared token");
+        themes
+            .check_spec("grandfathered:anything")
+            .expect("no manifest, no validation");
+        let err = themes
+            .check_spec("declared:drak")
+            .expect_err("undeclared token")
+            .to_string();
+        assert!(err.contains("drak") && err.contains("dark"), "{err}");
+
+        // The same check guards `[site] theme` at load.
+        let err = Themes::load_all(&dir.join("themes"), &dir, &[], Some("declared:drak"))
+            .map(|_| ())
+            .expect_err("site spec validates")
+            .to_string();
+        assert!(err.contains("drak"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The chrome fill rules end to end through `Theme::page`: a fact fills
+    /// its part, an absent fact leaves nothing, and a forced scheme token
+    /// stands the offered control down.
+    #[test]
+    fn chrome_parts_fill_from_facts_and_stand_down() {
+        let root = crate::workspace_root();
+        let thm = Theme::null(&root, &[]).expect("base loads");
+        let no_link = |_: crate::links::Cite, _: &Path, _: &str| Ok(None);
+        let page = |subtheme: Option<&str>, chrome: &super::ChromeInput| {
+            thm.page(
+                String::new(),
+                "T",
+                "<p>hi</p>".into(),
+                &root,
+                "en",
+                &[],
+                &[],
+                &no_link,
+                subtheme,
+                None,
+                &[],
+                Vec::new(),
+                chrome,
+            )
+            .expect("page renders")
+        };
+
+        let full = super::ChromeInput {
+            search: Some(("Search".into(), "/search.js".into())),
+            feed: Some(("Feed".into(), "/atom.xml".into())),
+            scheme: super::SchemeLabels {
+                auto: "Colors: auto".into(),
+                light: "Colors: light".into(),
+                dark: "Colors: dark".into(),
+            },
+        };
+        let html = page(None, &full);
+        assert!(html.contains("data-search-js=\"/search.js\""), "{html}");
+        assert!(html.contains("href=\"/atom.xml\""), "{html}");
+        assert!(html.contains("Feed"), "{html}");
+        // The base declares both schemes, so the control and its boot
+        // script ship; the boot precedes the body chrome.
+        assert!(html.contains("data-l-dark=\"Colors: dark\""), "{html}");
+        assert!(html.contains("grackle:scheme"), "{html}");
+
+        // No facts: no search button, no feed link — the parts are empty and
+        // rule 2 deletes their elements. The scheme control still ships
+        // (the theme capability is the fact).
+        let bare = page(None, &super::ChromeInput::default());
+        assert!(!bare.contains("data-search-js"), "{bare}");
+        assert!(!bare.contains("/atom.xml"), "{bare}");
+
+        // A forced scheme token stands the control down: no button, no boot.
+        let forced = page(Some("dark"), &full);
+        assert!(!forced.contains("grackle:scheme"), "{forced}");
+        assert!(!forced.contains("data-l-dark"), "{forced}");
+        // A non-scheme token does not.
+        let wide = page(Some("wide"), &full);
+        assert!(wide.contains("grackle:scheme"), "{wide}");
     }
 
     /// The token contract (themes/README.md): a theme may add names, but it

@@ -1,0 +1,9 @@
+# Declared subtheme tokens (themes/DESIGN.md), validated at load. The
+# scheme pair offers the runtime control (themes/DESIGN.md); the rest are palette
+# variants with no scheme semantics.
+[subthemes]
+dark = { scheme = "dark" }
+light = { scheme = "light" }
+rose = { }
+forest = { }
+slate = { }

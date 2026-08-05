@@ -65,6 +65,14 @@
   --overlay-max-h: 55vh;
 }
 
+:root[data-subtheme~=dark] {
+  color-scheme: dark;
+}
+
+:root[data-subtheme~=light] {
+  color-scheme: light;
+}
+
 *,
 *::before,
 *::after {

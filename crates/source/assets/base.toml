@@ -237,9 +237,15 @@ linked_from = "Linked from"
 translations = "Translations"
 page = "Page {n}"
 # Search overlay (§6b / §6f): injected into /search.js per locale member.
+# `search` also labels the chrome search button (themes/DESIGN.md).
 search = "Search"
 search_placeholder = "Search posts…"
 search_empty = "No posts match."
+# Chrome parts (themes/DESIGN.md): the feed link and the scheme control.
+feed = "Feed"
+scheme_auto = "Colors: auto"
+scheme_light = "Colors: light"
+scheme_dark = "Colors: dark"
 # Date display templates (§6f): looked up by name (`medium_date`, …), then
 # expanded with `{year}`/`{month}`/`{day}` and `@months[…]` / `@months_short[…]`.
 short_date = "{day} @months_short[{month}] {year}"

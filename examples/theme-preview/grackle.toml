@@ -99,6 +99,18 @@ baseurl = ""
 title = "Theme Gallery"
 author = "grackle"
 
+# `extends = "none"` inherits no display strings, and this site has a search
+# route and the base chrome parts (themes/DESIGN.md) reaching its
+# base-rendered pages — so the labels are declared here.
+[i18n.strings]
+search = "Search"
+search_placeholder = "Search posts…"
+search_empty = "No posts match."
+feed = "Feed"
+scheme_auto = "Colors: auto"
+scheme_light = "Colors: light"
+scheme_dark = "Colors: dark"
+
 # ------------------------------------------------------------------ pages
 #
 # ONE content tree. The eight themes (and their subthemes) are an AXIS (q53)

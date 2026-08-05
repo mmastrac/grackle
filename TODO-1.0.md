@@ -61,17 +61,29 @@ search shipping as a hand-pasted button (correct in 5 of 9 gallery roots,
 silently absent after a switch to the other 3, and 404ing in both example
 sites via the `SEARCH_VER` path coupling).
 
-- [ ] **Part fill rules** — `search`/`feed` fill from a materialized route
-      wearing that fold shell (first-declared wins, warning on two);
-      `scheme` from the resolved theme's `[subthemes]` covering both schemes,
-      standing down when any cascade rung forces a scheme token;
-      `profile_notice` from a non-default active profile (serve only).
-      **First writer per part**: an individually-placed slot beats the
-      cluster's copy.
-- [ ] **Base fragments + root** — `chrome` cluster slot with inline default
-      (search + scheme + axes), `search_button` / `feed_link` /
-      `scheme_button` built on the primitives, `feed` slot in the footer,
-      skip-to-content link hardcoded (no fact, not a widget).
+- [x] **Part fill rules** *(2026-08-05)* — `search`/`feed` fill from a
+      materialized route wearing that fold shell (first wins, warning on
+      two); `scheme` from the resolved theme's `[subthemes]` covering both
+      schemes, standing down when any cascade rung forces a scheme token.
+      `theme.toml` parses (`[subthemes]` with per-token scheme semantics;
+      `extends`/`contract` refuse as unbuilt), spec tokens validate against
+      the declaration wherever theme names already did, and the five
+      two-scheme gallery themes plus the base declare. Remaining halves
+      below.
+- [ ] **`profile_notice` part** — fills from a non-default active profile
+      (serve only); the root already stamps `data-profile`, this is its
+      legible face.
+- [x] **Base fragments + root** *(2026-08-05, as direct slots)* —
+      `search_button` / `feed_link` / `scheme_button` inline defaults in the
+      base root with `data-chrome` primitives stamped, `feed` slot in the
+      footer, scheme boot script first in `<body>` when the control is
+      offered.
+- [ ] **The `chrome` cluster** — one `data-slot="chrome"` cluster slot
+      wrapping search + scheme + axes so a themed root places one line and
+      gains every future widget; **first writer per part** dedup when a root
+      also places a slot individually. (The base root places direct slots
+      today.) Skip-to-content link rides with `_chrome.scss` (needs its
+      sr-only styling and a localizable label).
 - [ ] **`_chrome.scss` primitives** — `data-chrome="button|dropdown|expando"`;
       structural floor on the reset tier, decorated look on the skin tier.
       Stamp the existing axes `<details>` as `dropdown`.
@@ -94,12 +106,12 @@ sites via the `SEARCH_VER` path coupling).
 - [ ] **Gallery sweep** — replace the pasted search buttons with the cluster
       slot (kitty/recipes gain it; vanilla inherits via the base root); feed
       slot in footers; delete almanac's duplicate overlay CSS and fix its
-      missing `type="button"` by deletion; `[subthemes]` declarations for the
-      five two-scheme themes; base `_tokens.scss` gains the two forcing
-      one-liners (`:root[data-subtheme~="dark"] { color-scheme: dark }` and
-      the light twin).
-- [ ] **`[i18n.strings]`** — `feed`, `scheme_auto`, `scheme_light`,
-      `scheme_dark`.
+      missing `type="button"` by deletion. *(Done 2026-08-05: `[subthemes]`
+      declarations for the six declaring themes; base `_tokens.scss` forcing
+      one-liners.)*
+- [x] **`[i18n.strings]`** *(2026-08-05)* — `feed`, `scheme_auto`,
+      `scheme_light`, `scheme_dark`; mirrored in `examples/raw`, declared in
+      `theme-preview`.
 
 ## The theme ladder and distribution
 
@@ -111,11 +123,11 @@ Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
       chain, which nothing does yet, and carries the `:root`-in-a-scoped-block
       constraint below. Separable from the root file, which is the rung the
       ladder actually promised. (§5b)
-- [ ] **`theme.toml` and `extends` chains** — rung 3. `theme.rs` never reads
-      `theme.toml`, so theme-level inheritance is entirely unbuilt while the
-      config-level `extends` it was modelled on has shipped. Fragment union
-      (child wins), CSS concatenation, cycle/unknown-parent errors naming the
-      chain. (themes/DESIGN.md §3)
+- [ ] **`theme.toml` and `extends` chains** — rung 3. `theme.rs` now parses
+      `theme.toml` (`[subthemes]`, 2026-08-05) and *refuses* `extends` /
+      `contract` as unbuilt, so the file exists and inheritance does not.
+      Remaining: fragment union (child wins), CSS concatenation,
+      cycle/unknown-parent errors naming the chain. (themes/DESIGN.md §3)
 - [ ] **Nested `@layer` down the chain** — `@layer theme.root, theme.mid,
       theme.leaf` so a child always outranks its parent by layer and
       `revert-layer` walks one step at a time. Plain concatenation recreates the
@@ -153,12 +165,13 @@ Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
       does `theme.toml` list". Re-decide before building. (§0, §5a, §4e)
 - [ ] **Forced-colors mode** — claimed from spec for vanilla and the gallery,
       never tested.
-- [ ] **Subtheme token validation** — `theme: ledger:drak` stamps
-      `data-subtheme="drak"` silently; tokens name nothing the engine knows.
-      `theme.toml`'s `[subthemes]` (themes/DESIGN.md §3) is the declaration —
-      one table shared with the scheme switcher's capability fact (§10),
-      which makes this the third forcing consumer for `theme.toml` after
-      `extends` and the scheme part. *(MERGE.md §7 q13)*
+- [x] **Subtheme token validation** *(built 2026-08-05)* — `[subthemes]` in
+      `theme.toml` declares the token vocabulary; specs validate against it
+      at load (site theme, theme-axis values, view themes, row themes). A
+      theme with no manifest declares nothing and keeps accepting any token;
+      the gallery's declaring six are covered, `kitty`/`almanac`/`vanilla`
+      and user themes without manifests remain grandfathered. *(MERGE.md §7
+      q13)*
 
 ## Policy
 

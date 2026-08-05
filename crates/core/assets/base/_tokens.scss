@@ -110,3 +110,14 @@
 	--overlay-top: 12vh;
 	--overlay-max-h: 55vh;
 }
+
+// Scheme forcing (themes/DESIGN.md §10): the base palette is system colors
+// under `color-scheme: light dark`, so forcing a scheme is one property. The
+// tokens are the same pair a build-time spec stamps (`theme: "default:dark"`)
+// and the runtime scheme control writes — one vocabulary, two writers.
+:root[data-subtheme~="dark"] {
+	color-scheme: dark;
+}
+:root[data-subtheme~="light"] {
+	color-scheme: light;
+}
