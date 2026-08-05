@@ -299,3 +299,56 @@ fn assets_evolution() {
         ]),
     );
 }
+
+const TOKENS: &str = ":root { --accent: hotpink; }\n";
+
+/// Themes: add one, opt a single post in, switch the site default. Each step
+/// shows exactly which pages a theme decision touches — and which it doesn't.
+#[test]
+fn themes_evolution() {
+    let mut ev = Evo::seed(
+        "themes",
+        &[
+            ("grackle.toml", ""),
+            ("_posts/2026-01-01-hello.md", A_POST),
+            ("_posts/2026-02-01-world.md", A_POST),
+        ],
+    );
+
+    // A theme's stylesheet is emitted the moment the theme exists — before any
+    // page links it. Adding `dark` ships /css/dark.css and touches nothing else.
+    ev.step(
+        "add a theme 'dark'",
+        write("themes/dark/_tokens.scss", TOKENS),
+        nothing().add(&["/css/dark.css"]),
+    );
+
+    // A per-post theme is isolated: only that page's <link> swaps to dark.
+    ev.step(
+        "one post opts into dark",
+        write(
+            "_posts/2026-01-01-hello.md",
+            "---\ntitle: P\ntheme: dark\n---\n\nA body.\n",
+        ),
+        nothing().edit(&["/blog/2026/01/01/hello/"]),
+    );
+
+    // Switching the site default re-renders every page STILL on the default —
+    // homepage, blog index, the second post — but NOT hello, which already
+    // opted into dark. The delta is exactly "the pages that hadn't overridden".
+    ev.step(
+        "site-wide theme = dark",
+        write("grackle.toml", "[site]\ntheme = \"dark\"\n"),
+        nothing().edit(&["/", "/blog/", "/blog/2026/02/01/world/"]),
+    );
+
+    // Poke: a post naming a theme that does not exist fails the build.
+    ev.probe_error(
+        "an unknown post theme fails the build",
+        write(
+            "_posts/2026-03-01-ghost.md",
+            "---\ntitle: Ghost\ntheme: ghost\n---\n\nBoo.\n",
+        ),
+        "no theme named",
+    );
+}
