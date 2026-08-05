@@ -28,6 +28,11 @@ pub enum Part {
 pub struct PartMap {
     pub kind: &'static str,
     parts: Vec<(&'static str, Part)>,
+    /// A specific fragment this map asks to render through, by full name —
+    /// the row-variant idea one level down. Set by the engine when a
+    /// positional `.slots/chrome.html` override resolves for the page;
+    /// wins over the hole's `data-fragment`, falls through when absent.
+    face: Option<String>,
 }
 
 impl PartMap {
@@ -36,7 +41,16 @@ impl PartMap {
         PartMap {
             kind,
             parts: Vec::new(),
+            face: None,
         }
+    }
+
+    pub fn set_face(&mut self, name: String) {
+        self.face = Some(name);
+    }
+
+    pub fn face(&self) -> Option<&str> {
+        self.face.as_deref()
     }
 
     pub fn set(&mut self, name: &'static str, part: Part) {
@@ -77,6 +91,7 @@ impl PartMap {
         PartMap {
             kind,
             parts: Vec::new(),
+            face: None,
         }
     }
 

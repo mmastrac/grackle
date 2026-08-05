@@ -666,12 +666,13 @@ renumbering pass.
   are validated at load); the `data-chrome` primitive makes it render
   native under every theme. Localize with `nav.fr.md` as usual.
 - **`.slots/chrome.html` is the widget row itself** (built 2026-08-05):
-  one root-level html file shadowing the chrome cluster across every
-  theme — reorder the engine's widgets, drop one, or put your own markup
-  between them. A fragment, not a fill: html only, site root only, no
-  locale suffix (the holes fill with localized parts already), and the
-  wrong spelling is a load error naming the right one. This is how a
-  site author mints chrome without touching a theme.
+  an html file shadowing the chrome cluster across every theme — reorder
+  the engine's widgets, drop one, or put your own markup between them.
+  Positional like `nav.md`: the root's file answers for the site,
+  `docs/.slots/chrome.html` for its subtree, nearest wins. A fragment,
+  not a fill: html only, no locale suffix (the holes fill with localized
+  parts already), and the wrong spelling is a load error naming the right
+  one. This is how a site author mints chrome without touching a theme.
 - The line to state: fills are words and links, never queries — `{% view %}`
   does not expand in a fill. A box of rows is a view embedded in content
   (ch. 6), not chrome.

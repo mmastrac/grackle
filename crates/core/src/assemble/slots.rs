@@ -115,6 +115,19 @@ impl SlotFills {
             .flat_map(|m| m.iter().map(|(stem, f)| (stem.as_str(), f.file.as_path())))
     }
 
+    /// Every `chrome.html` cluster override, in directory order:
+    /// (owner directory, source file, source text). The theme loader
+    /// registers each as a variant of the `chrome` kind.
+    pub fn chrome_sources(&self) -> Vec<(PathBuf, PathBuf, String)> {
+        self.by_dir
+            .iter()
+            .filter_map(|(dir, m)| {
+                let f = m.get("chrome")?;
+                (f.ext == "html").then(|| (dir.clone(), f.file.clone(), f.raw.clone()))
+            })
+            .collect()
+    }
+
     /// The fill for a phrasing-only element: exactly one block, unwrapped.
     /// Zero or several blocks is the hard error the rule promises.
     pub fn inline_or_err(fill: &RenderedFill) -> Result<&str> {
@@ -129,28 +142,24 @@ impl SlotFills {
     }
 }
 
-/// The cluster override has exactly one legal spelling: `chrome.html` in the
-/// SITE ROOT's `.slots/`. It is a fragment, not a fill — one file shadowing
-/// the `chrome` fragment across every theme — so a markdown flavor, a locale
-/// suffix, or a nested copy would silently not apply, and each is refused by
-/// name instead.
-pub fn check_chrome_fills(fills: &SlotFills, root: &Path) -> Result<()> {
-    let legal_dir = root.join(".slots");
+/// The cluster override is `chrome.html` in any directory's `.slots/`,
+/// positional like every other fill. It is a fragment, not a fill, so the
+/// two spellings that would silently not apply are refused by name: a
+/// markdown flavor, and a locale suffix (the holes it places fill with
+/// localized parts already).
+pub fn check_chrome_fills(fills: &SlotFills, _root: &Path) -> Result<()> {
     for (stem, file) in fills.iter() {
+        if stem == "chrome" && file.extension().is_some_and(|e| e == "html") {
+            continue;
+        }
         if stem != "chrome" && !stem.starts_with("chrome.") {
             continue;
         }
-        let ext_html = file.extension().is_some_and(|e| e == "html");
-        let at_root = file.parent() == Some(legal_dir.as_path());
-        if stem == "chrome" && ext_html && at_root {
-            continue;
-        }
         anyhow::bail!(
-            "{}: the chrome cluster override is `.slots/chrome.html` at the \
-             site root and nothing else — it shadows the `chrome` FRAGMENT \
-             across every theme, so it is one site-wide html file: not \
-             markdown, not per-directory, not per-locale (the holes it \
-             places fill with localized parts already).",
+            "{}: the chrome cluster override is spelled `chrome.html` — it \
+             shadows the `chrome` FRAGMENT for its subtree, so it is html, \
+             never markdown, and never locale-suffixed (the holes it places \
+             fill with localized parts already).",
             file.display()
         );
     }
@@ -556,15 +565,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The cluster override has one spelling; every near-miss is refused by
-    /// name, because each would silently not apply.
+    /// The cluster override is positional html; the two spellings that
+    /// would silently not apply are refused by name.
     #[test]
     fn the_cluster_override_has_one_legal_spelling() {
         for (rel, legal) in [
             (".slots/chrome.html", true),
+            ("deep/.slots/chrome.html", true),
             (".slots/chrome.md", false),
             (".slots/chrome.fr.html", false),
-            ("deep/.slots/chrome.html", false),
         ] {
             let dir = std::env::temp_dir().join("grackle-chrome-spelling");
             let _ = std::fs::remove_dir_all(&dir);
@@ -575,7 +584,7 @@ mod tests {
             let got = super::check_chrome_fills(&fills, &dir);
             let _ = std::fs::remove_dir_all(&dir);
             match legal {
-                true => got.expect("the one legal spelling loads"),
+                true => got.expect("a legal spelling loads"),
                 false => {
                     let err = got.expect_err(rel).to_string();
                     assert!(err.contains("chrome.html"), "{rel}: {err}");

@@ -465,15 +465,18 @@ Reordering has a ladder:
   **first writer per part** (the precedence law's existing clause): an
   individually-placed slot wins and the cluster's copy of that part
   empties. Nothing renders twice.
-- **Site-level**: `.slots/chrome.html` *(built 2026-08-05)* — one
-  root-level html file shadows the `chrome` fragment across every loaded
-  theme, beating a theme's own `chrome.html`: the tree-overlay rung of the
-  precedence law applied to a fragment-bearing slot. It reorders, drops, or
-  **mints** — literal author markup is legal beside the engine holes, so a
-  site's own dropdown can sit inside the widget row with no theme touched.
-  Near-miss spellings (markdown, nested, locale-suffixed) are load errors,
-  because each would silently not apply; the holes it places fill with
-  localized parts already.
+- **Site-level, and positional** *(built 2026-08-05)*: `.slots/chrome.html`
+  shadows the `chrome` fragment across every loaded theme, beating a
+  theme's own `chrome.html` — the tree-overlay rung of the precedence law
+  applied to a fragment-bearing slot. It reorders, drops, or **mints** —
+  literal author markup is legal beside the engine holes, so a site's own
+  dropdown can sit inside the widget row with no theme touched. And it is
+  **positional like every other fill**: `docs/.slots/chrome.html` answers
+  for its subtree, nearest wins up the source path, and the root's file is
+  the degenerate one-directory case. Listings and landings resolve from the
+  site root, exactly as their nav fill does. The two spellings that would
+  silently not apply are load errors: a markdown flavor, and a locale
+  suffix (the holes fill with localized parts already).
 
 `feed` sits outside the cluster in the base root's footer — the shipped
 demonstration that splitting out is ordinary. The skip-to-content link is

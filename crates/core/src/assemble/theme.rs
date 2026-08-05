@@ -34,6 +34,10 @@ pub struct Theme {
     identity: Vec<(&'static str, bool)>,
     style: String,
     manifest: Manifest,
+    /// Positional `.slots/chrome.html` overrides: owner directory → the
+    /// fragment name each registered under. Resolved nearest-wins per page,
+    /// the same ascent as every other fill.
+    chrome_overrides: std::collections::BTreeMap<PathBuf, String>,
 }
 
 /// A theme's `theme.toml`: today only `[subthemes]`, the declared token
@@ -417,22 +421,21 @@ impl Theme {
                 .overlay(own)
                 .with_context(|| format!("parsing theme {what}"))?;
         }
-        // The site's cluster override: a root-level `.slots/chrome.html` is a
-        // binder fragment shadowing `chrome` over EVERY theme — the tree
-        // overlay rung of the precedence law applied to a fragment-bearing
-        // slot, and the one place a site author mints chrome of their own
-        // (literal markup may sit beside the engine holes). Overlaid last, so
-        // it beats a theme's `chrome.html` as well as the base's inline
-        // default.
-        let site_chrome = site_root.join(".slots/chrome.html");
-        if let Ok(src) = std::fs::read_to_string(&site_chrome) {
+        // The site's cluster overrides: each `.slots/chrome.html` is a binder
+        // fragment shadowing `chrome` for its subtree over EVERY theme — the
+        // tree overlay rung of the precedence law applied to a fragment-
+        // bearing slot, and the place a site author mints chrome of their own
+        // (literal markup may sit beside the engine holes). Positional like
+        // every other fill: each registers as a variant of the `chrome` kind,
+        // and `page` resolves the nearest one up the source path.
+        let fills = SlotFills::load(site_root)?;
+        let mut chrome_overrides = std::collections::BTreeMap::new();
+        for (i, (owner, file, src)) in fills.chrome_sources().into_iter().enumerate() {
+            let name = format!("chrome--{i}");
             fragments
-                .overlay(vec![(
-                    "chrome".to_string(),
-                    src,
-                    ".slots/chrome.html".to_string(),
-                )])
-                .with_context(|| format!("parsing {}", site_chrome.display()))?;
+                .overlay(vec![(name.clone(), src, file.display().to_string())])
+                .with_context(|| format!("parsing {}", file.display()))?;
+            chrome_overrides.insert(owner, name);
         }
         let mut schemas = Schemas::derive(&fragments, fields);
         if let Some(dir) = theme_dir {
@@ -441,7 +444,6 @@ impl Theme {
         fragments
             .validate_against(&schemas)
             .with_context(|| format!("loading theme {what}"))?;
-        let fills = SlotFills::load(site_root)?;
         let engine = ["content"];
         let mut identity = Vec::new();
         for (slot, tag) in fragments.slot_tags("root") {
@@ -465,6 +467,7 @@ impl Theme {
             identity,
             style,
             manifest,
+            chrome_overrides,
         })
     }
 
@@ -553,6 +556,26 @@ impl Theme {
             m.set("skip", Part::Text(chrome.skip.clone()));
         }
         let mut cluster = PartMap::new("chrome");
+        // The nearest positional override up the source path renders the
+        // cluster for this page — the fills' ascent, applied to a fragment.
+        let chrome_face = {
+            let mut cur = source_dir;
+            loop {
+                if let Some(name) = self.chrome_overrides.get(cur) {
+                    break Some(name.clone());
+                }
+                if cur == self.root {
+                    break None;
+                }
+                match cur.parent() {
+                    Some(p) => cur = p,
+                    None => break None,
+                }
+            }
+        };
+        if let Some(name) = &chrome_face {
+            cluster.set_face(name.clone());
+        }
         let mut place = |name: &'static str, part: Part| {
             if root_slots.contains(name) {
                 m.set(name, part);
@@ -584,7 +607,9 @@ impl Theme {
             s.set("label_dark", Part::Text(chrome.scheme.dark.clone()));
             place("scheme", Part::Map(s));
         }
-        if !cluster.is_empty() {
+        // An override with only literal markup still renders: the author's
+        // chrome is content even when no engine hole fills.
+        if !cluster.is_empty() || (chrome_face.is_some() && root_slots.contains("chrome")) {
             m.set("chrome", Part::Map(cluster));
         }
         for (name, phrasing) in &self.identity {
@@ -1072,7 +1097,7 @@ mod tests {
         .unwrap();
         let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("loads");
         let thm = themes.get(Some("split")).unwrap();
-        let html = render_chrome_page(thm, &dir, None, &full_chrome());
+        let html = render_chrome_page(thm, &dir, &dir, None, &full_chrome());
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             html.matches("data-search-js").count(),
@@ -1103,7 +1128,7 @@ mod tests {
         )
         .unwrap();
         let thm = Theme::null(&dir, &[]).expect("base loads with the override");
-        let html = render_chrome_page(&thm, &dir, None, &full_chrome());
+        let html = render_chrome_page(&thm, &dir, &dir, None, &full_chrome());
         let _ = std::fs::remove_dir_all(&dir);
         assert!(html.contains("Elsewhere"), "author chrome renders:\n{html}");
         assert!(
@@ -1111,6 +1136,58 @@ mod tests {
                 && html.find("Elsewhere").unwrap() < html.find("data-search-js").unwrap(),
             "the override's order stands: scheme, author markup, search:\n{html}"
         );
+    }
+
+    /// Positional overrides resolve nearest-wins per page, the fills'
+    /// ascent applied to a fragment: the root's file answers for the site,
+    /// a subtree's file answers beneath it, and each may drop holes the
+    /// other places.
+    #[test]
+    fn positional_chrome_resolves_nearest_per_page() {
+        let dir = std::env::temp_dir().join("grackle-chrome-positional");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".slots")).unwrap();
+        std::fs::create_dir_all(dir.join("docs/.slots")).unwrap();
+        std::fs::write(
+            dir.join(".slots/chrome.html"),
+            "<i>ROOTMARK</i><span data-slot=\"search\" data-fragment=\"search_button\"></span>",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/.slots/chrome.html"),
+            "<i>DOCSMARK</i><span data-slot=\"scheme\" data-fragment=\"scheme_button\"></span>",
+        )
+        .unwrap();
+        let thm = Theme::null(&dir, &[]).expect("base loads");
+
+        let at_root = render_chrome_page(&thm, &dir, &dir, None, &full_chrome());
+        assert!(at_root.contains("ROOTMARK") && !at_root.contains("DOCSMARK"), "{at_root}");
+        assert!(at_root.contains("data-search-js"), "{at_root}");
+
+        let deep = dir.join("docs/deep");
+        let under_docs = render_chrome_page(&thm, &dir, &deep, None, &full_chrome());
+        assert!(under_docs.contains("DOCSMARK") && !under_docs.contains("ROOTMARK"), "{under_docs}");
+        assert!(
+            !under_docs.contains("data-search-js") && under_docs.contains("data-l-dark"),
+            "the docs override dropped the search hole and kept scheme:\n{under_docs}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An override that is only author markup renders even when no engine
+    /// part fills — the author's chrome is content in its own right.
+    #[test]
+    fn an_author_only_override_renders_without_facts() {
+        let dir = std::env::temp_dir().join("grackle-chrome-authoronly");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".slots")).unwrap();
+        std::fs::write(dir.join(".slots/chrome.html"), "<b>ELSEMARK</b>").unwrap();
+        let thm = Theme::null(&dir, &[]).expect("base loads");
+        // No facts, and a forced scheme stands the control down: the cluster
+        // map is empty, and only the resolved override keeps it rendering.
+        let html = render_chrome_page(&thm, &dir, &dir, Some("dark"), &super::ChromeInput::default());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(html.contains("ELSEMARK"), "{html}");
     }
 
     fn full_chrome() -> super::ChromeInput {
@@ -1128,7 +1205,8 @@ mod tests {
 
     fn render_chrome_page(
         thm: &Theme,
-        root: &Path,
+        _root: &Path,
+        source_dir: &Path,
         subtheme: Option<&str>,
         chrome: &super::ChromeInput,
     ) -> String {
@@ -1137,7 +1215,7 @@ mod tests {
             String::new(),
             "T",
             "<p>hi</p>".into(),
-            root,
+            source_dir,
             "en",
             &[],
             &[],

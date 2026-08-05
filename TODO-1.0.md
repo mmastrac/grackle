@@ -113,12 +113,15 @@ sites via the `SEARCH_VER` path coupling).
 - [ ] **Capability-without-slot warning** — a live capability whose resolved
       theme places neither its slot nor the cluster is a load warning naming
       the theme and the slot.
-- [x] **`.slots/chrome.html` shadows the cluster fragment** *(2026-08-05)* —
-      one root-level html file reorders, drops, or MINTS chrome across every
-      loaded theme (literal author markup beside the engine holes); beats a
-      theme's own `chrome.html`. Near-miss spellings (markdown, nested,
-      locale-suffixed) are load errors, because each would silently not
-      apply.
+- [x] **`.slots/chrome.html` shadows the cluster fragment, positionally**
+      *(2026-08-05)* — reorders, drops, or MINTS chrome across every loaded
+      theme (literal author markup beside the engine holes); beats a
+      theme's own `chrome.html`. Positional like every other fill: a
+      subtree's file answers beneath it, nearest wins, listings resolve
+      from the root. Markdown and locale-suffixed spellings are load
+      errors, because each would silently not apply. Mechanism: each file
+      registers as a variant of the `chrome` kind and the cluster map asks
+      for its face — the row-variant idea one level down.
 - [x] **`serve` was blind to `.slots/` inside the grackle tree** *(fixed
       2026-08-05)* — the watcher's grackle-tree filter had no `.slots/`
       exception, so the example sites' fills (and the cluster override)

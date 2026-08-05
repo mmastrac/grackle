@@ -751,9 +751,12 @@ impl Fragments {
             Some(Part::Html(s)) => out.push_str(s),
             Some(Part::Stream(v)) => {
                 for item in v {
-                    // data-fragment picks the variant (q24); default is the
-                    // child kind's base fragment, else canonical.
-                    let name = el.fragment.as_deref().unwrap_or(item.kind);
+                    // The map's own face wins, then the hole's data-fragment,
+                    // then the child kind's base fragment, else canonical.
+                    let name = item
+                        .face()
+                        .or(el.fragment.as_deref())
+                        .unwrap_or(item.kind);
                     match self.map.get(name) {
                         Some(child) => self.render_nodes(&child.nodes, item, out, true),
                         None => out.push_str(&super::parts::canonical(item)),
@@ -761,7 +764,7 @@ impl Fragments {
                 }
             }
             Some(Part::Map(sub)) => {
-                let name = el.fragment.as_deref().unwrap_or(sub.kind);
+                let name = sub.face().or(el.fragment.as_deref()).unwrap_or(sub.kind);
                 match self.map.get(name) {
                     Some(child) => self.render_nodes(&child.nodes, sub, out, true),
                     None => out.push_str(&super::parts::canonical(sub)),
