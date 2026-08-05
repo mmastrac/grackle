@@ -103,12 +103,14 @@ sites via the `SEARCH_VER` path coupling).
 - [ ] **`.slots/chrome.html` may shadow a fragment-bearing slot** — the tree
       overlay rung applied to the cluster; today identity slots are only the
       engine-unfilled holes, so this is new machinery for an old law.
-- [ ] **Gallery sweep** — replace the pasted search buttons with the cluster
-      slot (kitty/recipes gain it; vanilla inherits via the base root); feed
-      slot in footers; delete almanac's duplicate overlay CSS and fix its
-      missing `type="button"` by deletion. *(Done 2026-08-05: `[subthemes]`
-      declarations for the six declaring themes; base `_tokens.scss` forcing
-      one-liners.)*
+- [x] **Gallery sweep** *(2026-08-05)* — every themed root (plus
+      field-notes' recipes fork) places `search`/`scheme` slots in the
+      header and a `feed` slot in the footer; the nine pasted buttons are
+      deleted, almanac's duplicate overlay CSS with them (its missing
+      `type="button"` died by deletion). Theme CSS retargeted
+      `.search-button` to `[data-chrome~="button"]`, so both header
+      controls share each theme's treatment. Direct slots for now; the
+      `chrome` cluster above collapses them to one line when it lands.
 - [x] **`[i18n.strings]`** *(2026-08-05)* — `feed`, `scheme_auto`,
       `scheme_light`, `scheme_dark`; mirrored in `examples/raw`, declared in
       `theme-preview`.

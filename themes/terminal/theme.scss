@@ -64,7 +64,7 @@
 		}
 	}
 
-	.search-button {
+	[data-chrome~="button"] {
 		border: var(--rule);
 		background: var(--bg-raised);
 		color: var(--fg-muted);
@@ -428,7 +428,7 @@ a[data-kind="tag"] {
 		--fg: var(--print-fg);
 	}
 
-	.site-header .search-button,
+	.site-header [data-chrome~="button"],
 	.site-nav,
 	.doc-outline,
 	.doc-section,

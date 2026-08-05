@@ -80,7 +80,7 @@
 
 	// A flex column stretches its children, and a stretched icon button is
 	// a very wide box around a very small circle.
-	.search-button {
+	[data-chrome~="button"] {
 		align-self: center;
 		margin: var(--space-md);
 		padding: var(--space-sm);
@@ -609,7 +609,7 @@ a[data-kind="tag"] {
 			}
 		}
 
-		.search-button {
+		[data-chrome~="button"] {
 			margin: 0 var(--pad-x);
 		}
 	}

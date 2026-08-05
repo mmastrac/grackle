@@ -48,7 +48,7 @@
 		font-size: var(--size-sm);
 	}
 
-	.search-button {
+	[data-chrome~="button"] {
 		border: 0;
 		background: none;
 		color: var(--fg-muted);
@@ -375,7 +375,7 @@ a[data-kind="tag"] {
 		--fg: var(--print-fg);
 	}
 
-	.site-header .search-button,
+	.site-header [data-chrome~="button"],
 	.site-nav,
 	.doc-outline,
 	.doc-section,

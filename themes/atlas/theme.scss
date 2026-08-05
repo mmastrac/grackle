@@ -52,7 +52,7 @@
 		}
 	}
 
-	.search-button {
+	[data-chrome~="button"] {
 		border: var(--rule);
 		border-radius: var(--radius);
 		background: var(--bg-sunken);

@@ -76,7 +76,7 @@
 		}
 	}
 
-	.search-button {
+	[data-chrome~="button"] {
 		grid-column: 2;
 		grid-row: 1;
 		justify-self: end;
@@ -497,7 +497,7 @@ sidenote {
 		--fg: var(--print-fg);
 	}
 
-	.site-header .search-button,
+	.site-header [data-chrome~="button"],
 	.site-nav,
 	.relations {
 		display: none;
