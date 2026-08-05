@@ -352,3 +352,83 @@ fn themes_evolution() {
         "no theme named",
     );
 }
+
+fn append(rel: &'static str, text: &'static str) -> impl FnOnce(&Path) {
+    move |d| {
+        let p = d.join(rel);
+        let mut s = std::fs::read_to_string(&p).unwrap_or_default();
+        s.push_str(text);
+        std::fs::write(p, s).unwrap();
+    }
+}
+
+/// Config knobs, poked one at a time: a computed field no theme part consumes,
+/// a per-post fact that propagates to every reference, a global head tag, and
+/// a filter over a name that does not exist.
+#[test]
+fn config_evolution() {
+    let mut ev = Evo::seed(
+        "config",
+        &[
+            ("grackle.toml", ""),
+            ("_posts/2026-01-01-hello.md", A_POST),
+            ("_posts/2026-02-01-world.md", A_POST),
+        ],
+    );
+
+    // A computed [schema.fields] column with no theme part to render it is a
+    // no-op: config declares the field, a theme decides whether to show it, and
+    // the default theme shows no `lede`, so the output does not move.
+    ev.step(
+        "declare a computed `lede` field",
+        write(
+            "grackle.toml",
+            "[schema.fields]\nlede = \"truncate_chars(content, 40)\"\n",
+        ),
+        nothing(),
+    );
+
+    // `noindex` on one post propagates a `data-noindex` FACT to every reference
+    // to it: its own page, its card in each listing, and the neighbour link
+    // that points at it. A per-row fact surfaces wherever the row appears.
+    ev.step(
+        "one post goes noindex",
+        write(
+            "_posts/2026-01-01-hello.md",
+            "---\ntitle: P\nnoindex: true\n---\n\nA body.\n",
+        ),
+        nothing().edit(&[
+            "/",
+            "/blog/",
+            "/blog/2026/01/01/hello/",
+            "/blog/2026/02/01/world/",
+        ]),
+    );
+
+    // A global `[html.head.meta]` tag lands in every HTML page's <head> — and
+    // only those: the feed and sitemap carry no <head>, so they stand aside.
+    ev.step(
+        "add a global head meta",
+        append(
+            "grackle.toml",
+            "[html.head.meta]\ngenerator = '\"grackle\"'\n",
+        ),
+        nothing().edit(&[
+            "/",
+            "/blog/",
+            "/blog/2026/01/01/hello/",
+            "/blog/2026/02/01/world/",
+        ]),
+    );
+
+    // Poke: a set filtering on a field the schema never declared is a load
+    // error naming the unknown field, not a silent match-nothing.
+    ev.probe_error(
+        "a filter over an unknown field fails to load",
+        append(
+            "grackle.toml",
+            "[sets.x]\nfrom = \"posts\"\nwhere = \"!bogus\"\n",
+        ),
+        "unknown field `bogus`",
+    );
+}
