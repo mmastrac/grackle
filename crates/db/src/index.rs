@@ -100,20 +100,11 @@ mod tests {
         assert_eq!(u.get("x"), Some(&Key::new("a")));
 
         let m = multi(&rows, |r| r.1);
+        assert_eq!(m.len(), 1, "the keyless row makes no group of its own");
         assert_eq!(
             m[&"x"],
             vec![Key::new("a"), Key::new("c")],
             "the groupless row is absent, not grouped"
         );
-    }
-
-    /// Membership is by key, so an index outlives the order it was built in.
-    #[test]
-    fn multi_names_rows_not_positions() {
-        let m = multi(&rows(), |r| r.1);
-        assert_eq!(m.len(), 1);
-        assert!(m[&"x"]
-            .iter()
-            .all(|k| k.as_str() == "a" || k.as_str() == "c"));
     }
 }

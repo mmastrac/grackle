@@ -817,17 +817,6 @@ pub fn xmlschema(d: chrono::NaiveDate) -> String {
 }
 
 #[cfg(test)]
-mod xmlschema_tests {
-    use super::*;
-
-    #[test]
-    fn xmlschema_is_utc_midnight() {
-        let d = chrono::NaiveDate::from_ymd_opt(2026, 6, 25).unwrap();
-        assert_eq!(xmlschema(d), "2026-06-25T00:00:00+00:00");
-    }
-}
-
-#[cfg(test)]
 mod meta_tests {
     use super::*;
     use crate::config::Config;

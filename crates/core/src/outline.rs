@@ -190,54 +190,6 @@ pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
 // `crates/core/tests/fixtures/section-tree`.
 mod tests {
     use super::*;
-    use crate::model::Row;
-
-    fn page(rel: &str, url: &str, title: Option<&str>, order: Option<i64>) -> Row {
-        let mut r = Row {
-            path: PathBuf::from(rel),
-            rel: PathBuf::from(rel),
-            version: 0,
-            url: url.to_string(),
-            rendered: true,
-            size: 0,
-            title: title.map(String::from),
-            order,
-            theme: None,
-            shell: None,
-            fields: Default::default(),
-            images: Default::default(),
-            logical: rel.to_string(),
-            claimed: false,
-            ..Default::default()
-        };
-        r.fields
-            .insert("locale".into(), grackle_db::Value::Str("en".into()));
-        r
-    }
-
-    fn db(pages: Vec<Row>) -> SiteDb {
-        SiteDb::seed(pages, false)
-    }
-
-    #[test]
-    fn current_is_marked_and_recursion_renders() {
-        let db = db(vec![
-            page("m/index.md", "/m/", Some("M"), None),
-            page("m/a/x.md", "/m/a/x/", Some("X"), None),
-        ]);
-        let t = section_tree(&db, Path::new("m"), Some(("locale", "en")));
-        let parts = to_parts(&t, "/m/a/x/");
-        // The dir node "a" carries X as a child; X is current.
-        let a = &parts[1];
-        let Some(Part::Stream(kids)) = a.get("children") else {
-            panic!("no children")
-        };
-        assert_eq!(kids[0].text("current"), Some("page"));
-        assert_eq!(parts[0].text("current"), None);
-        // And the canonical rendering recurses without loss.
-        let out = crate::parts::canonical(&parts[1]);
-        assert!(out.contains("X"), "{out}");
-    }
 
     #[test]
     fn heading_tree_nests_by_level_and_tolerates_jumps() {

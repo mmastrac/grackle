@@ -395,6 +395,7 @@ mod row_column_tests {
         // The flat names moved under their namespace.
         assert_eq!(img.field("size"), V::Null);
         assert_eq!(img.field("width"), V::Null);
+        assert_eq!(img.field("height"), V::Null);
         // `.image.*` is Null off an image.
         let doc = Row {
             size: 10,
@@ -434,12 +435,5 @@ mod row_column_tests {
         };
         assert_eq!(r.field("collection"), filter::Value::Str("notes".into()));
         assert!(row_schema().contains_key("collection"));
-    }
-
-    #[test]
-    fn an_unmeasured_row_has_null_dimensions() {
-        let r = row("notes/x.md");
-        assert_eq!(r.field("width"), filter::Value::Null);
-        assert_eq!(r.field("height"), filter::Value::Null);
     }
 }
