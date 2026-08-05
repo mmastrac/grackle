@@ -142,6 +142,10 @@ figcaption {
   margin-top: var(--space-sm);
 }
 
+[data-slot=chrome] {
+  display: contents;
+}
+
 h1,
 h2,
 h3,

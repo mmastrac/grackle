@@ -413,6 +413,23 @@ impl Theme {
                 .overlay(own)
                 .with_context(|| format!("parsing theme {what}"))?;
         }
+        // The site's cluster override: a root-level `.slots/chrome.html` is a
+        // binder fragment shadowing `chrome` over EVERY theme — the tree
+        // overlay rung of the precedence law applied to a fragment-bearing
+        // slot, and the one place a site author mints chrome of their own
+        // (literal markup may sit beside the engine holes). Overlaid last, so
+        // it beats a theme's `chrome.html` as well as the base's inline
+        // default.
+        let site_chrome = site_root.join(".slots/chrome.html");
+        if let Ok(src) = std::fs::read_to_string(&site_chrome) {
+            fragments
+                .overlay(vec![(
+                    "chrome".to_string(),
+                    src,
+                    ".slots/chrome.html".to_string(),
+                )])
+                .with_context(|| format!("parsing {}", site_chrome.display()))?;
+        }
         let mut schemas = Schemas::derive(&fragments, fields);
         if let Some(dir) = theme_dir {
             schemas = schemas.extend_theme_dir(dir)?;
@@ -516,23 +533,38 @@ impl Theme {
     ) -> Result<String> {
         let mut m = PartMap::new("root");
         m.set("site_title", Part::Text(site_title.to_string()));
+        // Chrome parts: each fills iff its fact holds, at whichever level the
+        // resolved root reads it — a slot the root places directly wins, the
+        // `chrome` cluster takes the rest, and a root placing neither drops
+        // the part. Placement is the theme's option, presence is the fact's.
+        let root_slots: std::collections::BTreeSet<String> = self
+            .fragments
+            .slot_tags("root")
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect();
+        let mut cluster = PartMap::new("chrome");
+        let mut place = |name: &'static str, part: Part| {
+            if root_slots.contains(name) {
+                m.set(name, part);
+            } else if root_slots.contains("chrome") {
+                cluster.set(name, part);
+            }
+        };
         if !axes.is_empty() {
-            m.set("axes", Part::Stream(axes));
+            place("axes", Part::Stream(axes));
         }
-        // Chrome parts: each fills iff its fact holds. A theme root without
-        // the hole drops the part: placement is the theme's option, presence
-        // is the fact's.
         if let Some((label, js)) = &chrome.search {
             let mut b = PartMap::new("search_button");
             b.set("label", Part::Text(label.clone()));
             b.set("js", Part::Text(js.clone()));
-            m.set("search", Part::Map(b));
+            place("search", Part::Map(b));
         }
         if let Some((label, url)) = &chrome.feed {
             let mut f = PartMap::new("feed_link");
             f.set("url", Part::Text(url.clone()));
             f.set("label", Part::Text(label.clone()));
-            m.set("feed", Part::Map(f));
+            place("feed", Part::Map(f));
         }
         let scheme_on = self.scheme_choice_offered(subtheme);
         if scheme_on {
@@ -541,7 +573,10 @@ impl Theme {
             s.set("label_auto", Part::Text(chrome.scheme.auto.clone()));
             s.set("label_light", Part::Text(chrome.scheme.light.clone()));
             s.set("label_dark", Part::Text(chrome.scheme.dark.clone()));
-            m.set("scheme", Part::Map(s));
+            place("scheme", Part::Map(s));
+        }
+        if !cluster.is_empty() {
+            m.set("chrome", Part::Map(cluster));
         }
         for (name, phrasing) in &self.identity {
             if let Some(fill) = self.fills.resolve(&self.root, source_dir, name, lang) {
@@ -657,6 +692,12 @@ mod tests {
             ("row", "date_pretty", "rides with date"),
             ("row", "description", "member faces place the blurb"),
             ("row", "truncated", "card CSS fact; default face has no cue"),
+            (
+                "chrome",
+                "feed",
+                "the base places feed in the footer; the cluster hole exists \
+                 for a chrome.html that wants it in the widget row",
+            ),
         ];
 
         let thm = Theme::null(&crate::workspace_root(), &[]).expect("base loads");
@@ -758,7 +799,7 @@ mod tests {
             .into_iter()
             .map(|(s, _)| s)
             .collect();
-        for engine in ["axes", "content", "site_title"] {
+        for engine in ["chrome", "content", "site_title"] {
             assert!(placed.contains(&engine.to_string()), "the root places it");
             assert!(!slots.contains(&engine), "but the tree does not fill it");
         }
@@ -995,6 +1036,108 @@ mod tests {
         // A non-scheme token does not.
         let wide = page(Some("wide"), &full);
         assert!(wide.contains("grackle:scheme"), "{wide}");
+    }
+
+    /// First writer per part: a slot the root places directly wins, and the
+    /// cluster's copy of that part empties — nothing renders twice. The rest
+    /// of the widgets keep arriving through the cluster.
+    #[test]
+    fn an_individually_placed_slot_beats_the_clusters_copy() {
+        let dir = std::env::temp_dir().join("grackle-chrome-split");
+        let _ = std::fs::remove_dir_all(&dir);
+        let d = dir.join("themes").join("split");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("root.html"),
+            "<a data-slot=\"site_title\"></a>\
+             <span data-slot=\"search\" data-fragment=\"search_button\"></span>\
+             <div data-slot=\"chrome\" data-fragment=\"chrome\"></div>\
+             <main data-slot=\"content\"></main>",
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("theme.toml"),
+            "[subthemes]\ndark = { scheme = \"dark\" }\nlight = { scheme = \"light\" }\n",
+        )
+        .unwrap();
+        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("loads");
+        let thm = themes.get(Some("split")).unwrap();
+        let html = render_chrome_page(thm, &dir, None, &full_chrome());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            html.matches("data-search-js").count(),
+            1,
+            "one search button, not two:\n{html}"
+        );
+        assert!(
+            html.find("data-search-js").unwrap() < html.find("data-slot=\"chrome\"").unwrap(),
+            "the direct placement renders where the root put it:\n{html}"
+        );
+        assert!(html.contains("data-l-dark"), "cluster keeps scheme:\n{html}");
+    }
+
+    /// The site's `.slots/chrome.html` shadows the `chrome` fragment across
+    /// every theme: the author reorders the widgets and mints chrome of
+    /// their own beside the engine holes, no theme touched.
+    #[test]
+    fn a_site_chrome_html_reorders_and_mints() {
+        let dir = std::env::temp_dir().join("grackle-chrome-site");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".slots")).unwrap();
+        std::fs::write(
+            dir.join(".slots/chrome.html"),
+            "<span data-slot=\"scheme\" data-fragment=\"scheme_button\"></span>\
+             <details data-chrome=\"dropdown\"><summary>Elsewhere</summary>\
+             <a href=\"/x/\">x</a></details>\
+             <span data-slot=\"search\" data-fragment=\"search_button\"></span>",
+        )
+        .unwrap();
+        let thm = Theme::null(&dir, &[]).expect("base loads with the override");
+        let html = render_chrome_page(&thm, &dir, None, &full_chrome());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(html.contains("Elsewhere"), "author chrome renders:\n{html}");
+        assert!(
+            html.find("data-l-dark").unwrap() < html.find("Elsewhere").unwrap()
+                && html.find("Elsewhere").unwrap() < html.find("data-search-js").unwrap(),
+            "the override's order stands: scheme, author markup, search:\n{html}"
+        );
+    }
+
+    fn full_chrome() -> super::ChromeInput {
+        super::ChromeInput {
+            search: Some(("Search".into(), "/search.js".into())),
+            feed: Some(("Feed".into(), "/atom.xml".into())),
+            scheme: super::SchemeLabels {
+                auto: "Colors: auto".into(),
+                light: "Colors: light".into(),
+                dark: "Colors: dark".into(),
+            },
+        }
+    }
+
+    fn render_chrome_page(
+        thm: &Theme,
+        root: &Path,
+        subtheme: Option<&str>,
+        chrome: &super::ChromeInput,
+    ) -> String {
+        let no_link = |_: crate::links::Cite, _: &Path, _: &str| Ok(None);
+        thm.page(
+            String::new(),
+            "T",
+            "<p>hi</p>".into(),
+            root,
+            "en",
+            &[],
+            &[],
+            &no_link,
+            subtheme,
+            None,
+            &[],
+            Vec::new(),
+            chrome,
+        )
+        .expect("page renders")
     }
 
     /// The token contract (themes/README.md): a theme may add names, but it

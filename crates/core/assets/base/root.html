@@ -1,26 +1,28 @@
 <header data-frame>
 	<a href="/" data-slot="site_title"></a>
 	<nav data-slot="nav" aria-label="Site sections"></nav>
-	<nav data-slot="axes" data-fragment="axis" aria-label="Other versions">
-		<details data-chrome="dropdown" data-slot-data-axis="axis" data-slot-aria-label="label">
-			<summary data-slot="current"></summary>
-			<div data-slot="items" data-fragment="axis_member">
-				<a data-slot-href="url" data-slot-data-current="current">
-					<span data-slot="label"></span>
-				</a>
-			</div>
-		</details>
-	</nav>
-	<span data-slot="search" data-fragment="search_button">
-		<button data-chrome="button" type="button" data-slot-aria-label="label" data-slot-data-search-js="js" onclick="window.gs?gs.open():document.head.appendChild(Object.assign(document.createElement('script'),{src:this.dataset.searchJs}))">
-			<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle><line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="2"></line></svg>
-		</button>
-	</span>
-	<span data-slot="scheme" data-fragment="scheme_button">
-		<button data-chrome="button" type="button" data-slot-aria-label="label" data-slot-data-l-auto="label_auto" data-slot-data-l-light="label_light" data-slot-data-l-dark="label_dark" onclick="(function(b){try{var o=['auto','light','dark'],h=document.documentElement,c=localStorage.getItem('grackle:scheme')||'auto',n=o[(o.indexOf(c)+1)%3];n=='auto'?localStorage.removeItem('grackle:scheme'):localStorage.setItem('grackle:scheme',n);var t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});if(n!='auto')t.push(n);h.setAttribute('data-subtheme',t.join(' '));b.setAttribute('aria-label',b.getAttribute('data-l-'+n))}catch(e){}})(this)">
-			<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"></path><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle></svg>
-		</button>
-	</span>
+	<div data-slot="chrome" data-fragment="chrome">
+		<nav data-slot="axes" data-fragment="axis" aria-label="Other versions">
+			<details data-chrome="dropdown" data-slot-data-axis="axis" data-slot-aria-label="label">
+				<summary data-slot="current"></summary>
+				<div data-slot="items" data-fragment="axis_member">
+					<a data-slot-href="url" data-slot-data-current="current">
+						<span data-slot="label"></span>
+					</a>
+				</div>
+			</details>
+		</nav>
+		<span data-slot="search" data-fragment="search_button">
+			<button data-chrome="button" type="button" data-slot-aria-label="label" data-slot-data-search-js="js" onclick="window.gs?gs.open():document.head.appendChild(Object.assign(document.createElement('script'),{src:this.dataset.searchJs}))">
+				<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle><line x1="15" y1="15" x2="21" y2="21" stroke="currentColor" stroke-width="2"></line></svg>
+			</button>
+		</span>
+		<span data-slot="scheme" data-fragment="scheme_button">
+			<button data-chrome="button" type="button" data-slot-aria-label="label" data-slot-data-l-auto="label_auto" data-slot-data-l-light="label_light" data-slot-data-l-dark="label_dark" onclick="(function(b){try{var o=['auto','light','dark'],h=document.documentElement,c=localStorage.getItem('grackle:scheme')||'auto',n=o[(o.indexOf(c)+1)%3];n=='auto'?localStorage.removeItem('grackle:scheme'):localStorage.setItem('grackle:scheme',n);var t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});if(n!='auto')t.push(n);h.setAttribute('data-subtheme',t.join(' '));b.setAttribute('aria-label',b.getAttribute('data-l-'+n))}catch(e){}})(this)">
+				<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"></path><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle></svg>
+			</button>
+		</span>
+	</div>
 </header>
 <main data-frame data-slot="content"></main>
 <footer data-frame>

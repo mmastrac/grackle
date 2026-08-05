@@ -127,7 +127,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             Some((_, a)) => a.values.iter().map(String::as_str).collect(),
             None => Vec::new(),
         };
-        for w in crate::slots::unknown_stems(themes.fills(), &themes.identity_slots(), &locales) {
+        crate::slots::check_chrome_fills(themes.fills(), &root)?;
+        // `chrome` is not an identity slot — it is the cluster override,
+        // consumed at theme load — but it lives in `.slots/` like one.
+        let mut known = themes.identity_slots();
+        known.push("chrome");
+        for w in crate::slots::unknown_stems(themes.fills(), &known, &locales) {
             eprintln!("grackle: {w}");
             db.warnings.push(w);
         }

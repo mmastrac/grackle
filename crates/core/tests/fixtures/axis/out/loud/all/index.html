@@ -10,22 +10,24 @@
 <header data-frame>
 	<a href="/" data-slot="site_title">Axes</a>
 	
-	<nav aria-label="Other versions" data-slot="axes">
-		<details data-chrome="dropdown" data-axis="theme" aria-label="theme" data-kind="axis">
-			<summary data-slot="current">loud</summary>
-			<div data-slot="items">
-				<a href="/default/all/" data-kind="axis_member">
-					<span data-slot="label">default</span>
-				</a>
-			
-				<a href="/loud/all/" data-current="true" data-kind="axis_member">
-					<span data-slot="label">loud</span>
-				</a>
-			</div>
-		</details>
-	</nav>
-	
-	
+	<div data-slot="chrome">
+		<nav aria-label="Other versions" data-slot="axes" data-kind="chrome">
+			<details data-chrome="dropdown" data-axis="theme" aria-label="theme" data-kind="axis">
+				<summary data-slot="current">loud</summary>
+				<div data-slot="items">
+					<a href="/default/all/" data-kind="axis_member">
+						<span data-slot="label">default</span>
+					</a>
+				
+					<a href="/loud/all/" data-current="true" data-kind="axis_member">
+						<span data-slot="label">loud</span>
+					</a>
+				</div>
+			</details>
+		</nav>
+		
+		
+	</div>
 </header>
 <main data-frame data-slot="content"><article data-kind="row">
 	<nav aria-label="Breadcrumbs" data-slot="crumbs">

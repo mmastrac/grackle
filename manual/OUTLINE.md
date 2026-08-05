@@ -659,6 +659,22 @@ renumbering pass.
   block. Show the error.
 - Fills render per consuming page, through the link resolver — one
   `nav.md` serves every locale.
+- **Your own dropdown is one recipe, not a feature** (worked example):
+  a `<details data-chrome="dropdown">` in a slot fill, a blank line, then
+  your markdown links, then `</details>`. The blank line drops CommonMark
+  back into markdown, so the links go through the resolver (`view:` names
+  are validated at load); the `data-chrome` primitive makes it render
+  native under every theme. Localize with `nav.fr.md` as usual.
+- **`.slots/chrome.html` is the widget row itself** (built 2026-08-05):
+  one root-level html file shadowing the chrome cluster across every
+  theme — reorder the engine's widgets, drop one, or put your own markup
+  between them. A fragment, not a fill: html only, site root only, no
+  locale suffix (the holes fill with localized parts already), and the
+  wrong spelling is a load error naming the right one. This is how a
+  site author mints chrome without touching a theme.
+- The line to state: fills are words and links, never queries — `{% view %}`
+  does not expand in a fill. A box of rows is a view embedded in content
+  (ch. 6), not chrome.
 
 ### 18. Landings: a route owns the URL, a row may own the words
 - A landing is a `[routes.*]` entry. Three tiers: bare (`title` only) →

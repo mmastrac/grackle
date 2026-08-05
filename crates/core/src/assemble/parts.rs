@@ -90,6 +90,10 @@ impl PartMap {
         self.parts.push((name, part));
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
     // The map's read API: the binder fills holes through `get`, `canonical`
     // walks `iter`; the typed accessors below mostly serve tests.
     pub fn get(&self, name: &str) -> Option<&Part> {
@@ -301,7 +305,7 @@ fn field_type_enum_as_part(ty: &grackle_source::schema::FieldType) -> PartType {
 }
 
 const HTML_SLOTS: &[&str] = &["content", "intro", "nav", "copyright"];
-const MAP_SLOTS: &[&str] = &["pagination", "search", "scheme", "feed"];
+const MAP_SLOTS: &[&str] = &["pagination", "search", "scheme", "feed", "chrome"];
 
 fn infer_part_type(u: &crate::assemble::binder::SlotUse) -> PartType {
     if let Some(target) = u.fragment.as_deref() {
@@ -330,6 +334,25 @@ fn seed_furniture(kinds: &mut Vec<(String, Vec<(&'static str, PartType)>)>) {
         for (name, ty) in [("tree", PartType::Flag), ("truncated", PartType::Flag)] {
             if !parts.iter().any(|(n, _)| *n == name) {
                 parts.push((name, ty));
+            }
+        }
+    }
+    // Chrome parts are engine vocabulary on `root` and `chrome` whether or
+    // not a given root places them: placement is the theme's option
+    // (directly, or through the cluster), presence is the fact's, and the
+    // fill code sets whichever level the resolved root reads.
+    let widgets: &[(&'static str, PartType)] = &[
+        ("axes", PartType::Stream("axis")),
+        ("search", PartType::Map("search_button")),
+        ("scheme", PartType::Map("scheme_button")),
+        ("feed", PartType::Map("feed_link")),
+    ];
+    for kind in ["root", "chrome"] {
+        if let Some((_, parts)) = kinds.iter_mut().find(|(k, _)| k == kind) {
+            for (name, ty) in widgets {
+                if !parts.iter().any(|(n, _)| n == name) {
+                    parts.push((name, *ty));
+                }
             }
         }
     }

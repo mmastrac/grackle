@@ -129,6 +129,34 @@ impl SlotFills {
     }
 }
 
+/// The cluster override has exactly one legal spelling: `chrome.html` in the
+/// SITE ROOT's `.slots/`. It is a fragment, not a fill — one file shadowing
+/// the `chrome` fragment across every theme — so a markdown flavor, a locale
+/// suffix, or a nested copy would silently not apply, and each is refused by
+/// name instead.
+pub fn check_chrome_fills(fills: &SlotFills, root: &Path) -> Result<()> {
+    let legal_dir = root.join(".slots");
+    for (stem, file) in fills.iter() {
+        if stem != "chrome" && !stem.starts_with("chrome.") {
+            continue;
+        }
+        let ext_html = file.extension().is_some_and(|e| e == "html");
+        let at_root = file.parent() == Some(legal_dir.as_path());
+        if stem == "chrome" && ext_html && at_root {
+            continue;
+        }
+        anyhow::bail!(
+            "{}: the chrome cluster override is `.slots/chrome.html` at the \
+             site root and nothing else — it shadows the `chrome` FRAGMENT \
+             across every theme, so it is one site-wide html file: not \
+             markdown, not per-directory, not per-locale (the holes it \
+             places fill with localized parts already).",
+            file.display()
+        );
+    }
+    Ok(())
+}
+
 /// Fills nothing will ever read: stem not in any theme's
 /// identity slots. Warning not error — spare fills for uninstalled themes
 /// should not fail a build.
@@ -526,5 +554,33 @@ mod tests {
             Some("site nav")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The cluster override has one spelling; every near-miss is refused by
+    /// name, because each would silently not apply.
+    #[test]
+    fn the_cluster_override_has_one_legal_spelling() {
+        for (rel, legal) in [
+            (".slots/chrome.html", true),
+            (".slots/chrome.md", false),
+            (".slots/chrome.fr.html", false),
+            ("deep/.slots/chrome.html", false),
+        ] {
+            let dir = std::env::temp_dir().join("grackle-chrome-spelling");
+            let _ = std::fs::remove_dir_all(&dir);
+            let file = dir.join(rel);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, "<span data-slot=\"search\" data-fragment=\"search_button\"></span>").unwrap();
+            let fills = SlotFills::load(&dir).expect("fills load");
+            let got = super::check_chrome_fills(&fills, &dir);
+            let _ = std::fs::remove_dir_all(&dir);
+            match legal {
+                true => got.expect("the one legal spelling loads"),
+                false => {
+                    let err = got.expect_err(rel).to_string();
+                    assert!(err.contains("chrome.html"), "{rel}: {err}");
+                }
+            }
+        }
     }
 }

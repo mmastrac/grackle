@@ -446,7 +446,11 @@ widget set:
 The inline body IS `chrome.html` (THEME.md's inline-default rule,
 unchanged); shipping the file shadows it. The name is `chrome`, not
 `widgets`, on purpose: `[widgets]` in config already means markdown body
-expansions, and one word does not get two engine meanings.
+expansions, and one word does not get two engine meanings. *(Built
+2026-08-05: the base root and every gallery root place the cluster; the
+wrapper is `display: contents` in the base sheet, so a header's flex or
+grid sees the same children whether a root places the cluster or the
+slots individually.)*
 
 **Forward compatibility is the point, not tidiness.** A theme that places
 the cluster opted into the *category*: when the engine grows a widget, it
@@ -461,13 +465,15 @@ Reordering has a ladder:
   **first writer per part** (the precedence law's existing clause): an
   individually-placed slot wins and the cluster's copy of that part
   empties. Nothing renders twice.
-- **Site-level**: `.slots/chrome.html` — the `.html` flavor of a slot fill
-  is already a binder fragment with holes, and the precedence law already
-  puts tree overlays above theme defaults. One root-level file reorders or
-  drops widgets across every loaded theme, no fork. (One extension to
-  build: identity slots are today only the engine-*unfilled* holes, so a
-  tree fill shadowing a fragment-bearing slot is new machinery for an old
-  law.)
+- **Site-level**: `.slots/chrome.html` *(built 2026-08-05)* — one
+  root-level html file shadows the `chrome` fragment across every loaded
+  theme, beating a theme's own `chrome.html`: the tree-overlay rung of the
+  precedence law applied to a fragment-bearing slot. It reorders, drops, or
+  **mints** — literal author markup is legal beside the engine holes, so a
+  site's own dropdown can sit inside the widget row with no theme touched.
+  Near-miss spellings (markdown, nested, locale-suffixed) are load errors,
+  because each would silently not apply; the holes it places fill with
+  localized parts already.
 
 `feed` sits outside the cluster in the base root's footer — the shipped
 demonstration that splitting out is ordinary. The skip-to-content link is

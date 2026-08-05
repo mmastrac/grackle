@@ -78,12 +78,14 @@ sites via the `SEARCH_VER` path coupling).
       base root with `data-chrome` primitives stamped, `feed` slot in the
       footer, scheme boot script first in `<body>` when the control is
       offered.
-- [ ] **The `chrome` cluster** — one `data-slot="chrome"` cluster slot
-      wrapping search + scheme + axes so a themed root places one line and
-      gains every future widget; **first writer per part** dedup when a root
-      also places a slot individually. (The base root places direct slots
-      today.) Skip-to-content link rides with `_chrome.scss` (needs its
-      sr-only styling and a localizable label).
+- [x] **The `chrome` cluster** *(2026-08-05)* — one `data-slot="chrome"`
+      cluster slot wraps axes + search + scheme; a themed root places one
+      line and gains every future widget, and every gallery root (plus
+      field-notes' fork) now does. **First writer per part**: a slot the
+      root places directly wins and the cluster's copy empties. The wrapper
+      is `display: contents` in the base sheet, so header layout sees the
+      same children either way. Skip-to-content link still rides with
+      `_chrome.scss` (needs its sr-only styling and a localizable label).
 - [ ] **`_chrome.scss` primitives** — `data-chrome="button|dropdown|expando"`;
       structural floor on the reset tier, decorated look on the skin tier.
       Stamp the existing axes `<details>` as `dropdown`.
@@ -102,9 +104,16 @@ sites via the `SEARCH_VER` path coupling).
 - [ ] **Capability-without-slot warning** — a live capability whose resolved
       theme places neither its slot nor the cluster is a load warning naming
       the theme and the slot.
-- [ ] **`.slots/chrome.html` may shadow a fragment-bearing slot** — the tree
-      overlay rung applied to the cluster; today identity slots are only the
-      engine-unfilled holes, so this is new machinery for an old law.
+- [x] **`.slots/chrome.html` shadows the cluster fragment** *(2026-08-05)* —
+      one root-level html file reorders, drops, or MINTS chrome across every
+      loaded theme (literal author markup beside the engine holes); beats a
+      theme's own `chrome.html`. Near-miss spellings (markdown, nested,
+      locale-suffixed) are load errors, because each would silently not
+      apply.
+- [ ] **`serve` misses a newly created `.slots/chrome.html`** — one created
+      under a running serve needed a restart to apply (observed 2026-08-05);
+      whether edits to an existing one rebuild is untested. The watcher
+      should cover the override like any other `.slots/` file.
 - [x] **Gallery sweep** *(2026-08-05)* — every themed root (plus
       field-notes' recipes fork) places `search`/`scheme` slots in the
       header and a `feed` slot in the footer; the nine pasted buttons are
