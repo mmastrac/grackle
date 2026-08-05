@@ -24,18 +24,17 @@
     };
   }
 
-  // The bin carries "__SEARCH_VER__" so a format change is a URL change and no
-  // cache can pair a fresh wasm with a stale bin (a "bad index"). Must match the
-  // site's [routes.search] path. The wasm is content-addressed instead: its own
-  // bytes bust it, and a format change recompiles it into a fresh URL. Both URLs
-  // live in this file, so a client has an all-old or all-new pair, never mixed.
-  var VER = "__SEARCH_VER__";
-
+  // Both URLs below are filled at emit. The bin URL is the search route's own
+  // path, so the loader and the route cannot disagree; its query carries the
+  // index format version, so a format change busts every cache without
+  // changing the site's URL. The wasm is content-addressed: its own bytes bust
+  // it, and a format change recompiles it into a fresh URL. Both live in this
+  // file, so a client has an all-old or all-new pair, never mixed.
   function load() {
     if (wasm) return Promise.resolve(wasm);
     return Promise.all([
       fetch("__SEARCH_WASM_URL__").then(function (r) { return r.arrayBuffer(); }),
-      fetch("/search." + VER + ".bin").then(function (r) { return r.arrayBuffer(); }),
+      fetch("__SEARCH_BIN_URL__").then(function (r) { return r.arrayBuffer(); }),
     ]).then(function (both) {
       return WebAssembly.instantiate(both[0], {}).then(function (mod) {
         var ex = mod.instance.exports;

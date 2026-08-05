@@ -90,10 +90,12 @@ sites via the `SEARCH_VER` path coupling).
 - [ ] **Head expand over fold shells** — `{ from = "shell.atom", rel = … }`
       pool; an explicit `rel` frees the key to be a name; base.toml gains the
       feed-discoverability link entry.
-- [ ] **`search.js` URL derivation** — the bin path is substituted from the
-      search route at emission (kills the `SEARCH_VER` hand-matching and the
-      live 404 in field-notes and theme-preview); the loader URL rides a
-      fragment attribute so `baseurl` holds.
+- [x] **`search.js` URL derivation** *(2026-08-05)* — the loader fetches the
+      bin at the search route's own path, substituted at emission, with the
+      format version as a cache-busting query (`?v1`) so a format bump still
+      busts caches without dictating the URL. Kills the `SEARCH_VER`
+      hand-matching and the live 404 in field-notes and theme-preview; both
+      fetch URLs carry `baseurl`. Two search routes warn and the first wins.
 - [ ] **Scheme boot script** — engine-emitted inline head applier
       (`localStorage["grackle:scheme"]`), scheme-family tokens only, emitted
       only when the part fills. Cycle auto → light → dark.
