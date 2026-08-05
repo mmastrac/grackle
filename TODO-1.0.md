@@ -51,7 +51,55 @@ The row-face / listing-as-concat model is built. What remains:
 - [ ] **Fold `light_html` into the chain** — today it stays a separate map-shell
       path; THEME.md §4 names the gap.
 - [ ] **Collapse `variant` / `layout` to one face key** — both name the member
-      face; keep both only while corpora need the override. (THEME.md §6)
+      face; keep both only while corpora need the override. (THEME.md §7)
+
+## Chrome parts (themes/DESIGN.md §10)
+
+The pull model: a widget is a fact's chrome — a route, an axis, or a theme
+declaration activates it; nothing registers. Specced 2026-08-05; the scar is
+search shipping as a hand-pasted button (correct in 5 of 9 gallery roots,
+silently absent after a switch to the other 3, and 404ing in both example
+sites via the `SEARCH_VER` path coupling).
+
+- [ ] **Part fill rules** — `search`/`feed` fill from a materialized route
+      wearing that fold shell (first-declared wins, warning on two);
+      `scheme` from the resolved theme's `[subthemes]` covering both schemes,
+      standing down when any cascade rung forces a scheme token;
+      `profile_notice` from a non-default active profile (serve only).
+      **First writer per part**: an individually-placed slot beats the
+      cluster's copy.
+- [ ] **Base fragments + root** — `chrome` cluster slot with inline default
+      (search + scheme + axes), `search_button` / `feed_link` /
+      `scheme_button` built on the primitives, `feed` slot in the footer,
+      skip-to-content link hardcoded (no fact, not a widget).
+- [ ] **`_chrome.scss` primitives** — `data-chrome="button|dropdown|expando"`;
+      structural floor on the reset tier, decorated look on the skin tier.
+      Stamp the existing axes `<details>` as `dropdown`.
+- [ ] **Head expand over fold shells** — `{ from = "shell.atom", rel = … }`
+      pool; an explicit `rel` frees the key to be a name; base.toml gains the
+      feed-discoverability link entry.
+- [ ] **`search.js` URL derivation** — the bin path is substituted from the
+      search route at emission (kills the `SEARCH_VER` hand-matching and the
+      live 404 in field-notes and theme-preview); the loader URL rides a
+      fragment attribute so `baseurl` holds.
+- [ ] **Scheme boot script** — engine-emitted inline head applier
+      (`localStorage["grackle:scheme"]`), scheme-family tokens only, emitted
+      only when the part fills. Cycle auto → light → dark.
+- [ ] **Capability-without-slot warning** — a live capability whose resolved
+      theme places neither its slot nor the cluster is a load warning naming
+      the theme and the slot.
+- [ ] **`.slots/chrome.html` may shadow a fragment-bearing slot** — the tree
+      overlay rung applied to the cluster; today identity slots are only the
+      engine-unfilled holes, so this is new machinery for an old law.
+- [ ] **Gallery sweep** — replace the pasted search buttons with the cluster
+      slot (kitty/recipes gain it; vanilla inherits via the base root); feed
+      slot in footers; delete almanac's duplicate overlay CSS and fix its
+      missing `type="button"` by deletion; `[subthemes]` declarations for the
+      five two-scheme themes; base `_tokens.scss` gains the two forcing
+      one-liners (`:root[data-subtheme~="dark"] { color-scheme: dark }` and
+      the light twin).
+- [ ] **`[i18n.strings]`** — `feed`, `scheme_auto`, `scheme_light`,
+      `scheme_dark`.
 
 ## The theme ladder and distribution
 
@@ -107,7 +155,10 @@ Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
       never tested.
 - [ ] **Subtheme token validation** — `theme: ledger:drak` stamps
       `data-subtheme="drak"` silently; tokens name nothing the engine knows.
-      Needs `theme.toml` to declare them. *(MERGE.md §7 q13)*
+      `theme.toml`'s `[subthemes]` (themes/DESIGN.md §3) is the declaration —
+      one table shared with the scheme switcher's capability fact (§10),
+      which makes this the third forcing consumer for `theme.toml` after
+      `extends` and the scheme part. *(MERGE.md §7 q13)*
 
 ## Policy
 

@@ -121,7 +121,19 @@ inline defaults harvested from the base parent, unless it also ships the
 child file or redefines the child inline under the new parent (later inline
 wins over earlier; a file always wins over an inline).
 
-## 6. Replaces
+## 6. Chrome parts *(specced 2026-08-05; themes/DESIGN.md §10)*
+
+The root part map carries capability parts — `axes` (built), `search`,
+`feed`, `scheme`, `profile_notice` — each filled from a declared fact (a
+route wearing a fold shell, an axis with members, a theme declaring both
+schemes) and deleted by the empty-part rule when the fact is absent. The
+base root groups them in a `chrome` cluster slot with an inline default
+(`chrome.html` when shipped as a file); **first writer per part** when a
+root also places one individually. Default fragments are built from the
+chrome primitives (`data-chrome="button" | "dropdown" | "expando"`).
+Fill table, stand-down law and checks: themes/DESIGN.md §10.
+
+## 7. Replaces
 
 | today | becomes |
 |---|---|

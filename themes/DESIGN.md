@@ -5,8 +5,8 @@ themes installable, derivable, and safe to update — plus the `vanilla` theme
 (built, in this directory) that anchors the "every site renders reasonably
 with every theme" guarantee. It is self-contained: everything it assumes from
 `../DESIGN.md` (§5a, §5b, §5e) is restated in §0. Pending *work* lives in
-`../TODO-1.0.md` (theme ladder); this file is the spec those checkboxes point
-at.
+`../TODO-1.0.md` (theme ladder, chrome parts); this file is the spec those
+checkboxes point at.
 
 The pain being designed away: in most SSGs a theme is a submodule, a fork, or
 a hand-copied directory, and the moment you touch one file you can never
@@ -39,8 +39,12 @@ mechanical path back down (`theme derive`, §4).
 - **Identity slots** come from `.slots/` files, not theme files.
 - **Token contract**: shared `--bg`, `--size`, `--space`, etc.; all gallery
   themes written entirely in `var(--…)`.
-- **`theme.toml`** is the per-theme config §3 specs. **Specced here, unbuilt**:
-  `theme.rs` reads no such file, and no theme in the repo carries one.
+- **`theme.toml`** is the per-theme config §3 specs — `extends` and
+  `[subthemes]`. **Specced here, unbuilt**: `theme.rs` reads no such file,
+  and no theme in the repo carries one.
+- **Chrome parts** (§10): capability widgets — `axes` (built), `search`,
+  `feed`, `scheme`, `profile_notice` — fill on the root part map from
+  declared facts and delete by the empty-part rule when the fact is absent.
 
 ## 1. The two guarantees
 
@@ -81,6 +85,11 @@ name        = "mytheme"          # optional; directory name is identity
 extends     = "ledger"           # a theme directory name
 # extends = { name = "ledger", git = "https://…" }   # installable parent
 contract    = 1                  # part-schema major version (§4)
+
+[subthemes]                      # the token vocabulary, declared (below)
+dark  = { scheme = "dark" }
+light = { scheme = "light" }
+wide  = { }
 ```
 
 **Fragments: shadow, by file name.** Effective fragment set = union down the
@@ -164,6 +173,21 @@ from any chain member may select `[data-subtheme~="…"]`).
 > the merged case also wants the stamped root attribute (`data-theme`, beside
 > `data-subtheme`) as the scope. Both are emitter-side and inert while the
 > sheets stay chunked per theme — IO.md §6 has the argument.
+
+### `[subthemes]`: declared tokens, declared schemes
+
+Two consumers, one table. A subtheme token is unvalidated today —
+`theme: ledger:drak` stamps `data-subtheme="drak"` and names nothing the
+engine knows — so the table is first the **token vocabulary**: a spec token
+no chain member declares is a load error naming the knowns. Second, a token
+may carry **scheme semantics**: `scheme = "dark" | "light"` says forcing
+this token forces that color scheme. A theme whose declared subthemes cover
+both schemes is what the `scheme` chrome part (§10) reads as "this theme
+can switch" — and the five two-scheme gallery themes already ship the CSS
+this declares (`:root[data-subtheme~="dark"]` and its light twin over a
+`prefers-color-scheme` default), so the declaration is catching up to the
+stylesheets, not asking for new ones. Resolution follows fragments: union
+down the chain, child wins per token name.
 
 ### Back-tested edges
 
@@ -342,4 +366,151 @@ actually referenced, which is a pass this change did not want to invent.
   model legible.
 - **Runtime chain-walking for fragments** — merged at load instead; render
   paths stay untouched and infallible.
+- **A widget/plugin registry (push)** — a "search plugin" that pushes a
+  route and a button. Three strikes: presentation minting a URL runs the
+  pipeline backwards (producers take URLs, never construct them); the
+  searchable set is a query, and a plugin re-wraps it as a setting; and a
+  pushed route has an owner nobody can name on update. The route is the
+  plugin — §10.
 
+
+## 10. Chrome parts: a widget is a fact's chrome *(specced 2026-08-05; unbuilt — TODO-1.0.md "Chrome parts")*
+
+The scar this section closes: search shipped as a hand-pasted `<button>` —
+present in six of nine gallery roots, correct in five, and silently gone on a
+switch to the other three. The language picker never had the problem: `axes`
+is an engine part with an inline fragment default, and a theme writes one
+empty element. This section makes that the rule, and names the model.
+
+**A widget is a fact's chrome. You install the fact; the chrome follows.**
+There is no registration step, because the declaration that creates the fact
+is the registration — the law `[shells]`, `[axes]` and `[markers]` already
+follow: a registry declares vocabulary, a declaration spends it, and
+*spending* is what activates.
+
+### The parts and their facts
+
+Chrome parts fill on the root part map, one per capability:
+
+| part | fills iff | carries |
+|---|---|---|
+| `axes` | an axis this row spends has ≥2 members | member list *(built)* |
+| `search` | a materialized route wears `shell = "search"` | `@search` label, loader URL |
+| `feed` | a materialized route wears `shell = "atom"` | route URL, `@feed` label |
+| `scheme` | the resolved theme declares both schemes (§3) and no rung of the theme cascade forced one | state + labels |
+| `profile_notice` | the active profile is not `default` (serve only) | profile name |
+
+No fact → empty part → the empty-part rule deletes the element. That is the
+entire gating mechanism, and it is why every root may carry every chrome
+slot unconditionally. Facts come from three places — config (a route), the
+corpus (axis members), the theme (a declared capability) — and the part
+algebra does not care which. Two routes wearing the same fold shell: the
+first-declared wins the chrome part, with a warning naming both.
+
+### Stand-down: a declared choice removes the offered one
+
+`default_content`'s law, reused. A site or row whose theme spec wears a
+scheme token (`ledger:dark`) has decided, so the `scheme` part empties on
+every page that stamp reaches; delete the search route and the button is
+gone site-wide. **Disabling is upstream, at the fact** — never a
+presentation flag beside it — so config stays the single source of truth
+and `explain` never has to see through a half-state.
+
+### Primitives: a theme styles three things, not N widgets
+
+Default fragments are built from a closed set of chrome primitives, stamped
+as structure: `data-chrome="button"`, `"dropdown"` (the `<details>` shape
+`axes` already uses), `"expando"` (icon that becomes a field, via
+`:focus-within`). A `_chrome.scss` engine partial ships the structural
+floor on the reset tier and the decorated look on the skin tier — the
+`_type.scss`/`_skin.scss` split, one row over. A theme that styles the
+three primitives has styled every widget, including the ones that do not
+exist yet. Primitives are to chrome what tokens are to color: the contract
+that makes a widget look native under a theme that never heard of it.
+
+### The cluster: `chrome.html`
+
+The base root places one cluster slot whose inline default is the ordered
+widget set:
+
+```html
+<div data-slot="chrome" data-fragment="chrome">
+	<div data-slot="search" data-fragment="search_button"></div>
+	<div data-slot="scheme" data-fragment="scheme_button"></div>
+	<nav data-slot="axes" data-fragment="axis" aria-label="Other versions"></nav>
+</div>
+```
+
+The inline body IS `chrome.html` (THEME.md's inline-default rule,
+unchanged); shipping the file shadows it. The name is `chrome`, not
+`widgets`, on purpose: `[widgets]` in config already means markdown body
+expansions, and one word does not get two engine meanings.
+
+**Forward compatibility is the point, not tidiness.** A theme that places
+the cluster opted into the *category*: when the engine grows a widget, it
+lands in the cluster's default body and appears in every such theme with
+zero edits. The alternative — individual slots per widget — re-runs the
+search-button failure on every future widget.
+
+Reordering has a ladder:
+
+- **Theme-level**: ship `chrome.html` in your order, or split a widget out
+  by placing its slot individually. One law covers the collision —
+  **first writer per part** (the precedence law's existing clause): an
+  individually-placed slot wins and the cluster's copy of that part
+  empties. Nothing renders twice.
+- **Site-level**: `.slots/chrome.html` — the `.html` flavor of a slot fill
+  is already a binder fragment with holes, and the precedence law already
+  puts tree overlays above theme defaults. One root-level file reorders or
+  drops widgets across every loaded theme, no fork. (One extension to
+  build: identity slots are today only the engine-*unfilled* holes, so a
+  tree fill shadowing a fragment-bearing slot is new machinery for an old
+  law.)
+
+`feed` sits outside the cluster in the base root's footer — the shipped
+demonstration that splitting out is ordinary. The skip-to-content link is
+**not** a widget: it has no fact and is always correct, so it is hardcoded
+in the base root like the frame itself.
+
+### Derived surfaces
+
+- **Head**: the expand form gains a second pool — `{ from = "shell.atom",
+  rel = '"alternate"', type = '"application/atom+xml"', title =
+  'site.title', href = 'site.url + url' }` expands over fold routes wearing
+  that shell. An explicit `rel` frees the key to be a name, because
+  `alternate` is already spent on hreflang.
+- **`search.js` fetches the index at the path the search route declared** —
+  substituted at emission, never matched by hand. This deletes the
+  `SEARCH_VER`-coupling class of 404 (both example sites ship it today) and
+  the loader URL rides a fragment attribute so `baseurl` holds.
+- **The scheme boot script**: ~150 bytes, engine-emitted inline in the
+  computed head only when the `scheme` part fills, applying the stored
+  preference (`localStorage["grackle:scheme"]`) before first paint. It
+  touches only scheme-family tokens, so `wide` survives. Auto = both tokens
+  removed; the theme's `prefers-color-scheme` default rules. The head fence
+  is untouched — it governs themes, and this is the engine's head, like the
+  stylesheet link.
+
+### Checks
+
+- **Capability without slot** — a search route exists and the resolved
+  theme places neither a `search` slot nor the cluster: load warning naming
+  the theme and the slot. (The identity-slot-drift lint of §3, one slot
+  family over.)
+- **Slot without capability** — free by construction: empty deletes.
+- `theme check` runs both on the resolved chain when it lands.
+
+### Honest edges, named now
+
+- **localStorage unavailable** (privacy modes): the control still cycles
+  for the session and falls back to auto on reload. Silent and harmless.
+- **The theme axis**: the stored scheme preference is site-global while
+  token names (`dark`/`light`) are conventional across themes — so dark
+  survives crossing from `/ledger/…` to `/miroir/…`. The right behavior,
+  and it falls out for free; a sentence of doc, not a mechanism.
+- **kitty, recipes and almanac declare no schemes** and get no control —
+  honest. Their upgrade is a dark palette plus the two forcing rules plus
+  two lines of `theme.toml`, all optional.
+- **`light-dark()`** could retire the gallery's `@mixin palette-dark` +
+  `@media` double spelling (the base's system colors are already the
+  degenerate case). An optional simplification, not a prerequisite.
