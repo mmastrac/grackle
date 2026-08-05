@@ -136,6 +136,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     let posts: Vec<Row> = db
         .rows
         .iter()
+        .filter(|p| cfg.body_held(p))
         .map(|p| Row {
             table: "posts",
             url: p.url.clone(),
@@ -159,6 +160,11 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     let pages: Vec<Row> = db
         .rows
         .iter()
+        .filter(|p| {
+            cfg.collections
+                .get(&p.collection)
+                .is_some_and(|c| c.is_tree())
+        })
         .map(|p| Row {
             table: "pages",
             url: p.url.clone(),
@@ -180,7 +186,10 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         .collect();
 
     let objects: Vec<Row> = db
-        .objects()
+        .by_name
+        .values()
+        .flatten()
+        .filter_map(|k| db.rows.get(k))
         .map(|o| Row {
             table: "objects",
             url: o.url.clone(),
@@ -288,9 +297,17 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
             default_locale: cfg.pairing_canonical().unwrap_or(""),
         },
         stats: Stats {
-            posts: db.post_ix.len(),
-            pages: db.page_ix.len(),
-            objects: db.object_ix.len(),
+            posts: db.rows.iter().filter(|r| cfg.body_held(r)).count(),
+            pages: db
+                .rows
+                .iter()
+                .filter(|r| {
+                    cfg.collections
+                        .get(&r.collection)
+                        .is_some_and(|c| c.is_tree())
+                })
+                .count(),
+            objects: db.by_name.values().map(|v| v.len()).sum(),
             routes: db.routes.len(),
             load_ms: db.stats.read_ms + db.stats.index_ms + db.stats.views_ms,
         },
@@ -354,20 +371,11 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// What `grackle explain` says a row IS, in the vocabulary a `where` is
 /// written in.
 ///
-/// These three lines stand where `println!("kind        post")` used to — a
-/// literal, printed for every row the arm reached, so `explain /humans.txt`
-/// answered `kind post`. A row has no kind to print instead. What
-/// replaces it is the facts it was a flattened product of, each of them a
-/// column a filter can name — **scope membership** (which is what
-/// `kind == "post"` always actually meant), the **shell** the row leaves
-/// through, and **identity**.
+/// A row has no `kind`. Print the filterable facts instead: scope membership
+/// (`collection`), shell, and identity.
 ///
-/// **The ROUTE keeps its `kind` column** (and this comment used to say
-/// §3 deleted it there too). grack.com's search route and its drafts-profile
-/// restatement filter `kind == "post"` and there is no replacement spelling —
-/// scope membership is not expressible on the output pool — so the column,
-/// its domain check and the route branch's `kind` line all survive. What that pass
-/// took here was the ROW's side, which had no kind to begin with.
+/// The route keeps a `kind` column for serialization shape (page / static /
+/// object / view). Scope membership on the output pool is `collection`.
 ///
 /// `shell` is printed here rather than left to `explain`'s generic field
 /// dump because the dump prints a field only where the row resolved one:

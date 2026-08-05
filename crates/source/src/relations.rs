@@ -224,7 +224,7 @@ order_by = "-date"
              file=[\"{{date.year}}-{{date.month}}-{{date.day}}-{{slug}}\"]\n{extra}"
         );
         let cfg = Config::from_toml(&toml)?;
-        let mut db = SiteDb::seed(vec![], true);
+        let mut db = SiteDb::seed(vec![]);
         // What `load` does: the config axes go in before anything resolves.
         let mut schemas = Schemas::new(row_schema());
         schemas.set_site(cfg.schema.decls.clone(), "[schema]")?;

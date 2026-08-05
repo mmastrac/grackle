@@ -18,6 +18,9 @@ pub struct Route {
     pub kind: RouteKind,
     /// Whether the source row carried front matter. False for view routes.
     pub front_mattered: bool,
+    /// Source row's collection; absent on view routes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
     /// Row this route renders, if any (views have none).
     #[serde(skip)]
     pub row: Option<Key>,
@@ -76,6 +79,7 @@ impl Route {
             strong_url: None,
             kind,
             front_mattered: false,
+            collection: None,
             row: None,
             axis: Vec::new(),
             content: None,
@@ -117,6 +121,10 @@ impl filter::Row for Route {
         match name {
             "kind" => V::Str(self.kind.as_str().to_string()),
             "front_mattered" => V::Bool(self.front_mattered),
+            "collection" => match &self.collection {
+                Some(c) => V::Str(c.clone()),
+                None => V::Null,
+            },
             "view" => match &self.view {
                 Some(v) => V::Str(v.clone()),
                 None => V::Null,

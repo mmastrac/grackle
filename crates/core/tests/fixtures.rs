@@ -3,7 +3,7 @@
 //! Each fixture under `tests/fixtures/` is a whole site plus what it should
 //! render to. That shape exists because a great many tests in this codebase
 //! were testing *a site* while pretending to test a function: they built
-//! `Row` values by hand, wired up `object_ix` themselves, faked the
+//! `Row` values by hand, wired up `by_name` themselves, faked the
 //! pagination stamp a route would have carried — reconstructing what the
 //! loader produces and therefore unable to catch a loader bug. A fixture
 //! cannot lie that way, because its input is the same bytes a user would

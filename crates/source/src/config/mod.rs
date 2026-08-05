@@ -359,6 +359,15 @@ impl Config {
         }
     }
 
+    /// Rendered non-tree row: body lives in the in-memory store, not the tree re-read.
+    pub fn body_held(&self, p: &grackle_model::Row) -> bool {
+        p.rendered
+            && !self
+                .collections
+                .get(&p.collection)
+                .is_some_and(|c| c.is_tree())
+    }
+
     pub fn i18n_string<'a>(&'a self, key: &str, member: &str) -> &'a str {
         let canon = self.pairing_canonical().unwrap_or(member);
         self.i18n.string(key, member, canon)

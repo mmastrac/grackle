@@ -137,7 +137,7 @@ impl LinkSpace {
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
         // cited it. Its URL comes from the same rule template either way.
-        for p in db.posts().chain(db.pages()).chain(db.objects()) {
+        for p in db.rows.iter() {
             // An embed-addressed row has no canonical URL at all,
             // and its strong address goes in the other map — which is what
             // makes a LINK to it an error and an EMBED of it resolve.
@@ -823,9 +823,7 @@ mod tests {
         let cfg: Config =
             Config::from_toml("root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n")
                 .unwrap();
-        let mut db = SiteDb::seed(Vec::new(), false);
-        db.page_ix
-            .push(grackle_db::Key::new("writing/saturn/index.md"));
+        let mut db = SiteDb::seed(Vec::new());
         db.rows.push(crate::model::Row {
             key: grackle_db::Key::new("writing/saturn/index.md"),
             path: PathBuf::from("writing/saturn/index.md"),
@@ -993,9 +991,8 @@ mod axis_tests {
     /// the routes the build issued, and nothing keeps the template the row used to
     /// carry beside the name (an arbitrary pick out of the rule's list).
     fn axis_db() -> SiteDb {
-        let mut db = SiteDb::seed(Vec::new(), false);
+        let mut db = SiteDb::seed(Vec::new());
         let key = grackle_db::Key::new("note.md");
-        db.page_ix.push(key.clone());
         db.rows.push(crate::model::Row {
             key: key.clone(),
             path: PathBuf::from("note.md"),
@@ -1029,7 +1026,6 @@ mod axis_tests {
         // A row the axis does not cover: its rule spends no `{look}` segment,
         // so it has one form and a selector on it names nothing.
         let flat = grackle_db::Key::new("flat.md");
-        db.page_ix.push(flat.clone());
         db.rows.push(crate::model::Row {
             key: flat.clone(),
             path: PathBuf::from("flat.md"),
@@ -1052,7 +1048,6 @@ mod axis_tests {
         // §4 on demand: the axis IS spent, but nothing has materialized a
         // route yet — the row knows its canonical URL and nothing else.
         let later = grackle_db::Key::new("later.md");
-        db.page_ix.push(later.clone());
         db.rows.push(crate::model::Row {
             key: later,
             path: PathBuf::from("later.md"),
@@ -1154,9 +1149,8 @@ mod axis_tests {
              [axes.flavor]\nvalues = [\"sweet\", \"salty\"]\nfield = \"flavor\"\n",
         )
         .unwrap();
-        let mut db = SiteDb::seed(Vec::new(), false);
+        let mut db = SiteDb::seed(Vec::new());
         let key = grackle_db::Key::new("page.md");
-        db.page_ix.push(key.clone());
         db.rows.push(crate::model::Row {
             key: key.clone(),
             path: PathBuf::from("page.md"),

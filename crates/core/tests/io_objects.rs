@@ -127,9 +127,9 @@ fn an_upper_cased_extension_is_claimed_by_the_same_glob() {
         );
     }
     assert_eq!(
-        db.object_ix.len(),
+        db.by_name.values().map(|v| v.len()).sum::<usize>(),
         2,
-        "both images are in the objects index"
+        "both images got a header read"
     );
 
     let urls = published(&dir);
@@ -202,7 +202,11 @@ fn one_extension_leaving_the_glob_empties_the_gallery() {
             ("gallery/two.jpg", PNG),
         ],
     );
-    assert_eq!(load(&dir).object_ix.len(), 2, "both jpgs are objects");
+    assert_eq!(
+        load(&dir).by_name.values().map(|v| v.len()).sum::<usize>(),
+        2,
+        "both jpgs are pictures"
+    );
     assert_eq!(
         members(&dir, "/photos/"),
         vec!["/gallery/one.jpg", "/gallery/two.jpg"],
@@ -211,7 +215,7 @@ fn one_extension_leaving_the_glob_empties_the_gallery() {
 
     std::fs::write(dir.join("grackle.toml"), cfg("{png}")).unwrap();
     assert_eq!(
-        load(&dir).object_ix.len(),
+        load(&dir).by_name.values().map(|v| v.len()).sum::<usize>(),
         0,
         "with `jpg` gone from the glob nothing claims the gallery"
     );

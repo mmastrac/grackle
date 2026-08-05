@@ -746,15 +746,12 @@ mod posts_order_tests {
     }
 
     fn db() -> SiteDb {
-        SiteDb::seed(
-            vec![
-                post("/a/", "2026-01-10", Some(1)), // oldest, pinned first
-                post("/b/", "2026-03-05", None),
-                post("/c/", "2026-06-21", None),
-                post("/d/", "2026-07-19", Some(9)), // newest, pinned last
-            ],
-            true,
-        )
+        SiteDb::seed(vec![
+            post("/a/", "2026-01-10", Some(1)), // oldest, pinned first
+            post("/b/", "2026-03-05", None),
+            post("/c/", "2026-06-21", None),
+            post("/d/", "2026-07-19", Some(9)), // newest, pinned last
+        ])
     }
 
     fn cfg(clauses: &str) -> Config {
@@ -973,7 +970,7 @@ mod adjacency_tests {
     }
 
     fn db_with(rows: Vec<Row>) -> SiteDb {
-        SiteDb::seed(rows, true)
+        SiteDb::seed(rows)
     }
 
     fn cfg(extra: &str) -> Config {

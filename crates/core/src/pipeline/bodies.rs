@@ -41,15 +41,10 @@ pub(crate) fn render_bodies<'a>(
     linkspace: &crate::links::LinkSpace,
 ) -> Result<HashMap<&'a grackle_db::Key, Doc>> {
     let root = cfg.root();
-    // Posts only: these rows hold their body in memory. Tree rows are
-    // re-read at render time (§2), which `render_page_bodies` does — the
-    // loader asymmetry that outlives the row-type merge.
-    //
     // Keyed by ROW, not by URL: a body is a property of the row, and keying it
     // by URL quietly asserted that a row has one.
-    db.post_ix
-        .par_iter()
-        .filter_map(|k| db.rows.get(k))
+    let held: Vec<&Row> = db.rows.iter().filter(|p| cfg.body_held(p)).collect();
+    held.into_par_iter()
         .map(|p| -> Result<(&grackle_db::Key, Doc)> {
             let cx = tags::Ctx {
                 thumbs: Some(thumbs),
@@ -115,11 +110,14 @@ pub(crate) fn render_page_bodies(
 ) -> Result<HashMap<String, PageBody>> {
     let mut out = HashMap::new();
     for r in &db.routes {
-        // `page_bodies` is the PAGE body store, and its being a second store
-        // beside the posts one is why `kind` survives at this line: the
-        // two are keyed differently (URL here, row key there) and read by
-        // different arms of `shells::search::search_pass` and the feed.
         if r.kind != RouteKind::Page {
+            continue;
+        }
+        // Non-tree documents already live in the row body store.
+        if r.row
+            .as_ref()
+            .is_some_and(|k| db.rows.get(k).is_some_and(|p| cfg.body_held(p)))
+        {
             continue;
         }
         let Some(src) = &r.source else { continue };

@@ -99,7 +99,6 @@ pub enum Demand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RouteKind {
-    Post,
     Page,
     Static,
     Object,
@@ -109,7 +108,6 @@ pub enum RouteKind {
 impl RouteKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            RouteKind::Post => "post",
             RouteKind::Page => "page",
             RouteKind::Static => "static",
             RouteKind::Object => "object",
@@ -118,7 +116,7 @@ impl RouteKind {
     }
 
     /// Values the `kind` column may hold.
-    pub const NAMES: &'static [&'static str] = &["post", "page", "static", "object", "view"];
+    pub const NAMES: &'static [&'static str] = &["page", "static", "object", "view"];
 }
 
 /// Where a relation draws candidates from.
@@ -185,6 +183,7 @@ pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     let mut s = filter::Schema::new();
     s.insert("kind", Enum(RouteKind::NAMES));
     s.insert("front_mattered", Bool);
+    s.insert("collection", Str);
     s.insert("view", Str);
     s.insert("url", Str);
     s.insert("ext", Str);
@@ -326,7 +325,6 @@ mod route_stem_tests {
     #[test]
     fn every_variant_is_in_the_kind_domain() {
         let all = [
-            RouteKind::Post,
             RouteKind::Page,
             RouteKind::Static,
             RouteKind::Object,
@@ -334,11 +332,7 @@ mod route_stem_tests {
         ];
         for k in all {
             match k {
-                RouteKind::Post
-                | RouteKind::Page
-                | RouteKind::Static
-                | RouteKind::Object
-                | RouteKind::View => {}
+                RouteKind::Page | RouteKind::Static | RouteKind::Object | RouteKind::View => {}
             }
             assert!(
                 RouteKind::NAMES.contains(&k.as_str()),

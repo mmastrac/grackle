@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use chrono::NaiveDate;
 use grackle_db::{filter, Table};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug, Default, Serialize)]
@@ -15,13 +15,7 @@ pub struct SiteDb {
     /// Site-declared field schema (what filters may name beyond the engine set).
     #[serde(skip)]
     pub declared: filter::Schema,
-    /// Rows from posts collections, in load order.
-    #[serde(skip)]
-    pub post_ix: Vec<Key>,
-    /// Rows from the tree (non-posts, non-objects).
-    #[serde(skip)]
-    pub page_ix: Vec<Key>,
-    /// Unique `(content-date, slug)` -> row, for posts (see [`Self::insert_rows`]).
+    /// Unique `(content-date, slug)` -> row (see [`Self::insert_rows`]).
     #[serde(skip)]
     pub by_key: HashMap<(Option<NaiveDate>, String), Key>,
     /// Slug -> rows (not unique).
@@ -42,10 +36,7 @@ pub struct SiteDb {
     /// Logical identity -> file-axis twins.
     #[serde(skip)]
     pub by_logical: BTreeMap<String, Vec<Key>>,
-    /// Image / object rows.
-    #[serde(skip)]
-    pub object_ix: Vec<Key>,
-    /// Basename -> object rows (may collide).
+    /// Basename -> picture rows (extension fact; may collide).
     #[serde(skip)]
     pub by_name: BTreeMap<String, Vec<Key>>,
     pub routes: Table<Route>,
@@ -53,7 +44,7 @@ pub struct SiteDb {
     pub views: BTreeMap<String, ViewRows>,
     /// Directories marked with `.section`.
     pub sections: Vec<PathBuf>,
-    /// Prev/next sequence per posts collection.
+    /// Prev/next sequence per collection.
     #[serde(skip)]
     pub adjacency: BTreeMap<String, Vec<Key>>,
     /// Compiled neighbour queries per collection.
@@ -89,27 +80,16 @@ impl SiteDb {
         self.rows.get(key)
     }
 
-    /// Posts-collection rows in load order.
-    pub fn posts(&self) -> impl Iterator<Item = &Row> {
-        self.post_ix.iter().filter_map(|k| self.rows.get(k))
-    }
-
     /// Test helper: index by URL only, skip uniqueness checks. Prefer [`insert_rows`].
-    pub fn seed(rows: Vec<Row>, posts: bool) -> SiteDb {
+    pub fn seed(rows: Vec<Row>) -> SiteDb {
         let mut rows = rows;
         for r in rows.iter_mut() {
             r.key = Key::new(r.rel.to_string_lossy());
         }
-        let ix: Vec<Key> = rows.iter().map(|r| r.key.clone()).collect();
         let mut db = SiteDb {
             rows: Table::new(rows),
             ..Default::default()
         };
-        if posts {
-            db.post_ix = ix;
-        } else {
-            db.page_ix = ix;
-        }
         let urls: Vec<(String, Key)> = db
             .rows
             .iter()
@@ -120,54 +100,48 @@ impl SiteDb {
         db
     }
 
-    /// Tree rows in load order.
-    pub fn pages(&self) -> impl Iterator<Item = &Row> {
-        self.page_ix.iter().filter_map(|k| self.rows.get(k))
-    }
-
-    /// Object / image rows.
-    pub fn objects(&self) -> impl Iterator<Item = &Row> {
-        self.object_ix.iter().filter_map(|k| self.rows.get(k))
-    }
-
     /// Load rows and build indexes.
     ///
     /// `pairing_keep` is `(field, canonical)` for the pairing axis: indexes that
     /// would otherwise collide on file-axis twins keep only that member. Pass
     /// `None` when there is no pairing axis.
+    ///
+    /// `dated` names collections whose rows enter `(date, slug)` uniqueness and
+    /// the secondary dated indexes.
+    ///
+    /// `pictures` are rows the objects globs matched (extension fact) — drives
+    /// `by_name` even when the header read fails.
     pub fn insert_rows(
         &mut self,
-        mut posts: Vec<Row>,
-        mut pages: Vec<Row>,
-        mut objects: Vec<Row>,
+        mut rows: Vec<Row>,
         pairing_keep: Option<(&str, &str)>,
+        dated: &HashSet<String>,
+        pictures: &HashSet<Key>,
     ) -> Result<()> {
-        for r in posts
-            .iter_mut()
-            .chain(pages.iter_mut())
-            .chain(objects.iter_mut())
-        {
+        for r in rows.iter_mut() {
             r.key = Key::new(r.rel.to_string_lossy());
         }
-        self.post_ix = posts.iter().map(|r| r.key.clone()).collect();
-        self.page_ix = pages.iter().map(|r| r.key.clone()).collect();
-        self.object_ix = objects.iter().map(|r| r.key.clone()).collect();
-        self.by_name = objects.iter().fold(BTreeMap::new(), |mut m, r| {
-            let name = r
-                .rel
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-            m.entry(name).or_insert_with(Vec::new).push(r.key.clone());
-            m
-        });
-        self.rows = Table::new(posts);
-        self.rows.extend(pages);
-        self.rows.extend(objects);
-        self.index_rows(pairing_keep)
+        self.by_name =
+            rows.iter()
+                .filter(|r| pictures.contains(&r.key))
+                .fold(BTreeMap::new(), |mut m, r| {
+                    let name = r
+                        .rel
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    m.entry(name).or_insert_with(Vec::new).push(r.key.clone());
+                    m
+                });
+        self.rows = Table::new(rows);
+        self.index_rows(pairing_keep, dated)
     }
 
-    fn index_rows(&mut self, pairing_keep: Option<(&str, &str)>) -> Result<()> {
+    fn index_rows(
+        &mut self,
+        pairing_keep: Option<(&str, &str)>,
+        dated: &HashSet<String>,
+    ) -> Result<()> {
         let mut seen: HashMap<&Key, &Row> = HashMap::new();
         for p in self.rows.iter() {
             if let Some(prev) = seen.insert(&p.key, p) {
@@ -180,9 +154,8 @@ impl SiteDb {
             }
         }
 
-        let posts: std::collections::HashSet<&Key> = self.post_ix.iter().collect();
         let keep = |p: &Row| {
-            posts.contains(&p.key)
+            dated.contains(&p.collection)
                 && match pairing_keep {
                     Some((field, canon)) => p.string(field) == Some(canon),
                     None => true,

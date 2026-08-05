@@ -1375,9 +1375,9 @@ mod tests {
         let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
             .expect("grackle.toml loads");
         let db = grackle_source::load(&cfg).expect("site db loads");
-        assert!(db.post_ix.len() > 300, "real corpus expected");
+        assert!(db.rows.len() > 300, "real corpus expected");
 
-        for p in db.posts() {
+        for p in db.rows.iter().filter(|p| cfg.body_held(p)) {
             let trail = vec![
                 ("Home".to_string(), Some("/".to_string())),
                 (p.title.clone().unwrap_or_default(), None),
@@ -1427,7 +1427,12 @@ mod tests {
             assert!(complete(&m, &out), "listing {} dropped a part", r.url);
         }
 
-        for pg in db.pages() {
+        for pg in db.rows.iter().filter(|p| {
+            cfg.collections
+                .get(&p.collection)
+                .is_some_and(|c| c.is_tree())
+                && p.rendered
+        }) {
             let title = pg.title.clone().unwrap_or_default();
             let m = document_tree(
                 &cfg,

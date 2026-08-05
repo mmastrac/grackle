@@ -100,17 +100,18 @@ pub struct Engine<'a> {
 }
 
 impl<'a> Engine<'a> {
-    /// `vectors` is parallel to `db.post_ix` (embed's contract); the rest are
+    /// `vectors` is parallel to `keys` (embed's contract); the rest are
     /// the graph maps `backlinks_map` returns.
     pub fn new(
         cfg: &'a Config,
         db: &'a SiteDb,
+        keys: &'a [grackle_model::Key],
         vectors: &'a [Option<Vector>],
         links_to: &'a HashMap<String, Vec<String>>,
         backlinks: &'a Backlinks,
     ) -> Self {
         let mut vec_by_url = HashMap::new();
-        for (i, k) in db.post_ix.iter().enumerate() {
+        for (i, k) in keys.iter().enumerate() {
             if let (Some(row), Some(Some(v))) = (db.rows.get(k), vectors.get(i)) {
                 vec_by_url.insert(row.url.as_str(), v);
             }
@@ -481,17 +482,14 @@ mod tests {
 
     #[test]
     fn tree_family_is_children_siblings_descendants_not_the_parent() {
-        let db = SiteDb::seed(
-            vec![
-                tree_row("/guide/"),
-                tree_row("/guide/a/"),
-                tree_row("/guide/b/"),
-                tree_row("/guide/a/x/"),
-            ],
-            false,
-        );
+        let db = SiteDb::seed(vec![
+            tree_row("/guide/"),
+            tree_row("/guide/a/"),
+            tree_row("/guide/b/"),
+            tree_row("/guide/a/x/"),
+        ]);
         let (cfg, links, backlinks) = (cfg(), HashMap::new(), HashMap::new());
-        let eng = Engine::new(&cfg, &db, &[], &links, &backlinks);
+        let eng = Engine::new(&cfg, &db, &[], &[], &links, &backlinks);
         let me = db.row_by_url("/guide/a/").unwrap();
         let (children, siblings, descendants) = eng.tree_family(me);
         assert_eq!(children, ["/guide/a/x/"]);
@@ -510,7 +508,7 @@ mod tests {
         fr.logical = "post".into();
         let mut lone = tree_row("/lone/");
         lone.logical = "lone".into();
-        let mut db = SiteDb::seed(vec![en, fr, lone], false);
+        let mut db = SiteDb::seed(vec![en, fr, lone]);
         let paired: Vec<_> = db
             .rows
             .iter()
@@ -519,7 +517,7 @@ mod tests {
             .collect();
         db.by_logical.insert("post".into(), paired);
         let (cfg, links, backlinks) = (cfg(), HashMap::new(), HashMap::new());
-        let eng = Engine::new(&cfg, &db, &[], &links, &backlinks);
+        let eng = Engine::new(&cfg, &db, &[], &[], &links, &backlinks);
 
         let en_post = db.row_by_url("/post/").unwrap();
         assert_eq!(eng.twin(en_post, "fr").unwrap().url, "/fr/post/");

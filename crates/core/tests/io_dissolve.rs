@@ -4,11 +4,11 @@
 //! marker defaults, schema validation and rung 0 like every other row, and what
 //! survives of "object" is a fact about the FILE — the objects scopes' globs,
 //! I7a's rule-claimed membership, read by the loader as **the extension fact**.
-//! Three things key off it and nothing else does: `object_ix`, `by_name` and
-//! the header read that fills `width`/`height`.
+//! Three things key off it and nothing else does: `by_name`, the header read
+//! that fills `width`/`height`, and `RouteKind::Object`.
 //!
 //! Built sites rather than loaded ones wherever the claim is about what a
-//! reader DOES with the index: the listing pass asks `object_ix` whether a
+//! reader DOES with the index: the listing pass asks `by_name` whether a
 //! member is a picture, and a test that asked the database the same question
 //! would pass against an engine whose gallery had stopped showing pictures.
 //!
@@ -51,17 +51,17 @@ fn selected(dir: &Path, route: &str) -> Vec<String> {
     support::sitemap_locs(&page(dir, route))
 }
 
-/// **The re-keying, and what it buys.** `object_ix`, `by_name` and the header
-/// read key off the extension fact rather than off the vector a row arrived in.
+/// **The re-keying, and what it buys.** `by_name` and the header read key off
+/// the extension fact rather than off the vector a row arrived in.
 ///
-/// All three are asserted together because they are one decision, and each of
+/// All are asserted together because they are one decision, and each of
 /// them is a different consumer's whole answer:
 ///
 /// - `by_name` is what `grackle query stats` reports distinct and ambiguous
 ///   names from — the measurement §6a's collision argument rests on, which is
 ///   why the fixture carries two `shot.png`s in different directories;
-/// - `object_ix` is what the listing pass asks per member (`ctx.objects`), and
-///   an object member previews as a PICTURE while a row member previews as
+/// - `by_name` is also what the listing pass asks per member (`ctx.objects`),
+///   and an object member previews as a PICTURE while a row member previews as
 ///   prose — so the gallery is where losing the index shows;
 /// - `width`/`height` come from a header read the loader only performs on the
 ///   rows this fact names.
@@ -98,7 +98,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
         ],
     );
 
-    // What the index BUYS, asserted first: the listing pass asks `object_ix`
+    // What the index BUYS, asserted first: the listing pass asks `by_name`
     // per member, and an object previews as the picture it is — labelled by its
     // stem, which is the only name a file has. A row member has a `title` and
     // an image has none, so losing the index does not mis-label the gallery, it
@@ -116,7 +116,11 @@ fn the_objects_index_keys_off_the_extension_fact() {
     );
 
     let db = load(&dir);
-    assert_eq!(db.object_ix.len(), 3, "three pictures, one index");
+    assert_eq!(
+        db.by_name.values().map(|v| v.len()).sum::<usize>(),
+        3,
+        "three pictures"
+    );
     assert_eq!(
         db.by_name.len(),
         2,
@@ -127,7 +131,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
         1,
         "ambiguous names — the count `query stats` prints"
     );
-    for o in db.objects() {
+    for o in db.by_name.values().flatten().filter_map(|k| db.rows.get(k)) {
         assert_eq!(
             (o.width, o.height),
             (Some(2), Some(3)),

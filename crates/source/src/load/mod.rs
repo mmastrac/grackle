@@ -614,11 +614,6 @@ fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
     Ok(out)
 }
 
-fn sort_posts(mut rows: Vec<Row>) -> Vec<Row> {
-    rows.sort_by(|a, b| a.path.cmp(&b.path));
-    rows
-}
-
 fn path_key(rel: &Path) -> String {
     let s = rel.to_string_lossy();
     let s = match rel.extension().and_then(|e| e.to_str()) {
@@ -735,7 +730,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
 
     let t = std::time::Instant::now();
     let scopes = scopes(cfg)?;
-    let (post_rows, page_rows, objects) = walk::walk_site(
+    let (mut rows, picture_rels) = walk::walk_site(
         cfg,
         &scopes,
         &markers,
@@ -753,7 +748,28 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let pairing_keep = cfg
         .pairing_axis()
         .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
-    db.insert_rows(sort_posts(post_rows), page_rows, objects, pairing_keep)?;
+    let dated: std::collections::HashSet<String> = cfg
+        .collections
+        .iter()
+        .filter(|(_, c)| c.is_posts())
+        .map(|(n, _)| n.clone())
+        .collect();
+    // Dated indexes stay ordered by path within those collections.
+    rows.sort_by(|a, b| {
+        let a_d = dated.contains(&a.collection);
+        let b_d = dated.contains(&b.collection);
+        match (a_d, b_d) {
+            (true, true) => a.path.cmp(&b.path),
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (false, false) => a.path.cmp(&b.path),
+        }
+    });
+    let pictures: std::collections::HashSet<grackle_db::Key> = picture_rels
+        .iter()
+        .map(|r| grackle_db::Key::new(r.to_string_lossy()))
+        .collect();
+    db.insert_rows(rows, pairing_keep, &dated, &pictures)?;
     walk::resolve_image_fields(&db, &schemas)?;
     if cfg.metadata.iter().any(|m| m == "git") {
         let commits = crate::git::last_commits_cached(&root, &root.join("_cache/metadata"));
@@ -772,17 +788,13 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     db.stats.index_ms += t_index.elapsed().as_secs_f64() * 1000.0;
 
     let t = std::time::Instant::now();
-    let posts: std::collections::HashSet<&grackle_db::Key> = db.post_ix.iter().collect();
-    let objects: std::collections::HashSet<&grackle_db::Key> = db.object_ix.iter().collect();
     let mut new_routes: Vec<Route> = Vec::new();
     for p in db
         .rows
         .iter()
         .filter(|p| !p.claimed && !p.on_demand && p.strong_url.is_none())
     {
-        let kind = if posts.contains(&p.key) {
-            RouteKind::Post
-        } else if objects.contains(&p.key) {
+        let kind = if pictures.contains(&p.key) {
             RouteKind::Object
         } else if p.rendered {
             RouteKind::Page
@@ -808,6 +820,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 fields,
                 axis,
                 front_mattered: p.front_mattered,
+                collection: Some(p.collection.clone()),
                 ..Route::new(url, kind)
             }
         };
@@ -995,13 +1008,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         let claims = cfg.content_claims();
         let mut fixed: Vec<(grackle_db::Key, String)> = Vec::new();
         for (k, p) in db
-            .page_ix
+            .rows
             .iter()
-            .filter_map(|k| db.rows.get(k).map(|r| (k, r)))
+            .filter(|p| p.claimed)
+            .map(|p| (p.key.clone(), p))
         {
-            if !p.claimed {
-                continue;
-            }
             let url = db
                 .routes
                 .iter()
@@ -1029,7 +1040,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                         })
                         .map(|r| r.url.clone())
                 });
-            fixed.push((k.clone(), url.unwrap_or_default()));
+            fixed.push((k, url.unwrap_or_default()));
         }
         for (k, url) in fixed {
             if let Some(r) = db.rows.get_mut(&k) {

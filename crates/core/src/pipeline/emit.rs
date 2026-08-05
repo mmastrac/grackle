@@ -46,28 +46,16 @@ pub(crate) fn run(
     };
     // Chrome-part facts, computed once per build.
     let chrome_facts = preview::ChromeFacts::of(cfg, db);
-    // ---- posts: document parts -> theme fragments -> shell
+    // ---- row documents held in `bodies` -> theme fragments -> shell
     //
-    // Driven by the ROUTE table, like the `RouteKind::Page` arm below. It used
-    // to iterate `post_ix` and key its output by `p.url`, which is the same
-    // thing only while a row has exactly one route — and "a row has one URL"
-    // was an assumption the design never made and six maps in here relied on.
-    // Iterating routes means the URL being rendered comes from the route, and a
-    // second route onto one row (q53) renders twice rather than colliding in
-    // `out_map`.
-    //
-    // `bodies` holds the in-memory bodies the posts loader produced, keyed by
-    // ROW rather than by URL for the same reason.
-    //
-    // `kind == Post` survives here: it is scope membership on the output
-    // side, and the route pool has no other column for that (see `RouteKind`'s
-    // own doc for the census).
-    let post_routes: Vec<&Route> = db
+    // Body-held routes take the document path; tree pages re-read into
+    // `page_bodies` and render in the Page arm below.
+    let body_routes: Vec<&Route> = db
         .routes
         .iter()
-        .filter(|r| r.kind == RouteKind::Post)
+        .filter(|r| r.row.as_ref().is_some_and(|k| bodies.contains_key(k)))
         .collect();
-    let rendered: Vec<(String, String)> = post_routes
+    let rendered: Vec<(String, String)> = body_routes
         .par_iter()
         .filter_map(|r| r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| (*r, p)))
         .map(|(r, p)| -> Result<(String, String)> {
@@ -162,7 +150,7 @@ pub(crate) fn run(
             css_urls,
             root: root.to_path_buf(),
             profile,
-            objects: db.object_ix.iter().collect(),
+            objects: db.by_name.values().flatten().collect(),
             chrome: &chrome_facts,
         };
         crate::passes::run(&ctx, &crate::passes::all(), out_map, stats)?;
@@ -178,6 +166,8 @@ pub(crate) fn run(
     // directory (slot fills resolve nearest-wins from there), suffix
     // localization with default-locale fallback.
     let mut section_trees: HashMap<PathBuf, Vec<crate::outline::Node>> = HashMap::new();
+    let picture_keys: std::collections::HashSet<&grackle_db::Key> =
+        db.by_name.values().flatten().collect();
     for r in &db.routes {
         let Some(view) = &r.view else { continue };
         let Some(v) = cfg.views.get(view) else {
@@ -230,7 +220,7 @@ pub(crate) fn run(
             thumbs,
             bodies,
             page_bodies,
-            |k| db.object_ix.iter().any(|o| o == k),
+            |k| picture_keys.contains(k),
         )?;
         let layout = v
             .layout
@@ -408,6 +398,10 @@ pub(crate) fn run(
                 stats.copied += 1;
             }
             RouteKind::Page => {
+                // Already emitted from the in-memory body store above.
+                if r.row.as_ref().is_some_and(|k| bodies.contains_key(k)) {
+                    continue;
+                }
                 let Some(src) = &r.source else { continue };
                 let row = r.row.as_ref().and_then(|k| db.rows.get(k));
                 let title = row.and_then(|p| p.title.clone()).unwrap_or_default();

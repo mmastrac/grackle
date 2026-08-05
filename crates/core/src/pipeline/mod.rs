@@ -160,6 +160,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         Err(e) => {
             eprintln!("grackle: embeddings unavailable, skipping related posts: {e:#}");
             crate::embed::Loaded {
+                keys: Vec::new(),
                 vectors: Vec::new(),
                 pending: Vec::new(),
             }
@@ -174,7 +175,14 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     // row up front into an owned map, so the engine's borrow of `db` ends
     // before the render passes need `&mut db` again.
     let rel_groups: HashMap<String, Vec<crate::relate::Group>> = {
-        let relate = crate::relate::Engine::new(cfg, db, &loaded.vectors, &links_to, &backlinks);
+        let relate = crate::relate::Engine::new(
+            cfg,
+            db,
+            &loaded.keys,
+            &loaded.vectors,
+            &links_to,
+            &backlinks,
+        );
         db.rows
             .iter()
             .filter(|r| r.rendered)

@@ -492,7 +492,8 @@ impl Theme {
     pub fn scheme_choice_offered(&self, subtheme: Option<&str>) -> bool {
         self.manifest.covers_both_schemes()
             && !subtheme.is_some_and(|toks| {
-                toks.split(' ').any(|t| self.manifest.scheme_of(t).is_some())
+                toks.split(' ')
+                    .any(|t| self.manifest.scheme_of(t).is_some())
             })
     }
 
@@ -1108,7 +1109,10 @@ mod tests {
             html.find("data-search-js").unwrap() < html.find("data-slot=\"chrome\"").unwrap(),
             "the direct placement renders where the root put it:\n{html}"
         );
-        assert!(html.contains("data-l-dark"), "cluster keeps scheme:\n{html}");
+        assert!(
+            html.contains("data-l-dark"),
+            "cluster keeps scheme:\n{html}"
+        );
     }
 
     /// The site's `.slots/chrome.html` shadows the `chrome` fragment across
@@ -1161,12 +1165,18 @@ mod tests {
         let thm = Theme::null(&dir, &[]).expect("base loads");
 
         let at_root = render_chrome_page(&thm, &dir, &dir, None, &full_chrome());
-        assert!(at_root.contains("ROOTMARK") && !at_root.contains("DOCSMARK"), "{at_root}");
+        assert!(
+            at_root.contains("ROOTMARK") && !at_root.contains("DOCSMARK"),
+            "{at_root}"
+        );
         assert!(at_root.contains("data-search-js"), "{at_root}");
 
         let deep = dir.join("docs/deep");
         let under_docs = render_chrome_page(&thm, &dir, &deep, None, &full_chrome());
-        assert!(under_docs.contains("DOCSMARK") && !under_docs.contains("ROOTMARK"), "{under_docs}");
+        assert!(
+            under_docs.contains("DOCSMARK") && !under_docs.contains("ROOTMARK"),
+            "{under_docs}"
+        );
         assert!(
             !under_docs.contains("data-search-js") && under_docs.contains("data-l-dark"),
             "the docs override dropped the search hole and kept scheme:\n{under_docs}"
@@ -1185,7 +1195,13 @@ mod tests {
         let thm = Theme::null(&dir, &[]).expect("base loads");
         // No facts, and a forced scheme stands the control down: the cluster
         // map is empty, and only the resolved override keeps it rendering.
-        let html = render_chrome_page(&thm, &dir, &dir, Some("dark"), &super::ChromeInput::default());
+        let html = render_chrome_page(
+            &thm,
+            &dir,
+            &dir,
+            Some("dark"),
+            &super::ChromeInput::default(),
+        );
         let _ = std::fs::remove_dir_all(&dir);
         assert!(html.contains("ELSEMARK"), "{html}");
     }

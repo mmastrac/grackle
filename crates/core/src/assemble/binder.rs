@@ -753,10 +753,7 @@ impl Fragments {
                 for item in v {
                     // The map's own face wins, then the hole's data-fragment,
                     // then the child kind's base fragment, else canonical.
-                    let name = item
-                        .face()
-                        .or(el.fragment.as_deref())
-                        .unwrap_or(item.kind);
+                    let name = item.face().or(el.fragment.as_deref()).unwrap_or(item.kind);
                     match self.map.get(name) {
                         Some(child) => self.render_nodes(&child.nodes, item, out, true),
                         None => out.push_str(&super::parts::canonical(item)),

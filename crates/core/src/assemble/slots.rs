@@ -579,7 +579,11 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             let file = dir.join(rel);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-            std::fs::write(&file, "<span data-slot=\"search\" data-fragment=\"search_button\"></span>").unwrap();
+            std::fs::write(
+                &file,
+                "<span data-slot=\"search\" data-fragment=\"search_button\"></span>",
+            )
+            .unwrap();
             let fills = SlotFills::load(&dir).expect("fills load");
             let got = super::check_chrome_fills(&fills, &dir);
             let _ = std::fs::remove_dir_all(&dir);

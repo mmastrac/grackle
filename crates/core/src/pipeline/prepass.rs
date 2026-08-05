@@ -179,13 +179,13 @@ pub(crate) fn thumbs_pass(
     stats: &mut Stats,
 ) -> Result<crate::thumbs::Renditions> {
     let mut asks: Vec<Ask> = Vec::new();
-    for p in db.posts() {
+    for p in db.rows.iter().filter(|p| cfg.body_held(p)) {
         asks.extend(tags::image_asks(&crate::store::read_body(&p.path)?));
     }
     // Image-typed schema fields (§5b) — covers and the like — render too:
     // they are what heroes and cards show (q23). No tag wrote these, so they
     // ask for the engine's default rendition.
-    for p in db.pages() {
+    for p in db.rows.iter() {
         // An absolute url names something outside the site (load.rs leaves it
         // alone for the same reason): there is no file here to transform.
         asks.extend(
@@ -196,17 +196,17 @@ pub(crate) fn thumbs_pass(
         );
     }
     for r in &db.routes {
-        // `Page` here means "renders, and its body was not already scanned by
-        // the posts loop above" — the second half is what keeps this a `kind`
-        // test after the facts pass. `p.rendered` alone would re-read every post; moving
-        // the scan onto rows instead would change WHICH rows are scanned (a
-        // claimed row has no route, so it is not scanned today), which is a
-        // behaviour change and not this item's.
         if r.kind == RouteKind::Page {
-            if let Some(src) = &r.source {
-                if let Ok(text) = std::fs::read_to_string(src) {
-                    let (_, _, body) = split_front_matter(&text);
-                    asks.extend(tags::image_asks(body));
+            let in_bodies = r
+                .row
+                .as_ref()
+                .is_some_and(|k| db.rows.get(k).is_some_and(|p| cfg.body_held(p)));
+            if !in_bodies {
+                if let Some(src) = &r.source {
+                    if let Ok(text) = std::fs::read_to_string(src) {
+                        let (_, _, body) = split_front_matter(&text);
+                        asks.extend(tags::image_asks(body));
+                    }
                 }
             }
         }

@@ -37,7 +37,7 @@ fn site(who: &str) -> PathBuf {
              [routes.bytes]\npath = \"/bytes.xml\"\n\
              shell = \"sitemap\"\nwhere = \"!front_mattered\"\n\n\
              [routes.old_spelling]\npath = \"/old-spelling.xml\"\n\
-             shell = \"sitemap\"\nwhere = 'kind == \"post\" || kind == \"page\"'\n",
+             shell = \"sitemap\"\nwhere = 'kind == \"page\"'\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
@@ -81,32 +81,31 @@ fn front_mattered_is_identity_not_parsing() {
     );
 }
 
-/// Why the corpus migration is a migration and not a rename.
+/// Why identity and `kind == "page"` part company on the blockless post.
 ///
-/// `kind == "post" || kind == "page"` and `front_mattered` select the same set
-/// on every site whose documents all carry blocks — which is every example
-/// site, and why their search routes moved. They part company on exactly one
-/// row shape, and grack.com has one: a `.md` in a posts scope with no block.
-/// `kind == "post"` is **scope membership**; `front_mattered` is **identity**.
-/// That is the whole reason grack.com's search route did not migrate here.
+/// `kind == "page"` selects every rendered document; `front_mattered` selects
+/// identity. They part company on a `.md` the scope parsed with no block.
 #[test]
-fn the_old_spelling_and_the_new_one_part_company_on_the_blockless_post() {
+fn kind_page_and_front_mattered_part_company_on_the_blockless_post() {
     let dir = site("spelling");
-    let old = urls(&dir, "/old-spelling.xml");
-    let new = urls(&dir, "/identity.xml");
+    let by_kind = urls(&dir, "/old-spelling.xml");
+    let by_identity = urls(&dir, "/identity.xml");
     assert_eq!(
-        old,
+        by_kind,
         [
             "/about/",
             "/blog/2020/01/01/hello/",
             "/blog/2020/01/02/bare/"
         ],
-        "the fossil selects by table tag"
+        "kind selects every rendered document"
     );
-    let only_old: Vec<_> = old.iter().filter(|u| !new.contains(u)).collect();
-    assert_eq!(only_old, ["/blog/2020/01/02/bare/"]);
+    let only_kind: Vec<_> = by_kind
+        .iter()
+        .filter(|u| !by_identity.contains(u))
+        .collect();
+    assert_eq!(only_kind, ["/blog/2020/01/02/bare/"]);
     assert!(
-        new.iter().all(|u| old.contains(u)),
-        "identity is a subset of the tag, never the other way"
+        by_identity.iter().all(|u| by_kind.contains(u)),
+        "identity is a subset of rendered documents, never the other way"
     );
 }

@@ -55,7 +55,7 @@ fn site(who: &str) -> PathBuf {
               from = \"posts\"\nlayout = \"card\"\npaginate = 1\n\n\
               [routes.everything]\npath = \"/everything.xml\"\nshell = \"sitemap\"\n\n\
               [routes.blog_corpus]\npath = \"/blog-corpus.xml\"\nshell = \"sitemap\"\n\
-              where = 'kind == \"post\"'\n",
+              where = 'collection == \"posts\"'\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
@@ -119,12 +119,16 @@ fn a_view_route_is_exactly_a_route_that_names_a_view() {
     // loop above proves whatever the table happens to hold.
     let seen: std::collections::BTreeSet<&str> =
         db.routes.iter().map(|r| r.kind.as_str()).collect();
-    for k in ["post", "page", "static", "object", "view"] {
+    for k in ["page", "static", "object", "view"] {
         assert!(
             seen.contains(k),
             "the corpus is missing a {k} route: {seen:?}"
         );
     }
+    assert!(
+        !seen.contains("post"),
+        "scope membership is collection, not kind: {seen:?}"
+    );
     let views = db.routes.iter().filter(|r| r.view.is_some()).count();
     assert!(views >= 3, "three view shapes at least, got {views}");
 
@@ -136,7 +140,7 @@ fn a_view_route_is_exactly_a_route_that_names_a_view() {
 ///
 /// `Static | Object` is one arm there and `Page` is another, and the reason the
 /// two arms differ is not the enum: it is the rendering law. Every `Static` and every `Object`
-/// route's row is `rendered false`; every `Page` and every `Post` route's row is
+/// route's row is `rendered false`; every `Page` route's row is
 /// `rendered true`. Measured on all six corpus trees at I13 and pinned here at
 /// fixture scale, so the declined option stays available rather than becoming
 /// folklore.
@@ -154,7 +158,7 @@ fn the_byte_copy_arms_are_exactly_the_rows_that_do_not_render() {
             assert_eq!(r.kind, RouteKind::View, "only a fold has no row: {}", r.url);
             continue;
         };
-        let renders = matches!(r.kind, RouteKind::Post | RouteKind::Page);
+        let renders = r.kind == RouteKind::Page;
         assert_eq!(
             renders, p.rendered,
             "{}: kind {:?} vs rendered {}",
@@ -165,22 +169,14 @@ fn the_byte_copy_arms_are_exactly_the_rows_that_do_not_render() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **What the enum carries that the facts do NOT** — and therefore why the
-/// column survives I13 whole.
+/// **Scope membership on the output pool** — `collection` on the route, which
+/// is what `kind == "post"` used to flatten. The blog corpus fold selects
+/// posts-collection outputs and nothing else.
 ///
-/// `kind == "post"` means SCOPE MEMBERSHIP, which the output pool has no other
-/// column for: `front_mattered` is identity (it would admit `/about/`), `shell`
-/// is serialization (it would admit every document), and `collection` is a row
-/// column that never reached the route. This is grack.com's live spelling, in
-/// its search route and its `[profiles.drafts]` restatement, and I13 could not
-/// migrate it — so the column, its `Enum` domain and the `kind` line
-/// `grackle explain` prints for an output all stay.
-///
-/// Mutation: delete `s.insert("kind", Enum(RouteKind::NAMES))` from
-/// `route_schema` and the site stops loading on an unknown field — which is the
-/// day this filter would have needed its replacement spelling to exist.
+/// Mutation: delete `s.insert("collection", Str)` from `route_schema` and the
+/// site stops loading on an unknown field.
 #[test]
-fn the_surviving_column_still_selects_the_blog_corpus() {
+fn collection_on_the_route_selects_the_blog_corpus() {
     let dir = site("column");
     let (out, _) = support::built(&dir);
 

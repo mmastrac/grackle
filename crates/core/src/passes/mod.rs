@@ -43,7 +43,7 @@ pub struct Ctx<'a> {
     pub metas: &'a crate::render::Metas,
     /// `[html.html.attribute]` / `[html.body.attribute]`, compiled once (§4e).
     pub attrs: &'a crate::render::HtmlAttrs,
-    /// `db.object_ix` as a set: a listing asks per member whether the row IS
+    /// Picture rows (`width` set): a listing asks per member whether the row IS
     /// the picture, and the membership list is a Vec.
     pub objects: std::collections::HashSet<&'a crate::model::Key>,
     /// Chrome-part facts, computed once per build.

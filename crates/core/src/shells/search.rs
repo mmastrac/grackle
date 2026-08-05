@@ -25,7 +25,9 @@ pub fn search_docs(
     db: &SiteDb,
     html_of: impl Fn(&Row) -> String,
 ) -> Vec<grackle_search_core::SearchDoc> {
-    db.posts()
+    db.rows
+        .iter()
+        .filter(|p| cfg.body_held(p))
         .map(|p| {
             let html = html_of(p);
             let body = grackle_search_core::strip_tags(&html);
@@ -88,32 +90,20 @@ pub(crate) fn search_pass(
             .route_members
             .iter()
             .filter_map(|k| db.routes.get(k))
-            // The two arms are two BODY STORES, not two kinds of thing to say
-            // about an output — which is why `kind` survives here: a post's
-            // html is in `bodies` (keyed by row) and a page's in `page_bodies`
-            // (keyed by URL), and no fact on the route says which pass filled
-            // which. `_ => None` is the rest: a byte copy has no body to
-            // search, and a fold's output is not a document.
-            .filter_map(|r| match r.kind {
-                crate::model::RouteKind::Post => {
-                    r.row.as_ref().and_then(|k| db.rows.get(k)).map(|p| {
-                        let html = bodies.get(&p.key).map(|d| d.whole.as_str()).unwrap_or("");
-                        let body = grackle_search_core::strip_tags(html);
-                        search_doc(cfg, p, &body)
-                    })
+            .filter_map(|r| {
+                let p = r.row.as_ref().and_then(|k| db.rows.get(k))?;
+                if let Some(doc) = bodies.get(&p.key) {
+                    let body = grackle_search_core::strip_tags(&doc.whole);
+                    return Some(search_doc(cfg, p, &body));
                 }
-                crate::model::RouteKind::Page => {
-                    let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
-                    let p = r.row.as_ref().and_then(|k| db.rows.get(k))?;
-                    let html = pb
-                        .doc
-                        .as_ref()
-                        .map(|d| d.whole.as_str())
-                        .unwrap_or(pb.frag.as_str());
-                    let body = grackle_search_core::strip_tags(html);
-                    Some(search_doc(cfg, p, &body))
-                }
-                _ => None,
+                let pb = page_bodies.get(&r.url).filter(|pb| !pb.skipped)?;
+                let html = pb
+                    .doc
+                    .as_ref()
+                    .map(|d| d.whole.as_str())
+                    .unwrap_or(pb.frag.as_str());
+                let body = grackle_search_core::strip_tags(html);
+                Some(search_doc(cfg, p, &body))
             })
             .collect();
         let t = std::time::Instant::now();

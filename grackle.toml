@@ -209,7 +209,7 @@ callout = """
   [profiles.drafts.routes.search]
   path = "/search.v1.bin"
   shell = "search"
-  where = 'kind == "post" && !hidden'
+  where = '(collection == "posts" || collection == "drafts") && !hidden'
 
 # ------------------------------------------------------------------ sets
 #
@@ -263,7 +263,7 @@ shell = "atom"
 [routes.search]
 path = "/search.v1.bin"
 shell = "search"
-where = 'kind == "post" && !draft && !hidden'
+where = '(collection == "posts" || collection == "drafts") && !draft && !hidden'
 
 # `dir` is distinct from `ext == ""`: a directory URL outputs an index.html,
 # whereas an extensionless *file* (code/legacy/nnet/nnet) outputs itself and is

@@ -134,8 +134,8 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
         "the extension fact is untouched: it is still a picture"
     );
     assert!(
-        db.object_ix.contains(&kite.key),
-        "and still an object row"
+        db.by_name.values().any(|v| v.contains(&kite.key)),
+        "and still a picture"
     );
 
     // The control: the image beside it, with no sidecar, is what it was.

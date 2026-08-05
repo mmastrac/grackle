@@ -72,6 +72,8 @@ pub struct Pending {
 /// stale one the index remembers, else None (new post, first sight). Never
 /// touches the model; `pending` lists what a background pass should embed.
 pub struct Loaded {
+    /// Row keys parallel to `vectors` (body-held rows, load order).
+    pub keys: Vec<crate::model::Key>,
     pub vectors: Vec<Option<Vector>>,
     pub pending: Vec<Pending>,
 }
@@ -79,10 +81,20 @@ pub struct Loaded {
 pub fn load(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
     std::fs::create_dir_all(cache_dir)?;
     let index = read_index(cache_dir);
-    let mut vectors = Vec::with_capacity(db.post_ix.len());
+    let keys: Vec<crate::model::Key> = db
+        .rows
+        .iter()
+        .filter(|p| cfg.body_held(p))
+        .map(|p| p.key.clone())
+        .collect();
+    let mut vectors = Vec::with_capacity(keys.len());
     let mut pending = Vec::new();
 
-    for p in db.posts() {
+    for k in &keys {
+        let Some(p) = db.rows.get(k) else {
+            vectors.push(None);
+            continue;
+        };
         let text = text_of(cfg, p, &crate::store::read_body(&p.path)?)?;
         if text.trim().is_empty() {
             vectors.push(None);
@@ -105,7 +117,11 @@ pub fn load(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
             vectors.push(fresh);
         }
     }
-    Ok(Loaded { vectors, pending })
+    Ok(Loaded {
+        keys,
+        vectors,
+        pending,
+    })
 }
 
 /// The blocking model pass: embed everything pending, write the vectors, and
@@ -134,13 +150,13 @@ pub fn embed_pending(cache_dir: &Path, pending: &[Pending]) -> Result<()> {
 
 /// Load, embed whatever is pending (blocking), and reload — the "fresh now"
 /// path: AOT builds and CLI queries.
-pub fn fresh(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Vec<Option<Vector>>> {
+pub fn fresh(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
     let l = load(db, cfg, cache_dir)?;
     if l.pending.is_empty() {
-        return Ok(l.vectors);
+        return Ok(l);
     }
     embed_pending(cache_dir, &l.pending)?;
-    Ok(load(db, cfg, cache_dir)?.vectors)
+    load(db, cfg, cache_dir)
 }
 
 /// Related-posts table: post index → top-N (index, adjusted score), best
@@ -149,11 +165,13 @@ pub struct Related {
     pub by_post: HashMap<crate::model::Key, Vec<(crate::model::Key, f32)>>,
 }
 
-pub fn rank(db: &SiteDb, vectors: &[Option<Vector>], cfg: &RankPolicy) -> Related {
+pub fn rank(
+    db: &SiteDb,
+    keys: &[crate::model::Key],
+    vectors: &[Option<Vector>],
+    cfg: &RankPolicy,
+) -> Related {
     use chrono::Datelike;
-    // `vectors` is parallel to `post_ix`, so a position here names a POST,
-    // not a row — indexing `db.rows` with it is wrong.
-    let keys = &db.post_ix;
     let row = |i: usize| keys.get(i).and_then(|k| db.rows.get(k));
     let year = |i: usize| row(i).and_then(|r| r.as_date("date")).map(|d| d.year());
     let mut by_post = HashMap::new();
@@ -293,7 +311,11 @@ mod tests {
     }
 
     fn mkdb(posts: Vec<Row>) -> SiteDb {
-        SiteDb::seed(posts, true)
+        SiteDb::seed(posts)
+    }
+
+    fn keys(db: &SiteDb) -> Vec<crate::model::Key> {
+        db.rows.iter().map(|r| r.key.clone()).collect()
     }
 
     /// A seeded post's key, which `seed` derives from its `rel`.
@@ -345,6 +367,7 @@ mod tests {
 
         let raw = rank(
             &db,
+            &keys(&db),
             &vecs,
             &RankPolicy {
                 limit: 2,
@@ -362,7 +385,7 @@ mod tests {
             year_penalty: Some(0.01),
             ..Default::default()
         };
-        let penalized = rank(&db, &vecs, &pen);
+        let penalized = rank(&db, &keys(&db), &vecs, &pen);
         assert_eq!(
             penalized.by_post[&key("anchor")][0].0,
             key("recent"),
@@ -375,7 +398,7 @@ mod tests {
             min_score: Some(0.9),
             ..Default::default()
         };
-        let dropped = rank(&db, &vecs, &strict);
+        let dropped = rank(&db, &keys(&db), &vecs, &strict);
         assert_eq!(
             dropped.by_post[&key("anchor")].len(),
             1,
@@ -391,7 +414,7 @@ mod tests {
         let (p0, v0) = post("a", 2020, Some(v.clone()));
         let (p1, v1) = post("b", 2020, Some(v));
         let db = mkdb(vec![p0, p1]);
-        let r = rank(&db, &[v0, v1], &RankPolicy::default());
+        let r = rank(&db, &keys(&db), &[v0, v1], &RankPolicy::default());
         for (i, list) in &r.by_post {
             assert!(list.iter().all(|(j, _)| j != i), "post {i} matched itself");
         }
@@ -413,7 +436,7 @@ mod tests {
         fr.logical = "a".into();
         let (other, v2) = post("b", 2020, Some(v));
         let db = mkdb(vec![en, fr, other]);
-        let r = rank(&db, &[v0, v1, v2], &RankPolicy::default());
+        let r = rank(&db, &keys(&db), &[v0, v1, v2], &RankPolicy::default());
         let en_hits = &r.by_post[&key("a")];
         assert!(
             en_hits.iter().all(|(k, _)| k != &key("a.fr")),
@@ -432,7 +455,7 @@ mod tests {
             max_years: Some(10),
             ..Default::default()
         };
-        let r = rank(&db, &[v0, v1], &cfg);
+        let r = rank(&db, &keys(&db), &[v0, v1], &cfg);
         assert!(r.by_post[&key("a")].is_empty());
     }
 
@@ -449,6 +472,8 @@ mod tests {
         let mut p = Row {
             path: src.clone(),
             rel: std::path::PathBuf::from("_posts/2020/a.md"),
+            collection: "posts".into(),
+            rendered: true,
             title: Some("old title".into()),
             ..Row::default()
         };

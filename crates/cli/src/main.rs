@@ -327,8 +327,9 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
     match q {
         Query::Stats => {
             let dated = db.rows.iter().filter(|r| db.row_date(r).is_some()).count();
+            let pictures: usize = db.by_name.values().map(|v| v.len()).sum();
             let shared: Vec<_> = db.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
-            println!("posts           {}", db.rows.len());
+            println!("rows            {}", db.rows.len());
             println!("  dated         {}", dated);
             // One line per declared bool/list the site actually uses (§4e).
             for (name, ty) in &db.declared {
@@ -343,16 +344,18 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                     println!("  {name:<13} {n}");
                 }
             }
-            println!("pages           {}", db.page_ix.len());
             println!(
                 "  rendered      {}",
-                db.pages().filter(|r| r.rendered).count()
+                db.rows.iter().filter(|r| r.rendered).count()
             );
             println!(
                 "  static        {}",
-                db.pages().filter(|r| !r.rendered).count()
+                db.rows
+                    .iter()
+                    .filter(|r| !r.rendered && !db.by_name.values().any(|v| v.contains(&r.key)))
+                    .count()
             );
-            println!("objects         {}", db.object_ix.len());
+            println!("  pictures      {}", pictures);
             println!("  distinct names{:>4}", db.by_name.len());
             let dupes = db.by_name.values().filter(|v| v.len() > 1).count();
             println!("  ambiguous     {}", dupes);
@@ -467,7 +470,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
             }
         }
         Query::Similar { url, limit } => {
-            let vectors = embed::fresh(db, cfg, &cfg.root().join("_cache/embeddings"))?;
+            let loaded = embed::fresh(db, cfg, &cfg.root().join("_cache/embeddings"))?;
             // The raw embedding order (no recency shaping) — the diagnostic
             // that shows what `embedding_similarity` sees before a relation's
             // `where`/`rank` narrows it.
@@ -475,7 +478,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 limit,
                 ..Default::default()
             };
-            let rel = embed::rank(db, &vectors, &policy);
+            let rel = embed::rank(db, &loaded.keys, &loaded.vectors, &policy);
             let Some(key) = db.by_url.get(&url).cloned() else {
                 anyhow::bail!("no post at {url}");
             };

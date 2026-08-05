@@ -52,19 +52,12 @@ impl ChromeFacts {
 /// The chrome-part inputs for one page: the facts, with labels resolved at
 /// the page's locale. The scheme fill decision stays with the theme
 /// (`Theme::scheme_choice_offered`); only its labels travel here.
-pub(crate) fn chrome_input(
-    cfg: &Config,
-    facts: &ChromeFacts,
-    lang: &str,
-) -> theme::ChromeInput {
+pub(crate) fn chrome_input(cfg: &Config, facts: &ChromeFacts, lang: &str) -> theme::ChromeInput {
     let s = |key: &str| cfg.i18n_string(key, lang).to_string();
     theme::ChromeInput {
-        search: facts.search.then(|| {
-            (
-                s("search"),
-                format!("{}/search.js", cfg.site.baseurl),
-            )
-        }),
+        search: facts
+            .search
+            .then(|| (s("search"), format!("{}/search.js", cfg.site.baseurl))),
         feed: facts
             .feed_url
             .as_ref()

@@ -13,7 +13,7 @@ pub(crate) fn walk_site(
     schemas: &Schemas,
     not_content: &store::NotContent,
     warnings: &mut Vec<String>,
-) -> Result<(Vec<Row>, Vec<Row>, Vec<Row>)> {
+) -> Result<(Vec<Row>, Vec<PathBuf>)> {
     let root = cfg.root();
     // `None` = no embed subset declared (not the same as empty).
     let embed_subset = cfg.embeds.compiled()?;
@@ -65,7 +65,7 @@ pub(crate) fn walk_site(
     let claims = cfg.content_claims();
 
     // Extension fact: objects globs, parallel to the rule sequence.
-    // Drives peek skip, i18n file axis, and objects index; not which scope claims the row.
+    // Drives peek skip, i18n file axis, image dimensions, and `by_name`.
     let obj_globs: Vec<&GlobMatcher> = scopes
         .iter()
         .filter(|s| s.source.is_none())
@@ -80,12 +80,14 @@ pub(crate) fn walk_site(
         }
     });
 
-    let mut posts: Vec<Row> = Vec::new();
-    let mut pages: Vec<Row> = Vec::new();
-    let mut objects: Vec<Row> = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
+    let mut pictures: Vec<PathBuf> = Vec::new();
 
     for f in files {
         let object_shaped = is_obj(&f.rel);
+        if object_shaped {
+            pictures.push(f.rel.clone());
+        }
 
         // Sidecar and front-matter block both supply identity: refuse both.
         let sidecar = sidecars.get(&f.rel);
@@ -341,28 +343,21 @@ pub(crate) fn walk_site(
             alternates: Vec::new(),
             viewed_by: Vec::new(),
         };
-        if scope.owned().is_some() {
-            posts.push(row);
-        } else if object_shaped {
-            objects.push(row);
-        } else {
-            pages.push(row);
-        }
+        rows.push(row);
     }
 
     for (path, view) in &claims {
-        if !pages
-            .iter()
-            .chain(posts.iter())
-            .any(|p| p.claimed && p.logical == *path)
-        {
+        if !rows.iter().any(|p| p.claimed && p.logical == *path) {
             bail!("view {view}: content {path:?} names no row in the tree");
         }
     }
-    objects.par_iter_mut().for_each(|o| {
-        if let Ok((w, h)) = image::image_dimensions(&o.path) {
-            o.width = Some(w);
-            o.height = Some(h);
+    rows.par_iter_mut().for_each(|r| {
+        if !is_obj(&r.rel) {
+            return;
+        }
+        if let Ok((w, h)) = image::image_dimensions(&r.path) {
+            r.width = Some(w);
+            r.height = Some(h);
         }
     });
 
@@ -370,7 +365,7 @@ pub(crate) fn walk_site(
         warnings.extend(dead_rules(s.name, &s.rules, s.found.get()));
         warnings.extend(empty_source(s));
     }
-    Ok((posts, pages, objects))
+    Ok((rows, pictures))
 }
 
 pub(crate) fn read_front_matter(path: &Path) -> Result<(store::FrontMatter, usize)> {

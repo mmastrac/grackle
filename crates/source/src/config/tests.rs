@@ -1492,7 +1492,7 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
             "{PROFILE_VIEWS}[routes.sitemap]\npath = \"/sitemap.xml\"\n\
                  shell = \"sitemap\"\n\
                  [profiles.p.routes.sitemap]\npath = \"/sitemap.xml\"\n\
-                 shell = \"sitemap\"\nwhere = 'kind == \"post\" && !hidden'\n"
+                 shell = \"sitemap\"\nwhere = 'collection == \"posts\" && !hidden'\n"
         ),
         "p",
     )
