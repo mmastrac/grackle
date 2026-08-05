@@ -110,10 +110,14 @@ sites via the `SEARCH_VER` path coupling).
       theme's own `chrome.html`. Near-miss spellings (markdown, nested,
       locale-suffixed) are load errors, because each would silently not
       apply.
-- [ ] **`serve` misses a newly created `.slots/chrome.html`** — one created
-      under a running serve needed a restart to apply (observed 2026-08-05);
-      whether edits to an existing one rebuild is untested. The watcher
-      should cover the override like any other `.slots/` file.
+- [x] **`serve` was blind to `.slots/` inside the grackle tree** *(fixed
+      2026-08-05)* — the watcher's grackle-tree filter had no `.slots/`
+      exception, so the example sites' fills (and the cluster override)
+      never hot-reloaded; file creation was innocent. Same scar as
+      `.style.scss` (§5b), same fix: one more presentation exception.
+      Verified live: fill edits, override creation, and override removal
+      all rebuild, and a two-block copyright edit fails the arity rule
+      loudly instead of silently keeping the old page.
 - [x] **Gallery sweep** *(2026-08-05)* — every themed root (plus
       field-notes' recipes fork) places `search`/`scheme` slots in the
       header and a `feed` slot in the footer; the nine pasted buttons are
