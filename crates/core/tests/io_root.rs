@@ -467,7 +467,7 @@ fn a_head_only_root_inherits_the_base_chrome() {
     // The base's own chrome, which keys its geometry on [data-frame], and
     // the base's own identity slots reading the tree's words.
     assert!(
-        html.contains("<main data-frame data-slot=\"content\">"),
+        html.contains("<main data-frame id=\"content\" data-slot=\"content\">"),
         "{html}"
     );
     assert!(

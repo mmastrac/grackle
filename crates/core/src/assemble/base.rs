@@ -103,6 +103,7 @@ pub(crate) fn manifest() -> &'static str {
 const PARTIALS: &[(&str, &str)] = &[
     ("tokens", include_str!("../../assets/base/_tokens.scss")),
     ("base", include_str!("../../assets/base/_base.scss")),
+    ("chrome", include_str!("../../assets/base/_chrome.scss")),
     ("search", include_str!("../../assets/base/_search.scss")),
     // The ladder: imported by the base's own sheet, always. Exposed here
     // too so a theme that wants it inside its OWN layer can re-import it.

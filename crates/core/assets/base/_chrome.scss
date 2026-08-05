@@ -1,0 +1,70 @@
+// Chrome primitives (themes/DESIGN.md §10): the structural tier, always on.
+// Everything here is mechanics a theme would have to re-derive — how a
+// widget button sits, how a dropdown panel floats, how the skip link hides
+// until a keyboard asks for it. The decorated look (borders, radius, hover)
+// is the skin's, in _skin.scss, by the same imposed/offered split as the
+// type ladder. Every selector is engine vocabulary: data-chrome and
+// data-slot, never a class, and every value is a token.
+
+// The cluster is a grouping for the PART layer, not for layout: its
+// children join the header's flow as if the wrapper were not there, so a
+// theme's header rules see the same flex/grid items whether its root
+// places the cluster or the slots individually.
+[data-slot="chrome"] {
+	display: contents;
+}
+
+// The skip link: first focusable thing on the page, invisible until a
+// keyboard reaches it, then a small floating chip. Off-screen rather than
+// display:none so it stays in the tab order.
+[data-chrome~="skip"] {
+	position: absolute;
+	inset-inline-start: -100vw;
+
+	&:focus {
+		inset-inline-start: var(--space-sm);
+		inset-block-start: var(--space-sm);
+		z-index: 10;
+		padding: var(--space-xs) var(--space-sm);
+		background: var(--bg);
+		border: var(--rule);
+	}
+}
+
+// A widget button: icon or short label, inline with its neighbours. The
+// reset only — a theme's own button rules outrank this by layer, and the
+// skin adds the decoration where nobody else will.
+[data-chrome~="button"] {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-xs);
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: 0;
+	padding: var(--space-xs);
+	cursor: pointer;
+	text-decoration: none;
+}
+
+// A dropdown floats its panel instead of reflowing the page. The panel is
+// whatever sits beside the summary; background and a hairline are
+// structure here, because a floating panel without them is unreadable over
+// whatever it happens to open across.
+[data-chrome~="dropdown"] {
+	position: relative;
+
+	> summary {
+		cursor: pointer;
+	}
+
+	> :not(summary) {
+		position: absolute;
+		inset-inline-end: 0;
+		z-index: 5;
+		min-width: max-content;
+		padding: var(--space-xs);
+		background: var(--bg);
+		border: var(--rule);
+	}
+}

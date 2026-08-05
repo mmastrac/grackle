@@ -74,6 +74,7 @@ pub(crate) fn chrome_input(
             light: s("scheme_light"),
             dark: s("scheme_dark"),
         },
+        skip: s("skip"),
     }
 }
 

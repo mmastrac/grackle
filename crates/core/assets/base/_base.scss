@@ -90,11 +90,3 @@ figcaption {
 	color: var(--fg-muted);
 	margin-top: var(--space-sm);
 }
-
-// The chrome cluster is a grouping for the PART layer, not for layout: its
-// children join the header's flow as if the wrapper were not there, so a
-// theme's header rules see the same flex/grid items whether its root places
-// the cluster or the slots individually.
-[data-slot="chrome"] {
-	display: contents;
-}

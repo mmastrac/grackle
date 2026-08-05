@@ -7,6 +7,7 @@
 </head>
 <body>
 <script>try{var s=localStorage.getItem('grackle:scheme');if(s=='dark'||s=='light'){var h=document.documentElement,t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});t.push(s);h.setAttribute('data-subtheme',t.join(' '))}}catch(e){}</script>
+
 <header data-frame>
 	<a href="/" data-slot="site_title">Locale listing</a>
 	
@@ -33,7 +34,7 @@
 		</span>
 	</div>
 </header>
-<main data-frame data-slot="content"><article data-kind="row">
+<main data-frame id="content" data-slot="content"><article data-kind="row">
 	<nav aria-label="Breadcrumbs" data-slot="crumbs">
 		<span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 	

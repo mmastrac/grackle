@@ -110,6 +110,7 @@ feed = "Feed"
 scheme_auto = "Colors: auto"
 scheme_light = "Colors: light"
 scheme_dark = "Colors: dark"
+skip = "Skip to content"
 
 # ------------------------------------------------------------------ pages
 #

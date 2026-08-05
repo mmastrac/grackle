@@ -142,10 +142,6 @@ figcaption {
   margin-top: var(--space-sm);
 }
 
-[data-slot=chrome] {
-  display: contents;
-}
-
 h1,
 h2,
 h3,
@@ -186,6 +182,52 @@ figure,
 pre,
 table {
   margin: var(--space-md) 0;
+}
+
+[data-slot=chrome] {
+  display: contents;
+}
+
+[data-chrome~=skip] {
+  position: absolute;
+  inset-inline-start: -100vw;
+}
+[data-chrome~=skip]:focus {
+  inset-inline-start: var(--space-sm);
+  inset-block-start: var(--space-sm);
+  z-index: 10;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg);
+  border: var(--rule);
+}
+
+[data-chrome~=button] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: var(--space-xs);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+[data-chrome~=dropdown] {
+  position: relative;
+}
+[data-chrome~=dropdown] > summary {
+  cursor: pointer;
+}
+[data-chrome~=dropdown] > :not(summary) {
+  position: absolute;
+  inset-inline-end: 0;
+  z-index: 5;
+  min-width: max-content;
+  padding: var(--space-xs);
+  background: var(--bg);
+  border: var(--rule);
 }
 
 .search-overlay {

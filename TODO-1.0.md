@@ -84,11 +84,17 @@ sites via the `SEARCH_VER` path coupling).
       field-notes' fork) now does. **First writer per part**: a slot the
       root places directly wins and the cluster's copy empties. The wrapper
       is `display: contents` in the base sheet, so header layout sees the
-      same children either way. Skip-to-content link still rides with
-      `_chrome.scss` (needs its sr-only styling and a localizable label).
-- [ ] **`_chrome.scss` primitives** — `data-chrome="button|dropdown|expando"`;
-      structural floor on the reset tier, decorated look on the skin tier.
-      Stamp the existing axes `<details>` as `dropdown`.
+      same children either way.
+- [x] **`_chrome.scss` primitives + skip link** *(2026-08-05)* — the
+      structural tier ships always (button reset, floating dropdown panel,
+      the cluster's `display: contents`, the skip link's focus reveal); the
+      decorated look rides `_skin.scss`, so tokens-only themes and
+      themeless sites get presentable widgets and styled themes outrank it
+      by layer. Every root — base and gallery — leads with
+      `<a data-chrome="skip" href="#content" data-slot="skip">`, label from
+      `@skip`, `id="content"` on main. `expando` stays a stamped name with
+      no CSS until a fragment uses it: rules for markup that does not
+      exist would be speculation.
 - [ ] **Head expand over fold shells** — `{ from = "shell.atom", rel = … }`
       pool; an explicit `rel` frees the key to be a name; base.toml gains the
       feed-discoverability link entry.
@@ -98,9 +104,12 @@ sites via the `SEARCH_VER` path coupling).
       busts caches without dictating the URL. Kills the `SEARCH_VER`
       hand-matching and the live 404 in field-notes and theme-preview; both
       fetch URLs carry `baseurl`. Two search routes warn and the first wins.
-- [ ] **Scheme boot script** — engine-emitted inline head applier
-      (`localStorage["grackle:scheme"]`), scheme-family tokens only, emitted
-      only when the part fills. Cycle auto → light → dark.
+- [x] **Scheme boot script** *(2026-08-05, with the fill rules)* — inline
+      applier (`localStorage["grackle:scheme"]`), scheme-family tokens
+      only, emitted only when the control is offered. First in `<body>`
+      rather than the head: it runs before any content paints, and the
+      engine's computed head stays script-free. Cycle auto → light → dark
+      lives in the button's own onclick.
 - [ ] **Capability-without-slot warning** — a live capability whose resolved
       theme places neither its slot nor the cluster is a load warning naming
       the theme and the slot.

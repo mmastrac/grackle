@@ -418,7 +418,7 @@ gone site-wide. **Disabling is upstream, at the fact** — never a
 presentation flag beside it — so config stays the single source of truth
 and `explain` never has to see through a half-state.
 
-### Primitives: a theme styles three things, not N widgets
+### Primitives: a theme styles three things, not N widgets *(built 2026-08-05, `expando` CSS deferred until a fragment uses it)*
 
 Default fragments are built from a closed set of chrome primitives, stamped
 as structure: `data-chrome="button"`, `"dropdown"` (the `<details>` shape

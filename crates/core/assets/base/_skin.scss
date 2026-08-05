@@ -74,3 +74,22 @@ callout {
 	padding: var(--space-sm) var(--space-md);
 	margin: var(--space-md) 0;
 }
+
+// The chrome skins: the decorated widget look, for the sites with nobody
+// else to supply one — a tokens-only theme or no theme at all. A styled
+// theme's own [data-chrome] rules land later in its own layer and win.
+[data-chrome~="button"] {
+	border: var(--rule);
+	border-radius: var(--radius);
+	color: var(--fg-muted);
+	transition: color var(--transition);
+
+	&:hover {
+		color: var(--fg);
+	}
+}
+
+[data-chrome~="dropdown"] > :not(summary) {
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+}

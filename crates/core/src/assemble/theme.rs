@@ -138,6 +138,10 @@ pub struct ChromeInput {
     /// (label, feed URL) when a `shell = "atom"` route materialized.
     pub feed: Option<(String, String)>,
     pub scheme: SchemeLabels,
+    /// The skip link's label (`@skip`). Not a capability — the link is
+    /// always correct — but the label is words, and words localize. Empty
+    /// (an `extends = "none"` site that declares no string) drops the link.
+    pub skip: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -543,6 +547,11 @@ impl Theme {
             .into_iter()
             .map(|(s, _)| s)
             .collect();
+        // The skip link is not a widget — no fact gates it — but its label
+        // is words, and words localize. Root-level only.
+        if !chrome.skip.is_empty() && root_slots.contains("skip") {
+            m.set("skip", Part::Text(chrome.skip.clone()));
+        }
         let mut cluster = PartMap::new("chrome");
         let mut place = |name: &'static str, part: Part| {
             if root_slots.contains(name) {
@@ -1012,6 +1021,7 @@ mod tests {
                 light: "Colors: light".into(),
                 dark: "Colors: dark".into(),
             },
+            skip: "Skip to content".into(),
         };
         let html = page(None, &full);
         assert!(html.contains("data-search-js=\"/search.js\""), "{html}");
@@ -1112,6 +1122,7 @@ mod tests {
                 light: "Colors: light".into(),
                 dark: "Colors: dark".into(),
             },
+            skip: "Skip to content".into(),
         }
     }
 

@@ -163,11 +163,13 @@ page = "Page {n}"
 search = "Search"
 search_placeholder = "Search posts…"
 search_empty = "No posts match."
-# Chrome parts (themes/DESIGN.md): the feed link and the scheme control.
+# Chrome parts (themes/DESIGN.md): the feed link, the scheme control, and
+# the skip link.
 feed = "Feed"
 scheme_auto = "Colors: auto"
 scheme_light = "Colors: light"
 scheme_dark = "Colors: dark"
+skip = "Skip to content"
 short_date = "{day} @months_short[{month}] {year}"
 medium_date = "{day} @months[{month}] {year}"
 long_date = "@months[{month}] {day}, {year}"
