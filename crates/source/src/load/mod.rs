@@ -748,13 +748,13 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let pairing_keep = cfg
         .pairing_axis()
         .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
+    // (date, slug) uniqueness for owned-source collections.
     let dated: std::collections::HashSet<String> = cfg
         .collections
         .iter()
-        .filter(|(_, c)| c.is_posts())
+        .filter(|(_, c)| c.source.as_deref().is_some_and(|s| s != "."))
         .map(|(n, _)| n.clone())
         .collect();
-    // Dated indexes stay ordered by path within those collections.
     rows.sort_by(|a, b| {
         let a_d = dated.contains(&a.collection);
         let b_d = dated.contains(&b.collection);

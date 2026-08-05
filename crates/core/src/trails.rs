@@ -170,14 +170,8 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
     for (url, label) in ancestors(cfg, db, &p.url) {
         t.push((label, Some(url)));
     }
-    // The posts collection that declares a trail, whatever it is named
-    // (§7a: the example's is `notes`). Keyed on the DECLARATION, not on
-    // being first: `_posts` and `_drafts` are both posts collections.
-    let trail_view = cfg
-        .collections
-        .values()
-        .filter(|c| c.is_posts())
-        .find_map(|c| c.trail.as_deref());
+    // Whichever collection declares `trail`.
+    let trail_view = cfg.collections.values().find_map(|c| c.trail.as_deref());
     let mut chained = false;
     if let Some(trail_view) = trail_view {
         for name in cfg.grouped_chain(trail_view) {

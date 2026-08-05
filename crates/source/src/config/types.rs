@@ -1329,14 +1329,13 @@ pub struct Site {
 pub struct Collection {
     /// Override table name when source dir is the wrong word.
     pub name: Option<String>,
-    /// Scope role via source: absent = objects; `"."` = tree;
-    /// else posts (subtree walked, owned, and ordered in the rule sequence).
+    /// Scope via source: absent = objects; `"."` = tree; else an owned subtree.
     pub source: Option<String>,
-    /// Default stem extractors for this collection's rules (§4).
+    /// Default stem extractors for this collection's rules.
     #[serde(default)]
     pub file: Vec<String>,
-    /// Not-content globs; read from the tree collection only (§4c).
-    /// Govern the whole walk; excluding a posts `source` is refused.
+    /// Not-content globs; read from the tree collection only.
+    /// Govern the whole walk; excluding an owned `source` is refused.
     #[serde(default)]
     pub exclude: Vec<String>,
     /// Re-admit paths; same tree-only restriction as `exclude`.
@@ -1346,16 +1345,16 @@ pub struct Collection {
     pub rules: Vec<Rule>,
     /// View whose subdivision chain forms row trails.
     pub trail: Option<String>,
-    /// List-field archive view names (q32); else unique grouped view.
+    /// List-field archive view names; else unique grouped view.
     #[serde(default)]
     pub archives: BTreeMap<String, String>,
-    /// Neighbour queries (§6g, q52); override per NAME.
+    /// Neighbour queries; override per NAME.
     #[serde(default)]
     pub relations: BTreeMap<String, RelationCfg>,
-    /// Typed fields for every row of this collection (§5b).
+    /// Typed fields for every row of this collection.
     #[serde(default)]
     pub schema: toml::Table,
-    /// From base rather than site (§4d); errors name inherited collections.
+    /// From base rather than site; errors name inherited collections.
     #[serde(skip)]
     pub inherited: bool,
 }
@@ -1369,11 +1368,6 @@ impl Collection {
     /// Tree scope: `source = "."`.
     pub fn is_tree(&self) -> bool {
         self.source.as_deref() == Some(".")
-    }
-
-    /// Posts scope: owns its subtree.
-    pub fn is_posts(&self) -> bool {
-        !self.is_objects() && !self.is_tree()
     }
 }
 
