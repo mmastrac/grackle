@@ -197,7 +197,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         })
         .collect();
 
-    // A fold with no `from` (IO.md §4) ranges over ROUTES, not a table, so it
+    // A fold with no `from` ranges over ROUTES, not a table, so it
     // carries no `members` — the render passes re-evaluate its filter. The
     // set is real all the same, so evaluate it here rather than show an
     // empty list and imply otherwise.
@@ -352,21 +352,21 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 }
 
 /// What `grackle explain` says a row IS, in the vocabulary a `where` is
-/// written in (IO.md §3).
+/// written in.
 ///
 /// These three lines stand where `println!("kind        post")` used to — a
 /// literal, printed for every row the arm reached, so `explain /humans.txt`
-/// answered `kind post` (IO.md IR2). A row has no kind to print instead. What
+/// answered `kind post`. A row has no kind to print instead. What
 /// replaces it is the facts it was a flattened product of, each of them a
 /// column a filter can name — **scope membership** (which is what
 /// `kind == "post"` always actually meant), the **shell** the row leaves
 /// through, and **identity**.
 ///
-/// **The ROUTE keeps its `kind` column** (I13, and this comment used to say
+/// **The ROUTE keeps its `kind` column** (and this comment used to say
 /// §3 deleted it there too). grack.com's search route and its drafts-profile
 /// restatement filter `kind == "post"` and there is no replacement spelling —
 /// scope membership is not expressible on the output pool — so the column,
-/// its domain check and the route branch's `kind` line all survive. What I13
+/// its domain check and the route branch's `kind` line all survive. What that pass
 /// took here was the ROW's side, which had no kind to begin with.
 ///
 /// `shell` is printed here rather than left to `explain`'s generic field
@@ -375,7 +375,7 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// absent is not an answer to "which shell".
 ///
 /// **`rule` is the fourth, and it is the ordering law's one observable**
-/// (IO.md I7d). Membership is no longer a precedence a reader can look up in
+///. Membership is no longer a precedence a reader can look up in
 /// a doc — it is the answer one ordered sequence of rules gave for one file,
 /// so `collection` names the scope that claimed the row and `rule` names the
 /// glob inside it that did the claiming. Without the pair, "why is this file
@@ -383,8 +383,8 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// order by hand.
 ///
 /// **`rendered` is the fifth, and it is the only DERIVED line in the block**
-/// (IO.md IR7). It is the rendering law's output —
-/// `shell::renders(front_mattered, shell)`, IO.md §4's `front_mattered ||
+///. It is the rendering law's output —
+/// `shell::renders(front_mattered, shell)`, the law `front_mattered ||
 /// shell ∈ DOCUMENT` — printed immediately beneath the two facts it is a
 /// function of, because the pair is what teaches the law and neither half
 /// predicts it alone: a degenerate row reads `front_mattered false /
@@ -393,31 +393,31 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// `shell raw / rendered true` — it renders, and the `raw` shell then emits
 /// the result verbatim.
 ///
-/// **The line prints the STORED bit, not a re-derivation**, and IR7 recorded
+/// **The line prints the STORED bit, not a re-derivation**, and it was recorded
 /// that they were then the same answer by construction: `load.rs` built every
-/// row by calling `shell::renders` on exactly these two fields. **IO.md I8 is
-/// where that stopped being true**, exactly as IR7 predicted it would — a
+/// row by calling `shell::renders` on exactly these two fields. **Sidecars are
+/// where that stopped being true**, exactly as predicted — a
 /// sidecar'd row reads `front_mattered true / rendered false`, because the law
 /// reads the *block* while the fact reads identity. The stored bit is what
 /// actually decided whether this file was parsed, which is why it is the one
 /// printed; the provenance below is what keeps the pair readable.
 ///
-/// **`front_mattered` carries its provenance** (IO.md I8), and the reason is
+/// **`front_mattered` carries its provenance**, and the reason is
 /// this block: once a sidecar can set the fact, `front_mattered true /
 /// rendered false` is unreadable without knowing WHERE identity came from —
 /// a reader would take it for a contradiction. So the line says `true (block)`
 /// or `true (sidecar)`, and the law becomes re-derivable from what is printed.
 /// Both are spelled rather than only the exception: a `true` whose meaning
 /// depends on the absence of a word is the shape this project keeps refusing.
-/// **`output` is the sixth, and it is the join** (IO.md I9). It lands BESIDE
-/// `rendered`, never in place of it: `rendered` is I7c's law (did the pipeline
+/// **`output` is the sixth, and it is the join**. It lands BESIDE
+/// `rendered`, never in place of it: `rendered` is the rendering law (did the pipeline
 /// parse this file), `output` is §2's join (does this row land, and where), and
 /// the corpus disagrees about them in both directions — a byte copy reads
 /// `rendered false` with an output, and a claimed row reads `rendered true`
 /// with none.
 ///
 /// The line prints the URL, or `-` for the three shapes that land nowhere —
-/// **and the two that have a name say it**, for I8's reason one field over: a
+/// **and the two that have a name say it**, for the sidecar reason one field over: a
 /// `-` sitting two lines under `url /recipes/` reads as a contradiction unless
 /// the reader already knows q45, and a value whose meaning depends on
 /// knowledge the surface withholds is the shape this project keeps refusing.
@@ -427,7 +427,7 @@ pub fn value_text(v: &crate::filter::Value) -> String {
 /// answer it will always give one), and a row no rule routed gets the bare
 /// dash, which is then the only thing a bare dash can mean.
 ///
-/// **`strong_url` is the seventh** (IO.md §4a, I11) — the row's other address
+/// **`strong_url` is the seventh** — the row's other address
 /// slot, printed only where there is one, because a `-` on every row of every
 /// site would say the policy is off rather than that the row is routed. Where
 /// it IS printed, `url` is empty and the `output` dash reads *embed-addressed*:
@@ -459,7 +459,7 @@ pub fn row_facts(r: &crate::model::Row) -> String {
     )
 }
 
-/// The join's two list fields, as `explain` prints them (IO.md §2).
+/// The join's two list fields, as `explain` prints them.
 ///
 /// A capped list rather than a count: on grack.com a post is carried by five
 /// or six listings and a fold's `inputs` is the whole site, so the useful
@@ -471,7 +471,7 @@ pub fn join_list(name: &str, keys: &[crate::model::Key]) -> String {
 }
 
 /// `join_list`'s shape over already-rendered lines — what `pull` prints its
-/// edge list and its work order with (IO.md §5). One formatter, because two
+/// edge list and its work order with. One formatter, because two
 /// surfaces that cap differently are two surfaces a reader has to learn.
 pub fn capped_list(name: &str, lines: &[String]) -> String {
     const SHOWN: usize = 8;
@@ -492,21 +492,21 @@ pub fn capped_list(name: &str, lines: &[String]) -> String {
 /// the row by name, then every other declared field.
 ///
 /// **A cascade key is two things at once**, and that is the whole bug this
-/// closes (IO.md IR3). MERGE.md C1 declared `theme`/`shell`/`slot` in the
+/// closes. The base declares `theme`/`shell`/`slot` in its
 /// base `[schema]` so a marker's or a rule's value for one of them travels
 /// the same typed cascade as any other field — which makes each of them a
 /// named field on `Row` *and* a column in `Row.fields`. A surface that prints
 /// the named field and then dumps the columns prints it twice: `explain` did,
 /// for every row that resolved a `layout`.
 ///
-/// **The named line wins and the dump skips the name**, following IR2's
+/// **The named line wins and the dump skips the name**, following the facts pass's
 /// resolution for `shell`, because only the named line can answer for a row
 /// that resolved nothing — the dump prints a field only where a value landed,
 /// so its silence is indistinguishable from "no such key". Hence `-` for an
 /// unresolved `theme` or `slot`.
 ///
 /// `shell` is printed one block up, by `row_facts` — it is there because it is
-/// one of the three facts that replaced `kind` (IR2), not because it belongs
+/// one of the three facts that replaced `kind`, not because it belongs
 /// to a different family. The skip below covers the cascade list.
 pub fn row_fields(r: &crate::model::Row) -> String {
     let slot = match r.fields.get("slot") {

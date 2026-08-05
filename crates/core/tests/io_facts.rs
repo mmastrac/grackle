@@ -1,4 +1,4 @@
-//! `front_mattered`, and what it does and does not agree with (IO.md §3, I1).
+//! `front_mattered`, and what it does and does not agree with.
 //!
 //! A whole site rendered once, so it belongs with the fixtures by `fixtures.rs`'s
 //! own line ("if the subject is *a site*, it belongs here"). It is not a fixture
@@ -25,7 +25,7 @@ use support::sitemap_urls as urls;
 /// - an `.html` with no block, and a `.txt` — bytes copied verbatim.
 ///
 /// The probes are the sitemap's shape — a fold shell with no `from`, so it
-/// reads every output (IO.md §4) — which is the shape the corpus filters this
+/// reads every output — which is the shape the corpus filters this
 /// item migrates are written in.
 fn site(who: &str) -> PathBuf {
     let files = [

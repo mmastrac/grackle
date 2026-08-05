@@ -1,4 +1,4 @@
-# Two subtrees, one field name, two types (MERGE.md A4).
+# Two subtrees, one field name, two types.
 #
 # `books/.schema.toml` says `series` is an int; `notes/.schema.toml` says it
 # is a string. Neither directory is inside the other, so §5b's nearest-wins

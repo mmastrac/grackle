@@ -1,4 +1,4 @@
-# The fence: a profile may never change what LOADS (§4a, MERGE.md E2).
+# The fence: a profile may never change what LOADS (§4a).
 #
 # `[profiles.drafts.collections]` is the whole of this fixture. It is a
 # perfectly good config table — that is the danger — and merged over the

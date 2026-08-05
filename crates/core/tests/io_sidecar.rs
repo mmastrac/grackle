@@ -1,6 +1,6 @@
-//! Sidecars: identity for a file that cannot carry a block (IO.md I8).
+//! Sidecars: identity for a file that cannot carry a block.
 //!
-//! IO.md §1 says identity comes from "a literal block, or a sidecar file", and
+//! Identity comes from "a literal block, or a sidecar file", and
 //! §3 says what the second spelling buys: **sidecars split identity from
 //! parsing**. A `.png` with a sidecar is a governed row — declared fields,
 //! schema-validated, a title, a place in the link graph — whose bytes are never
@@ -15,6 +15,9 @@
 //!
 //! No corpus site uses a sidecar, so parity is free and every guard here is the
 //! capability's only evidence.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::SiteDb;
 use grackle_db::Value;
@@ -36,7 +39,7 @@ const PNG: &[u8] = &[
 
 /// A site inheriting the base — so the objects rule, the tree rules and the
 /// front-matter gate are the real ones rather than a fixture's idea of them.
-/// The site routes its own images (IO.md I11: the base routes none), because
+/// The site routes its own images, because
 /// every claim below is about a governed image's own address — `/assets/
 /// kite.png`, the bytes it ships there, the picture refusal that advises a
 /// route — and an embed-addressed row has no address of its own to make those
@@ -57,7 +60,7 @@ fn row<'a>(db: &'a SiteDb, rel: &str) -> &'a grackle_core::model::Row {
         .unwrap_or_else(|| panic!("no row for {rel}"))
 }
 
-/// **The headline** (IO.md §3): a `.png` with a sidecar is a governed row whose
+/// **The headline**: a `.png` with a sidecar is a governed row whose
 /// bytes are never parsed.
 ///
 /// Every clause of that sentence is a separate assertion, because they come
@@ -108,7 +111,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     let db = load(&dir);
 
     let kite = row(&db, "assets/kite.png");
-    assert!(kite.front_mattered, "a sidecar is identity (IO.md §1)");
+    assert!(kite.front_mattered, "a sidecar is identity");
     assert!(
         kite.sidecar,
         "and `explain` can say which of the two it was"
@@ -116,7 +119,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     assert!(
         !kite.rendered,
         "identity from a sidecar says nothing about the file's bytes — the \
-         split IO.md §3 calls the feature"
+         split that is the whole feature"
     );
     assert_eq!(kite.body_bytes, 0, "nothing read the image as a body");
     assert_eq!(kite.title.as_deref(), Some("A red kite"));
@@ -132,7 +135,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     );
     assert!(
         db.object_ix.contains(&kite.key),
-        "and still an object row (IO.md I7e's extension fact, not identity)"
+        "and still an object row"
     );
 
     // The control: the image beside it, with no sidecar, is what it was.
@@ -154,8 +157,8 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     );
     assert_eq!(out.get("/assets/plain.png").map(Vec::as_slice), Some(PNG));
 
-    // IO.md I8's `explain` line: the fact carries its provenance, because
-    // `true` beside `rendered false` is unreadable without it. And IO.md I9's:
+    // The `explain` line: the fact carries its provenance, because
+    // `true` beside `rendered false` is unreadable without it. And the join's:
     // a sidecar'd row's OUTPUT is its bytes — identity without content lands
     // exactly where the file always did, which is the third pair the block
     // teaches (`front_mattered true / rendered false / output <the file>`).
@@ -174,7 +177,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **A sidecar is governed like any block** (IO.md §5b): an undeclared key is a
+/// **A sidecar is governed like any block**: an undeclared key is a
 /// load error naming the knowns — and it names the SIDECAR, which is the file
 /// the author has to edit.
 ///
@@ -202,8 +205,7 @@ fn an_undeclared_key_in_a_sidecar_is_a_load_error_naming_the_knowns() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **Two sources of identity, no order between them** (IO.md I8, MERGE.md A5's
-/// family): a file carrying a block AND wearing a sidecar is a load error.
+/// **Two sources of identity, no order between them**: a file carrying a block AND wearing a sidecar is a load error.
 ///
 /// The alternative was a precedence rule, and the argument against it is that
 /// there is no honest one to write: a sidecar exists for files that CANNOT
@@ -232,8 +234,7 @@ fn a_block_and_a_sidecar_on_one_file_is_a_load_error() {
 }
 
 /// **The sidecar is a declaration, not content** — no route, no bytes, not in
-/// the URL set (IO.md I8, the statement `Markers::is_marker` makes one family
-/// over).
+/// the URL set.
 ///
 /// The control is the whole reason the mechanism keys on the PAIR rather than
 /// on the name: `netlify.toml` at the site root names no file beside it, so it
@@ -277,8 +278,7 @@ fn a_sidecar_is_not_a_row_and_a_lone_toml_still_is() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **A sidecar'd row is not degenerate**, because it has a name (IO.md §1's
-/// softening: the warning nudges an UNNAMED row towards a name).
+/// **A sidecar'd row is not degenerate**, because it has a name.
 ///
 /// This is the one place `renders` and `degenerate` visibly disagree about
 /// which question to ask — the law reads the block, the warning reads identity
@@ -351,7 +351,7 @@ fn a_sidecard_row_earns_no_degeneracy_warning() {
     let _ = std::fs::remove_dir_all(&dir2);
 }
 
-/// **A place in the link graph** (IO.md §3): an image field is a foreign key to
+/// **A place in the link graph**: an image field is a foreign key to
 /// a row, and a sidecar'd image is that row — carrying the alt text the field's
 /// consumer will want.
 ///
@@ -451,7 +451,7 @@ fn editing_a_sidecar_moves_the_rows_version() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The description page is refused, and no item owns it** (IO.md §4a).
+/// **The description page is refused, and no item owns it**.
 ///
 /// An image with a sidecar CAN wear an html output in the model — that is the
 /// object's description page — and it needs an output whose content is not the
@@ -506,7 +506,7 @@ fn a_picture_may_not_wear_a_document_shell() {
 /// **A sidecar is read on the DECLARATION walk**, and this is what that buys:
 /// a file-shaped `exclude` pattern is a statement about *content* — grack.com's
 /// `exclude` lists `*.toml` — and it must not silently unspeak an identity
-/// declaration. MERGE.md R1's narrowing, one declaration family newer.
+/// declaration. The markers' narrowing again, one declaration family newer.
 ///
 /// Mutation: read sidecars on the content walk instead and this site loses
 /// every sidecar it has, silently, with the images still shipping — the

@@ -1,4 +1,4 @@
-//! The embed policy and strong URLs (IO.md §4a, item I11).
+//! The embed policy and strong URLs.
 //!
 //! What this file holds is one sentence with five consequences: **an output
 //! has two address slots, and which one a citation takes is decided by the
@@ -20,6 +20,9 @@
 //! Built sites throughout: every claim above is about what the finished output
 //! contains or about a fact the render pass writes, and the two the load
 //! alone can answer say so where they are asserted.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::Graph;
 use grackle_core::model::{Key, SiteDb};
@@ -235,7 +238,7 @@ fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
     assert!(
         !out.contains_key(&addr(&png_variant(2))),
         "an asset no rule routes and nothing embeds ships nowhere — the pull \
-         is the garbage collector (IO.md §4a)"
+         is the garbage collector"
     );
 
     // The row side of the same three facts.
@@ -252,7 +255,7 @@ fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
     );
 }
 
-/// **The address is computable at planning** — IO.md §4a's hashing law, which
+/// **The address is computable at planning** — the hashing law, which
 /// is what keeps §1's "facts at planning; content at materialization" true of
 /// an output whose whole address is a hash.
 ///
@@ -290,7 +293,7 @@ fn the_address_is_the_inputs_and_the_parameters() {
     );
 }
 
-/// **The untransformed-twin rule** (IO.md §4a's third bullet), live.
+/// **The untransformed-twin rule**, live.
 ///
 /// Three files hold one byte string. One is ROUTED, so its citations take its
 /// canonical address and its bytes ship there. The other two are
@@ -400,7 +403,7 @@ fn a_strong_citation_produces_the_inputs_edge() {
     );
 }
 
-/// **An authored link demands a route** (IO.md §4a's second bullet), with the
+/// **An authored link demands a route**, with the
 /// fix spelled where the author is standing.
 ///
 /// The target is a known row — the resolver found it — and the config declined
@@ -531,7 +534,7 @@ fn a_rule_may_not_declare_two_addresses() {
     assert!(e.contains("configures nothing"), "the dead key: {e}");
 }
 
-/// **The `{hash}` route token** (IO.md §4a's fourth bullet): a site that wants
+/// **The `{hash}` route token**: a site that wants
 /// hashed CANONICAL addresses says so in a route template, and gets the same
 /// string the policy would have minted.
 ///

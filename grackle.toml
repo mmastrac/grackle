@@ -47,7 +47,7 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}", "{date.month}-{date.day}-{
 
   # A defaults-only rule scoping a directory, so it names no extension: what it
   # says is about where a file sits, not what kind it is. (It still CLAIMS what
-  # it matches — IO.md I7d — so a non-markdown file under `_posts/hidden/`
+  # it matches — so a non-markdown file under `_posts/hidden/`
   # would be a load error naming it rather than a silent skip. There is no such
   # directory today: this rule has governed no rows since it was written, and
   # the build says so on stderr.)
@@ -76,14 +76,14 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}", "{date.month}-{date.day}-{
 source = "_drafts"
 # The whole stem is the slug: a draft has no date until it is published, so
 # `{slug}` is the honest format rather than a date the file does not carry.
-# It is the DEFAULT for this collection's rules (§4, IO.md I6) — a rule of its
+# It is the DEFAULT for this collection's rules (§4) — a rule of its
 # own may name another, and none here does.
 file = ["{slug}"]
 
   # The rule's glob names the extensions this scope claims, and here that is
   # load-bearing rather than tidy: `_drafts/caret/` holds a draft and eighteen
   # files beside it — fifteen images the draft cites with relative paths, an
-  # `.rtf` and an `.xcf`. **A scope owns its source** (IO.md I7d), so what this
+  # `.rtf` and an `.xcf`. **A scope owns its source**, so what this
   # rule does not claim is not content at all: not objects, not byte copies,
   # nothing. Widen this glob and the bundle joins the site.
 
@@ -93,9 +93,9 @@ file = ["{slug}"]
   # to inherit from, so its rows resolved no shell at all and reached the
   # themed rendering through the renderer's legacy `layout:` fallback. Saying
   # it here is what makes the drafts' serialization a declared fact like every
-  # other row's (IO.md §4, "defaults are declared, not built in") — and it is
+  # other row's ("defaults are declared, not built in") — and it is
   # what the rendering law reads, since a draft may carry no front-matter
-  # block at all (IO.md I7c: `front_mattered || shell ∈ {html, light_html}`).
+  # block at all (`front_mattered || shell ∈ {html, light_html}`).
   [[collections.rules]]
   match = "**/*.{md,markdown}"
   defaults = { draft = true, shell = "html" }

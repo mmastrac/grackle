@@ -49,7 +49,7 @@ source = "."
   route = "/{dir}/{stem}/"
 
 # `order_by` is declared: lexical-by-luck is not a contract. The path scope is
-# a `where` clause (MERGE.md G2) — `path` is a column of the OBJECT schema, so
+# a `where` clause — `path` is a column of the OBJECT schema, so
 # the narrow vocabulary type-checks it and still refuses `draft`.
 [routes.gallery]
 path = "/photos/"

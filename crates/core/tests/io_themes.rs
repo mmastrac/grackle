@@ -1,5 +1,5 @@
-//! Theme sources are not content (IO.md I7b), and they declare nothing about
-//! the site that hosts them (IO.md IR6).
+//! Theme sources are not content, and they declare nothing about
+//! the site that hosts them.
 //!
 //! A site-root `themes/` is engine vocabulary by POSITION — the class
 //! `.slots/`, `.section`, `.schema.toml` and the config file itself already
@@ -13,6 +13,9 @@
 //! exists would pass against an engine that emitted the file anyway. The
 //! declaration half is the other way round — a declaration publishes nothing,
 //! and its whole effect is a name in the loaded site's vocabulary.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -193,14 +196,14 @@ fn the_tree_collections_exclude_still_works() {
 }
 
 // ---------------------------------------------------------------------------
-// The declaration walks (IO.md IR6).
+// The declaration walks.
 //
 // I7b's rule was content-only, and deliberately so: the marker walk and the
 // `.schema.toml`/`.section` vocabulary walk kept descending `themes/`. A
 // declaration is the one thing a directory can put into a site without owning
 // a row of it — `Schemas::declared` flattens every rung into ONE site-wide
 // field list — so a theme shipping a `.schema.toml` type-checks names into its
-// host's `where` clauses. That is MERGE.md R1's `cover` leak at the directory
+// host's `where` clauses. That is the `cover` leak again, at the directory
 // I7b had just called build input.
 //
 // The end-to-end proof is the `theme-schema` fixture (a host `where` naming
@@ -210,7 +213,7 @@ fn the_tree_collections_exclude_still_works() {
 
 /// The markers the base config would ship, for a site that declines the base —
 /// with `draft` declared at the site rung beside them, because a default naming
-/// a field no schema declares is a load error (MERGE.md C1) and with the hatch
+/// a field no schema declares is a load error and with the hatch
 /// open the theme's `root.html` becomes a row the theme's own marker governs.
 const MARKERS: &str =
     "\n[schema]\ndraft = { type = \"bool\" }\n\n[markers]\n\".draft\" = { draft = true }\n";
@@ -245,7 +248,7 @@ fn a_themes_declarations_are_not_the_sites() {
     // The marker half is inert in OUTPUT — a marker governs the directory it
     // sits in, and no row under `themes/` is content (I7b), so there is no
     // page whose bytes could move. It is not unmeasurable, though, which is
-    // where this differs from MERGE.md R1's markers note: the census counts
+    // where this differs from the markers note: the census counts
     // what the walk found, and it must count the control alone.
     assert_eq!(markers, 1, "the marker census counted a theme's marker");
 
@@ -264,7 +267,7 @@ fn a_themes_declarations_are_not_the_sites() {
 /// bolted shut for declarations and a site has no spelling left. Weaken it to
 /// `included` (the file question) and it fails too: `themes/**` matches
 /// `themes/x`, never `themes`, so the one spelling every site writes would
-/// open nothing (MERGE.md R2).
+/// open nothing.
 #[test]
 fn include_is_the_escape_hatch_for_declarations_too() {
     let dir = site_of(

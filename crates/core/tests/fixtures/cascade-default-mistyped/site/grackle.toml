@@ -1,4 +1,4 @@
-# A rule default for a declared bool is type-checked (MERGE.md C1). `toc` is
+# A rule default for a declared bool is type-checked. `toc` is
 # declared `bool` — by `base.toml`'s `[schema]`, like `draft` beside it — so
 # `toc = "true"` names a type nothing can read.
 #

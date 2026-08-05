@@ -22,7 +22,7 @@ pub struct Ctx<'a> {
     pub includes: Option<PathBuf>,
     pub site: Option<&'a Site<'a>>,
     /// One demand — a source path and the rendition it asked for — to the
-    /// output the pre-pass materialized for it (§6b, IO.md §4a): the published
+    /// output the pre-pass materialized for it (§6b): the published
     /// URL, and the dimensions that let the tag emit `width`/`height` so a body
     /// image reserves its space (q26). Keyed by the whole ASK, because two asks
     /// for one image are two outputs. When absent, `{% image %}` falls back to
@@ -38,7 +38,7 @@ pub struct Ctx<'a> {
     /// The row being expanded, against which a widget's expression arguments
     /// evaluate. None disables expression arguments.
     pub row: Option<&'a crate::model::Row>,
-    /// IO.md §4a: the address book, for the affordances this expander
+    /// The address book, for the affordances this expander
     /// generates. None leaves `{% image %}` with the source path it was given,
     /// which is what every caller that has no `LinkSpace` (the unit tests) is
     /// asking for.
@@ -163,17 +163,17 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
     let t = image_tag(arg).map_err(|e| anyhow::anyhow!("{}: {e}", cx.source))?;
     let (mode, src) = (t.mode, t.src.as_str());
     // The lookup is keyed by the WHOLE ask, so a page asking 256 and a page
-    // asking 512 of one image reach two different outputs (IO.md §4a: an
+    // asking 512 of one image reach two different outputs (an
     // image's rendition set is the union of its consumers' asks).
     let thumb = cx.thumbs.and_then(|m| m.get(&t.ask()));
-    // IO.md §4a's lightbox chain, as far as I11 takes it. The `<a>` is an
+    // The lightbox chain, as far as it is built. The `<a>` is an
     // EXPANSION AFFORDANCE — markup this expander generates, not a link a
     // human wrote — so it is entitled to the strong address, which is exactly
     // what the design's worked example says the full-size expansion uses. A
     // routed asset keeps its canonical address here, byte for byte, because a
     // routed output wins; only a row no rule routed reaches for the hash.
     //
-    // The THIRD URL still waits, and I12 measured why rather than inheriting
+    // The THIRD URL still waits, measured rather than inherited:
     // the note: the example wants a download link at the canonical route
     // BESIDE the expansion, and that is a second element on 194 corpus tags —
     // a byte change on every post that shows a picture, which is Matt's call
@@ -549,7 +549,7 @@ mod tests {
         );
     }
 
-    /// **The citing edge carries the parameters** (IO.md §4a): the ask is
+    /// **The citing edge carries the parameters**: the ask is
     /// written where the citation is, and two pages asking different widths of
     /// one image are two demands rather than one.
     ///

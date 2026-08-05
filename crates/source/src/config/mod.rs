@@ -49,7 +49,7 @@ impl Config {
     pub fn load_profile(path: &Path, profile: Option<&str>) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        // Projection is inside from_toml on merged TOML (MERGE.md E2).
+        // Projection is inside from_toml on merged TOML.
         let mut cfg = Config::from_toml_profile(&text, profile)
             .with_context(|| format!("parsing config {}", path.display()))?;
         cfg.dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -76,7 +76,7 @@ impl Config {
         }
     }
 
-    /// Merged TOML with provenance (`--effective`, MERGE.md B3). Pre-deserialize
+    /// Merged TOML with provenance (`--effective`). Pre-deserialize
     /// so rejected configs still show what the engine saw.
     pub fn effective(path: &Path, profile: Option<&str>) -> Result<String> {
         let text = std::fs::read_to_string(path)
@@ -114,7 +114,7 @@ impl Config {
         let mut preamble = format!("# The effective config for {label}.\n#\n");
         preamble.push_str(if inherits_base {
             "# This site's grackle.toml merged over the base config compiled into\n\
-             # the engine (DESIGN.md §4d, MERGE.md §3A). It is the table the\n\
+             # the engine (DESIGN.md §4d). It is the table the\n\
              # deserializer is handed — not a diff of the two files: the merge\n\
              # itself recorded where every line below came from.\n"
         } else {
@@ -122,7 +122,7 @@ impl Config {
              # whole config, and every key below is its own (DESIGN.md §4d).\n"
         });
         if let Some(name) = profile {
-            // MERGE.md C6e: preamble must match a real projection.
+            // The preamble must match a real projection.
             let declared = merged.get("profiles").and_then(|p| p.as_table());
             let mut known: Vec<&str> = declared
                 .map(|t| t.keys().map(String::as_str).collect())
@@ -170,8 +170,8 @@ impl Config {
         Config::from_toml_profile(text, None)
     }
 
-    /// Project through `profile` between base merge and deserialize (§4a,
-    /// MERGE.md E2). Dry-runs every declared profile when none selected (R5).
+    /// Project through `profile` between base merge and deserialize (§4a).
+    /// Dry-runs every declared profile when none is selected.
     pub fn from_toml_profile(text: &str, profile: Option<&str>) -> Result<Config> {
         let value: toml::Value = toml::from_str(text)?;
         let inherits_base = Config::extends_of(&value)?;
@@ -210,7 +210,7 @@ impl Config {
             Ok(c) => c,
             Err(e) => {
                 // Prefer site-text error when message() matches (spans); else
-                // merged error (MERGE.md R7: bare site may miss base-supplied fields).
+                // merged error.
                 return match toml::from_str::<Config>(text) {
                     Err(spanned) if spanned.message() == e.message() => {
                         Err(anyhow::Error::new(spanned))
@@ -237,7 +237,7 @@ impl Config {
         cfg.check_rule_address()?;
         if let Some(name) = profile {
             cfg.forced = forced.into_iter().collect();
-            // Attribute profile-written filters (MERGE.md C6a).
+            // Attribute profile-written filters.
             for vname in &patched {
                 if let Some(v) = cfg.views.get_mut(vname) {
                     v.filter_profile = Some(name.to_string());
@@ -245,8 +245,8 @@ impl Config {
             }
             cfg.profile = Some(name.to_string());
         } else {
-            // Dry-run every declared profile (MERGE.md R5). No resolve_default_content:
-            // no dir here; it only adds errors (MERGE.md §6, E2).
+            // Dry-run every declared profile. No resolve_default_content:
+            // no dir here; it only adds errors.
             for name in cfg.profiles.keys() {
                 Config::from_toml_profile(text, Some(name))
                     .and_then(|p| p.validate())
@@ -689,12 +689,12 @@ impl Config {
     }
 
     /// Terminated `from`: collection or same-kind union (§5c). `*` is invalid
-    /// (IO.md I3); see [`whose_from`] for carrier vs asked.
+    ///; see [`whose_from`] for carrier vs asked.
     fn check_base(&self, carrier: &str, asked: &str, from: &From) -> Result<()> {
         if matches!(from, From::One(s) if s == "*") {
             anyhow::bail!(
                 "{carrier}: `from = \"*\"` names nothing — the star spelling is \
-                 gone (IO.md §4). A fold shell reads every output by having no \
+                 gone. A fold shell reads every output by having no \
                  `from` at all, so delete the line: the `shell` ({}) is what \
                  says this folds the pool.{}",
                 crate::shell::FOLD.join(", "),
@@ -735,7 +735,7 @@ impl Config {
         Ok(())
     }
 
-    /// Note when bad `from` is on a different / inherited view (MERGE.md C7b).
+    /// Note when bad `from` is on a different / inherited view.
     fn whose_from(&self, carrier: &str, asked: &str) -> String {
         let mut note = String::new();
         if carrier != asked {

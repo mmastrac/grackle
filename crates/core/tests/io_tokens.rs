@@ -1,4 +1,4 @@
-//! One route-token supplier (IO.md I6, DESIGN.md q51).
+//! One route-token supplier.
 //!
 //! Every test here is a whole site loaded once, because the subject is a
 //! *seam*: which tokens a rule's route template may spend was decided in two
@@ -8,6 +8,9 @@
 //!
 //! Rendering is not needed and not done: routing is settled at load, which is
 //! also what makes the failure cases *load errors* rather than 404s (§4).
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 

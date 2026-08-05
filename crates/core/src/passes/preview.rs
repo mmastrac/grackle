@@ -233,7 +233,7 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
 /// The collection at the base of a view's `from` chain — whose role (read off
 /// its `source`, now that `kind` is gone) decides which render pass owns the
 /// view's routes. None for a fold over every output, which has no collection
-/// under it (IO.md §4).
+/// under it.
 pub(crate) fn view_base_collection<'a>(cfg: &'a Config, view: &str) -> Option<&'a Collection> {
     // A union's members share a role — they share a `from` vocabulary — so the
     // first answers for the whole base.

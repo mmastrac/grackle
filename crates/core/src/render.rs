@@ -650,7 +650,7 @@ pub enum Theme {
 /// §5g: the engine-owned ROOT HTML SHELL every theme inherits — doctype,
 /// `<html>` stamped with the root kind and any subtheme tokens, `<head>`
 /// from the computed facts, `<body>` from the theme's body chrome. A theme
-/// may ship a document-shaped `root.html` (IO.md §6), but what it ships is
+/// may ship a document-shaped `root.html`, but what it ships is
 /// chrome and `<style>`: the skeleton is the engine's, and a fragmentless
 /// (null) theme still produces a valid document.
 pub fn root_shell(

@@ -1,10 +1,10 @@
-//! What `grackle explain` says a row IS (IO.md §3, IR2 and IR3).
+//! What `grackle explain` says a row IS.
 //!
 //! The line under test used to be `println!("kind        post")` — a literal,
 //! printed for every row, so a `.txt` copied verbatim reported itself a post.
 //! A literal passes any test written against one row shape, so this asserts
 //! the block for **two rows that must disagree in every fact**: a post with a
-//! front-matter block, and a byte copy with none. Since IO.md I7d the block
+//! front-matter block, and a byte copy with none. The block also
 //! carries a fourth, `rule` — the glob that CLAIMED the row, which is the
 //! ordering law's one observable and the only way to ask why a file landed in
 //! the scope it did.
@@ -20,17 +20,20 @@
 //! loader earns its place there for the same reason — whether a value reaches
 //! both places is a fact about the load, not about the printer.
 //!
-//! The third covers IO.md IR7's `rendered` line — the one DERIVED value in the
+//! The third covers the `rendered` line — the one DERIVED value in the
 //! block, and the only one a reader cannot read off the file. It needs four
 //! rows rather than two, because the law it prints is a disjunction and each
 //! clause has a shape that is the only witness against getting it wrong.
 //!
-//! `front_mattered` carries its PROVENANCE from IO.md I8 — `true (block)` here,
+//! `front_mattered` carries its PROVENANCE — `true (block)` here,
 //! `true (sidecar)` on a row whose identity arrived from a second file — because
 //! once the fact has two sources the law stops being re-derivable from the
 //! printed pair. The sidecar half is pinned in `io_sidecar.rs`, beside the
 //! mechanism it is about; what these two rows hold is the other half, which is
 //! that identity written IN the file still says so.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
 
@@ -80,7 +83,7 @@ fn site(whose: &str) -> PathBuf {
             "demos/pane.html",
             "---\ntitle: Glass pane\nshell: raw\n---\n<div class=\"pane\"></div>\n",
         ),
-        // The fifth, IO.md I11's: an image the base's objects rule DECLINES to
+        // The fifth: an image the base's objects rule DECLINES to
         // route (`embed = true`), so its address is the policy's. Written as
         // text rather than as PNG bytes because nothing here decodes it — the
         // block under test is about addresses.
@@ -127,7 +130,7 @@ fn explain_reads_the_row_rather_than_a_literal() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The two address slots, as `explain` prints them** (IO.md §4a, I11).
+/// **The two address slots, as `explain` prints them**.
 ///
 /// An embed-addressed row is the one shape where the block's `output` dash has
 /// to be read together with a line ABOVE it: `url` is empty, `output` is a
@@ -177,7 +180,7 @@ fn explain_prints_the_second_address_slot_and_the_reason_for_the_dash() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// IO.md IR7: the block's last line is the rendering law's answer —
+/// The block's last line is the rendering law's answer —
 /// `front_mattered || shell ∈ {html, light_html}` — printed beneath the two
 /// facts it reads, because the derivation is what a reader of `explain` cannot
 /// do in their head from a row they are already confused about.
@@ -235,7 +238,7 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// IO.md IR3: a cascade key is a named field on `Row` AND a declared column in
+/// A cascade key is a named field on `Row` AND a declared column in
 /// `Row.fields`, so `explain` printed cascade keys twice for every row that
 /// had one. Each of `slot`/`theme` lives on exactly one line here; ordinary
 /// declared fields (`toc`, `minutes`, …) appear only in the dump when set.

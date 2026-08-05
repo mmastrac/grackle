@@ -1,4 +1,4 @@
-//! One walk, first rule wins (IO.md I7d).
+//! One walk, first rule wins.
 //!
 //! `read_posts` and `store::load_dir` are gone: there is one walk of the site
 //! root, and which table a file lands in is what the first rule to claim it
@@ -19,6 +19,9 @@
 //! exists would pass against an engine that emitted the file anyway — which is
 //! precisely the failure mode of dropping scope-owns-source (the rows become
 //! on-demand objects, and only a build materializes them).
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -120,7 +123,7 @@ fn claim(dir: &Path, url: &str) -> (String, String) {
 /// s.owned().is_none()`) — `/_drafts/caret/pic.gif` and
 /// `/_drafts/caret/notes.rtf` join the published set, the first by the objects
 /// catch-all and the citation, the second by the tree's passthrough. Measured
-/// on the real corpus too (IO.md §11).
+/// on the real corpus too.
 #[test]
 fn a_scope_owns_its_source_so_a_drafts_bundle_is_not_content() {
     let dir = site(

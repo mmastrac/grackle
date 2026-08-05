@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 pub type Defaults = BTreeMap<String, toml::Value>;
 
-/// Marker meaning is a definition (MERGE.md §7): whole entry shadows by filename.
+/// Marker meaning is a definition: whole entry shadows by filename.
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
 pub struct MarkerDef(pub Defaults);
@@ -65,7 +65,7 @@ impl Markers {
         Ok(m)
     }
 
-    /// Same key from two markers in one directory is an error (MERGE.md A5); disjoint keys compose.
+    /// Same key from two markers in one directory is an error; disjoint keys compose.
     fn fold(
         &mut self,
         dir: &Path,
@@ -281,7 +281,7 @@ mod tests {
         );
     }
 
-    /// Agreement is not a conflict (A4's line, applied here): the walk's
+    /// Agreement is not a conflict (the schema merge's line, applied here): the walk's
     /// order is unobservable when both files write the same value.
     #[test]
     fn two_markers_agreeing_on_a_key_is_legal() {

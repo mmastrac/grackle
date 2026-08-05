@@ -116,7 +116,7 @@ pub(crate) fn render_page_bodies(
     let mut out = HashMap::new();
     for r in &db.routes {
         // `page_bodies` is the PAGE body store, and its being a second store
-        // beside the posts one is why `kind` survives I13 at this line: the
+        // beside the posts one is why `kind` survives at this line: the
         // two are keyed differently (URL here, row key there) and read by
         // different arms of `shells::search::search_pass` and the feed.
         if r.kind != RouteKind::Page {

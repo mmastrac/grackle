@@ -1,5 +1,5 @@
-//! Sidecar files: TOML identity beside a companion file (IO.md I8).
-//! Read on the declaration walk so `*.toml` excludes do not drop them (MERGE.md R1).
+//! Sidecar files: TOML identity beside a companion file.
+//! Read on the declaration walk so `*.toml` excludes do not drop them.
 
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};

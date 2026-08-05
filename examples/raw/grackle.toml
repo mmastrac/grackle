@@ -33,7 +33,7 @@ author = ""
 #
 # The ones below the flags are what the engine still READS by name — theme,
 # shell, slot, locale — declared so that a marker or a rule setting one is
-# type-checked like every other key (MERGE.md C1). Undeclared, they are not
+# type-checked like every other key. Undeclared, they are not
 # silently accepted either: front matter naming one, or a rule defaulting
 # one, is a load error naming the knowns. Their types are the engine's, so
 # those lines are copied exactly or left out. `toc` is with the flags.
@@ -210,7 +210,7 @@ source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   # The glob names what this scope claims — markdown, and only markdown. A
-  # scope owns its source (IO.md I7d), so what no rule here claims is not
+  # scope owns its source, so what no rule here claims is not
   # content: an image sitting in `_posts/` is invisible rather than falling
   # through to the tree.
   [[collections.rules]]
@@ -241,12 +241,11 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   from = "linked_from"
   where = "!(candidate in ancestors)"
 
-# Membership is what this scope's rules claim (IO.md I7a): the extension list
+# Membership is what this scope's rules claim: the extension list
 # is the glob, case-insensitively. The shell is declared like every other
-# rule's — an image leaves through the transparent one (IO.md I7e: one row
-# constructor, so an object takes rule defaults like any other row).
+# rule's — an image leaves through the transparent one (so an object takes rule defaults like any other row).
 #
-# `embed = true` transcribes the base faithfully (IO.md §4a, I11): the base
+# `embed = true` transcribes the base faithfully: the base
 # routes no image, so neither does this. This site has none, so the line is
 # what the transcription says rather than what it does — swap it for
 # `route = "/{path}"` and images land at their literal paths, which is what a
@@ -260,7 +259,7 @@ name = "objects"
   defaults = { shell = "raw" }
 
 # The shell each row leaves through is declared here, not decided in the
-# renderer (IO.md §4). Rule defaults apply wherever a rule MATCHES rather than
+# renderer. Rule defaults apply wherever a rule MATCHES rather than
 # only where it wins the route, so the index rule needs none of its own: a
 # front-mattered `index.md` takes `html` from the second rule, a static
 # `index.html` takes `raw` from the third.

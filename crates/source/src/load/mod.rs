@@ -90,7 +90,7 @@ fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<Str
         .collect()
 }
 
-/// Sourced scope offered files but claimed none: `offered > 0 && found == 0` (IO.md IR8).
+/// Sourced scope offered files but claimed none: `offered > 0 && found == 0`.
 fn empty_source(scope: &Scope) -> Option<String> {
     let source = scope.owned()?;
     if scope.offered.get() == 0 || scope.found.get() > 0 {
@@ -106,7 +106,7 @@ fn empty_source(scope: &Scope) -> Option<String> {
     Some(format!(
         "collection {}: `source = {:?}` offered {n} file{} and no rule of this \
          scope claimed one — the collection is empty, and because a scope owns \
-         its source those files are not content and ship nowhere (IO.md I7d). \
+         its source those files are not content and ship nowhere. \
          The globs asked: {globs}. Fix a glob, or move the files out of {}.",
         scope.name,
         source,
@@ -125,7 +125,7 @@ fn implied_title(slug: &str) -> String {
 fn degenerate_warning(rel: &Path, shell: &str, title: &str) -> String {
     format!(
         "{}: no front-matter block, but a rule sends it through the \
-         `{shell}` shell — so it renders as a degenerate row (IO.md §1) whose \
+         `{shell}` shell — so it renders as a degenerate row whose \
          title is implied from its slug: {title:?}. Add a `---` block to give \
          it identity, or route it `shell = \"raw\"` to ship it as bytes.",
         rel.display()
@@ -216,7 +216,7 @@ fn apply_rules<'a>(
     }
 }
 
-/// Embed policy address at load (IO.md §4a, I11), or error if unreachable.
+/// Embed policy address at load, or error if unreachable.
 fn embed_address(
     cfg: &Config,
     subset: &Option<GlobSet>,
@@ -308,7 +308,7 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
     })
 }
 
-/// Profile forced fields on every route; view routes have no row (§2, MERGE.md E1).
+/// Profile forced fields on every route; view routes have no row (§2).
 /// After all routes exist, before `resolve_pool_folds` filters them.
 fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     if cfg.forced.is_empty() {
@@ -414,7 +414,7 @@ fn path_tokens(rel: &Path, k: &str) -> Option<String> {
 
 const PATH_TOKENS: &[&str] = &["path", "dir", "stem", "name", "ext"];
 
-/// Route-token supplier for one row (IO.md I6).
+/// Route-token supplier for one row.
 struct RouteTokens<'a> {
     cfg: &'a Config,
     rel: &'a Path,
@@ -584,7 +584,7 @@ impl Scope<'_> {
     }
 }
 
-/// Scopes in walk order: deepest sourced first, then sourceless, then root (IO.md I7d).
+/// Scopes in walk order: deepest sourced first, then sourceless, then root.
 fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
     let axes = cfg.axis_values_for_file();
     let mut out: Vec<Scope> = Vec::new();
@@ -1142,7 +1142,7 @@ mod cascade_tests {
     /// The whole row-side cascade, in the order `load` runs it: validated
     /// extra (nearest declared fields), cascade_front for named engine keys,
     /// then markers and rules. Driving all three is the point — the type
-    /// checking C1 added lives in the middle call, and a test that only
+    /// checking lives in the middle call, and a test that only
     /// called `cascade` could not see it.
     fn worn(
         schema: &BTreeMap<&str, schema::FieldType>,
@@ -1195,9 +1195,9 @@ mod cascade_tests {
     /// A shell outside the vocabulary must fail loudly — unchecked, a typo
     /// renders the wrong tier in silence.
     ///
-    /// The controls are the whole MAP family (IO.md §4, I2), and the two
+    /// The controls are the whole MAP family, and the two
     /// retired spellings sit in the reject list beside the typo: they are hard
-    /// cutoffs (MERGE.md §4), so `none` and `light` get the same error a
+    /// cutoffs, so `none` and `light` get the same error a
     /// misspelling gets and no teaching sentence of their own.
     ///
     /// Mutation check: delete the `check_row` call in `cascade` and this fails
@@ -1216,7 +1216,7 @@ mod cascade_tests {
         }
     }
 
-    /// The family check, on the row side (IO.md §4): a fold shell eats a
+    /// The family check, on the row side: a fold shell eats a
     /// COLLECTION, so a row wearing one is an arity error that says what atom
     /// eats rather than "unknown word" — the row is one output and there is
     /// nothing for the fold to fold.
@@ -1253,7 +1253,7 @@ mod cascade_tests {
         assert!(e.to_string().contains("is not a shell"), "{e}");
     }
 
-    /// C1: a rule or marker default for a declared field is TYPE-CHECKED.
+    /// A rule or marker default for a declared field is TYPE-CHECKED.
     /// `toc = "true"` used to skip `apply_defaults` entirely and read back
     /// through `as_bool()` — `None`, so `false`, so no outline and nothing said.
     ///
@@ -1370,13 +1370,12 @@ mod cascade_tests {
 }
 
 /// What the load says and does not fail over, driven through the real `load`
-/// on a real (tiny) site — DESIGN.md §4's promised dead-rule warning (MERGE.md
-/// C3).
+/// on a real (tiny) site — DESIGN.md §4's promised dead-rule warning.
 ///
 /// A dead rule's subject is a corpus answering a glob and nothing smaller than
 /// a tree can be that, which is why these tests write sites rather than build
 /// a `Config`. (D1's `bucket` warning was tested here too, and went with the
-/// key in F1 — it was the config-only warning this module doc used to contrast
+/// key — it was the config-only warning this module doc used to contrast
 /// against.)
 #[cfg(test)]
 mod load_warning_tests {
@@ -1567,8 +1566,8 @@ source = "."
     /// A posts scope over a populated source, with one glob and a typo in it
     /// (`markdwn`). Nothing claims the posts; a scope owns its source, so they
     /// leave the walk silently; `dead_rules` sees `found == 0` and says
-    /// nothing. Pre-I7d this was a load error, so the build that used to fail
-    /// now succeeds with an empty blog — IO.md IR8's regression, and the
+    /// nothing. This used to be a load error, so the build that used to fail
+    /// now succeeds with an empty blog — a real regression once shipped, and the
     /// warning is the fix.
     ///
     /// The control is in the same site: the tree scope claims `about.md`, so
@@ -1711,7 +1710,7 @@ source = "."
 }
 
 /// A profile's `where` is accepted exactly where the `where` it replaces is
-/// (§4a, MERGE.md C6a) — which can only be shown on a real tree, because the
+/// (§4a) — which can only be shown on a real tree, because the
 /// half `Config` alone cannot see is the positional `.schema.toml` vocabulary.
 #[cfg(test)]
 mod profile_filter_tests {
@@ -1731,7 +1730,7 @@ mod profile_filter_tests {
     /// A site whose vocabulary is declared POSITIONALLY, with one set and a
     /// profile that restates it. `{filter}` is the profile's `where`.
     ///
-    /// The restatement is the overlay law (MERGE.md E2): a view is a
+    /// The restatement is the overlay law: a view is a
     /// definition, so the profile's entry replaces the site's whole, `from`
     /// and all.
     fn files(filter: &str) -> Vec<(String, String)> {

@@ -1,4 +1,4 @@
-//! The graph (IO.md §5, item I10).
+//! The graph.
 //!
 //! Not a new fact in the database: I9's join gave every output the two columns
 //! that name what it stands on (`inputs`, `route_members`), and this is those
@@ -19,6 +19,9 @@
 //! Built sites where the claim needs bytes (the citation edge exists only
 //! after the write pass; the minted output only after the pull), loaded sites
 //! elsewhere.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::{Demand, Graph, Node};
 use grackle_core::model::Key;
@@ -89,7 +92,7 @@ layout = "card"
 title = "List"
 
 # A fold over the output pool with no `where`: it selects every route,
-# its own included (IO.md §4). Both edge kinds meet here.
+# its own included. Both edge kinds meet here.
 [routes.all]
 path = "/all.xml"
 shell = "sitemap"
@@ -220,8 +223,7 @@ fn one_graph_holds_both_edge_kinds() {
     assert_eq!(needs(&g, &inp("pics/unseen.png")), vec![]);
 }
 
-/// **The pull**: dependencies before dependents, the output last (IO.md §1 —
-/// build is "pull every output", serve is "pull this one").
+/// **The pull**: dependencies before dependents, the output last.
 ///
 /// Tested standalone, because that is the honest shape of this item: `serve`
 /// still rebuilds the world (DESIGN §7), so the entry point exists and has no
@@ -342,8 +344,7 @@ fn a_pool_fold_that_selects_itself_is_not_a_cycle() {
     );
 }
 
-/// **`materialize_referenced` is a pull along the graph's edges** (IO.md §5's
-/// second view).
+/// **`materialize_referenced` is a pull along the graph's edges**.
 ///
 /// A citation names a URL; `db.by_url` is the inputs database's address index,
 /// so resolving one is walking a content edge to the input at its far end. An
@@ -450,7 +451,7 @@ fn an_output_minted_by_the_pull_sees_rung_zero() {
     );
 }
 
-/// **Invalidation is a traversal of this graph** (IO.md §5's remaining view),
+/// **Invalidation is a traversal of this graph**,
 /// and this is the consistency guard that says so with bytes rather than with
 /// prose.
 ///

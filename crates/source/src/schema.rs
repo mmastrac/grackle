@@ -61,9 +61,9 @@ impl FieldType {
 }
 
 /// Engine-read fields by name: theme (§5a), shell (§5g), slot. Declared in
-/// `base.toml` `[schema]` so markers/rules take the typed path (MERGE.md C1).
+/// `base.toml` `[schema]` so markers/rules take the typed path.
 /// Restating at another type is a load error. Public so `debug::row_fields`
-/// can avoid printing cascade keys twice (IO.md IR3).
+/// can avoid printing cascade keys twice.
 pub const CASCADE: &[(&str, FieldType)] = &[
     ("theme", FieldType::Str),
     ("shell", FieldType::Str),
@@ -144,7 +144,7 @@ impl Schemas {
     }
 
     /// Same-rung type disagreement across unrelated dirs is an error
-    /// (MERGE.md A4): nearness orders ancestor/descendant; nothing else does.
+    ///: nearness orders ancestor/descendant; nothing else does.
     fn check_positional_collision(
         &self,
         dir: &Path,
@@ -340,7 +340,7 @@ fn needs_type_error(whose: &str, name: &str) -> anyhow::Error {
 }
 
 /// Parse a declaration table into typed names. Free fn so `Config` can
-/// type-check profile `force` before a [`Schemas`] exists (MERGE.md E1).
+/// type-check profile `force` before a [`Schemas`] exists.
 fn parse_fields(
     table: toml::Table,
     whose: &str,
@@ -451,14 +451,14 @@ fn parse_records_fields(table: &toml::Table, name: &str, whose: &str) -> Result<
     Ok(FieldType::Records { fields })
 }
 
-/// Site `[schema]` alone: what `Config` knows before the tree walk (MERGE.md E1).
+/// Site `[schema]` alone: what `Config` knows before the tree walk.
 /// Profile `force` may only name this rung (not positional/collection schemas).
 pub(crate) fn site_fields(table: &toml::Table, whose: &str) -> Result<BTreeMap<String, FieldType>> {
     Ok(parse_fields(table.clone(), whose, &grackle_model::row_schema())?.0)
 }
 
 /// Fold marker/rule defaults into declared fields (§4b, §4). Front matter
-/// already won those keys; undeclared defaults are a load error (MERGE.md C1).
+/// already won those keys; undeclared defaults are a load error.
 pub fn apply_defaults(
     schema: &BTreeMap<&str, FieldType>,
     defaults: &BTreeMap<&str, &toml::Value>,
@@ -505,7 +505,7 @@ pub fn apply_schema_defaults(
 }
 
 /// Rung 0 (§2): profile `[profiles.NAME.force]` overwrites the ladder
-/// (MERGE.md E1). Runs last (top rung). Real lookup: a nearer `.schema.toml`
+///. Runs last (top rung). Real lookup: a nearer `.schema.toml`
 /// may retype a site-wide name (§5b).
 pub fn force(
     forced: &BTreeMap<String, toml::Value>,
@@ -876,7 +876,7 @@ mod tests {
         assert!(e.contains("author"), "it names the knowns: {e}");
     }
 
-    /// Cascade keys are declared fields (MERGE.md C1); wrong type is an error.
+    /// Cascade keys are declared fields; wrong type is an error.
     #[test]
     fn a_cascade_key_is_typed_like_any_other() {
         let mut s = schemas();
@@ -1220,7 +1220,7 @@ mod tests {
         assert!(e.contains("takes: type, default"), "{e}");
     }
 
-    /// MERGE.md A4: unrelated same-rung type disagreement is an error.
+    /// Unrelated same-rung type disagreement is an error.
     #[test]
     fn a_same_rung_type_disagreement_is_a_load_error() {
         let mut s = Schemas::new(grackle_model::row_schema());
@@ -1316,7 +1316,7 @@ mod tests {
         assert!(e.contains("two collections declare"), "{e}");
     }
 
-    /// Cross-rung redeclaration is nearest-wins, not a collision (MERGE.md B).
+    /// Cross-rung redeclaration is nearest-wins, not a collision.
     #[test]
     fn cross_rung_redeclaration_is_nearest_wins_not_a_collision() {
         let mut s = Schemas::new(grackle_model::row_schema());

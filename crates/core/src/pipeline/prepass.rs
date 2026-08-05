@@ -123,7 +123,7 @@ pub(crate) fn site_icon(cfg: &Config, db: &SiteDb) -> String {
         .unwrap_or_default()
 }
 
-/// Declared theme names vs the registry (MERGE.md C2), before render.
+/// Declared theme names vs the registry, before render.
 /// Name half only — subtheme tokens are CSS fodder. Themeless rows skip
 /// (site default already checked in `load_all`).
 pub(crate) fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Themes) -> Result<()> {
@@ -157,7 +157,7 @@ pub(crate) fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Theme
     Ok(())
 }
 
-/// **Renditions** (§6b, IO.md §4a): collect the DEMAND, run the transform once
+/// **Renditions** (§6b): collect the DEMAND, run the transform once
 /// per distinct ask, publish under `/static/`, and hand the render passes a map
 /// from ask → output so each citation reaches the rendition it asked for.
 ///
@@ -198,7 +198,7 @@ pub(crate) fn thumbs_pass(
     for r in &db.routes {
         // `Page` here means "renders, and its body was not already scanned by
         // the posts loop above" — the second half is what keeps this a `kind`
-        // test after I13. `p.rendered` alone would re-read every post; moving
+        // test after the facts pass. `p.rendered` alone would re-read every post; moving
         // the scan onto rows instead would change WHICH rows are scanned (a
         // claimed row has no route, so it is not scanned today), which is a
         // behaviour change and not this item's.

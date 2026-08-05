@@ -332,10 +332,10 @@ pub fn dir_sources(dir: &Path) -> Result<Vec<(String, String, String)>> {
     Ok(sources)
 }
 
-/// A theme root's two halves (IO.md §6). `style` is the CSS the theme's
+/// A theme root's two halves. `style` is the CSS the theme's
 /// `<head>` declared — the *contents* of its `<style>` elements, not the
 /// head markup, because the head is fenced to `<style>` and the one thing
-/// downstream does with it (I5) is compile it into the site's CSS. `body` is
+/// downstream does with it is compile it into the site's CSS. `body` is
 /// the chrome the binder loads as the `root` kind. Either may be absent —
 /// `None` on both is not reachable, since a file with neither wrapper IS the
 /// body.
@@ -347,7 +347,7 @@ pub struct Root {
 /// Split `root.html` into head styles and body chrome.
 ///
 /// Accepts a bare body fragment, or top-level `<head>`/`<body>`. Refuses
-/// `<html>`/doctype — the engine owns the skeleton (IO.md §6); wrapping would
+/// `<html>`/doctype — the engine owns the skeleton; wrapping would
 /// hide head/body and ship theme metas inside `<body>`.
 pub fn split_root(src: &str, file: &str) -> Result<Root> {
     let nodes = Parser::new(src, file).parse_all()?;
@@ -365,7 +365,7 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
         bail!(
             "{file}:{line}: {what} at the top of a theme root — the engine \
              writes the document skeleton itself: the doctype, and <html> \
-             with its lang, subtheme, profile and axis stamps (IO.md §6). \
+             with its lang, subtheme, profile and axis stamps. \
              Unwrap to a bare <head>/<body> pair, or to the body chrome \
              alone. Inside an <html> the head and body are invisible to \
              this split, so the whole file would become body chrome and the \
@@ -392,7 +392,7 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
             // Whitespace and comments between the halves mean nothing and go
             // nowhere; authored words mean something and have nowhere to go,
             // because a document's top level is not a place to put text. So
-            // they are named rather than dropped in silence (IR4).
+            // they are named rather than dropped in silence.
             Node::Text { text, line } => {
                 if !is_comment(text) && !text.trim().is_empty() {
                     // A text run starts at the newline after `</head>`; the
@@ -403,8 +403,8 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
                     bail!(
                         "{file}:{at}: text beside a theme root's <head>/<body> \
                          (`{}`) — a document-shaped root holds those two and \
-                         nothing else, and the engine writes <html> itself \
-                         (IO.md §6). Move it inside <body>.",
+                         nothing else, and the engine writes <html> itself. \
+                         Move it inside <body>.",
                         snippet(text)
                     );
                 }
@@ -422,13 +422,13 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
             }
             "body" => (&mut root.body, src[el.inner.clone()].to_string()),
             // A `<style>` here is the one sibling with an obvious home that
-            // is NOT the body: the head fence exists to take it (I5 compiles
+            // is NOT the body: the head fence exists to take it (the CSS assembly compiles
             // it into the theme's sheet), so pointing at `<body>` would be
             // advice that lands the theme's CSS in its chrome.
             _ => bail!(
                 "{file}:{}: <{}> beside a theme root's <head>/<body> — a \
                  document-shaped root holds those two and nothing else, and \
-                 the engine writes <html> itself (IO.md §6). Move it inside \
+                 the engine writes <html> itself. Move it inside \
                  {}.",
                 el.line,
                 el.tag,
@@ -476,7 +476,7 @@ fn head_styles(head: &Element, src: &str) -> String {
     out
 }
 
-/// The head fence (IO.md §6): a theme root's `<head>` may hold `<style>` and
+/// The head fence: a theme root's `<head>` may hold `<style>` and
 /// nothing else. Every other element is a load error naming the file and the
 /// element, because the engine computes the head — a theme writing its own
 /// `<title>` or `canonical` link would be shadowed by the engine's on every
@@ -492,7 +492,7 @@ fn check_head_fence(head: &Element, file: &str) -> Result<()> {
         if el.tag != "style" {
             bail!(
                 "{file}:{}: <{}> in a theme root's <head> — a theme head may hold \
-                 <style> and nothing else (IO.md §6). The engine computes the head: \
+                 <style> and nothing else. The engine computes the head: \
                  the title, the charset, the canonical link, the [html.head.*] \
                  tables, hreflang, and the one stylesheet link.",
                 el.line,

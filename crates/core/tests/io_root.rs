@@ -1,5 +1,4 @@
-//! `root.html`: a theme root may be document-shaped (IO.md §6, items I4, I5
-//! and IR4).
+//! `root.html`: a theme root may be document-shaped.
 //!
 //! Five claims, and the first is the one the migration rests on:
 //!
@@ -51,6 +50,9 @@
 //! assert is what a PAGE comes out as, and the head half in particular is
 //! only observable after the computed head, the theme merge and the root
 //! shell have all run.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 

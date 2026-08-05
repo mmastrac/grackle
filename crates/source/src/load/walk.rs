@@ -4,7 +4,7 @@ use super::*;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-/// One walk, scopes in order, first rule wins (IO.md I7d).
+/// One walk, scopes in order, first rule wins.
 pub(crate) fn walk_site(
     cfg: &Config,
     scopes: &[Scope],
@@ -64,7 +64,7 @@ pub(crate) fn walk_site(
 
     let claims = cfg.content_claims();
 
-    // Extension fact (IO.md §7): objects globs, parallel to the rule sequence.
+    // Extension fact: objects globs, parallel to the rule sequence.
     // Drives peek skip, i18n file axis, and objects index; not which scope claims the row.
     let obj_globs: Vec<&GlobMatcher> = scopes
         .iter()
@@ -218,8 +218,8 @@ pub(crate) fn walk_site(
         if rendered && object_shaped {
             bail!(
                 "{}: shell = {:?} would render this file as a document, and its \
-                 bytes are a picture. An image's own outputs are its bytes (IO.md \
-                 §4a); a description PAGE for one is a second output and is not \
+                 bytes are a picture. An image's own outputs are its bytes; \
+                 a description PAGE for one is a second output and is not \
                  built yet. Route it `raw`{}.",
                 f.rel.display(),
                 worn.shell.as_deref().unwrap_or("-"),

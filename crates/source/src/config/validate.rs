@@ -9,7 +9,7 @@ use super::{
 };
 
 impl Config {
-    /// Objects rules may not gate on `front_matter` (IO.md IR9, I7e): shape vs
+    /// Objects rules may not gate on `front_matter`: shape vs
     /// identity would disagree on sidecars.
     pub(crate) fn check_objects_rule_gate(&self) -> Result<()> {
         for (name, c) in &self.collections {
@@ -37,7 +37,7 @@ impl Config {
     }
 
     /// `route` and `embed` are exclusive; `on_demand` beside `embed` is dead
-    /// (IO.md §4a, I11).
+    ///.
     pub(crate) fn check_rule_address(&self) -> Result<()> {
         for (name, c) in &self.collections {
             for r in &c.rules {
@@ -51,7 +51,7 @@ impl Config {
                          `route` mints a canonical URL and a routed output WINS, \
                          so the embed policy beneath it could never be reached. \
                          Keep the route, or delete it and let `/static/` address \
-                         these rows (IO.md §4a).",
+                         these rows.",
                         describe_collection(name, c),
                         r.pattern,
                     );
@@ -62,7 +62,7 @@ impl Config {
                          beside `embed = true`, and `on_demand` defers a ROUTE \
                          this rule does not mint — so it configures nothing. An \
                          embed-addressed row publishes when something embeds it, \
-                         which is the whole of the policy (IO.md §4a). Delete the \
+                         which is the whole of the policy. Delete the \
                          line.",
                         describe_collection(name, c),
                         r.pattern,
@@ -73,7 +73,7 @@ impl Config {
         Ok(())
     }
 
-    /// Fence + rung-0 typing for every declared profile (§4a, MERGE.md E1/E2/R5).
+    /// Fence + rung-0 typing for every declared profile (§4a).
     pub(crate) fn check_profiles(&self) -> Result<()> {
         // Site [schema] only (not .schema.toml); same parser as Schemas::set_site.
         let declared = crate::schema::site_fields(&self.schema.decls, "grackle.toml [schema]")?;
@@ -112,7 +112,7 @@ impl Config {
     }
 
     /// Type-check profile-written `where`s; defer unknown fields until walk
-    /// (MERGE.md C6a/C6b).
+    ///.
     pub(crate) fn check_profile_filters(&self) -> Result<()> {
         for (vname, v) in &self.views {
             let (Some(p), Some(f)) = (v.filter_profile.as_deref(), v.filter.as_deref()) else {
@@ -206,7 +206,7 @@ impl Config {
                 };
                 crate::schema::typed(ty, field, val, &format!("view {vname}"))?;
             }
-            // Sets never land; theme on a set is dead (MERGE.md F3).
+            // Sets never land; theme on a set is dead.
             if v.declared_set && v.theme.is_some() {
                 anyhow::bail!(
                     "[sets.{vname}] declares a theme, and nothing could ever \
@@ -217,7 +217,7 @@ impl Config {
                      query, or drop it."
                 );
             }
-            // Fold shells need a route (IO.md §4, IR1(c)).
+            // Fold shells need a route.
             if v.declared_set {
                 if let Some(s) = v
                     .shell
@@ -334,7 +334,7 @@ impl Config {
                 }
             }
         }
-        // trail must name a subdivision chain (MERGE.md C3).
+        // trail must name a subdivision chain.
         for (cname, c) in &cfg.collections {
             let Some(name) = c.trail.as_deref() else {
                 continue;

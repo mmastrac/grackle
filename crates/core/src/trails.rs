@@ -254,7 +254,7 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             }
         } else if let Some(r) = db.routes.iter().find(|r| {
             // "Is this a view route" is the `view` column being non-empty
-            // (IO.md §3, I13).
+            //.
             r.view.is_some()
                 && r.url == parent
                 // The view's ROOT route, not one of its grouped archives:

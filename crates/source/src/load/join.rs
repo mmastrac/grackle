@@ -3,7 +3,7 @@
 use super::*;
 use anyhow::Result;
 
-/// Join output half (IO.md §2): `output` and `alternates` from routes.
+/// Join output half: `output` and `alternates` from routes.
 /// At planning, before `build_views`; recomputed when q45 retracts routes.
 pub(crate) fn join_outputs(db: &mut SiteDb) {
     let mut by_row: HashMap<grackle_db::Key, (Option<grackle_db::Key>, Vec<grackle_db::Key>)> =
@@ -26,7 +26,7 @@ pub(crate) fn join_outputs(db: &mut SiteDb) {
     }
 }
 
-/// Arrangement half (IO.md §2): `viewed_by` and `inputs` after materialization planning.
+/// Arrangement half: `viewed_by` and `inputs` after materialization planning.
 pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
     let mut viewed_by: HashMap<grackle_db::Key, Vec<grackle_db::Key>> = HashMap::new();
     for r in db.routes.iter() {
@@ -83,13 +83,13 @@ pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
     }
 }
 
-/// IO.md §5 tripwire: no output's content may depend on its own.
+/// The graph tripwire: no output's content may depend on its own.
 /// Content edges are input->output today (no cycle); facts half can loop legally.
 /// Label `route_members` as `Demand::Content` in `graph::Graph::of` to arm it.
 pub(crate) fn check_graph(db: &SiteDb) -> Result<()> {
     if let Err(cycle) = grackle_model::graph::Graph::of(db).check_acyclic() {
         bail!(
-            "dependency cycle: {} — an output's content may not depend on its own (IO.md §5)",
+            "dependency cycle: {} — an output's content may not depend on its own",
             grackle_model::graph::describe_cycle(&cycle)
         );
     }

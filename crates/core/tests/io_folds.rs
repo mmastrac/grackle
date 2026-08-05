@@ -1,4 +1,4 @@
-//! A fold with no `from` reads every output (IO.md §4, item I3).
+//! A fold with no `from` reads every output.
 //!
 //! This is a **respelling**, not a new power: `from = "*"` read the finished
 //! route set, and so does an absent `from` — the same pool, said by leaving a
@@ -13,10 +13,13 @@
 //! `build_views` skips it, `build_pool_folds` mints its route,
 //! `force_route_fields` fills the pool, `resolve_pool_folds` filters it).
 //!
-//! The rung-0 side of this item needed no code and has no test here: MERGE.md
-//! R6 already moved `force_route_fields` above `resolve_pool_folds`, so both
+//! The rung-0 side of this item needed no code and has no test here:
+//! `force_route_fields` already runs above `resolve_pool_folds`, so both
 //! pools see forced fields, and `profile_force.rs` guards it in both
 //! directions.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
 
@@ -108,7 +111,7 @@ fn a_fold_with_no_from_reads_every_output() {
 
 /// **The feed is not a fold over the pool, and it did not move.** `from`
 /// naming a set selects that set's rows — `[routes.feed] from = "published"`
-/// keeps meaning what it means (IO.md §4).
+/// keeps meaning what it means.
 ///
 /// At today's fidelity a fold over a set consumes the set's ROWS directly,
 /// which is "those inputs' outputs" said in the only vocabulary that exists
@@ -129,7 +132,7 @@ fn a_fold_over_a_set_still_reads_that_set() {
     }
 }
 
-/// **A script shell has to say what it eats** (IO.md §4, IR1(a)).
+/// **A script shell has to say what it eats** (IR1(a)).
 ///
 /// I3 let every registered `[shells.*]` name be `from`-less on the grounds
 /// that a script shell is a fold by arity. Arity was the right reading and the
@@ -247,7 +250,7 @@ fn absent_from_without_a_fold_is_a_load_error() {
 /// nor a route (collections: …; sets and routes: …)" — is true and useless:
 /// it sends its reader to look for a collection called `*`, when the fix is
 /// to delete a line. So the literal gets one sentence of its own. It is a
-/// REAL error, not a teaching error (MERGE.md §4): the value is invalid now,
+/// REAL error, not a teaching error: the value is invalid now,
 /// and the message says what a fold does instead rather than how to migrate.
 ///
 /// Mutation: delete the `From::One("*")` arm in `Config::check_base` and the

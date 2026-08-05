@@ -1,4 +1,4 @@
-//! Objects dissolve; the Null shape collapses (IO.md I7e).
+//! Objects dissolve; the Null shape collapses.
 //!
 //! There is one row constructor now. A former-object row takes rule defaults,
 //! marker defaults, schema validation and rung 0 like every other row, and what
@@ -11,6 +11,9 @@
 //! reader DOES with the index: the listing pass asks `object_ix` whether a
 //! member is a picture, and a test that asked the database the same question
 //! would pass against an engine whose gallery had stopped showing pictures.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -140,8 +143,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
     );
 }
 
-/// **Markers reach a former-object row** — the propose-and-flag call (IO.md
-/// I7e). A `.hidden` beside a gallery means what it says: refusing it would
+/// **Markers reach a former-object row** — the propose-and-flag call. A `.hidden` beside a gallery means what it says: refusing it would
 /// re-mint the origin distinction this item deletes, since the only reason to
 /// refuse is *which constructor built the row*.
 ///
@@ -157,7 +159,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
 /// of them sits under one.
 ///
 /// The fixture declares its own objects route since I11 — the base routes no
-/// image now (IO.md §4a), and the assertion is about a marker reaching a row,
+/// image now, and the assertion is about a marker reaching a row,
 /// not about where the row lands, so the site says where in one line the way
 /// every corpus site with images does.
 ///
@@ -215,7 +217,7 @@ fn a_marker_reaches_a_former_object_row() {
 }
 
 /// **An objects rule does not spend locale in `file`**, so `photo.fr.png` keeps
-/// the dots it was given (IO.md I7e / §6f). One picture serves every locale; a
+/// the dots it was given. One picture serves every locale; a
 /// name that happens to carry `.fr.` is not a translation unless a `file`
 /// pattern says so.
 ///
@@ -284,7 +286,7 @@ fn an_image_is_not_a_translation_of_itself() {
 }
 
 // ---------------------------------------------------------------------------
-// The corner closes (IO.md IR9).
+// The corner closes.
 //
 // I7e stated it at the code rather than guarding it: "an objects rule gated
 // `front_matter = true` would be claimed by whichever scope came next while
@@ -304,7 +306,7 @@ fn config_err(dir: &Path) -> String {
 }
 
 /// **An objects rule selects by shape; the identity gate belongs to scopes
-/// that parse** (IO.md IR9) — and the refusal is on the KEY, not on one of its
+/// that parse** — and the refusal is on the KEY, not on one of its
 /// values, so both spellings are here.
 ///
 /// The fixture is the corner itself: a sidecar'd `photo.png` and a blockless

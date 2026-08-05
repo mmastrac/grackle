@@ -1,4 +1,4 @@
-# The NEAREST rung of the theme ladder (MERGE.md table C): an axis member's
+# The NEAREST rung of the theme ladder: an axis member's
 # field, set on the row at render time.
 #
 # `[axes.theme] field = "theme"` means every one of its values IS a theme

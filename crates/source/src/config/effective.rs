@@ -1,12 +1,12 @@
 //! `grackle config --effective`: merged config with merge-recorded provenance
-//! (MERGE.md B3, DESIGN.md §4d). Unit of provenance is the atom (Law 2).
+//!. Unit of provenance is the atom (Law 2).
 
 use std::collections::BTreeMap;
 
 /// Writer that supplied a value (§2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Prov {
-    /// Selected profile overlay (MERGE.md E2).
+    /// Selected profile overlay.
     Profile,
     Site,
     /// Site shadowed base (Law 1).
@@ -48,8 +48,8 @@ const PROVENANCES: [Prov; 5] = [
 
 type Note = (Prov, bool);
 
-/// Merge provenance by path. Collections keyed by identity (MERGE.md §1);
-/// `near`/`far` let one merge serve base then profile layers (MERGE.md E2).
+/// Merge provenance by path. Collections keyed by identity;
+/// `near`/`far` let one merge serve base then profile layers.
 pub(crate) struct Trace {
     on: bool,
     near: Prov,
@@ -193,7 +193,7 @@ pub(crate) fn render(merged: &toml::Value, trace: &Trace, preamble: &str, profil
     }
     e.out.push_str(
         "#\n\
-         # A comment marked `whole` is one ATOM (MERGE.md §1, Law 2): a table or\n\
+         # A comment marked `whole` is one ATOM: a table or\n\
          # a list taken entire from one writer. Its own keys carry no provenance,\n\
          # because half of a definition is never what was inherited.\n\n",
     );

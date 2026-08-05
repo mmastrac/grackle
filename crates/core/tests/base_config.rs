@@ -184,7 +184,7 @@ fn the_empty_sites_effective_config_is_entirely_inherited() {
 
 /// Every top-level field `Config` gives a value to when NEITHER file writes
 /// one is in minimal's effective config — the guard `engine_defaults()`'s doc
-/// comment has promised since B3 and did not have (MERGE.md R4, batch review
+/// comment has promised since B3 and did not have (batch review
 /// 2 finding 2: deleting `("extends", …)` passed the whole suite).
 ///
 /// `engine_defaults()` is the one hand-maintained list in `--effective`. It
@@ -287,8 +287,7 @@ fn the_extractor_collects_defaults_that_name_a_function() {
     assert!(defaulted_scalars_in(&synthetic("#[serde(rename = \"inherits\")]")).is_empty());
 }
 
-/// The refusal, in the spelling that used to evade it (MERGE.md D2i, batch
-/// review 3 finding 7): one attribute carrying both keys armed the extraction
+/// The refusal, in the spelling that used to evade it: one attribute carrying both keys armed the extraction
 /// on the `if` arm, so the `else if` that watches for `rename` never ran and a
 /// renamed field would have been collected — and then reported missing from an
 /// effective config that prints it under its TOML name.
@@ -332,7 +331,7 @@ fn the_uninheriting_sites_effective_config_is_entirely_its_own() {
     }
 }
 
-/// MERGE.md C6e: the preamble asserted a projection without ever checking
+/// The preamble asserted a projection without ever checking
 /// there was one, so `--effective --profile nosuch` explained the effect of a
 /// profile that does not exist — while `build --profile nosuch` refuses the
 /// same name outright. One lookup against the merged `[profiles]` table.
@@ -372,7 +371,7 @@ fn an_unknown_profile_is_named_in_the_effective_preamble() {
     assert!(!ok.contains("names no profile"));
 }
 
-/// MERGE.md E2: `--effective --profile NAME` prints the PROJECTED config, and
+/// `--effective --profile NAME` prints the PROJECTED config, and
 /// the overlay is one more writer in the same traced merge — so a key the
 /// profile wrote reads `# profile NAME` exactly as a key the site wrote reads
 /// `# site`. B3's design, carried to a fourth rung: there is no second

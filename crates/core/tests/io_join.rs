@@ -1,4 +1,4 @@
-//! The join fields (IO.md §2, item I9).
+//! The join fields.
 //!
 //! Two databases, joined on three explicit fields: `output` and `viewed_by` on
 //! an input row, `inputs` on an output. The tests below are organised around
@@ -12,6 +12,9 @@
 //! `&mut SiteDb`, so a test can ask the database what the render pass wrote
 //! into it — which is the only way to see a fact that is decided after every
 //! filter has run.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::filter::{Filter, Row as _, Value};
 use grackle_core::model::SiteDb;
@@ -90,8 +93,8 @@ name = "objects"
 [[collections]]
 source = "."
 
-  # A blockless `.md` sent through a document shell is a DEGENERATE row
-  # (IO.md I7c): it renders, it lands, and it has no identity.
+  # A blockless `.md` sent through a document shell is a DEGENERATE row:
+  # it renders, it lands, and it has no identity.
   [[collections.rules]]
   match = "notes/*.md"
   route = "/notes/{stem}/"
@@ -142,7 +145,7 @@ fn shapes_site(who: &str) -> PathBuf {
             ("pics/kite.png", PNG),
             ("pics/unseen.png", PNG),
             // Identity from a sidecar: a governed row whose bytes are never
-            // parsed (IO.md I8).
+            // parsed.
             ("assets/badge.png", PNG),
             (
                 "assets/badge.png.toml",
@@ -245,7 +248,7 @@ fn every_row_shape_answers_output() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **`!output` selects exactly the rows a landing claimed** (IO.md §2).
+/// **`!output` selects exactly the rows a landing claimed**.
 ///
 /// Both claim shapes in one site, because they are settled at different times
 /// and only one of them needs correcting: a LITERAL claim withholds the route
@@ -410,7 +413,7 @@ title = "Landed"
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **Arrangement is not citation** (IO.md §2), which is the distinction the
+/// **Arrangement is not citation**, which is the distinction the
 /// backlink scanner learned the hard way and this is the field that names it.
 ///
 /// One row is carried by a listing; a second row merely links to it. `viewed_by`
@@ -513,8 +516,7 @@ title = "Blog"
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **`inputs` is the full row-level closure** (IO.md §2's `[open]`, decided at
-/// I9), and its two halves are built at two different times for one reason:
+/// **`inputs` is the full row-level closure**, and its two halves are built at two different times for one reason:
 /// a citation is a fact about *content*.
 ///
 /// The gallery page's inputs are its own row (planning) plus the image it
@@ -571,7 +573,7 @@ fn inputs_closes_over_citations() {
 // ---------------------------------------------------------------------------
 
 /// **An axis row's output is the CANONICAL member's URL, and the rest are
-/// `alternates`** (IO.md §2 — "a form is an output", made literal).
+/// `alternates`**.
 ///
 /// The axis fixture's shape, minimised: one row published under two themes and
 /// one row published at two serializations. Each row has exactly one output
@@ -585,7 +587,7 @@ fn inputs_closes_over_citations() {
 ///
 /// Mutations, each red: make `join_outputs`' canonical test `true` (the last
 /// route minted wins and `alternates` empties, which is exactly the arbitrary
-/// pick MERGE.md C5's bug was); make it `false` (no row has an output at all);
+/// pick the closed bug was); make it `false` (no row has an output at all);
 /// drop the `alternates.sort()` (the order becomes the axis product's, which
 /// is not the order anything else in the database reports).
 #[test]

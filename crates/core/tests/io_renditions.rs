@@ -1,4 +1,4 @@
-//! Renditions as demand-driven outputs (IO.md §4a, item I12).
+//! Renditions as demand-driven outputs.
 //!
 //! §4a's claim about images is that nothing about them is special: an image is
 //! an input row, and a *rendition* of it — a resize, a re-encode — is another
@@ -28,6 +28,9 @@
 //!
 //! Built sites throughout, because a rendition exists only because a citation
 //! asked for it and citations live in finished bytes.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::{Demand, Graph, Node};
 use grackle_core::model::{Key, Rendition, SiteDb};
@@ -175,7 +178,7 @@ fn renditions(db: &SiteDb) -> Vec<(String, Vec<String>, Rendition)> {
 // ---------------------------------------------------------------------------
 
 /// **A rendition is an output of its input, carrying its parameters**, and the
-/// two together are the reproduction recipe (IO.md §4a).
+/// two together are the reproduction recipe.
 ///
 /// The parameters live on the OUTPUT rather than on the edge — review I-D's
 /// question, and `rendition.rs`'s module doc carries the argument: a
@@ -237,7 +240,7 @@ fn a_rendition_is_an_output_of_its_input_with_the_parameters_it_was_made_with() 
     assert_eq!(edges, vec![(Demand::Content, inputs[0].clone())]);
 }
 
-/// **The demand union** (IO.md §4a: "an image's rendition set is the union of
+/// **The demand union** ("an image's rendition set is the union of
 /// its consumers' asks").
 ///
 /// Two pages, two asks, one image: two outputs, one input, and no config
@@ -312,7 +315,7 @@ fn two_pages_asking_different_widths_are_two_outputs_of_one_input() {
     );
 }
 
-/// **The hashing law, at site scale** (IO.md §4a): a content-hashed URL hashes
+/// **The hashing law, at site scale**: a content-hashed URL hashes
 /// the *inputs plus the transform parameters, never the output bytes* — so the
 /// address is computable at planning, before the transform runs.
 ///
@@ -492,8 +495,7 @@ fn an_output_that_only_shows_a_rendition_still_depends_on_the_image() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **Rung 0 reaches the third minting seam** (IO.md I10's law: minting an
-/// output is the graph event, so every seam that mints one applies the
+/// **Rung 0 reaches the third minting seam** (so every seam that mints one applies the
 /// profile's forced fields).
 ///
 /// I10 closed this at `materialize_referenced` and said the hole grows once per

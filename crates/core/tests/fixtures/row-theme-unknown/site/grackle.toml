@@ -1,5 +1,5 @@
 # A ROW's `theme:` is held to the same standard as every other rung of the
-# theme ladder (MERGE.md table C, C2): the name must be one the theme registry
+# theme ladder: the name must be one the theme registry
 # answers to, and a name that answers to nothing is a **load error naming the
 # file**.
 #

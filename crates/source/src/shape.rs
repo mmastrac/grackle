@@ -1,9 +1,9 @@
-//! Law 2 (MERGE.md §1): merge depth read off config types via [`Shape`].
+//! Law 2: merge depth read off config types via [`Shape`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// How one config key merges (MERGE.md §1).
+/// How one config key merges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Law {
     Atom,

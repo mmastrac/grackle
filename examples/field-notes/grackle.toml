@@ -28,7 +28,7 @@ source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}.{axis:locale}", "{date.year}-{date.month}-{date.day}-{slug}"]
 
   # The glob names what this scope claims — markdown, and only markdown. A
-  # scope owns its source (IO.md I7d), so what no rule here claims is not
+  # scope owns its source, so what no rule here claims is not
   # content: an image sitting in `_posts/` is invisible rather than falling
   # through to the tree.
   [[collections.rules]]
@@ -49,11 +49,11 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}.{axis:locale}", "{date.year}
 
 # ---------------------------------------------------------------- objects
 
-# Membership is what this scope's rules claim (IO.md I7a): the extension list
+# Membership is what this scope's rules claim: the extension list
 # is the glob, case-insensitively.
 #
 # The route is this site's own, and since I11 that is the whole story: the base
-# declines to route images (`embed = true`, IO.md §4a), so a site that wants
+# declines to route images (`embed = true`), so a site that wants
 # literal asset paths — bookmarkable, linkable, what `photos/p01.png` has always
 # meant here — says so in one line, and first-writer-wins silences the base's.
 # Delete it and these twelve photos would publish only at their `/static/`
@@ -260,7 +260,7 @@ limit = 20
 # `shell` is the serialization, declared rather than inferred from a
 # filename (q44). No `template`: that key names a SOURCE file a view claims
 # so the tree walk leaves it unrouted, and this feed is rendered from the
-# rows — there is no atom.xml here to claim (MERGE.md D1).
+# rows — there is no atom.xml here to claim.
 shell = "atom"
 
 # A script shell (§5g — the pun is the point): a registered shell type
@@ -282,7 +282,7 @@ shell = "llms"
 # match every term their link titles mention.
 #
 # `front_mattered` is what `kind == "post" || kind == "page"` always meant
-# (IO.md §3): a document the author gave identity to, as opposed to bytes
+#: a document the author gave identity to, as opposed to bytes
 # copied verbatim or a listing the engine minted.
 
 [routes.search]

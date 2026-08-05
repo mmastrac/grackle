@@ -3,12 +3,11 @@
 //! fragment, the result into the root chrome, identity slots filled from the
 //! tree.
 //!
-//! The chrome file is **`root.html`** and the kind it binds is `root` (IO.md
-//! §6). It may be a bare fragment — which is the body chrome, and what every
+//! The chrome file is **`root.html`** and the kind it binds is `root`. It may be a bare fragment — which is the body chrome, and what every
 //! theme here writes — or document-shaped, with a `<head>` fenced to `<style>`
 //! and a `<body>`; `binder::split_root` is that split, and the engine keeps
 //! owning `<html>` and the computed head either way. The head half leaves as
-//! CSS: `head_style()` is read by the CSS assembly, never by a page (I5).
+//! CSS: `head_style()` is read by the CSS assembly, never by a page.
 //!
 //! The root's engine-provided parts are `site_title` (config), `axes` (the
 //! language/theme switcher) and `main` (the rendered kind). **Every other
@@ -294,7 +293,7 @@ impl Themes {
     /// Every slot the tree may fill, over every theme that can RENDER —
     /// sorted and deduped.
     ///
-    /// The union is the point (C4b). Themes ship their own roots and may
+    /// The union is the point. Themes ship their own roots and may
     /// place different identity slots, so a fill is dead only when NO theme
     /// would read it — a site that switches between two themes keeps both
     /// sets of words, and neither is a typo. The base theme joins the union
@@ -479,11 +478,11 @@ impl Theme {
         self.identity.iter().map(|(n, _)| *n)
     }
 
-    /// The CSS this theme's `root.html` declared in its `<head>` (IO.md §6),
+    /// The CSS this theme's `root.html` declared in its `<head>`,
     /// empty for the body-only roots every theme in the repository writes.
     ///
     /// Its one reader is `shells::css::css_pass`, which compiles it into the
-    /// theme's sheet (I5). **No page ever sees it**: the head fence exists so
+    /// theme's sheet. **No page ever sees it**: the head fence exists so
     /// that a theme's presentation can join the one CSS artifact, and a page
     /// carrying an inline `<style>` as well as the stylesheet link would be
     /// the second artifact the model says does not exist.
@@ -731,9 +730,9 @@ mod tests {
         }
     }
 
-    // ------------------------------------------------- identity slots (C4)
+    // ------------------------------------------------- identity slots
 
-    /// C4c: the identity set is derived from the declared PART TYPE, not from
+    /// The identity set is derived from the declared PART TYPE, not from
     /// a list of names. `axes` is `stream:axis` — the engine's own
     /// language/theme switcher — so `.slots/axes.md` can no longer land in a
     /// slot the binder validated as a stream. `site_title` falls out the same
@@ -765,7 +764,7 @@ mod tests {
         }
     }
 
-    /// The union, and why it is one (C4b): themes ship their own roots and
+    /// The union, and why it is one: themes ship their own roots and
     /// may place different identity slots, so a fill is dead only when NO
     /// loaded theme would read it.
     ///

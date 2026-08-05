@@ -11,9 +11,9 @@
 //! already imperceptible for this site, and it keeps the first cut small: the
 //! resident half of the thesis is real; the incremental half comes later.
 //!
-//! **The pull model, and what this file does not yet do** (IO.md §5, I10).
-//! IO.md §1 says build is "pull every output" and serve is "pull this one".
-//! Since I10 that is a function rather than a sentence — `grackle_model::graph`
+//! **The pull model, and what this file does not yet do**.
+//! Build is "pull every output" and serve is "pull this one".
+//! That is a function rather than a sentence now — `grackle_model::graph`
 //! builds the dependency graph at planning and answers both halves
 //! (`Graph::fanout` for what a changed input invalidates, `Graph::pull` for
 //! the ordered work one output stands on) — and nothing here calls either.

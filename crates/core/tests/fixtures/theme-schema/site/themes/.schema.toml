@@ -1,5 +1,4 @@
-# A declaration at the positional subtree's FIRST level (IO.md IR6, after
-# MERGE.md R2).
+# A declaration at the positional subtree's FIRST level.
 #
 # The declaration walks prune `themes` itself, so this file goes with the
 # subtree. It is deliberately not valid TOML, so a walk that reaches it fails

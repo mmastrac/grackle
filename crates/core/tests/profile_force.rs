@@ -1,4 +1,4 @@
-//! `[profiles.NAME.force]` — rung 0, on both surfaces (MERGE.md E1).
+//! `[profiles.NAME.force]` — rung 0, on both surfaces.
 //!
 //! This is a whole site rendered twice, so it belongs with the fixtures by
 //! `fixtures.rs`'s own line ("if the subject is *a site*, it belongs here").
@@ -11,6 +11,9 @@
 //! because the failure this guards is a rendered one: a listing page that does
 //! not say `noindex` while every document under it does, in a projection whose
 //! whole purpose is to stay out of search indexes.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -96,15 +99,14 @@ fn without_the_profile_the_row_keeps_its_own_answer() {
 }
 
 // ---------------------------------------------------------------------------
-// Rung 0 is above every reader — selection as well as surface (MERGE.md R6).
+// Rung 0 is above every reader — selection as well as surface.
 // ---------------------------------------------------------------------------
 
 /// The same force, read by two *filters* instead of by two head expressions.
 ///
 /// `row_probe` filters the ROW pool (`from = "published"`, so its clause
 /// conjoins along the `from` chain); `pool_probe` filters the ROUTE pool (no
-/// `from` at all under a fold shell — the sitemap's own shape since IO.md
-/// I3). Both ask `!noindex`, and under a
+/// `from` at all under a fold shell — the sitemap's own shape). Both ask `!noindex`, and under a
 /// profile that forces `noindex = true` both must come out empty: a profile
 /// changes which rows the views admit (§4a), and rung 0 is not exempt from
 /// that because it is the highest rung, it is *especially* not exempt.

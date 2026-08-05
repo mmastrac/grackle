@@ -1,6 +1,5 @@
 # The same guard, one rung down: the theme a row wears came from a RULE
-# default rather than from its own front matter (MERGE.md C2, §3 table B rung
-# 3).
+# default rather than from its own front matter.
 #
 # There is nothing extra in the engine for this case, and that is the point
 # C1 bought. `theme` is a declared, typed field now, so a rule's

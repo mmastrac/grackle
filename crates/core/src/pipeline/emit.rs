@@ -59,7 +59,7 @@ pub(crate) fn run(
     // `bodies` holds the in-memory bodies the posts loader produced, keyed by
     // ROW rather than by URL for the same reason.
     //
-    // `kind == Post` survives I13 here: it is scope membership on the output
+    // `kind == Post` survives here: it is scope membership on the output
     // side, and the route pool has no other column for that (see `RouteKind`'s
     // own doc for the census).
     let post_routes: Vec<&Route> = db
@@ -190,7 +190,7 @@ pub(crate) fn run(
         let Some(content) = r.content.as_deref().or(v.content.as_deref()) else {
             continue;
         };
-        // (A `kind != View` guard stood here and was DELETED at I13, not
+        // (A `kind != View` guard stood here and was DELETED, not
         // respelled: the `let Some(view)` four lines up already asked it —
         // "is this a view route" is the `view` column being non-empty.)
         let loc_owned = cfg.pairing_member(r);
@@ -380,7 +380,7 @@ pub(crate) fn run(
     // per page — the tree is shared with the landing pass, only `current`
     // moves.
     //
-    // **The dispatch that survives `kind`** (IO.md I13). Half of it is
+    // **The dispatch that survives `kind`**. Half of it is
     // respellable in facts and half is not, and taking the half would cost
     // more than it buys:
     //
@@ -390,7 +390,7 @@ pub(crate) fn run(
     //   `match` could ask `p.rendered` instead of naming three variants.
     // - `Post` vs `Page` is NOT expressible. Posts render above, from their
     //   own body store; "this row is in a posts scope" is a fact about the
-    //   CONFIG, and a row carries the scope's name and not its role (I9's
+    //   CONFIG, and a row carries the scope's name and not its role (the join's
     //   ruling, one store over). So the `_ => {}` arm would have to stay a
     //   `kind` test whatever happens to the other two.
     //
@@ -446,7 +446,7 @@ pub(crate) fn run(
                 if let Some(doc) = &pb.doc {
                     head.injected = doc.heads.clone();
                 }
-                // IO.md §4: the output picks its map shell. `raw` is the
+                // The output picks its map shell. `raw` is the
                 // transparent one — the body IS the output, so an imported
                 // document can carry front matter (title, tags, hidden)
                 // without being nested inside a second `<html>`.

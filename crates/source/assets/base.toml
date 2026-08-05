@@ -58,7 +58,7 @@ image = { type = "image" }
 # Fields the engine still reads off a row BY NAME — which theme renders it
 # (§5a), which shell wraps it (§5g), which slot cuts the render chain, and
 # which locale the row is (§6f). Declared here so a marker or a rule setting
-# one goes through `schema::apply_defaults` like every other key (MERGE.md C1).
+# one goes through `schema::apply_defaults` like every other key.
 # Their types are the engine's: restating a line below is fine; declaring one
 # at another type is a load error. A site that declines the base declares
 # whatever its rows and rules actually use.
@@ -297,7 +297,7 @@ long_date = "@months[{month}] {day}, {year}"
 # this entry.
 #
 # The rule's glob names the EXTENSIONS this scope claims, which is I7a's move
-# one scope over (IO.md I7d): the posts loader's own walk took `["md",
+# one scope over: the posts loader's own walk took `["md",
 # "markdown"]` as an argument, and now the one rule that says where a post
 # lands is also what says a post is markdown. It matters because **a scope owns
 # its source**: what no rule of this scope claims is not content at all, so an
@@ -305,7 +305,7 @@ long_date = "@months[{month}] {day}, {year}"
 
 [[collections]]
 source = "_posts"
-# The extractor's default for this collection's rules (§4, IO.md I6): a rule
+# The extractor's default for this collection's rules (§4): a rule
 # may name its own `file`, and a rule routing by path tokens alone
 # (`/{dir}/{stem}/`) needs none at all.
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
@@ -351,17 +351,16 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 # collection makes is the `by_name` index (§6a, parked) and header-read
 # dimensions, and neither means anything for a `.zip`.
 #
-# The extension list IS the rule's glob (IO.md I7a): membership in this scope
+# The extension list IS the rule's glob: membership in this scope
 # is what its rules claim, in the one mechanism that also says where a claimed
 # row lands. Globs compile case-insensitively, so `.PNG` is a `png`.
 #
-# The shell is declared here like every other rule's (IO.md §4, "defaults are
-# declared, not built in"). It reached nobody until I7e — an object row was
+# The shell is declared here like every other rule's. It reached nobody until I7e — an object row was
 # built from `Default::default()`, so no cascade ran over it and its `shell`
 # was Null — and now that there is one row constructor it is the line that says
 # an image leaves through the transparent shell, which is what it always did.
 #
-# `embed = true` and NOT `route = "/{path}"` (IO.md §4a, I11), which is rule 2
+# `embed = true` and NOT `route = "/{path}"`, which is rule 2
 # above at its strictest: the base used to mint a public URL for every image on
 # every site that inherited it, at a path the author never wrote down and could
 # not have declined without an `extends = "none"`. Now it mints none. An
@@ -408,15 +407,14 @@ name = "objects"
 # URL; without it, bytes at the literal path, invisible to every query.
 #
 # It is a fact and not a branch, though — whether a row is a DOCUMENT is
-# `front_mattered || shell ∈ {html, light_html}` (IO.md I7c), so the second
+# `front_mattered || shell ∈ {html, light_html}`, so the second
 # clause is what these rules spend. Point a rule with no front-matter gate at a
 # blockless file, default it `shell = "html"`, and it renders as a degenerate
 # row: a warning, a title implied from its slug, and a page. Nothing here does
 # that; the base routes identity-less files `raw`, which is the normal case.
 #
 # Front matter also decides the SHELL, and the two rules below say so rather than leaving
-# it to a fallback in the renderer (IO.md §4, I2: "defaults are declared, not
-# built in"). A rule's defaults apply wherever the rule MATCHES, not only where
+# it to a fallback in the renderer. A rule's defaults apply wherever the rule MATCHES, not only where
 # it wins the route — so the index rule needs no shell of its own: a
 # front-mattered `index.md` takes `html` from the second rule and a static
 # `index.html` takes `raw` from the third, each by the same front-matter gate
@@ -488,7 +486,7 @@ from = "published"
 limit = 20
 shell = "atom"
 
-# No `from`: a FOLD shell with no pool named reads every output (IO.md §4),
+# No `from`: a FOLD shell with no pool named reads every output,
 # which at this stage is the route set. It ranges over ROUTES, and a routed
 # row is routed whatever its flags say — hence the restated predicate. Any
 # such route a site adds needs the same one (DESIGN.md §5c).

@@ -25,7 +25,7 @@ use crate::model::SiteDb;
 // that can name a URL the build never issued.
 use grackle_source::load::{select_path, spends, Coord};
 
-/// Which FORM of citation is asking (IO.md §4a, I11).
+/// Which FORM of citation is asking.
 ///
 /// The design's sentence — *three URLs, three jobs, each citation form knowing
 /// its address kind* — as a parameter. An authored **link** is a promise of a
@@ -51,21 +51,21 @@ pub struct LinkSpace {
     /// separates "you selected a member of an axis this row is not on" from
     /// "that member did not materialize". The member's URL comes from
     /// `member_url`, never from a template — which is why `RowAxis` carries a
-    /// name and nothing else (MERGE.md F3).
+    /// name and nothing else.
     source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>>,
     /// q53: (source path, axis, value) → the URL that route ACTUALLY landed at,
     /// for the routes whose every other axis sits at its canonical — which is
     /// what a one-axis selector means.
     ///
     /// A lookup rather than a reconstruction, and that is the whole point
-    /// (MERGE.md C5c). Rebuilding the URL meant picking a template — the first
+    ///. Rebuilding the URL meant picking a template — the first
     /// of the rule's list, an arbitrary one — and then blaming the
     /// rule when the guess missed, while `select_path` had chosen a different
     /// template for that very member. DESIGN.md q32's law is that producers take
     /// URLs from the owning view rather than construct them; the materialized
     /// route is the owner here, and it cannot lie.
     member_url: HashMap<(String, String, String), String>,
-    /// C5(d): links whose query key looks like an axis selector but names no
+    /// Links whose query key looks like an axis selector but names no
     /// declared axis. Collected rather than raised: unknown keys stay literal by
     /// design (`?utm=x`), so this is a warning, and `resolve` runs inside rayon's
     /// render passes with nothing mutable in reach. Sorted and deduped, because
@@ -78,7 +78,7 @@ pub struct LinkSpace {
     /// so it resolves through `by_logical`, not through a template.
     source_to_logical: HashMap<String, String>,
     sibling: HashMap<(String, String, String), String>,
-    /// IO.md §4a: root-relative source path → the row's STRONG address, for
+    /// Root-relative source path → the row's STRONG address, for
     /// the rows a rule declined to route (`embed = true`).
     ///
     /// A second map rather than a widening of `source_to_url`, because the two
@@ -93,7 +93,7 @@ pub struct LinkSpace {
 
 impl LinkSpace {
     /// The strong address of a root-relative source path, for the generated
-    /// affordances that are not markup anyone authored (IO.md §4a).
+    /// affordances that are not markup anyone authored.
     ///
     /// `{% image %}` is the one caller today: its `<a href>` is an expansion
     /// affordance rather than an authored link, so it takes the strong address
@@ -109,7 +109,7 @@ impl LinkSpace {
         self.routes.contains(url)
     }
 
-    /// Drain the C5(d) warnings the render passes accumulated. Called once, by
+    /// Drain the axis-selector warnings the render passes accumulated. Called once, by
     /// `render_site`, after every body is resolved.
     pub fn take_warnings(&self) -> Vec<String> {
         std::mem::take(&mut *self.warnings.lock().unwrap())
@@ -138,7 +138,7 @@ impl LinkSpace {
         // whether the target is PUBLISHABLE, not whether someone else already
         // cited it. Its URL comes from the same rule template either way.
         for p in db.posts().chain(db.pages()).chain(db.objects()) {
-            // IO.md §4a: an embed-addressed row has no canonical URL at all,
+            // An embed-addressed row has no canonical URL at all,
             // and its strong address goes in the other map — which is what
             // makes a LINK to it an error and an EMBED of it resolve.
             if let Some(strong) = &p.strong_url {
@@ -184,7 +184,7 @@ impl LinkSpace {
             routes.insert(r.url.clone());
             // A view route names itself by its view (and group key); every
             // other output names itself by its source path. "Is this a view
-            // route" is the `view` column being non-empty (IO.md §3, I13) —
+            // route" is the `view` column being non-empty —
             // which is also the value this arm needs, so matching on the
             // column binds it instead of asking `kind` and then unwrapping.
             let form = match &r.view {
@@ -268,7 +268,7 @@ fn closest_source<'a>(space: &'a LinkSpace, wanted: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-/// C5(d): does an unrecognized link query key *look like* an axis selector?
+/// Does an unrecognized link query key *look like* an axis selector?
 ///
 /// A warning and never an error, deliberately. Only a declared axis name is read
 /// as a selector (q53), so `?utm=x` must keep meaning what it has always meant —
@@ -293,7 +293,7 @@ pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Opt
         )
     };
     // Case first: an exact match but for case is the one wrong spelling an
-    // author is staring at, the way `.slots/Nav.md` is (C4b).
+    // author is staring at, the way `.slots/Nav.md` is.
     let lowered = key.to_ascii_lowercase();
     if let Some(n) = names.iter().find(|n| n.to_ascii_lowercase() == lowered) {
         return Some(say(format!(
@@ -358,7 +358,7 @@ pub fn resolve(
         return view_link(cfg, space, locale, source, rest).map(Some);
     }
 
-    // IO.md §4a's embed branch, and it is deliberately the SMALLEST thing that
+    // The embed branch, and it is deliberately the SMALLEST thing that
     // can be true.
     //
     // An embed rewrites in exactly one case — the target is a row a rule
@@ -376,7 +376,7 @@ pub fn resolve(
     //
     // So the whole seam is: two candidate spellings of a source path, one
     // lookup, no index fallback (an embed of a directory means nothing) and no
-    // axis selectors (an image has one form; renditions are I12's).
+    // axis selectors (an image has one form; renditions are their own axis).
     if form == Cite::Embed {
         return Ok(embed_target(space, linking_dir, href));
     }
@@ -408,7 +408,7 @@ pub fn resolve(
             );
         }
     }
-    // C5(d): `page.md?thmee=ledger` is not an axis selector — only a DECLARED
+    // `page.md?thmee=ledger` is not an axis selector — only a DECLARED
     // name is read as one — so it ships as the literal query string it always
     // was, which is right and silent. Say something when the intent is legible:
     // a key that is a declared axis's name in the wrong case, a typo one or two
@@ -459,7 +459,7 @@ pub fn resolve(
         }
     }
     for (c, was_relative) in &candidates {
-        // IO.md §4a: **an authored link demands a route.** The target is a
+        // **An authored link demands a route.** The target is a
         // known row — the resolver found it — and the config declined to give
         // it a canonical address, so there is nothing here a reader could
         // bookmark. Answering with the strong address would be worse than
@@ -568,7 +568,7 @@ pub fn resolve(
 }
 
 /// The strong address an EMBED of `href` resolves to, or `None` to leave the
-/// markup exactly as written (IO.md §4a).
+/// markup exactly as written.
 ///
 /// `href` is offered in the two spellings the corpus writes: relative to the
 /// embedding file, and root-relative. Anything with a query or a fragment
@@ -676,7 +676,7 @@ fn view_link(
     // Every template this view lands on, read exactly as `build_view` reads
     // them: `paths` when it has them, else `path`, minus the paginating ones —
     // a link names page one. Reading only the FIRST was the second half of
-    // C5's bug (batch review 2): with a default-axis list the canonical member
+    // The closed bug (batch review 2): with a default-axis list the canonical member
     // drops its segment to a SHORTER template, so `view:hub?look=plain` rendered
     // `/plain/all/` while the route it names is `/all/`.
     let tmpls: Vec<String> = if v.routes.is_empty() {
@@ -960,7 +960,7 @@ mod axis_tests {
         .unwrap()
     }
 
-    /// C5(b): a `view:` link must read `{axis:look}` as the same segment
+    /// A `view:` link must read `{axis:look}` as the same segment
     /// `{look}` names, and must pick the template the MATERIALIZER picked —
     /// the shortest one covering the non-canonical members. Reading the first
     /// path and substituting the bare form only sent the canonical member to
@@ -989,8 +989,8 @@ mod axis_tests {
     }
 
     /// One row, published at two looks by a rule with a path list. The row says
-    /// only WHICH axis its rule spends — since C5(c) a member's URL comes from
-    /// the routes the build issued, and F3 dropped the template the row used to
+    /// only WHICH axis its rule spends — a member's URL comes from
+    /// the routes the build issued, and nothing keeps the template the row used to
     /// carry beside the name (an arbitrary pick out of the rule's list).
     fn axis_db() -> SiteDb {
         let mut db = SiteDb::seed(Vec::new(), false);
@@ -1110,7 +1110,7 @@ mod axis_tests {
         assert_eq!(got.as_deref(), Some("/later/"));
     }
 
-    /// C5(c): the member's address is LOOKED UP in the routes the build issued,
+    /// The member's address is LOOKED UP in the routes the build issued,
     /// not rebuilt. Rebuilding it from the row's template would answer
     /// `/{axis:look}/note/` for one member and `/plain/note/` for the other —
     /// neither of which exists — and then blame the rule for not spending a
@@ -1207,7 +1207,7 @@ mod axis_tests {
         assert_eq!(go("page.md?flavor=salty"), "/plain/salty/page/");
     }
 
-    /// C5(d): an unknown query key stays literal — that is the design, since
+    /// An unknown query key stays literal — that is the design, since
     /// only a declared name is a selector — and says so once, naming the file.
     #[test]
     fn a_misspelled_axis_ships_literally_and_warns() {

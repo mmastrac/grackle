@@ -64,7 +64,7 @@ pub struct Config {
     /// Display strings for the pairing axis; default axis `"locale"` (§6f).
     #[serde(default)]
     pub i18n: I18nCfg,
-    /// Unrouted-asset embed policy (IO.md §4a, I11). Base ships on.
+    /// Unrouted-asset embed policy. Base ships on.
     #[serde(default)]
     pub embeds: EmbedsCfg,
     /// Engine-emitted asset URL addressing. Default `stable`.
@@ -87,12 +87,12 @@ pub struct Config {
     /// Excluded by identity so the config file never publishes as content.
     #[serde(skip)]
     pub config_file: PathBuf,
-    /// `[profiles.NAME.force]` lifted for the loader (MERGE.md E1).
+    /// `[profiles.NAME.force]` lifted for the loader.
     #[serde(skip)]
     pub forced: BTreeMap<String, toml::Value>,
 }
 
-/// Fenced config overlay plus rung-0 `force` (MERGE.md E2). Body stays TOML
+/// Fenced config overlay plus rung-0 `force`. Body stays TOML
 /// so it merges through [`Config::shape`] like any other table.
 #[derive(Debug, Deserialize, Default)]
 #[serde(transparent)]
@@ -100,7 +100,7 @@ pub struct ProfileCfg {
     body: toml::Table,
 }
 
-/// Rung-0 veto key (MERGE.md E1); spelling shared by fence, split, and errors.
+/// Rung-0 veto key; spelling shared by fence, split, and errors.
 pub(crate) const FORCE: &str = "force";
 
 impl ProfileCfg {
@@ -202,7 +202,7 @@ impl Shaped for Config {
     }
 }
 
-/// Keys a profile may write (§4a, MERGE.md E2). Exhaustive with [`NOT_PROJECTABLE`].
+/// Keys a profile may write (§4a). Exhaustive with [`NOT_PROJECTABLE`].
 pub(crate) const PROJECTABLE: &[&str] = &[
     "site",
     "html",
@@ -493,9 +493,9 @@ pub(crate) fn merge_base_traced(site: toml::Value, t: &mut Trace) -> Result<toml
     ))
 }
 
-/// Project through one profile (§4a, MERGE.md E2): overlay minus `force`,
+/// Project through one profile (§4a): overlay minus `force`,
 /// profile as nearer writer. Returns projected table, force block, and view
-/// names the overlay wrote (MERGE.md C6a).
+/// names the overlay wrote.
 pub(crate) fn project(
     merged: toml::Value,
     name: &str,
@@ -605,8 +605,8 @@ fn note_depth(t: &mut Trace, path: &mut Vec<String>, depth: usize, v: &toml::Val
     }
 }
 
-/// Merge one table over another by each key's law (MERGE.md B2). `path`/`t`
-/// record provenance (MERGE.md B3); load uses `Trace::off()`.
+/// Merge one table over another by each key's law. `path`/`t`
+/// record provenance; load uses `Trace::off()`.
 pub(crate) fn merge_table(
     base: toml::Value,
     site: toml::Value,
@@ -831,7 +831,7 @@ impl<'de> Deserialize<'de> for WidgetDef {
     }
 }
 
-/// Embed policy for unrouted rows (IO.md §4a, I11). `/static/` prefix is fixed.
+/// Embed policy for unrouted rows. `/static/` prefix is fixed.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EmbedsCfg {
@@ -878,7 +878,7 @@ fn default_addressing() -> String {
 
 impl EmbedsCfg {
     /// Compiled `match` globs; `None` = admit all (vs empty GlobSet = admit none).
-    /// Case-insensitive like rule globs (IO.md I7a).
+    /// Case-insensitive like rule globs.
     pub fn compiled(&self) -> Result<Option<globset::GlobSet>> {
         if self.patterns.is_empty() {
             return Ok(None);
@@ -903,7 +903,7 @@ pub struct I18nCfg {
     /// Pairing axis name; default `"locale"`. Inert until `[axes.*]` declares it.
     #[serde(default = "default_i18n_axis")]
     pub axis: Option<String>,
-    /// Member display names; keys must be declared axis members (C4a).
+    /// Member display names; keys must be declared axis members.
     #[serde(default)]
     pub names: BTreeMap<String, String>,
     /// Global `"@key"` map (§6f); values literal, no chains. Unused site keys error.
@@ -1329,14 +1329,14 @@ pub struct Site {
 pub struct Collection {
     /// Override table name when source dir is the wrong word.
     pub name: Option<String>,
-    /// Scope role via source (IO.md I7d): absent = objects; `"."` = tree;
+    /// Scope role via source: absent = objects; `"."` = tree;
     /// else posts (subtree walked, owned, and ordered in the rule sequence).
     pub source: Option<String>,
     /// Default stem extractors for this collection's rules (§4).
     #[serde(default)]
     pub file: Vec<String>,
-    /// Not-content globs; read from the tree collection only (§4c, IO.md I7b).
-    /// Govern the whole walk (IO.md I7d); excluding a posts `source` is refused.
+    /// Not-content globs; read from the tree collection only (§4c).
+    /// Govern the whole walk; excluding a posts `source` is refused.
     #[serde(default)]
     pub exclude: Vec<String>,
     /// Re-admit paths; same tree-only restriction as `exclude`.
@@ -1361,7 +1361,7 @@ pub struct Collection {
 }
 
 impl Collection {
-    /// Objects scope: no `source` (IO.md I7a).
+    /// Objects scope: no `source`.
     pub fn is_objects(&self) -> bool {
         self.source.is_none()
     }
@@ -1371,7 +1371,7 @@ impl Collection {
         self.source.as_deref() == Some(".")
     }
 
-    /// Posts scope: owns its subtree (IO.md I7d).
+    /// Posts scope: owns its subtree.
     pub fn is_posts(&self) -> bool {
         !self.is_objects() && !self.is_tree()
     }
@@ -1382,7 +1382,7 @@ impl Collection {
 #[serde(deny_unknown_fields)]
 pub struct RelationCfg {
     /// Candidate pool (set / collection / derived); absent = this collection.
-    /// Same word as View::from (MERGE.md G1).
+    /// Same word as View::from.
     pub from: Option<String>,
     /// Predicate over `self`/`candidate`; absent = every candidate.
     #[serde(rename = "where")]
@@ -1411,7 +1411,7 @@ pub struct Rule {
     /// Emit a Route only when something references the row (§4).
     #[serde(default)]
     pub on_demand: Option<bool>,
-    /// No canonical URL; embed policy addresses via `/static/` (IO.md §4a, I11).
+    /// No canonical URL; embed policy addresses via `/static/`.
     /// Mutually exclusive with `route` and `on_demand`.
     #[serde(default)]
     pub embed: Option<bool>,
@@ -1442,7 +1442,7 @@ impl Axis {
 }
 
 /// What a view ranges over (§5c): one name or a union of collections.
-/// Absent `from` on a fold = whole output pool (IO.md §4, I3).
+/// Absent `from` on a fold = whole output pool.
 /// Union: collections only, same kind.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -1497,10 +1497,10 @@ where
 #[derive(Debug, Deserialize)]
 pub struct View {
     /// Collection, set/route, or union of collections. Absent on a fold =
-    /// whole output pool (IO.md §4, I3).
+    /// whole output pool.
     #[serde(default)]
     pub from: Option<From>,
-    /// Predicate including path scoping via `glob(path, ...)` (MERGE.md G2).
+    /// Predicate including path scoping via `glob(path, ...)`.
     #[serde(rename = "where")]
     pub filter: Option<String>,
     /// Explicit order (`-` = descending); not defaulted.
@@ -1540,10 +1540,10 @@ pub struct View {
     #[serde(skip)]
     pub inherited: bool,
     /// Declared under `[sets]` (true) vs `[routes]`; not derived from path
-    /// (default_content may clear path) (§4a, MERGE.md C6c).
+    /// (default_content may clear path) (§4a).
     #[serde(skip)]
     pub declared_set: bool,
-    /// Profile that wrote this view's filter (MERGE.md C6b).
+    /// Profile that wrote this view's filter.
     #[serde(skip)]
     pub filter_profile: Option<String>,
     /// Computed columns; flow through `from` composition (§6d / §5f).
@@ -1587,7 +1587,7 @@ impl View {
         self.route.is_some() || !self.routes.is_empty()
     }
 
-    /// Fold over every output: no `from` (IO.md §4, I3).
+    /// Fold over every output: no `from`.
     pub fn reads_all_outputs(&self) -> bool {
         self.from.is_none()
     }
@@ -1596,13 +1596,13 @@ impl View {
 /// Flattened `from` chain.
 #[derive(Debug)]
 pub struct Query {
-    /// Collections ranged over; empty = fold over every output (IO.md §4).
+    /// Collections ranged over; empty = fold over every output.
     pub base: Vec<String>,
-    /// Filters along the chain, outermost last; all must hold (MERGE.md G2).
+    /// Filters along the chain, outermost last; all must hold.
     pub filters: Vec<String>,
     /// Nearest `order_by` (nearest wins).
     pub order_by: Option<String>,
-    /// Attribution for profile-replaced `where` clauses (MERGE.md C6a).
+    /// Attribution for profile-replaced `where` clauses.
     pub patched: Vec<String>,
 }
 

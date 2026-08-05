@@ -1,4 +1,4 @@
-//! The rendering law (IO.md I7c): **a row renders iff
+//! The rendering law: **a row renders iff
 //! `front_mattered || shell ∈ {html, light_html}`.**
 //!
 //! The front-matter gate used to BE the answer on the tree side
@@ -17,6 +17,9 @@
 //! Built sites rather than loaded ones: what the law decides is what comes out
 //! of the build, and a test that asked the loader for `rendered` would pass
 //! against an engine that emitted the wrong bytes anyway.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 

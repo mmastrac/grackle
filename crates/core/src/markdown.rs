@@ -130,7 +130,7 @@ pub fn render_doc(src: &str) -> Doc {
     render_doc_with(src, &|_, _| Ok(None)).expect("no-op resolver cannot fail")
 }
 
-/// `render_doc` with a citation resolver (§6a row/view links, IO.md §4a):
+/// `render_doc` with a citation resolver (§6a row/view links):
 /// every markdown link's and image's destination is offered to `resolve`;
 /// `Ok(Some(url))` rewrites it, `Ok(None)` leaves it, and an error aborts the
 /// render — a broken source reference is a build error naming the file, not a

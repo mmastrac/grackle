@@ -1,4 +1,4 @@
-//! Extends / rung merge (MERGE.md).
+//! Extends / rung merge.
 //!
 //! The free functions live next to the `Shaped` impls in [`super::types`]
 //! because those impls need private fields of `Config`. This module is the

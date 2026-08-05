@@ -130,7 +130,7 @@ enum Query {
     /// Everything known about one URL.
     Explain { url: String },
     /// The graph edges one output stands on, and the work of pulling it
-    /// (IO.md §5).
+    ///.
     Pull { url: String },
 }
 
@@ -259,7 +259,7 @@ fn count(n: &Node) -> usize {
 /// The `[kind]` annotation `grackle routes` hangs off a trie node, and the
 /// `kind` line `grackle explain <url>` prints for an output.
 ///
-/// **Kept real at I13, deliberately.** IR2 deleted the ROW branch's hardcoded
+/// **Kept real, deliberately.** The facts pass deleted the ROW branch's hardcoded
 /// `kind post` because a row has no kind; this is the ROUTE branch, where the
 /// value is a live column a site's `where` can name (grack.com's search filter
 /// does). A debug surface that prints a column the query language still has is
@@ -373,7 +373,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 "markers         {}  files found ({:.1}ms scan)",
                 db.stats.markers, db.stats.markers_ms
             );
-            // Beside the marker census and for its reason (IO.md I8): a
+            // Beside the marker census and for its reason: a
             // declaration family whose whole effect lands on OTHER files
             // leaves no trace in a build's file list, so the count is the only
             // way to ask "is this mechanism in use here".
@@ -577,7 +577,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 };
                 println!("newer       {}", url_of(newer));
                 println!("older       {}", url_of(older));
-                // IO.md §2's other two input-side join fields. `alternates` is
+                // The other two input-side join fields. `alternates` is
                 // this row's other FORMS (q53's axis); `viewed_by` is the
                 // outputs that ARRANGE it — which is why a citation of this
                 // row appears in neither (that is `linked_from`).
@@ -596,14 +596,14 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
             if let Some(k) = &r.key {
                 println!("key         {k}");
             }
-            // The join, from the output side (IO.md §2). This branch answers
+            // The join, from the output side. This branch answers
             // for the routes NO row claims — a listing, an archive, a fold —
             // which is exactly where "what fed this" has no other answer.
             // Planning edges only: the citation half is added by the render
             // pass, and `explain` runs none.
             print!("{}", debug::join_list("inputs", &r.inputs));
         }
-        // IO.md §5: the graph, from the standpoint of one output. `explain`
+        // The graph, from the standpoint of one output. `explain`
         // answers "what is this"; this answers "what does it stand on, and in
         // what order would a pull do the work". Planning edges only, for
         // `explain`'s reason — the citation half is added by the render pass,

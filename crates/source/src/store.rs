@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// YAML block and TOML sidecar deserialize into the same struct (IO.md I8).
+/// YAML block and TOML sidecar deserialize into the same struct.
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct FrontMatter {
     pub title: Option<String>,
@@ -36,7 +36,7 @@ pub fn read_body(path: &Path) -> Result<String> {
 
 /// Which parser a front-matter fence selects: `---` is YAML (the native form),
 /// `+++` is TOML (the form Zola/Hugo write). Both deserialize into the one
-/// `FrontMatter` struct — the same struct TOML sidecars already use (IO.md I8).
+/// `FrontMatter` struct — the same struct TOML sidecars already use.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FmFmt {
     Yaml,
@@ -67,7 +67,7 @@ pub fn split_front_matter(text: &str) -> (Option<FmFmt>, &str, &str) {
     (None, "", text)
 }
 
-/// mtime xor length; shared with sidecar scan (IO.md I8).
+/// mtime xor length; shared with sidecar scan.
 pub(crate) fn version_of(meta: &std::fs::Metadata) -> u64 {
     let mtime = meta
         .modified()
@@ -123,7 +123,7 @@ fn is_git_dir(e: &ignore::DirEntry) -> bool {
     e.file_type().is_some_and(|t| t.is_dir()) && e.file_name() == ".git"
 }
 
-/// Site-root `themes/` is engine vocabulary by position (IO.md I7b).
+/// Site-root `themes/` is engine vocabulary by position.
 pub const THEMES: &str = "themes";
 
 /// Declared not-content layer (DESIGN.md §4c): `exclude` with `include` re-adding.
@@ -142,7 +142,7 @@ impl NotContent {
         self.include.is_match(rel)
     }
 
-    /// Directory twin of `included`; subtree patterns match contents, not the dir (MERGE.md R2).
+    /// Directory twin of `included`; subtree patterns match contents, not the dir.
     pub fn included_dir(&self, rel: &Path) -> bool {
         self.include.is_match(rel) || self.include.is_match(rel.join(""))
     }
@@ -151,7 +151,7 @@ impl NotContent {
         rel.as_os_str().is_empty() || self.include.is_match(rel) || !self.exclude.is_match(rel)
     }
 
-    /// Pruning walks need the directory question: `embedded/**` matches `embedded/x`, not `embedded` (MERGE.md R2).
+    /// Pruning walks need the directory question: `embedded/**` matches `embedded/x`, not `embedded`.
     pub fn keeps_dir(&self, rel: &Path) -> bool {
         let below = rel.join("");
         rel.as_os_str().is_empty()
@@ -161,7 +161,7 @@ impl NotContent {
     }
 }
 
-/// Declaration walk: markers, `.schema.toml`, sidecars. No dot/underscore skip; exclude prunes directories only (MERGE.md R2).
+/// Declaration walk: markers, `.schema.toml`, sidecars. No dot/underscore skip; exclude prunes directories only.
 pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ignore::WalkBuilder {
     let root_owned = root.to_path_buf();
     let not = not.clone();
@@ -182,14 +182,14 @@ pub fn walker_declarations(root: &Path, not: &NotContent, gitignore: bool) -> ig
     b
 }
 
-/// Collection `source` punches through Jekyll's dot/underscore skip (IO.md I7d).
+/// Collection `source` punches through Jekyll's dot/underscore skip.
 fn punches_through(rel: &Path, sources: &[PathBuf]) -> bool {
     sources
         .iter()
         .any(|s| rel.starts_with(s) || s.starts_with(rel))
 }
 
-/// Content tree walk (IO.md I7d). Rules decide tables; the walk has no opinion.
+/// Content tree walk. Rules decide tables; the walk has no opinion.
 pub fn walk_tree(
     root: &Path,
     not: &NotContent,
@@ -263,7 +263,7 @@ mod tests {
     fn an_excluded_subtree_is_pruned_at_its_own_root() {
         // `embedded/**` matches the contents, not the directory — so `keeps`
         // says yes to `embedded` itself and a pruning walk steps one level in
-        // (MERGE.md R2). `keeps_dir` is the one that closes it.
+        //. `keeps_dir` is the one that closes it.
         let not = not_content(&["embedded/**"], &[]);
         assert!(not.keeps(Path::new("embedded")));
         assert!(!not.keeps_dir(Path::new("embedded")));
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn a_file_shaped_pattern_still_does_not_prune_a_directory() {
-        // R1's deliberate narrowing: grack.com excludes `*.toml`, which is a
+        // A deliberate narrowing: grack.com excludes `*.toml`, which is a
         // statement about content. It must not unspeak the `.schema.toml`
         // declarations the vocabulary walk exists to find, and it must not
         // prune the directories they live in.
@@ -295,12 +295,12 @@ mod tests {
         assert!(not.keeps_dir(Path::new("vendor/keep")));
     }
 
-    /// The positional layer's hatch asks the DIRECTORY question (IO.md IR6).
+    /// The positional layer's hatch asks the DIRECTORY question.
     ///
-    /// `included` is the file question I7b's content filter asks, and it is
+    /// `included` is the file question the content filter asks, and it is
     /// the wrong one for a pruning walk: the declaration walks prune `themes`
     /// itself, and `themes/**` — the one spelling a site would write — does
-    /// not match `themes`. Same asymmetry `keeps_dir` exists for (R2), so the
+    /// not match `themes`. Same asymmetry `keeps_dir` exists for, so the
     /// same idiom answers it.
     ///
     /// Mutation: drop the empty-child clause from `included_dir` and the hatch
@@ -316,7 +316,7 @@ mod tests {
         assert!(!not.included_dir(Path::new("themes")));
     }
 
-    /// The punch-through compares whole COMPONENTS, both ways (IO.md I7d).
+    /// The punch-through compares whole COMPONENTS, both ways.
     ///
     /// grack.com is the site that makes each half matter: it has `_drafts` and
     /// `_drafts_temp` side by side, so a string prefix would walk the second

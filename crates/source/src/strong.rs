@@ -1,6 +1,6 @@
-//! Strong addresses: hash URLs from input bytes + transform params, not output (IO.md §4a, I11).
+//! Strong addresses: hash URLs from input bytes + transform params, not output.
 
-/// Variant for untransformed embeds; distinct from rendition variants (I12).
+/// Variant for untransformed embeds; distinct from rendition variants.
 pub const IDENTITY: &str = "identity-v1";
 
 /// Fixed `/static` prefix for hash-addressed outputs.
@@ -59,7 +59,7 @@ mod tests {
 
     /// The extension travels with the URL and is normalized, so
     /// `after-theme-hack.PNG` and `a.png` do not mint two spellings of one
-    /// address (IO.md I7a's case-insensitive globs, one layer down).
+    /// address.
     #[test]
     fn the_extension_travels_and_is_normalized() {
         assert!(address(b"x", IDENTITY, "PNG").ends_with(".png"));

@@ -1,4 +1,4 @@
-//! Shell axis (IO.md §4): map shells wrap one output; fold shells serialize a query.
+//! Shell axis: map shells wrap one output; fold shells serialize a query.
 
 use anyhow::{bail, Result};
 use std::path::Path;
@@ -9,7 +9,7 @@ pub const MAP: &[&str] = &["raw", "html", "light_html"];
 /// Built-in fold shells. Script shells register via `[shells.*]`.
 pub const FOLD: &[&str] = &["atom", "sitemap", "search"];
 
-/// Default when a view omits `shell =` (IO.md §3).
+/// Default when a view omits `shell =`.
 pub const VIEW_DEFAULT: &str = "html";
 
 /// Map shells that wrap HTML documents. Named set so future shells must opt in explicitly.
@@ -23,13 +23,13 @@ pub fn is_document(name: &str) -> bool {
     DOCUMENT.contains(&name)
 }
 
-/// Row renders iff it has a front-matter block or a document shell (IO.md §1, I7c).
-/// Takes the block, not identity: sidecars grant identity without a block (IO.md I8).
+/// Row renders iff it has a front-matter block or a document shell.
+/// Takes the block, not identity: sidecars grant identity without a block.
 pub fn renders(has_block: bool, shell: Option<&str>) -> bool {
     has_block || shell.is_some_and(is_document)
 }
 
-/// Identity-less row that still renders via a document shell (IO.md §1). Returns the shell for the warning.
+/// Identity-less row that still renders via a document shell. Returns the shell for the warning.
 pub fn degenerate(has_identity: bool, shell: Option<&str>) -> Option<&str> {
     shell.filter(|s| !has_identity && is_document(s))
 }
@@ -59,15 +59,14 @@ pub fn check_row(name: &str, whose: &Path) -> Result<()> {
         bail!(
             "{}: shell = \"{name}\" is a fold shell — it eats {} and emits one \
              artifact, so it belongs on a view (`[routes.<name>] shell = \
-             \"{name}\"`). A row is ONE output and takes a map shell: {} \
-             (IO.md §4)",
+             \"{name}\"`). A row is ONE output and takes a map shell: {}",
             whose.display(),
             eats(name),
             list(MAP),
         );
     }
     bail!(
-        "{}: shell = \"{name}\" is not a shell — a row takes {} (IO.md §4)",
+        "{}: shell = \"{name}\" is not a shell — a row takes {}",
         whose.display(),
         list(MAP),
     );
@@ -89,7 +88,7 @@ pub fn check_axis_value(name: &str, axis: &str) -> Result<()> {
     bail!(
         "axis {axis:?} spends the `shell` field, so its values are the shells \
          its members leave through: \"{name}\" is not a map shell{why}. \
-         Map shells: {} (IO.md §4)",
+         Map shells: {}",
         list(MAP),
     );
 }
@@ -100,7 +99,7 @@ pub fn check_view(name: &str, view: &str, registered: &[&str]) -> Result<()> {
         return Ok(());
     }
     let folds = format!(
-        "fold shell: {}{} (IO.md §4)",
+        "fold shell: {}{}",
         list(FOLD),
         match registered.is_empty() {
             true => String::new(),
@@ -118,7 +117,7 @@ pub fn check_view(name: &str, view: &str, registered: &[&str]) -> Result<()> {
     bail!("view {view}: unknown shell {name:?} — a view takes a {folds}");
 }
 
-/// View with no `from` (IO.md §4, I3). Only engine fold shells may omit `from`; script shells need a pool.
+/// View with no `from`. Only engine fold shells may omit `from`; script shells need a pool.
 pub fn check_absent_from(shell: Option<&str>, view: &str, registered: &[&str]) -> Result<()> {
     if shell.is_some_and(is_fold) {
         return Ok(());
@@ -128,14 +127,14 @@ pub fn check_absent_from(shell: Option<&str>, view: &str, registered: &[&str]) -
             "view {view}: shell = {s:?} is a script shell and has no `from`, \
              so it would be handed no rows at all. A script shell eats the row \
              projection its view selects — the payload's `rows` — and only the \
-             engine's own folds ({}) read every output without a `from` \
-             (IO.md §4). Name a pool: `from = \"<collection or set>\"`.",
+             engine's own folds ({}) read every output without a `from`. \
+             Name a pool: `from = \"<collection or set>\"`.",
             list(FOLD),
         );
     }
     bail!(
         "view {view}: no `from` — a listing has to say what it lists. Only a \
-         FOLD shell reads every output without one (IO.md §4), and this one \
+         FOLD shell reads every output without one, and this one \
          leaves through {}, which wraps one output at a time. Name a pool \
          (`from = \"<collection or set>\"`), or declare a fold shell: {}",
         match shell {
@@ -152,7 +151,7 @@ pub fn check_registered_name(name: &str) -> Result<()> {
         bail!(
             "[shells.{name}]: \"{name}\" is a built-in shell (map shells: {}; \
              fold shells: {}) — a script shell needs a name of its own, or the \
-             built-in answers first and the command never runs (IO.md §4)",
+             built-in answers first and the command never runs",
             list(MAP),
             list(FOLD),
         );
@@ -190,7 +189,7 @@ mod tests {
         }
     }
 
-    /// **The law** (I7c), in all four corners. The two that are not simply
+    /// **The law**, in all four corners. The two that are not simply
     /// "identity decides" are the ones the corpus writes: a front-mattered
     /// `raw` row renders (field-notes' `demos/pane.html`), and an
     /// identity-less `html` row renders as the degenerate case (grack.com's
@@ -217,7 +216,7 @@ mod tests {
         assert_eq!(degenerate(false, None), None);
     }
 
-    /// The retired spellings are hard cutoffs (MERGE.md §4): out of the
+    /// The retired spellings are hard cutoffs: out of the
     /// vocabulary entirely, in both families.
     #[test]
     fn the_retired_spellings_are_gone() {

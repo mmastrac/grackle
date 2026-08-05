@@ -129,7 +129,7 @@ impl SlotFills {
     }
 }
 
-/// Fills nothing will ever read (MERGE.md C4b): stem not in any theme's
+/// Fills nothing will ever read: stem not in any theme's
 /// identity slots. Warning not error — spare fills for uninstalled themes
 /// should not fail a build.
 pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec<String> {
@@ -252,10 +252,10 @@ fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()>
         // Two files in ONE `.slots/` resolving to one key are unordered peers:
         // `resolve` walks *directory levels*, and nearness ranks levels, not
         // files at one level — so the winner used to be whichever `read_dir`
-        // handed over last (MERGE.md A6).
+        // handed over last.
         //
         // The only reachable shape is two extensions, since a directory cannot
-        // hold two files of one name — and A5's "agreement is not a conflict"
+        // hold two files of one name — and the markers' "agreement is not a conflict"
         // exemption cannot follow it here: `.md` renders and `.html` is
         // trusted verbatim (§5e), so even byte-identical files are two
         // different fills. There is no equality to test.
@@ -397,7 +397,7 @@ mod tests {
         dir
     }
 
-    /// The guard (MERGE.md A6). Delete the `bail!` in `load_dir` and this
+    /// The guard. Delete the `bail!` in `load_dir` and this
     /// loads silently, with the slot filled by whichever file `read_dir`
     /// handed over last.
     #[test]
@@ -446,7 +446,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The guard (MERGE.md C4b). Delete the body of `unknown_stems` and this
+    /// The guard. Delete the body of `unknown_stems` and this
     /// goes silent: `.slots/copyrite.md` is read, keyed, and never looked at
     /// by anything, on every build, forever.
     #[test]

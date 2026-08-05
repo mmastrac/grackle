@@ -1,4 +1,4 @@
-# A declaration at the excluded subtree's FIRST level (MERGE.md R2).
+# A declaration at the excluded subtree's FIRST level.
 #
 # `exclude = ["embedded/**"]` names this directory's contents, not the
 # directory itself, which is the one place a walk pruning on `keeps` alone

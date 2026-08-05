@@ -1,4 +1,4 @@
-# Two marker files in one directory, both claiming `draft` (MERGE.md A5).
+# Two marker files in one directory, both claiming `draft`.
 #
 # `blog/` holds a `.draft` and a `.published`. The config says one means
 # `draft = true` and the other `draft = false`; nothing says which of the two

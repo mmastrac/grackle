@@ -1,4 +1,4 @@
-//! One shell axis, answering on a whole site (IO.md §4, item I2).
+//! One shell axis, answering on a whole site.
 //!
 //! A site rendered once, for the same reason `io_facts.rs` is a site: what
 //! this asserts is a **set membership** — which routes a fold selected when it
@@ -12,6 +12,9 @@
 //! `shell == "html"` selected **0** rows (absent is Null and Null matches
 //! nothing) and `shell == "atom"` selected **0** routes (a view's
 //! serialization was a declaration, not a field). Both probes are below.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
 
@@ -138,7 +141,7 @@ fn a_feed_route_answers_atom() {
     assert_eq!(urls(&dir, "/atom-probe.xml"), ["/atom.xml"]);
 }
 
-/// **The census, and I2's remainder closed** (IO.md I7e). I2 recorded that an
+/// **The census, and I2's remainder closed**. I2 recorded that an
 /// objects-collection row "never takes a rule default at all": the loader built
 /// it from `Default::default()`, so no cascade ran over it and a `defaults =
 /// { shell = … }` on the base's objects rule would have been read by nobody —

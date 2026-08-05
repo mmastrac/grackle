@@ -115,13 +115,13 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     )
     .context("loading themes")?;
     prepass::check_theme_names(cfg, db, &themes)?;
-    // C4b: a `.slots/` file whose stem names no slot any loaded theme places
+    // A `.slots/` file whose stem names no slot any loaded theme places
     // fills nothing, silently. Said here rather than in the source loader
     // because the knowledge is here — the slot names come from the themes,
     // which only exist once `load_all` has run. A warning, not an error;
     // `slots::unknown_stems` carries the reasoning. `serve` rebuilds the
     // world through this function on every change, so a fixed name stops
-    // being reported on the next save (C3's convention, one crate over).
+    // being reported on the next save (the config warnings' convention, one crate over).
     {
         let locales: Vec<&str> = match cfg.pairing_axis() {
             Some((_, a)) => a.values.iter().map(String::as_str).collect(),

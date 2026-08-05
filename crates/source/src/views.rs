@@ -275,7 +275,7 @@ fn view_fields(
         })?;
         f.insert(name.clone(), crate::schema::typed(&ty, name, raw, "view")?);
     }
-    // IO.md §3: shell is an output column; absent = HTML listing (fold filters).
+    // Shell is an output column; absent = HTML listing (fold filters).
     f.insert(
         "shell".to_string(),
         filter::Value::Str(
@@ -328,7 +328,7 @@ struct Base {
 
 impl Base {
     fn resolve(schemas: &Schemas, name: &str, q: &Query, is_objects: bool) -> Result<Base> {
-        // Membership = collections `from` named. One row schema for every view (IO.md §3).
+        // Membership = collections `from` named. One row schema for every view.
         let membership = filter::Filter::parse(&members_clause(&q.base), &row_schema())
             .with_context(|| format!("view {name}: base {:?}", q.base))?;
         Ok(Base {
@@ -366,7 +366,7 @@ fn axis_member_combos(cfg: &Config, name: &str, v: &View) -> Result<Vec<Vec<Axis
                 }
             );
         };
-        // Every axis must be spent in a path, else members collide (MERGE.md C5).
+        // Every axis must be spent in a path, else members collide.
         if !v
             .route
             .iter()
@@ -625,7 +625,7 @@ fn build_view(
 /// Conjunction of every `where` along the `from` chain (incl. path globs).
 fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
     Ok(match q.predicate() {
-        // Type-check here: Config cannot see positional schema (§4a, MERGE.md C6a).
+        // Type-check here: Config cannot see positional schema (§4a).
         Some(src) => filter::Filter::parse(&src, schema).with_context(|| {
             let note = match q.patched.is_empty() {
                 true => String::new(),
@@ -637,7 +637,7 @@ fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<fil
     })
 }
 
-/// Folds with no `from` (IO.md §4): sitemap, search index; after other routes exist.
+/// Folds with no `from`: sitemap, search index; after other routes exist.
 pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     let route_schema = crate::schema::site_fields(&cfg.schema.decls, "grackle.toml [schema]")?;
     for (name, v) in &cfg.views {
@@ -657,7 +657,7 @@ pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
     Ok(())
 }
 
-/// Resolve no-`from` fold members over the final route list (IO.md §4).
+/// Resolve no-`from` fold members over the final route list.
 pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     for (name, v) in &cfg.views {
         if !v.reads_all_outputs() {
@@ -711,7 +711,7 @@ mod object_view_tests {
         Config::from_toml(&src).expect("test config parses")
     }
 
-    /// Object views scope with `glob(path, ...)` (IO.md §3).
+    /// Object views scope with `glob(path, ...)`.
     #[test]
     fn an_object_view_scopes_itself_with_a_path_glob() {
         let c = cfg("[routes.g]\nfrom = \"objects\"\n\

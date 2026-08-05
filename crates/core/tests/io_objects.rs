@@ -1,4 +1,4 @@
-//! Extension selection is rules (IO.md I7a).
+//! Extension selection is rules.
 //!
 //! `[[collections]] extensions = [...]` is gone. What an objects scope claims
 //! is what its RULES claim — `match = "**/*.{png,jpg}"` — so the one mechanism
@@ -11,6 +11,9 @@
 //! same file as a tree row gets a byte copy at an eager URL. A test that asked
 //! the loader "is this an object" would pass against an engine that then
 //! published the file anyway.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::{Row, SiteDb};
 use std::path::{Path, PathBuf};

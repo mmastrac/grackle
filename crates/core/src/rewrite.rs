@@ -11,7 +11,7 @@ use anyhow::Result;
 use lol_html::{element, rewrite_str, RewriteStrSettings};
 
 /// Resolve `<a href>` and embed `src`s in raw HTML, exactly as the markdown
-/// path resolves `NodeValue::Link` and `NodeValue::Image` (§6a, IO.md §4a).
+/// path resolves `NodeValue::Link` and `NodeValue::Image` (§6a).
 ///
 /// `resolve` is the same closure the comrak pass takes, tagged with which
 /// citation form is asking: `Ok(Some(url))` rewrites, `Ok(None)` leaves the

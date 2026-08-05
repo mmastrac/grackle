@@ -9,7 +9,7 @@ use crate::markdown::Doc;
 use crate::model::{Route, RouteKind, SiteDb};
 use crate::pipeline::types::{PageBody, SiteOutput, Stats};
 
-/// Rung 0 (IO.md I10, the law at load.rs's `force_route_fields`): minting an
+/// Rung 0: minting an
 /// output is the graph event, so every seam that mints a route applies the
 /// profile's forced fields. The two minting seams here call this pair rather
 /// than each restating the law.
@@ -26,7 +26,7 @@ fn apply_forced(route: &mut Route, forced: &[(String, grackle_db::filter::Value)
     }
 }
 
-/// The citation half of `Route.inputs` (IO.md §2), added once the bytes exist.
+/// The citation half of `Route.inputs`, added once the bytes exist.
 ///
 /// **Facts at planning; content at materialization** — and `inputs` is the one
 /// join field that straddles the line. `load::join_arrangement` filled every
@@ -65,7 +65,7 @@ pub(crate) fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
     }
 }
 
-/// The inputs one cited URL names (IO.md §4a, I11) — the address resolution
+/// The inputs one cited URL names — the address resolution
 /// both halves of the citation seam read, so the pull and the join cannot
 /// disagree about what an address means.
 ///
@@ -93,7 +93,7 @@ pub(crate) fn resolve_citation(db: &SiteDb, url: &str) -> Vec<grackle_db::Key> {
 /// which §6a records as how that content has always been organised. Binary
 /// entries fail the UTF-8 gate and cite nothing.
 ///
-/// One scan, two consumers (on-demand publishing and IO.md §2's citation
+/// One scan, two consumers (on-demand publishing and the join's citation
 /// edges) — the seam that keeps the join's closure from costing a second pass
 /// over the whole site.
 pub(crate) fn citation_map(out: &SiteOutput, site_url: &str) -> Vec<(String, Vec<String>)> {
@@ -124,7 +124,7 @@ pub(crate) fn strip_view_markers(out: &mut SiteOutput) {
     }
 }
 
-/// **Renditions as outputs** (IO.md §4a, I12): the artifacts `thumbs_pass`
+/// **Renditions as outputs**: the artifacts `thumbs_pass`
 /// published, entered into the outputs database with the edges and the
 /// parameters that say what they are.
 ///
@@ -186,7 +186,7 @@ pub(crate) fn join_renditions(
         }
         let mut route = Route {
             // A rendition's canonical address IS its strong address: no rule
-            // minted it, the content store did (I11's reading, one transform
+            // minted it, the content store did (the embed policy's reading, one transform
             // along).
             strong_url: Some(address.clone()),
             inputs: inputs.clone(),
@@ -251,11 +251,11 @@ pub(crate) fn join_renditions(
 /// materializes once, so the loop is monotone and terminates structurally.
 /// `cited` is the seed AND the output: the caller scanned every finished
 /// document once (`citation_map`), this pass reads that as its frontier and
-/// appends an entry for each file it materializes, and IO.md §2's
+/// appends an entry for each file it materializes, and the join's
 /// `join_citations` then reads the whole of it. One scan of the output serves
 /// both consumers, which is what keeps the join's citation edges free.
 ///
-/// **A pull along the graph's edges** (IO.md §5, I10). A citation is a URL and
+/// **A pull along the graph's edges**. A citation is a URL and
 /// `db.by_url` is the inputs database's address index, so resolving one *is*
 /// walking a content edge to the input at its far end — and the test for "have
 /// I materialized this already" is the join's own `output` column rather than
@@ -272,7 +272,7 @@ pub(crate) fn materialize_referenced(
 ) -> Result<usize> {
     // Nothing to pull: no input publishes lazily, so no edge this pass walks
     // can end at an unminted output. Two shapes qualify — an `on_demand` row,
-    // whose RULE deferred its route, and an embed-addressed row (IO.md §4a),
+    // whose RULE deferred its route, and an embed-addressed row,
     // which has no route to defer and publishes at its strong address.
     if !db.rows.iter().any(|p| {
         p.output.is_none() && (p.strong_url.is_some() || (p.on_demand && !p.url.is_empty()))
@@ -290,7 +290,7 @@ pub(crate) fn materialize_referenced(
             // The edge's far end: which INPUT does this citation name?
             //
             // TWO address indexes, because an output has two address slots
-            // (IO.md §4a). `by_url` holds CANONICAL row URLs only, so a
+            //. `by_url` holds CANONICAL row URLs only, so a
             // `/static/{hash}` citation resolves to nothing there — and review
             // I-D named exactly that as the hole: the pull would never publish
             // the bytes, and `join_citations` below would silently drop the
@@ -347,7 +347,7 @@ pub(crate) fn materialize_referenced(
                     row: Some(key.clone()),
                     source: Some(path),
                     front_mattered,
-                    // IO.md §4a's second address slot on the output side. For
+                    // The second address slot on the output side. For
                     // an output the policy minted this equals `url`: the hash
                     // address is where the artifact landed, because no rule
                     // gave it another one.
@@ -357,7 +357,7 @@ pub(crate) fn materialize_referenced(
                     ..Route::new(at.clone(), RouteKind::Object)
                 };
                 apply_forced(&mut route, &forced); // see `forced_fields`
-                                                   // IO.md §2, the pull model made literal: a lazily-published
+                                                   // The pull model made literal: a lazily-published
                                                    // row's `output` is `None` for the whole of the build's
                                                    // queryable life and becomes `Some` exactly here — the moment
                                                    // a reference materialized it. "Bare `output` is truthy iff

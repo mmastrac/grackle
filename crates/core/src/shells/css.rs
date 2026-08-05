@@ -1,4 +1,4 @@
-//! Theme stylesheet compilation (the megacss, IO.md §6).
+//! Theme stylesheet compilation (the megacss).
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -58,7 +58,7 @@ fn compile_theme_layer_fragment(
 /// base's whatever the selectors say, so a theme writing `.crumb` is never
 /// outranked by the base's `[data-kind="crumb"] + [data-kind="crumb"]`.
 ///
-/// **These per-theme sheets ARE the megacss** (IO.md §6, item I5). The model
+/// **These per-theme sheets ARE the megacss**. The model
 /// is one CSS artifact — engine base, theme, site overlay, extracted
 /// `root.html` styles, eventually per-post styles — and chunking it per theme
 /// is an optimization of that one artifact, not a competing design: a page
@@ -73,7 +73,7 @@ fn compile_theme_layer_fragment(
 /// bottom by whoever maintains it, and `root.html` is the file that states
 /// the theme's own frame — so a rule it writes about its own chrome should
 /// win against the general sheet, not lose to it. It is also the reading that
-/// preserves I4's inline emission: a `<style>` last in a `<head>` outranked
+/// preserves the retired inline emission: a `<style>` last in a `<head>` outranked
 /// the stylesheet link above it, and staying last keeps the same rule
 /// winning after the move.
 /// Returns the compiled sheet's bytes. The caller chooses the URL it lands at
@@ -122,7 +122,7 @@ pub(crate) fn css_pass(
     // Every partial ANY of the theme's CSS sources pulled in, both passes
     // pooled. The orphaned-tokens question below is about the theme as a
     // whole — "does anything the theme compiles read this file?" — and a
-    // per-pass list can only answer it for one file (IR5).
+    // per-pass list can only answer it for one file.
     let mut imported: Vec<String> = Vec::new();
     // A tokens-only theme (`_tokens.scss`, no `theme.scss`) reads its tokens
     // by BEING them: `own` is the partial itself, so no `@import` names it
@@ -141,11 +141,11 @@ pub(crate) fn css_pass(
             stats,
         )?;
     }
-    // The theme root's head styles (IO.md §6), through the SAME pipeline as
+    // The theme root's head styles, through the SAME pipeline as
     // `theme.scss`: `@import` inlining, then grass, with the theme directory
     // on the load path.
     //
-    // **Compiled, not passed through** — decided at I5. A `root.html` head is
+    // **Compiled, not passed through**, by decision. A `root.html` head is
     // authored as CSS in an HTML file, and plain CSS is valid SCSS, so
     // compiling costs a pass over a few lines and buys the author the two
     // things the rest of the theme already has: nesting, and
@@ -172,12 +172,12 @@ pub(crate) fn css_pass(
     // a failure, because a theme may legitimately keep a partial it does not
     // use yet.
     //
-    // **Asked here, of the whole theme** (IR5). It used to be asked inside the
+    // **Asked here, of the whole theme**. It used to be asked inside the
     // `theme.scss` pass, of that pass's imports alone, and was therefore false
     // in the two shapes where the tokens are read by something else: a
     // tokens-only theme (they ARE the sheet — a wart of this warning's own
     // vintage), and a theme whose `root.html` head imports them while
-    // `theme.scss` does not (I5 gave the head its own pass and its own list).
+    // `theme.scss` does not (the head has its own pass and its own list).
     // What survives is the case the warning was written for: a `theme.scss`
     // beside a `_tokens.scss` that nothing in the theme pulls in.
     if tokens.exists() && !tokens_only && !imported.iter().any(|s| s == "tokens") {

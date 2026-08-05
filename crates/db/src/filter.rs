@@ -51,7 +51,7 @@ pub enum Type {
     /// A string column whose values are a **closed set** — the column is
     /// backed by a Rust enum, so the engine knows every value it can ever
     /// hold. Behaves as [`Type::Str`] in every rule of the language; the
-    /// domain buys one thing, and it is the point (IO.md §3): comparing the
+    /// domain buys one thing, and it is the point: comparing the
     /// column to a string outside the set is a load error naming the knowns,
     /// rather than a filter that matches nothing forever.
     ///
@@ -1835,7 +1835,7 @@ impl Parser {
 /// Edit distance. Registered as a CEL function (`-levenshtein(a, b)` ranks
 /// relations, §6g) and used by every "did you mean" this engine offers —
 /// unknown field, unknown function, and now an unknown link query key that
-/// looks like an axis (MERGE.md C5d). `pub` so that stays ONE implementation.
+/// looks like an axis. `pub` so that stays ONE implementation.
 pub fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let mut prev: Vec<usize> = (0..=b.len()).collect();
@@ -2051,7 +2051,7 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
 }
 
 /// A closed-domain column compared against a literal outside its domain
-/// (IO.md §3, the enum half of item I1).
+///.
 ///
 /// This is the same knife `resolve` takes to an unknown FIELD, one level down:
 /// `kind == "posts"` type-checks perfectly — a string column against a string
@@ -2063,7 +2063,7 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
 /// compares two columns, and neither one is a value.
 ///
 /// The tail says what the constant is, and it is **not always `false`**
-/// (IR1(b), batch review I-A): `kind != "posts"` is the same mistake — the
+/// (batch review I-A): `kind != "posts"` is the same mistake — the
 /// author meant to exclude something, and excluded nothing — but it can only
 /// ever be TRUE, and a message that said "false" would send its reader looking
 /// for a predicate that never fires when theirs always does. An ordering
@@ -2746,7 +2746,7 @@ mod tests {
 
     /// `glob` is typed like every other registered function (§5f), which is
     /// what a view's retired `match` key bought by dissolving into `where`
-    /// (MERGE.md G2): the path scope is now checked by the same pass, against
+    ///: the path scope is now checked by the same pass, against
     /// the same vocabulary, and both ways of getting it wrong say so.
     #[test]
     fn glob_is_typed_like_any_other_function() {
@@ -2896,7 +2896,7 @@ mod tests {
         assert!(e.contains("known fields:"), "{e}");
     }
 
-    /// The same knife one level down (IO.md §3): `kind == "posts"` names a
+    /// The same knife one level down: `kind == "posts"` names a
     /// real column at the right type and then matches nothing forever.
     ///
     /// Mutation: delete either `check_domain` call in `check_cmp` and the
@@ -2916,7 +2916,7 @@ mod tests {
     }
 
     /// The tail names the constant the comparison became, and which constant
-    /// that is depends on the OPERATOR (IR1(b), batch review I-A).
+    /// that is depends on the OPERATOR (batch review I-A).
     ///
     /// `kind != "posts"` is the same authoring mistake as `kind == "posts"` —
     /// an exclusion that excludes nothing — but it is true forever, not false

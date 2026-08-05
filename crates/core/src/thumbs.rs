@@ -1,4 +1,4 @@
-//! **Renditions** (IO.md §4a, I12): the engine's one transform, its
+//! **Renditions**: the engine's one transform, its
 //! content-addressed cache, and the `/static/` addresses it publishes at
 //! (DESIGN.md §6b). Replaces `thumbnail.rb`.
 //!
@@ -18,12 +18,12 @@
 //!     travels with the URL (no sniffing, no `.htaccess`) and the content hash
 //!     makes `Cache-Control: immutable` correct by construction.
 //!
-//! **The hashing law, and where it is spent** (IO.md §4a). The address hashes
+//! **The hashing law, and where it is spent**. The address hashes
 //! the *input bytes plus the transform parameters, never the output bytes*, so
 //! it can be named at planning — before the transform runs, which is what lets
 //! a page embed a rendition's URL without waiting for its content. This module
 //! no longer spells that out for itself: it calls `strong::digest`/`strong::at`,
-//! the same mint I11's strong addresses go through. The arithmetic is
+//! the same mint strong addresses go through. The arithmetic is
 //! unchanged, which is why every published thumbnail address is unchanged.
 //!
 //! Derived assets are exempt from URL parity (§11.12), so this scheme is free
@@ -60,7 +60,7 @@ pub struct Thumb {
     pub cache_path: PathBuf,
     /// The published address — `/static/{hash}.{ext}`, no baseurl. This is the
     /// output's URL and the key it lands at, the same way `Row.url` carries no
-    /// baseurl either (I11's recorded decision).
+    /// baseurl either, by recorded decision.
     pub address: String,
     /// Published URL, baseurl applied — what a citation actually writes.
     pub url: String,
@@ -132,11 +132,11 @@ fn one(
     let bytes = std::fs::read(&source_path)
         .with_context(|| format!("{{% image %}} source not found: {}", source_path.display()))?;
 
-    // **The hashing law** (IO.md §4a): the key is the source bytes plus the
+    // **The hashing law**: the key is the source bytes plus the
     // ask's parameters, and never the bytes this transform is about to
     // produce. A changed image, or a different ask, is simply a different key
     // — so cache entries are never stale (§6b) and the address is nameable
-    // before the recipe runs. One mint, shared with I11's strong addresses.
+    // before the recipe runs. One mint, shared with strong addresses.
     let variant = rendition.variant();
     let hash = grackle_source::strong::digest(&bytes, &variant);
 
@@ -293,8 +293,7 @@ mod tests {
         assert_eq!((out, ext.as_str()), (b"not an image".to_vec(), "png"));
     }
 
-    /// **The ask reaches the transform** (IO.md §4a: parameters come from
-    /// demand). A width-only ask fits the width and leaves the height to the
+    /// **The ask reaches the transform**. A width-only ask fits the width and leaves the height to the
     /// aspect ratio — which is what makes two asks two different outputs
     /// rather than two names for one.
     ///
@@ -343,7 +342,7 @@ mod tests {
         assert_eq!((img.width(), img.height()), (100, 80));
     }
 
-    /// **The hashing law, pinned at the mint** (IO.md §4a): a rendition's
+    /// **The hashing law, pinned at the mint**: a rendition's
     /// address hashes the INPUT bytes plus the parameters, never the bytes the
     /// transform produced — so it is nameable at planning, before the recipe
     /// has run.

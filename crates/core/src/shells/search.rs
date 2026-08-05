@@ -76,7 +76,7 @@ pub(crate) fn search_pass(
             .iter()
             .filter_map(|k| db.routes.get(k))
             // The two arms are two BODY STORES, not two kinds of thing to say
-            // about an output — which is why `kind` survives I13 here: a post's
+            // about an output — which is why `kind` survives here: a post's
             // html is in `bodies` (keyed by row) and a page's in `page_bodies`
             // (keyed by URL), and no fact on the route says which pass filled
             // which. `_ => None` is the rest: a byte copy has no body to

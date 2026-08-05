@@ -1,4 +1,4 @@
-# Two files in one `.slots/` filling one slot (MERGE.md A6).
+# Two files in one `.slots/` filling one slot.
 #
 # `.slots/copyright.md` and `.slots/copyright.html` both key on the stem
 # `copyright`. The extension picks the pipeline — `.md` renders through

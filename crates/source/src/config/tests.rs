@@ -1,3 +1,5 @@
+// (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+// retired IO.md / MERGE.md build ledgers; git history holds their text.)
 use super::*;
 use crate::shape::{Law, Shape};
 
@@ -23,7 +25,7 @@ fn cfg_source(views: &str) -> String {
     )
 }
 
-/// The same site as [`cfg`], PROJECTED through `profile` (MERGE.md E2).
+/// The same site as [`cfg`], PROJECTED through `profile`.
 ///
 /// A projection is a config built through the ordinary entry point — the
 /// overlay merges into the merged table, the deserializer sees the result,
@@ -314,7 +316,7 @@ fn an_unknown_layout_name_is_accepted_at_config_time() {
     assert_eq!(c.views["x"].layout.as_deref(), Some("tag_index"));
 }
 
-/// §7 q5 / MERGE.md F3: a set's `theme` can never apply — a set never
+/// A set's `theme` can never apply — a set never
 /// lands, and an embedded set is content in the HOST's document, which
 /// wears one stylesheet. Declared-and-ignored, so it is a load error.
 ///
@@ -340,7 +342,7 @@ fn a_set_may_not_declare_a_theme() {
     assert_eq!(c.views["latest"].variant.as_deref(), Some("compact"));
 }
 
-/// IO.md §4 / IR1(c), the same family one field over: a set may not wear a
+/// The same family one field over: a set may not wear a
 /// fold shell, because a fold lands at a route.
 ///
 /// Verified before the check was written: there is no routeless-fold
@@ -562,7 +564,7 @@ fn a_redeclared_axis_shadows_the_inherited_one_entire() {
 }
 
 /// A marker is a definition under its filename, so redeclaring one says
-/// what it means WHOLE — MERGE.md §7 q10, and the reason `MarkerDef`
+/// what it means WHOLE — the reason `MarkerDef`
 /// exists. The base declares `".noindex" = { noindex = true }`; a site
 /// that repurposes the name gets its own payload and nothing else.
 ///
@@ -677,7 +679,7 @@ fn a_config_with_no_collections_says_so() {
 
 /// A path scope conjoins along the chain: a child narrows within its
 /// parent's subtree and cannot escape it. This used to be the `match`
-/// key's own rule; since MERGE.md G2 the glob is a clause of `where`, so
+/// key's own rule; now the glob is a clause of `where`, so
 /// it is the filter conjunction that carries it — one law instead of two,
 /// and the assertion is on the source the type-checker actually sees.
 #[test]
@@ -743,7 +745,7 @@ fn a_name_may_not_be_both_a_set_and_a_route() {
 
 // ---------------------------------------------------------------- trail
 //
-// MERGE.md C3(b). `cfg_unmerged` splices its argument straight after the
+// `cfg_unmerged` splices its argument straight after the
 // collection's `source`, so a `trail = …` line lands on the collection
 // and the `[routes]` after it close the table — which is exactly the
 // shape these need.
@@ -1038,8 +1040,8 @@ fn an_atom_a_deeper_sibling_would_split(structs: &[(Vec<Field>, bool)]) -> Optio
             if *table_atom {
                 return Some(format!(
                     "`{name}` is an atom spelled as a TABLE at depth {depth}, beside a \
-                         field at {deepest}: `Descend({deepest})` would merge into it \
-                         (MERGE.md §3 table D — the atom is the whole value)"
+                         field at {deepest}: `Descend({deepest})` would merge \
+                         into it — the atom is the whole value"
                 ));
             }
             if *depth != 0 {
@@ -1071,7 +1073,7 @@ fn a_nested_struct_ends_at_one_depth() {
 }
 
 /// The tripwire, fired — the mutation check for a guard that nothing in
-/// the config can trip today (batch review 2, finding 1; MERGE.md R3).
+/// the config can trip today (batch review 2, finding 1).
 ///
 /// `[i18n]` is the table most likely to grow the field: a `LocalizedStr`
 /// beside `strings` — a site-wide `title`, say — reads as depth 0 under a
@@ -1124,11 +1126,11 @@ fn a_localized_string_beside_a_map_would_be_split() {
 fn an_unknown_config_key_is_a_parse_error() {
     for stale in [
         "[views.published]\nfrom = \"blog\"\n",
-        // MERGE.md G1: a relation's candidate pool is `from` now.
+        // A relation's candidate pool is `from` now.
         "[collections.relations.related]\nover = \"published\"\n",
-        // MERGE.md G2: `match` on a relation.
+        // `match` on a relation is a `where` clause now.
         "[collections.relations.related]\nmatch = \"recipes/**\"\n",
-        // IO.md I7a: objects membership is a rule `match` glob.
+        // Objects membership is a rule `match` glob now.
         "extensions = [\"png\"]\n",
     ] {
         let src = format!(
@@ -1200,7 +1202,7 @@ const PROFILE_VIEWS: &str = "[schema]\nhidden = { type = \"bool\" }\n\
          [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
          [routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"card\"\n";
 
-/// MERGE.md E2, the fence — §4a's iron law made checkable. A profile may
+/// The fence — §4a's law made checkable. A profile may
 /// touch what a projection SAYS and SELECTS and never what LOADS, and the
 /// two lists beside `Config::shape` are exhaustive over the config surface,
 /// so the error can tell "you may not project this" apart from "this is not
@@ -1279,7 +1281,7 @@ fn the_fence_classifies_every_top_level_key() {
     assert!(!keys.contains(&FORCE));
 }
 
-/// MERGE.md E2's law, and the reason grack.com's drafts profile restates
+/// The fence again, and the reason grack.com's drafts profile restates
 /// `[sets.published]` in full: the shape decides. `[site]` is a bag, so a
 /// profile patches one key of it and the rest survive; a `[sets.*]` entry
 /// is a DEFINITION, and a definition is an atom — the profile's entry
@@ -1322,7 +1324,7 @@ fn a_bag_patches_per_key_and_a_definition_replaces_whole() {
 /// generic sentence, which is true and says nothing about the fix.
 #[test]
 fn the_old_profile_spellings_name_the_new_ones() {
-    // MERGE.md E1's tombstone. `[profiles.NAME] noindex = true` meant
+    // The tombstone: `[profiles.NAME] noindex = true` meant
     // something materially different — it overwrote the head declaration
     // with a constant — so `noindex = false` is refused too, since it never
     // meant anything either.
@@ -1350,7 +1352,7 @@ fn the_old_profile_spellings_name_the_new_ones() {
 /// a re-parse of the site's text alone.
 const BASE_LEANING: &str = "root = \".\"\n[site]\nurl = \"u\"\n";
 
-/// MERGE.md R7. The spanned re-parse is a *second opinion*, and a second
+/// The spanned re-parse is a *second opinion*, and a second
 /// opinion that changes the subject must not be published: on this site the
 /// text alone is missing base-supplied `[site]` keys, so the re-parse says
 /// `missing field` — a fiction, since the merged config had every one of
@@ -1413,7 +1415,7 @@ fn a_site_that_leans_on_the_base_for_site_keys_loads() {
     assert_eq!(projected.site.author, "");
 }
 
-/// MERGE.md C6a: a profile's `where` is accepted exactly where the `where`
+/// A profile's `where` is accepted exactly where the `where`
 /// it replaces is — the row built-ins AND every declared field, one
 /// schema, because that is what `Schemas::row_filter_schema` hands
 /// `Base::resolve`.
@@ -1440,7 +1442,7 @@ fn a_profile_filter_may_mix_builtins_and_declared_fields() {
     );
     // Who wrote it. The overlay replaced the whole definition, so the
     // config cannot recover this from the text — it is recorded as the
-    // projection is built (MERGE.md E2), and it is what keeps the profile
+    // projection is built, and it is what keeps the profile
     // in an error about a filter the reader cannot find in `[sets]`.
     assert_eq!(c.views["published"].filter_profile.as_deref(), Some("p"));
 }
@@ -1452,7 +1454,7 @@ fn a_profile_filter_may_mix_builtins_and_declared_fields() {
 /// two-shot try is reaching for, is not a schema anything could
 /// type-check against. The dispatch is `build_views`'s, restated nowhere:
 /// an all-outputs fold → routes, otherwise rows plus every declared field —
-/// and an object is a row like any other now (IO.md §3), so a gallery reads
+/// and an object is a row like any other now, so a gallery reads
 /// the same row vocabulary a post's view does.
 #[test]
 fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
@@ -1517,7 +1519,7 @@ fn an_unknown_name_in_a_profile_filter_is_deferred_not_rejected() {
     assert_eq!(c.views["published"].filter.as_deref(), Some("!cover"));
 }
 
-/// MERGE.md C6b: the projection is a config that `validate` has never seen,
+/// The projection is a config that `validate` has never seen,
 /// so it is validated — and `check_profile_filters` is what makes that
 /// load-bearing, since it is keyed off the provenance E2 records as the
 /// overlay is merged.
@@ -1543,7 +1545,7 @@ fn a_profile_filter_that_does_not_type_check_is_caught_at_load() {
     assert!(e.contains("view published"), "names the view: {e}");
 }
 
-/// MERGE.md E2: what the retired placement checks were guarding is now
+/// What the retired placement checks were guarding is now
 /// said by the ordinary rules, because the overlay produces an ordinary
 /// config. C6c refused `[profiles.p.sets.blog_index]` because `blog_index`
 /// is a route; today that entry ADDS a `[sets]` definition of that name,
@@ -1587,7 +1589,7 @@ fn a_misplaced_profile_entry_collides_in_the_one_namespace() {
     );
 }
 
-/// MERGE.md R5's principle at E2's scale: EVERY declared profile is
+/// Every declared profile is
 /// projected, deserialized and validated at every load, so a broken
 /// overlay in a projection nobody is building is a load error today. The
 /// config below is loaded the way `grackle build` loads it, with no
@@ -1597,7 +1599,7 @@ fn a_misplaced_profile_entry_collides_in_the_one_namespace() {
 /// profile relaxes — and what makes it an error is no longer a name check.
 /// A profile naming an unknown view ADDS a definition, which is what a
 /// registry does; the addition is then held to the same rules as any other
-/// entry, and a set with no `from` is not a set — since IO.md I3 an absent
+/// entry, and a set with no `from` is not a set — an absent
 /// `from` is legal on a FOLD shell (it reads every output, the retired
 /// `from = "*"`) and on nothing else, and this entry declares no shell.
 ///
@@ -1714,7 +1716,7 @@ fn a_declined_default_content_route_is_still_a_route() {
     );
 }
 
-/// MERGE.md E1, the whole point of the shape: the profile writes the
+/// The whole point of the shape: the profile writes the
 /// FIELD, and the site's own `robots` expression is left exactly as its
 /// author wrote it. C6d's key overwrote `[html.head.meta] robots` with the
 /// constant `"noindex,follow"` on every page of the projection, which is
@@ -1757,9 +1759,9 @@ fn a_forced_field_leaves_the_sites_robots_expression_alone() {
     assert_eq!(own.forced["noindex"], toml::Value::Boolean(true));
 }
 
-/// MERGE.md E1: rung 0's names come from the site's own `[schema]`, and
-/// they are checked for EVERY declared profile at every load — R5's
-/// sentence, one table over. `cfg_err` applies no profile at all.
+/// Rung 0's names come from the site's own `[schema]`, and they are
+/// checked for EVERY declared profile at every load — the same sentence,
+/// one table over. `cfg_err` applies no profile at all.
 ///
 /// Mutation-checked three ways: deleting the `declared.get` arm accepts
 /// `nosuchfield` (first half); deleting the `schema::typed` call accepts
@@ -1805,7 +1807,7 @@ fn unknown_from_is_an_error() {
     assert!(!e.contains("reached from"), "{e}");
 }
 
-/// MERGE.md C7b: renaming the collection at `_posts` retires the name
+/// Renaming the collection at `_posts` retires the name
 /// `posts`, and the base's `[sets.published] from = "posts"` then names
 /// nothing — on a site whose grackle.toml has no `published` in it.
 ///
@@ -2330,7 +2332,7 @@ fn a_quoted_key_stays_quoted_in_a_table_header() {
         .expect("a quoted header must parse");
 }
 
-/// The family check, on the view side (IO.md §4, I2). A view is a query,
+/// The family check, on the view side. A view is a query,
 /// so its declared shell folds the collection the query selects — and a
 /// MAP shell here is an arity error, not an unknown word: `html` is a
 /// perfectly good shell that happens to wrap one output, which is the

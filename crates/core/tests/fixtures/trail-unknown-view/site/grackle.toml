@@ -1,4 +1,4 @@
-# `trail` names a view, exactly as `tags` does — and until MERGE.md C3 it was
+# `trail` names a view, exactly as `tags` does — and until recently it was
 # the one reference of that shape nothing checked. A typo produced no trail
 # and said nothing: `Config::chain` stops walking at a name no view answers
 # to, so `grouped_chain` came back empty and `post_trail` simply pushed the

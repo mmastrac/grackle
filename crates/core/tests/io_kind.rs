@@ -1,5 +1,5 @@
 //! What is left of the `kind` enum, and the one equality every I13 respelling
-//! stands on (IO.md §3, I13 — *delete `kind`*).
+//! stands on.
 //!
 //! I13 replaced eight `kind == View` tests across `build.rs`, `links.rs`,
 //! `trails.rs`, `load.rs` and `views.rs` with the `view` column — three of them
@@ -17,6 +17,9 @@
 //! The other two assertions are the item's CENSUS, pinned rather than written
 //! down: what the enum still carries that facts do not, and what it carries
 //! that they do.
+//!
+//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
 
@@ -132,8 +135,7 @@ fn a_view_route_is_exactly_a_route_that_names_a_view() {
 /// the respelling I13 declined at `build.rs`'s render dispatch.
 ///
 /// `Static | Object` is one arm there and `Page` is another, and the reason the
-/// two arms differ is not the enum: it is the rendering law (IO.md §4,
-/// `front_mattered || shell ∈ DOCUMENT`). Every `Static` and every `Object`
+/// two arms differ is not the enum: it is the rendering law. Every `Static` and every `Object`
 /// route's row is `rendered false`; every `Page` and every `Post` route's row is
 /// `rendered true`. Measured on all six corpus trees at I13 and pinned here at
 /// fixture scale, so the declined option stays available rather than becoming

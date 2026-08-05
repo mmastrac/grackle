@@ -40,8 +40,8 @@ extends = "none"
 #
 # Blog fields (`tags`, `date`, `description`) sit with the flags because posts
 # wear them and `extends = "none"` declines the base's declarations. `toc` is
-# here for guide pages (MERGE.md C1 / §4e). `shell` and `slot` join them for
-# the rules below to write (IO.md I7c). `theme` is still NOT declared — the
+# here for guide pages. `shell` and `slot` join them for
+# the rules below to write. `theme` is still NOT declared — the
 # theme axis sets it per member at render, and declaring what nothing writes
 # is how a vocabulary stops meaning anything. `cover`/`image` are the hero
 # sources the `published` set's `hero` field reads (below): declining the base
@@ -161,7 +161,7 @@ exclude = ["themes/**"]
   # Everything else spends `{theme}`, so every row below lands eight times.
   #
   # The shell defaults below are the base's, on a site that declines the base
-  # (IO.md I7c). The index rule declares none for the base's own reason: a
+  #. The index rule declares none for the base's own reason: a
   # rule's defaults apply wherever it MATCHES, so a front-mattered `index.md`
   # takes `html` from the third rule and a static `index.html` would take `raw`
   # from the fourth — the same front-matter gate that decides everything else
@@ -194,7 +194,7 @@ source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
   # The glob names what this scope claims — markdown, and only markdown. A
-  # scope owns its source (IO.md I7d), so what no rule here claims is not
+  # scope owns its source, so what no rule here claims is not
   # content: an image sitting in `_posts/` is invisible rather than falling
   # through to the tree.
   [[collections.rules]]
@@ -204,15 +204,15 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
 # ---------------------------------------------------------------- objects
 
-# Membership is what this scope's rules claim (IO.md I7a): the extension list
+# Membership is what this scope's rules claim: the extension list
 # is the glob, case-insensitively. This site declines the base, so it says the
 # objects rule's shell itself — an image leaves through the transparent one
-# (IO.md I7e: one row constructor, so an object takes rule defaults like any
+# (so an object takes rule defaults like any
 # other row, and this site's census reads `raw` rather than Null).
 #
 # The route is this site's own. `extends = "none"` means there is no base rule
 # to silence, so this is simply the site saying where its wall and its covers
-# land — the alternative being `embed = true` (IO.md §4a), which addresses them
+# land — the alternative being `embed = true`, which addresses them
 # by content hash and publishes only what the galleries embed.
 [[collections]]
 name = "objects"
@@ -284,7 +284,7 @@ content = "wall/index.md"
 title = "Wall"
 
 # `front_mattered` is what `kind == "post" || kind == "page"` always meant
-# (IO.md §3): the documents, as opposed to byte copies and minted listings.
+#: the documents, as opposed to byte copies and minted listings.
 [routes.search]
 path = "/search.bin"
 shell = "search"
