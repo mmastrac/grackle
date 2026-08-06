@@ -10,7 +10,7 @@ pub(crate) enum Law {
     Descend(usize),
     /// `[[collections]]` pair by source, then merge under `Collection`'s shape.
     Collections,
-    /// Site list first; §4 first-writer-wins per key.
+    /// Site list first; first-writer-wins per key.
     Prepend,
 }
 
@@ -22,7 +22,7 @@ pub(crate) enum Shape {
     TableAtom,
     Struct(Vec<(&'static str, Shape)>),
     Map(Box<Shape>),
-    /// §1 annotation on the field it governs.
+    /// annotation on the field it governs.
     Annotated(Law, Box<Shape>),
 }
 
@@ -161,7 +161,7 @@ mod tests {
         );
     }
 
-    /// The law is the shape, read at the depth the shape has — and the two
+    /// The law is the shape, read at the depth the shape has, and the two
     /// annotated keys are the only place that sentence needs a footnote.
     #[test]
     fn the_law_falls_out_of_the_shape_unless_it_is_annotated() {
@@ -181,7 +181,7 @@ mod tests {
             Shape::Map(Box::new(Shape::definition())).law(),
             Law::Descend(1)
         );
-        // `[[collections]]` is a `Vec` — an atom by structure, like
+        // `[[collections]]` is a `Vec`, an atom by structure, like
         // `[[parts]]` beside it. Only the annotation tells the two apart, and
         // it leaves the structure it overrides in place.
         let collections = Shape::Annotated(Law::Collections, Box::new(Shape::Atom));

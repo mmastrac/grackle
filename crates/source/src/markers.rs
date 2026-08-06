@@ -1,4 +1,4 @@
-//! Marker files: tree-declared defaults (DESIGN.md §4b). Nearest directory wins.
+//! Marker files: tree-declared defaults. Nearest directory wins.
 
 use anyhow::{bail, Result};
 use serde::Deserialize;

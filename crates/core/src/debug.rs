@@ -2,15 +2,15 @@
 //!
 //! A purpose-built serialization, deliberately *not* `grackle export`. The
 //! export is the database as the database sees it; this is the database as a
-//! person diagnosing it needs to see it — which means two differences:
+//! person diagnosing it needs to see it, which means two differences:
 //!
 //! 1. It carries what `export` skips. Route `members` and the row flags are
-//!    `#[serde(skip)]` there, and they are exactly what answers "what picks
-//!    this up" and "why is this missing".
+//!  `#[serde(skip)]` there, and they are exactly what answers "what picks
+//!  this up" and "why is this missing".
 //! 2. Members are emitted as **URLs, not indices**. An index is only
-//!    meaningful next to the table it indexes; a URL joins to everything the
-//!    inspector already has, so the client needs no lookup tables and no
-//!    knowledge of which table a view ranges over.
+//!  meaningful next to the table it indexes; a URL joins to everything the
+//!  inspector already has, so the client needs no lookup tables and no
+//!  knowledge of which table a view ranges over.
 //!
 //! Serve-only: nothing here is emitted into a build.
 
@@ -67,9 +67,9 @@ struct Row {
     theme: Option<String>,
     /// A tree row with no front matter is copied, not rendered.
     rendered: bool,
-    /// q45: a claimed row has no route of its own — its landing owns the URL.
+    /// A claimed row has no route of its own, its landing owns the URL.
     claimed: bool,
-    /// Typed schema fields (§5b), stringified for display.
+    /// Typed schema fields, stringified for display.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     fields: Vec<(String, String)>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,7 +98,7 @@ struct Route {
 #[derive(Serialize)]
 struct View {
     name: String,
-    /// The view's `from` — the pool it ranges over. Named for the config
+    /// The view's `from`, the pool it ranges over. Named for the config
     /// key, which is what a reader of the inspector has in front of them.
     #[serde(skip_serializing_if = "Option::is_none")]
     from: Option<String>,
@@ -116,14 +116,14 @@ struct View {
     paginate: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     routes: Vec<String>,
-    /// How many routes this view materialized — the fan-out that makes 7
+    /// How many routes this view materialized, the fan-out that makes 7
     /// views responsible for most of the URL space.
     route_count: usize,
 }
 
 pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
     // Post `rel` is collection-relative; pages are root-relative. The tree
-    // lens joins them into one filesystem, so re-root the posts — from the
+    // lens joins them into one filesystem, so re-root the posts, from the
     // row's own absolute path, not from a collection's source, because
     // several collections feed this table and only the path knows which one
     // a row came from.
@@ -207,7 +207,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         .collect();
 
     // A fold with no `from` ranges over ROUTES, not a table, so it
-    // carries no `members` — the render passes re-evaluate its filter. The
+    // carries no `members`, the render passes re-evaluate its filter. The
     // set is real all the same, so evaluate it here rather than show an
     // empty list and imply otherwise.
     let pool_members = |name: &str| -> Vec<String> {
@@ -226,7 +226,7 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         db.routes.matching(&pred).map(|r| r.url.clone()).collect()
     };
 
-    // Members are keys into the one row store (q51), so the base kind does
+    // Members are keys into the one row store, so the base kind does
     // not enter into resolving them.
     let member_urls = |r: &crate::model::Route| -> Vec<String> {
         let Some(view) = r.view.as_deref() else {
@@ -326,7 +326,7 @@ pub fn is_debug_path(path: &str) -> bool {
     path == "/__debug" || path.starts_with("/__debug/")
 }
 
-/// The inspector's own assets, embedded in the binary (serve-only — a build
+/// The inspector's own assets, embedded in the binary (serve-only, a build
 /// never emits these).
 pub fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
     match path {
@@ -347,7 +347,7 @@ pub fn asset(path: &str) -> Option<(&'static str, &'static [u8])> {
 }
 
 /// A typed field as one display string. The inspector shows values, not
-/// types — an int and a string that both read `4` are the same to the eye,
+/// types, an int and a string that both read `4` are the same to the eye,
 /// and the schema is one click away when the difference matters.
 pub fn value_text(v: &crate::filter::Value) -> String {
     use crate::filter::Value as V;
@@ -368,79 +368,14 @@ pub fn value_text(v: &crate::filter::Value) -> String {
     }
 }
 
-/// What `grackle explain` says a row IS, in the vocabulary a `where` is
-/// written in.
+/// Filterable facts `grackle explain` prints for a row: `collection`,
+/// `shell`, `rule`, `rendered`, `front_mattered` (with provenance),
+/// `output`, and `strong_url` when present.
 ///
-/// A row has no `kind`. Print the filterable facts instead: scope membership
-/// (`collection`), shell, and identity.
-///
-/// The route keeps a `kind` column for serialization shape (page / static /
-/// object / view). Scope membership on the output pool is `collection`.
-///
-/// `shell` is printed here rather than left to `explain`'s generic field
-/// dump because the dump prints a field only where the row resolved one:
-/// 842 of grack.com's 1396 rows resolve no shell, and a line that is simply
-/// absent is not an answer to "which shell".
-///
-/// **`rule` is the fourth, and it is the ordering law's one observable**
-///. Membership is no longer a precedence a reader can look up in
-/// a doc — it is the answer one ordered sequence of rules gave for one file,
-/// so `collection` names the scope that claimed the row and `rule` names the
-/// glob inside it that did the claiming. Without the pair, "why is this file
-/// an object rather than a page" has no answer short of re-deriving the
-/// order by hand.
-///
-/// **`rendered` is the fifth, and it is the only DERIVED line in the block**
-///. It is the rendering law's output —
-/// `shell::renders(front_mattered, shell)`, the law `front_mattered ||
-/// shell ∈ DOCUMENT` — printed immediately beneath the two facts it is a
-/// function of, because the pair is what teaches the law and neither half
-/// predicts it alone: a degenerate row reads `front_mattered false /
-/// rendered true` (identity-less, sent through a document shell), and
-/// `field-notes`' front-mattered `shell: raw` `demos/pane.html` reads
-/// `shell raw / rendered true` — it renders, and the `raw` shell then emits
-/// the result verbatim.
-///
-/// **The line prints the STORED bit, not a re-derivation**, and it was recorded
-/// that they were then the same answer by construction: `load.rs` built every
-/// row by calling `shell::renders` on exactly these two fields. **Sidecars are
-/// where that stopped being true**, exactly as predicted — a
-/// sidecar'd row reads `front_mattered true / rendered false`, because the law
-/// reads the *block* while the fact reads identity. The stored bit is what
-/// actually decided whether this file was parsed, which is why it is the one
-/// printed; the provenance below is what keeps the pair readable.
-///
-/// **`front_mattered` carries its provenance**, and the reason is
-/// this block: once a sidecar can set the fact, `front_mattered true /
-/// rendered false` is unreadable without knowing WHERE identity came from —
-/// a reader would take it for a contradiction. So the line says `true (block)`
-/// or `true (sidecar)`, and the law becomes re-derivable from what is printed.
-/// Both are spelled rather than only the exception: a `true` whose meaning
-/// depends on the absence of a word is the shape this project keeps refusing.
-/// **`output` is the sixth, and it is the join**. It lands BESIDE
-/// `rendered`, never in place of it: `rendered` is the rendering law (did the pipeline
-/// parse this file), `output` is §2's join (does this row land, and where), and
-/// the corpus disagrees about them in both directions — a byte copy reads
-/// `rendered false` with an output, and a claimed row reads `rendered true`
-/// with none.
-///
-/// The line prints the URL, or `-` for the three shapes that land nowhere —
-/// **and the two that have a name say it**, for the sidecar reason one field over: a
-/// `-` sitting two lines under `url /recipes/` reads as a contradiction unless
-/// the reader already knows q45, and a value whose meaning depends on
-/// knowledge the surface withholds is the shape this project keeps refusing.
-/// So a **claimed** row says the landing owns that URL (`url` is the landing's
-/// by design — that is what q45 rewrote it to), an **on-demand** row says
-/// nothing has referenced it (`explain` runs no render pass, so this is the
-/// answer it will always give one), and a row no rule routed gets the bare
-/// dash, which is then the only thing a bare dash can mean.
-///
-/// **`strong_url` is the seventh** — the row's other address
-/// slot, printed only where there is one, because a `-` on every row of every
-/// site would say the policy is off rather than that the row is routed. Where
-/// it IS printed, `url` is empty and the `output` dash reads *embed-addressed*:
-/// three lines that together say the one thing worth knowing about such a row,
-/// which is that an `<img>` can reach it and a link cannot.
+/// `collection` + `rule` answer which scope and glob claimed the file.
+/// `rendered` is the stored `shell::renders` bit (sidecars can disagree with
+/// a re-derivation from the block alone). `output` is join: where the row
+/// lands, or why it does not (`claimed` / `on demand` / embed-addressed).
 pub fn row_facts(r: &crate::model::Row) -> String {
     let identity = match (r.front_mattered, r.sidecar) {
         (false, _) => "false".to_string(),
@@ -478,7 +413,7 @@ pub fn join_list(name: &str, keys: &[crate::model::Key]) -> String {
     capped_list(name, &lines)
 }
 
-/// `join_list`'s shape over already-rendered lines — what `pull` prints its
+/// `join_list`'s shape over already-rendered lines, what `pull` prints its
 /// edge list and its work order with. One formatter, because two
 /// surfaces that cap differently are two surfaces a reader has to learn.
 pub fn capped_list(name: &str, lines: &[String]) -> String {
@@ -502,18 +437,18 @@ pub fn capped_list(name: &str, lines: &[String]) -> String {
 /// **A cascade key is two things at once**, and that is the whole bug this
 /// closes. The base declares `theme`/`shell`/`slot` in its
 /// base `[schema]` so a marker's or a rule's value for one of them travels
-/// the same typed cascade as any other field — which makes each of them a
+/// the same typed cascade as any other field, which makes each of them a
 /// named field on `Row` *and* a column in `Row.fields`. A surface that prints
 /// the named field and then dumps the columns prints it twice: `explain` did,
 /// for every row that resolved a `layout`.
 ///
 /// **The named line wins and the dump skips the name**, following the facts pass's
 /// resolution for `shell`, because only the named line can answer for a row
-/// that resolved nothing — the dump prints a field only where a value landed,
+/// that resolved nothing, the dump prints a field only where a value landed,
 /// so its silence is indistinguishable from "no such key". Hence `-` for an
 /// unresolved `theme` or `slot`.
 ///
-/// `shell` is printed one block up, by `row_facts` — it is there because it is
+/// `shell` is printed one block up, by `row_facts`, it is there because it is
 /// one of the three facts that replaced `kind`, not because it belongs
 /// to a different family. The skip below covers the cascade list.
 pub fn row_fields(r: &crate::model::Row) -> String {

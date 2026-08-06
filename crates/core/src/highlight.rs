@@ -1,16 +1,16 @@
 //! A compact syntax highlighter for the four token classes the theme colours
 //! (`_rouge.scss`): keyword `k`, string `s`, comment `c1`, name `n`. Everything
-//! else — numbers, operators, punctuation, whitespace — is emitted plain and
+//! else, numbers, operators, punctuation, whitespace, is emitted plain and
 //! renders in the default colour, so this classifies into those four buckets and
 //! no further.
 //!
 //! It is deliberately not a grammar. For a four-colour palette, comment / string
 //! / word lexing is the whole job, and a full highlighter (syntect and its
-//! bundled Sublime grammars) would be a heavy dependency — and one that doesn't
-//! even ship the nasm grammar this corpus needs — for a handful of posts. A
+//! bundled Sublime grammars) would be a heavy dependency, and one that doesn't
+//! even ship the nasm grammar this corpus needs, for a handful of posts. A
 //! language is a comment style, a set of string quotes, and a keyword list.
 //!
-//! Escaping matches `markdown::escape_code` (§9a): `&`, `<`, `>` only, never
+//! Escaping matches `markdown::escape_code`: `&`, `<`, `>` only, never
 //! quotes, so a highlighted block escapes the same bytes an unhighlighted one
 //! does.
 
@@ -32,7 +32,7 @@ fn lang(name: &str) -> Option<Lang> {
     let l = match name {
         "rust" => Lang {
             // Char literals share `'` with lifetimes (`'a`), which a byte lexer
-            // can't tell apart, so rust strings are `"` only — a mis-coloured
+            // can't tell apart, so rust strings are `"` only, a mis-coloured
             // lifetime is worse than an uncoloured char literal.
             line: &["//"],
             block: Some(("/*", "*/")),
@@ -155,7 +155,7 @@ fn lang(name: &str) -> Option<Lang> {
 }
 
 /// Highlight `code` in `name`, or plain-escape it if the language is unknown.
-/// The result is the inner HTML of `<code>…</code>` — the caller owns the
+/// The result is the inner HTML of `<code>…</code>`, the caller owns the
 /// Rouge wrappers.
 pub fn render(name: &str, code: &str) -> String {
     let Some(l) = lang(name) else {
@@ -167,14 +167,14 @@ pub fn render(name: &str, code: &str) -> String {
     while i < b.len() {
         let rest = &code[i..];
 
-        // Line comment → end of line.
+        // Line comment -> end of line.
         if l.line.iter().any(|m| rest.starts_with(m)) {
             let end = i + rest.find('\n').unwrap_or(rest.len());
             span(&mut out, "c1", &code[i..end]);
             i = end;
             continue;
         }
-        // Block comment → past the close delimiter (or EOF if unterminated).
+        // Block comment -> past the close delimiter (or EOF if unterminated).
         if let Some((open, close)) = l.block {
             if rest.starts_with(open) {
                 let after = &code[i + open.len()..];
@@ -188,14 +188,14 @@ pub fn render(name: &str, code: &str) -> String {
             }
         }
         let c = b[i] as char;
-        // String → past the matching quote, honouring `\` escapes.
+        // String -> past the matching quote, honouring `\` escapes.
         if c.is_ascii() && l.strings.contains(&c) {
             let end = string_end(b, i, b[i]);
             span(&mut out, "s", &code[i..end]);
             i = end;
             continue;
         }
-        // Word → keyword or name.
+        // Word -> keyword or name.
         if c == '_' || c.is_ascii_alphabetic() {
             let mut j = i + 1;
             while j < b.len() && (b[j] == b'_' || (b[j] as char).is_ascii_alphanumeric()) {
@@ -257,7 +257,7 @@ fn escape_into(out: &mut String, s: &str) {
     }
 }
 
-/// HTML-escape `&`/`<`/`>` only (not quotes) — the escaping code blocks and
+/// HTML-escape `&`/`<`/`>` only (not quotes), the escaping code blocks and
 /// inline `<code>` share. Using comrak's escaper instead yields `&quot;` and a
 /// diff on every code span containing a double quote.
 pub(crate) fn escape_plain(s: &str) -> String {

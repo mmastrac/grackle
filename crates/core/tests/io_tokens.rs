@@ -4,12 +4,12 @@
 //! *seam*: which tokens a rule's route template may spend was decided in two
 //! different loaders, and a unit test over either one would pass against an
 //! engine where the other never learned. What is asserted is the URL a row
-//! landed at — the one observable that both halves of the supply feed.
+//! landed at, the one observable that both halves of the supply feed.
 //!
 //! Rendering is not needed and not done: routing is settled at load, which is
-//! also what makes the failure cases *load errors* rather than 404s (§4).
+//! also what makes the failure cases *load errors* rather than 404s.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
@@ -53,10 +53,9 @@ fn url_of(routes: &[(String, String)], rel: &str) -> String {
         .clone()
 }
 
-/// **q51's example, which used to be impossible.** A file in a posts scope
-/// routed by its PATH — `_posts/rust/hello.md` → `/rust/hello/` — while the
-/// dated rows of the same collection route by their filenames exactly as
-/// before.
+/// **Path-token example.** A file in a posts scope routed by its path
+/// (`_posts/rust/hello.md` -> `/rust/hello/`) while dated rows of the same
+/// collection still route by filename.
 ///
 /// Before I6 the two suppliers were disjoint and this site did not load:
 /// *"template `/{dir}/{stem}/` references unknown token {dir}"*, measured
@@ -64,7 +63,7 @@ fn url_of(routes: &[(String, String)], rel: &str) -> String {
 /// simply had no path tokens to give.
 ///
 /// Mutation: drop the `path_tokens` call from `RouteTokens::get` and this test
-/// fails with that same error, while the dated row below still routes — which
+/// fails with that same error, while the dated row below still routes, which
 /// is the disjointness, restored.
 #[test]
 fn a_posts_scope_routes_by_path_tokens() {
@@ -86,7 +85,7 @@ fn a_posts_scope_routes_by_path_tokens() {
     );
     let r = routes(&dir);
     assert_eq!(url_of(&r, "_posts/rust/hello.md"), "/rust/hello/");
-    // The inherited dated rule, untouched — the capability is additive.
+    // The inherited dated rule, untouched, the capability is additive.
     assert_eq!(
         url_of(&r, "_posts/2020-01-01-dated.md"),
         "/blog/2020/01/01/dated/"
@@ -99,10 +98,10 @@ fn a_posts_scope_routes_by_path_tokens() {
 /// not two that alternate: `{dir}` comes from the walk, `{year}` and `{slug}`
 /// from the rule's `file`, and they meet in one URL.
 ///
-/// The same site pins the other half of the shape — that the extractor is the
-/// RULE's: `legacy/**` declares the MM-DD-YYYY form and its row routes by it,
+/// The same site pins the other half of the shape, that the extractor is the
+/// rule's: `legacy/**` declares the MM-DD-YYYY form and its row routes by it,
 /// while the collection's own list still governs everything else. First writer
-/// wins per key (§4), the collection is the default, and the two are visible
+/// wins per key, the collection is the default, and the two are visible
 /// in one build.
 #[test]
 fn one_template_spends_both_suppliers_and_the_rule_owns_the_extractor() {
@@ -153,10 +152,8 @@ fn one_template_spends_both_suppliers_and_the_rule_owns_the_extractor() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The extractor is no longer a posts-only mechanism.** A TREE rule naming
-/// `file` routes a dated tree page by its filename — the second
-/// half of "extractors move to rules", and the shape that says the key moved
-/// rather than being copied.
+/// An extractor reaches any rule that declares `file`. A tree rule naming
+/// `file` routes a dated tree page by its filename.
 #[test]
 fn an_extractor_reaches_a_tree_rule() {
     let dir = site(
@@ -200,14 +197,13 @@ fn an_extractor_reaches_a_tree_rule() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The moved validation.** A row with no date under a template that spends
-/// one is a load error naming the FILE and the RULE — DESIGN.md §4's
-/// constraint, which used to live inline in the posts loader and now rides the
-/// supplier, so it covers a tree rule and an objects rule the same way.
+/// A row with no date under a template that spends one is a load error
+/// naming the file and the rule. The check rides the supplier, so it covers
+/// a tree rule and an objects rule the same way.
 ///
 /// Mutation (measured, and the reason this asserts the sentence rather than
 /// the failure): delete the `check` call in `render_all` and the load still
-/// fails — `template::render` refuses an unresolved token — but by the generic
+/// fails, `template::render` refuses an unresolved token, but by the generic
 /// sentence, *"template `/blog/{year}/{slug}/` references unknown token
 /// {year}"*, which sends its reader to look for a typo in a template that is
 /// perfectly well spelled. The check buys the diagnosis, not the refusal.
@@ -237,7 +233,7 @@ fn an_undated_row_under_a_dated_template_names_the_file_and_the_rule() {
 
 /// The general form of the same refusal: a token nothing supplies. The
 /// sentence lists what a route MAY spend, because the reader's next move is to
-/// pick one — and the list is the supplier's own, so it cannot drift.
+/// pick one, and the list is the supplier's own, so it cannot drift.
 #[test]
 fn a_token_nothing_supplies_lists_what_a_route_may_spend() {
     let dir = site(

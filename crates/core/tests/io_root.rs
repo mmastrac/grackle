@@ -3,55 +3,55 @@
 //! Five claims, and the first is the one the migration rests on:
 //!
 //! 1. **A body-only root is the old chrome fragment, byte for byte.** The
-//!    `<body>` wrapper is accepted but not required — a file with neither
-//!    wrapper IS the body — which is what made `shell.html` → `root.html` a
-//!    rename across nine themes and nothing else. The corpus parity run is
-//!    this claim at scale; the test here is the claim stated small, on both
-//!    spellings of the same chrome.
+//!  `<body>` wrapper is accepted but not required, a file with neither
+//!  wrapper IS the body, which is what made `shell.html` -> `root.html` a
+//!  rename across nine themes and nothing else. The corpus parity run is
+//!  this claim at scale; the test here is the claim stated small, on both
+//!  spellings of the same chrome.
 //! 2. **The head fence.** A theme root's `<head>` may hold `<style>` and
-//!    nothing else, because the engine COMPUTES the head — title, charset,
-//!    canonical, the `[html.head.*]` tables, hreflang, the one stylesheet
-//!    link. A theme's `<title>` would be shadowed on every page, silently,
-//!    and a theme's second stylesheet `<link>` would break the one-artifact
-//!    rule the CSS assembly is built on. So it is a load error naming the
-//!    file and the element, rather than a tag that quietly does nothing.
+//!  nothing else, because the engine computes the head, title, charset,
+//!  canonical, the `[html.head.*]` tables, hreflang, the one stylesheet
+//!  link. A theme's `<title>` would be shadowed on every page, silently,
+//!  and a theme's second stylesheet `<link>` would break the one-artifact
+//!  rule the CSS assembly is built on. So it is a load error naming the
+//!  file and the element, rather than a tag that quietly does nothing.
 //! 3. **A head `<style>` is CSS, so it goes where the CSS goes** (I5). The
-//!    fence lets a theme root declare presentation; the assembly is what
-//!    makes that declaration mean something. The style is compiled into the
-//!    theme layer of the theme's own sheet — after `theme.scss`, so the file
-//!    that states the theme's frame outranks the general sheet — and the page
-//!    keeps exactly one stylesheet link and no inline `<style>` at all. I4
-//!    emitted it inline in the computed head as a declared interim; this is
-//!    the byte that moved.
+//!  fence lets a theme root declare presentation; the assembly is what
+//!  makes that declaration mean something. The style is compiled into the
+//!  theme layer of the theme's own sheet, after `theme.scss`, so the file
+//!  that states the theme's frame outranks the general sheet, and the page
+//!  keeps exactly one stylesheet link and no inline `<style>` at all. I4
+//!  emitted it inline in the computed head as a declared interim; this is
+//!  the byte that moved.
 //! 4. **`shell.html` is gone, and says so.** The chrome part kind renamed
-//!    `shell` → `root`, so a stale `shell.html` was never going to be
-//!    *silent* — `Fragments::load` rejects a fragment naming no kind. What
-//!    it would have been is MISLEADING: "fragment names no layout kind
-//!    `shell`" sends its reader hunting for a kind when the fix is a rename.
-//!    That is the one case §10's precedent allows a targeted sentence for.
+//!  `shell` -> `root`, so a stale `shell.html` was never going to be
+//!  *silent*, `Fragments::load` rejects a fragment naming no kind. What
+//!  it would have been is MISLEADING: "fragment names no layout kind
+//!  `shell`" sends its reader hunting for a kind when the fix is a rename.
+//! That is the one case precedent allows a targeted sentence for.
 //! 5. **The wrapper mistake is refused** (IR4). A theme root that carries a
-//!    top-level `<html>` — or a doctype — is a page skeleton pasted into a
-//!    file that is not a page, and it is the one authoring mistake claim 2
-//!    could not catch: inside an `<html>` the head and the body are invisible
-//!    to the split, so the file reads as a *fragment* and the theme's
-//!    `<title>` and metas ship inside `<body>` on every page, fence and all.
-//!    Refusing it is what makes claims 1 and 2 hold together rather than each
-//!    holding on its own. Authored words beside the two halves are the same
-//!    bargain one size down: silently dropped before, named now.
+//!  top-level `<html>`, or a doctype, is a page skeleton pasted into a
+//!  file that is not a page, and it is the one authoring mistake claim 2
+//!  could not catch: inside an `<html>` the head and the body are invisible
+//!  to the split, so the file reads as a *fragment* and the theme's
+//!  `<title>` and metas ship inside `<body>` on every page, fence and all.
+//!  Refusing it is what makes claims 1 and 2 hold together rather than each
+//!  holding on its own. Authored words beside the two halves are the same
+//!  bargain one size down: silently dropped before, named now.
 //! 6. **A theme's CSS is one thing to the orphaned-tokens check** (IR5).
-//!    Giving the head style its own compile pass (claim 3) gave it its own
-//!    import list, and the "`_tokens.scss` that nothing imports" warning was
-//!    reading only `theme.scss`'s — so a theme whose head imported the
-//!    tokens was told nothing did. The three-way test below is that shape,
-//!    the older tokens-only shape it shares a cause with, and the one real
-//!    case the warning was written for.
+//!  Giving the head style its own compile pass (claim 3) gave it its own
+//!  import list, and the "`_tokens.scss` that nothing imports" warning was
+//!  reading only `theme.scss`'s, so a theme whose head imported the
+//!  tokens was told nothing did. The three-way test below is that shape,
+//!  the older tokens-only shape it shares a cause with, and the one real
+//!  case the warning was written for.
 //!
 //! A site rather than a unit test, for `io_shell.rs`'s reason: what these
 //! assert is what a PAGE comes out as, and the head half in particular is
 //! only observable after the computed head, the theme merge and the root
 //! shell have all run.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
@@ -63,7 +63,7 @@ fn site(who: &str, root_html: &str) -> PathBuf {
     site_with(who, root_html, &[])
 }
 
-/// The same, plus any extra theme files the caller needs — `theme.scss`, for
+/// The same, plus any extra theme files the caller needs, `theme.scss`, for
 /// the tests about where a head style lands relative to it.
 fn site_with(who: &str, root_html: &str, extra: &[(&str, &str)]) -> PathBuf {
     let mut files = vec![
@@ -131,7 +131,7 @@ fn page(out: &grackle_core::build::SiteOutput, route: &str) -> String {
     .expect("the page is utf-8")
 }
 
-/// The chrome every case here arranges, as a bare fragment — which is
+/// The chrome every case here arranges, as a bare fragment, which is
 /// exactly what a `shell.html` was.
 const CHROME: &str = "<header><a data-slot=\"site_title\" href=\"/\"></a>\
                       <nav data-slot=\"nav\"></nav></header>\
@@ -140,14 +140,14 @@ const CHROME: &str = "<header><a data-slot=\"site_title\" href=\"/\"></a>\
 
 /// **The migration, as a claim about bytes.** A `<body>`-wrapped root and a
 /// bare fragment carrying the same chrome render the same site, character
-/// for character — so accepting the unwrapped shape is not a second code
+/// for character, so accepting the unwrapped shape is not a second code
 /// path, it is the wrapper being optional.
 ///
-/// This is why `shell.html` → `root.html` was `git mv` and nothing else, and
+/// This is why `shell.html` -> `root.html` was `git mv` and nothing else, and
 /// why the corpus parity run could be exact modulo one attribute.
 ///
 /// Mutation: make `split_root` require the wrapper (drop the `wrapped` early
-/// return) and the bare site fails to load — its chrome parses as a `<header>`
+/// return) and the bare site fails to load, its chrome parses as a `<header>`
 /// beside no `<head>`/`<body>`, which is the error the wrapped shape's
 /// top-level rule is for.
 #[test]
@@ -161,13 +161,13 @@ fn the_body_wrapper_is_optional_and_inert() {
         "a bare fragment IS the body"
     );
     let html = page(&bare, url);
-    // And it really is the theme's chrome, not the base's fallback — with
+    // And it really is the theme's chrome, not the base's fallback, with
     // the tree's own words in the identity slot the root left for them.
     assert!(
         html.contains("<footer><p data-slot=\"copyright\">Copyright the tree.</p></footer>"),
         "{html}"
     );
-    // The engine still owns <html> — and the stamp is `root` now.
+    // The engine still owns <html>, and the stamp is `root` now.
     assert!(
         html.contains("<html data-kind=\"root\" lang=\"en\">"),
         "{html}"
@@ -175,17 +175,17 @@ fn the_body_wrapper_is_optional_and_inert() {
 }
 
 /// **The head fence.** `<meta>` in a theme root's head is a load error that
-/// names the file and the element — the house style — and says what the
+/// names the file and the element, the house style, and says what the
 /// engine owns instead.
 ///
 /// Mutation: delete the `check_head_fence(el, file)?` call in
 /// `binder::split_root`. **The outcome changed at I5, and was re-measured on
 /// the mutant with the real binary rather than carried over.** At I4 the head
-/// half was emitted verbatim, so the tag was PUBLISHED — a theme `<title>`
+/// half was emitted verbatim, so the tag was PUBLISHED, a theme `<title>`
 /// gave every page two of them, valid HTML no build would complain about. Now
 /// the head half leaves as CSS, so a probe root carrying `<meta
 /// name="theme-color">`, `<title>Themed</title>` and a `<style>` builds clean
-/// and publishes a page with **neither the meta nor the title** — only the
+/// and publishes a page with **neither the meta nor the title**, only the
 /// style, in the sheet. The failure moved from "quietly wrong output" to
 /// "quietly no output", which is the disease this ledger refuses in either
 /// direction, and the fence is what makes it neither.
@@ -204,7 +204,7 @@ fn a_theme_head_may_hold_style_and_nothing_else() {
     // And it says who owns the head, which is the reason rather than the rule.
     assert!(e.contains("The engine computes the head"), "{e}");
 
-    // The other three fenced elements, each by its own name — the fence is
+    // The other three fenced elements, each by its own name, the fence is
     // "everything but <style>", not a blocklist that could forget one.
     for tag in [
         "<title>x</title>",
@@ -221,22 +221,22 @@ fn a_theme_head_may_hold_style_and_nothing_else() {
 }
 
 /// **I5: a `<style>` passes the fence and leaves through the CSS assembly.**
-/// The head carries no theme styles at all — the rule the theme declared is
+/// The head carries no theme styles at all, the rule the theme declared is
 /// in the theme layer of the theme's own sheet, and the page links that sheet
 /// and nothing else.
 ///
 /// This is the byte I4 declared would move: it emitted the `<style>` inline
 /// in the computed head as an interim, on the grounds that a validated
 /// declaration must take effect. It still does; it takes effect where CSS
-/// takes effect. What the move buys is the model's own rule — one artifact,
-/// one link — instead of a second, unlayered stylesheet riding along on every
+/// takes effect. What the move buys is the model's own rule, one artifact,
+/// one link, instead of a second, unlayered stylesheet riding along on every
 /// page.
 ///
 /// Mutation: restore I4's emission (`head_html.push_str(&self.head)` in
-/// `Theme::page`) and the head carries the rule again → the `!contains` and
+/// `Theme::page`) and the head carries the rule again -> the `!contains` and
 /// the `<style` assertions go red. Mutation, the other half: drop the
 /// `head_style` argument at `shells::css::css_pass`'s call sites (pass `""`) and the sheet
-/// loses the rule while the theme still loads clean — the silent-drop shape
+/// loses the rule while the theme still loads clean, the silent-drop shape
 /// the fence exists to refuse.
 #[test]
 fn a_head_style_lands_in_the_css_and_not_in_the_head() {
@@ -248,7 +248,7 @@ fn a_head_style_lands_in_the_css_and_not_in_the_head() {
         ),
     ));
     let html = page(&out, "/blog/2020/01/01/hello/");
-    // Nowhere in the document — not the head, not the body, no inline
+    // Nowhere in the document, not the head, not the body, no inline
     // `<style>` element of any kind.
     assert!(!html.contains("rebeccapurple"), "{html}");
     assert!(
@@ -263,9 +263,9 @@ fn a_head_style_lands_in_the_css_and_not_in_the_head() {
     );
     assert!(html.contains("/css/mine.css"), "{html}");
 
-    // In the theme layer of the theme's sheet — after the base layer, which
+    // In the theme layer of the theme's sheet, after the base layer, which
     // is what makes a theme's rule beat the engine's whatever the selectors
-    // say (themes/DESIGN.md §7).
+    // say.
     let css = page(&out, "/css/mine.css");
     let at = css.find("rebeccapurple").unwrap_or_else(|| panic!("{css}"));
     let theme_layer = css
@@ -276,14 +276,14 @@ fn a_head_style_lands_in_the_css_and_not_in_the_head() {
         .unwrap_or_else(|| panic!("the sheet opens a base layer: {css}"));
     assert!(base_layer < theme_layer && theme_layer < at, "{css}");
     // A head style is not a `theme.scss`: the theme still never wrote a sheet,
-    // so it never declined the decorative half of the base (§7's skins).
+    // so it never declined the decorative half of the base.
     assert!(css.contains("border-left"), "the skins still ship: {css}");
 }
 
 /// **The ordering pin.** A rule in `theme.scss` and the same rule in the
 /// root's head, same selector and same property: the root's wins. Both land
 /// in the one `theme` layer, so the cascade decides on source order, and the
-/// order is `theme.scss` first — `root.html` is the file that states the
+/// order is `theme.scss` first, `root.html` is the file that states the
 /// theme's own frame, so what it says about the frame outranks the general
 /// sheet. It is also the placement that preserves I4's inline behaviour: a
 /// `<style>` last in a `<head>` beat the stylesheet link above it, and last
@@ -306,7 +306,7 @@ fn a_root_head_style_outranks_the_themes_own_sheet() {
         .find("teal")
         .unwrap_or_else(|| panic!("the head style reaches the sheet: {css}"));
     assert!(scss < root, "the root's head style comes last: {css}");
-    // One layer block, not two — same layer, so this really is source order
+    // One layer block, not two, same layer, so this really is source order
     // deciding and not a second `@layer theme` sorting after the first.
     assert_eq!(css.matches("@layer theme {").count(), 1, "{css}");
     let layer = css.find("@layer theme {").expect("a theme layer");
@@ -316,7 +316,7 @@ fn a_root_head_style_outranks_the_themes_own_sheet() {
 /// A head style is SCSS, compiled through grass exactly as `theme.scss` is
 /// (the I5 decision): nesting works, and `@import "tokens"` reaches the
 /// theme's own partial. The other face of that decision is that a style which
-/// does not compile is the same event as a `theme.scss` that does not —
+/// does not compile is the same event as a `theme.scss` that does not,
 /// reported on stderr, recorded in `Stats::css_errors`, and a publishing
 /// build refuses rather than shipping a sheet with a hole in it.
 ///
@@ -350,7 +350,7 @@ fn a_head_style_is_scss_and_a_broken_one_refuses_to_publish() {
         stats.css_errors
     );
     // The sheet is still emitted (so `serve` shows the page), and simply has
-    // no theme layer — `build` is where the refusal happens.
+    // no theme layer, `build` is where the refusal happens.
     assert!(
         !page(&out, "/css/mine.css").contains("@layer theme {"),
         "nothing half-compiled reached the layer"
@@ -361,34 +361,34 @@ fn a_head_style_is_scss_and_a_broken_one_refuses_to_publish() {
 /// (IR5). Three shapes, and the warning must fire for exactly one of them.
 ///
 /// It fired for all three before this item, and both false ones are the same
-/// mistake — asking a single compile pass's import list a question about
+/// mistake, asking a single compile pass's import list a question about
 /// every source the theme has:
 ///
 /// - **Tokens-only** (`_tokens.scss`, no `theme.scss`): the partial IS the
-///   compiled sheet, so nothing imports it and nothing can. The advice was
-///   unfollowable too — it names a `theme.scss` the theme does not have.
-///   Pre-existing, and as old as the warning.
+///  compiled sheet, so nothing imports it and nothing can. The advice was
+///  unfollowable too, it names a `theme.scss` the theme does not have.
+///  Pre-existing, and as old as the warning.
 /// - **The head imports them** (I5's shape): `root.html`'s `<style>` says
-///   `@import "tokens";` and `theme.scss` does not. The tokens are read, on
-///   every page, and the check looked at the wrong list.
+///  `@import "tokens";` and `theme.scss` does not. The tokens are read, on
+///  every page, and the check looked at the wrong list.
 /// - **The real one**: a `theme.scss` beside a `_tokens.scss` that nothing in
-///   the theme pulls in — a dead palette, which is what the warning is for.
+///  the theme pulls in, a dead palette, which is what the warning is for.
 ///
 /// Mutation, one per false shape, each red on its own: pool only
 /// `theme.scss`'s imports (drop the head pass's `imported.append`) and the
 /// head-style case warns again; drop the `!tokens_only` term and the
-/// tokens-only case warns again. The third assertion is the control — a
+/// tokens-only case warns again. The third assertion is the control, a
 /// warning deleted rather than narrowed passes the first two and fails this.
 #[test]
 fn the_orphaned_tokens_warning_asks_the_whole_theme() {
     const TOKENS: (&str, &str) = ("themes/mine/_tokens.scss", ":root { --edge: peru; }\n");
-    // No `@import "tokens"` — in the two silent cases something else reads
+    // No `@import "tokens"`, in the two silent cases something else reads
     // them, and in the loud case nothing does.
     const SHEET: (&str, &str) = ("themes/mine/theme.scss", "main { color: teal; }\n");
 
     // (1) Tokens-only: the theme has no `theme.scss`, so the partial is
     // compiled as the sheet itself. Proven by the bytes, not just the
-    // silence — the tokens really are live.
+    // silence, the tokens really are live.
     let (out, stats) = render_stats(&site_with("tokens-only", CHROME, &[TOKENS]));
     assert!(
         stats.css_warnings.is_empty(),
@@ -442,13 +442,13 @@ fn the_orphaned_tokens_warning_asks_the_whole_theme() {
 }
 
 /// A root with a `<head>` and no `<body>` is legal, and inherits the base's
-/// chrome — which needs no rule of its own: the fragment merge is by name, so
+/// chrome, which needs no rule of its own: the fragment merge is by name, so
 /// a theme contributing no `root` body keeps the base's. This is the
 /// cheapest real theme the design allows, and it is why the head half is not
 /// simply bolted onto the body half.
 ///
 /// Mutation: make the head-only case keep an empty body fragment instead of
-/// dropping out of `own`, and the page loses its chrome entirely — `<body>`
+/// dropping out of `own`, and the page loses its chrome entirely, `<body>`
 /// comes out empty, the page's own content included.
 #[test]
 fn a_head_only_root_inherits_the_base_chrome() {
@@ -457,7 +457,7 @@ fn a_head_only_root_inherits_the_base_chrome() {
         "<head><style>a { color: red; }</style></head>",
     ));
     let html = page(&out, "/blog/2020/01/01/hello/");
-    // The style lands where I5 puts every root head style — the sheet, not
+    // The style lands where I5 puts every root head style, the sheet, not
     // the page.
     assert!(
         page(&out, "/css/mine.css").contains("color: red"),
@@ -481,7 +481,7 @@ fn a_head_only_root_inherits_the_base_chrome() {
 /// and would be dropped without this.
 ///
 /// **The advice depends on the sibling** (IR4c). A `<footer>` belongs in the
-/// body; a `<style>` does not — the head fence exists to take it, and I5
+/// body; a `<style>` does not, the head fence exists to take it, and I5
 /// compiles what the fence takes into the theme's own sheet. Sending a
 /// `<style>` to `<body>` would be advice that lands the theme's CSS in its
 /// chrome: valid HTML, unlayered, on every page, and no build would say a
@@ -518,17 +518,17 @@ fn nothing_may_sit_beside_a_roots_head_and_body() {
 /// **The wrapper mistake** (IR4a): a `root.html` that opens with `<html>` is
 /// a page skeleton pasted into a file that is not a page, and it is the
 /// authoring mistake the fence could not see. Inside an `<html>` the `<head>`
-/// and `<body>` are not at the top level, so the file reads as a FRAGMENT —
+/// and `<body>` are not at the top level, so the file reads as a FRAGMENT,
 /// the whole document becomes body chrome, and the theme's `<title>` and
 /// metas are published inside `<body>` of every page.
 ///
 /// Mutation: delete the `Node::Element(el) if el.tag == "html"` arm in
-/// `split_root`'s first loop. Measured on the mutant, not reasoned — this
+/// `split_root`'s first loop. Measured on the mutant, not reasoned, this
 /// exact site builds CLEAN, and the post's page comes out as the engine's
 /// document (doctype, `<html data-kind="root" lang="en">`, the computed head
 /// with `<title>Hello</title>` and the one stylesheet link) whose `<body>`
 /// then opens `<html>`, `<head>`, `<title>My Theme</title>`, `<meta
-/// name="description" content="themed">`, `</head>`, `<body>` — a second
+/// name="description" content="themed">`, `</head>`, `<body>`, a second
 /// skeleton and a second title nested inside the first, closing with two
 /// spare `</body></html>` pairs. Valid-enough HTML that no build and no
 /// browser complains, and every page of the site carries it.
@@ -543,7 +543,7 @@ fn an_html_wrapper_is_refused_and_says_what_to_unwrap() {
     assert!(e.contains("root.html:1"), "it names the file and line: {e}");
     assert!(e.contains("<html> at the top of a theme root"), "{e}");
     // The reason (the engine writes the skeleton) and the fix (unwrap), in
-    // that order — a theme author who pasted a page needs both.
+    // that order, a theme author who pasted a page needs both.
     assert!(e.contains("the engine writes the document skeleton"), "{e}");
     assert!(
         e.contains("Unwrap to a bare <head>/<body> pair"),
@@ -556,7 +556,7 @@ fn an_html_wrapper_is_refused_and_says_what_to_unwrap() {
 }
 
 /// **A doctype is the same mistake** (IR4a, the decision): the engine writes
-/// the document skeleton — the doctype and `<html>` both — so a theme root
+/// the document skeleton, the doctype and `<html>` both, so a theme root
 /// that declares one has copied a page, whatever follows it. One message for
 /// both, before the fragment/document test, because the two shapes fail
 /// differently and identically: a doctype in front of a FRAGMENT rides into
@@ -566,7 +566,7 @@ fn an_html_wrapper_is_refused_and_says_what_to_unwrap() {
 /// Mutation: delete the `Node::Text { .. } if is_doctype(text)` arm. Measured
 /// on the mutant: the FRAGMENT shape builds clean and publishes `<!DOCTYPE
 /// html>` as the first bytes inside every page's `<body>`, and the DOCUMENT
-/// shape — which dropped it in silence before IR4 — falls through to IR4b's
+/// shape, which dropped it in silence before IR4, falls through to IR4b's
 /// text rule, which refuses it for the right reason with the wrong advice
 /// ("move it inside `<body>`", of a doctype). Two failures, one arm, and
 /// neither is a doctype the theme gets to keep.
@@ -594,7 +594,7 @@ fn a_doctype_in_a_theme_root_is_the_wrapper_mistake_too() {
 
 /// **Authored words beside the halves are named, not swallowed** (IR4b). The
 /// `continue` that lets whitespace and comments through was letting prose
-/// through with them, and a document's top level has nowhere to put prose —
+/// through with them, and a document's top level has nowhere to put prose,
 /// so a theme's sentence vanished with no error and no output.
 ///
 /// The message quotes the words, because a line number alone in a file whose
@@ -602,7 +602,7 @@ fn a_doctype_in_a_theme_root_is_the_wrapper_mistake_too() {
 ///
 /// Mutation: restore the bare `else continue` (drop the `is_comment`/`trim`
 /// test). Measured: the site builds clean, stderr says nothing, and the
-/// sentence is nowhere in the page — the silent drop, exactly.
+/// sentence is nowhere in the page, the silent drop, exactly.
 #[test]
 fn authored_text_beside_a_roots_head_and_body_is_an_error() {
     let e = fails(&site(
@@ -631,14 +631,14 @@ fn authored_text_beside_a_roots_head_and_body_is_an_error() {
 /// **The fragment shape is untouched**, which is the whole parity claim:
 /// every theme in the repository is a bare fragment, and IR4's two new
 /// refusals must not so much as brush them. Comments, blank lines and an
-/// inline `<style>` in the chrome are all things a fragment may hold — the
+/// inline `<style>` in the chrome are all things a fragment may hold, the
 /// head fence governs a `<head>`, and a fragment has none.
 ///
 /// The `<style>` case is the one worth stating: at the top level of a
 /// DOCUMENT it is now an error pointing at the head, and here, inside the
 /// chrome the theme is writing, it is ordinary markup that reaches the page.
 ///
-/// This one is a control, so it is mutation-checked the other way — against
+/// This one is a control, so it is mutation-checked the other way, against
 /// a refusal that is too wide rather than a guard that is absent. Drop the
 /// `!is_comment(text)` half of `is_doctype` (a comment does start with `<!`)
 /// and this test goes red on the leading comment while every refusal above
@@ -673,14 +673,8 @@ fn a_fragment_root_may_still_hold_comments_and_styles() {
 /// **The stale file.** A theme still carrying `shell.html` is a load error
 /// naming `root.html`, because silence here would be silent chrome loss.
 ///
-/// What it would be WITHOUT the check was measured rather than assumed, and
-/// it is not silence: the part kind renamed, so `Fragments::load` rejects a
-/// fragment whose stem names no layout kind. Mutation — delete the
-/// `shell.html` test in `Theme::load` — and the site still fails, with
-/// "fragment names no layout kind `shell` — kinds are: root, document, …".
-/// True, and useless: it sends its reader to look for a kind when the fix is
-/// `git mv`. So this is I3's precedent applied (§10: one targeted sentence
-/// only where the generic diagnosis misleads), not a guard against silence.
+/// Without this check the failure still names a missing layout kind and
+/// sends the reader looking for a kind when the fix is `git mv`.
 #[test]
 fn a_stale_shell_html_names_root_html() {
     let dir = site("stale", CHROME);

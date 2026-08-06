@@ -14,7 +14,7 @@ pub fn digest(bytes: &[u8], variant: &str) -> String {
     hasher.finalize().to_hex().as_str()[..32].to_string()
 }
 
-/// Format digest as `/static/{digest}[.{ext}]`. Self-describing ext (§6b).
+/// Format digest as `/static/{digest}[.{ext}]`. Self-describing ext.
 pub fn at(digest: &str, ext: &str) -> String {
     match ext.is_empty() {
         true => format!("{PREFIX}/{digest}"),
@@ -37,8 +37,8 @@ mod tests {
     use super::*;
 
     /// The law, as an assertion rather than as prose: the address is a
-    /// function of (bytes, variant) and of nothing else — not of a path, not
-    /// of any output. Two different files holding one byte string are ONE
+    /// function of (bytes, variant) and of nothing else, not of a path, not
+    /// of any output. Two different files holding one byte string are one
     /// address, which is the untransformed-twin rule and the dedupe claim at
     /// once.
     #[test]

@@ -29,7 +29,7 @@ fn widget_heads(cfg: &Config, used: &std::collections::BTreeSet<String>) -> Vec<
     heads
 }
 
-/// ONE render per post (§6d). Expand + parse once; the same parse yields the
+/// one render per post. Expand + parse once; the same parse yields the
 /// whole document (posts, feed) and the block sequence each listing view
 /// projects its summaries from.
 /// The Doc is kept whole because truncation is VIEW policy (`summary = {
@@ -62,7 +62,7 @@ pub(crate) fn render_bodies<'a>(
             )?;
             let mut used = std::collections::BTreeSet::new();
             let expanded = tags::expand_used(&body, &cx, &mut used)?;
-            // §6a row/view links: destinations resolve against the
+            // row/view links: destinations resolve against the
             // database, relative to this post's source directory.
             let dir = p
                 .path
@@ -71,8 +71,8 @@ pub(crate) fn render_bodies<'a>(
                 .and_then(|r| r.parent().map(Path::to_path_buf))
                 .unwrap_or_default();
             // The AST walk now descends into raw-HTML blocks (markdown.rs), so a
-            // `{% view %}` splice's engine-DERIVED route URLs meet the resolver
-            // here just as they do on the raw-HTML path — leave an already-
+            // `{% view %}` splice's engine-derived route URLs meet the resolver
+            // here just as they do on the raw-HTML path, leave an already-
             // materialized route alone rather than answering it with strict's
             // "link the source instead" (the asymmetry note in render_page_bodies).
             let embeds = body.contains("{% view");
@@ -129,13 +129,13 @@ pub(crate) fn render_page_bodies(
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, _, body) = split_front_matter(&text);
         // The row first: what the expander renders an embed WITH is the
-        // row's theme, not the site default (§5a). A `{% view %}` in a
+        // row's theme, not the site default. A `{% view %}` in a
         // themed page's body arranges its rows the way that page's theme
         // says, exactly as the landing path does.
         let row = r.row.as_ref().and_then(|k| db.rows.get(k));
         let row_thm =
             themes.get(resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref())).0)?;
-        // Expand FIRST, then decide: most pages that look unsupported use
+        // Expand first, then decide: most pages that look unsupported use
         // only constructs the expander already handles.
         let cx = tags::Ctx {
             includes: Some(cfg.root().join("_includes")),
@@ -166,9 +166,9 @@ pub(crate) fn render_page_bodies(
             );
             continue;
         }
-        // §6a row/view links. Both source shapes resolve through the same
-        // closure; they differ only in what walks the document — comrak's AST
-        // for markdown, lol_html for raw HTML (§6d stage B).
+        // row/view links. Both source shapes resolve through the same
+        // closure; they differ only in what walks the document, comrak's AST
+        // for markdown, lol_html for raw HTML.
         let dir = row
             .map(|p| p.rel.parent().map(Path::to_path_buf).unwrap_or_default())
             .unwrap_or_default();
@@ -180,17 +180,17 @@ pub(crate) fn render_page_bodies(
         let resolve = |form: crate::links::Cite, href: &str| {
             crate::links::resolve(cfg, linkspace, &dir, &r.url, locale, &rel, form, href)
         };
-        // A `{% view %}` splice expands engine-DERIVED URLs INTO the body, so
+        // A `{% view %}` splice expands engine-derived URLs INTO the body, so
         // where an embed is present the resolver meets derived URLs beside
-        // authored ones and cannot tell them apart — a URL already naming a
+        // authored ones and cannot tell them apart, a URL already naming a
         // materialized route is left alone instead of being answered with
         // strict's "link the source instead". A page with no embed is all
         // authored, so it gets strict whole. Either way the other strict
-        // branch — a link matching nothing at all — fails the build, and
+        // branch, a link matching nothing at all, fails the build, and
         // catching those is what this seam existed to gain. Both source shapes
         // need the guard now: the markdown AST walk descends into raw-HTML
         // blocks (markdown.rs), so it meets the same splice URLs the lol_html
-        // path always did — the asymmetry that let comrak skip them is gone.
+        // path always did, the asymmetry that let comrak skip them is gone.
         let embeds = body.contains("{% view");
         let guarded = |form: crate::links::Cite, href: &str| {
             if embeds && linkspace.is_route(href) {

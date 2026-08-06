@@ -1,5 +1,5 @@
 //! Registered script shells (`[shells.*] command = "…"`): the experimental
-//! fold bench (§5g — yes, the pun).
+//! fold bench.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use crate::render::{self, Site};
 ///
 /// A `[shells.name] command = "…"` entry plus `shell = "name"` on a view pipes
 /// the view's member rows as JSON into the command's stdin, and whatever bytes
-/// it prints land at the view's route verbatim — PDF, PostScript, whatever.
+/// it prints land at the view's route verbatim, PDF, PostScript, whatever.
 /// The JSON schema is TEMP (stamped "grackle-shell/0"); it gets versioned the
 /// day anything beyond an experiment depends on it. A shell that earns keeping
 /// gets promoted to a built-in.

@@ -1,4 +1,4 @@
-//! The base theme, compiled into the binary (THEME.md §5).
+//! The base theme, compiled into the binary.
 //!
 //! Themes replace fragments by name; undeclared kinds keep the base. Sites
 //! with no `themes/` *are* this theme. Fragments exist because `canonical()`
@@ -29,13 +29,13 @@ const FRAGMENTS: &[(&str, &str)] = &[
     ),
     // Smaller kinds (crumb, tag, page_link, outline_entry, pagination,
     // relation, axis, axis_member) and the row--neighbor face live inline
-    // under root/row (THEME.md §5).
+    // under root/row.
 ];
 
 /// Dev-only: read the base from `assets/base/` on disk instead of from the
 /// bytes compiled in. `serve` turns this on when the source tree it was
 /// built from still exists, which restores the edit-reload loop for the one
-/// directory that gets edited most while the floor settles — without it, a
+/// directory that gets edited most while the floor settles, without it, a
 /// one-character change to the base needs a `cargo build` before the preview
 /// moves. Off in every released binary, because `option_env!` is `None` for
 /// anything not built from source and the directory check fails anyway.
@@ -57,7 +57,7 @@ pub fn use_source_tree_if_present() -> bool {
     on
 }
 
-/// The live base directory, when the dev path is on — `serve` watches it, so
+/// The live base directory, when the dev path is on, `serve` watches it, so
 /// that editing the floor rebuilds the site the same way editing a theme does.
 pub fn dev_source() -> Option<&'static Path> {
     DEV_SOURCE.get()?.as_deref()
@@ -80,9 +80,8 @@ pub fn fragments() -> &'static [(&'static str, &'static str)] {
     FRAGMENTS
 }
 
-/// The base fragments as (name, source, `<base>/{n}.html` display-path) triples
-/// — the shape schema derivation and theme loading both read. Sharing it keeps
-/// the display names identical across their error messages.
+/// Base fragments as (name, source, `<base>/{n}.html`) triples. Shared by
+/// schema derivation and theme loading so display names match in errors.
 pub(crate) fn base_sources() -> Vec<(String, String, String)> {
     fragments()
         .iter()
@@ -90,7 +89,7 @@ pub(crate) fn base_sources() -> Vec<(String, String, String)> {
         .collect()
 }
 
-/// The base theme's own `theme.toml` — its `[subthemes]` declaration, parsed
+/// The base theme's own `theme.toml`, its `[subthemes]` declaration, parsed
 /// by the same path a directory theme's is.
 const MANIFEST: &str = include_str!("../../assets/base/theme.toml");
 
@@ -115,7 +114,7 @@ const PARTIALS: &[(&str, &str)] = &[
 
 const SHEET: &str = include_str!("../../assets/base/theme.scss");
 
-/// A partial by the name an `@import` would use — how a THEME reaches the
+/// A partial by the name an `@import` would use, how a THEME reaches the
 /// base's partials (`@import "base"` in a theme with no `_base.scss` of its
 /// own resolves here, so a theme need not carry a reset it did not write).
 pub fn partial(name: &str) -> Option<&'static str> {
@@ -129,7 +128,7 @@ pub fn partial(name: &str) -> Option<&'static str> {
 }
 
 /// Compiled base stylesheet (`@layer base`). Ladder always; skins (`with_skin`)
-/// opt-in — measured inert under grack.com's own type sheet, skins are not.
+/// opt-in, measured inert under grack.com's own type sheet, skins are not.
 pub fn css(with_skin: bool) -> &'static str {
     static NO_SKIN: OnceLock<String> = OnceLock::new();
     static WITH_SKIN: OnceLock<String> = OnceLock::new();
@@ -143,7 +142,7 @@ pub fn css(with_skin: bool) -> &'static str {
         match grass::from_string(inline(&src), &grass::Options::default()) {
             Ok(css) => css,
             // An engine asset that does not compile is a build-time mistake,
-            // not a site's problem — but a panic here would take down every
+            // not a site's problem, but a panic here would take down every
             // build, so it degrades to an unstyled page and says why.
             Err(e) => {
                 eprintln!("grackle: the base stylesheet failed to compile: {e}");
@@ -151,7 +150,7 @@ pub fn css(with_skin: bool) -> &'static str {
             }
         }
     };
-    // Memoized normally — the base cannot change under a running build. Under
+    // Memoized normally, the base cannot change under a running build. Under
     // the dev source tree it can, so recompile and leak: hot reload is the
     // whole point of that mode.
     if DEV_SOURCE.get().is_some_and(Option::is_some) {
@@ -192,7 +191,7 @@ mod tests {
     use super::*;
 
     /// The base is an engine asset, so its failure mode is a compile error or
-    /// a silent empty sheet — neither of which a site build would report.
+    /// a silent empty sheet, neither of which a site build would report.
     #[test]
     fn the_base_stylesheet_compiles() {
         for with_skin in [false, true] {

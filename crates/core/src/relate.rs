@@ -1,14 +1,14 @@
-//! Evaluating declared relations (DESIGN.md §6g).
+//! Evaluating declared relations.
 //!
 //! The config compiled each collection's neighbour lists into dependency-
 //! ordered [`Relation`]s (see `grackle-source`'s `relations`). This module is
 //! the other half: at build, with the embedding vectors and the link graph in
-//! hand, it walks each row's candidates through `over → where → rank → limit`
+//! hand, it walks each row's candidates through `over -> where -> rank -> limit`
 //! and produces the labelled groups a `document` renders.
 //!
-//! The environment is two rows — `self` (the row being rendered) and
-//! `candidate` — reached through the shared filter language over a
-//! [`Pair`]. The relation NAMES resolve to finished lists, built up in the
+//! The environment is two rows, `self` (the row being rendered) and
+//! `candidate`, reached through the shared filter language over a
+//! [`Pair`]. The relation names resolve to finished lists, built up in the
 //! dependency order the loader pinned, so `related`'s `!(candidate in earlier)`
 //! reads an `earlier` that is already decided.
 
@@ -21,11 +21,11 @@ use crate::config::Config;
 use crate::embed::Vector;
 
 /// The link graph inverted: target URL to the `(title, url, date)` of each row
-/// citing it — `build`'s `Backlink` list, borrowed here as the `linked_from`
+/// citing it, `build`'s `Backlink` list, borrowed here as the `linked_from`
 /// pool.
 type Backlinks = HashMap<String, Vec<(String, String, Option<chrono::NaiveDate>)>>;
 
-/// Segment count of a pretty URL — `/a/b/` is depth 3, the parent of the
+/// Segment count of a pretty URL, `/a/b/` is depth 3, the parent of the
 /// depth-4 `/a/b/c/`.
 fn depth(url: &str) -> usize {
     url.matches('/').count()
@@ -38,7 +38,7 @@ fn url_parent(url: &str) -> Option<String> {
     Some(url[..=cut].to_string())
 }
 
-/// The derived names a collection's relations reference — through a `where`,
+/// The derived names a collection's relations reference, through a `where`,
 /// a `rank`, or an `over`. Only these get computed per row.
 fn needed_derived(rels: &[Relation]) -> std::collections::HashSet<&'static str> {
     let mut needed = std::collections::HashSet::new();
@@ -63,9 +63,9 @@ fn needed_derived(rels: &[Relation]) -> std::collections::HashSet<&'static str> 
     needed
 }
 
-/// The canonical render order (§6g): the base convention's four names in
+/// The canonical render order: the base convention's four names in
 /// reading order when present, then any other relation by name. Presentation
-/// preference only — those names are not required. Distinct from evaluation
+/// preference only, those names are not required. Distinct from evaluation
 /// order, which is dependency-driven.
 fn render_rank(name: &str) -> (u8, &str) {
     let primary = match name {
@@ -79,7 +79,7 @@ fn render_rank(name: &str) -> (u8, &str) {
 }
 
 /// One relation's finished output: a heading and its neighbours, ready for the
-/// `relation` part. Items are row URLs — resolved to full row part maps when
+/// `relation` part. Items are row URLs, resolved to full row part maps when
 /// rendered; the `row--neighbor` face chops what the fragment places.
 #[derive(Clone)]
 pub struct Group {
@@ -90,7 +90,7 @@ pub struct Group {
 
 /// The build-time facts a relation reads that no row field carries: embedding
 /// vectors and dates by URL, plus the forward/back link graph. Borrows
-/// everything — one engine serves the whole render pass.
+/// everything, one engine serves the whole render pass.
 pub struct Engine<'a> {
     cfg: &'a Config,
     db: &'a SiteDb,
@@ -132,11 +132,11 @@ impl<'a> Engine<'a> {
             return Vec::new();
         };
         let ctx = RelCtx { engine: self };
-        // Only the derived names this collection's relations actually read —
+        // Only the derived names this collection's relations actually read,
         // `linked_from` is a hashmap hit, but the tree family is an O(rows)
         // walk, so computing an unreferenced one per row is pure waste.
         let needed = needed_derived(rels);
-        // The relation NAMES this row resolves — derived names first, then
+        // The relation names this row resolves, derived names first, then
         // each declared list as it is decided (dependency order guarantees a
         // reference is already present).
         let mut names: HashMap<String, Vec<String>> = self.derived_names(row, &needed);
@@ -166,22 +166,21 @@ impl<'a> Engine<'a> {
             });
         }
         // Evaluation ran in dependency order (`related` reads `earlier`), but
-        // that is not reading order — render in a canonical one instead, the
+        // that is not reading order, render in a canonical one instead, the
         // way `parts.toml` fixes a kind's part order. Defaults read
         // chronological-neighbours-first; site relations follow, by name.
         groups.sort_by(|a, b| render_rank(&a.name).cmp(&render_rank(&b.name)));
         groups
     }
 
-    /// The engine-provided names a row's relations read (§6g graph + path
-    /// families), computed lazily — only the `needed` ones.
+    /// Engine-provided relation names for a row, computed only when `needed`.
     fn derived_names(
         &self,
         row: &Row,
         needed: &std::collections::HashSet<&'static str>,
     ) -> HashMap<String, Vec<String>> {
         let mut m = HashMap::new();
-        // The link graph, already the citation view (splice excluded) — cheap
+        // The link graph, already the citation view (splice excluded), cheap
         // hashmap hits.
         if needed.contains("linked_from") {
             m.insert(
@@ -200,7 +199,7 @@ impl<'a> Engine<'a> {
         }
         // The tree family. `ancestors`/`parent` share the breadcrumb walk;
         // `children`/`siblings`/`descendants` share an O(rows) URL-nesting
-        // scan — each behind its own guard.
+        // scan, each behind its own guard.
         if needed.contains("ancestors") || needed.contains("parent") {
             let anc: Vec<String> = crate::trails::ancestors(self.cfg, self.db, &row.url)
                 .into_iter()
@@ -228,8 +227,8 @@ impl<'a> Engine<'a> {
 
     /// `children`/`siblings`/`descendants` from URL nesting: a pretty-dir URL
     /// `/a/b/` is the parent of `/a/b/c/`. Derived from the finished route set
-    /// rather than a stored tree — nothing on grack.com declares a relation
-    /// over these yet, but §6g names them, so they exist. Pure URL math, so a
+    /// rather than a stored tree, nothing on grack.com declares a relation
+    /// over these yet, but names them, so they exist. Pure URL math, so a
     /// sibling is another child of `url_parent`, not (the old bug) the parent
     /// itself.
     fn tree_family(&self, row: &Row) -> (Vec<String>, Vec<String>, Vec<String>) {
@@ -263,9 +262,9 @@ impl<'a> Engine<'a> {
         (children, siblings, descendants)
     }
 
-    /// The candidate as `self` should see it (§6f): a pool is i18n-canonical,
+    /// The candidate as `self` should see it: a pool is i18n-canonical,
     /// so a French page's neighbours are the French *twins* of what the
-    /// pool holds — pivoted through `by_logical`, dropped where no variant
+    /// pool holds, pivoted through `by_logical`, dropped where no variant
     /// exists. Without this a translated page's every relation is a desert.
     fn twin<'r>(&'r self, cand: &'r Row, member: &str) -> Option<&'r Row> {
         let matches = |r: &Row| match self.cfg.pairing_axis() {
@@ -283,8 +282,8 @@ impl<'a> Engine<'a> {
             .find(|r| matches(r))
     }
 
-    /// Walk one relation's candidates: pool → localized to self → self-excluded
-    /// → `where` → `rank` (+ `min_rank`) → sort → `limit`. Returns
+    /// Walk one relation's candidates: pool -> localized to self -> self-excluded
+    /// -> `where` -> `rank` (+ `min_rank`) -> sort -> `limit`. Returns
     /// `(url, score)` best-first.
     fn evaluate(
         &self,
@@ -302,8 +301,8 @@ impl<'a> Engine<'a> {
             let Some(cand) = self.twin(cand, &self.cfg.pairing_member(row)) else {
                 continue;
             };
-            // Self is never a candidate — a mechanism rule, not a per-site
-            // `where` clause (§6g).
+            // Self is never a candidate, a mechanism rule, not a per-site
+            // `where` clause.
             if cand.url == row.url || !seen.insert(cand.url.as_str()) {
                 continue;
             }
@@ -331,9 +330,9 @@ impl<'a> Engine<'a> {
             };
             scored.push((cand.url.clone(), score, cand.as_date("date")));
         }
-        // Determinism (§6g): rank desc, then date desc, then url. Unranked
+        // Determinism: rank desc, then date desc, then url. Unranked
         // relations (`linked_from`) fall through to date-then-url, newest
-        // first — the order the citations already carry.
+        // first, the order the citations already carry.
         scored.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -388,7 +387,7 @@ impl<'a> Engine<'a> {
     }
 }
 
-/// The two-row environment as the filter language sees it (§6g). `self`/
+/// The two-row environment as the filter language sees it. `self`/
 /// `candidate` are the rows' URLs; `self.X`/`candidate.X` delegate to the
 /// underlying row; a bare relation name is its finished list.
 struct Pair<'a> {

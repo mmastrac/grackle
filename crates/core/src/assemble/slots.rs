@@ -1,29 +1,27 @@
-//! Tree-filled slots (§5e): `.slots/` directories fill named slots for every
+//! Tree-filled slots: `.slots/` directories fill named slots for every
 //! row beneath them. Filename = slot name = key; content = fill; resolution
-//! is nearest-wins up the source path — the same ascent as §6a asset names
-//! and §4b markers.
+//! is nearest-wins up the source path, the same ascent as asset names
+//! and markers.
 //!
 //! Extension picks the pipeline: `.md` renders through comrak into an `Html`
-//! part; `.html` is trusted markup with links resolved (§6d stage B). The
+//! part; `.html` is trusted markup with links resolved. The
 //! **block-arity rule** applies at load: a fill destined
 //! for a phrasing-only element (`<p>`, `<h2>`, …) must render to exactly one
-//! block — hard error otherwise — and unwraps to its inline content; flow
+//! block, hard error otherwise, and unwraps to its inline content; flow
 //! elements (`<div>`, `<footer>`, …) take any number of blocks verbatim.
 
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// One fill, RAW: rendering happens per consuming page (§6a row/view
-/// links resolve against the page's locale, so `view:blog_index` in a nav
-/// fill lands on /blog/ or /fr/blog/ depending on who is asking).
+/// One fill, RAW: rendering happens per consuming page
 #[derive(Debug)]
 pub struct Fill {
     /// The authored source, unrendered.
     pub raw: String,
     /// "md" renders through comrak (links resolved); "html" is verbatim.
     pub ext: String,
-    /// The directory whose `.slots/` owns this fill — relative source
+    /// The directory whose `.slots/` owns this fill, relative source
     /// links in the fill resolve from here.
     pub owner: PathBuf,
     /// Source path, for error messages.
@@ -34,9 +32,9 @@ pub struct Fill {
 /// demand. `inline` is present iff the rendered fill is exactly one block.
 #[derive(Debug)]
 pub struct RenderedFill {
-    /// The rendered fill, blocks intact — what a flow element receives.
+    /// The rendered fill, blocks intact, what a flow element receives.
     pub blocks: String,
-    /// The single block's inner HTML — what a phrasing element receives.
+    /// The single block's inner HTML, what a phrasing element receives.
     /// `None` when the fill has zero or multiple blocks.
     pub inline: Option<String>,
     /// Top-level block count, for arity errors.
@@ -47,8 +45,8 @@ pub struct RenderedFill {
 
 impl Fill {
     /// Render this fill for one consumer. `resolve` sees each link
-    /// destination (§6a) — in markdown via the comrak AST, in `.html` fills
-    /// via the §6d stage-B rewriter.
+    /// destination, in markdown via the comrak AST, in `.html` fills
+    /// via the stage-B rewriter.
     pub fn render(
         &self,
         resolve: &dyn Fn(crate::links::Cite, &str) -> anyhow::Result<Option<String>>,
@@ -75,7 +73,7 @@ pub struct SlotFills {
 impl SlotFills {
     /// Scan the site tree for `.slots/` directories. The walk skips
     /// underscore- and dot-prefixed directories (except `.slots` itself) and
-    /// the usual build/VCS artifacts — fills are content, but they live in
+    /// the usual build/VCS artifacts, fills are content, but they live in
     /// dot-directories precisely so the route walk never sees them.
     pub fn load(root: &Path) -> Result<SlotFills> {
         let mut fills = SlotFills::default();
@@ -85,8 +83,8 @@ impl SlotFills {
 
     /// Resolve a slot for a row whose source lives in `dir`: nearest
     /// `.slots/<name>.*` ascending from `dir` to the root wins. Within a
-    /// directory, the pairing-axis member wins (§6f): `nav.fr.md` beside
-    /// `nav.md` is the same suffix convention rows use, needing no config —
+    /// directory, the pairing-axis member wins: `nav.fr.md` beside
+    /// `nav.md` is the same suffix convention rows use, needing no config,
     /// the dotted stem simply IS the localized slot name. The base file is
     /// the canonical member, so a page's chrome follows its language exactly
     /// as its trail does, and a member with no localized fill inherits the
@@ -108,7 +106,7 @@ impl SlotFills {
     }
 
     /// Every fill in the tree, sorted: (stem as authored, source file).
-    /// `nav.fr` is one stem — that is what `resolve` compares against.
+    /// `nav.fr` is one stem, that is what `resolve` compares against.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Path)> + '_ {
         self.by_dir
             .values()
@@ -167,12 +165,12 @@ pub fn check_chrome_fills(fills: &SlotFills, _root: &Path) -> Result<()> {
 }
 
 /// Fills nothing will ever read: stem not in any theme's
-/// identity slots. Warning not error — spare fills for uninstalled themes
+/// identity slots. Warning not error, spare fills for uninstalled themes
 /// should not fail a build.
 pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec<String> {
     let mut out = Vec::new();
     for (stem, file) in fills.iter() {
-        // `nav.fr` is `nav` in French — but only where `fr` is declared;
+        // `nav.fr` is `nav` in French, but only where `fr` is declared;
         // `nav.frr` is its own stem, and its own dead name.
         let slot = match stem.rsplit_once('.') {
             Some((base, loc)) if locales.contains(&loc) => base,
@@ -184,7 +182,7 @@ pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec
         // Case variants are unknown stems BY CONSTRUCTION (batch review 2,
         // finding 7): `resolve` compares stems byte for byte, so `Nav.md`
         // fills nothing even on a filesystem that would call it `nav.md`.
-        // That makes it the one wrong spelling worth naming outright — the
+        // That makes it the one wrong spelling worth naming outright, the
         // author is looking at a file the filesystem says is there.
         let lowered = slot.to_ascii_lowercase();
         let hint = known
@@ -212,7 +210,7 @@ fn walk(dir: &Path, fills: &mut SlotFills) -> Result<()> {
         "scripts",
         "CHANGES",
         // Site root may be the parent repo (skip the engine tree) or the
-        // grackle workspace itself (skip crates — fixtures live there).
+        // grackle workspace itself (skip crates, fixtures live there).
         "grackle",
         "crates",
         "themes",
@@ -242,7 +240,7 @@ fn walk(dir: &Path, fills: &mut SlotFills) -> Result<()> {
     Ok(())
 }
 
-/// "nav.html is verbatim markup, nav.md renders through comrak" — the two
+/// "nav.html is verbatim markup, nav.md renders through comrak", the two
 /// files claiming one slot, ordered by filename so the message reads the same
 /// however `read_dir` happened to hand them over (the scan is unsorted).
 fn conflict(a: &Path, b: &Path) -> String {
@@ -257,7 +255,7 @@ fn conflict(a: &Path, b: &Path) -> String {
     )
 }
 
-/// What a fill's extension makes of it — the half of §5e that says two files
+/// What a fill's extension makes of it, the half of that says two files
 /// with one stem can never be the same statement.
 fn pipeline(p: &Path) -> &'static str {
     match p.extension().and_then(|e| e.to_str()) {
@@ -286,15 +284,14 @@ fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()>
         let text = std::fs::read_to_string(&p)
             .with_context(|| format!("reading slot fill {}", p.display()))?;
         let slot = fills.by_dir.entry(owner.to_path_buf()).or_default();
-        // Two files in ONE `.slots/` resolving to one key are unordered peers:
-        // `resolve` walks *directory levels*, and nearness ranks levels, not
-        // files at one level — so the winner used to be whichever `read_dir`
-        // handed over last.
+        // Two files in one `.slots/` resolving to one key are unordered peers:
+        // `resolve` walks directory levels, and nearness ranks levels, not
+        // files at one level, so neither can win.
         //
         // The only reachable shape is two extensions, since a directory cannot
-        // hold two files of one name — and the markers' "agreement is not a conflict"
+        // hold two files of one name, and the markers' "agreement is not a conflict"
         // exemption cannot follow it here: `.md` renders and `.html` is
-        // trusted verbatim (§5e), so even byte-identical files are two
+        // trusted verbatim, so even byte-identical files are two
         // different fills. There is no equality to test.
         if let Some(prev) = slot.get(&stem) {
             bail!(
@@ -303,7 +300,7 @@ fn load_dir(owner: &Path, slots_dir: &Path, fills: &mut SlotFills) -> Result<()>
                  nothing ranks two files in one directory: nearest-wins ranks \
                  directory levels. Delete one, or give them different names — \
                  a locale suffix is a different name ({stem}.fr.md beside \
-                 {stem}.md is §6f, not a collision).",
+                 {stem}.md is pairing, not a collision).",
                 conflict(&prev.file, &p),
                 slots_dir.display()
             );
@@ -506,7 +503,7 @@ mod tests {
     }
 
     /// Batch review 2, finding 7: a case variant is an unknown stem BY
-    /// CONSTRUCTION — `resolve` compares stems byte for byte, so `Nav.md`
+    /// CONSTRUCTION, `resolve` compares stems byte for byte, so `Nav.md`
     /// fills nothing on every filesystem, including the ones that would call
     /// it `nav.md`. That is the one dead name worth spelling out.
     #[test]
@@ -520,9 +517,9 @@ mod tests {
         assert!(w[0].contains("case counts"), "{}", w[0]);
     }
 
-    /// The control §6f needs, and the shape the live corpus has: a localized
+    /// The control needs, and the shape the live corpus has: a localized
     /// fill is `{slot}.{locale}`, so `nav.fr` is `nav` where `fr` is
-    /// declared — and only there. `nav.frr` is its own dead name.
+    /// declared, and only there. `nav.frr` is its own dead name.
     #[test]
     fn a_localized_fill_is_known_when_its_locale_is() {
         let dir = tree(

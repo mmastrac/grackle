@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// `"default"` merges base under this file; `"none"` declares everything (§4d).
+    /// `"default"` merges base under this file; `"none"` declares everything.
     #[serde(default = "default_extends")]
     pub extends: String,
     #[serde(default = "default_root")]
@@ -28,10 +28,10 @@ pub struct Config {
     #[serde(skip)]
     pub collections: BTreeMap<String, Collection>,
     /// Array of collections: table name from source dir (`_posts` -> `posts`);
-    /// `name =` overrides; `.` falls back to `entries` (q51).
+    /// `name =` overrides; `.` falls back to `entries`.
     #[serde(default, rename = "collections")]
     pub(crate) declared_collections: Vec<Collection>,
-    /// Sets + routes folded; one namespace with collections via `from` (§5c).
+    /// Sets + routes folded; one namespace with collections via `from`.
     #[serde(skip)]
     pub views: BTreeMap<String, View>,
     /// Queries with no `path`.
@@ -40,28 +40,28 @@ pub struct Config {
     /// Queries that land at a URL.
     #[serde(default)]
     pub(crate) routes: BTreeMap<String, View>,
-    /// Alternative forms of a row; sole exception to one-row-one-route (q53, §4).
+    /// Alternative forms of a row; sole exception to one-row-one-route.
     #[serde(default)]
     pub axes: BTreeMap<String, Axis>,
-    /// Marker filename -> defaults for that directory and below (DESIGN.md §4b).
+    /// Marker filename -> defaults for that directory and below.
     #[serde(default)]
     pub markers: BTreeMap<String, MarkerDef>,
-    /// Head tags and root-element attributes (§4e).
+    /// Head tags and root-element attributes.
     #[serde(default)]
     pub html: HtmlCfg,
-    /// Extension -> media type for `rel="alternate"` etc. (q53).
+    /// Extension -> media type for `rel="alternate"` etc..
     #[serde(default)]
     pub media_types: BTreeMap<String, String>,
-    /// Typed fields + embeddings/search consumers (§5b).
+    /// Typed fields + embeddings/search consumers.
     #[serde(default)]
     pub schema: SchemaBag,
-    /// `{% name %}...{% endname %}` expands with `{body}` (§5d).
+    /// `{% name %}...{% endname %}` expands with `{body}`.
     #[serde(default)]
     pub widgets: BTreeMap<String, WidgetDef>,
-    /// External command shells: stdin JSON, stdout at the route (§5g).
+    /// External command shells: stdin JSON, stdout at the route.
     #[serde(default)]
     pub shells: BTreeMap<String, ShellDef>,
-    /// Display strings for the pairing axis; default axis `"locale"` (§6f).
+    /// Display strings for the pairing axis; default axis `"locale"`.
     #[serde(default)]
     pub i18n: I18nCfg,
     /// Unrouted-asset embed policy. Base ships on.
@@ -70,16 +70,16 @@ pub struct Config {
     /// Engine-emitted asset URL addressing. Default `stable`.
     #[serde(default)]
     pub assets: AssetsCfg,
-    /// `[records.<field>.<id>]`: slug, locale names, intro for grouped values (§6f).
+    /// `[records.<field>.<id>]`: slug, locale names, intro for grouped values.
     #[serde(default)]
     pub records: BTreeMap<String, BTreeMap<String, RecordCfg>>,
-    /// Projection of the same database: which rows, URL space, style marker (§4a).
+    /// Projection of the same database: which rows, URL space, style marker.
     #[serde(default)]
     pub profiles: BTreeMap<String, ProfileCfg>,
     /// In force after `apply_profile`; `None` = as written.
     #[serde(skip)]
     pub profile: Option<String>,
-    /// Links by source path / `view:`; `strict` errors on raw internal URLs (§6a).
+    /// Links by source path / `view:`; `strict` errors on raw internal URLs.
     #[serde(default)]
     pub links: LinksCfg,
     #[serde(skip)]
@@ -118,7 +118,7 @@ pub(crate) fn split_profile(pname: &str, body: &toml::Table) -> Result<(toml::Ta
         Some(toml::Value::Table(t)) => t,
         Some(other) => anyhow::bail!(
             "profile {pname}: [profiles.{pname}.{FORCE}] is a table of \
-             schema-declared field names to values (rung 0, §2), not {}",
+             schema-declared field names to values, not {}",
             other.type_str()
         ),
     };
@@ -129,7 +129,7 @@ pub(crate) fn default_extends() -> String {
     "default".to_string()
 }
 
-/// Built-in base config (§4d); compiled in so a site cannot forget it.
+/// Built-in base config; compiled in so a site cannot forget it.
 pub(crate) const BASE: &str = include_str!("../../assets/base.toml");
 
 /// Exhaustive field pin: a new [`Config`] field fails here until [`Config::shape`]
@@ -168,7 +168,7 @@ fn every_config_key_has_a_law(c: Config) {
     } = c;
 }
 
-/// Merge surface: `merge_base` reads each key's law via `law_of` (§3 table A).
+/// Merge surface: `merge_base` reads each key's law via `law_of`.
 impl Shaped for Config {
     fn shape() -> Shape {
         Shape::Struct(vec![
@@ -177,7 +177,7 @@ impl Shaped for Config {
             field("gitignore", |c: &Config| &c.gitignore),
             field("metadata", |c: &Config| &c.metadata),
             field("site", |c: &Config| &c.site),
-            // TOML name (serde rename); Law::Collections: identity is physical (§1).
+            // TOML name (serde rename); Law::Collections: identity is physical.
             annotated(
                 "collections",
                 |c: &Config| &c.declared_collections,
@@ -202,7 +202,7 @@ impl Shaped for Config {
     }
 }
 
-/// Keys a profile may write (§4a). Exhaustive with [`NOT_PROJECTABLE`].
+/// Keys a profile may write. Exhaustive with [`NOT_PROJECTABLE`].
 pub(crate) const PROJECTABLE: &[&str] = &[
     "site",
     "html",
@@ -220,7 +220,7 @@ pub(crate) const PROJECTABLE: &[&str] = &[
 ];
 
 /// Keys a profile may not write: what loads. Database identical under every
-/// profile (§4a). `profiles` itself: overlay is one layer, not a ladder.
+/// profile. `profiles` itself: overlay is one layer, not a ladder.
 pub(crate) const NOT_PROJECTABLE: &[&str] = &[
     "collections",
     // Addresses are load facts; toggling embeds would change the database.
@@ -241,7 +241,7 @@ pub(crate) fn fence(pname: &str, key: &str) -> Result<()> {
         return Ok(());
     }
     let projectable = PROJECTABLE.join(", ");
-    // Migration spellings still seen in shipped configs / DESIGN.md.
+    // Migration spellings still seen in shipped configs / design.md.
     if key == "noindex" {
         anyhow::bail!(
             "profile {pname}: `noindex` is no longer a profile key — it \
@@ -254,7 +254,7 @@ pub(crate) fn fence(pname: &str, key: &str) -> Result<()> {
     if key == "url" {
         anyhow::bail!(
             "profile {pname}: `url` is no longer a profile key of its own — a \
-             profile is a config OVERLAY now (§4a), so it writes the site's own \
+             profile is a config OVERLAY now, so it writes the site's own \
              key at the site's own path:\n  \
              [profiles.{pname}.site]\n  url = \"https://drafts.example.com\""
         );
@@ -263,13 +263,13 @@ pub(crate) fn fence(pname: &str, key: &str) -> Result<()> {
         anyhow::bail!(
             "profile {pname}: [profiles.{pname}.profiles] — a profile never \
              contains profiles. A projection is one overlay over the config, \
-             not a ladder of them (§4a). A profile may write: {projectable}."
+             not a ladder of them. A profile may write: {projectable}."
         );
     }
     if NOT_PROJECTABLE.contains(&key) {
         anyhow::bail!(
             "profile {pname}: [profiles.{pname}.{key}] — a profile never changes \
-             what loads; the database is identical under every profile (§4a). \
+             what loads; the database is identical under every profile. \
              {key:?} decides what the engine reads and how it is typed, so it is \
              site config: every projection of this site sees the same rows, and \
              a profile chooses among them.\n  \
@@ -278,7 +278,7 @@ pub(crate) fn fence(pname: &str, key: &str) -> Result<()> {
     }
     anyhow::bail!(
         "profile {pname}: [profiles.{pname}.{key}] names no config key — a \
-         profile's body is a partial config (§4a), so its top-level keys are \
+         profile's body is a partial config, so its top-level keys are \
          the config's own.\n  A profile may write: {projectable}."
     )
 }
@@ -291,7 +291,7 @@ impl Shaped for Collection {
             field("file", |c: &Collection| &c.file),
             field("exclude", |c: &Collection| &c.exclude),
             field("include", |c: &Collection| &c.include),
-            // Site rules first: Law 1 as list order (§1).
+            // Site rules first: Law 1 as list order.
             annotated("rules", |c: &Collection| &c.rules, Law::Prepend),
             field("trail", |c: &Collection| &c.trail),
             field("archives", |c: &Collection| &c.archives),
@@ -384,7 +384,7 @@ macro_rules! enums_are_atoms {
 
 enums_are_atoms![LinkPolicy];
 
-/// Table-spelled atom (§3 table D): compose per locale would invent a string
+/// Table-spelled atom: compose per locale would invent a string
 /// nobody wrote. [`Shape::TableAtom`] trips if a descent tries to split it.
 impl Shaped for LocalizedStr {
     fn shape() -> Shape {
@@ -475,7 +475,7 @@ pub(crate) fn engine_defaults() -> Vec<(&'static str, toml::Value)> {
     ]
 }
 
-/// Merge base under site (§4d); laws come from [`Config::shape`].
+/// Merge base under site; laws come from [`Config::shape`].
 pub(crate) fn merge_base(site: toml::Value) -> Result<toml::Value> {
     merge_base_traced(site, &mut Trace::off())
 }
@@ -493,7 +493,7 @@ pub(crate) fn merge_base_traced(site: toml::Value, t: &mut Trace) -> Result<toml
     ))
 }
 
-/// Project through one profile (§4a): overlay minus `force`,
+/// Project through one profile: overlay minus `force`,
 /// profile as nearer writer. Returns projected table, force block, and view
 /// names the overlay wrote.
 pub(crate) fn project(
@@ -504,7 +504,7 @@ pub(crate) fn project(
     let declared = merged.get("profiles").and_then(|p| p.as_table());
     let body = match declared.and_then(|p| p.get(name)) {
         Some(b) => b.clone(),
-        // `dev` is implicit (§4a): undeclared changes nothing.
+        // `dev` is implicit: undeclared changes nothing.
         None if name == "dev" => return Ok((merged, toml::Table::new(), Vec::new())),
         None => {
             let mut known: Vec<&str> = declared
@@ -518,7 +518,7 @@ pub(crate) fn project(
     let Some(body) = body.as_table() else {
         anyhow::bail!(
             "profile {name}: [profiles.{name}] is a partial config — a table of \
-             the config's own keys (§4a) — not {}",
+             the config's own keys — not {}",
             body.type_str()
         );
     };
@@ -785,7 +785,7 @@ fn default_root() -> PathBuf {
     PathBuf::from(".")
 }
 
-/// True if `content`/`default_content` has `{token}` placeholders (§5c).
+/// True if `content`/`default_content` has `{token}` placeholders.
 /// Brace alts (`index.{md,html}`) are not tokens (comma). Malformed => true.
 pub(crate) fn is_templated(s: &str) -> bool {
     grackle_db::template::tokens(s).map_or(true, |t| t.iter().any(|tok| !tok.contains(',')))
@@ -896,7 +896,7 @@ impl EmbedsCfg {
     }
 }
 
-/// Display strings for the pairing axis (§6f). Membership is on [`I18nCfg::axis`].
+/// Display strings for the pairing axis. Membership is on [`I18nCfg::axis`].
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct I18nCfg {
@@ -906,10 +906,10 @@ pub struct I18nCfg {
     /// Member display names; keys must be declared axis members.
     #[serde(default)]
     pub names: BTreeMap<String, String>,
-    /// Global `"@key"` map (§6f); values literal, no chains. Unused site keys error.
+    /// Global `"@key"` map; values literal, no chains. Unused site keys error.
     #[serde(default)]
     pub strings: BTreeMap<String, LocalizedStr>,
-    /// Indexed tables (§6f); whole-table atom replace (with `strings` under Descend(2)).
+    /// Indexed tables; whole-table atom replace (with `strings` under Descend(2)).
     #[serde(default)]
     pub tables: BTreeMap<String, I18nTable>,
 }
@@ -971,7 +971,7 @@ impl I18nCfg {
             .unwrap_or("")
     }
 
-    /// Inline wins; `"@key"` falls back to the global map (§6f).
+    /// Inline wins; `"@key"` falls back to the global map.
     pub fn text<'a>(&'a self, s: &'a LocalizedStr, member: &str, canonical: &str) -> &'a str {
         match s.reference() {
             Some(key) => self.string(key, member, canonical),
@@ -980,15 +980,15 @@ impl I18nCfg {
     }
 }
 
-/// Field declarations + embeddings/search consumers (§5b).
+/// Field declarations + embeddings/search consumers.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SchemaBag {
     #[serde(default)]
     pub embeddings: EmbeddingsSchema,
     #[serde(default)]
     pub search: SearchSchema,
-    /// `[schema.fields]`: computed columns on every row (§5f), the document-
-    /// level home for `hero`/`outline`/… — a set's `[sets.*.fields]` adds to
+    /// `[schema.fields]`: computed columns on every row, the document
+    /// level home for `hero`/`outline`/…, a set's `[sets.*.fields]` adds to
     /// these for its own rows.
     #[serde(default)]
     pub fields: BTreeMap<String, Field>,
@@ -1021,7 +1021,7 @@ impl crate::shape::Shaped for SchemaBag {
     }
 }
 
-/// Head tags and `<html>`/`<body>` attributes (§4e).
+/// Head tags and `<html>`/`<body>` attributes.
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HtmlCfg {
@@ -1034,7 +1034,7 @@ pub struct HtmlCfg {
     pub body: AttrCfg,
 }
 
-/// Attribute name -> §5f expression; empty result omits the attr (§5e).
+/// Attribute name -> expression; empty result omits the attr.
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AttrCfg {
@@ -1042,7 +1042,7 @@ pub struct AttrCfg {
     pub attribute: BTreeMap<String, String>,
 }
 
-/// Head entry: CEL expr, multi-attr table, or expand over a pool (§4e).
+/// Head entry: CEL expr, multi-attr table, or expand over a pool.
 /// Table-spelled atom under Descend(3).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -1095,7 +1095,7 @@ impl Shaped for HeadEntry {
     }
 }
 
-/// JSON-LD leaf expr or nested object; empty / no `@type` => omit (§4e).
+/// JSON-LD leaf expr or nested object; empty / no `@type` => omit.
 #[derive(Debug, Clone)]
 pub enum JsonLdValue {
     Expr(String),
@@ -1136,13 +1136,13 @@ impl Shaped for JsonLdValue {
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HeadCfg {
-    /// `<meta name>`: §5f expr; empty omits (§5e). Names are config, not engine.
+    /// `<meta name>`: expr; empty omits. Names are config, not engine.
     #[serde(default)]
     pub meta: BTreeMap<String, HeadEntry>,
-    /// `<meta property>` (OG / article:*); separate attr, same mechanism (§4e).
+    /// `<meta property>` (OG / article:*); separate attr, same mechanism.
     #[serde(default)]
     pub property: BTreeMap<String, HeadEntry>,
-    /// `<link rel>`: expr, attr table, or expand (§4e).
+    /// `<link rel>`: expr, attr table, or expand.
     #[serde(default)]
     pub link: BTreeMap<String, HeadEntry>,
     /// JSON-LD; nested tables -> objects; empty `@type` after eval => no script.
@@ -1150,14 +1150,14 @@ pub struct HeadCfg {
     pub jsonld: BTreeMap<String, JsonLdValue>,
     /// Verbatim `<head>` fragments emitted on every page, in order. The escape
     /// hatch for the third-party blobs the structured tables above cannot
-    /// express — an analytics tag, a site-verification `<meta>`, a `preconnect`.
+    /// express, an analytics tag, a site-verification `<meta>`, a `preconnect`.
     /// Site config, trusted and emitted as written (like the jsonld payloads);
-    /// not a §5f expression and not per-row.
+    /// not a expression and not per-row.
     #[serde(default)]
     pub include: Vec<String>,
 }
 
-/// Internal-link policy (§6a).
+/// Internal-link policy.
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct LinksCfg {
@@ -1183,7 +1183,7 @@ pub struct RecordCfg {
     pub intro: Option<LocalizedStr>,
 }
 
-/// Display string (§6f): bare, per-member map, `"@key"`, or `"@table[index]"`.
+/// Display string: bare, per-member map, `"@key"`, or `"@table[index]"`.
 /// Inline beats global; `"@@"` escapes a leading `@`.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -1314,12 +1314,12 @@ pub struct Site {
     pub url: String,
     #[serde(default)]
     pub baseurl: String,
-    /// Display name (§6f): bare, per-member map, or `@key`.
+    /// Display name: bare, per-member map, or `@key`.
     pub title: LocalizedStr,
     pub author: String,
     /// Feed `<author><email>`; omitted when absent.
     pub email: Option<String>,
-    /// Site default in the theme cascade (§5a). `None` => `default/` dir or base
+    /// Site default in the theme cascade. `None` => `default/` dir or base
     /// theme (not the string `"default"`). Full `name:tokens` allowed.
     pub theme: Option<String>,
 }
@@ -1348,7 +1348,7 @@ pub struct Collection {
     /// List-field archive view names; else unique grouped view.
     #[serde(default)]
     pub archives: BTreeMap<String, String>,
-    /// Neighbour queries; override per NAME.
+    /// Neighbour queries; override per name.
     #[serde(default)]
     pub relations: BTreeMap<String, RelationCfg>,
     /// Typed fields for every row of this collection.
@@ -1371,7 +1371,7 @@ impl Collection {
     }
 }
 
-/// Neighbour query over self/candidate (§6g).
+/// Neighbour query over self/candidate.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelationCfg {
@@ -1381,7 +1381,7 @@ pub struct RelationCfg {
     /// Predicate over `self`/`candidate`; absent = every candidate.
     #[serde(rename = "where")]
     pub filter: Option<String>,
-    /// Which `self` rows carry this; also picks `.schema.toml` for typing (§6g).
+    /// Which `self` rows carry this; also picks `.schema.toml` for typing.
     pub scope: Option<String>,
     /// Score, bigger wins; absent = embedding order.
     pub rank: Option<String>,
@@ -1397,12 +1397,12 @@ pub struct RelationCfg {
 pub struct Rule {
     #[serde(rename = "match")]
     pub pattern: String,
-    /// Landing template(s); list form for default-axis fallthrough (§6f).
+    /// Landing template(s); list form for default-axis fallthrough.
     #[serde(default, deserialize_with = "one_or_many_string")]
     pub route: Vec<String>,
     /// Gate on front-matter presence (page vs static copy).
     pub front_matter: Option<bool>,
-    /// Emit a Route only when something references the row (§4).
+    /// Emit a Route only when something references the row.
     #[serde(default)]
     pub on_demand: Option<bool>,
     /// No canonical URL; embed policy addresses via `/static/`.
@@ -1414,12 +1414,12 @@ pub struct Rule {
     pub file: Vec<String>,
     #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
-    /// From base (§4d); only site-written rules warn when dead.
+    /// From base; only site-written rules warn when dead.
     #[serde(skip)]
     pub inherited: bool,
 }
 
-/// Alternative forms of one row (q53): values + field; routes spend the axis.
+/// Alternative forms of one row: values + field; routes spend the axis.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Axis {
@@ -1435,7 +1435,7 @@ impl Axis {
     }
 }
 
-/// What a view ranges over (§5c): one name or a union of collections.
+/// What a view ranges over: one name or a union of collections.
 /// Absent `from` on a fold = whole output pool.
 /// Union: collections only, same kind.
 #[derive(Debug, Clone, Deserialize)]
@@ -1486,7 +1486,7 @@ where
     })
 }
 
-/// Query plus optional materialization (DESIGN.md §5c). Extra keys in
+/// Query plus optional materialization. Extra keys in
 /// `route_fields` are checked against `[schema]` at validate.
 #[derive(Debug, Deserialize)]
 pub struct View {
@@ -1507,16 +1507,16 @@ pub struct View {
     #[serde(default, rename = "paths")]
     pub routes: Vec<String>,
     pub layout: Option<String>,
-    /// Theme fragment variant (q24): `{kind}--{variant}.html`.
+    /// Theme fragment variant: `{kind}--{variant}.html`.
     pub variant: Option<String>,
-    /// Axes this route materializes across (q53).
+    /// Axes this route materializes across.
     #[serde(default, deserialize_with = "one_or_many_string")]
     pub axis: Vec<String>,
-    /// Theme for this view (`name[:tokens]`); nearest beats member unanimity (§5a).
+    /// Theme for this view (`name[:tokens]`); nearest beats member unanimity.
     pub theme: Option<String>,
-    /// Pairing-axis partition; default-on. `"default"` opts out; `"*"` = all (§6f).
+    /// Pairing-axis partition; default-on. `"default"` opts out; `"*"` = all.
     pub partition: Option<String>,
-    /// Outermost serialization: `atom` / `sitemap` / `search` / registered (§5g).
+    /// Outermost serialization: `atom` / `sitemap` / `search` / registered.
     pub shell: Option<String>,
     pub limit: Option<usize>,
     pub template: Option<String>,
@@ -1524,31 +1524,31 @@ pub struct View {
     pub title: Option<LocalizedStr>,
     /// Breadcrumb label; defaults to `title`.
     pub crumb: Option<LocalizedStr>,
-    /// Mode A landing prose (q45).
+    /// Mode A landing prose.
     pub intro: Option<LocalizedStr>,
-    /// Mode B: claim this source path as the landing body (q45).
+    /// Mode B: claim this source path as the landing body.
     pub content: Option<String>,
-    /// Mode B if the row exists; else plain landing. Lets base ship `/` (§4d).
+    /// Mode B if the row exists; else plain landing. Lets base ship `/`.
     pub default_content: Option<String>,
-    /// From base (§4d); inherited empty routes do not materialize.
+    /// From base; inherited empty routes do not materialize.
     #[serde(skip)]
     pub inherited: bool,
     /// Declared under `[sets]` (true) vs `[routes]`; not derived from path
-    /// (default_content may clear path) (§4a).
+    /// (default_content may clear path).
     #[serde(skip)]
     pub declared_set: bool,
     /// Profile that wrote this view's filter.
     #[serde(skip)]
     pub filter_profile: Option<String>,
-    /// Computed columns; flow through `from` composition (§6d / §5f).
+    /// Computed columns; flow through `from` composition.
     #[serde(default)]
     pub fields: BTreeMap<String, Field>,
-    /// Schema-declared route answers as top-level keys (§4e).
+    /// Schema-declared route answers as top-level keys.
     #[serde(default, flatten)]
     pub route_fields: BTreeMap<String, toml::Value>,
 }
 
-/// Computed field: TOML string = CEL expr; other types = literals (§5f / §6d).
+/// Computed field: TOML string = CEL expr; other types = literals.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Field {

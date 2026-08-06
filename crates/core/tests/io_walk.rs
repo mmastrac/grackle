@@ -5,22 +5,22 @@
 //! says. Two laws hold the answers in place, and the four tests below are one
 //! per law plus the controls a narrowing owes:
 //!
-//! - **the most-specific-source ordering** — scopes are asked deepest source
-//!   first, sourceless scopes above the root, so `_posts` beats the tree
-//!   whatever order the config declared them in;
-//! - **a scope owns its source** — a file under a scope's source that no rule
-//!   of that scope claims is not content, so an image beside a draft never
-//!   reaches the objects catch-all or the tree's passthrough;
-//! - **the punch-through** — the dot/underscore skip survives, and a declared
-//!   `source` is admitted through it while every undeclared `_dir` stays out.
+//! - **the most-specific-source ordering**, scopes are asked deepest source
+//!  first, sourceless scopes above the root, so `_posts` beats the tree
+//!  whatever order the config declared them in;
+//! - **a scope owns its source**, a file under a scope's source that no rule
+//!  of that scope claims is not content, so an image beside a draft never
+//!  reaches the objects catch-all or the tree's passthrough;
+//! - **the punch-through**, the dot/underscore skip survives, and a declared
+//!  `source` is admitted through it while every undeclared `_dir` stays out.
 //!
 //! Built sites rather than loaded ones, throughout. What these laws decide is
 //! what the site PUBLISHES, and a test that asked the loader whether a row
-//! exists would pass against an engine that emitted the file anyway — which is
+//! exists would pass against an engine that emitted the file anyway, which is
 //! precisely the failure mode of dropping scope-owns-source (the rows become
 //! on-demand objects, and only a build materializes them).
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
@@ -47,7 +47,7 @@ const POSTS: &str = "[[collections]]\n\
      [[collections.rules]]\n  match = \"**/*.{md,markdown}\"\n  \
      route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
 
-/// A second posts source with no dates — grack.com's `_drafts`, minimised. It
+/// A second posts source with no dates, grack.com's `_drafts`, minimised. It
 /// is the scope whose bundle of non-markdown neighbours the ownership law
 /// exists for.
 const DRAFTS: &str = "[[collections]]\n\
@@ -57,7 +57,7 @@ const DRAFTS: &str = "[[collections]]\n\
      route = \"/drafts/{slug}/\"\n  defaults = { shell = \"html\" }\n\n";
 
 /// The objects scope: sourceless, extension-gated, with the on-demand
-/// catch-all grack.com carries — the rule that would publish a draft's images
+/// catch-all grack.com carries, the rule that would publish a draft's images
 /// the moment something cited them.
 const OBJECTS: &str = "[[collections]]\n\
      name = \"objects\"\n\n  \
@@ -84,7 +84,7 @@ fn site(who: &str, config: &str, files: &[(&str, &[u8])]) -> PathBuf {
     support::site("io-walk", who, &all)
 }
 
-/// Every URL the build publishes — the set `grackle urls` prints, which is
+/// Every URL the build publishes, the set `grackle urls` prints, which is
 /// also the set an on-demand row joins only once something cites it.
 fn published(dir: &Path) -> Vec<String> {
     let mut urls: Vec<String> = render(dir).keys().cloned().collect();
@@ -92,7 +92,7 @@ fn published(dir: &Path) -> Vec<String> {
     urls
 }
 
-/// `(collection, rule)` for the row at a URL — `grackle explain`'s two claim
+/// `(collection, rule)` for the row at a URL, `grackle explain`'s two claim
 /// lines, which is where the ordering law becomes observable.
 fn claim(dir: &Path, url: &str) -> (String, String) {
     let db = load(dir);
@@ -108,11 +108,11 @@ fn claim(dir: &Path, url: &str) -> (String, String) {
 }
 
 /// **A scope owns its source.** `_drafts/caret/` on grack.com is a draft and
-/// eighteen files beside it — fifteen images the draft cites with relative
-/// paths, an `.rtf` and an `.xcf` — and none of the eighteen is content. This
+/// eighteen files beside it, fifteen images the draft cites with relative
+/// paths, an `.rtf` and an `.xcf`, and none of the eighteen is content. This
 /// is that shape minimised, with the citation included, because the citation
 /// is what makes the failure visible: an unclaimed image falls to the objects
-/// catch-all as an ON-DEMAND row, which publishes nothing until something
+/// catch-all as an ON-demand row, which publishes nothing until something
 /// references it, and the draft references it.
 ///
 /// What the old code did here it did by accident: `store::load_dir` was handed
@@ -120,7 +120,7 @@ fn claim(dir: &Path, url: &str) -> (String, String) {
 ///
 /// Mutation: widen `walk_site`'s `eligible` so an owned path also reaches the
 /// sourceless and root scopes (`Some(o) => s.owned() == Some(o) ||
-/// s.owned().is_none()`) — `/_drafts/caret/pic.gif` and
+/// s.owned().is_none()`), `/_drafts/caret/pic.gif` and
 /// `/_drafts/caret/notes.rtf` join the published set, the first by the objects
 /// catch-all and the citation, the second by the tree's passthrough. Measured
 /// on the real corpus too.
@@ -198,7 +198,7 @@ fn the_same_files_outside_a_source_are_claimed_as_they_always_were() {
 }
 
 /// **Most-specific-source, on the site that disqualifies declaration order.**
-/// `theme-preview` declares its tree collection FIRST and its posts scope
+/// `theme-preview` declares its tree collection first and its posts scope
 /// second; under declaration order alone the tree's front-matter rule would
 /// claim `_posts/2020-01-01-hello.md` and land it at `/_posts/hello/`, and the
 /// blog would quietly cease to exist.
@@ -212,7 +212,7 @@ fn the_same_files_outside_a_source_are_claimed_as_they_always_were() {
 fn a_source_beats_the_root_whatever_order_the_config_declared() {
     let dir = site(
         "order",
-        // Tree FIRST, posts second: theme-preview's order.
+        // Tree first, posts second: theme-preview's order.
         &config(&format!("{TREE}{POSTS}{OBJECTS}")),
         &[
             (
@@ -242,8 +242,8 @@ fn a_source_beats_the_root_whatever_order_the_config_declared() {
 }
 
 /// **The punch-through, and the five directories it does not open.** Jekyll's
-/// dot/underscore skip survives — DESIGN.md §9b's "six underscore directories
-/// need explicit excludes" obstacle is amended rather than paid — and a
+/// dot/underscore skip survives, "six underscore directories
+/// need explicit excludes" obstacle is amended rather than paid, and a
 /// declared `source` is what opens one of them.
 ///
 /// Both halves in one site, because the interesting claim is the difference:
@@ -251,7 +251,7 @@ fn a_source_beats_the_root_whatever_order_the_config_declared() {
 /// apart is that a scope named one.
 ///
 /// Mutation: make `store::punches_through` return `false` and every post
-/// leaves the corpus — on this site the assertion below, and on grack.com all
+/// leaves the corpus, on this site the assertion below, and on grack.com all
 /// 331 of them.
 #[test]
 fn a_declared_source_punches_through_the_underscore_skip_and_nothing_else_does() {
@@ -287,7 +287,7 @@ fn a_declared_source_punches_through_the_underscore_skip_and_nothing_else_does()
 }
 
 /// **The control a narrowing owes**: a site with no posts scope at all walks
-/// exactly as it did — no source is declared, so nothing punches through, and
+/// exactly as it did, no source is declared, so nothing punches through, and
 /// no scope owns anything, so the root scope claims or the load fails.
 ///
 /// `examples/minimal` is this site, and it is the reason the control matters:
@@ -322,7 +322,7 @@ fn a_site_with_no_source_walks_exactly_as_it_did() {
 /// The contradiction the one walk creates, refused rather than suffered: a
 /// site whose tree `exclude` names a scope's `source`.
 ///
-/// Before I7d the two governed different walks, so the line was harmless — the
+/// Before I7d the two governed different walks, so the line was harmless, the
 /// underscore skip kept `_posts` out of the tree anyway, and three fixtures
 /// carried it as belt-and-braces. With one walk it empties the scope, and
 /// nothing would have said so.

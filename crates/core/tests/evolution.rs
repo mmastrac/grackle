@@ -1,5 +1,5 @@
 //! Evolution map: trace one site through a sequence of edits, asserting the
-//! DELTA each makes to the built output — which URLs appear, change, or vanish,
+//! DELTA each makes to the built output, which URLs appear, change, or vanish,
 //! or that the build errors. A behaviour test that pins what a change *does*,
 //! not the exact bytes or internal shape, so it survives an internal redesign
 //! the byte oracle would flag as churn. Each step's expected delta is also the
@@ -10,7 +10,7 @@
 //! couples neighbours), and step 3 proves a page touches nothing in the blog.
 //! When a real behaviour change moves a step's delta, re-record it with
 //! [`Evo::observe`] (prints the delta instead of asserting) and update the
-//! `step` — the map is meant to be edited, not treated as a frozen golden.
+//! `step`, the map is meant to be edited, not treated as a frozen golden.
 
 mod support;
 
@@ -63,7 +63,7 @@ struct Want {
     added_static: Option<usize>,
 }
 
-/// The empty delta — a build that changed nothing.
+/// The empty delta, a build that changed nothing.
 fn nothing() -> Want {
     Want::default()
 }
@@ -150,7 +150,7 @@ impl Evo {
     }
 
     /// Apply an edit to a COPY of the current site, assert the build fails with
-    /// `needle`, and discard the copy — the main chain is left untouched. For
+    /// `needle`, and discard the copy, the main chain is left untouched. For
     /// the "poke here and you get an error" arm of the map.
     fn probe_error(&self, label: &str, edit: impl FnOnce(&Path), needle: &str) {
         let probe = self.dir.with_extension("probe");
@@ -216,7 +216,7 @@ fn copy_tree(src: &Path, dst: &Path) {
 
 // ---- chains -----------------------------------------------------------------
 
-/// From an empty config, watch the blog machinery light up — and watch what
+/// From an empty config, watch the blog machinery light up, and watch what
 /// each addition does NOT touch.
 #[test]
 fn posts_evolution() {
@@ -234,7 +234,7 @@ fn posts_evolution() {
             .edit(&["/sitemap.xml"]),
     );
 
-    // A second post adds its own page — and re-renders the FIRST post, because
+    // A second post adds its own page, and re-renders the first post, because
     // prev/next navigation couples adjacent posts. The listings and feed
     // refresh too. This coupling is the kind of thing the map exists to show.
     ev.step(
@@ -249,8 +249,8 @@ fn posts_evolution() {
         ]),
     );
 
-    // A page is isolated: it touches nothing in the blog machinery — not the
-    // homepage, not the feed, not the other posts — only itself and the sitemap.
+    // A page is isolated: it touches nothing in the blog machinery, not the
+    // homepage, not the feed, not the other posts, only itself and the sitemap.
     ev.step(
         "add a page",
         write("about.md", post("About")),
@@ -271,7 +271,7 @@ fn posts_evolution() {
 
 const A_POST: &str = "---\ntitle: P\n---\n\nA body.\n";
 
-/// The q54 blast radius, made testable: switching `[assets] addressing` to
+/// The blast radius, made testable: switching `[assets] addressing` to
 /// `hashed` moves the stylesheet under `/static` and rewrites the `<link>` in
 /// every page that carries it. The delta IS the blast radius.
 #[test]
@@ -285,7 +285,7 @@ fn assets_evolution() {
         ],
     );
     // The stylesheet moves under /static, and every page that links it is
-    // rewritten — but NOT the feed or sitemap, which carry no `<link>`. The
+    // rewritten, but NOT the feed or sitemap, which carry no `<link>`. The
     // modified set is exactly "pages with the stylesheet": the firebreak, seen.
     // The added /static/{hash}.css name is content-derived, so pin its shape.
     ev.step(
@@ -303,7 +303,7 @@ fn assets_evolution() {
 const TOKENS: &str = ":root { --accent: hotpink; }\n";
 
 /// Themes: add one, opt a single post in, switch the site default. Each step
-/// shows exactly which pages a theme decision touches — and which it doesn't.
+/// shows exactly which pages a theme decision touches, and which it doesn't.
 #[test]
 fn themes_evolution() {
     let mut ev = Evo::seed(
@@ -315,7 +315,7 @@ fn themes_evolution() {
         ],
     );
 
-    // A theme's stylesheet is emitted the moment the theme exists — before any
+    // A theme's stylesheet is emitted the moment the theme exists, before any
     // page links it. Adding `dark` ships /css/dark.css and touches nothing else.
     ev.step(
         "add a theme 'dark'",
@@ -333,8 +333,8 @@ fn themes_evolution() {
         nothing().edit(&["/blog/2026/01/01/hello/"]),
     );
 
-    // Switching the site default re-renders every page STILL on the default —
-    // homepage, blog index, the second post — but NOT hello, which already
+    // Switching the site default re-renders every page STILL on the default,
+    // homepage, blog index, the second post, but NOT hello, which already
     // opted into dark. The delta is exactly "the pages that hadn't overridden".
     ev.step(
         "site-wide theme = dark",
@@ -405,7 +405,7 @@ fn config_evolution() {
         ]),
     );
 
-    // A global `[html.head.meta]` tag lands in every HTML page's <head> — and
+    // A global `[html.head.meta]` tag lands in every HTML page's <head>, and
     // only those: the feed and sitemap carry no <head>, so they stand aside.
     ev.step(
         "add a global head meta",

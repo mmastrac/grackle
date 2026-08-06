@@ -1,8 +1,8 @@
-//! Part maps: typed holes a theme's fragments place (THEME.md §5).
+//! Part maps: typed holes a theme's fragments place.
 //!
-//! Part vocabulary is derived from field schemas + theme fragments — not a
+//! Part vocabulary is derived from field schemas + theme fragments, not a
 //! handwritten table. Schema order is first-seen fragment order. `set` stores
-//! at that position, not call order. Producers never see `Site` — URLs stay
+//! at that position, not call order. Producers never see `Site`, URLs stay
 //! root-relative.
 
 use crate::model::Row;
@@ -28,7 +28,7 @@ pub enum Part {
 pub struct PartMap {
     pub kind: &'static str,
     parts: Vec<(&'static str, Part)>,
-    /// A specific fragment this map asks to render through, by full name —
+    /// A specific fragment this map asks to render through, by full name,
     /// the row-variant idea one level down. Set by the engine when a
     /// positional `.slots/chrome.html` override resolves for the page;
     /// wins over the hole's `data-fragment`, falls through when absent.
@@ -79,7 +79,7 @@ impl PartMap {
             self.kind
         );
         self.parts.push((name, part));
-        // Schema order, not call order — null theme reading order.
+        // Schema order, not call order, null theme reading order.
         if let Some(sch) = schema(self.kind) {
             self.parts
                 .sort_by_key(|(n, _)| sch.iter().position(|(sn, _)| sn == n).unwrap_or(usize::MAX));
@@ -152,7 +152,7 @@ impl PartMap {
         matches!(self.get(name), Some(Part::Flag(true)))
     }
 
-    /// Parts in canonical order — what the null theme renders.
+    /// Parts in canonical order, what the null theme renders.
     #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, &Part)> {
         self.parts.iter().map(|(n, p)| (*n, p))
@@ -189,7 +189,7 @@ impl PartType {
     }
 }
 
-/// Derived part vocabulary for a build (THEME.md §5).
+/// Derived part vocabulary for a build.
 static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
     std::sync::OnceLock::new();
 
@@ -199,7 +199,7 @@ pub struct Schemas {
 }
 
 impl Schemas {
-    /// Base fragments only — tests and the null theme before site fields land.
+    /// Base fragments only, tests and the null theme before site fields land.
     pub fn engine_only() -> Schemas {
         Schemas { kinds: engine() }
     }
@@ -236,7 +236,7 @@ impl Schemas {
         Schemas { kinds }
     }
 
-    /// Extend with a theme's `.schema.toml` (THEME.md §5): each field becomes
+    /// Extend with a theme's `.schema.toml`: each field becomes
     /// a part on `row`. May not remove or retype an existing part.
     pub fn extend_theme_dir(&self, theme_dir: &Path) -> anyhow::Result<Schemas> {
         let path = theme_dir.join(".schema.toml");
@@ -439,7 +439,7 @@ pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
         .map(|(_, t)| *t)
 }
 
-/// Null theme: schema order, generic markup from part types (THEME.md §5).
+/// Null theme: schema order, generic markup from part types.
 pub fn canonical(m: &PartMap) -> String {
     let mut out = String::new();
     canonical_into(m, &mut out);
@@ -579,9 +579,9 @@ fn crumb(label: String, url: Option<String>) -> PartMap {
     c
 }
 
-/// Crumb trails arrive as `(label, url?)` pairs — a crumb with no url is the
+/// Crumb trails arrive as `(label, url?)` pairs, a crumb with no url is the
 /// trail's inert tail. The *derivation* lives with the caller: post and
-/// listing trails are provenance walks over the view chain (§5c), which
+/// listing trails are provenance walks over the view chain, which
 /// needs the config; tree trails are the ancestor axis. Producers here just
 /// give the data its shape.
 pub fn crumb_stream(trail: Vec<(String, Option<String>)>) -> Part {
@@ -619,7 +619,7 @@ fn pill_stream(
     Part::Stream(v)
 }
 
-/// `(Text, Url)` child shape — archive pills (`tag`: name + url).
+/// `(Text, Url)` child shape, archive pills (`tag`: name + url).
 fn pill_keys(shape: &[(&'static str, PartType)]) -> Option<(&'static str, &'static str)> {
     if shape.len() != 2 {
         return None;
@@ -651,9 +651,9 @@ fn neighbor_from_row(
     )
 }
 
-/// One relations group (§6g): a named, labelled list of neighbours. The name
-/// is the theme contract — themes key CSS on `[data-relation="…"]` (renamed
-/// from `data-axis` at the axis/relation split, q53) — and the `relation`
+/// One relations group: a named, labelled list of neighbours. The name
+/// is the theme contract, themes key CSS on `[data-relation="…"]` (renamed
+/// from `data-axis` at the axis/relation split), and the `relation`
 /// fragment renders names it has never heard of. An empty list contributes
 /// no group (hole-algebra rule 2).
 fn relation_group(name: &str, label: &str, items: Vec<PartMap>) -> Option<PartMap> {
@@ -667,7 +667,7 @@ fn relation_group(name: &str, label: &str, items: Vec<PartMap>) -> Option<PartMa
     Some(g)
 }
 
-/// The engine's relation groups (§6g), already evaluated, as parts. Each
+/// The engine's relation groups, already evaluated, as parts. Each
 /// carries its resolved label; empties are dropped upstream. Items are
 /// looked up as full rows and projected through [`neighbor_from_row`].
 pub fn relation_groups(
@@ -693,10 +693,10 @@ pub fn relation_groups(
     Ok(out)
 }
 
-/// One axis group for the axis slot (q47, §6f): a named, labelled set of
+/// One axis group for the axis slot: a named, labelled set of
 /// members, each a link with the current one flagged. Fewer than two members is
 /// no switcher, so it contributes nothing (hole-algebra rule 2). This is what
-/// superseded the `translations` relation — the locale switcher is one of these,
+/// superseded the `translations` relation, the locale switcher is one of these,
 /// beside a theme switcher or any declared axis, for rows AND listing views.
 pub fn axis_group(
     name: &str,
@@ -707,7 +707,7 @@ pub fn axis_group(
         return None;
     }
     // The current member's label heads the dropdown (its summary): "ledger",
-    // "Français" — what you are viewing, with the rest as the menu.
+    // "Français", what you are viewing, with the rest as the menu.
     let current_label = members
         .iter()
         .find(|(_, _, c)| *c)
@@ -734,8 +734,8 @@ pub fn axis_group(
 }
 
 #[allow(clippy::too_many_arguments)]
-/// One row's part map (THEME.md §2). Callers differ in what they supply —
-/// crumbs, relations — not in kind. List-field pills (`tags`, …) and
+/// One row's part map. Callers differ in what they supply,
+/// crumbs, relations, not in kind. List-field pills (`tags`, …) and
 /// computed Str fields (`hero`) are filled later by [`fill_from_fields`].
 pub fn row(
     title: String,
@@ -780,7 +780,7 @@ pub fn document(
     )
 }
 
-/// Home → ancestors → title (inert tail).
+/// Home -> ancestors -> title (inert tail).
 pub fn tree_trail(
     cfg: &crate::config::Config,
     locale: &str,
@@ -901,7 +901,7 @@ fn record_part_map(
     item
 }
 
-/// Full row projection for listings and relations (q36). The face chops what
+/// Full row projection for listings and relations. The face chops what
 /// it places; this fills everything the row can answer.
 pub fn from_row(
     cfg: &crate::config::Config,
@@ -917,7 +917,7 @@ pub fn from_row(
 }
 
 /// One presence-driven kind; faces select variants. Fill undeclared parts from
-/// the row when types line up (§5e) — schema fields plus row columns (`title`,
+/// the row when types line up, schema fields plus row columns (`title`,
 /// `url`, …), then computed Str fields (`hero`). `date_pretty` is the formatted
 /// twin of a date-typed `date` field. List fields whose child kind is
 /// `(Text, Url)` become archive pills.
@@ -1153,7 +1153,7 @@ fn fill_computed_content_fields(
 
 /// Computed field expressions of one return type: a view's `fields_for`
 /// (which already folds in `[schema.fields]`), or the bag alone for a
-/// document render. The type is inferred from each expression (§5f), so a
+/// document render. The type is inferred from each expression, so a
 /// field routes to the filler that wants its shape regardless of its name.
 fn computed_field_exprs<'a>(
     cfg: &'a crate::config::Config,
@@ -1181,7 +1181,7 @@ fn computed_field_exprs<'a>(
 }
 
 /// Wrapper `row` for an aggregate page: furniture around already-concatenated
-/// member HTML (THEME.md §3).
+/// member HTML.
 pub fn page_row(
     title: &str,
     url: &str,
@@ -1205,7 +1205,7 @@ pub fn page_row(
 }
 
 /// Face for a view's members: prefer `variant` when the theme ships it,
-/// else `layout`. A missing variant is a partial theme (DESIGN.md), not
+/// else `layout`. A missing variant is a partial theme (design.md), not
 /// an error; a missing layout face bails.
 pub fn member_face<'a>(
     fragments: &crate::assemble::binder::Fragments,
@@ -1235,12 +1235,12 @@ pub fn require_face<'a>(
     )
 }
 
-/// §5d's one genuine component, as data: prev/next (absent at the ends) and
+/// one genuine component, as data: prev/next (absent at the ends) and
 /// the page range (a page with no `url` is the current one). `None` when there
 /// is a single page.
 ///
-/// q32: `urls[i]` is page i+1's link target, rendered by build from the owning
-/// view's route templates — this producer knows nothing about blogs.
+/// `urls[i]` is page i+1's link target, rendered by build from the owning
+/// view's route templates, this producer knows nothing about blogs.
 pub fn pagination(current: usize, urls: &[String]) -> Option<PartMap> {
     let total = urls.len();
     if total <= 1 {
@@ -1270,7 +1270,7 @@ pub fn pagination(current: usize, urls: &[String]) -> Option<PartMap> {
     Some(m)
 }
 
-/// The row's content *is* `main` — the null theme wraps it, real themes
+/// The row's content *is* `main`, the null theme wraps it, real themes
 /// pass it through.
 pub fn raw(content: &str) -> PartMap {
     let mut m = PartMap::new("raw");
@@ -1368,7 +1368,7 @@ mod tests {
         );
     }
 
-    /// §5e: every real row through the null theme — nothing the parts layer
+    /// Every real row through the null theme, nothing the parts layer
     /// carries may vanish (fragments cannot put a dropped part back).
     #[test]
     fn null_theme_is_complete_over_every_real_row() {

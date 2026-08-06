@@ -80,11 +80,11 @@ pub(crate) struct AxisPoolMember<'a> {
     pub current: bool,
 }
 
-/// Include-self siblings of this route on a declared axis (§6f / hreflang).
+/// Include-self siblings of this route on a declared axis.
 ///
 /// A **file axis** pivots through translation files (`by_logical`); a **route
 /// axis** (or a view) through sibling routes that differ in exactly that axis.
-/// Self is included — `hreflang` asks every version to list every version, and
+/// Self is included, `hreflang` asks every version to list every version, and
 /// the axis switcher flags the current one.
 pub(crate) fn axis_pool<'a>(
     cfg: &Config,
@@ -176,8 +176,8 @@ pub(crate) fn axis_pool<'a>(
         .collect()
 }
 
-/// The axis slot (q47, §6f): every axis THIS route is a member of, each a group
-/// of member links with the current one flagged — the switcher a theme renders,
+/// The axis slot: every axis THIS route is a member of, each a group
+/// of member links with the current one flagged, the switcher a theme renders,
 /// for a row page or a listing view alike.
 ///
 /// File-axis members come from [`axis_pool`] / `by_logical`; route-axis members
@@ -224,20 +224,20 @@ pub(crate) fn axes_part(cfg: &Config, db: &SiteDb, r: &Route) -> Vec<parts::Part
     groups
 }
 
-/// The collection at the base of a view's `from` chain — whose role (read off
+/// The collection at the base of a view's `from` chain, whose role (read off
 /// its `source`, now that `kind` is gone) decides which render pass owns the
 /// view's routes. None for a fold over every output, which has no collection
 /// under it.
 pub(crate) fn view_base_collection<'a>(cfg: &'a Config, view: &str) -> Option<&'a Collection> {
-    // A union's members share a role — they share a `from` vocabulary — so the
+    // A union's members share a role, they share a `from` vocabulary, so the
     // first answers for the whole base.
     let base = cfg.query(view).ok()?.base;
     cfg.collections.get(base.first()?)
 }
 
-/// The link resolver a page hands its slot fills (§6a): the fill's owner
+/// The link resolver a page hands its slot fills: the fill's owner
 /// directory is the relative base, and the consuming page's locale drives
-/// view links — one nav.md serves every locale. The impossible `url_dir`
+/// view links, one nav.md serves every locale. The impossible `url_dir`
 /// disables the browser-agreement bypass: fills are shared across pages,
 /// so the canonical URL is the only correct answer.
 pub(crate) fn fill_link_resolver<'a>(
@@ -259,10 +259,10 @@ pub(crate) fn fill_link_resolver<'a>(
     }
 }
 
-/// What an axis member sets, when it sets the field asked for (q53).
+/// What an axis member sets, when it sets the field asked for.
 ///
-/// A member declares which row field its value stands in for — `theme` renders
-/// one corpus several ways, `shell` gives a document its md twin — so a render
+/// A member declares which row field its value stands in for, `theme` renders
+/// one corpus several ways, `shell` gives a document its md twin, so a render
 /// path asks for the field it cares about and gets `None` on every route that
 /// is not a member of an axis about that field. The value beats the row's own:
 /// the member IS the alternative form, and a row that named a theme named it
@@ -299,24 +299,14 @@ pub(crate) fn resolve_view_theme<'a>(
 /// Pagination for a paginated route (those carrying a page number); an
 /// unpaginated grouped view has `page: None` and gets nothing.
 ///
-/// q32 settled that page URLs come from the owning view rather than a literal
-/// copy in the producer, and this used to honour that by re-rendering the view's
-/// route templates with `{n}`. It reads the view's already-materialized pages
-/// instead, which is the same rule with one fewer way to be wrong — and it is
-/// what lets a GROUPED view paginate (§5c). Re-rendering had two defects that
-/// only a grouped-and-paginated route could show:
-///
-///   - the template also carries `{key}`, which a `{n}`-only renderer cannot
-///     fill, so rendering failed outright;
-///   - `total` counted every page of the view across ALL groups, so a
-///     three-page partition would have offered three pages to every group in
-///     it.
-///
-/// A materialized URL has neither problem: it already wears its group key, its
-/// record slug (`{key}` is slugged in the URL and not in the params, so
-/// re-rendering could disagree with the route it was naming) and its locale
-/// prefix. Pages are only created where rows exist, so the sibling list is
-/// exactly the pages there are.
+/// Page URLs come from the owning view's already-materialized pages rather
+/// than re-rendering route templates with `{n}`. A grouped template also
+/// carries `{key}`, which a `{n}`-only renderer cannot fill, and `total`
+/// must count pages within one group, not across every group of the view.
+/// A materialized URL already wears its group key, its record slug (`{key}`
+/// is slugged in the URL and not in the params), and its locale prefix.
+/// Pages are only created where rows exist, so the sibling list is exactly
+/// the pages there are.
 pub(crate) fn pagination_parts(
     cfg: &Config,
     db: &SiteDb,
@@ -347,7 +337,7 @@ pub(crate) fn pagination_parts(
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Members of a view/route as row projections — objects, truncated prose, or
+/// Members of a view/route as row projections, objects, truncated prose, or
 /// tree bodies from `page_bodies` when the post map has none.
 pub(crate) fn member_rows(
     cfg: &Config,
@@ -474,11 +464,11 @@ pub(crate) fn is_absolute_url(s: &str) -> bool {
 pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
     // `s` is absolute in two ways, both of which must pass through untouched:
     // an external URL (`https://`, `//host`), or a site-root path the renderer
-    // already resolved — a `/static/{hash}` thumb (baseurl-free by design,
+    // already resolved, a `/static/{hash}` thumb (baseurl-free by design,
     // thumbs.rs) or any leading-`/` ref. A source asset is root-RELATIVE
     // (`foo/bar.png`), so only those get the baseurl prefix. Without the
-    // leading-`/` guard a resolved hero — `images(content)[0]`, read back from
-    // already-rendered body HTML (q23) — becomes `//static/…` and 404s.
+    // leading-`/` guard a resolved hero, `images(content)[0]`, read back from
+    // already-rendered body HTML, becomes `//static/…` and 404s.
     if is_absolute_url(s) || s.starts_with('/') {
         s.to_string()
     } else {
@@ -487,7 +477,7 @@ pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
 }
 
 /// A content row as a listing member: prose when it has a body. `content` is
-/// the body already truncated by the view's `summary` field (§6d), or `None`
+/// the body already truncated by the view's `summary` field, or `None`
 /// where the caller shows no prose. Picture comes from computed `fields.hero`.
 fn content_row(
     cfg: &Config,
@@ -518,9 +508,9 @@ fn content_row(
     )
 }
 
-/// The intro for one ROUTE (§6f enum records × q45 mode A): a grouped
+/// The intro for one route: a grouped
 /// route whose leaf value declares a record `intro` gets that value's
-/// own prose — the course archive introduces the course — else the
+/// own prose, the course archive introduces the course, else the
 /// view's intro applies to every partition.
 pub(crate) fn route_intro(
     cfg: &Config,
@@ -548,7 +538,7 @@ pub(crate) fn route_intro(
 }
 
 /// Config-authored prose (intros): markdown through the locale-aware
-/// link resolver — `view:` links and source paths get the same strict
+/// link resolver, `view:` links and source paths get the same strict
 /// validation as any body; no browser-agreement bypass (config prose
 /// has no directory).
 fn render_config_prose(

@@ -19,10 +19,10 @@ pub struct Stats {
     pub serialized: usize,
     /// Distinct derived thumbnails published under `/static/`.
     pub thumbs: usize,
-    /// Rows published because something referenced them (§4 on-demand).
+    /// Rows published because something referenced them.
     pub on_demand: usize,
     pub skipped: Vec<String>,
-    /// Posts whose embeddings are missing or stale (§6b). The caller decides
+    /// Posts whose embeddings are missing or stale. The caller decides
     /// when to run the model: `build` before rendering, `serve` in the
     /// background with a re-render on completion.
     pub embed_pending: Vec<crate::embed::Pending>,
@@ -33,7 +33,7 @@ pub struct Stats {
     /// looks deployable and is wrong, which is the one outcome worth
     /// failing a build over.
     pub css_errors: Vec<String>,
-    /// CSS complaints that are not failures — today, the one about a
+    /// CSS complaints that are not failures, today, the one about a
     /// `_tokens.scss` nothing imports. Printed as they happen (`serve` shows
     /// them on every rebuild); collected here only so a test can assert on
     /// SILENCE, which is what a warning that lies is fixed into. Nothing
@@ -43,7 +43,7 @@ pub struct Stats {
 
 /// A rendered page body: the expanded fragment plus its Doc (markdown
 /// pages) for outline extraction. Computed BEFORE any page is themed so
-/// the link graph (q38) can scan every body first.
+/// the link graph can scan every body first.
 pub struct PageBody {
     pub(crate) frag: String,
     pub(crate) doc: Option<Doc>,
@@ -52,5 +52,5 @@ pub struct PageBody {
 }
 
 /// One backlink: `(source title, source url, source date)`. The date rides
-/// along so a backlink list can be read in date order (q38).
+/// along so a backlink list can be read in date order.
 pub(crate) type Backlink = (String, String, Option<chrono::NaiveDate>);

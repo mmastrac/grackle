@@ -1,13 +1,13 @@
 //! A table: rows of one type, and everything you can do to them without
 //! knowing what that type is.
 //!
-//! A row here is whatever answers `filter::Row` — a name goes in, a typed
+//! A row here is whatever answers `filter::Row`, a name goes in, a typed
 //! value comes out. That is the whole contract, and it is what lets one
 //! `matching` serve every row type a caller defines.
 //!
 //! Keys, not positions, are the currency. Every index in this engine names
 //! rows by `Key`, so a query result composes with an index result without
-//! either knowing what the other selected on — and a set outlives the load it
+//! either knowing what the other selected on, and a set outlives the load it
 //! was built against, which a position cannot.
 
 use std::collections::{BTreeMap, HashMap};
@@ -61,7 +61,7 @@ impl<R: Keyed> Table<R> {
     /// Rebuilds the position map, which is what makes a `Key` held across a
     /// sort still resolve.
     /// Drop rows that fail the predicate, reindexing so held `Key`s still
-    /// resolve — the same contract `sort_by` keeps.
+    /// resolve, the same contract `sort_by` keeps.
     pub fn retain(&mut self, f: impl FnMut(&R) -> bool) {
         self.rows.retain(f);
         self.reindex();
@@ -86,14 +86,14 @@ impl<R: Keyed> Table<R> {
     }
 
     /// Mutable access, for the passes that revise a row after the table is
-    /// built (§q45's claimed-row URL fixup).
+    /// built.
     pub fn get_mut(&mut self, key: &Key) -> Option<&mut R> {
         let i = *self.at.get(key)?;
         self.rows.get_mut(i)
     }
 
-    /// Mutate every row in place. Keys are unchanged by construction — a caller
-    /// revising fields, not identities — so the position index stays valid.
+    /// Mutate every row in place. Keys are unchanged by construction, a caller
+    /// revising fields, not identities, so the position index stays valid.
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, R> {
         self.rows.iter_mut()
     }
@@ -122,7 +122,7 @@ impl<R: Row + Keyed> Table<R> {
         self.rows.iter().filter(move |r| f.eval(*r))
     }
 
-    /// The keys a filter admits, in table order — `matching` for callers that
+    /// The keys a filter admits, in table order, `matching` for callers that
     /// need to name the rows rather than read them.
     pub fn select(&self, f: &Filter) -> Vec<Key> {
         self.rows
@@ -132,7 +132,7 @@ impl<R: Row + Keyed> Table<R> {
             .collect()
     }
 
-    /// The keys a filter admits within `within` — a set the caller narrowed
+    /// The keys a filter admits within `within`, a set the caller narrowed
     /// by something the query language cannot say (a locale, a collection).
     ///
     /// Order follows `within`, not the table, so a caller that sorted its
@@ -261,8 +261,7 @@ mod tests {
         assert_eq!(names(&table().select(&f)), ["b", "c"]);
     }
 
-    /// The property positions did not have: reordering the table leaves every
-    /// previously-selected key still naming its row.
+    /// Reordering the table leaves every selected key still naming its row.
     #[test]
     fn keys_survive_a_reorder() {
         let mut t = table();

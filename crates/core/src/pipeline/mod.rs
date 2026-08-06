@@ -1,8 +1,8 @@
-//! Render the database to a set of URL → bytes outputs (DESIGN.md §7).
+//! Render the database to a set of URL -> bytes outputs.
 //!
 //! `render_site` produces the whole site in memory, keyed by URL. Both clients
 //! consume it: `build` writes the map to disk (AOT), and `serve` holds it
-//! resident and answers requests from it — the "no output directory in dev"
+//! resident and answers requests from it, the "no output directory in dev"
 //! the design calls for. One render path, two materializations.
 
 use anyhow::{Context, Result};
@@ -58,7 +58,7 @@ pub fn build(cfg: &Config, db: &mut SiteDb, out: &Path) -> Result<Stats> {
     }
     let (map, stats) = render_site(cfg, db)?;
     // A publishing build refuses a stylesheet that did not compile. `serve`
-    // makes the opposite call on the same data — see `Stats::css_errors`.
+    // makes the opposite call on the same data, see `Stats::css_errors`.
     // Nothing is written when this fires, so a failed build leaves the last
     // good output in place.
     if !stats.css_errors.is_empty() {
@@ -89,7 +89,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         icon: &icon,
     };
     let profile = cfg.profile.as_deref();
-    // `[html.head.meta]` / `[html.*.attribute]` (§4e), compiled once.
+    // `[html.head.meta]` / `[html.*.attribute]`, compiled once.
     let metas = render::compile_metas(cfg, &db.declared)?;
     let attrs = render::compile_attrs(cfg, &db.declared)?;
     let mut stats = Stats::default();
@@ -99,12 +99,12 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
 
     let thumbs = prepass::thumbs_pass(cfg, db, &root, &mut out_map, &mut stats)?;
 
-    // An image field's published URL (§5e image parts): the thumbnail's when
+    // An image field's published URL: the thumbnail's when
     // the pass generated one, else the original under baseurl. This is the
     // presentation `fill_from_fields` delegates so it need not know either.
-    // ---- themes: every directory under themes/, loaded once (§5e). All
-    // theme errors — malformed fragment, unknown slot, arity violation —
-    // surface here, before anything renders. Theme is chosen per ROW (§5a).
+    // themes: every directory under themes/, loaded once. All
+    // theme errors, malformed fragment, unknown slot, arity violation,
+    // surface here, before anything renders. Theme is chosen per ROW.
     // Part vocabulary is derived from fragments + declared field schemas.
     let fields = part_fields_from_cfg(cfg);
     let themes = theme::Themes::load_all(
@@ -117,7 +117,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     prepass::check_theme_names(cfg, db, &themes)?;
     // A `.slots/` file whose stem names no slot any loaded theme places
     // fills nothing, silently. Said here rather than in the source loader
-    // because the knowledge is here — the slot names come from the themes,
+    // because the knowledge is here, the slot names come from the themes,
     // which only exist once `load_all` has run. A warning, not an error;
     // `slots::unknown_stems` carries the reasoning. `serve` rebuilds the
     // world through this function on every change, so a fixed name stops
@@ -128,8 +128,8 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
             None => Vec::new(),
         };
         crate::slots::check_chrome_fills(themes.fills(), &root)?;
-        // `chrome` is not an identity slot — it is the cluster override,
-        // consumed at theme load — but it lives in `.slots/` like one.
+        // `chrome` is not an identity slot, it is the cluster override,
+        // consumed at theme load, but it lives in `.slots/` like one.
         let mut known = themes.identity_slots();
         known.push("chrome");
         for w in crate::slots::unknown_stems(themes.fills(), &known, &locales) {
@@ -138,17 +138,17 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         }
     }
 
-    // §6a row/view links: the resolution space, once per build.
+    // row/view links: the resolution space, once per build.
     let linkspace = crate::links::LinkSpace::new(cfg, db, &root);
     let bodies = bodies::render_bodies(cfg, db, &thumbs, &linkspace)?;
     let page_bodies = bodies::render_page_bodies(cfg, db, &site, &themes, &thumbs, &linkspace)?;
 
-    // ---- the link graph (q38): scan every rendered body once — posts and
-    // pages alike — and invert. Backlinks are one more relations axis; the
+    // ---- the link graph: scan every rendered body once, posts and
+    // pages alike, and invert. Backlinks are one more relations axis; the
     // scan reads the same bytes that ship, so link and index cannot desync.
     let (backlinks, links_to) = prepass::backlinks_map(db, &bodies, &page_bodies, &cfg.site.url);
 
-    // ---- related posts (§6b): cache-only load — fresh vectors where the
+    // related posts: cache-only load, fresh vectors where the
     // cache has them, STALE ones where a post's text changed (it keeps its
     // old embedding until reprocessed), None for never-seen posts. Whatever
     // is pending goes back to the caller via Stats: `build` embeds it
@@ -168,7 +168,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
     };
     stats.embed_pending = loaded.pending;
 
-    // §6g: the relation engine — declared neighbour queries evaluated per row,
+    // The relation engine, declared neighbour queries evaluated per row,
     // with the embedding vectors and the link graph in hand. Replaces the
     // hardcoded similar/adjacency/linked-from axes; `[related]`'s knobs are
     // now grack.com's `related` rank expression. Evaluated for every rendered

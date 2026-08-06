@@ -1,4 +1,4 @@
-//! FsStore: hydrate stat/version and front matter only (DESIGN.md §2).
+//! FsStore: hydrate stat/version and front matter only.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -8,22 +8,22 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct FrontMatter {
     pub title: Option<String>,
-    /// Cut point in the render chain (THEME.md §4). `root` skips document furniture.
+    /// Cut point in the render chain. `root` skips document furniture.
     pub slot: Option<String>,
     pub permalink: Option<String>,
-    /// Declared position within a section tree (§6e). Unset sorts last.
+    /// Declared position within a section tree. Unset sorts last.
     pub order: Option<i64>,
-    /// Which theme renders this row (§5a: theme is chosen per row).
+    /// Which theme renders this row.
     /// Cascades from rules, so a subtree changes look with one rule.
     pub theme: Option<String>,
-    /// Which shell wraps this row (§5g, q44): `none` emits the body with
+    /// Which shell wraps this row: `none` emits the body with
     /// no skeleton at all, so an imported artifact can carry front matter
     /// without being nested inside a second document. Cascades like
     /// `theme`.
     pub shell: Option<String>,
-    /// Everything else: captured for schema validation (§5b). `draft`,
+    /// Everything else: captured for schema validation. `draft`,
     /// `hidden`, `noindex`, `toc`, `tags`, `description`, and `date` arrive
-    /// here — declared fields the base config ships, not names this struct knows.
+    /// here, declared fields the base config ships, not names this struct knows.
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }
@@ -36,7 +36,7 @@ pub fn read_body(path: &Path) -> Result<String> {
 
 /// Which parser a front-matter fence selects: `---` is YAML (the native form),
 /// `+++` is TOML (the form Zola/Hugo write). Both deserialize into the one
-/// `FrontMatter` struct — the same struct TOML sidecars already use.
+/// `FrontMatter` struct, the same struct TOML sidecars already use.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FmFmt {
     Yaml,
@@ -45,7 +45,7 @@ pub enum FmFmt {
 
 /// Split `---\nyaml\n---\nbody` or `+++\ntoml\n+++\nbody`, returning the fence's
 /// format alongside the block and the body. The close fence must match the
-/// open. No fence means all body — `(None, "", text)`.
+/// open. No fence means all body, `(None, "", text)`.
 pub fn split_front_matter(text: &str) -> (Option<FmFmt>, &str, &str) {
     let (fence, fmt) = match text.as_bytes() {
         [b'-', b'-', b'-', ..] => ("---", FmFmt::Yaml),
@@ -126,7 +126,7 @@ fn is_git_dir(e: &ignore::DirEntry) -> bool {
 /// Site-root `themes/` is engine vocabulary by position.
 pub const THEMES: &str = "themes";
 
-/// Declared not-content layer (DESIGN.md §4c): `exclude` with `include` re-adding.
+/// Declared not-content layer: `exclude` with `include` re-adding.
 #[derive(Clone)]
 pub struct NotContent {
     exclude: globset::GlobSet,
@@ -261,9 +261,9 @@ mod tests {
 
     #[test]
     fn an_excluded_subtree_is_pruned_at_its_own_root() {
-        // `embedded/**` matches the contents, not the directory — so `keeps`
+        // `embedded/**` matches the contents, not the directory, so `keeps`
         // says yes to `embedded` itself and a pruning walk steps one level in
-        //. `keeps_dir` is the one that closes it.
+        // `keeps_dir` is the one that closes it.
         let not = not_content(&["embedded/**"], &[]);
         assert!(not.keeps(Path::new("embedded")));
         assert!(!not.keeps_dir(Path::new("embedded")));
@@ -299,7 +299,7 @@ mod tests {
     ///
     /// `included` is the file question the content filter asks, and it is
     /// the wrong one for a pruning walk: the declaration walks prune `themes`
-    /// itself, and `themes/**` — the one spelling a site would write — does
+    /// itself, and `themes/**`, the one spelling a site would write, does
     /// not match `themes`. Same asymmetry `keeps_dir` exists for, so the
     /// same idiom answers it.
     ///
@@ -320,7 +320,7 @@ mod tests {
     ///
     /// grack.com is the site that makes each half matter: it has `_drafts` and
     /// `_drafts_temp` side by side, so a string prefix would walk the second
-    /// because the first is declared — and the downward direction is what lets
+    /// because the first is declared, and the downward direction is what lets
     /// a pruning walk reach a nested source at all, since refusing `_a` never
     /// gets you to `_a/_b`.
     ///

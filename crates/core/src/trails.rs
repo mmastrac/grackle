@@ -1,5 +1,4 @@
-//! Breadcrumb trails: where a row or a route sits in the site (§5c
-//! provenance, §5h the landing chain).
+//! Breadcrumb trails: where a row or a route sits in the site.
 //!
 //! One family, five entry points, all answering the same question in
 //! different currencies: `home_url` (the i18n member's root), `trail_root`
@@ -7,11 +6,11 @@
 //! `listing_title_and_trail` (a view route's own naming), `post_trail`
 //! (a row's archive chain).
 //!
-//! There are exactly two producers of a crumb, and the split is the point
-//! (q46): the **URL climb** supplies every level the path nests under, and
+//! There are exactly two producers of a crumb, and the split is the point:
+//! the **URL climb** supplies every level the path nests under, and
 //! a collection's declared `trail` view supplies the subdivision chain,
 //! which renders from a row's own group keys and so cannot be recovered
-//! from the path at all. Nothing is stated twice.
+//! from the path at all.
 
 use anyhow::{Context, Result};
 
@@ -22,9 +21,9 @@ fn crumb_tmpl(v: &View) -> Option<&crate::config::LocalizedStr> {
     v.crumb.as_ref().or(v.title.as_ref())
 }
 
-/// The URL "Home" means for an i18n member (§6f): that member's homepage when a
+/// The URL "Home" means for an i18n member: that member's homepage when a
 /// translated root index exists, else the site root. Existence-checked, not
-/// assumed — a member with translated posts but no translated homepage keeps
+/// assumed, a member with translated posts but no translated homepage keeps
 /// linking `/`.
 pub fn home_url(cfg: &Config, db: &SiteDb, member: &str) -> String {
     let pairing = cfg.pairing_axis();
@@ -46,11 +45,11 @@ pub fn home_url(cfg: &Config, db: &SiteDb, member: &str) -> String {
     "/".to_string()
 }
 
-/// Every trail roots the same way (§5c provenance): Home, resolved per
-/// i18n member (§6f) — the engine's "home" string, and a home URL that is
+/// Every trail roots the same way: Home, resolved per
+/// i18n member, the engine's "home" string, and a home URL that is
 /// existence-checked rather than assumed.
 ///
-/// Home is *all* the root is (q46, §5h): every crumb between it and the
+/// Home is *all* the root is: every crumb between it and the
 /// current page comes from climbing the URL through [`ancestors`], so a
 /// collection never names itself. `/fr/blog/` is found that way rather
 /// than built by string-prefixing a configured index.
@@ -61,8 +60,8 @@ pub fn trail_root(cfg: &Config, db: &SiteDb, member: &str) -> Vec<(String, Optio
     )]
 }
 
-/// A listing route's title and provenance trail (§5c): the view's declared
-/// `title`/`crumb` templates rendered over the route's group params — each
+/// A listing route's title and provenance trail: the view's declared
+/// `title`/`crumb` templates rendered over the route's group params, each
 /// grouped *ancestor* linked to its own archive, this route's crumb as the
 /// inert tail. Naming is the view's, not the layout kind's.
 #[allow(clippy::type_complexity)]
@@ -73,12 +72,12 @@ pub fn listing_title_and_trail(
     v: &View,
     r: &Route,
 ) -> Result<(String, Vec<(String, Option<String>)>)> {
-    // Listings render at the view's i18n member (§6f): the route carries it
+    // Listings render at the view's i18n member: the route carries it
     // for partitioned materializations; absent = the canonical.
     let loc_owned = cfg.pairing_member(r);
     let loc = loc_owned.as_str();
-    // §6f enum records: a grouped param renders its record's localized
-    // NAME — "méta" on the French tag page, "Dinner" for a course —
+    // enum records: a grouped param renders its record's localized
+    // name, "méta" on the French tag page, "Dinner" for a course,
     // while routes keep slugs and keys/params keep ids.
     let fields = cfg.group_specs(view);
     let param = |tok: &str| -> Option<String> {
@@ -106,18 +105,16 @@ pub fn listing_title_and_trail(
     };
     let title = match &v.title {
         Some(t) => text(t).with_context(|| format!("view {view}: title"))?,
-        // The empty-title fallback resolves through the i18n string layer keyed
-        // on the view name — the door the base's `@home`/`@blog` routes reach
-        // (§4d) — so an engine view resolves its built-in and any other resolves
-        // to `""`, collapsing the heading rather than leaking the config key. A
-        // grouped archive keeps its group key.
+        // Empty title falls through the i18n string keyed on the view name
+        // (base `@home`/`@blog`). Unknown views collapse to "" rather than
+        // leaking the config key. Grouped archives keep the group key.
         None => r
             .key
             .clone()
             .unwrap_or_else(|| cfg.i18n_string(view, loc).to_string()),
     };
     let tail = match r.page {
-        // Paginated trails keep the engine's `page` string for now — crumb
+        // Paginated trails keep the engine's `page` string for now, crumb
         // templates for paginated views are punted with open question 30
         // (pagination × subdivision). Page *one* is not a page-of, though:
         // it is the view's root, so it names itself in the tail the way
@@ -129,8 +126,8 @@ pub fn listing_title_and_trail(
         },
     };
     let mut trail = trail_root(cfg, db, loc);
-    // The landing chain (q45): URL ancestors between the root and this
-    // route are crumbs — /recipes/courses/dinner/ climbs through the
+    // The landing chain: URL ancestors between the root and this
+    // route are crumbs, /recipes/courses/dinner/ climbs through the
     // /recipes/ landing, /blog/tags/rust/ through /blog/.
     for (url, label) in ancestors(cfg, db, &r.url) {
         trail.push((label, Some(url)));
@@ -149,20 +146,13 @@ pub fn listing_title_and_trail(
     Ok((title, trail))
 }
 
-/// A post's breadcrumb trail: Home, the landings its URL nests under, then
-/// the collection's declared `trail` view chain rendered with the post's
-/// own group keys — each level linked to its archive — ending in the inert
-/// day. All provenance (§5c) — no special cases: a draft trails like any
-/// other row, because a profile decides whether it is selected at all
-/// (§4a), and its address is the profile's `baseurl`, not a literal the
-/// trail builder carries.
+/// A post's breadcrumb trail: Home, landings under its URL, then the
+/// collection's `trail` view chain rendered with the post's group keys,
+/// ending in the inert day. Drafts trail like any other row; selection is
+/// the profile's job, and the address is the profile's `baseurl`.
 ///
-/// The two walks divide cleanly: [`ancestors`] matches only *ungrouped*
-/// view roots, so `/blog/2022/12/16/x.html` finds the `/blog/` landing and
-/// steps straight past the year and month archives — leaving them to
-/// `trail`, whose subdivision chain is genuinely non-derivable from the
-/// URL (it renders each level from the post's own group keys, not from
-/// path segments).
+/// [`ancestors`] matches only ungrouped view roots, so year/month archives
+/// come from `trail` (group keys), not from path segments.
 pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<String>)> {
     let loc_owned = cfg.pairing_member(p);
     let loc = loc_owned.as_str();
@@ -183,7 +173,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
             let Some(combo) = combos.first() else { break }; // undated: no trail
             let params: Vec<(String, String)> =
                 combo.iter().flat_map(|k| k.params.clone()).collect();
-            // Bare or `group:`-qualified — one group namespace in scope here.
+            // Bare or `group:`-qualified, one group namespace in scope here.
             let get = |tok: &str| {
                 let (ns, k) = crate::template::classify(tok);
                 match ns {
@@ -215,7 +205,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
     t
 }
 
-/// Ancestor pages of a URL, outermost first — the tree relation from §5a.
+/// Ancestor pages of a URL, outermost first, the tree relation from.
 ///
 /// Walks the URL upward and keeps the levels that are themselves rendered
 /// pages, which is what `breadcrumb.rb` did by scanning every page for a
@@ -229,8 +219,8 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
             break;
         }
         let parent = format!("{cur}/");
-        // §6f/q45: an i18n-axis URL prefix makes the homepage look like a
-        // directory ancestor of every /fr/… URL — but Home is the trail
+        // an i18n-axis URL prefix makes the homepage look like a
+        // directory ancestor of every /fr/… URL, but Home is the trail
         // root's job, so skip it here or it doubles.
         if let Some((_, axis)) = cfg.pairing_axis() {
             if axis.values.iter().any(|l| parent == format!("/{l}/")) {
@@ -247,24 +237,21 @@ pub fn ancestors(cfg: &Config, db: &SiteDb, url: &str) -> Vec<(String, String)> 
                 out.push((parent, t.clone()));
             }
         } else if let Some(r) = db.routes.iter().find(|r| {
-            // "Is this a view route" is the `view` column being non-empty
-            //.
+            // "Is this a view route" is the `view` column being non-empty.
             r.view.is_some()
                 && r.url == parent
                 // The view's ROOT route, not one of its grouped archives:
                 // group keys accumulate in `params` along the subdivision
                 // chain, so empty means ungrouped. Not `key`, which a
                 // paginated view stamps with a synthetic `"page 1"` on its
-                // first route — that would hide `/blog/` from the climb.
+                // first route, that would hide `/blog/` from the climb.
                 && r.params.is_empty()
                 && r.page.is_none_or(|n| n == 1)
         }) {
-            // q45, the landing chain's first slice: a materialized landing
-            // above this URL is an ancestor like any index page — /books/
-            // lists the books, so a book's trail climbs through it. The
-            // crumb is the view's own (crumb, else title), resolved at the
-            // route's i18n member; a mode-B landing never reaches here (its
-            // claimed row matched above, and the row's title wins).
+            // Materialized landing above this URL is an ancestor like any
+            // index page. Crumb is the view's (crumb, else title) at the
+            // route's i18n member. Mode-B landings never reach here: the
+            // claimed row matched above and the row title wins.
             if let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) {
                 if let Some(t) = crumb_tmpl(v) {
                     let loc_owned = cfg.pairing_member(r);

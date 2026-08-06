@@ -1,16 +1,16 @@
-//! The browser side of search (§6b): `grackle-search-core` compiled to
-//! WebAssembly behind a deliberately tiny raw ABI — no wasm-bindgen, no
+//! The browser side of search: `grackle-search-core` compiled to
+//! WebAssembly behind a deliberately tiny raw ABI, no wasm-bindgen, no
 //! generated glue. `search.js` is the ~60-line loader that talks to this.
 //!
 //! Protocol (all pointers are offsets into the module's linear memory):
 //!
-//!   alloc(len)          -> ptr        caller-owned scratch to write into
-//!   init(ptr, len)      -> 0 | -1     parse /search.bin (postcard) into state
-//!   search(ptr, len)    -> u64        query in; (ptr << 32 | len) of a JSON
-//!                                     array of [url, title, date] out
-//!                                     (title/date read from the store map)
+//!  alloc(len) -> ptr caller-owned scratch to write into
+//!  init(ptr, len) -> 0 | -1 parse /search.bin (postcard) into state
+//!  search(ptr, len) -> u64 query in; (ptr << 32 | len) of a JSON
+//!  array of [url, title, date] out
+//!  (title/date read from the store map)
 //!
-//! Each search result buffer is leaked and reclaimed on the *next* call —
+//! Each search result buffer is leaked and reclaimed on the *next* call,
 //! single-threaded, one query in flight, so the previous buffer is dead the
 //! moment a new keystroke queries again.
 
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn search(ptr: *const u8, len: usize) -> u64 {
     ((out_ptr as u64) << 32) | out_len as u64
 }
 
-/// Minimal JSON string escaping — enough for titles that contain quotes,
+/// Minimal JSON string escaping, enough for titles that contain quotes,
 /// backslashes or control characters.
 fn json_str(s: &str, out: &mut String) {
     out.push('"');

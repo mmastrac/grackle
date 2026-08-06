@@ -72,7 +72,7 @@ fn compile_formats(
         .collect()
 }
 
-/// Dead rule warning (DESIGN.md §4): site-written rules only; skip inherited and `found == 0`.
+/// Dead rule warning: site-written rules only; skip inherited and `found == 0`.
 fn dead_rules(collection: &str, rules: &[CompiledRule], found: usize) -> Vec<String> {
     if found == 0 {
         return Vec::new();
@@ -143,7 +143,7 @@ struct Routing<'a> {
     defaults: BTreeMap<&'a str, &'a toml::Value>,
 }
 
-/// First rule wins membership; first-writer-wins per default key (DESIGN.md §4).
+/// First rule wins membership; first-writer-wins per default key.
 fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
     collection_formats: &'a [filename::FilePattern],
@@ -256,7 +256,7 @@ fn embed_address(
     ))
 }
 
-/// At most one on-demand rule may cover a path (§4).
+/// At most one on-demand rule may cover a path.
 fn check_on_demand_cover(rel: &Path, r: &Routing) -> Result<()> {
     if r.on_demand_cover.len() > 1 {
         anyhow::bail!(
@@ -271,7 +271,7 @@ fn check_on_demand_cover(rel: &Path, r: &Routing) -> Result<()> {
     Ok(())
 }
 
-/// Markers before rules so `or_insert` cannot let a rule override them (§4b).
+/// Markers before rules so `or_insert` cannot let a rule override them.
 fn merged_defaults<'a>(
     marker_defaults: &'a Defaults,
     rule_defaults: BTreeMap<&'a str, &'a toml::Value>,
@@ -308,7 +308,7 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
     })
 }
 
-/// Profile forced fields on every route; view routes have no row (§2).
+/// Profile forced fields on every route; view routes have no row.
 /// After all routes exist, before `resolve_pool_folds` filters them.
 fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     if cfg.forced.is_empty() {
@@ -363,7 +363,7 @@ pub struct Coord<'a> {
     pub canonical: bool,
 }
 
-/// Shortest template covering every non-canonical coord (§6f).
+/// Shortest template covering every non-canonical coord.
 pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
     let required: Vec<&str> = coords
         .iter()
@@ -448,7 +448,7 @@ impl RouteTokens<'_> {
             k if self.extracted.is_some_and(|m| m.captures.contains_key(k)) => {
                 self.extracted.and_then(|m| m.captures.get(k).cloned())
             }
-            // Axis placeholders spent per member, not here (q53).
+            // Axis placeholders spent per member, not here.
             k => {
                 let (_, bare) = template::classify(k);
                 self.cfg.axes.contains_key(bare).then(|| format!("{{{k}}}"))
@@ -681,7 +681,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut db = SiteDb::default();
     let root = cfg.root();
 
-    // Tree collection supplies shared `exclude`/`include` (§4c) for every walk.
+    // Tree collection supplies shared `exclude`/`include` for every walk.
     let tree_c = cfg.collections.values().find(|c| c.is_tree());
     let empty: &[String] = &[];
     let not_content = store::NotContent::new(
@@ -887,7 +887,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     crate::relations::build_relations(cfg, &mut db, &schemas)?;
     db.stats.views_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-    // q45 templated landings: claims settle once routes and group params exist.
+    // templated landings: claims settle once routes and group params exist.
     {
         let mut set_content: Vec<(grackle_db::Key, String)> = Vec::new();
         let mut owner_of: HashMap<String, String> = HashMap::new();
@@ -1074,7 +1074,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         bail!("route collisions:\n{}", collisions.join("\n"));
     }
 
-    // One row, one URL per axis member-tuple (q53).
+    // One row, one URL per axis member-tuple.
     let mut by_row: HashMap<(&grackle_db::Key, String), &Route> = HashMap::new();
     for r in &db.routes {
         let Some(k) = &r.row else { continue };
@@ -1093,7 +1093,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
             bail!(
                 "one row, two routes:\n  {}\n    {}\n    {}\n\
                  A row renders at one URL. Publishing it at several is an AXIS \
-                 (q53), which is the only thing allowed to break this{}.",
+                 , which is the only thing allowed to break this{}.",
                 r.source
                     .as_ref()
                     .map(|p| p.display().to_string())
@@ -1152,7 +1152,7 @@ mod cascade_tests {
 
     /// The whole row-side cascade, in the order `load` runs it: validated
     /// extra (nearest declared fields), cascade_front for named engine keys,
-    /// then markers and rules. Driving all three is the point — the type
+    /// then markers and rules. Driving all three is the point, the type
     /// checking lives in the middle call, and a test that only
     /// called `cascade` could not see it.
     fn worn(
@@ -1203,7 +1203,7 @@ mod cascade_tests {
         assert!(!fields.values.contains_key("toc"));
     }
 
-    /// A shell outside the vocabulary must fail loudly — unchecked, a typo
+    /// A shell outside the vocabulary must fail loudly, unchecked, a typo
     /// renders the wrong tier in silence.
     ///
     /// The controls are the whole MAP family, and the two
@@ -1229,12 +1229,12 @@ mod cascade_tests {
 
     /// The family check, on the row side: a fold shell eats a
     /// COLLECTION, so a row wearing one is an arity error that says what atom
-    /// eats rather than "unknown word" — the row is one output and there is
+    /// eats rather than "unknown word", the row is one output and there is
     /// nothing for the fold to fold.
     ///
     /// Mutation check: drop the `is_fold` arm from `shell::check_row` and this
     /// fails on the message (the value is still rejected, but by the wrong
-    /// sentence — which is exactly the diagnosis this item is for).
+    /// sentence, which is exactly the diagnosis this item is for).
     #[test]
     fn a_fold_shell_on_a_row_names_what_it_eats() {
         for fold in crate::shell::FOLD {
@@ -1253,7 +1253,7 @@ mod cascade_tests {
         assert!(e.contains("a feed's worth of entries"), "{e}");
     }
 
-    /// An inherited shell is checked too — a rule can typo it as easily as
+    /// An inherited shell is checked too, a rule can typo it as easily as
     /// front matter can.
     #[test]
     fn an_inherited_shell_is_checked() {
@@ -1264,12 +1264,12 @@ mod cascade_tests {
         assert!(e.to_string().contains("is not a shell"), "{e}");
     }
 
-    /// A rule or marker default for a declared field is TYPE-CHECKED.
-    /// `toc = "true"` used to skip `apply_defaults` entirely and read back
-    /// through `as_bool()` — `None`, so `false`, so no outline and nothing said.
+    /// A rule or marker default for a declared field is type-checked.
+    /// A string `"true"` for a bool field must fail naming the type, not
+    /// read back as `None`/`false` and silently drop the outline.
     ///
     /// Mutation check: exempt declared keys in `apply_defaults` again and this
-    /// returns `Ok` with no `toc` — the silence, restored.
+    /// returns `Ok` with no `toc`, the silence, restored.
     #[test]
     fn a_mistyped_default_is_a_load_error_naming_the_type() {
         let d = [("toc", text("true"))];
@@ -1278,15 +1278,15 @@ mod cascade_tests {
         assert!(e.contains("declared bool"), "and the type: {e}");
 
         // The same failure the other way round: a string field set to a number
-        // used to vanish, because `as_str()` on an integer is `None`.
+        // must fail naming the type, not vanish via `as_str()` on an integer.
         let d = [("theme", toml::Value::Integer(1))];
         let e = worn(&governed(), "{}", &d).unwrap_err().to_string();
         assert!(e.contains("p.md"), "it names the file: {e}");
         assert!(e.contains("declared string"), "and the type: {e}");
     }
 
-    /// The cascade keys are governed like any other name (§4e, "every row is
-    /// governed"): a site that declared none of them and a row that wears one
+    /// The cascade keys are governed like any other name
+    /// A site that declared none of them and a row that wears one
     /// is a load error, not a value only the engine can see.
     #[test]
     fn an_undeclared_cascade_key_is_a_load_error() {
@@ -1317,7 +1317,7 @@ mod cascade_tests {
         );
     }
 
-    /// And the marker's value reaches the ROW — the half `a_marker_beats_a_rule`
+    /// And the marker's value reaches the ROW, the half `a_marker_beats_a_rule`
     /// cannot see, because the merge is only the first of the three steps.
     /// A marker sets a cascade key or a declared flag exactly as it sets any
     /// other field, front matter still nearer than both.
@@ -1381,18 +1381,16 @@ mod cascade_tests {
 }
 
 /// What the load says and does not fail over, driven through the real `load`
-/// on a real (tiny) site — DESIGN.md §4's promised dead-rule warning.
+/// on a real (tiny) site, promised dead-rule warning.
 ///
 /// A dead rule's subject is a corpus answering a glob and nothing smaller than
 /// a tree can be that, which is why these tests write sites rather than build
-/// a `Config`. (D1's `bucket` warning was tested here too, and went with the
-/// key — it was the config-only warning this module doc used to contrast
-/// against.)
+/// a `Config`.
 #[cfg(test)]
 mod load_warning_tests {
     use super::*;
 
-    /// Write a site under the system temp dir. `who` names the caller —
+    /// Write a site under the system temp dir. `who` names the caller,
     /// unit tests run in parallel threads, and a shared scratch directory
     /// means one test loads another's content (`slots.rs`'s precedent).
     fn site(who: &str, files: &[(&str, &str)]) -> PathBuf {
@@ -1413,7 +1411,7 @@ mod load_warning_tests {
 
     const PAGE: &str = "---\ntitle: About\n---\n\nProse.\n";
 
-    /// A site inheriting the base, with ONE rule of its own that names a
+    /// A site inheriting the base, with one rule of its own that names a
     /// directory the site does not have.
     ///
     /// The controls are in the same site, which is the point of driving a
@@ -1462,7 +1460,7 @@ source = "."
 
     /// The false positive this scope exists to prevent. `examples/minimal` is
     /// this site: no `_posts/`, no `index.md`, so the base's `match = "**"`
-    /// over `_posts` and its `**/index.{html,md}` both govern nothing — and
+    /// over `_posts` and its `**/index.{html,md}` both govern nothing, and
     /// neither is the author's to fix. Every base-inheriting site would carry
     /// these forever.
     ///
@@ -1486,7 +1484,7 @@ source = "."
     /// A collection with no rows at all reports nothing, whoever wrote the
     /// rules: a rule is dead relative to a CORPUS, and an absent source is a
     /// statement about the source. `extends = "none"` so every rule below is
-    /// the site's own — under the `!inherited` test alone, all three would be
+    /// the site's own, under the `!inherited` test alone, all three would be
     /// reported for the one missing directory.
     ///
     /// Mutation check: delete the `found == 0` early return and this site
@@ -1576,10 +1574,9 @@ source = "."
 
     /// A posts scope over a populated source, with one glob and a typo in it
     /// (`markdwn`). Nothing claims the posts; a scope owns its source, so they
-    /// leave the walk silently; `dead_rules` sees `found == 0` and says
-    /// nothing. This used to be a load error, so the build that used to fail
-    /// now succeeds with an empty blog — a real regression once shipped, and the
-    /// warning is the fix.
+    /// leave the walk silently; `dead_rules` sees `found == 0` and would stay
+    /// quiet without the empty-source warning, leaving an empty blog and no
+    /// diagnosis.
     ///
     /// The control is in the same site: the tree scope claims `about.md`, so
     /// its `**/*` is neither dead nor empty and only one line is printed.
@@ -1614,11 +1611,11 @@ source = "."
         );
     }
 
-    /// The first suppression, and it is documented behavior (§4d): a site with
+    /// The first suppression, and it is documented behavior: a site with
     /// no `_posts/` pays nothing for inheriting a rule about one. Zero offered,
     /// so the scope's silence is the source's, not a glob's.
     ///
-    /// Same config as the probe above, typo and all — which is the point: the
+    /// Same config as the probe above, typo and all, which is the point: the
     /// glob is exactly as wrong here, and there is nothing to say about it.
     #[test]
     fn an_absent_source_stays_silent() {
@@ -1629,7 +1626,7 @@ source = "."
         assert_eq!(warnings(&dir), Vec::<String>::new());
     }
 
-    /// The second suppression: a source that EXISTS and holds nothing — a
+    /// The second suppression: a source that EXISTS and holds nothing, a
     /// directory waiting for its first post. Offered zero, so it reads exactly
     /// like the absent one, which is why neither needs an exception.
     #[test]
@@ -1647,7 +1644,7 @@ source = "."
     /// grack.com's shape, at fixture scale: `_drafts/caret/` is a post beside
     /// a bundle of images, an `.rtf` and an `.xcf` that no rule claims. The
     /// scope claimed something, so the unclaimed remainder is the ownership law
-    /// working as designed and not a word is said about it — which is what
+    /// working as designed and not a word is said about it, which is what
     /// keeps stderr parity on all six corpus builds.
     ///
     /// Mutation check: key the warning on `found < offered` instead of
@@ -1721,7 +1718,7 @@ source = "."
 }
 
 /// A profile's `where` is accepted exactly where the `where` it replaces is
-/// (§4a) — which can only be shown on a real tree, because the
+/// Which can only be shown on a real tree, because the
 /// half `Config` alone cannot see is the positional `.schema.toml` vocabulary.
 #[cfg(test)]
 mod profile_filter_tests {
@@ -1797,7 +1794,7 @@ where = "{filter}"
     }
 
     /// The bug, at its own scale: `cover` is declared by a `.schema.toml`, so
-    /// a VIEW's `where` may name it — and a profile patching that view could
+    /// a VIEW's `where` may name it, and a profile patching that view could
     /// not, because `apply_profile` runs before the tree walk and refused
     /// every name it had not read yet. The site's own `where` and the
     /// profile's replacement are the same words; only one of them was legal.
@@ -1812,13 +1809,13 @@ where = "{filter}"
     }
 
     /// The other direction: deferring is not accepting. A name nothing
-    /// declares still fails the load — at the pass that evaluates the filter,
-    /// which is where a view's own typo has always failed — and the message
+    /// declares still fails the load, at the pass that evaluates the filter,
+    /// which is where a view's own typo has always failed, and the message
     /// names the profile, because the text in it is not in any `[sets]` entry
     /// the reader can go and look at.
     ///
     /// Mutation check: delete the `q.patched` note in `declared_filter` and the
-    /// error becomes `view published: filter "!cvoer"` — true, and no help at
+    /// error becomes `view published: filter "!cvoer"`, true, and no help at
     /// all to someone reading a `[sets.published]` that says nothing of the
     /// kind.
     #[test]

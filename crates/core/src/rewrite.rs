@@ -1,29 +1,28 @@
-//! §6d stage B: link resolution for rows whose source *is* HTML.
+//! stage B: link resolution for rows whose source *is* HTML.
 //!
 //! A `.html` page body, a `.html` slot fill and a raw-HTML landing never meet
 //! comrak, so the AST resolver never sees their links. This is the seam
 //! `build.rs` and `slots.rs` point at.
 //!
 //! Narrow on purpose: no selector language and no config surface, because the
-//! rule table §6d sketches has no consumer yet.
+//! rule table sketches has no consumer yet.
 
 use anyhow::Result;
 use lol_html::{element, rewrite_str, RewriteStrSettings};
 
 /// Resolve `<a href>` and embed `src`s in raw HTML, exactly as the markdown
-/// path resolves `NodeValue::Link` and `NodeValue::Image` (§6a).
+/// path resolves `NodeValue::Link` and `NodeValue::Image`.
 ///
 /// `resolve` is the same closure the comrak pass takes, tagged with which
 /// citation form is asking: `Ok(Some(url))` rewrites, `Ok(None)` leaves the
 /// attribute alone, `Err` fails the build naming the file. Matching that
-/// contract is the point — a citation in a `.html` row should resolve, and
+/// contract is the point, a citation in a `.html` row should resolve, and
 /// fail, identically to the same citation in a `.md` row.
 ///
-/// **`img`/`iframe`/`video`/`audio`/`source` are the embed set**, and it landed
-/// with the markdown side rather than before it, which is what this comment
-/// used to say was the condition: widening one path alone would give raw-HTML
-/// rows a capability markdown rows do not have. Bare-name asset resolution
-/// (§6a) remains parked and is not this.
+/// **`img`/`iframe`/`video`/`audio`/`source` are the embed set**, kept in
+/// lockstep with the markdown side: widening one path alone would give
+/// raw-HTML rows a capability markdown rows do not have. Bare-name asset
+/// resolution remains parked and is not this.
 pub fn resolve_links(
     html: &str,
     resolve: &dyn Fn(crate::links::Cite, &str) -> Result<Option<String>>,

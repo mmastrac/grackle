@@ -4,7 +4,7 @@ use super::*;
 use anyhow::Result;
 
 /// Join output half: `output` and `alternates` from routes.
-/// At planning, before `build_views`; recomputed when q45 retracts routes.
+/// At planning, before `build_views`; recomputed when retracts routes.
 pub(crate) fn join_outputs(db: &mut SiteDb) {
     let mut by_row: HashMap<grackle_db::Key, (Option<grackle_db::Key>, Vec<grackle_db::Key>)> =
         HashMap::new();
@@ -48,14 +48,14 @@ pub(crate) fn join_arrangement(cfg: &Config, db: &mut SiteDb) {
         if let Some(k) = &r.row {
             ins.push(k.clone());
         }
-        // q45: literal claim on the view, templated claim on the route.
+        // literal claim on the view, templated claim on the route.
         let claimed = r.content.clone().or_else(|| {
             let v = cfg.views.get(r.view.as_deref()?)?;
             let c = v.content.as_deref()?;
             (!crate::config::is_templated(c)).then(|| c.to_string())
         });
         if let Some(logical) = claimed {
-            // §6f: landing route is per pairing-axis member; so is the claimed row.
+            // Landing route is per pairing-axis member; so is the claimed row.
             for k in db.by_logical.get(&logical).into_iter().flatten() {
                 let matches = db.rows.get(k).is_some_and(|row| match cfg.pairing_axis() {
                     Some((n, _)) => cfg.same_on(row, r, n),

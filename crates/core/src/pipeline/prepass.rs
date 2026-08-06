@@ -15,8 +15,8 @@ use crate::store::split_front_matter;
 use crate::tags;
 use crate::theme;
 
-/// A row's OTHER axis forms as `rel="alternate"` (q53). One entry per member
-/// route of the same row that is NOT this route — a member points at its
+/// A row's other axis forms as `rel="alternate"`. One entry per member
+/// route of the same row that is NOT this route, a member points at its
 /// siblings, `rel="canonical"` names the one that counts. A form whose URL
 /// extension is in `[media_types]` (the md twin) carries that `type`; a
 /// same-format restyle (a theme member) carries none, being the same
@@ -41,7 +41,7 @@ pub(crate) fn axis_alternates(
         .map(|o| crate::model::Alternate {
             href: format!("{site_url}{}", o.url),
             hreflang: None,
-            // `type` only when the form's media type is not the ordinary HTML —
+            // `type` only when the form's media type is not the ordinary HTML,
             // then the alternate is a genuinely different representation.
             media_type: alt_media_type(&o.url, media_types),
         })
@@ -49,7 +49,7 @@ pub(crate) fn axis_alternates(
 }
 
 /// The full `<head>` alternate set for a route: the expand-driven `hreflang`
-/// members (self first, then twins), then the q53 axis alternates. The post
+/// members (self first, then twins), then the axis alternates. The post
 /// and page render paths build it identically.
 pub(crate) fn head_alternates<'a>(
     metas: &crate::render::Metas,
@@ -81,7 +81,7 @@ pub(crate) fn head_alternates<'a>(
 }
 
 /// The media type a member URL advertises as a `rel="alternate"` `type`, or
-/// `None` for an ordinary HTML page (a restyle names no type — it is the same
+/// `None` for an ordinary HTML page (a restyle names no type, it is the same
 /// representation). Keyed off the URL's extension against `[media_types]`.
 pub(crate) fn alt_media_type(
     url: &str,
@@ -91,7 +91,7 @@ pub(crate) fn alt_media_type(
     media_types.get(ext).cloned()
 }
 
-/// The site-icon candidates, in the order a browser should prefer them (§4d).
+/// The site-icon candidates, in the order a browser should prefer them.
 /// SVG leads because it is the one that scales; `.ico` stays in the list even
 /// though browsers probe `/favicon.ico` on their own, because a site whose
 /// only icon is an `.ico` should still say so out loud.
@@ -109,11 +109,11 @@ const ICON_URLS: &[&str] = &[
 ///
 /// **A URL convention, not a filename lookup**, which is why this needs no
 /// config key. An icon that lives somewhere else in the tree is pinned with an
-/// ordinary named object route (§4) — `match = "brand/icon-v3.png"`,
-/// `route = "/favicon.png"` — and this finds it at the URL, not the path.
+/// ordinary named object route, `match = "brand/icon-v3.png"`,
+/// `route = "/favicon.png"`, and this finds it at the URL, not the path.
 ///
 /// Nothing here publishes the row. The `<link>` this feeds is a citation, and
-/// `materialize_referenced` publishes what the chrome cites — the case its own
+/// `materialize_referenced` publishes what the chrome cites, the case its own
 /// doc comment already named.
 pub(crate) fn site_icon(cfg: &Config, db: &SiteDb) -> String {
     ICON_URLS
@@ -124,7 +124,7 @@ pub(crate) fn site_icon(cfg: &Config, db: &SiteDb) -> String {
 }
 
 /// Declared theme names vs the registry, before render.
-/// Name half only — subtheme tokens are CSS fodder. Themeless rows skip
+/// Name half only, subtheme tokens are CSS fodder. Themeless rows skip
 /// (site default already checked in `load_all`).
 pub(crate) fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Themes) -> Result<()> {
     // `check_spec` covers both halves: the name against the registry, the
@@ -157,14 +157,14 @@ pub(crate) fn check_theme_names(cfg: &Config, db: &SiteDb, themes: &theme::Theme
     Ok(())
 }
 
-/// **Renditions** (§6b): collect the DEMAND, run the transform once
+/// **Renditions**: collect the demand, run the transform once
 /// per distinct ask, publish under `/static/`, and hand the render passes a map
-/// from ask → output so each citation reaches the rendition it asked for.
+/// from ask -> output so each citation reaches the rendition it asked for.
 ///
 /// The asks come from citations, which is the model's whole claim about
 /// renditions: `{% image %}` in post bodies and in rendered page bodies alike
 /// (`code/legacy/*` pages use the tag too), image-typed schema fields, and the
-/// members a gallery arranges. Nothing is declared and nothing is eager — an
+/// members a gallery arranges. Nothing is declared and nothing is eager, an
 /// image nothing cites gets no rendition, and an image two pages cite at two
 /// widths gets two.
 ///
@@ -182,8 +182,8 @@ pub(crate) fn thumbs_pass(
     for p in db.rows.iter().filter(|p| cfg.body_held(p)) {
         asks.extend(tags::image_asks(&crate::store::read_body(&p.path)?));
     }
-    // Image-typed schema fields (§5b) — covers and the like — render too:
-    // they are what heroes and cards show (q23). No tag wrote these, so they
+    // Image-typed schema fields, covers and the like, render too:
+    // they are what heroes and cards show. No tag wrote these, so they
     // ask for the engine's default rendition.
     for p in db.rows.iter() {
         // An absolute url names something outside the site (load.rs leaves it
@@ -210,7 +210,7 @@ pub(crate) fn thumbs_pass(
                 }
             }
         }
-        // Gallery members (object-backed views) render too — the gallery pass
+        // Gallery members (object-backed views) render too, the gallery pass
         // shows renditions and links originals, same as {% image %}.
         if let Some(view) = &r.view {
             if view_base_collection(cfg, view).is_some_and(|c| c.is_objects()) {
@@ -227,7 +227,7 @@ pub(crate) fn thumbs_pass(
     let mut published: HashSet<String> = HashSet::new();
     for t in thumbs.values() {
         // Two asks that produced identical bytes share one address and one
-        // artifact — the untransformed-twin rule, one transform along.
+        // artifact, the untransformed-twin rule, one transform along.
         if published.insert(t.address.clone()) {
             let bytes = std::fs::read(&t.cache_path)
                 .with_context(|| format!("reading thumb {}", t.cache_path.display()))?;
@@ -240,11 +240,10 @@ pub(crate) fn thumbs_pass(
 
 /// The link graph, both directions, from one scan. `linked_from` inverts the
 /// citations (who points here); `links_to` keeps them forward (where this
-/// points) — the derived relation names §6g's `related` default reads to
-/// avoid re-showing a page you already linked. Both are the *citation* view of
-/// the graph: a listing's spliced arrangement links are not citations (§6g
-/// Problem 2), so both skip the splice — unlike on-demand publishing, which
-/// scans with `cited_urls` directly and must still see them.
+/// points). The derived relation `related` reads these to avoid re-showing a
+/// page you already linked. Both are the citation view of the graph: listing
+/// splice links are not citations, so both skip the splice. On-demand
+/// publishing still scans with `cited_urls` and must see splice links.
 pub(crate) fn backlinks_map(
     db: &SiteDb,
     bodies: &HashMap<&grackle_db::Key, Doc>,
@@ -260,7 +259,7 @@ pub(crate) fn backlinks_map(
         .collect();
 
     // The axis is legitimately mixed: an undated row is allowed. Only the body
-    // map differs by origin — posts hold their body, pages are re-read.
+    // map differs by origin, posts hold their body, pages are re-read.
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
         if let Some(html) = row_body_html(p, bodies, page_bodies) {
@@ -286,7 +285,7 @@ pub(crate) fn backlinks_map(
             }
         }
     }
-    // Newest citation first, undated last — the same ordering `order` gives
+    // Newest citation first, undated last, the same ordering `order` gives
     // the posts table, so a reader meets both lists the same way.
     for v in map.values_mut() {
         v.sort_by(|a, b| {
@@ -339,7 +338,7 @@ mod alternates_tests {
             alt_media_type("/favicon.ico", &types),
             Some("image/x-icon".into())
         );
-        // A restyle at a directory URL is the same representation — no type.
+        // A restyle at a directory URL is the same representation, no type.
         assert_eq!(alt_media_type("/ledger/notes/one/", &types), None);
         assert_eq!(alt_media_type("/page.html", &types), None);
     }

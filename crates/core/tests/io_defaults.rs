@@ -1,7 +1,7 @@
-//! Schema-field defaults (§5b `default =`): the floor of the value ladder.
+//! Schema-field defaults: the floor of the value ladder.
 //!
-//! A declared default fills a row's field only where every nearer writer —
-//! front matter, markers, rules — left it unset. Proven end to end, through
+//! A declared default fills a row's field only where every nearer writer,
+//! front matter, markers, rules, left it unset. Proven end to end, through
 //! the loader and into the rendered `<head>`: a unit test on
 //! `apply_schema_defaults` cannot catch a `walk.rs` that never calls it, and
 //! the whole point of a default is a value that arrives without the author.

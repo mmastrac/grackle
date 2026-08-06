@@ -2,18 +2,18 @@
 //!
 //! Two databases, joined on three explicit fields: `output` and `viewed_by` on
 //! an input row, `inputs` on an output. The tests below are organised around
-//! the two questions the ledger asks of a new column — *what does it say for
-//! every shape of row the phase created*, and *where is it built* — because
+//! the two questions the ledger asks of a new column, *what does it say for
+//! every shape of row the phase created*, and *where is it built*, because
 //! the second is what decides whether the first is ever true when someone
 //! reads it.
 //!
 //! Built sites where the claim needs bytes (the citation closure, the pull
 //! model's on-demand row), loaded sites everywhere else. `render_site` takes
 //! `&mut SiteDb`, so a test can ask the database what the render pass wrote
-//! into it — which is the only way to see a fact that is decided after every
+//! into it, which is the only way to see a fact that is decided after every
 //! filter has run.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::filter::{Filter, Row as _, Value};
@@ -23,7 +23,7 @@ use std::path::PathBuf;
 mod support;
 use support::{built, load};
 
-/// A 2×3 PNG — real bytes, so an image row is an image row.
+/// A 2×3 PNG, real bytes, so an image row is an image row.
 const PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
     0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x08, 0x02, 0x00, 0x00, 0x00, 0x36, 0x88, 0x49,
@@ -36,7 +36,7 @@ fn site(who: &str, files: &[(&str, &[u8])]) -> PathBuf {
     support::site("io-join", who, files)
 }
 
-/// A row by source path — identity, so a row with no URL is reachable.
+/// A row by source path, identity, so a row with no URL is reachable.
 fn row<'a>(db: &'a SiteDb, rel: &str) -> &'a grackle_core::model::Row {
     db.rows
         .get(&grackle_core::model::Key::new(rel))
@@ -82,7 +82,7 @@ alt = { type = "string" }
 [[collections]]
 name = "objects"
 
-  # §4 on-demand: the URL is computed, the route is not minted until something
+  # on-demand: the URL is computed, the route is not minted until something
   # references the file. grack.com's own images rule, minimised.
   [[collections.rules]]
   match = "pics/**/*.png"
@@ -111,7 +111,7 @@ source = "."
   route = "/{path}"
   defaults = { shell = "raw" }
 
-# q45: the landing owns the URL, and `landing.md` loses its own route — the
+# the landing owns the URL, and `landing.md` loses its own route — the
 # `!output` shape the join makes sayable.
 [routes.things]
 path = "/things/"
@@ -165,14 +165,14 @@ fn shapes_site(who: &str) -> PathBuf {
 ///
 /// The **on-demand** row is the one that needs the render pass, and it is the
 /// pull model stated as a test: `output` is `None` for the whole of the load,
-/// and `Some` after `materialize_referenced` — but only for the image
-/// something cited. The uncited twin stays `None` forever, which is §4a's
+/// and `Some` after `materialize_referenced`, but only for the image
+/// something cited. The uncited twin stays `None` forever, which is
 /// "the pull model is the garbage collector" from the join's side.
 ///
 /// Mutations, each red: delete `join_outputs`' call after route minting (every
 /// row lands nowhere); delete the `row.output` assignment in
 /// `materialize_referenced` (the cited image never lands, while the site still
-/// publishes it — the half a build's file list cannot see); make `output.url`
+/// publishes it, the half a build's file list cannot see); make `output.url`
 /// answer `Str("")` instead of Null (the claimed row reads as landing at the
 /// empty URL, and `lands` and `output_url` stop agreeing).
 #[test]
@@ -181,7 +181,7 @@ fn every_row_shape_answers_output() {
     let db = load(&dir);
 
     // 1. Degenerate: no identity, and it lands all the same. Identity is not
-    //    what mints a URL — the rule is.
+    //  what mints a URL, the rule is.
     let degenerate = row(&db, "notes/plain-note.md");
     assert!(!degenerate.front_mattered, "no block, so no identity");
     assert!(lands(degenerate));
@@ -190,20 +190,20 @@ fn every_row_shape_answers_output() {
         Some("/notes/plain-note/")
     );
 
-    // 2. Sidecar'd: identity WITHOUT content, and its output is its bytes.
+    // 2. Sidecar'd: identity without content, and its output is its bytes.
     let badge = row(&db, "assets/badge.png");
     assert!(badge.front_mattered && badge.sidecar && !badge.rendered);
     assert_eq!(output_url(badge).as_deref(), Some("/assets/badge.png"));
 
     // 3. Claimed: the landing owns the URL, so the row lands nowhere. The
-    //    structural exclusion, as a fact anything can read.
+    //  structural exclusion, as a fact anything can read.
     let landing = row(&db, "landing.md");
     assert!(landing.claimed);
     assert!(!lands(landing), "a claimed row has no output of its own");
     assert_eq!(output_url(landing), None, "and no address to report");
 
-    // 4. On-demand, unreferenced — at load, BOTH images. The URL is computed
-    //    (that is what lets a citation resolve), the output is not.
+    // 4. On-demand, unreferenced, at load, BOTH images. The URL is computed
+    //  (that is what lets a citation resolve), the output is not.
     let kite = row(&db, "pics/kite.png");
     assert_eq!(kite.url, "/pics/kite.png", "the URL is computed at load");
     assert!(!lands(kite), "…and nothing has referenced it yet");
@@ -230,8 +230,8 @@ fn every_row_shape_answers_output() {
 
     // **The two dashes that have a name say it.** `explain` prints `url` two
     // lines above `output`, and for a claimed row those are the landing's URL
-    // and no output at all — which reads as a contradiction to anyone who does
-    // not already know q45. Mutations: hardcode either reason (the other row
+    // and no output at all, which reads as a contradiction to anyone who does
+    // not already know the rule. Mutations: hardcode either reason (the other row
     // fails), or drop both (the claimed row and the unreferenced image become
     // indistinguishable from a row no rule routed).
     assert!(
@@ -258,7 +258,7 @@ fn every_row_shape_answers_output() {
 /// second mutation below.
 ///
 /// The site deliberately has no on-demand rows, so `!output` is the claimed
-/// set exactly rather than approximately — the other way a row lands nowhere
+/// set exactly rather than approximately, the other way a row lands nowhere
 /// is the pull model, and mixing the two would make the assertion vacuous.
 ///
 /// Mutations, each red: delete either `join_outputs` call (the first empties
@@ -382,8 +382,8 @@ title = "Landed"
     }
 
     // **A view reads it, and that is what dates the field.** `build_views`
-    // runs before q45's templated claim is settled, so `output` has to exist
-    // before it — a `where` evaluated against an unbuilt column selects
+    // runs before templated claim is settled, so `output` has to exist
+    // before it, a `where` evaluated against an unbuilt column selects
     // nothing and says nothing, which is the silent-empty knife this ledger
     // keeps taking away. Mutation: delete `join_outputs`' call after route
     // minting and this listing is empty while the site still builds.
@@ -520,7 +520,7 @@ title = "Blog"
 /// a citation is a fact about *content*.
 ///
 /// The gallery page's inputs are its own row (planning) plus the image it
-/// cites (render) — and the image is on-demand, so this is also the edge that
+/// cites (render), and the image is on-demand, so this is also the edge that
 /// explains why it got published at all. Non-row dependencies are absent by
 /// construction rather than by a filter: a `.slots/` fill or a theme file is
 /// not a row, so "row-level closure" already excludes them and the typed
@@ -528,12 +528,12 @@ title = "Blog"
 ///
 /// The scanner is the UNFENCED one (`cited_urls`, the one on-demand publishing
 /// reads) rather than the backlink graph's `cited_urls_cited`, and that is a
-/// decision rather than a guard: §6g's splice fence exists to keep a listing's
+/// decision rather than a guard: splice fence exists to keep a listing's
 /// arrangement out of "linked from", which is a presentation question, while
 /// an image a listing arranged is still an input to the bytes. Measured, the
-/// two agree on every shape this suite and the corpus can build — a splice
+/// two agree on every shape this suite and the corpus can build, a splice
 /// cites its members (already inputs by membership) and thumbnail URLs (not
-/// rows) — so the choice is recorded here rather than pinned by a mutation
+/// rows), so the choice is recorded here rather than pinned by a mutation
 /// that no fixture can make red.
 ///
 /// Mutations, each red: delete the `join_citations` call (the image leaves the
@@ -555,7 +555,7 @@ fn inputs_closes_over_citations() {
         "an image nothing cites feeds nothing"
     );
 
-    // The landing: its members, plus the row it claims as its body — the one
+    // The landing: its members, plus the row it claims as its body, the one
     // input a listing has that its member list does not name.
     let things = keys(&route(&db, "/things/").inputs);
     assert!(
@@ -578,9 +578,9 @@ fn inputs_closes_over_citations() {
 /// The axis fixture's shape, minimised: one row published under two themes and
 /// one row published at two serializations. Each row has exactly one output
 /// and one alternate, and the alternate is what the head already emits as
-/// `rel="alternate"` — the same set, now a column rather than a scan.
+/// `rel="alternate"`, the same set, now a column rather than a scan.
 ///
-/// The pivot §2 describes lands here too: `alternates` is a list of output
+/// The pivot describes lands here too: `alternates` is a list of output
 /// URLs, and `output.url` is the address, so a relation reading
 /// `candidate.output.url` gets the canonical form without knowing an axis
 /// exists.
@@ -670,7 +670,7 @@ field = "shell"
     assert_eq!(output_url(tiers).as_deref(), Some("/tiers/html.html"));
     assert_eq!(keys(&tiers.alternates), ["/tiers/light_html.html"]);
 
-    // A row published once has an output and no alternates — the control that
+    // A row published once has an output and no alternates, the control that
     // says `alternates` is about the axis and not about routing.
     let plain = row(&db, "plain.md");
     assert_eq!(output_url(plain).as_deref(), Some("/plain/"));

@@ -1,8 +1,8 @@
 //! One shell axis, answering on a whole site.
 //!
 //! A site rendered once, for the same reason `io_facts.rs` is a site: what
-//! this asserts is a **set membership** — which routes a fold selected when it
-//! filtered on `shell` — and every mechanism between the declaration and the
+//! this asserts is a **set membership**, which routes a fold selected when it
+//! filtered on `shell`, and every mechanism between the declaration and the
 //! answer is a different file. The base's rule defaults write the field, the
 //! cascade types it, the row route copies it, the view route mints it, and the
 //! filter reads it; a unit test on any one of those passes against an engine
@@ -13,7 +13,7 @@
 //! nothing) and `shell == "atom"` selected **0** routes (a view's
 //! serialization was a declaration, not a field). Both probes are below.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
@@ -22,23 +22,23 @@ mod support;
 use support::sitemap_urls as urls;
 
 /// One corpus with every shape the axis has an opinion about, under the BASE
-/// config — which is the subject as much as the rows are, since the defaults
+/// config, which is the subject as much as the rows are, since the defaults
 /// that make `shell` answerable ship in `base.toml` rather than in Rust.
 ///
-/// - a post, and a post with no block (the caret draft's shape) — the posts
-///   rule declares `html` for both;
-/// - a front-mattered page, and a front-mattered `index.md` — the second is
-///   the interesting one: the index rule wins its ROUTE and declares no shell,
-///   so its `html` comes from the front-matter rule matching alongside;
-/// - a static `.html`, a static `index.html` and a `.txt` — the catch-all
-///   declares `raw`, and the static index proves the index rule was right to
-///   stay silent (half the files it routes are byte copies);
+/// - a post, and a post with no block (the caret draft's shape), the posts
+///  rule declares `html` for both;
+/// - a front-mattered page, and a front-mattered `index.md`, the second is
+///  the interesting one: the index rule wins its route and declares no shell,
+///  so its `html` comes from the front-matter rule matching alongside;
+/// - a static `.html`, a static `index.html` and a `.txt`, the catch-all
+///  declares `raw`, and the static index proves the index rule was right to
+///  stay silent (half the files it routes are byte copies);
 /// - the base's own feed and blog listing, which answer `atom` and `html`
-///   without either being written anywhere.
+///  without either being written anywhere.
 ///
 /// The site declares where its images land and nothing else about them (I11:
 /// the base routes none), which sharpens the census below rather than blunting
-/// it — the ADDRESS comes from the site's rule and the SHELL still comes from
+/// it, the ADDRESS comes from the site's rule and the shell still comes from
 /// the base's, because rule defaults accumulate from every matching rule while
 /// the address is decided once by the first that answers.
 fn site(who: &str) -> PathBuf {
@@ -82,10 +82,10 @@ fn site(who: &str) -> PathBuf {
 /// Mutations, each restored:
 ///
 /// - delete `defaults = { shell = "html" }` from the base's front-matter rule
-///   and `/about/` and `/guide/` leave the set — loudly, since they are still
-///   *rendered* as HTML documents (the `_` arm in `build.rs` catches them),
-///   which is the point: the fact goes quiet while the bytes do not move. They
-///   land in `!shell` instead, which the fourth probe pins.
+///  and `/about/` and `/guide/` leave the set, loudly, since they are still
+///  *rendered* as HTML documents (the `_` arm in `build.rs` catches them),
+///  which is the point: the fact goes quiet while the bytes do not move. They
+///  land in `!shell` instead, which the fourth probe pins.
 /// - delete it from the posts rule and both posts leave.
 /// - delete the `shell` line from `view_fields` and `/` and `/blog/` leave.
 ///
@@ -110,7 +110,7 @@ fn the_html_shell_selects_documents_and_listings() {
     );
 }
 
-/// `raw` is the transparent shell, and the byte copies are what wear it — the
+/// `raw` is the transparent shell, and the byte copies are what wear it, the
 /// static `index.html` included, which is why the base's index rule declares
 /// no shell of its own. It routes rendered pages and byte copies alike, and
 /// the front-matter gate on the two rules beside it is what tells them apart.
@@ -132,9 +132,9 @@ fn the_raw_shell_is_the_byte_copies_static_indexes_included() {
 /// name someone gave the route.
 ///
 /// Mutation: drop the `unwrap_or(VIEW_DEFAULT)` and mint Null for an
-/// undeclared view instead — this still passes, and
+/// undeclared view instead, this still passes, and
 /// `the_html_shell_selects_documents_and_listings` is the one that fails. Both
-/// halves of the column are load-bearing.
+/// halves of the column both matter.
 #[test]
 fn a_feed_route_answers_atom() {
     let dir = site("atom");
@@ -144,16 +144,16 @@ fn a_feed_route_answers_atom() {
 /// **The census, and I2's remainder closed**. I2 recorded that an
 /// objects-collection row "never takes a rule default at all": the loader built
 /// it from `Default::default()`, so no cascade ran over it and a `defaults =
-/// { shell = … }` on the base's objects rule would have been read by nobody —
+/// { shell = … }` on the base's objects rule would have been read by nobody,
 /// every image on every site answered Null, 838 of them on grack.com.
 ///
 /// There is one row constructor now, so the base's objects rule declares `raw`
 /// and the image takes it exactly as a `.txt` takes the catch-all's. The Null
 /// set is empty on this site, which is the small statement of what the corpus
-/// census says at scale (grack.com: 838 Null → 0, everything former-object
+/// census says at scale (grack.com: 838 Null -> 0, everything former-object
 /// `raw`).
 ///
-/// Mutation: restore the object branch in `walk_site` — the image drops out of
+/// Mutation: restore the object branch in `walk_site`, the image drops out of
 /// the raw set and back into the null one, on both assertions. (The other
 /// direction, deleting the base rule's `defaults` line, does the same and says
 /// the same thing about the config half.)
@@ -172,7 +172,7 @@ fn a_former_object_row_answers_the_shell_its_rule_declares() {
         Vec::<String>::new(),
         "nothing on this site resolves no shell at all: {null:?}"
     );
-    // An all-outputs fold answers the column too — its route carried no
+    // An all-outputs fold answers the column too, its route carried no
     // fields AT ALL before I2, so without its `view_fields` call the four
     // probes would be sitting in the null set above.
     for probe in ["/html.xml", "/raw.xml", "/atom-probe.xml", "/null.xml"] {
@@ -184,17 +184,17 @@ fn a_former_object_row_answers_the_shell_its_rule_declares() {
 }
 
 /// A per-member route is one output, and the member decides which shell it
-/// left through (q53's md twin: one row, two serializations, two URLs). The
+/// left through. The
 /// column has to agree with the bytes, or a fold over the route pool would
 /// describe the canonical form twice.
 ///
-/// `light_html` is declared FIRST so it is the canonical member, because an
-/// all-outputs fold sees canonical members only (q53: an alternate is not a
+/// `light_html` is declared first so it is the canonical member, because an
+/// all-outputs fold sees canonical members only (an alternate is not a
 /// second document). The row itself takes `html` from the base's front-matter rule,
 /// so the two disagree and the probe can tell which one answered.
 ///
 /// Mutation: delete the `m.field == "shell"` correction in `load.rs`'s route
-/// constructor and the member answers the ROW's `html` — it joins the html set
+/// constructor and the member answers the ROW's `html`, it joins the html set
 /// while rendering the light tier, which is the column lying about the file it
 /// names.
 #[test]

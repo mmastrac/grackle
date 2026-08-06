@@ -25,10 +25,9 @@ fn expand_urls(html: &str, url: &str) -> String {
 /// selects `a.floatright > img`; `{% image right %}` is the only thing that
 /// emits that shape (see tags::image), so a targeted rewrite matches it.
 fn feed_images(html: &str) -> String {
-    // q26 puts width/height on every body image. The feed wants its own fixed
-    // width for floats, and two `width` attributes is invalid markup in which
-    // the FIRST one wins — so the page's 640 would silently beat the feed's
-    // 200. Strip ours from the matched tag before injecting the feed's.
+    // Body images already carry width/height. The feed wants its own fixed
+    // width for floats, and two `width` attributes is invalid (first wins).
+    // Strip ours from the matched tag before injecting the feed's.
     let dims = regex::Regex::new(r#"\s*(?:width|height)='[^']*'"#).unwrap();
     let inject = |html: String, class: &str, align: &str| -> String {
         let re = regex::Regex::new(&format!(
@@ -55,8 +54,7 @@ fn cdata_escape(s: &str) -> String {
 
 /// The Atom feed. `updated` is the build timestamp already in xmlschema form;
 /// entries are `(post, rendered_body)`, newest first. `self_path` is the feed
-/// route's own URL (§6f: locale-parallel feeds — /atom.xml and /fr/atom.xml —
-/// each claim their own self link).
+/// route's own URL
 pub fn xml(site: &Site, self_path: &str, updated: &str, entries: &[(&Row, &str)]) -> String {
     let mut s = String::with_capacity(64 * 1024);
     s.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
@@ -72,10 +70,8 @@ pub fn xml(site: &Site, self_path: &str, updated: &str, entries: &[(&Row, &str)]
         u = site.url
     );
     let _ = writeln!(s, "\t<link href=\"{u}/\"/>", u = site.url);
-    // §4d: this used to name grack.com's own favicon path, in every site's
-    // feed — `examples/minimal` shipped a link to a file it does not have.
-    // Both elements take the site icon absolutely, and a site without one
-    // emits neither: the same "empty means absent" the head runs on.
+    // Icon and logo take the site icon absolutely. Empty means absent,
+    // same rule as the head.
     if !site.icon.is_empty() {
         let _ = writeln!(s, "\t<icon>{u}{i}</icon>", u = site.url, i = site.icon);
         let _ = writeln!(s, "\t<logo>{u}{i}</logo>", u = site.url, i = site.icon);
@@ -120,8 +116,8 @@ pub fn xml(site: &Site, self_path: &str, updated: &str, entries: &[(&Row, &str)]
 
 /// Emit every `shell = "atom"` fold into `out_map`.
 ///
-/// A serialization, not a themed page — it bypasses themes entirely (§5e:
-/// "feed bypasses themes; serializations have no look"). The route already
+/// A serialization, not a themed page, it bypasses themes entirely
+/// The route already
 /// carries its members (newest-first); we render each body and apply the
 /// feed's content transforms.
 pub(crate) fn emit(
@@ -138,7 +134,7 @@ pub(crate) fn emit(
         let Some(v) = cfg.views.get(view) else {
             continue;
         };
-        // Declared, not inferred from a template filename (q44).
+        // Declared, not inferred from a template filename.
         if v.shell.as_deref() != Some("atom") {
             continue;
         }

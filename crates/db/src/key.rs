@@ -1,9 +1,9 @@
 //! A stable identity for a row.
 //!
 //! A key is what a row IS rather than where it sits. A position is only
-//! meaningful inside one load — sort the table and every one is wrong, which
+//! meaningful inside one load, sort the table and every one is wrong, which
 //! cost two bugs before this existed. A key is cheap to clone (one `Arc`
-//! bump), cheap to compare, and — the point — the same value after a rebuild,
+//! bump), cheap to compare, and, the point, the same value after a rebuild,
 //! so a set resolved against one load still names the same rows in the next.
 
 use std::fmt;
@@ -11,14 +11,14 @@ use std::sync::Arc;
 
 /// What a row is identified by: a short, stable, caller-chosen string.
 ///
-/// The caller picks the vocabulary — a row's source path, a route's URL —
+/// The caller picks the vocabulary, a row's source path, a route's URL,
 /// and only has to guarantee it is unique within its table and stable across
 /// loads. `Arc<str>` rather than `String` because keys are cloned into every
 /// index that mentions the row, and rather than `Arc<String>` because that
 /// would be two pointer hops to reach the bytes.
 ///
 /// Compared and hashed BY VALUE, not by pointer. Interning would make both
-/// O(1), and is the obvious optimisation if these ever get hot — but a key
+/// O(1), and is the obvious optimisation if these ever get hot, but a key
 /// from a previous load would then only match while the intern table outlived
 /// it, which is the one property this type exists to have.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn distinct_paths_are_distinct_keys() {
         assert_ne!(Key::new("a/index.md"), Key::new("b/index.md"));
-        // §6f: a translation is its own file and its own row.
+        // A translation is its own file and its own row.
         assert_ne!(Key::new("index.md"), Key::new("index.fr.md"));
     }
 

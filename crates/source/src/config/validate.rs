@@ -36,8 +36,7 @@ impl Config {
         Ok(())
     }
 
-    /// `route` and `embed` are exclusive; `on_demand` beside `embed` is dead
-    ///.
+    /// `route` and `embed` are exclusive; `on_demand` beside `embed` is dead.
     pub(crate) fn check_rule_address(&self) -> Result<()> {
         for (name, c) in &self.collections {
             for r in &c.rules {
@@ -73,7 +72,7 @@ impl Config {
         Ok(())
     }
 
-    /// Fence + rung-0 typing for every declared profile (§4a).
+    /// Fence + rung-0 typing for every declared profile.
     pub(crate) fn check_profiles(&self) -> Result<()> {
         // Site [schema] only (not .schema.toml); same parser as Schemas::set_site.
         let declared = crate::schema::site_fields(&self.schema.decls, "grackle.toml [schema]")?;
@@ -111,8 +110,7 @@ impl Config {
         Ok(())
     }
 
-    /// Type-check profile-written `where`s; defer unknown fields until walk
-    ///.
+    /// Type-check profile-written `where`s; defer unknown fields until walk.
     pub(crate) fn check_profile_filters(&self) -> Result<()> {
         for (vname, v) in &self.views {
             let (Some(p), Some(f)) = (v.filter_profile.as_deref(), v.filter.as_deref()) else {
@@ -130,8 +128,8 @@ impl Config {
         Ok(())
     }
 
-    /// One computed field (§5f): a CEL expression over the row, whose return
-    /// type the checker infers — the name is free, so a site computes whatever
+    /// One computed field: a CEL expression over the row, whose return
+    /// type the checker infers, the name is free, so a site computes whatever
     /// column it likes. `whose` names the table for errors.
     fn check_computed_field(&self, fname: &str, f: &Field, whose: &str) -> Result<()> {
         match f {
@@ -241,7 +239,7 @@ impl Config {
         for (fname, f) in &cfg.schema.fields {
             self.check_computed_field(fname, f, "[schema.fields]")?;
         }
-        // q32 archives
+        // archives
         {
             let mut declared: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
             for (cname, c) in &cfg.collections {
@@ -384,7 +382,7 @@ impl Config {
                 }
             }
         }
-        // §6f LocalizedStr member maps
+        // LocalizedStr member maps
         {
             let (axis_label, known, canon): (String, Vec<&str>, Option<&str>) =
                 match cfg.pairing_axis() {
@@ -549,14 +547,14 @@ impl Config {
                 }
             }
         }
-        // q45 intro/content exclusivity
+        // intro/content exclusivity
         {
             let mut claimed: BTreeMap<&str, &str> = BTreeMap::new();
             for (vname, v) in &cfg.views {
                 if v.intro.is_some() && v.content.is_some() {
                     anyhow::bail!(
                         "view {vname}: declares both intro and content — the \
-                         slot text and a claimed row are exclusive (q45): the \
+                         slot text and a claimed row are exclusive: the \
                          theme owns the arrangement, or the row does"
                     );
                 }
@@ -588,14 +586,14 @@ impl Config {
                     anyhow::bail!(
                         "view {vname}: partition must be \"*\" (every declared \
                          pairing-axis member — the default) or \"default\" (opt \
-                         out of pairing-parallel materialization, §6f)"
+                         out of pairing-parallel materialization)"
                     );
                 }
                 if v.reads_all_outputs() {
                     anyhow::bail!(
                         "view {vname}: a fold over every output serializes the \
                          whole route set and never materializes per pairing-axis \
-                         member — filter on the axis field instead (§6f)"
+                         member — filter on the axis field instead"
                     );
                 }
             }

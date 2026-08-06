@@ -2,7 +2,7 @@
 //!
 //! There is one row constructor now. A former-object row takes rule defaults,
 //! marker defaults, schema validation and rung 0 like every other row, and what
-//! survives of "object" is a fact about the FILE — the objects scopes' globs,
+//! survives of "object" is a fact about the file, the objects scopes' globs,
 //! I7a's rule-claimed membership, read by the loader as **the extension fact**.
 //! Three things key off it and nothing else does: `by_name`, the header read
 //! that fills `width`/`height`, and `RouteKind::Object`.
@@ -12,14 +12,14 @@
 //! member is a picture, and a test that asked the database the same question
 //! would pass against an engine whose gallery had stopped showing pictures.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
 mod support;
 
-/// A 2×3 PNG — real bytes, because one of the three readers under test is the
+/// A 2×3 PNG, real bytes, because one of the three readers under test is the
 /// header read.
 const PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -58,21 +58,21 @@ fn selected(dir: &Path, route: &str) -> Vec<String> {
 /// them is a different consumer's whole answer:
 ///
 /// - `by_name` is what `grackle query stats` reports distinct and ambiguous
-///   names from — the measurement §6a's collision argument rests on, which is
-///   why the fixture carries two `shot.png`s in different directories;
+/// names from, the measurement collision argument rests on, which is
+///  why the fixture carries two `shot.png`s in different directories;
 /// - `by_name` is also what the listing pass asks per member (`ctx.objects`),
-///   and an object member previews as a PICTURE while a row member previews as
-///   prose — so the gallery is where losing the index shows;
+///  and an object member previews as a PICTURE while a row member previews as
+///  prose, so the gallery is where losing the index shows;
 /// - `width`/`height` come from a header read the loader only performs on the
-///   rows this fact names.
+///  rows this fact names.
 ///
 /// Mutation: send former-object rows to `pages` instead (`(_, true) =>
-/// objects.push(row)` → `pages.push(row)`) — the index empties, `by_name` goes
+/// objects.push(row)` -> `pages.push(row)`), the index empties, `by_name` goes
 /// with it (distinct 0, ambiguous 0), the header read never runs, and the
 /// gallery comes out with three members and no links at all, because a picture
 /// answers `title` with nothing and the empty label takes its `<a>` with it.
-/// The MEMBERSHIP half survives that mutation on purpose — the row's
-/// `collection` is still the objects scope's, so the view still selects it —
+/// The MEMBERSHIP half survives that mutation on purpose, the row's
+/// `collection` is still the objects scope's, so the view still selects it,
 /// which is what makes every assertion here about the INDEX rather than about
 /// the query.
 #[test]
@@ -99,7 +99,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
     );
 
     // What the index BUYS, asserted first: the listing pass asks `by_name`
-    // per member, and an object previews as the picture it is — labelled by its
+    // per member, and an object previews as the picture it is, labelled by its
     // stem, which is the only name a file has. A row member has a `title` and
     // an image has none, so losing the index does not mis-label the gallery, it
     // empties it: rule 2 deletes an element with an empty content slot, so the
@@ -147,29 +147,29 @@ fn the_objects_index_keys_off_the_extension_fact() {
     );
 }
 
-/// **Markers reach a former-object row** — the propose-and-flag call. A `.hidden` beside a gallery means what it says: refusing it would
+/// **Markers reach a former-object row**, the propose-and-flag call. A `.hidden` beside a gallery means what it says: refusing it would
 /// re-mint the origin distinction this item deletes, since the only reason to
 /// refuse is *which constructor built the row*.
 ///
-/// Asserted through a fold over the ROUTE pool, because the point is that the
-/// fact reaches the output side where a query can act on it — a marker that
+/// Asserted through a fold over the route pool, because the point is that the
+/// fact reaches the output side where a query can act on it, a marker that
 /// wrote a field nothing could read would be the declared-and-ignored disease
 /// with extra steps. (The gallery's own vocabulary is deliberately narrower:
 /// `where = "hidden"` on an object view is still a load error, which is the
-/// other half of §5b and is not disturbed here.)
+/// other half of and is not disturbed here.)
 ///
 /// Byte-inert on the corpus today, and that was measured rather than assumed:
 /// `query stats` reports 0 marker files on all five sites, so no image on any
 /// of them sits under one.
 ///
-/// The fixture declares its own objects route since I11 — the base routes no
+/// The fixture declares its own objects route since I11, the base routes no
 /// image now, and the assertion is about a marker reaching a row,
 /// not about where the row lands, so the site says where in one line the way
 /// every corpus site with images does.
 ///
 /// Mutation: pass `&Defaults::default()` in place of `marker_defaults` when
-/// `object_shaped` — the origin distinction re-minted in one line, which is
-/// exactly what this test refuses — and the image leaves the set while the
+/// `object_shaped`, the origin distinction re-minted in one line, which is
+/// exactly what this test refuses, and the image leaves the set while the
 /// `.md` beside it stays.
 #[test]
 fn a_marker_reaches_a_former_object_row() {
@@ -207,7 +207,7 @@ fn a_marker_reaches_a_former_object_row() {
     // The same fact on the row, so a reader knows the route did not invent it.
     let db = load(&dir);
     // Found through `rows` rather than `objects()`, so this test says nothing
-    // about the index — it is about what the constructor put on the row.
+    // about the index, it is about what the constructor put on the row.
     let img = db
         .rows
         .iter()
@@ -225,14 +225,14 @@ fn a_marker_reaches_a_former_object_row() {
 /// name that happens to carry `.fr.` is not a translation unless a `file`
 /// pattern says so.
 ///
-/// Both halves are here because the claim is about the RULE, not the site: the
+/// Both halves are here because the claim is about the rule, not the site: the
 /// `.md` beside it declares `{stem}.{axis:locale}` and IS the French edition,
 /// at the prefixed URL. The fixture routes its own images (I11: the base no
 /// longer does), because "the image keeps the name it was given" is a claim
 /// about an address and an unrouted asset has none to keep.
 ///
 /// Mutation: put `file = ["{stem}.{axis:locale}", "{stem}"]` on the objects
-/// rule — the image is republished at `/fr/gallery/photo.png` and its literal
+/// rule, the image is republished at `/fr/gallery/photo.png` and its literal
 /// path disappears from the URL set. (The reverse mutation, omitting `file`
 /// on the tree, takes the French page's URL with it.)
 #[test]
@@ -295,8 +295,8 @@ fn an_image_is_not_a_translation_of_itself() {
 // I7e stated it at the code rather than guarding it: "an objects rule gated
 // `front_matter = true` would be claimed by whichever scope came next while
 // still being indexed as a picture". I7a and I7d's flag 5 had said the same
-// thing before it. All three leaned on a premise I8 retired — an object is
-// never peeked, so the gate could never pass — and I8's sidecars are identity
+// thing before it. All three leaned on a premise I8 retired, an object is
+// never peeked, so the gate could never pass, and I8's sidecars are identity
 // a `.png` can have. The gate reads identity (`apply_rules(…, has_identity)`),
 // so the corner is reachable, and it is refused where the author wrote it.
 
@@ -310,7 +310,7 @@ fn config_err(dir: &Path) -> String {
 }
 
 /// **An objects rule selects by shape; the identity gate belongs to scopes
-/// that parse** — and the refusal is on the KEY, not on one of its
+/// that parse**, and the refusal is on the KEY, not on one of its
 /// values, so both spellings are here.
 ///
 /// The fixture is the corner itself: a sidecar'd `photo.png` and a blockless
@@ -323,8 +323,8 @@ fn config_err(dir: &Path) -> String {
 ///
 /// | rule | `photo.png` (sidecar'd) | `plain.png` (blockless) |
 /// |---|---|---|
-/// | `front_matter = true`  | `objects`, `/pics/photo/` | `entries`, `/plain.png` |
-/// | `front_matter = false` | `entries`, `/photo.png`   | `objects`, `/pics/plain/` |
+/// | `front_matter = true` | `objects`, `/pics/photo/` | `entries`, `/plain.png` |
+/// | `front_matter = false` | `entries`, `/photo.png` | `objects`, `/pics/plain/` |
 ///
 /// …and in BOTH runs `query stats` reports **objects 2, distinct names 2**,
 /// because the extension fact never asked about identity. A row that `explain`
@@ -383,7 +383,7 @@ fn an_objects_rule_may_not_declare_front_matter() {
 /// on it here, and both gates decide a route.
 ///
 /// Mutation: widen `check_objects_rule_gate` to every kind and this site stops
-/// loading — which is what "an objects rule" has to mean to be worth saying.
+/// loading, which is what "an objects rule" has to mean to be worth saying.
 #[test]
 fn the_front_matter_gate_still_works_where_a_scope_parses() {
     let dir = site(

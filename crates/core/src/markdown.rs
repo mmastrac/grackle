@@ -1,4 +1,4 @@
-//! comrak, configured to stand in for kramdown (DESIGN.md §8).
+//! comrak, configured to stand in for kramdown.
 //!
 //! kramdown is *not* CommonMark, so this can never be exact by construction.
 //! The job is to get close enough that the remaining diffs are countable, and
@@ -42,19 +42,19 @@ const DEFAULT_LANG: &str = "text";
 
 /// Rewrite every code block into Jekyll's Rouge markup.
 ///
-/// This is the AST escape hatch from §9a: we replace the node with a raw
+/// This is the AST escape hatch from : we replace the node with a raw
 /// `HtmlBlock` rather than teach comrak's formatter a new shape. Neither of
 /// comrak's two relevant adapters can do this job:
 ///
-///   * `CodefenceRendererAdapter` is a map keyed by language and only fires
-///     when the info string is non-empty (html.rs:513). Our corpus is 88%
-///     *indented* code blocks, whose info is "" — only 7 posts use fences at
-///     all — so it would never fire where it matters.
-///   * `SyntaxHighlighterAdapter` does fire for empty info and could open the
-///     two wrapper divs, but comrak then hardcodes `</code></pre>`
-///     (html.rs:566) with no hook to close them.
+///  * `CodefenceRendererAdapter` is a map keyed by language and only fires
+///  when the info string is non-empty (html.rs:513). Our corpus is 88%
+///  *indented* code blocks, whose info is "", only 7 posts use fences at
+///  all, so it would never fire where it matters.
+///  * `SyntaxHighlighterAdapter` does fire for empty info and could open the
+///  two wrapper divs, but comrak then hardcodes `</code></pre>`
+///  (html.rs:566) with no hook to close them.
 ///
-/// A block with a real language gets token spans from `crate::highlight` — the
+/// A block with a real language gets token spans from `crate::highlight`, the
 /// four classes the theme colours (`k`/`s`/`c1`/`n`), not Rouge's full Pygments
 /// set. Inline code and `text` blocks stay plain, as they are on the reference.
 pub fn rouge_code_blocks<'a>(root: &'a AstNode<'a>) {
@@ -77,7 +77,7 @@ pub fn rouge_code_blocks<'a>(root: &'a AstNode<'a>) {
                 }
                 // Backtick spans get the same treatment, minus the wrappers.
                 // A hand-written `<code>` in the source is an HtmlInline node,
-                // not this one, so it passes through untouched — which is what
+                // not this one, so it passes through untouched, which is what
                 // kramdown does with it too.
                 NodeValue::Code(nc) => Some(NodeValue::HtmlInline(format!(
                     "<code class=\"language-{DEFAULT_LANG} highlighter-rouge\">{}</code>",
@@ -107,15 +107,14 @@ pub fn render(src: &str) -> String {
     to_html(root, &opts)
 }
 
-/// A rendered document as its top-level block sequence (§6d). `whole` is the
-/// exact `render()` output — documents and the feed use it unchanged, so the
+/// A rendered document as its top-level block sequence. `whole` is the
+/// exact `render()` output, documents and the feed use it unchanged, so the
 /// byte oracle survives. `blocks` is the same tree formatted per top-level
 /// child; a summary is a literal *prefix* of the document.
 ///
-/// The invariant `concat(blocks) == whole` holds for 326/327 posts — the
+/// The invariant `concat(blocks) == whole` holds for 326/327 posts, the
 /// exception is footnotes, whose definitions comrak relocates at parse time
-/// (they are annotations addressed by identity, not blocks; §6d models them
-/// as a second stream, deferred until sidenotes give it a consumer). The
+/// The
 /// corpus test below pins the exception set.
 pub struct Doc {
     pub whole: String,
@@ -130,17 +129,17 @@ pub fn render_doc(src: &str) -> Doc {
     render_doc_with(src, &|_, _| Ok(None)).expect("no-op resolver cannot fail")
 }
 
-/// `render_doc` with a citation resolver (§6a row/view links):
+/// `render_doc` with a citation resolver:
 /// every markdown link's and image's destination is offered to `resolve`;
 /// `Ok(Some(url))` rewrites it, `Ok(None)` leaves it, and an error aborts the
-/// render — a broken source reference is a build error naming the file, not a
+/// render, a broken source reference is a build error naming the file, not a
 /// shipped 404.
 ///
 /// **Links and images are offered separately**, tagged with which they are.
 /// They were not before: the AST pass visited `Link` and skipped `Image`, so
-/// `![](x.png)` reached no resolver at all, and §6d stage B's raw-HTML twin
+/// `![](x.png)` reached no resolver at all, and stage B's raw-HTML twin
 /// declined `img[src]` to keep the two paths equal. Both now offer both, and
-/// what the two forms MEAN is `links::resolve`'s to say — an authored link
+/// what the two forms MEAN is `links::resolve`'s to say, an authored link
 /// demands a route, an embed takes the strong address.
 pub fn render_doc_with(
     src: &str,
@@ -165,7 +164,7 @@ pub fn render_doc_with(
             }
             // Raw HTML embedded in markdown (`<img src=…>`, `<a href=…>`, an
             // `<iframe>`) is an opaque Html node comrak never descends into, so
-            // its citations bypassed the resolver — a relative `<img src>` in a
+            // its citations bypassed the resolver, a relative `<img src>` in a
             // markdown body shipped a 404. Run the literal through the same
             // raw-HTML rewriter the non-markdown path uses (`render_source`),
             // so both paths offer both forms (the doc above).
@@ -207,7 +206,7 @@ impl Doc {
     /// the theme gates the ★ on).
     ///
     /// Mechanism only: policy is the field expression on the view
-    /// (`truncate_chars(truncate_blocks(content, n), m)`, §5f / §6d).
+    /// (`truncate_chars(truncate_blocks(content, n), m)`).
     /// Composes the two wrappers the expression language exposes.
     pub fn truncate(&self, max_blocks: Option<usize>, max_chars: Option<usize>) -> (String, bool) {
         let mut c = grackle_db::Content::new(self.blocks.clone());
@@ -221,12 +220,12 @@ impl Doc {
     }
 }
 
-/// One heading of a rendered document — defined in [`grackle_model::Heading`].
+/// One heading of a rendered document, defined in [`grackle_model::Heading`].
 pub use grackle_model::Heading;
 
 impl Doc {
     /// The document's headings, extracted from the same rendered bytes
-    /// that ship — link and target cannot desync (§6e), the search-wasm
+    /// that ship, link and target cannot desync, the search-wasm
     /// argument applied to anchors.
     pub fn headings(&self) -> Vec<Heading> {
         grackle_db::Content::new(self.blocks.clone())
@@ -245,7 +244,7 @@ impl Doc {
 mod link_tests {
     use super::*;
 
-    /// §6a row/view links: the resolver rewrites destinations, leaves
+    /// row/view links: the resolver rewrites destinations, leaves
     /// what it returns None for, and its errors abort the render.
     #[test]
     fn resolver_rewrites_and_fails_loud() {
@@ -291,8 +290,8 @@ mod tests {
         assert!(render("<div class=\"x\">hi</div>").contains(r#"<div class="x">"#));
     }
 
-    /// The §6e sync property: every extracted heading's id appears in the
-    /// block it came from — links target what actually shipped.
+    /// The sync property: every extracted heading's id appears in the
+    /// block it came from, links target what actually shipped.
     #[test]
     fn headings_extract_in_sync_with_emitted_ids() {
         let d = render_doc("## Alpha & Beta\n\ntext\n\n### Gamma \"quoted\"\n\n## Delta");
@@ -365,11 +364,9 @@ mod block_tests {
         assert!(!truncated);
     }
 
-    /// §6d's load-bearing invariant, pinned: every post's block concatenation
-    /// is byte-identical to its whole render — a summary is a literal prefix
-    /// of the document — with footnote posts as the *only* tolerated
-    /// exception (comrak relocates their definitions at parse time; §6d
-    /// models notes as a second stream, deferred to the sidenote pass).
+    /// Every post's block concatenation matches its whole render (a summary
+    /// is a literal prefix), except footnote posts where comrak relocates
+    /// definitions at parse time.
     #[test]
     fn concat_equals_whole_over_corpus() {
         let root = crate::workspace_root().join("..");

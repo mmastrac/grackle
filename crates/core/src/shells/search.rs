@@ -16,7 +16,7 @@ fn search_doc(cfg: &Config, p: &Row, body: &str) -> grackle_search_core::SearchD
     }
 }
 
-/// The searchable projection of the posts table — the CLI smoke query
+/// The searchable projection of the posts table, the CLI smoke query
 /// (`grackle query search`), which runs no render pass and feeds raw
 /// markdown. The SHIPPED index is not this: it is the `shell = "search"`
 /// view's serialization (see [`search_pass`]), which may span tables.
@@ -36,7 +36,7 @@ pub fn search_docs(
         .collect()
 }
 
-/// Search (§6b, §5g): the index is a SHELL — a view declares
+/// Search: the index is a shell, a view declares
 /// `shell = "search"` with a filter over the route schema (the sitemap's
 /// shape), and the rows that pass are the searchable set, serialized as
 /// postcard at the view's route. Posts and pages carry bodies; other route
@@ -45,19 +45,15 @@ pub fn search_docs(
 /// binary (they must version with the index format), emitted only when a
 /// search view exists, fetched only when a theme's trigger is clicked.
 ///
-/// **The bin URL is the route's own, derived at emission** — the author
+/// **The bin URL is the route's own, derived at emission**, the author
 /// declares `[routes.search] path` and `search.js` fetches exactly that,
-/// so the two cannot disagree. (They used to: the loader hardcoded
-/// `/search.{SEARCH_VER}.bin` and any route declaring another path shipped
-/// a working index the loader 404'd on.) The format firebreak rides a
-/// query instead of the path: the fetch URL carries `?{SEARCH_VER}`, so a
-/// format bump busts every cache without dictating the site's URL. The wasm
-/// is content-addressed and busts on its own bytes; a fresh wasm against a
-/// cache-stale bin is a hard "bad index", which is what happened when the
-/// index format changed and Cloudflare served a day-old bin beside a fresh
-/// wasm. Both URLs live in `/search.js`, so a client holds an all-old or
-/// all-new pair, never mixed. Bump on any change to the `search-core`
-/// on-disk format.
+/// so the two cannot disagree. The format firebreak rides a query instead
+/// of the path: the fetch URL carries `?{SEARCH_VER}`, so a format bump
+/// busts every cache without dictating the site's URL. The wasm is
+/// content-addressed and busts on its own bytes; a fresh wasm against a
+/// cache-stale bin is a hard "bad index". Both URLs live in `/search.js`,
+/// so a client holds an all-old or all-new pair, never mixed. Bump on any
+/// change to the `search-core` on-disk format.
 pub(crate) const SEARCH_VER: &str = "v1";
 
 pub(crate) fn search_pass(
@@ -124,7 +120,7 @@ pub(crate) fn search_pass(
         // The wasm never changes between content edits, so it is the ideal
         // immutable target: content-address it and let its bytes bust it. The
         // firebreak is `/search.js` itself, which keeps its stable URL, so this
-        // hash lands in one file and no HTML page (DESIGN.md q54).
+        // hash lands in one file and no HTML page.
         let wasm = include_bytes!("../../assets/search.wasm");
         let wasm_url =
             grackle_source::strong::address(wasm, grackle_source::strong::IDENTITY, "wasm");
@@ -167,8 +163,8 @@ fn search_js(cfg: &Config, wasm_url: &str, bin_route: &str) -> Vec<u8> {
     }
     let json = serde_json::Value::Object(map).to_string();
     // Every occurrence, not just the first: a stray mention of the sentinel in
-    // a comment used to shadow the real assignment, leaving `var I18N =
-    // __SEARCH_I18N__;` as a load-time ReferenceError that killed search.
+    // a comment would leave `var I18N = __SEARCH_I18N__;` as a load-time
+    // ReferenceError that kills search.
     let filled = include_str!("../../assets/search.js")
         .replace("__SEARCH_I18N__", &json)
         .replace(
@@ -192,7 +188,7 @@ fn search_js(cfg: &Config, wasm_url: &str, bin_route: &str) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    /// The loader fetches the bin at the route's own path — with `baseurl`,
+    /// The loader fetches the bin at the route's own path, with `baseurl`,
     /// the format version as a cache-busting query, and the wasm prefixed the
     /// same way. No sentinel survives emission.
     #[test]

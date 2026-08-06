@@ -1,13 +1,13 @@
-//! The search core (§6b: "this retires Swiftype") — ONE implementation of
+//! The search core, one implementation of
 //! tokenizing, stemming, index building and ranking, used by both ends:
 //!
 //! - `grackle build` calls `build_index` and ships the result as
-//!   `/search.bin` (postcard);
+//!  `/search.bin` (postcard);
 //! - the same code compiled to WebAssembly (`search-wasm`) loads those bytes
-//!   in the browser and answers queries as the user types.
+//!  in the browser and answers queries as the user types.
 //!
 //! Symmetry by construction: the query goes through the exact `stem()` the
-//! index was built with, because it is not a port — it is the same compiled
+//! index was built with, because it is not a port, it is the same compiled
 //! function. (This is also why the stemmer is free to stay simple: swapping
 //! in Snowball later is a one-crate change that cannot desynchronize.)
 
@@ -78,7 +78,7 @@ pub fn tokenize(text: &str) -> Vec<String> {
 ///
 /// Dropping only the tags is not enough: `<style>` and `<script>` hold text
 /// by the parser's reckoning, so a stylesheet's identifiers would land in
-/// the index as terms (§6c). Only the element content goes — prose that
+/// the index as terms. Only the element content goes, prose that
 /// mentions `margin` stays findable by it.
 pub fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 2);
@@ -88,7 +88,7 @@ pub fn strip_tags(html: &str) -> String {
         out.push(' ');
         let tail = &rest[i..];
         // `get` rather than a slice: the byte after a `<` may be the middle
-        // of a multi-byte char (the corpus is full of `’`), and slicing
+        // of a multi-byte char (the corpus is full of `'`), and slicing
         // there panics.
         let raw = ["<script", "<style"].into_iter().find(|open| {
             tail.get(..open.len())
@@ -119,7 +119,7 @@ pub fn strip_tags(html: &str) -> String {
 /// to postings `(doc index, quantised TF·IDF)`, strongest first.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Index {
-    /// `(url, stored display fields)` — keys come from `[schema.search].store`.
+    /// `(url, stored display fields)`, keys come from `[schema.search].store`.
     pub docs: Vec<(String, BTreeMap<String, String>)>,
     pub terms: BTreeMap<String, Vec<(u32, u16)>>,
 }
@@ -129,7 +129,7 @@ pub struct SearchDoc {
     pub url: String,
     /// Named fields from `[schema.search].store`, for hit display.
     pub store: BTreeMap<String, String>,
-    /// Weighted plain-text streams from `[schema.search].index` — `(boost, text)`.
+    /// Weighted plain-text streams from `[schema.search].index`, `(boost, text)`.
     /// The caller decides which fields and weights; this crate only tokenizes.
     pub streams: Vec<(u32, String)>,
 }

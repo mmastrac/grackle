@@ -1,11 +1,11 @@
-//! The fragment binder (THEME.md §5): parse theme HTML once, validate slots
+//! The fragment binder: parse theme HTML once, validate slots
 //! against schemas, fill from part maps at render.
 //!
-//! Hole algebra: `data-slot` replaces content (empty → delete element);
+//! Hole algebra: `data-slot` replaces content (empty -> delete element);
 //! `data-slot-attr` sets/omits attributes; a source-less media element and an
 //! empty wrapper both collapse (rules 2b/2c below), unless the wrapper carries
 //! `data-no-collapse`; flags stamp `data-*` on the root.
-//! Load-time checks only — render is infallible.
+//! Load-time checks only, render is infallible.
 
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ use crate::render::esc;
 
 #[derive(Debug)]
 enum Node {
-    /// Verbatim output: text, comments, doctype — one variant because they
+    /// Verbatim output: text, comments, doctype, one variant because they
     /// all render the same way, byte for byte. `line` is where the run
     /// starts; only `split_root`'s top-level rules read it, and they need it
     /// for the same reason every other error here names a line.
@@ -59,17 +59,17 @@ struct Element {
     /// Literal attributes, in source order. Slot-filled attributes keep their
     /// position here as placeholders (`data-slot-href` renders as `href`).
     attrs: Vec<Attr>,
-    /// `data-slot` — this element is a content hole.
+    /// `data-slot`, this element is a content hole.
     slot: Option<String>,
-    /// `data-fragment` — override the child fragment for a stream/map slot.
+    /// `data-fragment`, override the child fragment for a stream/map slot.
     fragment: Option<String>,
-    /// `data-no-collapse` — keep this element even when it renders empty
+    /// `data-no-collapse`, keep this element even when it renders empty
     /// (rule 2c's opt-out). A frame a theme wants present regardless.
     no_collapse: bool,
     children: Vec<Node>,
     void: bool,
     line: usize,
-    /// Source span of this element's CHILDREN — the bytes between its open
+    /// Source span of this element's CHILDREN, the bytes between its open
     /// and close tags. Only `split_root` reads it: a document-shaped theme
     /// root hands its two halves on as *sources*, and slicing them out is
     /// how the head fence and the chrome fragment can be checked by the
@@ -85,8 +85,8 @@ enum Attr {
     Slot(String, String),
 }
 
-/// One parsed fragment file. The file stem is its NAME; the part of the
-/// stem before `--` is the KIND it binds to (q24 variants: `summary.html`
+/// One parsed fragment file. The file stem is its name; the part of the
+/// stem before `--` is the kind it binds to ( variants: `summary.html`
 /// and `row--card.html` both bind `row`; a view's `variant`
 /// selects between them).
 #[derive(Debug)]
@@ -95,7 +95,7 @@ pub struct Fragment {
     nodes: Vec<Node>,
 }
 
-/// A theme's fragment set, keyed by fragment NAME. Loading validates every
+/// A theme's fragment set, keyed by fragment name. Loading validates every
 /// fragment against the part schemas; after that, `render` cannot fail.
 #[derive(Debug, Default)]
 pub struct Fragments {
@@ -148,8 +148,8 @@ impl Fragments {
         kinds
     }
 
-    /// Parse without schema validation — used when deriving schemas from
-    /// the fragments themselves (THEME.md §5). Extracts optional inline
+    /// Parse without schema validation, used when deriving schemas from
+    /// the fragments themselves. Extracts optional inline
     /// fragment defaults from stream/map holes before returning.
     pub fn parse(sources: Vec<(String, String, String)>) -> Result<Fragments> {
         let mut f = Fragments::default();
@@ -308,7 +308,7 @@ fn has_element_child(nodes: &[Node]) -> bool {
     nodes.iter().any(|n| matches!(n, Node::Element(_)))
 }
 
-/// `row--card` → the `row` schema.
+/// `row--card` -> the `row` schema.
 fn kind_of_name(name: &str) -> &str {
     name.split_once("--").map(|(k, _)| k).unwrap_or(name)
 }
@@ -316,7 +316,7 @@ fn kind_of_name(name: &str) -> &str {
 /// Every `*.html` in a theme directory, as `(name, source, display)` triples.
 /// The file stem names the fragment; its prefix names the kind it binds to.
 /// Separate from `Fragments::load` because a theme's sources are only the
-/// TOP layer — the engine's base theme supplies the rest (`theme.rs`).
+/// TOP layer, the engine's base theme supplies the rest (`theme.rs`).
 pub fn dir_sources(dir: &Path) -> Result<Vec<(String, String, String)>> {
     let mut sources = Vec::new();
     let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
@@ -333,10 +333,10 @@ pub fn dir_sources(dir: &Path) -> Result<Vec<(String, String, String)>> {
 }
 
 /// A theme root's two halves. `style` is the CSS the theme's
-/// `<head>` declared — the *contents* of its `<style>` elements, not the
+/// `<head>` declared, the *contents* of its `<style>` elements, not the
 /// head markup, because the head is fenced to `<style>` and the one thing
 /// downstream does with it is compile it into the site's CSS. `body` is
-/// the chrome the binder loads as the `root` kind. Either may be absent —
+/// the chrome the binder loads as the `root` kind. Either may be absent,
 /// `None` on both is not reachable, since a file with neither wrapper IS the
 /// body.
 pub struct Root {
@@ -347,14 +347,14 @@ pub struct Root {
 /// Split `root.html` into head styles and body chrome.
 ///
 /// Accepts a bare body fragment, or top-level `<head>`/`<body>`. Refuses
-/// `<html>`/doctype — the engine owns the skeleton; wrapping would
+/// `<html>`/doctype, the engine owns the skeleton; wrapping would
 /// hide head/body and ship theme metas inside `<body>`.
 pub fn split_root(src: &str, file: &str) -> Result<Root> {
     let nodes = Parser::new(src, file).parse_all()?;
     // Before anything else, because this is the check the two shapes below
     // cannot make for themselves: an `<html>` wrapper would sail past the
     // `wrapped` test as a fragment, and a doctype would sail past it as
-    // verbatim text. One message for both — they are one mistake, and the
+    // verbatim text. One message for both, they are one mistake, and the
     // fix for it is one edit.
     for n in &nodes {
         let (what, line) = match n {
@@ -448,9 +448,9 @@ pub fn split_root(src: &str, file: &str) -> Result<Root> {
 }
 
 /// The CSS a theme root's `<head>` declares: every `<style>` element's
-/// contents, in source order, newline-joined. Everything else in the head —
+/// contents, in source order, newline-joined. Everything else in the head,
 /// comments, stray text, and (unreachably, because `check_head_fence` ran
-/// first) any other element — is dropped: the head is a declaration of
+/// first) any other element, is dropped: the head is a declaration of
 /// styles, and its markup is the engine's.
 ///
 /// The `style` test is deliberately *stated* rather than left to the fence.
@@ -478,7 +478,7 @@ fn head_styles(head: &Element, src: &str) -> String {
 
 /// The head fence: a theme root's `<head>` may hold `<style>` and
 /// nothing else. Every other element is a load error naming the file and the
-/// element, because the engine computes the head — a theme writing its own
+/// element, because the engine computes the head, a theme writing its own
 /// `<title>` or `canonical` link would be shadowed by the engine's on every
 /// page, silently, and a theme writing a second stylesheet `<link>` would
 /// break the one-artifact rule the CSS assembly is built on.
@@ -557,8 +557,8 @@ impl Fragments {
                         }
                         // Default child rendering falls back to canonical
                         // when the theme has no fragment (partial themes,
-                        // §5e step 4) — but an EXPLICIT data-fragment must
-                        // resolve, and to the right kind (q24 variants).
+                        // step 4), but an explicit data-fragment must
+                        // resolve, and to the right kind.
                         if let Some(target) = el.fragment.as_deref() {
                             match self.map.get(target) {
                                 None => bail!(
@@ -615,8 +615,8 @@ impl Fragments {
         crate::util::join_or_none(&v)
     }
 
-    /// `(slot name, element tag)` for every content hole in a fragment — the
-    /// block-arity rule (§5e tree-filled slots) needs to know whether a slot
+    /// `(slot name, element tag)` for every content hole in a fragment, the
+    /// block-arity rule needs to know whether a slot
     /// element takes flow content or only phrasing.
     pub fn slot_tags(&self, kind: &str) -> Vec<(String, String)> {
         let mut out = Vec::new();
@@ -626,24 +626,24 @@ impl Fragments {
         out
     }
 
-    /// Render the map through its kind's fragment — or, when the theme
+    /// Render the map through its kind's fragment, or, when the theme
     /// declines to arrange this kind, through the canonical null rendering
-    /// (§5e step 4). Themes are partial: a theme with *no* fragments is the
+    /// Themes are partial: a theme with *no* fragments is the
     /// null theme, and it needs no directory at all. Infallible once `load`
     /// has validated.
     pub fn render(&self, m: &PartMap) -> String {
         self.render_with(m, None)
     }
 
-    /// Render a map as BODY content (§5g): like `render`, but the fragment
-    /// root is not stamped — the engine's root HTML shell carries
+    /// Render a map as body content: like `render`, but the fragment
+    /// root is not stamped, the engine's root HTML shell carries
     /// `data-kind`/`data-subtheme` on `<html>` itself.
     pub fn render_body(&self, m: &PartMap) -> String {
         self.render_frag(m, None, false)
     }
 
-    /// Render through a variant's fragment when the theme has one (q24):
-    /// `{kind}--{variant}` → the kind's base fragment → canonical. The
+    /// Render through a variant's fragment when the theme has one:
+    /// `{kind}--{variant}` -> the kind's base fragment -> canonical. The
     /// view declares the variant; the theme opts in by shipping the file.
     pub fn render_with(&self, m: &PartMap, variant: Option<&str>) -> String {
         self.render_frag(m, variant, true)
@@ -692,7 +692,7 @@ impl Fragments {
 
         // Rule 2b: a source-less media element deletes itself. An <img> (or
         // <iframe>, <video>…) whose `src` comes from an absent or empty part
-        // has nothing to show — the attribute-hole equivalent of rule 2's
+        // has nothing to show, the attribute-hole equivalent of rule 2's
         // empty content. A missing `href` on an <a> is deliberately different
         // (rule 3 leaves the inert link, because its text still means
         // something); `src` is the one attribute whose absence empties the
@@ -773,7 +773,7 @@ impl Fragments {
 
         // Rule 2c: an empty wrapper collapses. A non-slot element that had
         // element children (so it is a wrapper, not an authored-empty `<div>`)
-        // but rendered nothing had only holes, and they are all gone — an empty
+        // but rendered nothing had only holes, and they are all gone, an empty
         // box still paints a theme's border, margin or frame, so rewind past
         // it. This is what makes an imageless hero, a copyright-less footer, or
         // an empty section leave no trace; it propagates bottom-up through
@@ -846,7 +846,7 @@ fn merge_slot_use(
 
 /// Elements whose content model is phrasing-only: a markdown fill landing in
 /// one of these must be exactly one block, which unwraps to its inline
-/// content (§5e's block-arity rule).
+/// content.
 pub fn is_phrasing_only(tag: &str) -> bool {
     matches!(
         tag,
@@ -881,7 +881,7 @@ fn known_kinds(schemas: &crate::parts::Schemas) -> String {
     schemas.kind_names().join(", ")
 }
 
-/// The HTML void elements — the one list; `slots.rs` block counting uses it
+/// The HTML void elements, the one list; `slots.rs` block counting uses it
 /// too.
 pub const VOID: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
@@ -1171,7 +1171,7 @@ mod tests {
             Part::Stream(vec![crumb("Home", Some("/")), crumb("16", None)]),
         );
         let out = f.render(&m);
-        // Linked crumb gets href; the inert tail is a placeholder link —
+        // Linked crumb gets href; the inert tail is a placeholder link,
         // `<a>` with no href, selectable as a:not([href]).
         assert_eq!(
             out,
@@ -1250,8 +1250,8 @@ mod tests {
         // The message lists known slots from the derived vocabulary.
     }
 
-    /// Themes are partial (§5e step 4): a kind the theme declines to arrange
-    /// renders canonically — the null theme is the fallback, not an error.
+    /// Themes are partial: a kind the theme declines to arrange
+    /// renders canonically, the null theme is the fallback, not an error.
     #[test]
     fn missing_child_fragment_falls_back_to_canonical() {
         let f = frags(&[("row", r#"<nav data-slot="crumbs"></nav>"#)]).unwrap();
@@ -1272,8 +1272,8 @@ mod tests {
         );
     }
 
-    /// And a map whose own kind has no fragment renders canonically wholesale
-    /// — a theme with no fragments at all IS the null theme.
+    /// A map whose kind has no fragment renders wholesale. A theme with no
+    /// fragments is the null theme.
     #[test]
     fn missing_root_fragment_is_the_null_theme() {
         let f = frags(&[]).unwrap();
@@ -1335,7 +1335,7 @@ mod tests {
         assert!(format!("{e}").contains("no layout kind `sidebar`"), "{e}");
     }
 
-    /// q24: `row--card.html` binds the `row` schema; the view's
+    /// `row--card.html` binds the `row` schema; the view's
     /// variant picks it, unknown variants fall back to the base fragment.
     #[test]
     fn variants_bind_their_base_kind_and_render_by_choice() {
@@ -1357,7 +1357,7 @@ mod tests {
         assert!(f.render_with(&m, Some("nope")).starts_with("<article"));
     }
 
-    /// data-fragment names a variant for a map/stream child — and being
+    /// data-fragment names a variant for a map/stream child, and being
     /// explicit, it must resolve, to the right kind.
     #[test]
     fn data_fragment_selects_a_variant_and_must_resolve() {

@@ -2,7 +2,7 @@
 //! tree pages.
 //!
 //! A targeted expander, not a liquid implementation. The *scan* is generic
-//! ([`crate::markup::scan`]); this module is the engine handlers — `{% image %}`,
+//! ([`crate::markup::scan`]); this module is the engine handlers, `{% image %}`,
 //! `{% view %}`, `{% include %}`, `{{ site.baseurl }}`.
 
 use crate::markup::scan;
@@ -21,10 +21,10 @@ pub struct Ctx<'a> {
     /// Where `{% include %}` resolves names. None disables the tag.
     pub includes: Option<PathBuf>,
     pub site: Option<&'a Site<'a>>,
-    /// One demand — a source path and the rendition it asked for — to the
-    /// output the pre-pass materialized for it (§6b): the published
+    /// One demand, a source path and the rendition it asked for, to the
+    /// output the pre-pass materialized for it: the published
     /// URL, and the dimensions that let the tag emit `width`/`height` so a body
-    /// image reserves its space (q26). Keyed by the whole ASK, because two asks
+    /// image reserves its space. Keyed by the whole ASK, because two asks
     /// for one image are two outputs. When absent, `{% image %}` falls back to
     /// linking the original at full size.
     pub thumbs: Option<&'a crate::thumbs::Renditions>,
@@ -33,7 +33,7 @@ pub struct Ctx<'a> {
     pub theme: Option<&'a crate::theme::Theme>,
     /// Custom widgets by name. None disables them.
     pub widgets: Option<&'a std::collections::BTreeMap<String, crate::config::WidgetDef>>,
-    /// Site config — archive pills and `{% view %}` member fill need it.
+    /// Site config, archive pills and `{% view %}` member fill need it.
     pub cfg: Option<&'a crate::config::Config>,
     /// The row being expanded, against which a widget's expression arguments
     /// evaluate. None disables expression arguments.
@@ -43,7 +43,7 @@ pub struct Ctx<'a> {
     /// which is what every caller that has no `LinkSpace` (the unit tests) is
     /// asking for.
     pub links: Option<&'a crate::links::LinkSpace>,
-    /// q45: the landing's route-aware self-embed — when a claimed row
+    /// the landing's route-aware self-embed, when a claimed row
     /// places `{% view <owner> %}`, the owning view is not looked up (it
     /// is materialized, not embeddable): THIS route's already-rendered
     /// slice substitutes instead.
@@ -69,7 +69,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// What one `{% image %}` demands — defined in [`grackle_model::ImageTag`].
+/// What one `{% image %}` demands, defined in [`grackle_model::ImageTag`].
 pub use grackle_model::ImageTag;
 
 /// Parse `{% image [left|right|inline] SRC [width=N] %}`.
@@ -95,9 +95,9 @@ fn image_tag(arg: &str) -> Result<ImageTag, String> {
     // their addresses.
     let mut rendition = Rendition::THUMB;
     for tok in parts {
-        // A bare trailing token used to be ignored silently; an ask is a
-        // parameter and a misspelt parameter must not read as "no ask" —
-        // that would publish a different rendition than the author wrote.
+        // A bare trailing token is not an ask: an ask is a parameter, and a
+        // misspelt parameter must not read as "no ask", that would publish a
+        // different rendition than the author wrote.
         let Some((key, value)) = tok.split_once('=') else {
             return Err(format!(
                 "{{% image %}}: {tok:?} is not a parameter — the form is `width=N`"
@@ -131,7 +131,7 @@ fn image_tag(arg: &str) -> Result<ImageTag, String> {
 /// and the parameters each `{% image %}` asked for.
 ///
 /// Mirrors `expand`'s tag scan so it sees exactly the tags rendering will.
-/// Unparseable tags are skipped rather than reported — `image` reaches the same
+/// Unparseable tags are skipped rather than reported, `image` reaches the same
 /// tag with the file name in hand and bails there.
 pub fn image_asks(body: &str) -> Vec<Ask> {
     let mut out = Vec::new();
@@ -156,9 +156,9 @@ pub fn image_asks(body: &str) -> Vec<Ask> {
 /// `{% image [left|right|inline] path [width=N] %}`
 ///
 /// The anchor links the full-size original; the `<img>` shows the rendition
-/// (§6b, §4a) the pre-pass materialized for this exact ask, else the original.
+/// the pre-pass materialized for this exact ask, else the original.
 /// The mode maps to a float class, which is the contract the theme styles
-/// against (§5a).
+/// against.
 fn image(arg: &str, cx: &Ctx) -> Result<String> {
     let t = image_tag(arg).map_err(|e| anyhow::anyhow!("{}: {e}", cx.source))?;
     let (mode, src) = (t.mode, t.src.as_str());
@@ -167,15 +167,15 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
     // image's rendition set is the union of its consumers' asks).
     let thumb = cx.thumbs.and_then(|m| m.get(&t.ask()));
     // The lightbox chain, as far as it is built. The `<a>` is an
-    // EXPANSION AFFORDANCE — markup this expander generates, not a link a
-    // human wrote — so it is entitled to the strong address, which is exactly
+    // EXPANSION AFFORDANCE, markup this expander generates, not a link a
+    // human wrote, so it is entitled to the strong address, which is exactly
     // what the design's worked example says the full-size expansion uses. A
     // routed asset keeps its canonical address here, byte for byte, because a
     // routed output wins; only a row no rule routed reaches for the hash.
     //
     // The THIRD URL still waits, measured rather than inherited:
     // the note: the example wants a download link at the canonical route
-    // BESIDE the expansion, and that is a second element on 194 corpus tags —
+    // beside the expansion, and that is a second element on 194 corpus tags,
     // a byte change on every post that shows a picture, which is Matt's call
     // and not a consequence of renditions. What renditions owed was the
     // parameters an affordance carries, and those landed: the ask above.
@@ -191,9 +191,9 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
         Some(t) => t.url.clone(),
         None => full.clone(),
     };
-    // q26: dimensions on the element that ships, so the browser reserves the
+    // dimensions on the element that ships, so the browser reserves the
     // box before the bytes land. Emitted only when the thumb pass measured
-    // them — an unmeasured image gets no attributes rather than guessed ones.
+    // them, an unmeasured image gets no attributes rather than guessed ones.
     let dims = match thumb.and_then(|t| t.dims) {
         Some((w, h)) => format!(" width='{w}' height='{h}'"),
         None => String::new(),
@@ -205,10 +205,9 @@ fn image(arg: &str, cx: &Ctx) -> Result<String> {
 
 /// `{% view latest %}` -> a routeless view, rendered by its declared layout.
 ///
-/// The seam between the database and the page (DESIGN.md §5c). Fences the
+/// The seam between the database and the page. Fences the
 /// spliced output in marker comments so the link graph can tell an
-/// arrangement's links from a human's citations (§6g Problem 2: the homepage's
-/// recent-posts block is not a citation of every post it lists).
+/// arrangement's links from a human's citations
 fn view(name: &str, cx: &Ctx) -> Result<String> {
     let html = view_inner(name, cx)?;
     Ok(format!("<!--grackle:view-->{html}<!--/grackle:view-->"))
@@ -216,7 +215,7 @@ fn view(name: &str, cx: &Ctx) -> Result<String> {
 
 /// The splice itself. The view owns the query and names a face (`layout`, or
 /// `variant` when set); this looks the rows up and concatenates member faces
-/// (THEME.md §3). The host theme must ship `row--{face}`.
+/// The host theme must ship `row--{face}`.
 fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
     let mut name = name.trim();
     let mut layout_override: Option<&str> = None;
@@ -224,8 +223,8 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
         name = n.trim();
         layout_override = Some(lay.trim());
     }
-    // q45: inside a landing's claimed content, the owning view embeds as
-    // this route's slice — page 2 renders page 2's rows, /fr/ the French
+    // inside a landing's claimed content, the owning view embeds as
+    // this route's slice, page 2 renders page 2's rows, /fr/ the French
     // partition.
     if let Some((owner, html)) = cx.embed {
         if owner == name {
@@ -283,12 +282,12 @@ fn view_inner(name: &str, cx: &Ctx) -> Result<String> {
         .with_context(|| format!("{}: view {name}", cx.source))
 }
 
-/// `{% include social.html %}` — parameterless only.
+/// `{% include social.html %}`, parameterless only.
 ///
 /// The layouts use the parameterised form (`{% include article.html
 /// margin_html=... %}`), and supporting that is the first step to writing a
 /// template engine. So arguments are a hard error rather than a quiet
-/// half-implementation (§5c).
+/// half-implementation.
 fn include(arg: &str, cx: &Ctx) -> Result<String> {
     let arg = arg.trim();
     if arg.contains('=') {
@@ -506,7 +505,7 @@ mod tests {
         // Thumbnail in the <img>, full-size original still in the <a href>.
         assert!(out.contains("<img src='/static/deadbeef.jpg'"), "{out}");
         assert!(out.contains("href='/a/b.png'"), "{out}");
-        // q26: measured dimensions ride the element that ships.
+        // measured dimensions ride the element that ships.
         assert!(out.contains("width='640' height='480'"), "{out}");
     }
 
@@ -592,7 +591,7 @@ mod tests {
     /// to be ignored, and this is the refusal that replaced the silence.
     ///
     /// Mutation, red and restored: return `Ok` from the `split_once('=')` arm
-    /// (ignore the token, as before) → all three cases render a default
+    /// (ignore the token, as before) -> all three cases render a default
     /// thumbnail without complaint.
     #[test]
     fn an_unparseable_ask_is_an_error_naming_the_file() {

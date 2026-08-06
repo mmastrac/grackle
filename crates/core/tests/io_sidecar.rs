@@ -1,9 +1,9 @@
 //! Sidecars: identity for a file that cannot carry a block.
 //!
 //! Identity comes from "a literal block, or a sidecar file", and
-//! §3 says what the second spelling buys: **sidecars split identity from
-//! parsing**. A `.png` with a sidecar is a governed row — declared fields,
-//! schema-validated, a title, a place in the link graph — whose bytes are never
+//! says what the second spelling buys: **sidecars split identity from
+//! parsing**. A `.png` with a sidecar is a governed row, declared fields,
+//! schema-validated, a title, a place in the link graph, whose bytes are never
 //! parsed. Which facts a file has and what the pipeline does with it are
 //! separate questions with separate answers, and this file is where the two
 //! answers are pinned apart.
@@ -16,7 +16,7 @@
 //! No corpus site uses a sidecar, so parity is free and every guard here is the
 //! capability's only evidence.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::SiteDb;
@@ -26,7 +26,7 @@ use std::path::PathBuf;
 mod support;
 use support::{load, load_err, render};
 
-/// A 2×3 PNG — real bytes, because a sidecar'd image is still an image: the
+/// A 2×3 PNG, real bytes, because a sidecar'd image is still an image: the
 /// header read runs on it and a test that fed the loader text named `.png`
 /// would not know if it stopped.
 const PNG: &[u8] = &[
@@ -37,12 +37,12 @@ const PNG: &[u8] = &[
     0x8b, 0x8f, 0x82, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ];
 
-/// A site inheriting the base — so the objects rule, the tree rules and the
+/// A site inheriting the base, so the objects rule, the tree rules and the
 /// front-matter gate are the real ones rather than a fixture's idea of them.
 /// The site routes its own images, because
-/// every claim below is about a governed image's own address — `/assets/
+/// every claim below is about a governed image's own address, `/assets/
 /// kite.png`, the bytes it ships there, the picture refusal that advises a
-/// route — and an embed-addressed row has no address of its own to make those
+/// route, and an embed-addressed row has no address of its own to make those
 /// claims about.
 const CONFIG: &str = "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\
                       \n[schema]\nalt = { type = \"string\" }\ncover = { type = \"image\" }\n\
@@ -66,28 +66,28 @@ fn row<'a>(db: &'a SiteDb, rel: &str) -> &'a grackle_core::model::Row {
 /// Every clause of that sentence is a separate assertion, because they come
 /// apart in different directions:
 ///
-/// - **identity** — `front_mattered` true, from a file the image cannot hold;
-/// - **not parsed** — `rendered` false, `body_bytes` 0, and the published bytes
-///   are the PNG, byte for byte;
-/// - **governed** — a declared field validates and lands on the row, and the
-///   title the sidecar wrote is the row's title;
-/// - **still a picture** — the extension fact is untouched, so the header read
-///   still fills 2×3 and the objects index still holds it.
+/// - **identity**, `front_mattered` true, from a file the image cannot hold;
+/// - **not parsed**, `rendered` false, `body_bytes` 0, and the published bytes
+///  are the PNG, byte for byte;
+/// - **governed**, a declared field validates and lands on the row, and the
+///  title the sidecar wrote is the row's title;
+/// - **still a picture**, the extension fact is untouched, so the header read
+///  still fills 2×3 and the objects index still holds it.
 ///
 /// The two controls are in the same site: a sidecar-LESS image (identity false,
 /// same bytes at the same URL) and an ordinary block-identity page. Neither may
-/// move, and each fails a different wrong implementation — one that gave every
+/// move, and each fails a different wrong implementation, one that gave every
 /// image identity, and one that broke blocks while adding sidecars.
 ///
 /// Mutations, each red and each restored: drop the `sidecar.is_some()` term in
 /// `has_identity` (the row loses identity, its title and its `alt`); pass
-/// `has_identity` to `shell::renders` instead of the block — the split
+/// `has_identity` to `shell::renders` instead of the block, the split
 /// collapsing, and the load dies one line later on the **picture refusal**,
 /// which sits directly downstream of `rendered` and catches it first:
 /// `assets/kite.png: shell = "raw" would render this file as a document, and
 /// its bytes are a picture … Route it `raw``. The message advising a route the
 /// row already wears is the collapse showing through, and it is the failure
-/// mode to expect — not the UTF-8 error, which is what the *picture refusal's*
+/// mode to expect, not the UTF-8 error, which is what the *picture refusal's*
 /// own mutation produces (`io_sidecar.rs`'s deferred-description test), one
 /// rung further down.
 #[test]
@@ -159,7 +159,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
 
     // The `explain` line: the fact carries its provenance, because
     // `true` beside `rendered false` is unreadable without it. And the join's:
-    // a sidecar'd row's OUTPUT is its bytes — identity without content lands
+    // a sidecar'd row's OUTPUT is its bytes, identity without content lands
     // exactly where the file always did, which is the third pair the block
     // teaches (`front_mattered true / rendered false / output <the file>`).
     assert_eq!(
@@ -178,7 +178,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
 }
 
 /// **A sidecar is governed like any block**: an undeclared key is a
-/// load error naming the knowns — and it names the SIDECAR, which is the file
+/// load error naming the knowns, and it names the SIDECAR, which is the file
 /// the author has to edit.
 ///
 /// Mutation: name `f.path` instead of `identity_path` in the `validate` call
@@ -210,8 +210,8 @@ fn an_undeclared_key_in_a_sidecar_is_a_load_error_naming_the_knowns() {
 /// The alternative was a precedence rule, and the argument against it is that
 /// there is no honest one to write: a sidecar exists for files that CANNOT
 /// carry a block, so a file doing both has said the same thing twice in two
-/// places that will drift. It is the marker-collision shape — an unrankable
-/// disagreement — and it gets the marker answer.
+/// places that will drift. It is the marker-collision shape, an unrankable
+/// disagreement, and it gets the marker answer.
 ///
 /// Mutation: delete the `bail!` and the site loads with the BLOCK silently
 /// winning (the sidecar's title never appears), which is a precedence rule
@@ -233,7 +233,7 @@ fn a_block_and_a_sidecar_on_one_file_is_a_load_error() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The sidecar is a declaration, not content** — no route, no bytes, not in
+/// **The sidecar is a declaration, not content**, no route, no bytes, not in
 /// the URL set.
 ///
 /// The control is the whole reason the mechanism keys on the PAIR rather than
@@ -242,7 +242,7 @@ fn a_block_and_a_sidecar_on_one_file_is_a_load_error() {
 /// declaration" would have swallowed it silently.
 ///
 /// Mutation: drop the `is_sidecar` filter in `walk_site` and
-/// `/assets/kite.png.toml` joins the published set — the row's own metadata
+/// `/assets/kite.png.toml` joins the published set, the row's own metadata
 /// served as a file.
 #[test]
 fn a_sidecar_is_not_a_row_and_a_lone_toml_still_is() {
@@ -278,17 +278,9 @@ fn a_sidecar_is_not_a_row_and_a_lone_toml_still_is() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **A sidecar'd row is not degenerate**, because it has a name.
-///
-/// This is the one place `renders` and `degenerate` visibly disagree about
-/// which question to ask — the law reads the block, the warning reads identity
-/// — so the site holds both shapes at once: a sidecar'd `.html` under
-/// `shell = "html"` renders WITHOUT a warning, and the blockless `.html` beside
-/// it renders WITH one.
-///
-/// Mutation: pass the block instead of `has_identity` to `shell::degenerate`
-/// and the sidecar'd row is warned about while carrying the title the author
-/// wrote for it.
+/// A sidecar'd row has identity, so it is not degenerate: `renders` reads
+/// the block, the warning reads identity. Sidecar'd `.html` under
+/// `shell = "html"` renders without a warning; a blockless sibling warns.
 #[test]
 fn a_sidecard_row_earns_no_degeneracy_warning() {
     let dir = site(
@@ -352,7 +344,7 @@ fn a_sidecard_row_earns_no_degeneracy_warning() {
 }
 
 /// **A place in the link graph**: an image field is a foreign key to
-/// a row, and a sidecar'd image is that row — carrying the alt text the field's
+/// a row, and a sidecar'd image is that row, carrying the alt text the field's
 /// consumer will want.
 ///
 /// The negative half is what makes it a graph rather than a coincidence: point
@@ -389,7 +381,7 @@ fn an_image_field_resolves_to_a_sidecard_row() {
         image.fields.get("alt"),
         Some(&Value::Str("a red kite over a field".into())),
         "following the edge reaches the sidecar's fields — which is what \
-         governance is FOR (q49: the real consumer is alt text)"
+         governance is FOR"
     );
 
     // The edge is checked, and the sidecar does not exempt it.
@@ -416,7 +408,7 @@ fn an_image_field_resolves_to_a_sidecard_row() {
 /// the fold, editing a sidecar changes a row's title and nothing knows.
 ///
 /// Mutation: drop the `^ sc.version` fold and the two versions are equal while
-/// the titles differ — a rebuild that skips the row.
+/// the titles differ, a rebuild that skips the row.
 #[test]
 fn editing_a_sidecar_moves_the_rows_version() {
     let dir = site(
@@ -453,19 +445,19 @@ fn editing_a_sidecar_moves_the_rows_version() {
 
 /// **The description page is refused, and no item owns it**.
 ///
-/// An image with a sidecar CAN wear an html output in the model — that is the
-/// object's description page — and it needs an output whose content is not the
+/// An image with a sidecar CAN wear an html output in the model, that is the
+/// object's description page, and it needs an output whose content is not the
 /// row's bytes, which the engine does not have. So the shape is refused where
 /// the author wrote it, for both spellings of identity.
 ///
 /// I8 wrote this as "one line to delete when I11/I12 lands". Both landed and
 /// neither built it (I11 gave an input a second ADDRESS, I12 derived BYTES; a
-/// description page is an output rendered from a row's FIELDS), and I13 —
-/// the last item of the ledger — corrected the pointer rather than inheriting
+/// description page is an output rendered from a row's FIELDS), and I13,
+/// the last item of the ledger, corrected the pointer rather than inheriting
 /// it. The refusal is not an interim.
 ///
 /// Mutation: delete the check and the load dies on `stream did not contain
-/// valid UTF-8` — the render path reading the PNG as a document body, naming a
+/// valid UTF-8`, the render path reading the PNG as a document body, naming a
 /// file and no reason.
 #[test]
 fn a_picture_may_not_wear_a_document_shell() {
@@ -487,7 +479,7 @@ fn a_picture_may_not_wear_a_document_shell() {
     assert!(e.contains("not built yet"), "{e}");
     assert!(e.contains("raw"), "the fix is named: {e}");
 
-    // The same refusal without a sidecar — the law is about the FILE's bytes,
+    // The same refusal without a sidecar, the law is about the file's bytes,
     // not about where identity came from, so a degenerate image is refused too.
     let bare = site(
         "described-bare",
@@ -504,12 +496,12 @@ fn a_picture_may_not_wear_a_document_shell() {
 }
 
 /// **A sidecar is read on the DECLARATION walk**, and this is what that buys:
-/// a file-shaped `exclude` pattern is a statement about *content* — grack.com's
-/// `exclude` lists `*.toml` — and it must not silently unspeak an identity
+/// a file-shaped `exclude` pattern is a statement about *content*, grack.com's
+/// `exclude` lists `*.toml`, and it must not silently unspeak an identity
 /// declaration. The markers' narrowing again, one declaration family newer.
 ///
 /// Mutation: read sidecars on the content walk instead and this site loses
-/// every sidecar it has, silently, with the images still shipping — the
+/// every sidecar it has, silently, with the images still shipping, the
 /// failure mode that is invisible in a build's file list.
 #[test]
 fn a_content_exclude_does_not_unspeak_a_sidecar() {

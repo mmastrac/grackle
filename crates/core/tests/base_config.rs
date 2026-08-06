@@ -1,9 +1,9 @@
-//! The base config's falsifier (DESIGN.md §4d).
+//! The base config's falsifier.
 //!
 //! `examples/raw` is the base config spelled out under `extends = "none"`, and
 //! `examples/minimal` is an empty file over the same content tree. If the two
 //! stop agreeing, either the compiled base changed without its printed copy or
-//! the merge is not doing what the printed copy says — and both failures are
+//! the merge is not doing what the printed copy says, and both failures are
 //! invisible by inspection, because the whole point of the base is that you
 //! never see it.
 
@@ -34,7 +34,7 @@ fn an_empty_config_and_the_printed_base_agree() {
     );
 }
 
-/// The claim that makes §4d worth having: zero lines of config is a whole
+/// The claim that makes worth having: zero lines of config is a whole
 /// site. Asserted by URL rather than by count so that it fails when a route
 /// silently stops materializing, not only when the base shrinks.
 #[test]
@@ -54,7 +54,7 @@ fn zero_lines_of_config_is_a_whole_site() {
 
 /// The base's second rule: it may not mint a URL the author did not ask for.
 /// A site with no `_posts/` never asked for an empty `/blog/` or a feed with
-/// no entries, so the inherited routes with nothing to show stand down — while
+/// no entries, so the inherited routes with nothing to show stand down, while
 /// `/about/` and the sitemap, which have something to say, do not.
 #[test]
 fn an_inherited_route_with_nothing_to_show_does_not_materialize() {
@@ -74,7 +74,7 @@ fn an_inherited_route_with_nothing_to_show_does_not_materialize() {
     }
 }
 
-/// §4e: `draft` is a declared field, not engine vocabulary. Under the base it
+/// `draft` is a declared field, not engine vocabulary. Under the base it
 /// is there because `base.toml` declares it; under `extends = "none"` a site
 /// that never declared it cannot filter on it, and the error names the knowns
 /// instead of the filter quietly matching everything.
@@ -128,7 +128,7 @@ fn extends_none_inherits_nothing() {
 // the two example sites that have an absolute answer about provenance give it.
 
 /// Every config in the repo prints, and prints TOML. Comments are TOML's own,
-/// so "valid with the comments stripped" needs no stripping — the parser does
+/// so "valid with the comments stripped" needs no stripping, the parser does
 /// it, which is also the only definition of stripping that cannot be wrong.
 #[test]
 fn every_sites_effective_config_parses_back() {
@@ -151,8 +151,8 @@ fn every_sites_effective_config_parses_back() {
     }
 }
 
-/// The claim §4d is built on, seen instead of inferred: an empty
-/// `grackle.toml` is a whole config, and every line of it says `base` —
+/// The claim is built on, seen instead of inferred: an empty
+/// `grackle.toml` is a whole config, and every line of it says `base`,
 /// except the three keys neither file writes, which say `default`.
 ///
 /// This is the golden test's job without the golden's churn: it fails if the
@@ -183,13 +183,13 @@ fn the_empty_sites_effective_config_is_entirely_inherited() {
 }
 
 /// Every top-level field `Config` gives a value to when NEITHER file writes
-/// one is in minimal's effective config — the guard `engine_defaults()`'s doc
+/// one is in minimal's effective config, the guard `engine_defaults()`'s doc
 /// comment has promised since B3 and did not have (batch review
 /// 2 finding 2: deleting `("extends", …)` passed the whole suite).
 ///
 /// `engine_defaults()` is the one hand-maintained list in `--effective`. It
-/// does not COPY the defaults — it calls the very functions each field's
-/// `#[serde(default = "…")]` names — but a NEW defaulted field still has to be
+/// does not COPY the defaults, it calls the very functions each field's
+/// `#[serde(default = "…")]` names, but a NEW defaulted field still has to be
 /// added to it, and nothing said so out loud. This is what says so: a key with
 /// an engine default that nobody adds is a key that prints nowhere, on the one
 /// site where "nowhere" is the whole output.
@@ -229,7 +229,7 @@ fn defaulted_scalars() -> Vec<String> {
     defaulted_scalars_in(include_str!("../../source/src/config/types.rs"))
 }
 
-/// The extraction itself, over any source text — which is what lets the
+/// The extraction itself, over any source text, which is what lets the
 /// spellings it must refuse be exhibited rather than described.
 fn defaulted_scalars_in(src: &str) -> Vec<String> {
     let body = src
@@ -244,7 +244,7 @@ fn defaulted_scalars_in(src: &str) -> Vec<String> {
         if line.starts_with("#[serde(default = \"") {
             armed = true;
             // The one-line spelling, `#[serde(default = "…", rename = "…")]`,
-            // arms the extraction here, so it must arm the refusal here too —
+            // arms the extraction here, so it must arm the refusal here too,
             // the `else if` below never sees it (batch review 3, finding 7).
             renamed |= line.contains("rename");
         } else if line.starts_with("#[serde(") && line.contains("rename") {
@@ -287,10 +287,11 @@ fn the_extractor_collects_defaults_that_name_a_function() {
     assert!(defaulted_scalars_in(&synthetic("#[serde(rename = \"inherits\")]")).is_empty());
 }
 
-/// The refusal, in the spelling that used to evade it: one attribute carrying both keys armed the extraction
-/// on the `if` arm, so the `else if` that watches for `rename` never ran and a
-/// renamed field would have been collected — and then reported missing from an
-/// effective config that prints it under its TOML name.
+/// One attribute carrying both keys must be refused: the `if` arm that
+/// watches for `default` would otherwise arm extraction and skip the
+/// `else if` that watches for `rename`, so a renamed field would be
+/// collected and then reported missing from an effective config that prints
+/// it under its TOML name.
 #[test]
 #[should_panic(expected = "a defaulted field is renamed")]
 fn a_default_and_a_rename_on_one_line_is_refused() {
@@ -299,7 +300,7 @@ fn a_default_and_a_rename_on_one_line_is_refused() {
     ));
 }
 
-/// Its two-line twin, which the assert already caught — kept beside it so the
+/// Its two-line twin, which the assert already caught, kept beside it so the
 /// pair says the refusal is about the FIELD, not about a line.
 #[test]
 #[should_panic(expected = "a defaulted field is renamed")]
@@ -333,11 +334,11 @@ fn the_uninheriting_sites_effective_config_is_entirely_its_own() {
 
 /// The preamble asserted a projection without ever checking
 /// there was one, so `--effective --profile nosuch` explained the effect of a
-/// profile that does not exist — while `build --profile nosuch` refuses the
+/// profile that does not exist, while `build --profile nosuch` refuses the
 /// same name outright. One lookup against the merged `[profiles]` table.
 ///
 /// It keeps printing, deliberately: the merge below is what was asked for and
-/// is unaffected by a name that names nothing — the projection is the part
+/// is unaffected by a name that names nothing, the projection is the part
 /// that would not have happened.
 ///
 /// Mutation check: drop the `known.contains` test and the unknown name reads
@@ -372,14 +373,14 @@ fn an_unknown_profile_is_named_in_the_effective_preamble() {
 }
 
 /// `--effective --profile NAME` prints the PROJECTED config, and
-/// the overlay is one more writer in the same traced merge — so a key the
+/// the overlay is one more writer in the same traced merge, so a key the
 /// profile wrote reads `# profile NAME` exactly as a key the site wrote reads
 /// `# site`. B3's design, carried to a fourth rung: there is no second
 /// traversal and no after-the-fact diff, so the provenance cannot disagree with
 /// the projection the build ran.
 ///
 /// It also shows the LAW. `[sets.published]` is a definition, so the comment
-/// sits on the header and none of its keys carry one — you never inherit half
+/// sits on the header and none of its keys carry one, you never inherit half
 /// of one, which is why grack.com's drafts profile restates the set in full.
 ///
 /// Mutation check: delete the `project` call in `effective_toml` and the
@@ -413,7 +414,7 @@ fn the_effective_config_shows_the_projection() {
         );
     }
     // Everything the profile did not write keeps what the merge UNDERNEATH
-    // decided — the overlay has no farther writer to attribute, because that
+    // decided, the overlay has no farther writer to attribute, because that
     // question was already answered one layer down.
     let untouched = |text: &str| -> Vec<String> {
         text.lines()

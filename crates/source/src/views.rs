@@ -1,4 +1,4 @@
-//! Views become routes: resolve queries into row sets, partitions (§5c), and `Route`s.
+//! Views become routes: resolve queries into row sets, partitions, and `Route`s.
 
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
@@ -68,7 +68,7 @@ fn group_keys(row: &dyn filter::Row, spec: &str) -> Vec<GroupKey> {
     }
 }
 
-/// Every `group_by` spec must name a field of the base's vocabulary (§5c).
+/// Every `group_by` spec must name a field of the base's vocabulary.
 fn check_group_chain(name: &str, chain: &[String], schema: &filter::Schema) -> Result<()> {
     let mut known: Vec<&str> = schema.keys().copied().collect();
     known.sort_unstable();
@@ -113,7 +113,7 @@ struct Cell {
     rows: Vec<grackle_db::Key>,
 }
 
-/// Partition rows by subdivision chain (§5c), one cell per composite key.
+/// Partition rows by subdivision chain, one cell per composite key.
 fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> Vec<Cell> {
     #[allow(clippy::type_complexity)]
     let mut groups: BTreeMap<Vec<SortKey>, (Vec<(String, String)>, Vec<grackle_db::Key>)> =
@@ -148,7 +148,7 @@ fn partition(chain: &[String], rows: &[(grackle_db::Key, &dyn filter::Row)]) -> 
         .collect()
 }
 
-/// Pairing-axis values to materialize (§6f). Default-on; `partition = "default"` = canonical only.
+/// Pairing-axis values to materialize. Default-on; `partition = "default"` = canonical only.
 fn partition_values<'a>(cfg: &'a Config, v: &View) -> Vec<&'a str> {
     match (v.partition.as_deref(), cfg.pairing_axis()) {
         (_, None) => vec![""],
@@ -184,7 +184,7 @@ fn insert_routeless(db: &mut SiteDb, name: &str, v: &View, members: Vec<grackle_
     );
 }
 
-/// Newest first, undated last, slug tiebreak (q51). First declared date field.
+/// Newest first, undated last, slug tiebreak. First declared date field.
 pub fn chronological(
     declared: &grackle_db::filter::Schema,
     rows: &[grackle_model::Row],
@@ -240,8 +240,8 @@ fn declared_order(known: &[&str], who: &str, spec: Option<&str>) -> Result<Vec<g
     Ok(out)
 }
 
-/// CLI `grackle explain` chronological walk (canonical only, §6f). Rendered
-/// earlier/later steps are relations (§6g), not this.
+/// CLI `grackle explain` chronological walk. Rendered
+/// earlier/later steps are relations, not this.
 pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
     let mut out: BTreeMap<String, Vec<grackle_db::Key>> = BTreeMap::new();
     let order = newest_first(&schemas.declared_schema());
@@ -263,7 +263,7 @@ pub(crate) fn build_adjacency(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) 
     Ok(())
 }
 
-/// View declarations as route fields (§4e). `shell` always set (fold filters need it).
+/// View declarations as route fields. `shell` always set (fold filters need it).
 fn view_fields(
     v: &View,
     schema: &BTreeMap<String, crate::schema::FieldType>,
@@ -302,12 +302,12 @@ pub(crate) fn build_views(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> R
             .and_then(|n| cfg.collections.get(n))
             .is_some_and(|c| c.is_objects());
         let base = Base::resolve(schemas, name, &q, base_is_objects)?;
-        // q53: axis outermost so i18n/group/page stay a substitution within each member.
+        // axis outermost so i18n/group/page stay a substitution within each member.
         for members in axis_member_combos(cfg, name, v)? {
             build_view(cfg, db, name, v, &q, base.clone(), members, &route_schema)?;
         }
     }
-    // §4d: inherited empty routes do not materialize; site-declared ones may.
+    // Inherited empty routes do not materialize; site-declared ones may.
     db.routes.retain(|r| {
         let Some(v) = r.view.as_deref().and_then(|n| cfg.views.get(n)) else {
             return true; // a row's own route, not a view's
@@ -415,7 +415,7 @@ fn build_view(
         membership,
         parsed,
     } = base;
-    // §6f: objects have no pairing axis.
+    // Objects have no pairing axis.
     if !parsed && v.partition.is_some() {
         bail!("view {name}: objects have no pairing axis; object views cannot declare partition");
     }
@@ -428,7 +428,7 @@ fn build_view(
         });
     let rows = &db.rows;
 
-    // One row set per pairing-axis value (§6f); single cell if none.
+    // One row set per pairing-axis value; single cell if none.
     let pairing = cfg.pairing_axis();
     let rows_for = |axis_value: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
@@ -473,7 +473,7 @@ fn build_view(
     if tmpls.is_empty() {
         bail!("view {name} needs a route");
     }
-    // Without `{n}` = page-1 candidates; with `{n}` paginate. Axes spent at select (§6f).
+    // Without `{n}` = page-1 candidates; with `{n}` paginate. Axes spent at select.
     let page1: Vec<&String> = tmpls.iter().filter(|t| !t.contains("{n}")).collect();
     let paged: Vec<&String> = tmpls.iter().filter(|t| t.contains("{n}")).collect();
     if v.paginate.is_some() && paged.is_empty() {
@@ -491,7 +491,7 @@ fn build_view(
     if !chain.is_empty() {
         check_group_chain(name, &chain, &schema)?;
     }
-    // §6f: grouped URLs wear record slug; keys/titles keep the id.
+    // Grouped URLs wear record slug; keys/titles keep the id.
     let leaf = chain.last().cloned();
     let route_value = |k: &str, val: &str| -> String {
         let field = if k == "key" { leaf.as_deref() } else { Some(k) };
@@ -506,7 +506,7 @@ fn build_view(
     for axis_value in &axis_values {
         let row_ix = rows_for(axis_value);
         let cells = if chain.is_empty() {
-            // Empty non-canonical pairing cell: no page (§6f).
+            // Empty non-canonical pairing cell: no page.
             if row_ix.is_empty() && *axis_value != pairing_canon {
                 continue;
             }
@@ -625,7 +625,7 @@ fn build_view(
 /// Conjunction of every `where` along the `from` chain (incl. path globs).
 fn declared_filter(name: &str, q: &Query, schema: &filter::Schema) -> Result<filter::Filter> {
     Ok(match q.predicate() {
-        // Type-check here: Config cannot see positional schema (§4a).
+        // Type-check here: Config cannot see positional schema.
         Some(src) => filter::Filter::parse(&src, schema).with_context(|| {
             let note = match q.patched.is_empty() {
                 true => String::new(),
@@ -674,7 +674,7 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
             None => filter::Filter::always(),
         };
         let members = db.routes.select(&pred);
-        // q53: all-outputs folds see the canonical axis member only.
+        // all-outputs folds see the canonical axis member only.
         let members: Vec<grackle_db::Key> = members
             .into_iter()
             .filter(|k| {
@@ -764,13 +764,13 @@ mod posts_order_tests {
         Config::from_toml(&src).expect("test config parses")
     }
 
-    /// A view with no `order_by` orders by PATH — not newest-first. A posts
+    /// A view with no `order_by` orders by PATH, not newest-first. A posts
     /// collection asks for dates.
     ///
     /// `where` reads declared `.schema.toml` fields, like `order_by`,
     /// `group_by` and a relation's `rank` already did. It was the one consumer
     /// parsing against the bare row schema, so a site could declare a bool,
-    /// group by it, sort by it — and then get `unknown field` from its own
+    /// group by it, sort by it, and then get `unknown field` from its own
     /// filter. Mutation-checked by restoring `row_schema()` at the parse site.
     #[test]
     fn a_where_may_name_a_declared_field() {
@@ -942,7 +942,7 @@ mod grouping_tests {
     }
 }
 
-/// Sequence per collection (q51), not a post-filter.
+/// Sequence per collection, not a post-filter.
 #[cfg(test)]
 mod adjacency_tests {
     use super::*;
@@ -1014,7 +1014,7 @@ mod adjacency_tests {
         assert_eq!(seq(&db, "notes"), ["/notes/apr/", "/notes/feb/"]);
     }
 
-    /// Diagnostic walk includes drafts; rendered neighbours are §6g relations.
+    /// Diagnostic walk includes drafts; rendered neighbours are relations.
     #[test]
     fn the_diagnostic_walk_is_chronological_and_unfiltered() {
         let c = cfg("");

@@ -1,19 +1,12 @@
-//! Embeddings → related posts (DESIGN §6b: "this retires LSI").
+//! Embeddings to related posts.
 //!
-//! Each post embeds as the text `[schema.embeddings].string` renders over the
-//! row (plus `{body}`) — so which fields carry signal is config, and a change
-//! to that string re-embeds (it is part of the cache key). Vectors cache by
-//! content hash; an `index.json` maps post name → current hash so a post
-//! whose text changed can keep serving its **stale** vector until the
-//! background pass re-embeds it — stale-while-revalidate, the resident
-//! database's move (§7). Similarity is brute-force cosine over ~327 vectors;
-//! a vector index at this scale would be the classic mistake.
+//! Each post embeds as `[schema.embeddings].string` over the row (plus
+//! `{body}`). Vectors cache by content hash; stale-while-revalidate keeps
+//! serving until the background pass re-embeds. Similarity is brute-force
+//! cosine.
 //!
-//! Ranking policy for the `grackle query similar` diagnostic lives in
-//! [`RankPolicy`]. Site rendering no longer ranks here — §6g's relation engine
-//! does, via the `embedding_similarity` score function — so `[related]`
-//! retired from config; this is the raw-order inspector only.
-
+//! [`RankPolicy`] is for `grackle query similar` only. Site ranking is the
+//! relation engine's `embedding_similarity` score function.
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,8 +19,8 @@ const DIM: usize = 384;
 pub type Vector = Vec<f32>;
 
 /// How `grackle query similar` ranks: a candidate limit and the same optional
-/// recency shaping the old `[related]` block carried. Not config any more —
-/// the one caller (the CLI) builds it — but kept as a struct so the diagnostic
+/// recency shaping the old `[related]` block carried. Not config any more,
+/// the one caller (the CLI) builds it, but kept as a struct so the diagnostic
 /// can still show a year-penalised order if asked.
 #[derive(Debug, Clone, Copy)]
 pub struct RankPolicy {
@@ -54,7 +47,7 @@ pub fn cache_key(p: &crate::model::Row) -> String {
     p.rel.to_string_lossy().to_string()
 }
 
-/// The text a post embeds as — `[schema.embeddings].string` over the row.
+/// The text a post embeds as, `[schema.embeddings].string` over the row.
 pub fn text_of(cfg: &Config, p: &crate::model::Row, body: &str) -> Result<String> {
     cfg.embedding_text(p, body)
 }
@@ -125,7 +118,7 @@ pub fn load(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
 }
 
 /// The blocking model pass: embed everything pending, write the vectors, and
-/// point the index at them. Callers choose *when* — `build` runs it before
+/// point the index at them. Callers choose *when*, `build` runs it before
 /// rendering (published output is always fresh); `serve` runs it on a
 /// background thread and re-renders on completion.
 pub fn embed_pending(cache_dir: &Path, pending: &[Pending]) -> Result<()> {
@@ -148,7 +141,7 @@ pub fn embed_pending(cache_dir: &Path, pending: &[Pending]) -> Result<()> {
     Ok(())
 }
 
-/// Load, embed whatever is pending (blocking), and reload — the "fresh now"
+/// Load, embed whatever is pending (blocking), and reload, the "fresh now"
 /// path: AOT builds and CLI queries.
 pub fn fresh(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
     let l = load(db, cfg, cache_dir)?;
@@ -159,7 +152,7 @@ pub fn fresh(db: &SiteDb, cfg: &Config, cache_dir: &Path) -> Result<Loaded> {
     load(db, cfg, cache_dir)
 }
 
-/// Related-posts table: post index → top-N (index, adjusted score), best
+/// Related-posts table: post index -> top-N (index, adjusted score), best
 /// first, under the config's policy.
 pub struct Related {
     pub by_post: HashMap<crate::model::Key, Vec<(crate::model::Key, f32)>>,
@@ -177,15 +170,15 @@ pub fn rank(
     let mut by_post = HashMap::new();
     for (i, vi) in vectors.iter().enumerate() {
         let Some(vi) = vi else { continue };
-        // A post never matches itself — its own vector is cosine 1.0 and
+        // A post never matches itself, its own vector is cosine 1.0 and
         // would top every list if this filter regressed (pinned by test).
         let mut scored: Vec<(usize, f32)> = vectors
             .iter()
             .enumerate()
             .filter(|(j, vj)| *j != i && vj.is_some())
-            // q53: similarity does not cross an axis. Twins of this row
+            // similarity does not cross an axis. Twins of this row
             // (translation, other file-axis form) share a non-empty `logical`
-            // and nearly identical text — they would otherwise top the list.
+            // and nearly identical text, they would otherwise top the list.
             // Route-only axes (theme, …) are the same row, already excluded by
             // `j != i`. Empty logical means no pairing (fixture / monolingual).
             .filter(|(j, _)| match (row(i), row(*j)) {
@@ -466,7 +459,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         // A post whose OLD text was embedded and indexed. The body lives on
-        // disk — no row holds one — so the fixture writes a real file.
+        // disk, no row holds one, so the fixture writes a real file.
         let src = dir.join("a.md");
         std::fs::write(&src, "---\ntitle: x\n---\nbody").unwrap();
         let mut p = Row {

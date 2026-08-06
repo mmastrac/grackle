@@ -24,7 +24,7 @@ pub struct Ctx<'a> {
     pub cfg: &'a Config,
     pub db: &'a SiteDb,
     pub site: &'a Site<'a>,
-    /// Every theme. A pass resolves the row's own (§5a) — there is
+    /// Every theme. A pass resolves the row's own, there is
     /// deliberately no default-theme handle here, because reaching for one
     /// is how a route ends up rendered by two themes at once.
     pub themes: &'a theme::Themes,
@@ -39,9 +39,9 @@ pub struct Ctx<'a> {
     pub css_urls: &'a crate::assets::CssUrls,
     pub root: PathBuf,
     pub profile: Option<&'a str>,
-    /// `[html.head.meta]`, compiled once (§4e).
+    /// `[html.head.meta]`, compiled once.
     pub metas: &'a crate::render::Metas,
-    /// `[html.html.attribute]` / `[html.body.attribute]`, compiled once (§4e).
+    /// `[html.html.attribute]` / `[html.body.attribute]`, compiled once.
     pub attrs: &'a crate::render::HtmlAttrs,
     /// Picture rows (`width` set): a listing asks per member whether the row IS
     /// the picture, and the membership list is a Vec.
@@ -68,7 +68,7 @@ impl<'a> Ctx<'a> {
     }
 
     /// A listing wears its members' theme when they unanimously name one
-    /// (§5h). Subtheme tokens are one row's dress and never lift; mixed or
+    /// Subtheme tokens are one row's dress and never lift; mixed or
     /// theme-less members keep the default.
     pub fn unanimous_theme(&self, r: &Route) -> Option<&'a str> {
         let mut names = r.members.iter().map(|k| {
@@ -103,7 +103,7 @@ pub fn all() -> Vec<Box<dyn Pass>> {
 }
 
 /// Walk the route table once. Every layouted route that is not a landing
-/// goes to the aggregate pass — `layout` / `variant` only pick the member
+/// goes to the aggregate pass, `layout` / `variant` only pick the member
 /// face the theme must ship.
 pub fn run(
     ctx: &Ctx,
@@ -116,7 +116,7 @@ pub fn run(
         let Some(v) = ctx.cfg.views.get(view) else {
             continue;
         };
-        // §5h: a route that claims a content row renders in the landing pass —
+        // A route that claims a content row renders in the landing pass,
         // view-level for a literal `content`, or per-route (`Route.content`)
         // when a templated `content`/`default_content` resolved to a row for
         // THIS route. A templated `default_content` offer declined by a route

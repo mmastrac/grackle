@@ -1,10 +1,10 @@
-//! A theme is a directory of data (§5e): binder fragments + CSS. This module
+//! A theme is a directory of data: binder fragments + CSS. This module
 //! loads one and renders full pages: the layout kind's part map through its
 //! fragment, the result into the root chrome, identity slots filled from the
 //! tree.
 //!
-//! The chrome file is **`root.html`** and the kind it binds is `root`. It may be a bare fragment — which is the body chrome, and what every
-//! theme here writes — or document-shaped, with a `<head>` fenced to `<style>`
+//! The chrome file is **`root.html`** and the kind it binds is `root`. It may be a bare fragment, which is the body chrome, and what every
+//! theme here writes, or document-shaped, with a `<head>` fenced to `<style>`
 //! and a `<body>`; `binder::split_root` is that split, and the engine keeps
 //! owning `<html>` and the computed head either way. The head half leaves as
 //! CSS: `head_style()` is read by the CSS assembly, never by a page.
@@ -12,7 +12,7 @@
 //! The root's engine-provided parts are `site_title` (config), `axes` (the
 //! language/theme switcher) and `main` (the rendered kind). **Every other
 //! `html`-typed root slot is an identity slot**, resolved from `.slots/` up
-//! the source path — the theme places `<p data-slot="copyright">`; the tree
+//! the source path, the theme places `<p data-slot="copyright">`; the tree
 //! owns the words. A fill is markup, so the part type is what decides
 //! (`from_sources`); a fill naming no identity slot of any loaded theme is a
 //! load-time warning (`build::render_site`).
@@ -34,7 +34,7 @@ pub struct Theme {
     identity: Vec<(&'static str, bool)>,
     style: String,
     manifest: Manifest,
-    /// Positional `.slots/chrome.html` overrides: owner directory → the
+    /// Positional `.slots/chrome.html` overrides: owner directory -> the
     /// fragment name each registered under. Resolved nearest-wins per page,
     /// the same ascent as every other fill.
     chrome_overrides: std::collections::BTreeMap<PathBuf, String>,
@@ -116,7 +116,7 @@ impl Manifest {
         self.subthemes.get(token).copied().flatten()
     }
 
-    /// Both schemes declared — the scheme chrome part's capability fact.
+    /// Both schemes declared, the scheme chrome part's capability fact.
     fn covers_both_schemes(&self) -> bool {
         let mut dark = false;
         let mut light = false;
@@ -142,8 +142,8 @@ pub struct ChromeInput {
     /// (label, feed URL) when a `shell = "atom"` route materialized.
     pub feed: Option<(String, String)>,
     pub scheme: SchemeLabels,
-    /// The skip link's label (`@skip`). Not a capability — the link is
-    /// always correct — but the label is words, and words localize. Empty
+    /// The skip link's label (`@skip`). Not a capability, the link is
+    /// always correct, but the label is words, and words localize. Empty
     /// (an `extends = "none"` site that declares no string) drops the link.
     pub skip: String,
 }
@@ -166,10 +166,10 @@ t=(h.getAttribute('data-subtheme')||'').split(' ')\
 h.setAttribute('data-subtheme',t.join(' '))}}catch(e){}</script>";
 
 /// Split a row's theme spec: the directory name before the first `:`,
-/// subtheme tokens after it, space-joined — `"recipes:spicy"` renders
+/// subtheme tokens after it, space-joined, `"recipes:spicy"` renders
 /// through the `recipes` theme with `subtheme = "spicy"` on the root,
 /// which CSS subselects via `[data-subtheme~="spicy"]` (the same
-/// whitespace-token trick as §5b's data-scope).
+/// whitespace-token trick as data-scope).
 pub fn split_spec(spec: &str) -> (&str, Option<String>) {
     match spec.split_once(':') {
         Some((name, rest)) => {
@@ -189,10 +189,10 @@ pub fn css_url(baseurl: &str, theme: Option<&str>) -> String {
 }
 
 /// Every theme under `themes/`, keyed by directory name. Theme is chosen
-/// per row (§5a): a row names one (`theme:` front matter, cascadable via
+/// per row: a row names one (`theme:` front matter, cascadable via
 /// rule defaults); failing that the site default (`[site] theme`, else the
-/// `default` directory); a site with no themes at all gets the null theme —
-/// §5e's "needs no directory" made literal.
+/// `default` directory); a site with no themes at all gets the null theme,
+/// "needs no directory" made literal.
 pub struct Themes {
     map: std::collections::BTreeMap<String, Theme>,
     null: Theme,
@@ -215,7 +215,7 @@ impl Themes {
             for e in rd.filter_map(|e| e.ok()) {
                 let name = e.file_name().to_string_lossy().to_string();
                 // Underscore-prefixed directories are not themes, the same
-                // convention `_posts` and `_includes` already use — room for
+                // convention `_posts` and `_includes` already use, room for
                 // a site to keep working files beside its themes.
                 if e.path().is_dir() && !name.starts_with('_') {
                     map.insert(name, Theme::load(&e.path(), site_root, fields)?);
@@ -254,13 +254,13 @@ impl Themes {
     }
 
     /// The site default, split: `[site] theme` when there is one, else
-    /// `None` — which `get` reads as the `default` directory and `css_of` as
+    /// `None`, which `get` reads as the `default` directory and `css_of` as
     /// `/css/main.css`, exactly as before this key existed.
     pub fn site_default(&self) -> (Option<&str>, Option<String>) {
         (self.site_name.as_deref(), self.site_sub.clone())
     }
 
-    /// A row's `theme:` spec resolved against the site default — the whole
+    /// A row's `theme:` spec resolved against the site default, the whole
     /// cascade in one place, so the five render paths cannot drift on what
     /// "this row named nothing" means. A row that names a theme states its
     /// own subtheme tokens; the site's tokens are the site's, and reach only
@@ -276,7 +276,7 @@ impl Themes {
     }
 
     /// Look up a theme by directory name. `None` and `"default"` both mean
-    /// the `default` directory, or the base theme when there is none — so
+    /// the `default` directory, or the base theme when there is none, so
     /// callers pass the output of `resolve`, which has already spent
     /// `[site] theme`. A *named* theme that doesn't exist is an error listing
     /// the knowns: somebody asked for it explicitly.
@@ -298,12 +298,12 @@ impl Themes {
         self.map.keys().map(String::as_str)
     }
 
-    /// Every slot the tree may fill, over every theme that can RENDER —
+    /// Every slot the tree may fill, over every theme that can RENDER,
     /// sorted and deduped.
     ///
     /// The union is the point. Themes ship their own roots and may
     /// place different identity slots, so a fill is dead only when NO theme
-    /// would read it — a site that switches between two themes keeps both
+    /// would read it, a site that switches between two themes keeps both
     /// sets of words, and neither is a typo. The base theme joins the union
     /// on exactly the condition `get` reaches it: there is no
     /// `themes/default` for it to stand behind.
@@ -320,13 +320,13 @@ impl Themes {
     }
 
     /// The tree's `.slots/` fills. Every theme scans the same tree at load,
-    /// so the null theme's copy IS the tree's — this is a reader for that
+    /// so the null theme's copy IS the tree's, this is a reader for that
     /// scan, not a second one.
     pub fn fills(&self) -> &SlotFills {
         &self.null.fills
     }
 
-    /// Validate a full theme spec — name and subtheme tokens. The name half
+    /// Validate a full theme spec, name and subtheme tokens. The name half
     /// is `get`'s existing error; the token half is the manifest's
     /// declaration, and a theme without one validates nothing.
     pub fn check_spec(&self, spec: &str) -> Result<()> {
@@ -342,7 +342,7 @@ impl Themes {
 }
 
 impl Theme {
-    /// The null theme as a value — which is the BASE theme, not an empty one.
+    /// The null theme as a value, which is the BASE theme, not an empty one.
     /// A site with no `themes/` directory renders through the fragments the
     /// engine carries, so "no theme" means plain, never broken.
     pub fn null(
@@ -415,14 +415,14 @@ impl Theme {
         let mut fragments =
             Fragments::parse(base_sources).with_context(|| format!("parsing theme {what}"))?;
         // Overlay after base parse so inline defaults from a replaced parent
-        // (e.g. base `row` → crumb/tag) remain unless the theme ships that name.
+        // (e.g. base `row` -> crumb/tag) remain unless the theme ships that name.
         if !own.is_empty() {
             fragments
                 .overlay(own)
                 .with_context(|| format!("parsing theme {what}"))?;
         }
         // The site's cluster overrides: each `.slots/chrome.html` is a binder
-        // fragment shadowing `chrome` for its subtree over EVERY theme — the
+        // fragment shadowing `chrome` for its subtree over EVERY theme, the
         // tree overlay rung of the precedence law applied to a fragment-
         // bearing slot, and the place a site author mints chrome of their own
         // (literal markup may sit beside the engine holes). Positional like
@@ -472,7 +472,7 @@ impl Theme {
     }
 
     /// Validate one subtheme token against the manifest. A theme with no
-    /// `theme.toml` declares nothing and validates nothing — the pre-manifest
+    /// `theme.toml` declares nothing and validates nothing, the pre-manifest
     /// behavior, kept so undeclared themes keep loading.
     fn check_token(&self, token: &str, theme_name: &str) -> Result<()> {
         if !self.manifest.declared || self.manifest.subthemes.contains_key(token) {
@@ -497,8 +497,8 @@ impl Theme {
             })
     }
 
-    /// The root slots this theme leaves for the tree to fill — what a
-    /// `.slots/` file may be named for this theme (§5e).
+    /// The root slots this theme leaves for the tree to fill, what a
+    /// `.slots/` file may be named for this theme.
     pub fn identity_slots(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.identity.iter().map(|(n, _)| *n)
     }
@@ -521,7 +521,7 @@ impl Theme {
     /// tree can override the site's identity, nearest wins); `subtheme`
     /// is the row's `theme:` colon suffix, if any.
     /// `resolve_link` sees every markdown link in a fill, with the fill's
-    /// OWNER directory as its relative base (§6a) — this is how one nav.md
+    /// owner directory as its relative base, this is how one nav.md
     /// with `view:` links serves every pairing member: resolution runs per page.
     pub fn page(
         &self,
@@ -542,7 +542,7 @@ impl Theme {
         let mut m = PartMap::new("root");
         m.set("site_title", Part::Text(site_title.to_string()));
         // Chrome parts: each fills iff its fact holds, at whichever level the
-        // resolved root reads it — a slot the root places directly wins, the
+        // resolved root reads it, a slot the root places directly wins, the
         // `chrome` cluster takes the rest, and a root placing neither drops
         // the part. Placement is the theme's option, presence is the fact's.
         let root_slots: std::collections::BTreeSet<String> = self
@@ -551,14 +551,14 @@ impl Theme {
             .into_iter()
             .map(|(s, _)| s)
             .collect();
-        // The skip link is not a widget — no fact gates it — but its label
+        // The skip link is not a widget, no fact gates it, but its label
         // is words, and words localize. Root-level only.
         if !chrome.skip.is_empty() && root_slots.contains("skip") {
             m.set("skip", Part::Text(chrome.skip.clone()));
         }
         let mut cluster = PartMap::new("chrome");
         // The nearest positional override up the source path renders the
-        // cluster for this page — the fills' ascent, applied to a fragment.
+        // cluster for this page, the fills' ascent, applied to a fragment.
         let chrome_face = {
             let mut cur = source_dir;
             loop {
@@ -767,8 +767,8 @@ mod tests {
     ///
     /// What no arrangement may do is lose the thing the row is CALLED. A
     /// fragment that renders to nothing, or renders a summary with no title
-    /// in it anywhere — content slot, or an `alt` attribute, which is how
-    /// `summary--figure` legitimately carries one — is broken in every theme
+    /// in it anywhere, content slot, or an `alt` attribute, which is how
+    /// `summary--figure` legitimately carries one, is broken in every theme
     /// anyone would write, so it is worth failing the build over.
     #[test]
     fn every_gallery_theme_keeps_a_rows_name() {
@@ -808,9 +808,9 @@ mod tests {
 
     // ------------------------------------------------- identity slots
 
-    /// The identity set is derived from the declared PART TYPE, not from
-    /// a list of names. `axes` is `stream:axis` — the engine's own
-    /// language/theme switcher — so `.slots/axes.md` can no longer land in a
+    /// The identity set is derived from the declared part type, not from
+    /// a list of names. `axes` is `stream:axis`, the engine's own
+    /// language/theme switcher, so `.slots/axes.md` cannot land in a
     /// slot the binder validated as a stream. `site_title` falls out the same
     /// way (`text`), which leaves `main` as the one hand-written name.
     ///
@@ -845,7 +845,7 @@ mod tests {
     /// loaded theme would read it.
     ///
     /// Two claims in one tree. `nav` is placed by `other` alone and is live
-    /// anyway — that is the union. `copyright` is placed by neither, and is
+    /// anyway, that is the union. `copyright` is placed by neither, and is
     /// dead **even though the base's root places it**, because a site with
     /// a `themes/default` can never reach the base's root: the union takes
     /// the base on exactly the condition `get` does. This is the case
@@ -885,9 +885,9 @@ mod tests {
         assert!(w[1].contains("copyrite.md"), "{}", w[1]);
     }
 
-    /// Edge 2 of §3's back-tested list, as a lint rather than a hope: a
+    /// Edge 2 of back-tested list, as a lint rather than a hope: a
     /// theme that writes its own `root.html` takes over the root's slots
-    /// too, and dropping one puts a site file — its copyright, its nav —
+    /// too, and dropping one puts a site file, its copyright, its nav,
     /// silently dark (or, for `main`, the page itself). Seven gallery themes
     /// ship their own root, so this is a live hazard rather than a
     /// hypothetical one. Until `theme check` exists, the gallery is the
@@ -927,7 +927,7 @@ mod tests {
     }
 
     /// The `data-slot="…"` names a fragment places on its own holes (after
-    /// inline fragment defaults are extracted — nested child slots do not
+    /// inline fragment defaults are extracted, nested child slots do not
     /// count as the parent's).
     fn slots_of(src: &str) -> std::collections::HashSet<String> {
         let f = crate::assemble::Fragments::parse(vec![(
@@ -969,7 +969,7 @@ mod tests {
         assert_eq!(m.scheme_of("wide"), None);
     }
 
-    /// Spec tokens validate against the declaration — and only against one:
+    /// Spec tokens validate against the declaration, and only against one:
     /// a theme with no theme.toml declares nothing and keeps accepting any
     /// token, which is what lets undeclared themes load unchanged.
     #[test]
@@ -1058,7 +1058,7 @@ mod tests {
         assert!(html.contains("data-l-dark=\"Colors: dark\""), "{html}");
         assert!(html.contains("grackle:scheme"), "{html}");
 
-        // No facts: no search button, no feed link — the parts are empty and
+        // No facts: no search button, no feed link, the parts are empty and
         // rule 2 deletes their elements. The scheme control still ships
         // (the theme capability is the fact).
         let bare = page(None, &super::ChromeInput::default());
@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     /// First writer per part: a slot the root places directly wins, and the
-    /// cluster's copy of that part empties — nothing renders twice. The rest
+    /// cluster's copy of that part empties, nothing renders twice. The rest
     /// of the widgets keep arriving through the cluster.
     #[test]
     fn an_individually_placed_slot_beats_the_clusters_copy() {
@@ -1185,7 +1185,7 @@ mod tests {
     }
 
     /// An override that is only author markup renders even when no engine
-    /// part fills — the author's chrome is content in its own right.
+    /// part fills, the author's chrome is content in its own right.
     #[test]
     fn an_author_only_override_renders_without_facts() {
         let dir = std::env::temp_dir().join("grackle-chrome-authoronly");
@@ -1247,8 +1247,8 @@ mod tests {
 
     /// The token contract (themes/README.md): a theme may add names, but it
     /// may not USE one that neither it nor the base defines. An undefined
-    /// custom property is not an error in CSS — it silently resolves to
-    /// nothing — so this is the only place a typo can be caught.
+    /// custom property is not an error in CSS, it silently resolves to
+    /// nothing, so this is the only place a typo can be caught.
     #[test]
     fn no_theme_uses_a_token_nothing_defines() {
         let base = super::base::partial("tokens").expect("base tokens");
@@ -1288,7 +1288,7 @@ mod tests {
     /// The gallery's headline claim, as an assertion: `_tokens.scss` holds
     /// every literal a theme owns, and nothing below it names a colour or a
     /// length. Breaking this is how a theme stops being retunable by editing
-    /// one file — which is the whole reason to build a gallery this way.
+    /// one file, which is the whole reason to build a gallery this way.
     #[test]
     fn no_literals_outside_a_themes_token_file() {
         let colour = regex_lite_colour;

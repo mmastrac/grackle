@@ -2,26 +2,26 @@
 //!
 //! What this file holds is one sentence with five consequences: **an output
 //! has two address slots, and which one a citation takes is decided by the
-//! citation's FORM.**
+//! citation's form.**
 //!
 //!  1. a rule may decline to route (`embed = true`), and the policy then gives
-//!     its rows a content address under `/static/` — which publishes when
-//!     something embeds it and never otherwise;
+//!  its rows a content address under `/static/`, which publishes when
+//!  something embeds it and never otherwise;
 //!  2. an authored link to such a row is a load error with the fix spelled,
-//!     because a hash address is not a link's to make;
+//!  because a hash address is not a link's to make;
 //!  3. `[embeds]` off, or narrowed past a row, turns the decline into a
-//!     config with no answer — a load error naming the asset;
+//!  config with no answer, a load error naming the asset;
 //!  4. the address is the input bytes plus the transform parameters and
-//!     nothing else, so untransformed twins share one address, one store entry
-//!     and one output with two inputs;
+//!  nothing else, so untransformed twins share one address, one store entry
+//!  and one output with two inputs;
 //!  5. a `/static/` citation resolves back to its input, so the pull publishes
-//!     it and the embedding page's `inputs` holds the edge.
+//!  it and the embedding page's `inputs` holds the edge.
 //!
 //! Built sites throughout: every claim above is about what the finished output
 //! contains or about a fact the render pass writes, and the two the load
 //! alone can answer say so where they are asserted.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::Graph;
@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 mod support;
 use support::{build_err, built, load};
 
-/// A 2×3 PNG — real bytes, so an image row is an image row.
+/// A 2×3 PNG, real bytes, so an image row is an image row.
 const PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
     0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x08, 0x02, 0x00, 0x00, 0x00, 0x36, 0x88, 0x49,
@@ -41,7 +41,7 @@ const PNG: &[u8] = &[
     0x8b, 0x8f, 0x82, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ];
 
-/// The same picture with one byte of comment after `IEND` — a DIFFERENT byte
+/// The same picture with one byte of comment after `IEND`, a DIFFERENT byte
 /// string, and so a different address, while still a decodable PNG. The
 /// twin tests need "same bytes" and "different bytes" to be separable facts.
 fn png_variant(tag: u8) -> Vec<u8> {
@@ -58,9 +58,9 @@ fn addr(bytes: &[u8]) -> String {
 /// One site with every address shape beside each other.
 ///
 /// `extends = "none"`, so the two objects rules below are the whole policy
-/// this site has: the first ROUTES (`pics/**` — the bookmarkable assets, what
+/// this site has: the first ROUTES (`pics/**`, the bookmarkable assets, what
 /// grack.com's own config does for its whole corpus), the second DECLINES
-/// (`**/*.png` — what the base config ships since I11). The address question
+/// (`**/*.png`, what the base config ships since I11). The address question
 /// is answered once, by the first rule that answers it, which is why a
 /// `pics/` image never reaches the second rule.
 const SITE: &str = r#"
@@ -117,9 +117,9 @@ fn files() -> Vec<(String, Vec<u8>)> {
               And a download: [the plate](pics/plate.png)\n"
                 .to_vec(),
         ),
-        // The raw-HTML twin of `a.md` (§6d stage B): a row whose source IS
+        // The raw-HTML twin of `a.md`: a row whose source IS
         // HTML never meets comrak, so its embeds resolve through the lol_html
-        // seam instead — and must resolve identically.
+        // seam instead, and must resolve identically.
         (
             "d.html".into(),
             b"---\ntitle: Dee\n---\n<p><img src=\"/assets/kite.png\" alt=\"\">\
@@ -152,7 +152,7 @@ fn site(who: &str) -> PathBuf {
     support::site("io-embeds", who, &refs)
 }
 
-/// The same corpus with the config replaced — for the tests whose subject is a
+/// The same corpus with the config replaced, for the tests whose subject is a
 /// `[embeds]` table or a malformed rule.
 fn site_with(who: &str, config: &str) -> PathBuf {
     let mut f = files();
@@ -195,7 +195,7 @@ fn text(out: &grackle_core::build::SiteOutput, url: &str) -> String {
 /// A rule declined to route `assets/kite.png`, so the row has no canonical URL
 /// and one strong one; the page that embeds it resolves to that address, and
 /// the bytes land there. `assets/unseen.png` was declined by the same rule and
-/// nothing embeds it, so it publishes nowhere — which is §4a's sentence about
+/// nothing embeds it, so it publishes nowhere, which is sentence about
 /// an image nothing cites, now true of an image no rule routes either.
 ///
 /// The three facts are asserted together on purpose: an address with no bytes
@@ -204,12 +204,12 @@ fn text(out: &grackle_core::build::SiteOutput, url: &str) -> String {
 ///
 /// Mutations, each red and each restored:
 ///
-/// - delete the `strong_url` arm from `materialize_referenced`'s `at` match →
-///   the address resolves and the bytes never publish (the 404);
-/// - make `links::resolve`'s embed branch return `Ok(None)` always → the page
-///   ships `src="/assets/kite.png"`, which no route answers;
-/// - drop `strong_url` from `by_strong` (index nothing) → both of the above at
-///   once, since the citation resolves to no input at all.
+/// - delete the `strong_url` arm from `materialize_referenced`'s `at` match ->
+///  the address resolves and the bytes never publish (the 404);
+/// - make `links::resolve`'s embed branch return `Ok(None)` always -> the page
+///  ships `src="/assets/kite.png"`, which no route answers;
+/// - drop `strong_url` from `by_strong` (index nothing) -> both of the above at
+///  once, since the citation resolves to no input at all.
 #[test]
 fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
     let dir = site("default");
@@ -226,9 +226,9 @@ fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
         "and the embed points at it: {}",
         text(&out, "/a/")
     );
-    // §6d stage B: the same embed in a raw-HTML row resolves the same way,
+    // stage B: the same embed in a raw-HTML row resolves the same way,
     // and `<iframe>` is in the embed set beside `<img>`. Both spellings of the
-    // path — root-relative and relative to the embedding file — reach it.
+    // path, root-relative and relative to the embedding file, reach it.
     let d = text(&out, "/d/");
     assert_eq!(
         d.matches(&format!("src=\"{kite}\"")).count(),
@@ -255,8 +255,8 @@ fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
     );
 }
 
-/// **The address is computable at planning** — the hashing law, which
-/// is what keeps §1's "facts at planning; content at materialization" true of
+/// **The address is computable at planning**, the hashing law, which
+/// is what keeps "facts at planning; content at materialization" true of
 /// an output whose whole address is a hash.
 ///
 /// Asserted on a LOADED site, before any shell has run and before a single
@@ -270,7 +270,7 @@ fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
 /// test below builds on this), so the address cannot be a function of the
 /// name.
 ///
-/// Mutation: hash `f.rel` beside the bytes in `load::embed_address` — the
+/// Mutation: hash `f.rel` beside the bytes in `load::embed_address`, the
 /// twins below stop sharing an address and this equality goes red, which is
 /// the same defect seen from two sides.
 #[test]
@@ -298,7 +298,7 @@ fn the_address_is_the_inputs_and_the_parameters() {
 /// Three files hold one byte string. One is ROUTED, so its citations take its
 /// canonical address and its bytes ship there. The other two are
 /// embed-addressed, and because the address is a pure function of the bytes
-/// they land at ONE `/static/` entry — which is also, by construction, what
+/// they land at one `/static/` entry, which is also, by construction, what
 /// the routed one's strong URL would be if anything asked for it. That is the
 /// design's sentence "an untransformed embed of a routed output shares bytes,
 /// so its hash address IS that output's strong URL", and it is arithmetic
@@ -307,11 +307,11 @@ fn the_address_is_the_inputs_and_the_parameters() {
 /// The dedupe has a shape in the database too, and it is the interesting one:
 /// **one output, two inputs.** The second twin does not mint a second route
 /// over the first; it joins the existing one's `inputs`, which is what makes
-/// the fanout of EITHER file reach the page that embeds the OTHER — correct,
+/// the fanout of EITHER file reach the page that embeds the other, correct,
 /// because editing either one changes which bytes that address stands for.
 ///
 /// Mutation: delete the `db.routes.get_mut(&at_key)` twin branch in
-/// `materialize_referenced` → the second twin pushes a duplicate route at one
+/// `materialize_referenced` -> the second twin pushes a duplicate route at one
 /// URL, and the `inputs` assertion goes red with it.
 #[test]
 fn untransformed_twins_share_one_address_and_one_entry() {
@@ -342,7 +342,7 @@ fn untransformed_twins_share_one_address_and_one_entry() {
         text(&out, "/a/")
     );
 
-    // One output, two inputs — the dedupe as the graph sees it.
+    // One output, two inputs, the dedupe as the graph sees it.
     let o = db
         .routes
         .get(&Key::new(&shared))
@@ -361,17 +361,17 @@ fn untransformed_twins_share_one_address_and_one_entry() {
     );
 }
 
-/// **A strong citation is an `inputs` edge** — review I-D's design catch, and
+/// **A strong citation is an `inputs` edge**, review I-D's design catch, and
 /// the reason this item had to touch citation resolution at all.
 ///
 /// `db.by_url` holds canonical row URLs only, so a `/static/{hash}` citation
 /// resolves to NOTHING there: the embedding page's `inputs` would silently
 /// lose the asset, the graph would lose the edge, and an incremental rebuild
 /// would ship `/a/` unchanged after the picture in it was replaced. The second
-/// index is what closes it, and the fanout is where the closure is visible —
+/// index is what closes it, and the fanout is where the closure is visible,
 /// editing the asset must reach the page.
 ///
-/// Mutation: make `build::resolve_citation` consult `by_url` alone → the edge
+/// Mutation: make `build::resolve_citation` consult `by_url` alone -> the edge
 /// vanishes from `inputs`, `/a/` leaves the asset's fanout, and
 /// `io_graph.rs`'s consistency guard is the shape that would have caught it on
 /// a routed asset.
@@ -406,7 +406,7 @@ fn a_strong_citation_produces_the_inputs_edge() {
 /// **An authored link demands a route**, with the
 /// fix spelled where the author is standing.
 ///
-/// The target is a known row — the resolver found it — and the config declined
+/// The target is a known row, the resolver found it, and the config declined
 /// to give it a canonical address. Answering with the strong one would be
 /// worse than failing: a content address changes the day the bytes do, and a
 /// link is a promise that it will not.
@@ -418,11 +418,11 @@ fn a_strong_citation_produces_the_inputs_edge() {
 /// Mutations, each red and each restored:
 ///
 /// - delete the `source_to_strong` branch from `links::resolve`'s candidate
-///   loop → the link falls through to strict mode's generic "matches no source
-///   file or route", which names the file and not the decision;
-/// - answer it with the strong address instead of failing → the site builds
-///   and ships a hash URL in prose, which is the outcome the refusal exists to
-///   prevent.
+///  loop -> the link falls through to strict mode's generic "matches no source
+///  file or route", which names the file and not the decision;
+/// - answer it with the strong address instead of failing -> the site builds
+///  and ships a hash URL in prose, which is the outcome the refusal exists to
+///  prevent.
 #[test]
 fn an_authored_link_to_an_unrouted_asset_is_refused() {
     let dir = site("link");
@@ -451,13 +451,13 @@ fn an_authored_link_to_an_unrouted_asset_is_refused() {
     assert!(text(&out, "/a/").contains("href=\"/pics/plate.png\""));
 }
 
-/// **`[embeds]` off, and `[embeds]` narrowed** — the policy's two config
+/// **`[embeds]` off, and `[embeds]` narrowed**, the policy's two config
 /// answers, both landing as a load error that names the asset.
 ///
 /// With the policy off, `embed = true` is a rule that names no address at all:
 /// the row can be reached by nothing, which is the config forgetting rather
 /// than the config deciding. Asked at LOAD rather than at the citation, which
-/// is stricter than §4a's letter and deliberately so — the question is about
+/// is stricter than letter and deliberately so, the question is about
 /// the config's shape, so it needs no citation to be answerable, and the
 /// message can name a path instead of a URL that does not exist.
 ///
@@ -499,13 +499,13 @@ fn the_policy_off_or_narrowed_is_a_load_error_naming_the_asset() {
     assert!(out.contains_key(&addr(&png_variant(1))));
 }
 
-/// **A rule decides an address once** — the config-time refusal, in both
+/// **A rule decides an address once**, the config-time refusal, in both
 /// directions.
 ///
 /// `route` and `embed` are two answers to one question and they are not
 /// layers: a routed output wins, so a fallback beneath it can never be
 /// reached, and a reader cannot tell which of the two lines is the mistake.
-/// `on_demand` beside `embed` is the I7b dead-key family — it defers a route
+/// `on_demand` beside `embed` is the I7b dead-key family, it defers a route
 /// this rule does not mint.
 ///
 /// Both are asked in `Config::from_toml`, so no walk and no file can change
@@ -515,7 +515,7 @@ fn the_policy_off_or_narrowed_is_a_load_error_naming_the_asset() {
 /// Mutations, each red and each restored: delete either bail (the config loads
 /// and the rule's second key configures nothing); narrow the check to
 /// non-inherited rules (both halves still pass, and a base that grew the
-/// mistake would ship it — the IR9 argument, one key over).
+/// mistake would ship it, the IR9 argument, one key over).
 #[test]
 fn a_rule_may_not_declare_two_addresses() {
     let both = SITE.replace(
@@ -538,8 +538,8 @@ fn a_rule_may_not_declare_two_addresses() {
 /// hashed CANONICAL addresses says so in a route template, and gets the same
 /// string the policy would have minted.
 ///
-/// That equality is the point rather than a coincidence — one hash function,
-/// one address per byte string, whichever mechanism asked — and it is what
+/// That equality is the point rather than a coincidence, one hash function,
+/// one address per byte string, whichever mechanism asked, and it is what
 /// makes the two mechanisms describable as two spellings of one idea instead
 /// of two schemes that happen to rhyme. Since the rule ROUTES, the row's
 /// address is canonical: an authored link to it resolves, which is the
@@ -547,13 +547,13 @@ fn a_rule_may_not_declare_two_addresses() {
 ///
 /// The rule is narrowed to one file on purpose, and the reason is worth
 /// recording: routing the TWINS by `{hash}` is a **route collision**, refused
-/// by the pre-existing unique-URL check naming both files. That is right — a
-/// canonical address belongs to one row, which is §4's law and not this item's
-/// to bend — and it is the sharpest statement of how the two mechanisms
+/// by the pre-existing unique-URL check naming both files. That is right, a
+/// canonical address belongs to one row, which is law and not this item's
+/// to bend, and it is the sharpest statement of how the two mechanisms
 /// differ. The policy's address is a place in the content store, so sharing it
 /// is dedupe; a route is a row's own address, so sharing it is a collision.
 ///
-/// Mutation: make the token hash something else (the path, a constant) → the
+/// Mutation: make the token hash something else (the path, a constant) -> the
 /// equality goes red while the site still builds, which is exactly the drift
 /// this pins.
 #[test]
@@ -592,7 +592,7 @@ fn a_route_may_spend_the_content_hash() {
     );
 }
 
-/// **A rule that says neither is still the error it always was** — the guard
+/// **A rule that says neither is still the error it always was**, the guard
 /// this item had to be careful not to delete.
 ///
 /// "No rule supplies a route" is what a claimed row with no address has meant
@@ -601,7 +601,7 @@ fn a_route_may_spend_the_content_hash() {
 /// neither has forgotten, a rule that says one has decided, and the engine can
 /// tell them apart because the author wrote which.
 ///
-/// Mutation: read "no route template" as "embed-addressed" in `walk_site` —
+/// Mutation: read "no route template" as "embed-addressed" in `walk_site`,
 /// this site loads, the `.md` beside it silently stops publishing, and the
 /// only refusal that catches a rules-gap goes with it.
 #[test]

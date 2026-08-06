@@ -64,7 +64,7 @@ pub(crate) fn run(
             let site = site.with_title(cfg.site_title(lang.as_str()));
             let mut head = render::head_for_post(p, &site, metas);
             // The head describes the DOCUMENT, and a document's address is its
-            // canonical URL — `p.url`, which is exactly what the canonical axis
+            // canonical URL, `p.url`, which is exactly what the canonical axis
             // member is published at (an alternate is templated, the canonical
             // one is not). So an alternate's `rel="canonical"` and `og:url`
             // name the canonical form rather than themselves, which is the
@@ -130,7 +130,7 @@ pub(crate) fn run(
         stats.posts += 1;
     }
 
-    // ---- one walk of the route table for aggregates (§9b).
+    // one walk of the route table for aggregates.
     //
     // Layouted non-landing routes go through the listing pass; `layout` /
     // `variant` only pick the member face the theme must ship.
@@ -156,11 +156,11 @@ pub(crate) fn run(
         crate::passes::run(&ctx, &crate::passes::all(), out_map, stats)?;
     }
 
-    // ---- landings (q45 mode B): routes whose view claims a content row.
+    // ---- landings: routes whose view claims a content row.
     //
     // The row is the whole body and owns the arrangement; `{% view <owner> %}`
-    // substitutes THIS route's slice — page 2 renders page 2's rows, /fr/ the
-    // French partition — built by base kind exactly as the bare passes build
+    // substitutes THIS route's slice, page 2 renders page 2's rows, /fr/ the
+    // French partition, built by base kind exactly as the bare passes build
     // it, minus title and crumbs (those are the row's to place). The row
     // keeps everything rows have: front matter, its rule-derived theme, its
     // directory (slot fills resolve nearest-wins from there), suffix
@@ -176,17 +176,17 @@ pub(crate) fn run(
         // Per-route content (templated `content`, or a templated
         // `default_content` this route accepted) beats the view-level literal
         // one, which is what lets one grouped view give each route its own
-        // words (§5c). A view with neither has nothing to embed.
+        // words. A view with neither has nothing to embed.
         let Some(content) = r.content.as_deref().or(v.content.as_deref()) else {
             continue;
         };
         // (A `kind != View` guard stood here and was DELETED, not
-        // respelled: the `let Some(view)` four lines up already asked it —
+        // respelled: the `let Some(view)` four lines up already asked it,
         // "is this a view route" is the `view` column being non-empty.)
         let loc_owned = cfg.pairing_member(r);
         let loc = loc_owned.as_str();
 
-        // The claimed row, in the route's locale — else the default's
+        // The claimed row, in the route's locale, else the default's
         // prose (the same fallback slot fills use).
         let sibs = db.by_logical.get(content).cloned().unwrap_or_default();
         let row = sibs
@@ -232,10 +232,10 @@ pub(crate) fn run(
             embed_html.push_str(&row_thm.fragments.render(&p));
         }
 
-        // Must-place (q45): the claimed row owns the arrangement — a body
+        // Must-place: the claimed row owns the arrangement, a body
         // that never places the owner's embed strands the view's rows.
         // (A `default_content` claim only exists if the row already placed the
-        // embed — see `resolve_default_content` — so this stays exact.)
+        // embed, see `resolve_default_content`, so this stays exact.)
         let text =
             std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
         let (_, _, body) = split_front_matter(&text);
@@ -250,7 +250,7 @@ pub(crate) fn run(
         }
 
         // Expand with a sentinel, render markdown, then substitute the
-        // slice — so the embedded HTML never meets the markdown parser
+        // slice, so the embedded HTML never meets the markdown parser
         // (a blank line inside it would split the HTML block).
         const SENTINEL: &str = "<!--grackle:landing-embed-->";
         let cx = tags::Ctx {
@@ -265,7 +265,7 @@ pub(crate) fn run(
             ..tags::Ctx::new(db, &cfg.site.baseurl, src.display().to_string())
         };
         let expanded = tags::expand(body, &cx)?;
-        // Body links resolve at the ROUTE's locale (the slot-fill precedent:
+        // Body links resolve at the route's locale (the slot-fill precedent:
         // prose follows its reader), from the row's dir. No route exemption
         // is needed on this path, unlike the bare page path above: the embed
         // is still a SENTINEL here, so engine-derived URLs are not in the
@@ -283,7 +283,7 @@ pub(crate) fn run(
         let frag = frag.replace(SENTINEL, &embed_html);
 
         // Title: the row's front matter beats the view's declaration
-        // (explicit beats derived, per row) — the trail's inert tail
+        // (explicit beats derived, per row), the trail's inert tail
         // follows it.
         let (vtitle, mut trail) = crate::trails::listing_title_and_trail(cfg, db, view, v, r)?;
         let title = row.title.clone().unwrap_or(vtitle);
@@ -294,7 +294,7 @@ pub(crate) fn run(
         }
 
         // The landing's locale switcher and any axis are the `axes` slot now,
-        // computed per route by `axes_part` — a landing per locale IS the
+        // computed per route by `axes_part`, a landing per locale IS the
         // translation set (a fallback landing is still the French landing).
         let pairing_keep = cfg
             .pairing_axis()
@@ -366,8 +366,8 @@ pub(crate) fn run(
 
     // ---- tree: rendered pages + static passthrough + objects
     //
-    // Section trees (§6e) derive once per `.section` root and are re-shaped
-    // per page — the tree is shared with the landing pass, only `current`
+    // Section trees derive once per `.section` root and are re-shaped
+    // per page, the tree is shared with the landing pass, only `current`
     // moves.
     //
     // **The dispatch that survives `kind`**. Half of it is
@@ -375,14 +375,14 @@ pub(crate) fn run(
     // more than it buys:
     //
     // - `Static | Object` vs `Page` IS the rendering law's output. Measured on
-    //   all six corpus trees: every `Static` and every `Object` route's row is
-    //   `rendered false`, every `Page` route's row is `rendered true`. So this
-    //   `match` could ask `p.rendered` instead of naming three variants.
+    //  all six corpus trees: every `Static` and every `Object` route's row is
+    //  `rendered false`, every `Page` route's row is `rendered true`. So this
+    //  `match` could ask `p.rendered` instead of naming three variants.
     // - `Post` vs `Page` is NOT expressible. Posts render above, from their
-    //   own body store; "this row is in a posts scope" is a fact about the
-    //   CONFIG, and a row carries the scope's name and not its role (the join's
-    //   ruling, one store over). So the `_ => {}` arm would have to stay a
-    //   `kind` test whatever happens to the other two.
+    //  own body store; "this row is in a posts scope" is a fact about the
+    //  CONFIG, and a row carries the scope's name and not its role (the join's
+    //  ruling, one store over). So the `_ => {}` arm would have to stay a
+    //  `kind` test whatever happens to the other two.
     //
     // A `match` that dispatches on which pass owns an output is what this enum
     // IS; respelling two of its five arms and leaving a `kind == Post` guard
@@ -424,7 +424,7 @@ pub(crate) fn run(
                     .map(|p| section_parts(db, &mut section_trees, &p.rel, &r.url, pairing_keep))
                     .unwrap_or_default();
 
-                // Theme per row (§5a); axis theme beats the row's (q53).
+                // Theme per row; axis theme beats the row's.
                 let (theme_name, subtheme) =
                     preview::resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref()));
                 let row_thm = themes.get(theme_name)?;
@@ -441,10 +441,10 @@ pub(crate) fn run(
                     head.injected = doc.heads.clone();
                 }
                 // The output picks its map shell. `raw` is the
-                // transparent one — the body IS the output, so an imported
+                // transparent one, the body IS the output, so an imported
                 // document can carry front matter (title, tags, hidden)
                 // without being nested inside a second `<html>`.
-                // q53: an axis member over `shell` is the md twin's shape — the
+                // an axis member over `shell` is the md twin's shape, the
                 // same row serialized two ways, at two URLs. The member's value
                 // beats the row's own for the same reason a member's theme
                 // does: the member IS the alternative form.
@@ -545,7 +545,7 @@ pub(crate) fn run(
     Ok(())
 }
 
-/// Section outline for a row inside a `.section` unit (§6e), cached per unit.
+/// Section outline for a row inside a `.section` unit, cached per unit.
 pub(crate) fn section_parts(
     db: &SiteDb,
     section_trees: &mut HashMap<PathBuf, Vec<crate::outline::Node>>,

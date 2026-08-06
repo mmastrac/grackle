@@ -28,7 +28,7 @@ fn apply_forced(route: &mut Route, forced: &[(String, grackle_db::filter::Value)
 
 /// The citation half of `Route.inputs`, added once the bytes exist.
 ///
-/// **Facts at planning; content at materialization** — and `inputs` is the one
+/// **Facts at planning; content at materialization**, and `inputs` is the one
 /// join field that straddles the line. `load::join_arrangement` filled every
 /// edge planning knows (the row a route renders, a landing's claimed body, a
 /// view's members, the rows behind a fold's selected routes); the rest of the
@@ -39,11 +39,11 @@ fn apply_forced(route: &mut Route, forced: &[(String, grackle_db::filter::Value)
 /// The same scanner on-demand publishing uses, and deliberately the unfenced
 /// one (`cited_urls`, not `cited_urls_cited`): a spliced arrangement's links
 /// are not citations for the backlink graph's purpose, but an image a listing
-/// arranged is still an input to the bytes. What §6g's fence keeps out of
+/// arranged is still an input to the bytes. What fence keeps out of
 /// "linked from" it must not keep out of "what would a rebuild need".
 ///
 /// Cited URLs that name no row are skipped rather than recorded: an
-/// output→output edge is `route_members`, and an external link is not an edge
+/// output->output edge is `route_members`, and an external link is not an edge
 /// at all.
 pub(crate) fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
     let mut found: Vec<(grackle_db::Key, Vec<grackle_db::Key>)> = Vec::new();
@@ -65,7 +65,7 @@ pub(crate) fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
     }
 }
 
-/// The inputs one cited URL names — the address resolution
+/// The inputs one cited URL names, the address resolution
 /// both halves of the citation seam read, so the pull and the join cannot
 /// disagree about what an address means.
 ///
@@ -76,7 +76,7 @@ pub(crate) fn join_citations(db: &mut SiteDb, cited: &[(String, Vec<String>)]) {
 /// a rebuild an extra output to reconsider, while dropping one is the stale
 /// page the graph exists to prevent.
 ///
-/// A URL in neither is not an edge at all — an external link, or an output
+/// A URL in neither is not an edge at all, an external link, or an output
 /// (whose edge is `route_members`).
 pub(crate) fn resolve_citation(db: &SiteDb, url: &str) -> Vec<grackle_db::Key> {
     if let Some(k) = db.by_url.get(url) {
@@ -90,11 +90,11 @@ pub(crate) fn resolve_citation(db: &SiteDb, url: &str) -> Vec<grackle_db::Key> {
 ///
 /// Each document is scanned against its OWN url, because a citation is usually
 /// relative: `code/legacy/romtool/index.html` says `<img src="screen1.png">`,
-/// which §6a records as how that content has always been organised. Binary
+/// which records as how that content has always been organised. Binary
 /// entries fail the UTF-8 gate and cite nothing.
 ///
 /// One scan, two consumers (on-demand publishing and the join's citation
-/// edges) — the seam that keeps the join's closure from costing a second pass
+/// edges), the seam that keeps the join's closure from costing a second pass
 /// over the whole site.
 pub(crate) fn citation_map(out: &SiteOutput, site_url: &str) -> Vec<(String, Vec<String>)> {
     out.iter()
@@ -106,7 +106,7 @@ pub(crate) fn citation_map(out: &SiteOutput, site_url: &str) -> Vec<(String, Vec
         .collect()
 }
 
-/// Remove the `{% view %}` fence comments from the finished output (§6g). Only
+/// Remove the `{% view %}` fence comments from the finished output. Only
 /// touches the few pages that carry them; binary entries fail the UTF-8 gate
 /// and are skipped.
 pub(crate) fn strip_view_markers(out: &mut SiteOutput) {
@@ -131,19 +131,19 @@ pub(crate) fn strip_view_markers(out: &mut SiteOutput) {
 /// Two halves, and the pair is the whole model:
 ///
 /// 1. **A rendition is an output of its input.** One `Route` per distinct
-///    address, carrying `inputs` — the rows whose bytes fed the transform —
-///    and `rendition`, the parameters it was made with. That pair is the
-///    reproduction recipe: read those bytes, run `thumbs::render` with those
-///    parameters, get these bytes back. The edge runs **input → output**,
-///    because the transform reads the INPUT's bytes and never the original
-///    output's; see `graph.rs` for what that answers.
+///  address, carrying `inputs`, the rows whose bytes fed the transform,
+///  and `rendition`, the parameters it was made with. That pair is the
+///  reproduction recipe: read those bytes, run `thumbs::render` with those
+///  parameters, get these bytes back. The edge runs **input -> output**,
+///  because the transform reads the INPUT's bytes and never the original
+///  output's; see `graph.rs` for what that answers.
 /// 2. **The citing edge names it.** An output whose finished bytes embed a
-///    rendition address gains a FACTS edge to it (`route_members`) — it read
-///    the rendition's *url*, which the hashing law makes knowable at planning,
-///    and not its content — plus the CONTENT edges to the rows behind it,
-///    because those bytes are what its address is a function of.
+///  rendition address gains a FACTS edge to it (`route_members`), it read
+///  the rendition's *url*, which the hashing law makes knowable at planning,
+///  and not its content, plus the CONTENT edges to the rows behind it,
+///  because those bytes are what its address is a function of.
 ///
-/// The second half's content edges are load-bearing where an affordance shows
+/// The second half's content edges are required where an affordance shows
 /// a rendition and links nothing else: a LISTING with a hero picture cites only
 /// `/static/{hash}`, so without this its `inputs` would lose the image and
 /// editing that image would ship a stale listing. `{% image %}` happens to link
@@ -198,7 +198,7 @@ pub(crate) fn join_renditions(
     }
 
     // The citing edges. A citation writes the baseurl-bearing URL while an
-    // output's key does not carry one, so both spellings are indexed — the
+    // output's key does not carry one, so both spellings are indexed, the
     // same seam `Row.url` has, answered here rather than left.
     let mut addr_of: HashMap<&str, &String> = HashMap::new();
     for t in thumbs.values() {
@@ -237,10 +237,10 @@ pub(crate) fn join_renditions(
     }
 }
 
-/// §4 on-demand: publish a row because something referenced it.
+/// on-demand: publish a row because something referenced it.
 ///
 /// Runs after the write pass, because the references live in FINISHED output.
-/// A body alone is not enough — `{% image %}` expands to
+/// A body alone is not enough, `{% image %}` expands to
 /// `<a href='/assets/…'>` so an original is cited by markup that does not
 /// exist at load time, and the shell's favicons and stylesheet link are cited
 /// by chrome that no body contains.
@@ -257,13 +257,11 @@ pub(crate) fn join_renditions(
 ///
 /// **A pull along the graph's edges**. A citation is a URL and
 /// `db.by_url` is the inputs database's address index, so resolving one *is*
-/// walking a content edge to the input at its far end — and the test for "have
+/// walking a content edge to the input at its far end, and the test for "have
 /// I materialized this already" is the join's own `output` column rather than
-/// a private map of pending URLs. That is the whole rewiring, and it is a
-/// deletion: this pass used to key a second index off `on_demand && url`, and
-/// two indexes of one fact are two things that can disagree. The behaviour is
-/// identical by construction — `by_url` holds exactly the rows that carry a
-/// URL, and `output` is `None` for an on-demand row until this line sets it.
+/// a private map of pending URLs. One index of one fact: `by_url` holds
+/// exactly the rows that carry a URL, and `output` is `None` for an
+/// on-demand row until this line sets it.
 pub(crate) fn materialize_referenced(
     db: &mut SiteDb,
     out_map: &mut SiteOutput,
@@ -271,8 +269,8 @@ pub(crate) fn materialize_referenced(
     cited: &mut Vec<(String, Vec<String>)>,
 ) -> Result<usize> {
     // Nothing to pull: no input publishes lazily, so no edge this pass walks
-    // can end at an unminted output. Two shapes qualify — an `on_demand` row,
-    // whose RULE deferred its route, and an embed-addressed row,
+    // can end at an unminted output. Two shapes qualify, an `on_demand` row,
+    // whose rule deferred its route, and an embed-addressed row,
     // which has no route to defer and publishes at its strong address.
     if !db.rows.iter().any(|p| {
         p.output.is_none() && (p.strong_url.is_some() || (p.on_demand && !p.url.is_empty()))
@@ -290,8 +288,8 @@ pub(crate) fn materialize_referenced(
             // The edge's far end: which INPUT does this citation name?
             //
             // TWO address indexes, because an output has two address slots
-            //. `by_url` holds CANONICAL row URLs only, so a
-            // `/static/{hash}` citation resolves to nothing there — and review
+            // `by_url` holds CANONICAL row URLs only, so a
+            // `/static/{hash}` citation resolves to nothing there, and review
             // I-D named exactly that as the hole: the pull would never publish
             // the bytes, and `join_citations` below would silently drop the
             // asset edge out of the embedding page's `inputs`. `by_strong` is
@@ -307,16 +305,16 @@ pub(crate) fn materialize_referenced(
                 }
                 // Where this input publishes, and whether it publishes lazily
                 // at all: its strong address if the policy gave it one, else
-                // its own URL — and then only if its rule deferred the route.
+                // its own URL, and then only if its rule deferred the route.
                 let at = match &row.strong_url {
                     Some(s) => s.clone(),
                     None if row.on_demand => row.url.clone(),
                     None => continue, // lands eagerly, or never
                 };
                 // The twin: another input with the same bytes already
-                // published at this address, so there is ONE artifact and this
-                // row is its second input. Not a collision — dedupe, which is
-                // what a content address is for — so the edge joins the
+                // published at this address, so there is one artifact and this
+                // row is its second input. Not a collision, dedupe, which is
+                // what a content address is for, so the edge joins the
                 // existing output instead of minting a second one over it.
                 let at_key = grackle_db::Key::new(&at);
                 if let Some(existing) = db.routes.get_mut(&at_key) {
@@ -333,7 +331,7 @@ pub(crate) fn materialize_referenced(
                 let front_mattered = row.front_mattered;
                 let bytes = std::fs::read(&path)
                     .with_context(|| format!("on-demand publish: reading {}", path.display()))?;
-                // A materialized text file can cite more — and those citations
+                // A materialized text file can cite more, and those citations
                 // are edges like any other, so they join the map rather than
                 // only the frontier.
                 if let Ok(text) = std::str::from_utf8(&bytes) {
@@ -359,7 +357,7 @@ pub(crate) fn materialize_referenced(
                 apply_forced(&mut route, &forced); // see `forced_fields`
                                                    // The pull model made literal: a lazily-published
                                                    // row's `output` is `None` for the whole of the build's
-                                                   // queryable life and becomes `Some` exactly here — the moment
+                                                   // queryable life and becomes `Some` exactly here, the moment
                                                    // a reference materialized it. "Bare `output` is truthy iff
                                                    // the row lands anywhere" is then true at every instant rather
                                                    // than true of a plan; what it costs is that a filter, which
@@ -381,11 +379,11 @@ pub(crate) fn materialize_referenced(
 /// Internal URLs a document cites, via `href`, `src` or CSS `url(...)`,
 /// resolved against the URL the document was published at.
 ///
-/// One scanner for both consumers — the backlink graph and on-demand
-/// publishing — because they ask the same question. Relative citations are
-/// the common case (§6a: a page bundle keeps its screenshots beside it).
-/// Citations only — the forward links a human wrote, excluding a listing's
-/// spliced `{% view %}` arrangement (§6g Problem 2). The two relation
+/// One scanner for both consumers, the backlink graph and on-demand
+/// publishing, because they ask the same question. Relative citations are
+/// the common case.
+/// Citations only, the forward links a human wrote, excluding a listing's
+/// spliced `{% view %}` arrangement. The two relation
 /// consumers (backlinks and `links_to`) read this; on-demand publishing reads
 /// `cited_urls` directly, because an image referenced only by an arrangement
 /// still has to be published.
@@ -394,8 +392,8 @@ pub(crate) fn cited_urls_cited(text: &str, base_url: &str, site_url: &str) -> Ve
 }
 
 /// Blank out the innards of every spliced `{% view %}` region so a listing's
-/// arrangement links do not read as citations (§6g Problem 2: "Linked from:
-/// Home"). The splice is fenced by HTML comment markers the view splicer
+/// arrangement links do not read as citations
+/// The splice is fenced by HTML comment markers the view splicer
 /// emits; everything between a matched pair is replaced by spaces (offsets
 /// preserved, so nothing else shifts).
 pub(crate) fn strip_spliced_views(text: &str) -> String {
@@ -493,8 +491,8 @@ pub(crate) fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<Stri
 mod cited_url_tests {
     use super::{cited_urls, cited_urls_cited};
 
-    /// §6g Problem 2: an arrangement's links are not citations. The two
-    /// clients of one scanner diverge — the backlink/relations view skips a
+    /// Problem 2: an arrangement's links are not citations. The two
+    /// clients of one scanner diverge, the backlink/relations view skips a
     /// spliced `{% view %}` region, on-demand publishing keeps it, so an image
     /// only an arrangement references still gets published.
     #[test]
@@ -515,7 +513,7 @@ mod cited_url_tests {
 
     /// The bug this exists to stop, made twice in one session: a scanner that
     /// only accepts root-relative hrefs misses most of a corpus organised as
-    /// page bundles (§6a). Measured when it happened: 572 of 838 assets went
+    /// page bundles. Measured when it happened: 572 of 838 assets went
     /// unpublished, and the URL-parity check is what caught it.
     #[test]
     fn a_relative_citation_resolves_against_the_citing_url() {

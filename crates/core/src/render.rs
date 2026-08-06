@@ -1,13 +1,12 @@
 //! Presentation: head facts + the light-tier wrapper.
 //!
-//!   schema  -> head facts (computed, never branched; §5a)
-//!   layout  -> part maps (parts.rs, §5e)
-//!   theme   -> fragments + css (themes/<name>/, theme.rs, §5e)
+//! schema -> head facts
+//! layout -> part maps
+//! theme -> fragments + css
 //!
 //! Fold serializations (atom, sitemap, search) live in [`crate::shells`].
 //! What remains here is what has no theme: the computed `<head>` facts and
-//! the `light` tier's minimal wrapper (§5g "Row tiers" — a tier, not the
-//! null theme, which takes the full head).
+//! the `light` tier's minimal wrapper
 
 use anyhow::{Context, Result};
 
@@ -32,20 +31,20 @@ pub fn esc(s: &str) -> String {
 }
 
 /// Typed facts derived from a row's schema. A theme renders the subset it
-/// wants; nobody branches on "am I a post" (§5a).
+/// wants; nobody branches on "am I a post".
 #[derive(Debug, Default)]
 pub struct Head {
     pub title: String,
-    /// Declared head tags, already evaluated (§4e). Empty values are dropped
-    /// before they get here, so emitting is a loop with no decision in it —
-    /// the engine no longer knows that one of these is called `robots`, or
+    /// Declared head tags, already evaluated. Empty values are dropped
+    /// before they get here, so emitting is a loop with no decision in it:
+    /// the engine does not know that one of these is called `robots`, or
     /// `og:title`, or what makes any of them appear.
     pub meta: Vec<MetaItem>,
     pub jsonld: Option<String>,
-    /// q53 axis members: alternative FORMS of this row, each an absolute URL
+    /// Axis members: alternative forms of this row, each an absolute URL
     /// with an optional `hreflang` (the locale axis) OR an optional media `type`
-    /// (a different-format form, e.g. the md twin). A same-format restyle — a
-    /// theme member — carries neither: it is the same representation at another
+    /// (a different-format form, e.g. the md twin). A same-format restyle, a
+    /// theme member, carries neither: it is the same representation at another
     /// URL, and `rel="canonical"` already names the one that counts.
     ///
     /// Locale hreflang comes from a declared expand (`[html.head.link]
@@ -57,7 +56,7 @@ pub struct Head {
     pub injected: Vec<String>,
 }
 
-/// One evaluated `[html.head.*]` tag (§4e). `value` is `content`/`href`;
+/// One evaluated `[html.head.*]` tag. `value` is `content`/`href`;
 /// `attrs` carries any extras from a table-form entry (`sizes`, `type`, …).
 #[derive(Debug, Clone)]
 pub struct MetaItem {
@@ -85,28 +84,27 @@ pub struct Site<'a> {
     pub author: &'a str,
     pub email: Option<&'a str>,
     /// The site icon's published URL, or empty when the tree has none
-    /// (§4d). Resolved from the ROUTE set rather than from a filename, so
+    /// Resolved from the route set rather than from a filename, so
     /// pinning an icon that lives elsewhere is an ordinary named object
-    /// route (§4) and needs no key of its own. Empty is the ordinary case
-    /// and every consumer drops its tag, which is §5e's rule 2 again.
+    /// route and needs no key of its own. Empty is the ordinary case
+    /// and every consumer drops its tag, which is rule 2 again.
     pub icon: &'a str,
 }
 
 impl<'a> Site<'a> {
-    /// Same site facts with a locale-resolved display title (§6f).
+    /// Same site facts with a locale-resolved display title.
     pub fn with_title(self, title: &'a str) -> Self {
         Self { title, ..self }
     }
 }
 
-/// The declared head (§4e), compiled once.
+/// The declared head, compiled once.
 ///
-/// One set, not one per surface, because the environment is the HEAD's
+/// One set, not one per surface, because the environment is the head's
 /// vocabulary rather than whatever happens to be underneath it: `title` and
 /// `url` are what the head is being built for, `site.*` is config, and the
 /// rest is the row. A listing has no `description`, so that name reads Null
-/// there, the expression yields empty, and no tag is emitted — the conditional
-/// that used to be an `if let Some(d)` in Rust.
+/// there, the expression yields empty, and no tag is emitted.
 #[derive(Debug, Default)]
 pub struct Metas {
     pub tags: Vec<Decl>,
@@ -122,7 +120,7 @@ pub enum JsonLdNode {
 }
 
 /// Declared `[html.html.attribute]` / `[html.body.attribute]` expressions,
-/// compiled once (§4e).
+/// compiled once.
 #[derive(Debug, Default)]
 pub struct HtmlAttrs {
     pub html: Vec<(String, crate::filter::Text)>,
@@ -165,8 +163,8 @@ fn primary_attr(tag: Tag) -> &'static str {
 
 /// The row a head expression actually reads: the row itself, plus `site.*`.
 ///
-/// A head says things about the site as often as about the row — the author,
-/// the absolute URL a canonical link is built from — and none of that is a
+/// A head says things about the site as often as about the row, the author,
+/// the absolute URL a canonical link is built from, and none of that is a
 /// row field. Rather than teach the evaluator about config, the environment
 /// grows three names and the row answers them.
 struct HeadRow<'a, R: crate::filter::Row + ?Sized> {
@@ -174,7 +172,7 @@ struct HeadRow<'a, R: crate::filter::Row + ?Sized> {
     site: &'a Site<'a>,
     /// The two the head knows for itself. A listing's title is computed, not a
     /// route column, so without these `og:title` would work on posts and
-    /// vanish on listings — which is precisely the silent asymmetry this
+    /// vanish on listings, which is precisely the silent asymmetry this
     /// design is meant to make impossible.
     title: &'a str,
     url: &'a str,
@@ -353,7 +351,7 @@ fn compile_jsonld_value(
     }
 }
 
-/// Compile `[html.html.attribute]` / `[html.body.attribute]` (§4e).
+/// Compile `[html.html.attribute]` / `[html.body.attribute]`.
 pub fn compile_attrs(cfg: &Config, declared: &crate::filter::Schema) -> Result<HtmlAttrs> {
     let mut env = grackle_model::row_schema();
     for (k, t) in declared {
@@ -405,7 +403,7 @@ pub fn eval_attrs(
 }
 
 /// Evaluate the single-expression and table-form metas, dropping the empty
-/// ones — §5e's rule 2 one layer up: an empty primary value emits no tag.
+/// ones, rule 2 one layer up: an empty primary value emits no tag.
 pub fn eval_metas(
     metas: &Metas,
     row: &impl crate::filter::Row,
@@ -507,7 +505,7 @@ fn eval_jsonld_node(node: &JsonLdNode, env: &impl crate::filter::Row) -> Option<
 /// Evaluate expand declarations: `from = "axis.<name>"` resolves a member pool
 /// per expand via `pool_for`. Attributes become an [`Alternate`]: `href`
 /// required, `hreflang` / `type` optional. A pool of fewer than two members
-/// emits nothing — the monolingual case.
+/// emits nothing, the monolingual case.
 pub fn eval_expands<'a>(
     metas: &Metas,
     site: &Site,
@@ -575,7 +573,7 @@ pub fn eval_expands<'a>(
 pub struct ExpandMember<'a> {
     pub row: &'a dyn crate::filter::Row,
     pub url: &'a str,
-    /// Axis member code — Route fields omit the default, so the pool carries
+    /// Axis member code, Route fields omit the default, so the pool carries
     /// it explicitly for expressions like `hreflang = 'locale'`.
     pub member: String,
 }
@@ -598,7 +596,7 @@ impl crate::filter::Row for MemberRow<'_> {
 }
 
 impl Head {
-    /// A head with nothing but a title — the base a filter builds over.
+    /// A head with nothing but a title, the base a filter builds over.
     fn empty(title: String) -> Head {
         Head {
             title,
@@ -611,7 +609,7 @@ impl Head {
 }
 
 /// A head with nothing computed: everything but the title, the hreflang list
-/// and JSON-LD is declared now (§4e), so a listing's head IS its title.
+/// and JSON-LD is declared now, so a listing's head IS its title.
 pub fn head_simple(title: &str, _url: &str, _site: &Site) -> Head {
     Head::empty(title.to_string())
 }
@@ -647,7 +645,7 @@ pub enum Theme {
     Light,
 }
 
-/// §5g: the engine-owned ROOT HTML SHELL every theme inherits — doctype,
+/// The engine-owned ROOT HTML shell every theme inherits, doctype,
 /// `<html>` stamped with the root kind and any subtheme tokens, `<head>`
 /// from the computed facts, `<body>` from the theme's body chrome. A theme
 /// may ship a document-shaped `root.html`, but what it ships is
@@ -668,7 +666,7 @@ pub fn root_shell(
     let prof = profile
         .map(|p| format!(" data-profile=\"{}\"", esc(p)))
         .unwrap_or_default();
-    // §4a / q53: axis members stamped as data-axis-* (select) and --axis-*
+    // axis members stamped as data-axis-* (select) and --axis-*
     // custom props (inherit); one style= holding every property.
     let ax = {
         let mut attrs = String::new();
@@ -690,7 +688,7 @@ pub fn root_shell(
             format!("{attrs} style=\"{styles}\"")
         }
     };
-    // Declared attributes (§4e): `[html.html.attribute]` / `[html.body.attribute]`.
+    // Declared attributes: `[html.html.attribute]` / `[html.body.attribute]`.
     // Engine stamps (`data-kind`, subtheme, profile, axis) stay beside them.
     let declared = |attrs: &[(String, String)]| -> String {
         attrs
@@ -706,17 +704,17 @@ pub fn root_shell(
     )
 }
 
-/// The `light` head (§5e step 4): title and robots, nothing else — the
+/// The `light` head: title and robots, nothing else, the
 /// minimal facts subset, wrapped by the same root shell as everything.
 pub fn light_head(head: &Head) -> String {
     // The `light` tier keeps the `[html.head.meta]` declarations and drops the
-    // rest (§5g). The line is the ELEMENT, not a list of blessed names: a
+    // rest. The line is the element, not a list of blessed names: a
     // `<meta name=…>` is a fact about the document, while Open Graph and a
     // canonical link are apparatus for describing it to other systems, and an
     // imported artifact wearing minimal chrome does not want the apparatus.
     //
     // The alternative was the engine deciding that `robots` is the one tag
-    // `light` keeps — which is the §4e smell wearing a tier for a hat.
+    // `light` keeps, which is the smell wearing a tier for a hat.
     let kept = Head {
         meta: head
             .meta
@@ -766,21 +764,21 @@ fn meta_tags(head: &Head) -> String {
     out
 }
 
-/// The computed head facts as the shell's `head` part (§5a: a theme renders
-/// the subset it wants; today's default takes them all). This fills
+/// The computed head facts as the shell's `head` part
+/// This fills
 /// `<head data-slot="head">` in the theme's shell fragment. `css` is the
-/// rendering theme's stylesheet URL — themes are per row (§5a), so the
+/// rendering theme's stylesheet URL, themes are per row, so the
 /// link is too.
 pub fn head_html(head: &Head, css: &str, include: &[String]) -> String {
     let mut h = String::with_capacity(2048);
     let _ = write!(h, "\n\t<title>{}</title>", esc(&head.title));
     h.push_str(&meta_tags(head));
-    // `[html.head] include`: verbatim site fragments (§4e escape hatch), high
+    // `[html.head] include`: verbatim site fragments, high
     // in the head where an analytics tag wants to be. Emitted as written.
     for frag in include {
         let _ = write!(h, "\n\t{frag}");
     }
-    // q53: the axes in the head, each an alternate FORM of this row. Locale
+    // the axes in the head, each an alternate form of this row. Locale
     // hreflang comes from a declared expand; other axis forms still land here
     // from the engine. NOT a single declared tag: a variable-length LIST.
     for a in &head.alternates {
@@ -844,7 +842,7 @@ mod meta_tests {
         r
     }
 
-    /// §4e: the engine emits what the config declared, and knows neither the
+    /// The engine emits what the config declared, and knows neither the
     /// name `robots` nor what makes it appear. Mutation-checked by inverting
     /// the conditional, which swaps both assertions.
     fn site() -> Site<'static> {
@@ -881,12 +879,12 @@ mod meta_tests {
                 "noindex,follow".to_string()
             )]
         );
-        // The empty branch emits nothing — §5e's rule 2, one layer up.
+        // The empty branch emits nothing, rule 2, one layer up.
         assert!(eval(&m, &row(false)).is_empty());
     }
 
     /// The head's own vocabulary: `title` and `url` are what the head is being
-    /// built FOR, so they answer on a listing too — without them `og:title`
+    /// built FOR, so they answer on a listing too, without them `og:title`
     /// would work on posts and silently vanish on listings.
     #[test]
     fn the_environment_carries_the_head_and_the_site() {
@@ -1011,7 +1009,7 @@ mod meta_tests {
         ];
         let out = meta_tags(&head);
         assert!(out.contains("<meta name=\"a\" content=\"one\">"), "{out}");
-        // Open Graph is `property=`, not `name=` — a different attribute, which
+        // Open Graph is `property=`, not `name=`, a different attribute, which
         // is why it is a different table rather than a special case.
         assert!(out.contains("<meta property=\"b\""), "{out}");
         assert!(out.contains("<link rel=\"canonical\" href="), "{out}");

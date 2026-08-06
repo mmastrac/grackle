@@ -1,4 +1,4 @@
-//! Aggregate pages: N rows, previewed (THEME.md §3).
+//! Aggregate pages: N rows, previewed.
 //!
 //! `layout` / `variant` only pick the member face; any layout the theme
 //! ships a `row--*` face for is valid.

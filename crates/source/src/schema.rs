@@ -1,4 +1,4 @@
-//! Per-subtree schema (§5b): `.schema.toml` declares typed fields; nearest wins.
+//! Per-subtree schema: `.schema.toml` declares typed fields; nearest wins.
 //! Undeclared or mistyped front matter is a load error; also feeds view `order_by`.
 
 use anyhow::{bail, Result};
@@ -13,11 +13,11 @@ pub enum FieldType {
     Int,
     Bool,
     List,
-    /// Root-relative image path (§6b thumbs; hero source, q23).
+    /// Root-relative image path.
     Image,
     /// `YYYY-MM-DD` (bare `YYYY-MM` = first of month); ISO so filters order.
     Date,
-    /// List of maps (q40); nested `fields` are scalars; group_by does not multi-key.
+    /// List of maps; nested `fields` are scalars; group_by does not multi-key.
     Records {
         fields: BTreeMap<String, FieldType>,
     },
@@ -60,7 +60,7 @@ impl FieldType {
     }
 }
 
-/// Engine-read fields by name: theme (§5a), shell (§5g), slot. Declared in
+/// Engine-read fields by name: theme, shell, slot. Declared in
 /// `base.toml` `[schema]` so markers/rules take the typed path.
 /// Restating at another type is a load error. Public so `debug::row_fields`
 /// can avoid printing cascade keys twice.
@@ -78,7 +78,7 @@ pub(crate) fn cascade_type(name: &str) -> Option<FieldType> {
 }
 
 /// One rung's writer (for collision messages), its typed fields, and the
-/// `default =` value each declaration carried (§5b), keyed the same as fields.
+/// `default =` value each declaration carried, keyed the same as fields.
 type Declared = (
     String,
     BTreeMap<String, FieldType>,
@@ -144,7 +144,7 @@ impl Schemas {
     }
 
     /// Same-rung type disagreement across unrelated dirs is an error
-    ///: nearness orders ancestor/descendant; nothing else does.
+    /// Nearness orders ancestor/descendant; nothing else does.
     fn check_positional_collision(
         &self,
         dir: &Path,
@@ -172,7 +172,7 @@ impl Schemas {
         Ok(())
     }
 
-    /// `[schema]` in `grackle.toml`: site-wide fields (§4d flags live here).
+    /// `[schema]` in `grackle.toml`: site-wide fields.
     pub fn set_site(&mut self, table: toml::Table, whose: &str) -> Result<()> {
         let (fields, defaults) = parse_fields(table, whose, &self.reserved)?;
         self.site = fields;
@@ -180,7 +180,7 @@ impl Schemas {
         Ok(())
     }
 
-    /// `[collections.<name>.schema]`: one collection across several sources (§4).
+    /// `[collections.<name>.schema]`: one collection across several sources.
     pub fn add_collection(&mut self, name: &str, table: toml::Table, whose: &str) -> Result<()> {
         let (fields, defaults) = parse_fields(table, whose, &self.reserved)?;
         // Sibling collections: no nearness; disagreement would be alphabetical.
@@ -237,10 +237,10 @@ impl Schemas {
         out
     }
 
-    /// Declared defaults (§5b `default =`), resolved by the same nearest-wins
+    /// Declared defaults, resolved by the same nearest-wins
     /// walk as [`resolve`]: the nearest rung that *declares* a name owns its
     /// default, and a nearer redeclaration carrying no `default` shadows a
-    /// farther one that did (whole-entry shadowing, §4d). The floor of the
+    /// farther one that did. The floor of the
     /// value ladder; `apply_schema_defaults` spends it.
     pub fn schema_defaults(&self, collection: &str, dir: &Path) -> BTreeMap<&str, &toml::Value> {
         let mut claimed: BTreeSet<&str> = BTreeSet::new();
@@ -262,7 +262,7 @@ impl Schemas {
         out
     }
 
-    /// Site-wide declared vocabulary for view `where`/`order_by` (§5b).
+    /// Site-wide declared vocabulary for view `where`/`order_by`.
     pub fn declared(&self) -> BTreeMap<&str, FieldType> {
         let mut out = BTreeMap::new();
         for fields in self
@@ -279,7 +279,7 @@ impl Schemas {
         out
     }
 
-    /// Declared fields as a filter schema for routes (§4e); no row built-ins.
+    /// Declared fields as a filter schema for routes; no row built-ins.
     pub fn declared_schema(&self) -> Schema {
         let mut s = Schema::new();
         for (name, ty) in self.declared() {
@@ -301,7 +301,7 @@ impl Schemas {
 }
 
 /// One rung's contribution to [`Schemas::schema_defaults`]: the first (nearest)
-/// rung to name a field claims it, so its `default` — or its silence — shadows
+/// rung to name a field claims it, so its `default`, or its silence, shadows
 /// any farther rung's default for the same name.
 fn claim_defaults<'a>(
     fields: &'a BTreeMap<String, FieldType>,
@@ -457,7 +457,7 @@ pub(crate) fn site_fields(table: &toml::Table, whose: &str) -> Result<BTreeMap<S
     Ok(parse_fields(table.clone(), whose, &grackle_model::row_schema())?.0)
 }
 
-/// Fold marker/rule defaults into declared fields (§4b, §4). Front matter
+/// Fold marker/rule defaults into declared fields. Front matter
 /// already won those keys; undeclared defaults are a load error.
 pub fn apply_defaults(
     schema: &BTreeMap<&str, FieldType>,
@@ -482,9 +482,9 @@ pub fn apply_defaults(
     Ok(())
 }
 
-/// The floor of the value ladder (§5b `default =`): fill declared defaults
-/// only where every nearer writer — front matter, filename captures, markers,
-/// rules — left the key unset. Runs below `force`, which still overwrites.
+/// The floor of the value ladder: fill declared defaults
+/// only where every nearer writer, front matter, filename captures, markers,
+/// rules, left the key unset. Runs below `force`, which still overwrites.
 /// Types were checked when the default parsed, so a mismatch is impossible;
 /// the `schema` lookup only supplies the coercion type.
 pub fn apply_schema_defaults(
@@ -504,9 +504,9 @@ pub fn apply_schema_defaults(
     Ok(())
 }
 
-/// Rung 0 (§2): profile `[profiles.NAME.force]` overwrites the ladder
-///. Runs last (top rung). Real lookup: a nearer `.schema.toml`
-/// may retype a site-wide name (§5b).
+/// Rung 0: profile `[profiles.NAME.force]` overwrites the ladder.
+/// Runs last (top rung). Real lookup: a nearer `.schema.toml`
+/// may retype a site-wide name.
 pub fn force(
     forced: &BTreeMap<String, toml::Value>,
     schema: &BTreeMap<&str, FieldType>,
@@ -729,7 +729,7 @@ pub fn validate(
 }
 
 /// Seed `CASCADE` keys from named `FrontMatter` fields before defaults, so
-/// front matter stays nearest (§4e). Undeclared names are a load error.
+/// front matter stays nearest. Undeclared names are a load error.
 pub(crate) fn cascade_front(
     schema: &BTreeMap<&str, FieldType>,
     front: &crate::store::FrontMatter,
@@ -789,7 +789,7 @@ mod tests {
         assert!(
             s.resolve("entries", Path::new("recipes")).is_empty(),
             "a dir nothing declares for is governed by an EMPTY schema now — \
-             every row is governed (§4e), so this says `no fields`, not \
+             every row is governed, so this says `no fields`, not \
              `anything goes`"
         );
     }
@@ -827,7 +827,7 @@ mod tests {
         assert_eq!(other["archived"], FieldType::Bool, "site-wide reaches all");
     }
 
-    /// §4e: a marker/rule may set any declared field.
+    /// A marker/rule may set any declared field.
     #[test]
     fn markers_and_rules_fill_declared_fields() {
         let mut s = schemas();
@@ -857,7 +857,7 @@ mod tests {
         );
     }
 
-    /// Undeclared marker key is a load error (§4e).
+    /// Undeclared marker key is a load error.
     #[test]
     fn a_default_naming_nothing_is_a_load_error() {
         let s = schemas();
@@ -927,7 +927,7 @@ mod tests {
         assert!(e.contains("declared bool"), "{e}");
     }
 
-    /// §5b `default =`: a declared default fills only where nothing nearer did.
+    /// `default =`: a declared default fills only where nothing nearer did.
     #[test]
     fn a_schema_default_is_the_floor_of_the_ladder() {
         let mut s = schemas();
@@ -975,7 +975,7 @@ mod tests {
         assert!(e.contains("declared bool"), "{e}");
     }
 
-    /// Whole-entry shadowing (§4d): a nearer redeclaration carrying no
+    /// Whole-entry shadowing: a nearer redeclaration carrying no
     /// `default` silences a farther one that did.
     #[test]
     fn a_nearer_redeclaration_shadows_a_farther_default() {
@@ -1261,7 +1261,7 @@ mod tests {
         assert_eq!(e, flipped);
     }
 
-    /// Agreement and nested nearest-wins redeclaration stay legal (§5b).
+    /// Agreement and nested nearest-wins redeclaration stay legal.
     #[test]
     fn agreeing_and_nested_redeclarations_stay_legal() {
         let mut s = Schemas::new(grackle_model::row_schema());

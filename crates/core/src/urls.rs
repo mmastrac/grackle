@@ -1,13 +1,13 @@
-//! URL-set parity against a reference build (§4).
+//! URL-set parity against a reference build.
 //!
-//! The two answers are not symmetric. A **missing** URL is a link that used to
-//! resolve and now 404s, so it exits non-zero; an **extra** URL is usually
+//! The two answers are not symmetric. A **missing** URL breaks a link the
+//! reference site answered, so it exits non-zero; an **extra** URL is usually
 //! content published since the reference was built, so it is reported only.
 //!
-//! The reference is any directory of built output — `_site-prod`, or a tree
+//! The reference is any directory of built output, `_site-prod`, or a tree
 //! rsynced from the server.
 //!
-//! Derived assets are exempt (q12): both sides go through `parity_set`, so a
+//! Derived assets are exempt: both sides go through `parity_set`, so a
 //! changed thumbnail scheme cannot register as a difference on one side.
 
 use anyhow::{Context, Result};
@@ -16,9 +16,9 @@ use std::path::Path;
 
 /// Map a built file to the URL a server would answer it at.
 ///
-/// `index.html` is the directory itself (`blog/2022/index.html` → `/blog/2022/`
-/// — the pretty-URL convention both builds use); everything else is its own
-/// path. Returns `None` for files that are not addressable content.
+/// `index.html` is the directory itself (`blog/2022/index.html` ->
+/// `/blog/2022/`). Everything else is its own path. `None` for files that
+/// are not addressable content.
 fn url_of(rel: &Path) -> Option<String> {
     let s = rel.to_str()?.replace('\\', "/");
     if s.starts_with('.') || s.contains("/.") {
@@ -31,7 +31,7 @@ fn url_of(rel: &Path) -> Option<String> {
     })
 }
 
-/// Is this URL exempt from parity — a derived asset (q12) rather than a page?
+/// Is this URL exempt from parity, a derived asset rather than a page?
 pub fn exempt(url: &str, prefixes: &[String]) -> bool {
     prefixes.iter().any(|p| url.starts_with(p.as_str()))
 }
@@ -105,7 +105,7 @@ impl Parity {
     }
 }
 
-/// One capped, labelled list for the parity report — used for both missing and
+/// One capped, labelled list for the parity report, used for both missing and
 /// extra so the two cannot drift in format.
 fn print_capped(label: &str, note: &str, items: &[String], limit: usize) {
     println!("  {label:<9} {} ({note})", items.len());
@@ -139,7 +139,7 @@ mod tests {
         );
     }
 
-    /// Dotfiles are build residue, not addressable content — `.htaccess` and
+    /// Dotfiles are build residue, not addressable content, `.htaccess` and
     /// friends would otherwise read as URLs that one side is always missing.
     #[test]
     fn dotfiles_are_not_urls() {
@@ -147,7 +147,7 @@ mod tests {
         assert!(url_of(Path::new("_thumbs/.htaccess")).is_none());
     }
 
-    /// q12: the thumbnail scheme changed on purpose, so neither side's
+    /// The thumbnail scheme changed on purpose, so neither side's
     /// derived assets may count as a parity difference.
     #[test]
     fn derived_assets_are_exempt_on_both_sides() {

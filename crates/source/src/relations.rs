@@ -1,4 +1,4 @@
-//! Compile collection relations at load time (DESIGN.md §6g). Evaluation deferred to build.
+//! Compile collection relations at load time. Evaluation deferred to build.
 
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, HashMap};
@@ -241,14 +241,14 @@ order_by = "-date"
         rels.iter().map(|r| r.name.as_str()).collect()
     }
 
-    /// The full error chain (`{:#}`), so a wrapped root cause — a bad field
-    /// under a `collection … relation …` context — is visible.
+    /// The full error chain (`{:#}`), so a wrapped root cause, a bad field
+    /// under a `collection … relation …` context, is visible.
     fn err(extra: &str) -> String {
         format!("{:#}", compile(extra).unwrap_err())
     }
 
-    /// `extends = "none"` with no relation blocks is truly empty — the engine
-    /// mints nothing (§4d, same as the flag family).
+    /// `extends = "none"` with no relation blocks is truly empty, the engine
+    /// mints nothing.
     #[test]
     fn extends_none_mints_no_relations() {
         let rels = compile("").unwrap();
@@ -358,10 +358,9 @@ where = "!draft && !hidden"
         assert_eq!(relation(&rels, "related").limit, 2);
     }
 
-    /// The engine composes NO predicate of its own. It used to AND
-    /// `!candidate.draft && !candidate.hidden` onto a defaulted pool, which
-    /// meant engine code naming two fields it had no business knowing; the
-    /// guarantee lives in the base config's `published` set now (§4d).
+    /// The engine composes no predicate of its own. The
+    /// `!candidate.draft && !candidate.hidden` guarantee lives in the base
+    /// config's `published` set, not in engine code naming those fields.
     ///
     /// Mutation-checked by restoring the injection, which makes this fail and
     /// `a_relation_over_a_set_reads_only_what_it_declared` fail with it.
@@ -397,7 +396,7 @@ where = "!draft && !hidden"
         assert_eq!(refs, vec!["candidate.date.year".to_string()]);
     }
 
-    /// Absent `from` means the collection itself — never a hard-coded set
+    /// Absent `from` means the collection itself, never a hard-coded set
     /// name. The base writes `from = "published"` explicitly.
     #[test]
     fn absent_from_is_the_collection_itself() {
@@ -414,7 +413,7 @@ where = "!draft && !hidden"
     }
 
     /// With an explicit `from = "published"`, the pool is that set, and the
-    /// filtering it does is its own — `earlier` still reads only the date.
+    /// filtering it does is its own, `earlier` still reads only the date.
     #[test]
     fn a_published_set_needs_no_fallback_filter() {
         let refs = relation(&compile(POSTS_DEFAULTS).unwrap(), "earlier")

@@ -1,11 +1,11 @@
 //! `grackle serve`: the resident database behind a raw-hyper HTTP server.
 //!
-//! This is the phase change from compiler to CMS (DESIGN §7): the `SiteDb` and
+//! This is the phase change from compiler to CMS: the `SiteDb` and
 //! the rendered output live in the process across requests and are served from
-//! memory — no output directory, exactly what §2 calls for. A file watcher
+//! memory, no output directory, exactly what calls for. A file watcher
 //! turns saves into a background re-render and pings the browser to reload.
 //!
-//! v1 is deliberately coarse. §2's incremental invalidation (rebuild only the
+//! v1 is deliberately coarse. incremental invalidation (rebuild only the
 //! pages that depend on the changed row) is future work; here the watcher just
 //! **rebuilds the whole world** on any content change. At ~0.4s warm that is
 //! already imperceptible for this site, and it keeps the first cut small: the
@@ -13,10 +13,10 @@
 //!
 //! **The pull model, and what this file does not yet do**.
 //! Build is "pull every output" and serve is "pull this one".
-//! That is a function rather than a sentence now — `grackle_model::graph`
+//! That is a function rather than a sentence now, `grackle_model::graph`
 //! builds the dependency graph at planning and answers both halves
 //! (`Graph::fanout` for what a changed input invalidates, `Graph::pull` for
-//! the ordered work one output stands on) — and nothing here calls either.
+//! the ordered work one output stands on), and nothing here calls either.
 //! That is the item's stated scope, not an oversight: the two upgrades this
 //! file owes are `render` becoming a fanout-scoped re-render rather than a
 //! whole-world one, and `handle` materializing a route it has not built yet
@@ -47,20 +47,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// A rendered snapshot plus a version the browser polls to know when to reload.
 ///
 /// `Clone` is required by `new_rcu` (it builds a copy-on-write cloner) but is
-/// never invoked at runtime — the watcher replaces the whole snapshot with
+/// never invoked at runtime, the watcher replaces the whole snapshot with
 /// `set`, not `write`, so the map is never actually deep-copied.
 #[derive(Clone)]
 struct Snapshot {
     version: u64,
     pages: SiteOutput,
-    /// The inspector's payload (§7c), rebuilt with the site so it can never
+    /// The inspector's payload, rebuilt with the site so it can never
     /// describe a database the pages didn't come from.
     debug: Vec<u8>,
 }
 
 /// An RCU cell (keepcalm): reads are lock-free clones of the current snapshot
 /// and never contend with the writer; the watcher swaps a whole new snapshot in
-/// with `set`, which — unlike an RCU write lock — skips the copy entirely. This
+/// with `set`, which, unlike an RCU write lock, skips the copy entirely. This
 /// is exactly the read-mostly, wholesale-replaced shape a resident site wants.
 type Shared = SharedMut<Snapshot>;
 
@@ -100,7 +100,7 @@ pub fn serve(config_path: &Path, port: u16, profile: Option<&str>) -> Result<()>
             tx.clone(),
             rx,
         )?;
-        // Stale-while-revalidate (§6b): the first render served whatever
+        // Stale-while-revalidate: the first render served whatever
         // embeddings the cache had; bring them current off-thread and
         // re-render when done.
         embed_in_background(&root, pending, tx);
@@ -146,8 +146,8 @@ async fn handle(
         ));
     }
 
-    // The inspector owns `/__debug/` outright (§7c): served from the binary,
-    // never from the site, never emitted by a build — and a miss inside the
+    // The inspector owns `/__debug/` outright: served from the binary,
+    // never from the site, never emitted by a build, and a miss inside the
     // prefix 404s here rather than falling through, so a site page cannot
     // shadow it.
     if crate::debug::is_debug_path(&path) {
@@ -218,7 +218,7 @@ fn reply(status: StatusCode, ct: &'static str, body: Vec<u8>) -> Response<Full<B
 ///
 /// This is "rebuild the world": config and db are re-read every time, so an
 /// edit to `grackle.toml`, a post, a page, or the SCSS all take effect.
-/// Also returns the embeddings that are missing or stale — the render used
+/// Also returns the embeddings that are missing or stale, the render used
 /// the old vectors (stale-while-revalidate); the caller re-embeds off-thread.
 fn render(
     config_path: &Path,
@@ -243,7 +243,7 @@ fn render(
 
 /// Embed pending posts on a plain thread, then poke the rebuild channel so
 /// the next render picks up the fresh vectors. One flight at a time; on
-/// failure (e.g. offline model download) we log and do NOT re-poke — the
+/// failure (e.g. offline model download) we log and do NOT re-poke, the
 /// next natural rebuild retries, instead of a hot retry loop.
 fn embed_in_background(
     root: &Path,
@@ -297,7 +297,7 @@ fn spawn_watcher(
         .watch(&root, RecursiveMode::Recursive)
         .with_context(|| format!("watching {}", root.display()))?;
 
-    // A recursive watch does not descend a SYMLINKED directory — the kernel
+    // A recursive watch does not descend a SYMLINKED directory, the kernel
     // watches inodes under the root, and a symlink's target is not one of
     // them. `themes/` is the one place a site plausibly points elsewhere (a
     // gallery kept outside the site, which is exactly what
@@ -353,8 +353,8 @@ fn spawn_watcher(
 }
 
 /// Whether a changed path is site content worth rebuilding for. Excludes build
-/// artifacts and VCS — critically `_cache/`, which a rebuild writes thumbnails
-/// into (watching it would loop) — and typical editor temp files.
+/// artifacts and VCS, critically `_cache/`, which a rebuild writes thumbnails
+/// into (watching it would loop), and typical editor temp files.
 fn is_content(p: &Path) -> bool {
     const IGNORE: &[&str] = &[
         "/_cache",
@@ -368,15 +368,15 @@ fn is_content(p: &Path) -> bool {
     if IGNORE.iter().any(|d| s.contains(d)) {
         return false;
     }
-    // grackle's own tree is not site content — except grackle.toml (the config
-    // a running server reloads on), a site's own `.style.scss` (§5b rung 1),
+    // grackle's own tree is not site content, except grackle.toml (the config
+    // a running server reloads on), a site's own `.style.scss`,
     // anything under a `themes/` or `.slots/` directory, and the engine's own
     // `assets/base/` when a dev build serves it from source.
     // Every exception is presentation, never engine source: without the first
-    // exclusion, editing grackle's Rust or DESIGN.md would pointlessly rebuild
+    // exclusion, editing grackle's Rust or design.md would pointlessly rebuild
     // the whole site; without the exceptions, a gallery living inside the
     // grackle tree, its slot fills, and the floor itself could not hot-reload.
-    // `.slots/` earned its line the way `.style.scss` did — an example site's
+    // `.slots/` earned its line the way `.style.scss` did, an example site's
     // fills (and its `chrome.html` cluster override) were invisible to the
     // watcher, and a fill you cannot iterate on is half a feature.
     if s.contains("/grackle/")
@@ -421,7 +421,7 @@ fn content_type(path: &str) -> &'static str {
 }
 
 /// Poll `/__grackle/version` and reload when it changes. Injected before
-/// `</body>` (appended if there is none). Polling — not SSE — keeps v1 tiny;
+/// `</body>` (appended if there is none). Polling, not SSE, keeps v1 tiny;
 /// no streaming body, no extra endpoint state.
 const RELOAD_SCRIPT: &str = r#"<script>
 (function () {

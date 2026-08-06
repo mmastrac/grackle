@@ -45,7 +45,7 @@ impl Config {
         Config::load_profile(path, None)
     }
 
-    /// Load, then project through a profile (§4a). `dev` is implicit.
+    /// Load, then project through a profile. `dev` is implicit.
     pub fn load_profile(path: &Path, profile: Option<&str>) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
@@ -59,7 +59,7 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Inherit base? Shared by load and `--effective` (§4d).
+    /// Inherit base? Shared by load and `--effective`.
     fn extends_of(value: &toml::Value) -> Result<bool> {
         match value
             .get("extends")
@@ -70,7 +70,7 @@ impl Config {
             "none" => Ok(false),
             other => anyhow::bail!(
                 "extends = {other:?} — the only values are \"default\" (inherit \
-                 the engine's base config, §4d) and \"none\" (declare \
+                 the engine's base config) and \"none\" (declare \
                  everything yourself)."
             ),
         }
@@ -114,12 +114,12 @@ impl Config {
         let mut preamble = format!("# The effective config for {label}.\n#\n");
         preamble.push_str(if inherits_base {
             "# This site's grackle.toml merged over the base config compiled into\n\
-             # the engine (DESIGN.md §4d). It is the table the\n\
+             # the engine. It is the table the\n\
              # deserializer is handed — not a diff of the two files: the merge\n\
              # itself recorded where every line below came from.\n"
         } else {
             "# `extends = \"none\"`, so no base was merged: this site declares its\n\
-             # whole config, and every key below is its own (DESIGN.md §4d).\n"
+             # whole config, and every key below is its own.\n"
         });
         if let Some(name) = profile {
             // The preamble must match a real projection.
@@ -132,17 +132,17 @@ impl Config {
             let real = declared.is_some_and(|t| t.contains_key(name));
             preamble.push_str(&match (known.contains(&name), real) {
                 (_, true) => format!(
-                    "#\n# Projected through profile {name:?} (§4a): the profile's own body,\n\
+                    "#\n# Projected through profile {name:?}: the profile's own body,\n\
                      # minus `force`, merged over the table above as the NEAREST writer.\n\
                      # Every `# profile {name}` line below is a key it wrote.\n\
                      #\n\
                      # [profiles.{name}.force] is NOT part of that overlay: it is rung 0\n\
-                     # (§2), applied per row and per route at load rather than to the\n\
+                     #, applied per row and per route at load rather than to the\n\
                      # config, and it is printed below under [profiles] like any other\n\
                      # config value.\n"
                 ),
                 (true, false) => format!(
-                    "#\n# NOTE: profile {name:?} is implicit (§4a) — this config declares no\n\
+                    "#\n# NOTE: profile {name:?} is implicit — this config declares no\n\
                      # [profiles.{name}], and an undeclared profile projects nothing. The\n\
                      # table below is what it would build.\n"
                 ),
@@ -170,7 +170,7 @@ impl Config {
         Config::from_toml_profile(text, None)
     }
 
-    /// Project through `profile` between base merge and deserialize (§4a).
+    /// Project through `profile` between base merge and deserialize.
     /// Dry-runs every declared profile when none is selected.
     pub fn from_toml_profile(text: &str, profile: Option<&str>) -> Result<Config> {
         let value: toml::Value = toml::from_str(text)?;
@@ -253,7 +253,7 @@ impl Config {
                     .with_context(|| {
                         format!(
                             "profile {name} (checked at every load — a projection \
-                             is part of this config, §4a)"
+                             is part of this config)"
                         )
                     })?;
             }
@@ -387,7 +387,7 @@ impl Config {
         self.i18n_text(&self.site.title, member)
     }
 
-    /// Render LocalizedStr: `@key` / `@table[index]` / inline + embedded tables (§6f).
+    /// Render LocalizedStr: `@key` / `@table[index]` / inline + embedded tables.
     pub fn render_localized<F>(&self, s: &LocalizedStr, member: &str, get: &F) -> Result<String>
     where
         F: Fn(&str) -> Option<String>,
@@ -447,7 +447,7 @@ impl Config {
             .collect()
     }
 
-    /// Settle `default_content` against the tree (§4d): missing = plain landing;
+    /// Settle `default_content` against the tree: missing = plain landing;
     /// accepts `{% view %}` = claim; else stand down the offered route.
     fn resolve_default_content(&mut self) {
         let root = self.root();
@@ -621,7 +621,7 @@ impl Config {
         s
     }
 
-    /// Flatten `from` chain: query-only or grouped unpaginated (§5c; q30).
+    /// Flatten `from` chain: query-only or grouped unpaginated.
     pub fn query(&self, name: &str) -> Result<Query> {
         let mut filters = Vec::new();
         let mut patched = Vec::new();
@@ -677,7 +677,7 @@ impl Config {
                     anyhow::bail!(
                         "{cur}: `from = {}` names something that is neither a set nor a \
                          grouped route. Only sets and grouped, unpaginated routes may be \
-                         composed over (subdivision, §5c); pagination × subdivision is \
+                         composed over; pagination × subdivision is \
                          punted (open question 30).{}",
                         from.display(),
                         self.whose_from(cur, name)
@@ -687,7 +687,7 @@ impl Config {
                     anyhow::bail!(
                         "{cur}: `from = {}` names a grouped route, but {cur} has no \
                          `group_by`. Composing over a grouped route means subdividing its \
-                         partition (§5c), so the composer must be grouped too.{}",
+                         partition, so the composer must be grouped too.{}",
                         from.display(),
                         self.whose_from(cur, name)
                     );
@@ -697,7 +697,7 @@ impl Config {
         }
     }
 
-    /// Terminated `from`: collection or same-kind union (§5c). `*` is invalid
+    /// Terminated `from`: collection or same-kind union. `*` is invalid
     ///; see [`whose_from`] for carrier vs asked.
     fn check_base(&self, carrier: &str, asked: &str, from: &From) -> Result<()> {
         if matches!(from, From::One(s) if s == "*") {
@@ -758,7 +758,7 @@ impl Config {
         if v.inherited {
             let table = if v.declared_set { "sets" } else { "routes" };
             note.push_str(&format!(
-                "\n  {carrier:?} is inherited from the base config (§4d) — it is not in your \
+                "\n {carrier:?} is inherited from the base config — it is not in your \
                  grackle.toml, and its `from` names a collection the BASE declares. A site \
                  that renames or drops that collection has to say what {carrier:?} means to \
                  it: declare your own [{table}.{carrier}] over the inherited one, or keep a \
@@ -782,7 +782,7 @@ impl Config {
         out
     }
 
-    /// `group_by` specs, outermost first (§5c subdivision).
+    /// `group_by` specs, outermost first.
     pub fn group_specs(&self, name: &str) -> Vec<String> {
         let mut v: Vec<String> = self
             .chain(name)
@@ -805,7 +805,7 @@ impl Config {
     }
 
     /// Computed fields along `from`, then the `[schema.fields]` bag; nearest
-    /// wins (§5c). A set field shadows a schema field of the same name.
+    /// wins. A set field shadows a schema field of the same name.
     pub fn fields_for(&self, view: &str) -> BTreeMap<&str, &Field> {
         let mut out: BTreeMap<&str, &Field> = BTreeMap::new();
         for (_, v) in self.chain(view) {
@@ -820,7 +820,7 @@ impl Config {
     }
 
     /// `[schema.fields]`: computed columns every row carries, whatever view (if
-    /// any) renders it. The document filler reads these directly (§5f).
+    /// any) renders it. The document filler reads these directly.
     pub fn schema_fields(&self) -> &BTreeMap<String, Field> {
         &self.schema.fields
     }

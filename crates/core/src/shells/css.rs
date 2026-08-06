@@ -7,14 +7,14 @@ use crate::pipeline::types::Stats;
 use crate::store::split_front_matter;
 
 /// `@charset` is only legal as the very first thing in a stylesheet, and
-/// grass emits one per compilation unit — two of which now go INSIDE layer
+/// grass emits one per compilation unit, two of which now go INSIDE layer
 /// blocks. Strip them there and write one at the top of the file.
 pub(crate) fn strip_charset(css: &str) -> &str {
     css.strip_prefix("@charset \"UTF-8\";\n").unwrap_or(css)
 }
 
 /// Inline `@import`s, compile with grass, and push the result into the theme
-/// layer — or, on failure, report and record it. `ctx_path` names the source
+/// layer, or, on failure, report and record it. `ctx_path` names the source
 /// in the error. Reported so `serve` shows it immediately, and recorded so
 /// `build` can refuse: the CSS half of a theme is not the lenient one, and a
 /// stylesheet that silently failed to compile looks deployable and is wrong.
@@ -41,58 +41,23 @@ fn compile_theme_layer_fragment(
     Ok(())
 }
 
-/// A theme's stylesheet is the ENGINE BASE plus whatever the theme adds
-/// (§5e) — compiled to the URL the theme's pages link (`default` keeps
-/// /css/main.css for parity).
+/// Theme stylesheet: engine base plus theme additions, compiled to the URL
+/// theme pages link (`default` keeps /css/main.css).
 ///
-/// **The theme's own sheet is `theme.scss`, or failing that `_tokens.scss`
-/// alone.** The second case is the smallest theme worth having: retune the
-/// palette and the measure, inherit every rule. Compiling it needs saying
-/// out loud, because the alternative is the failure mode it replaced — a
-/// directory holding one `_tokens.scss` shipped a stylesheet that never
-/// read it, and nothing said so. A file that is silently ignored is worse
-/// than one that errors.
+/// Theme sheet is `theme.scss`, or else `_tokens.scss` alone. Sheets land in
+/// declared layers so theme rules win over the base. `head_style` from the
+/// theme root follows `theme.scss` in the theme layer (chrome rules should
+/// beat the general sheet).
 ///
-/// The two sheets arrive in declared layers, the cascade order §5e states.
-/// That buys what plain concatenation cannot: a theme's rule wins over the
-/// base's whatever the selectors say, so a theme writing `.crumb` is never
-/// outranked by the base's `[data-kind="crumb"] + [data-kind="crumb"]`.
-///
-/// **These per-theme sheets ARE the megacss**. The model
-/// is one CSS artifact — engine base, theme, site overlay, extracted
-/// `root.html` styles, eventually per-post styles — and chunking it per theme
-/// is an optimization of that one artifact, not a competing design: a page
-/// links exactly one sheet, and the sheet it links is the whole cascade for
-/// that page. Nothing about the URLs or the assembly changed when the model
-/// said so; what changed is that "the megacss" now names something that
-/// exists.
-///
-/// `head_style` is the theme root's `<head>` CSS (`Theme::head_style`), and
-/// it lands in the THEME layer **after** `theme.scss`. Two reasons, and the
-/// second is why it is not merely arbitrary: a theme's files are read top to
-/// bottom by whoever maintains it, and `root.html` is the file that states
-/// the theme's own frame — so a rule it writes about its own chrome should
-/// win against the general sheet, not lose to it. It is also the reading that
-/// preserves the retired inline emission: a `<style>` last in a `<head>` outranked
-/// the stylesheet link above it, and staying last keeps the same rule
-/// winning after the move.
-/// Returns the compiled sheet's bytes. The caller chooses the URL it lands at
-/// and inserts it (the stable convention or a content address, see
-/// [`crate::assets`]), because in `hashed` mode the URL is a function of these
-/// bytes.
+/// Returns compiled bytes. The caller picks the URL (`crate::assets`).
 pub(crate) fn css_pass(
     theme_dir: &Path,
     head_style: &str,
     overlay: Option<&str>,
     stats: &mut Stats,
 ) -> Result<Vec<u8>> {
-    // `theme.scss` if the theme wrote one, else `_tokens.scss` on its own.
-    // `wants_skin` is the ONLY thing a sheet's presence now decides: the
-    // heading ladder and block rhythm always apply (measured inert under a
-    // theme that has its own — see `base::css`), and only the decorative
-    // skins wait to be asked for. That shrinks the ladder's one
-    // discontinuity from "the whole page changes" to "the code panel and
-    // blockquote rule are missing".
+    // `theme.scss` if present, else `_tokens.scss`. `wants_skin` gates only
+    // decorative skins; heading ladder and block rhythm always apply.
     let full = theme_dir.join("theme.scss");
     let tokens = theme_dir.join("_tokens.scss");
     let (own, wants_skin) = match (full.exists(), tokens.exists()) {
@@ -101,9 +66,9 @@ pub(crate) fn css_pass(
         (false, false) => (None, true),
     };
 
-    // The full cascade order §5e declares, not just the two layers used
-    // today. `overlay` (§5b subtree styles) and `post` (§6c per-post
-    // styles) are unbuilt — declaring them now is free and makes this
+    // The full cascade order declares, not just the two layers used
+    // today. `overlay` and `post`
+    // are unbuilt, declaring them now is free and makes this
     // statement the authority on the order, so whoever builds them slots
     // in rather than discovering that an undeclared layer sorts last by
     // accident. `reset` is the base's own reset partial, which currently
@@ -116,12 +81,12 @@ pub(crate) fn css_pass(
     // The theme layer's contents, in order: the theme's own sheet, then the
     // CSS its `root.html` head declared. Collected rather than appended
     // straight to `css` so the layer block is emitted once, and only when
-    // something reached it — a theme with neither writes no `@layer theme`
+    // something reached it, a theme with neither writes no `@layer theme`
     // at all, exactly as before this item.
     let mut theme_layer: Vec<String> = Vec::new();
     // Every partial ANY of the theme's CSS sources pulled in, both passes
     // pooled. The orphaned-tokens question below is about the theme as a
-    // whole — "does anything the theme compiles read this file?" — and a
+    // whole, "does anything the theme compiles read this file?", and a
     // per-pass list can only answer it for one file.
     let mut imported: Vec<String> = Vec::new();
     // A tokens-only theme (`_tokens.scss`, no `theme.scss`) reads its tokens
@@ -150,7 +115,7 @@ pub(crate) fn css_pass(
     // compiling costs a pass over a few lines and buys the author the two
     // things the rest of the theme already has: nesting, and
     // `@import "tokens";` reaching the theme's own partial or the engine
-    // base's. The alternative — verbatim — would have made one file in a
+    // base's. The alternative, verbatim, would have made one file in a
     // theme the file where the theme's own vocabulary does not work, which is
     // the kind of exception that is only ever discovered by hitting it.
     // A style that does not compile is the same event as a `theme.scss` that
@@ -172,14 +137,10 @@ pub(crate) fn css_pass(
     // a failure, because a theme may legitimately keep a partial it does not
     // use yet.
     //
-    // **Asked here, of the whole theme**. It used to be asked inside the
-    // `theme.scss` pass, of that pass's imports alone, and was therefore false
-    // in the two shapes where the tokens are read by something else: a
-    // tokens-only theme (they ARE the sheet — a wart of this warning's own
-    // vintage), and a theme whose `root.html` head imports them while
-    // `theme.scss` does not (the head has its own pass and its own list).
-    // What survives is the case the warning was written for: a `theme.scss`
-    // beside a `_tokens.scss` that nothing in the theme pulls in.
+    // Asked here, of the whole theme's imports (theme sheet and head alike),
+    // so a tokens-only theme and a head-only `@import` are not false
+    // alarms. The case that fires is a `theme.scss` beside a `_tokens.scss`
+    // that nothing in the theme pulls in.
     if tokens.exists() && !tokens_only && !imported.iter().any(|s| s == "tokens") {
         let w = format!(
             "{} has a _tokens.scss that nothing imports — add `@import \
@@ -195,9 +156,9 @@ pub(crate) fn css_pass(
             theme_layer.join("\n")
         ));
     }
-    // §5b rung 1: the site's own sheet, above every theme's. Appended to each
+    // rung 1: the site's own sheet, above every theme's. Appended to each
     // theme's stylesheet rather than served separately, because it must apply
-    // whichever theme is active — that is the whole guarantee, that a knob set
+    // whichever theme is active, that is the whole guarantee, that a knob set
     // here survives a theme SWITCH and not merely a theme update.
     if let Some(o) = overlay {
         css.push_str(&format!("@layer overlay {{\n{}\n}}\n", strip_charset(o)));
@@ -207,23 +168,23 @@ pub(crate) fn css_pass(
 }
 
 /// The site's own stylesheet: `.style.scss` at the root, compiled once and
-/// handed to every theme's sheet (§5b, rung 1 of themes/DESIGN.md §2).
+/// handed to every theme's sheet.
 ///
 /// The cheapest real customization there is, and the one the ladder promised
 /// and could not deliver: `:root { --accent: … }` in a file the site owns,
 /// landing in the `overlay` layer above theme CSS. Because the token names are
 /// a cross-theme contract, an override written here survives switching themes,
-/// not just updating one — which is what makes this a rung below "derive a
+/// not just updating one, which is what makes this a rung below "derive a
 /// theme" rather than a worse way to do it.
 ///
-/// Positional `.style.scss` (§5b's other half — a file per subtree, scoped by
-/// `data-scope`) is NOT this. It needs every rendered row to carry its scope
+/// Positional `.style.scss`
+/// is NOT this. It needs every rendered row to carry its scope
 /// chain, and nothing emits one yet.
 pub(crate) fn site_overlay(root: &Path, stats: &mut Stats) -> Option<String> {
     let src = root.join(".style.scss");
     let text = std::fs::read_to_string(&src).ok()?;
-    // Unscoped, so `:root` works here — which is the point of the root file and
-    // exactly what §5b warns is impossible in a SCOPED one, where a `:root`
+    // Unscoped, so `:root` works here, which is the point of the root file and
+    // exactly what warns is impossible in a scoped one, where a `:root`
     // block would be nested inside a selector and silently never apply.
     match grass::from_string(text, &grass::Options::default().load_path(root)) {
         Ok(css) => Some(css),
@@ -238,7 +199,7 @@ pub(crate) fn site_overlay(root: &Path, stats: &mut Stats) -> Option<String> {
 /// Resolve `@import "name"` textually against `_sass/_name.scss`, recursively.
 ///
 /// `grass` rejects a **nested** `@import` ("this at-rule is not allowed here"),
-/// but `_sass/_post.scss:240` has one — `pre > code { @import "rouge"; }` — to
+/// but `_sass/_post.scss:240` has one, `pre > code { @import "rouge"; }`, to
 /// scope Rouge's syntax classes. libsass (what Jekyll uses) allows it, so the
 /// site is legal input that grass will not take. Inlining first gives grass the
 /// flattened source it wants without touching the site's sass.
@@ -293,7 +254,7 @@ mod css_pass_tests {
     /// `who` names the caller: these run in parallel threads, and a shared
     /// scratch directory means one test compiles another's theme.
     /// (`CARGO_TARGET_TMPDIR` would be tidier, but Cargo defines it only for
-    /// integration tests — a unit test gets the system temp dir or nothing.)
+    /// integration tests, a unit test gets the system temp dir or nothing.)
     fn compile_as(who: &str, files: &[(&str, &str)]) -> String {
         let dir = std::env::temp_dir().join(format!("grackle-css-pass-{who}"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -308,8 +269,8 @@ mod css_pass_tests {
     }
 
     /// The smallest theme worth having: retune the palette, inherit every
-    /// rule. It regressed once — a directory holding only `_tokens.scss`
-    /// shipped a stylesheet that never read the file, silently — so the
+    /// rule. It regressed once, a directory holding only `_tokens.scss`
+    /// shipped a stylesheet that never read the file, silently, so the
     /// property is worth an assertion rather than a convention.
     #[test]
     fn a_theme_of_only_tokens_is_compiled() {
@@ -325,7 +286,7 @@ mod css_pass_tests {
         assert!(css.contains("border-left"), "and inherits the skins too");
     }
 
-    /// The heading ladder is unconditional — a theme never loses it by
+    /// The heading ladder is unconditional, a theme never loses it by
     /// writing a stylesheet. This is the fix for the ladder's one growth
     /// cliff, and it is safe because the ladder reads only tokens (a theme
     /// retunes it through `--size`/`--scale`) and was measured inert under
@@ -348,7 +309,7 @@ mod css_pass_tests {
     /// The decorative half still waits to be asked for. Measured: applied
     /// under grack.com the skins move a paragraph 19px and the blog listing
     /// 61px, because a theme with its own opinions about a blockquote will
-    /// fight them — which is exactly what the ladder does NOT do.
+    /// fight them, which is exactly what the ladder does NOT do.
     #[test]
     fn a_theme_with_a_sheet_is_not_given_the_skins() {
         let css = compile_as(
@@ -362,7 +323,7 @@ mod css_pass_tests {
         );
     }
 
-    /// §5e's cascade order, declared in full even though `overlay` and
+    /// cascade order, declared in full even though `overlay` and
     /// `post` have nothing to emit into them yet: the declaration is what
     /// makes the order authoritative rather than an accident of which
     /// layers happen to exist.
@@ -371,13 +332,13 @@ mod css_pass_tests {
         let css = compile_as("layer-order", &[("theme.scss", ".x { color: red; }")]);
         assert!(
             css.contains("@layer reset, base, theme, overlay, post;"),
-            "the sheet declares §5e's order: {}",
+            "the sheet declares order: {}",
             &css[..css.len().min(120)]
         );
     }
 
     /// The reset must keep a long code line from scrolling the whole page,
-    /// even for a theme that imports no typography at all — same class of
+    /// even for a theme that imports no typography at all, same class of
     /// bug as an image that overflows its column, and `vanilla` is the
     /// theme that would otherwise ship it.
     #[test]

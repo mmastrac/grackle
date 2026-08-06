@@ -1,17 +1,17 @@
-//! Row links and view links (§6a, Matt's rule): authored links reference
-//! what the database OWNS — a row by its source path, a view by name —
+//! Row links and view links: authored links reference
+//! what the database OWNS, a row by its source path, a view by name,
 //! because final URLs are derived values (locale prefixes, slugs, route
 //! templates). The engine renders the URL, exactly as it does for chrome.
 //!
 //! Resolution, per markdown link destination:
-//! - `view:name` / `view:name/key…` → the view's route template rendered
-//!   with the keys (tag slugs applied), locale-aware, verified against the
-//!   materialized route set — a typo'd key errors LISTING the keys.
-//! - a source path (relative to the linking file, or root-relative) → the
-//!   row's URL. Unknown source = error with a closest-match suggestion.
+//! - `view:name` / `view:name/key…` -> the view's route template rendered
+//!  with the keys (tag slugs applied), locale-aware, verified against the
+//!  materialized route set, a typo'd key errors LISTING the keys.
+//! - a source path (relative to the linking file, or root-relative) -> the
+//!  row's URL. Unknown source = error with a closest-match suggestion.
 //! - a raw internal URL: `loose` leaves it (the legacy-corpus posture);
-//!   `strict` errors, suggesting the correct source/`view:` form.
-//!   External schemes, fragments and mailto pass through untouched.
+//!  `strict` errors, suggesting the correct source/`view:` form.
+//!  External schemes, fragments and mailto pass through untouched.
 
 use anyhow::{bail, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -20,15 +20,15 @@ use std::sync::Mutex;
 
 use crate::config::{Config, LinkPolicy};
 use crate::model::SiteDb;
-// The materializer's own path selection (§6f, the default-axis case). Shared
+// The materializer's own path selection. Shared
 // rather than restated: a link that builds a URL by a rule of its own is a link
 // that can name a URL the build never issued.
 use grackle_source::load::{select_path, spends, Coord};
 
-/// Which FORM of citation is asking.
+/// Which form of citation is asking.
 ///
-/// The design's sentence — *three URLs, three jobs, each citation form knowing
-/// its address kind* — as a parameter. An authored **link** is a promise of a
+/// The design's sentence, *three URLs, three jobs, each citation form knowing
+/// its address kind*, as a parameter. An authored **link** is a promise of a
 /// bookmarkable address, so it demands a route and errors without one. An
 /// **embed** is markup the browser fetches, so it takes the strong address
 /// when the target has no route, and is not held to the link policy at all:
@@ -40,28 +40,28 @@ pub use grackle_model::Cite;
 
 /// Everything link resolution needs, computed once per build.
 pub struct LinkSpace {
-    /// Root-relative source path → the row's URL (posts, pages, objects).
+    /// Root-relative source path -> the row's URL (posts, pages, objects).
     source_to_url: HashMap<String, String>,
     /// Every materialized URL.
     routes: HashSet<String>,
-    /// URL → the form a strict-mode error suggests instead.
+    /// URL -> the form a strict-mode error suggests instead.
     url_form: HashMap<String, String>,
-    /// q53: source path → the axes the row's rule spends. Read for one question
-    /// only — *does this row's rule spend that axis at all* — which is what
+    /// Source path -> the axes the row's rule spends. Read for one question
+    /// only, *does this row's rule spend that axis at all*, which is what
     /// separates "you selected a member of an axis this row is not on" from
     /// "that member did not materialize". The member's URL comes from
-    /// `member_url`, never from a template — which is why `RowAxis` carries a
+    /// `member_url`, never from a template, which is why `RowAxis` carries a
     /// name and nothing else.
     source_to_axis: HashMap<String, Vec<grackle_model::RowAxis>>,
-    /// q53: (source path, axis, value) → the URL that route ACTUALLY landed at,
-    /// for the routes whose every other axis sits at its canonical — which is
+    /// (source path, axis, value) -> the URL that route actually landed at,
+    /// for the routes whose every other axis sits at its canonical, which is
     /// what a one-axis selector means.
     ///
-    /// A lookup rather than a reconstruction, and that is the whole point
-    ///. Rebuilding the URL meant picking a template — the first
-    /// of the rule's list, an arbitrary one — and then blaming the
+    /// A lookup rather than a reconstruction, and that is the whole point.
+    /// Rebuilding the URL meant picking a template, the first
+    /// of the rule's list, an arbitrary one, and then blaming the
     /// rule when the guess missed, while `select_path` had chosen a different
-    /// template for that very member. DESIGN.md q32's law is that producers take
+    /// template for that very member. The law is that producers take
     /// URLs from the owning view rather than construct them; the materialized
     /// route is the owner here, and it cannot lie.
     member_url: HashMap<(String, String, String), String>,
@@ -72,13 +72,13 @@ pub struct LinkSpace {
     /// one bad link in a template-shared fragment would otherwise say it once
     /// per page.
     warnings: Mutex<BTreeSet<String>>,
-    /// q53 file axis: source path → the row's logical identity, and
-    /// (logical, axis_name, member) → URL. A `?axis=` selector on a file axis
-    /// picks a SIBLING row — a different file, not a restyle of the same one —
+    /// File axis: source path -> the row's logical identity, and
+    /// (logical, axis_name, member) -> URL. A `?axis=` selector on a file axis
+    /// picks a SIBLING row, a different file, not a restyle of the same one,
     /// so it resolves through `by_logical`, not through a template.
     source_to_logical: HashMap<String, String>,
     sibling: HashMap<(String, String, String), String>,
-    /// Root-relative source path → the row's STRONG address, for
+    /// Root-relative source path -> the row's STRONG address, for
     /// the rows a rule declined to route (`embed = true`).
     ///
     /// A second map rather than a widening of `source_to_url`, because the two
@@ -103,8 +103,8 @@ impl LinkSpace {
         self.source_to_strong.get(rel).map(String::as_str)
     }
 
-    /// Does this URL name a materialized route? The raw-HTML seam (§6d stage
-    /// B) asks, because it meets engine-derived URLs it must not police.
+    /// Does this URL name a materialized route? The raw-HTML seam
+    /// asks, because it meets engine-derived URLs it must not police.
     pub fn is_route(&self, url: &str) -> bool {
         self.routes.contains(url)
     }
@@ -133,19 +133,19 @@ impl LinkSpace {
             .filter(|(n, _)| cfg.is_file_axis(n))
             .map(|(n, a)| (n.as_str(), a.field.as_str()))
             .collect();
-        // A row that publishes on demand (§4) is a legal link target even
+        // A row that publishes on demand is a legal link target even
         // though nothing has materialized it yet: the question a link asks is
         // whether the target is PUBLISHABLE, not whether someone else already
         // cited it. Its URL comes from the same rule template either way.
         for p in db.rows.iter() {
             // An embed-addressed row has no canonical URL at all,
-            // and its strong address goes in the other map — which is what
+            // and its strong address goes in the other map, which is what
             // makes a LINK to it an error and an EMBED of it resolve.
             if let Some(strong) = &p.strong_url {
                 source_to_strong.insert(p.rel.to_string_lossy().to_string(), strong.clone());
                 continue;
             }
-            // q45: a claimed locale variant whose partition never
+            // a claimed locale variant whose partition never
             // materialized has no URL; offering it would rewrite links
             // to "".
             if p.url.is_empty() {
@@ -174,8 +174,8 @@ impl LinkSpace {
         let mut routes = HashSet::new();
         let mut url_form = HashMap::new();
         let mut member_url: HashMap<(String, String, String), String> = HashMap::new();
-        // §4: `route || row.on_demand`. An on-demand row has no Route yet, so
-        // taking the route set alone would call every asset link dangling —
+        // `route || row.on_demand`. An on-demand row has no Route yet, so
+        // taking the route set alone would call every asset link dangling,
         // and the link is precisely what will materialize it.
         for p in db.rows.iter().filter(|p| p.on_demand && !p.url.is_empty()) {
             routes.insert(p.url.clone());
@@ -184,7 +184,7 @@ impl LinkSpace {
             routes.insert(r.url.clone());
             // A view route names itself by its view (and group key); every
             // other output names itself by its source path. "Is this a view
-            // route" is the `view` column being non-empty —
+            // route" is the `view` column being non-empty,
             // which is also the value this arm needs, so matching on the
             // column binds it instead of asking `kind` and then unwrapping.
             let form = match &r.view {
@@ -201,9 +201,9 @@ impl LinkSpace {
             if let Some(f) = form {
                 url_form.insert(r.url.clone(), f);
             }
-            // q53: index this route under each axis it is a non-default member
-            // of, but only while every OTHER axis of the tuple sits at its
-            // canonical — a `?theme=ledger` link names one member along one axis
+            // index this route under each axis it is a non-default member
+            // of, but only while every other axis of the tuple sits at its
+            // canonical, a `?theme=ledger` link names one member along one axis
             // and leaves the rest alone, so that is the only tuple it can mean.
             if r.axis.is_empty() {
                 continue;
@@ -271,14 +271,14 @@ fn closest_source<'a>(space: &'a LinkSpace, wanted: &str) -> Option<&'a str> {
 /// Does an unrecognized link query key *look like* an axis selector?
 ///
 /// A warning and never an error, deliberately. Only a declared axis name is read
-/// as a selector (q53), so `?utm=x` must keep meaning what it has always meant —
+/// as a selector, so `?utm=x` must keep meaning what it has always meant,
 /// which is exactly what makes a typo silent, since a misspelled axis is
 /// indistinguishable from an ordinary query string except by intent. The three
 /// legible intents: the right name in the wrong case (`?Theme=`), a name one or
 /// two edits away (`?thmee=`), and the axis's FIELD in place of the axis
 /// (`[axes.look] field = "theme"` selected as `?theme=`). Nothing else warns.
 ///
-/// A pure function, so the sentence is testable without a site — `slots.rs`'s
+/// A pure function, so the sentence is testable without a site, `slots.rs`'s
 /// `unknown_stems` is the precedent.
 pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Option<String> {
     let names: Vec<&str> = cfg.axes.keys().map(String::as_str).collect();
@@ -312,7 +312,7 @@ pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Opt
             " ({key:?} is the FIELD the {n:?} axis sets — select the axis: `?{n}=`)"
         )));
     }
-    // Then distance, at `filter.rs`'s threshold — and the edit must be SMALLER
+    // Then distance, at `filter.rs`'s threshold, and the edit must be SMALLER
     // than the shorter of the two words, or a short deliberate key (`?id=`)
     // matches a short axis name while sharing nothing with it.
     names
@@ -328,7 +328,7 @@ pub fn misspelled_axis(cfg: &Config, source: &str, href: &str, key: &str) -> Opt
 ///
 /// `url_dir` is the linking PAGE's URL directory: when a relative source
 /// link resolves to the same URL the browser would reach anyway, the href
-/// is left byte-identical — the engine rewrites only where the browser
+/// is left byte-identical, the engine rewrites only where the browser
 /// would get it wrong (`.md` links, source-dir ≠ url-dir references).
 pub fn resolve(
     cfg: &Config,
@@ -347,7 +347,7 @@ pub fn resolve(
         || href.contains("://")
         || href.starts_with("mailto:")
         || href.starts_with("data:")
-        // A bookmarklet is code, not a path — strict mode would otherwise
+        // A bookmarklet is code, not a path, strict mode would otherwise
         // read `javascript:(function(){…})` as a dangling source path.
         || href.starts_with("javascript:")
     {
@@ -361,18 +361,18 @@ pub fn resolve(
     // The embed branch, and it is deliberately the SMALLEST thing that
     // can be true.
     //
-    // An embed rewrites in exactly one case — the target is a row a rule
-    // declined to route, so the only address it has is the strong one — and
+    // An embed rewrites in exactly one case, the target is a row a rule
+    // declined to route, so the only address it has is the strong one, and
     // otherwise hands the author's markup back untouched. Two refusals fall
     // out of that, both of them right:
     //
-    //   * an embed of a ROUTED row keeps what the author wrote. "A routed
-    //     output wins — citations link the declared address" is what a
-    //     relative `src` beside its page already says, and rewriting those to
-    //     canonical URLs would move bytes on a corpus no item asked to move.
-    //   * an embed is not held to `[links] policy`. Most `src`s on a finished
-    //     page are engine-derived — `/static/` thumbnails, the stylesheet, the
-    //     favicon — and were never a source path to dangle.
+    //  * an embed of a ROUTED row keeps what the author wrote. "A routed
+    //  output wins, citations link the declared address" is what a
+    //  relative `src` beside its page already says, and rewriting those to
+    //  canonical URLs would move bytes on a corpus no item asked to move.
+    //  * an embed is not held to `[links] policy`. Most `src`s on a finished
+    //  page are engine-derived, `/static/` thumbnails, the stylesheet, the
+    //  favicon, and were never a source path to dangle.
     //
     // So the whole seam is: two candidate spellings of a source path, one
     // lookup, no index fallback (an embed of a directory means nothing) and no
@@ -385,8 +385,8 @@ pub fn resolve(
     let cut = href.find(['#', '?']).unwrap_or(href.len());
     let (path_part, suffix) = href.split_at(cut);
 
-    // An axis selector (q53): `page.md?theme=ledger` links to a specific
-    // MEMBER. Without it an axis member is unreachable from prose — a link
+    // An axis selector: `page.md?theme=ledger` links to a specific
+    // MEMBER. Without it an axis member is unreachable from prose, a link
     // names a row and a row answers with its canonical URL, so "the ledger
     // rendering of this page" had no spelling. It reads as a query string and
     // resolves to a PATH, which is the point: the member's address is derived,
@@ -408,8 +408,8 @@ pub fn resolve(
             );
         }
     }
-    // `page.md?thmee=ledger` is not an axis selector — only a DECLARED
-    // name is read as one — so it ships as the literal query string it always
+    // `page.md?thmee=ledger` is not an axis selector, only a DECLARED
+    // name is read as one, so it ships as the literal query string it always
     // was, which is right and silent. Say something when the intent is legible:
     // a key that is a declared axis's name in the wrong case, a typo one or two
     // edits away from one, or the axis's FIELD rather than the axis. Behaviour
@@ -427,7 +427,7 @@ pub fn resolve(
     // resolves to the identical string, so trying sources first is safe.
     let mut candidates: Vec<(String, bool)> = Vec::new(); // (source path, was relative)
                                                           // A self-pivot: `.?locale=fr` / `.?theme=ledger` names THIS page's member on
-                                                          // that axis — the switcher an author writes by hand. `.` (or a bare `?…`)
+                                                          // that axis, the switcher an author writes by hand. `.` (or a bare `?…`)
                                                           // resolves to the linking row itself, so the `?axis=` branch below pivots the
                                                           // source rather than a directory index. Only when a selector is present, so a
                                                           // plain `.` still means the directory.
@@ -445,7 +445,7 @@ pub fn resolve(
     candidates.push((path_part.trim_start_matches('/').to_string(), false));
     // A link to a DIRECTORY means its index, the oldest convention on the
     // web (`saturn/` is `saturn/index.md`). Without this, strict mode calls
-    // 35 perfectly good links in this corpus dangling — and they resolve to
+    // 35 perfectly good links in this corpus dangling, and they resolve to
     // the URL the browser would have reached anyway, so the rewrite is
     // usually a no-op and the real work is the verification.
     for (c, was_relative) in candidates.clone() {
@@ -460,7 +460,7 @@ pub fn resolve(
     }
     for (c, was_relative) in &candidates {
         // **An authored link demands a route.** The target is a
-        // known row — the resolver found it — and the config declined to give
+        // known row, the resolver found it, and the config declined to give
         // it a canonical address, so there is nothing here a reader could
         // bookmark. Answering with the strong address would be worse than
         // failing: a hash URL is the content store made public, it changes the
@@ -485,7 +485,7 @@ pub fn resolve(
                     return Ok(None); // the browser already gets it right
                 }
             }
-            // q53: the selector picks a member. A **file axis** resolves to a
+            // the selector picks a member. A **file axis** resolves to a
             // sibling row via by_logical; a **route axis** looks up the
             // materialized member URL for the same row.
             if let Some((sel_name, _axis, value)) = axis_sel {
@@ -503,7 +503,7 @@ pub fn resolve(
                         ),
                     }
                 }
-                // Two failures, two sentences. Whether the row's RULE spends the
+                // Two failures, two sentences. Whether the row's rule spends the
                 // axis is the row's own property and the honest thing to blame;
                 // whether that member MATERIALIZED is a different question, and
                 // conflating them is what made the old error misleading.
@@ -522,7 +522,7 @@ pub fn resolve(
                 if let Some(u) = space.member_url.get(&key) {
                     return Ok(Some(u.clone()));
                 }
-                // The canonical member's address IS the row's own URL — that is
+                // The canonical member's address IS the row's own URL, that is
                 // what `Row.url` is, `select_path` run with every coord at its
                 // canonical. Rows with no Route of their own (on demand until
                 // something cites them, or claimed by a landing view) are absent
@@ -537,7 +537,7 @@ pub fn resolve(
                      route for that member"
                 );
             }
-            // Hold every other axis at the current member (q53). `Row.url`
+            // Hold every other axis at the current member. `Row.url`
             // already spent file axes when the templates declare them.
             return Ok(Some(format!("{url}{suffix}")));
         }
@@ -572,7 +572,7 @@ pub fn resolve(
 ///
 /// `href` is offered in the two spellings the corpus writes: relative to the
 /// embedding file, and root-relative. Anything with a query or a fragment
-/// keeps them — an `<img src="a.png?v=2">` names the same file — so the suffix
+/// keeps them, an `<img src="a.png?v=2">` names the same file, so the suffix
 /// is split off the path and put back.
 fn embed_target(space: &LinkSpace, linking_dir: &Path, href: &str) -> Option<String> {
     let cut = href.find(['#', '?']).unwrap_or(href.len());
@@ -595,7 +595,7 @@ fn embed_target(space: &LinkSpace, linking_dir: &Path, href: &str) -> Option<Str
         .map(|s| format!("{s}{suffix}"))
 }
 
-/// `view:name[/key…]` → the view's route, rendered and verified.
+/// `view:name[/key…]` -> the view's route, rendered and verified.
 fn view_link(
     cfg: &Config,
     space: &LinkSpace,
@@ -603,8 +603,8 @@ fn view_link(
     source: &str,
     rest: &str,
 ) -> Result<String> {
-    // q53: `view:name?axis=value` picks a member, the same spelling a row link
-    // uses — a view materialized across an axis lands at several URLs, and
+    // `view:name?axis=value` picks a member, the same spelling a row link
+    // uses, a view materialized across an axis lands at several URLs, and
     // naming one of them should not need a second syntax. The group-key form
     // (`view:name/key`) stays what it is; they compose, an axis segment and a
     // group segment being different parts of the path.
@@ -625,7 +625,7 @@ fn view_link(
     };
     // The members substitute into the template before the group keys do, so the
     // two halves of a `/{theme}/{key}/` path are filled by the two things that
-    // own them. A view on several axes is named `view:x?a=1&b=2` — every axis
+    // own them. A view on several axes is named `view:x?a=1&b=2`, every axis
     // it lands on must be pinned, or there is no single URL to mean.
     let selectors: Vec<(&str, &str)> = query
         .map(|q| q.split('&').filter_map(|s| s.split_once('=')).collect())
@@ -674,8 +674,8 @@ fn view_link(
         }
     }
     // Every template this view lands on, read exactly as `build_view` reads
-    // them: `paths` when it has them, else `path`, minus the paginating ones —
-    // a link names page one. Reading only the FIRST was the second half of
+    // them: `paths` when it has them, else `path`, minus the paginating ones,
+    // a link names page one. Reading only the first was the second half of
     // The closed bug (batch review 2): with a default-axis list the canonical member
     // drops its segment to a SHORTER template, so `view:hub?look=plain` rendered
     // `/plain/all/` while the route it names is `/all/`.
@@ -690,7 +690,7 @@ fn view_link(
     }
     let chain = cfg.group_specs(name);
     // The same params grouped_routes exposes: each level's field name, `key` =
-    // the leaf, tag slugs on the URL (§6f).
+    // the leaf, tag slugs on the URL.
     let mut params: Vec<(String, String)> = Vec::new();
     if chain.is_empty() {
         if !keys.is_empty() {
@@ -705,14 +705,14 @@ fn view_link(
             );
         }
         for (field, key) in chain.iter().zip(&keys) {
-            // §6f enum records: the URL wears any grouped field's slug.
+            // enum records: the URL wears any grouped field's slug.
             let value = cfg.record_slug(field, key).to_string();
             params.push((field.to_string(), value.clone()));
             params.push(("key".to_string(), value));
         }
     }
     // Fill the group keys and PRESERVE the axis and locale tokens, then let
-    // `select_path` spend those — `build_view`'s own two stages, in its order,
+    // `select_path` spend those, `build_view`'s own two stages, in its order,
     // so the two halves of a `/{look}/{key}/` path are filled by the two things
     // that own them and a link cannot pick a template the materializer did not.
     let rendered: Vec<String> = page1
@@ -753,7 +753,7 @@ fn view_link(
         }
         select_path(&rendered, &coords)
     };
-    // Pairing-axis-parallel views (§6f): a twin row links into its own
+    // Pairing-axis-parallel views: a twin row links into its own
     // member's archive when that variant materialized, and falls back to the
     // canonical one when it did not.
     let canon = cfg.pairing_canonical().unwrap_or("");
@@ -874,7 +874,7 @@ mod tests {
         .unwrap();
         assert_eq!(got.as_deref(), Some("/writing/saturn/#rings"));
 
-        // A directory with no index is still dangling — the convention
+        // A directory with no index is still dangling, the convention
         // resolves indexes, it does not invent them. And since strict is
         // the default, that is a load error naming the file rather than a
         // link quietly left to 404.
@@ -892,7 +892,7 @@ mod tests {
         assert!(e.contains("matches no source file or route"), "{e}");
     }
 
-    /// §6f × §6a, pinned: a view link resolves to the LINKING ROW's locale
+    /// ×, pinned: a view link resolves to the linking ROW's locale
     /// when that locale's variant materialized, and falls back to the
     /// default when it didn't.
     #[test]
@@ -943,7 +943,7 @@ mod axis_tests {
     use grackle_model::AxisMember;
 
     /// A site with one axis, `look = [plain, fancy]`, and a `hub` view on a
-    /// default-axis path list — the canonical member drops its segment. `spell`
+    /// default-axis path list, the canonical member drops its segment. `spell`
     /// is how the axis token is written; the two spellings must mean one thing.
     fn cfg_with(spell: &str) -> Config {
         Config::from_toml(&format!(
@@ -959,7 +959,7 @@ mod axis_tests {
     }
 
     /// A `view:` link must read `{axis:look}` as the same segment
-    /// `{look}` names, and must pick the template the MATERIALIZER picked —
+    /// `{look}` names, and must pick the template the MATERIALIZER picked,
     /// the shortest one covering the non-canonical members. Reading the first
     /// path and substituting the bare form only sent the canonical member to
     /// `/plain/all/`, a URL the build never issued.
@@ -987,9 +987,9 @@ mod axis_tests {
     }
 
     /// One row, published at two looks by a rule with a path list. The row says
-    /// only WHICH axis its rule spends — a member's URL comes from
-    /// the routes the build issued, and nothing keeps the template the row used to
-    /// carry beside the name (an arbitrary pick out of the rule's list).
+    /// only which axis its rule spends; a member's URL comes from
+    /// the routes the build issued, not from a template kept beside the name
+    /// (an arbitrary pick out of the rule's list).
     fn axis_db() -> SiteDb {
         let mut db = SiteDb::seed(Vec::new());
         let key = grackle_db::Key::new("note.md");
@@ -1045,8 +1045,8 @@ mod axis_tests {
             ..Route::new("/flat/".to_string(), RouteKind::Page)
         });
 
-        // §4 on demand: the axis IS spent, but nothing has materialized a
-        // route yet — the row knows its canonical URL and nothing else.
+        // on demand: the axis IS spent, but nothing has materialized a
+        // route yet, the row knows its canonical URL and nothing else.
         let later = grackle_db::Key::new("later.md");
         db.rows.push(crate::model::Row {
             key: later,
@@ -1068,7 +1068,7 @@ mod axis_tests {
         db
     }
 
-    /// The two failures the lookup keeps apart. Whether the row's RULE spends
+    /// The two failures the lookup keeps apart. Whether the row's rule spends
     /// the axis is the row's own property; whether a member MATERIALIZED is a
     /// different question, and the old single message blamed the rule for both.
     #[test]
@@ -1107,8 +1107,8 @@ mod axis_tests {
 
     /// The member's address is LOOKED UP in the routes the build issued,
     /// not rebuilt. Rebuilding it from the row's template would answer
-    /// `/{axis:look}/note/` for one member and `/plain/note/` for the other —
-    /// neither of which exists — and then blame the rule for not spending a
+    /// `/{axis:look}/note/` for one member and `/plain/note/` for the other,
+    /// neither of which exists, and then blame the rule for not spending a
     /// segment it spends.
     #[test]
     fn a_row_link_takes_the_members_url_from_the_route_it_landed_at() {
@@ -1136,9 +1136,9 @@ mod axis_tests {
         assert_eq!(self_pivot.as_deref(), Some("/fancy/note/"));
     }
 
-    /// A link picks ONE member along ONE axis; every other axis the row spends
-    /// stays at its canonical (q53's composition). With two axes the row has
-    /// four routes and `?look=fancy` names exactly one of them — the index must
+    /// A link picks one member along one axis; every other axis the row spends
+    /// stays at its canonical. With two axes the row has
+    /// four routes and `?look=fancy` names exactly one of them, the index must
     /// not answer with whichever of the two the route list happened to end on.
     #[test]
     fn a_one_axis_selector_leaves_the_other_axes_canonical() {
@@ -1201,8 +1201,8 @@ mod axis_tests {
         assert_eq!(go("page.md?flavor=salty"), "/plain/salty/page/");
     }
 
-    /// An unknown query key stays literal — that is the design, since
-    /// only a declared name is a selector — and says so once, naming the file.
+    /// An unknown query key stays literal, that is the design, since
+    /// only a declared name is a selector, and says so once, naming the file.
     #[test]
     fn a_misspelled_axis_ships_literally_and_warns() {
         let cfg = cfg_with("axis:look");
@@ -1252,7 +1252,7 @@ mod axis_tests {
         assert_eq!(say("utm"), None);
         assert_eq!(say("page"), None);
         // Short keys do not match by accident: `id` is two edits from the `ab`
-        // axis, which is the whole of both words — a distance that says nothing.
+        // axis, which is the whole of both words, a distance that says nothing.
         assert_eq!(say("id"), None);
         // One edit out of two still says something.
         assert!(say("ib").unwrap().contains("did you mean `?ab=`"));

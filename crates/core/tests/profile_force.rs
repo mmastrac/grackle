@@ -1,4 +1,4 @@
-//! `[profiles.NAME.force]` — rung 0, on both surfaces.
+//! `[profiles.NAME.force]`, rung 0, on both surfaces.
 //!
 //! This is a whole site rendered twice, so it belongs with the fixtures by
 //! `fixtures.rs`'s own line ("if the subject is *a site*, it belongs here").
@@ -12,7 +12,7 @@
 //! not say `noindex` while every document under it does, in a projection whose
 //! whole purpose is to stay out of search indexes.
 //!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
+//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
 //! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ mod support;
 
 /// A site with one post, one listing, and a profile that forces `noindex`.
 ///
-/// The post declares `noindex: false` in its front matter — deliberately, and
+/// The post declares `noindex: false` in its front matter, deliberately, and
 /// it is the whole of the rung-0 statement: front matter is rung 1 and wins
 /// against every other writer in the system, and it loses to this.
 fn site(who: &str) -> PathBuf {
@@ -59,17 +59,17 @@ const ROBOTS: &str = r#"<meta name="robots" content="noindex,follow">"#;
 ///
 /// The base's `robots = 'noindex ? "noindex,follow" : ""'` is what emits the
 /// tag, and it is evaluated against the ROW on a document and against the
-/// ROUTE on a listing — so a force that reached only rows would leave `/blog/`
-/// saying nothing at all, which is the sitemap leak §4a exists to close. The
+/// route on a listing, so a force that reached only rows would leave `/blog/`
+/// saying nothing at all, which is the sitemap leak exists to close. The
 /// two assertions below are the two halves, and each fails alone.
 ///
 /// Mutation-checked in both directions, each restored:
 ///
 /// - delete the `schema::force` calls in `load.rs` (the row half) and the
-///   document assertion fails — the post's own `noindex: false` stands and it
-///   ships indexable inside a noindexed projection;
+///  document assertion fails, the post's own `noindex: false` stands and it
+///  ships indexable inside a noindexed projection;
 /// - delete the `force_route_fields` call (the route half) and the listing
-///   assertion fails, with `/blog/` carrying no robots meta at all.
+///  assertion fails, with `/blog/` carrying no robots meta at all.
 #[test]
 fn a_forced_field_reaches_documents_and_listings() {
     let dir = site("both");
@@ -89,7 +89,7 @@ fn a_forced_field_reaches_documents_and_listings() {
 ///
 /// `noindex: false` is what the post wrote and what it keeps; the listing
 /// never had a `noindex` to begin with, so its expression comes out empty and
-/// §5e's rule 2 drops the tag.
+/// rule 2 drops the tag.
 #[test]
 fn without_the_profile_the_row_keeps_its_own_answer() {
     let dir = site("control");
@@ -99,16 +99,16 @@ fn without_the_profile_the_row_keeps_its_own_answer() {
 }
 
 // ---------------------------------------------------------------------------
-// Rung 0 is above every reader — selection as well as surface.
+// Rung 0 is above every reader, selection as well as surface.
 // ---------------------------------------------------------------------------
 
 /// The same force, read by two *filters* instead of by two head expressions.
 ///
 /// `row_probe` filters the ROW pool (`from = "published"`, so its clause
-/// conjoins along the `from` chain); `pool_probe` filters the ROUTE pool (no
-/// `from` at all under a fold shell — the sitemap's own shape). Both ask `!noindex`, and under a
+/// conjoins along the `from` chain); `pool_probe` filters the route pool (no
+/// `from` at all under a fold shell, the sitemap's own shape). Both ask `!noindex`, and under a
 /// profile that forces `noindex = true` both must come out empty: a profile
-/// changes which rows the views admit (§4a), and rung 0 is not exempt from
+/// changes which rows the views admit, and rung 0 is not exempt from
 /// that because it is the highest rung, it is *especially* not exempt.
 fn pools_site(who: &str) -> PathBuf {
     let files = [
@@ -148,17 +148,17 @@ fn build_pools(dir: &Path, profile: Option<&str>) -> (String, String) {
 ///
 /// The route half is the one nothing guarded before R6, and the ordering it
 /// depends on is subtle enough to deserve a test: `force_route_fields` runs
-/// while the route list is complete, and `resolve_pool_folds` — the engine's
-/// *only* `db.routes.select` — runs at the end of `load`, so the route pool
+/// while the route list is complete, and `resolve_pool_folds`, the engine's
+/// *only* `db.routes.select`, runs at the end of `load`, so the route pool
 /// is already forced when it is filtered. Nothing said so, and nothing checked it.
 ///
 /// Mutation-checked in both directions, each restored:
 ///
 /// - move the `force_route_fields` call in `load.rs::load` below the
-///   `resolve_pool_folds` call and `/pool-probe.xml` lists all three URLs
-///   under the profile — the route pool reads unforced routes;
+///  `resolve_pool_folds` call and `/pool-probe.xml` lists all three URLs
+///  under the profile, the route pool reads unforced routes;
 /// - delete the `schema::force` calls (the row half) and `/row-probe/` links
-///   the post under the profile — the row pool reads unforced rows.
+///  the post under the profile, the row pool reads unforced rows.
 #[test]
 fn a_forced_field_is_read_by_both_pools_filters() {
     let dir = pools_site("under");

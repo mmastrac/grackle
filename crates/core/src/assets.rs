@@ -1,4 +1,4 @@
-//! Engine asset URL addressing (DESIGN.md q54).
+//! Engine asset URL addressing.
 //!
 //! One choke point turns an asset's bytes plus the site's `[assets] addressing`
 //! choice into the URL its referrer names. Today it governs the one stylesheet

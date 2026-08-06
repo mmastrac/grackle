@@ -1,8 +1,8 @@
-//! The page render chain (THEME.md §1, §4): root_shell → root → row → body.
+//! The page render chain: root_shell -> root -> row -> body.
 //!
 //! `slot` names the rung whose `content` hole receives the body:
-//! - absent — full stack (default)
-//! - `root` — skip row furniture; body fills theme chrome
+//! - absent, full stack (default)
+//! - `root`, skip row furniture; body fills theme chrome
 
 use anyhow::Result;
 use grackle_model::AxisMember;
@@ -127,7 +127,7 @@ pub fn light_page(
 }
 
 /// Resolve `layout`/`variant` to a theme face and concatenate member rows
-/// (THEME.md §3). Callers attach view context on the error.
+/// Callers attach view context on the error.
 pub fn member_faces(
     theme: &Theme,
     layout: &str,

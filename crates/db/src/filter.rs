@@ -1,4 +1,4 @@
-//! The filter language for views (DESIGN.md §5).
+//! The filter language for views.
 //!
 //! Deliberately tiny: a predicate over row fields, not SQL. Anything fancier
 //! should be a named Rust generator instead of growing this.
@@ -13,11 +13,11 @@
 //! ```
 //!
 //! Expressions are parsed and **type-checked against a schema at load time**,
-//! so a typo (`!drafts`) is a startup error naming the view — not a filter that
+//! so a typo (`!drafts`) is a startup error naming the view, not a filter that
 //! silently matches everything.
 //!
 //! Functions are the extension point. A field, a literal and a call are one
-//! thing — an operand — so a call goes anywhere a field does, nests, and is
+//! thing, an operand, so a call goes anywhere a field does, nests, and is
 //! type-checked by the same pass. Adding one is an entry in `FUNCS`.
 
 use anyhow::{anyhow, bail, Result};
@@ -28,18 +28,18 @@ use std::fmt;
 pub enum Type {
     Bool,
     Int,
-    /// A real number, produced by arithmetic and the score functions (§6g
-    /// `rank`). Absent from the row schemas — no column is a double — it
+    /// A real number, produced by arithmetic and the score functions
+    /// (`rank`). Absent from the row schemas: no column is a double. It
     /// exists only as the type of a computed expression.
     Double,
     /// Includes dates, which are ISO-8601 and so order correctly as strings.
     Str,
     List,
-    /// Rendered prose as a block sequence (§5f / §6d). Internal to field
+    /// Rendered prose as a block sequence. Internal to field
     /// expressions, not a schema column. Carries the `truncated` fact when
     /// a `truncate_*` wrapper cuts.
     Content,
-    /// A heading tree from `outline(content, max)` (§5f / §6e). Internal to
+    /// A heading tree from `outline(content, max)`. Internal to
     /// field expressions; the part layer turns it into `outline_entry` maps.
     Outline,
     /// A CEL map literal (`{"a": 1}`). Keys are int/bool/string; values are
@@ -48,14 +48,14 @@ pub enum Type {
     /// Matches any typed value. Only used as a function parameter (e.g.
     /// `to_json`); never a schema column.
     Any,
-    /// A string column whose values are a **closed set** — the column is
+    /// A string column whose values are a **closed set**, the column is
     /// backed by a Rust enum, so the engine knows every value it can ever
     /// hold. Behaves as [`Type::Str`] in every rule of the language; the
     /// domain buys one thing, and it is the point: comparing the
     /// column to a string outside the set is a load error naming the knowns,
     /// rather than a filter that matches nothing forever.
     ///
-    /// `kind == "posts"` — plural, one letter off, silently empty — is the
+    /// `kind == "posts"`, plural, one letter off, silently empty, is the
     /// failure this variant exists to make unwritable.
     Enum(&'static [&'static str]),
 }
@@ -67,7 +67,7 @@ impl Type {
         matches!(self, Type::Int | Type::Double)
     }
 
-    /// The type as every OTHER rule of the language sees it. An enum column is
+    /// The type as every other rule of the language sees it. An enum column is
     /// a string; nothing about ordering, concatenation, `in` or comparison
     /// changes because a column happens to know its values.
     ///
@@ -96,7 +96,7 @@ impl fmt::Display for Type {
             Type::Int => "int",
             Type::Double => "double",
             // An enum column IS a string as far as any message about types is
-            // concerned — its domain is reported by the domain error, which
+            // concerned, its domain is reported by the domain error, which
             // says something the type error cannot.
             Type::Str | Type::Enum(_) => "string",
             Type::List => "list",
@@ -108,7 +108,7 @@ impl fmt::Display for Type {
     }
 }
 
-/// One HTML element in a [`Content`] block sequence (§5f / §6d): the element
+/// One HTML element in a [`Content`] block sequence: the element
 /// name plus its outer HTML.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Block {
@@ -125,7 +125,7 @@ impl Block {
     }
 }
 
-/// Rendered or authored prose for field expressions (§5f): HTML blocks,
+/// Rendered or authored prose for field expressions: HTML blocks,
 /// markdown source, or plain text, plus whether a `truncate_*` wrapper cut.
 /// Bound as `content` when evaluating `fields.NAME`; not a row column.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -151,7 +151,7 @@ impl Content {
     }
 
     /// Tag each HTML fragment (Doc / comrak top-level children). Does not
-    /// re-split — one fragment stays one block so truncate prefixes match.
+    /// re-split, one fragment stays one block so truncate prefixes match.
     pub fn from_fragments(frags: Vec<String>) -> Self {
         Self::html(frags.into_iter().map(block_from_fragment).collect())
     }
@@ -375,7 +375,7 @@ fn block_from_fragment(html: String) -> Block {
     Block { tag, html }
 }
 
-/// Blank-line paragraphs → `<p>…</p>` blocks (markdown-style text chunking).
+/// Blank-line paragraphs -> `<p>…</p>` blocks (markdown-style text chunking).
 fn text_to_blocks(src: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut cur = String::new();
@@ -650,7 +650,7 @@ fn unescape(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// Nest headings by level; a jump (h2 → h4) nests under the nearest shallower.
+/// Nest headings by level; a jump (h2 -> h4) nests under the nearest shallower.
 pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<OutlineNode> {
     fn build(hs: &[&Heading], i: &mut usize, parent: u8) -> Vec<OutlineNode> {
         let mut out = Vec::new();
@@ -781,7 +781,7 @@ impl Value {
     /// A total order over values, for sorting.
     ///
     /// Distinct from what comparison in a FILTER does, deliberately. There,
-    /// `Null` compares equal to nothing — a row with no date matches neither
+    /// `Null` compares equal to nothing, a row with no date matches neither
     /// `date > x` nor `date < x`. Here it has to land somewhere, and it lands
     /// last: an undated row sorts after every dated one.
     ///
@@ -891,7 +891,7 @@ impl Lit {
     }
 }
 
-/// The arithmetic operators, for `rank` expressions (§6g slice 2). Division
+/// The arithmetic operators, for `rank` expressions. Division
 /// is deliberately absent: no ranking formula the design records needs it,
 /// and leaving it out keeps "can this divide by zero" from ever being a
 /// question a config can raise.
@@ -922,7 +922,7 @@ impl ArithOp {
 /// Something that produces a value: a field, a literal, or a call.
 ///
 /// Calls nest, because there is no reason for `under(dir(path), "x")` to be a
-/// special case — an operand is an operand.
+/// special case, an operand is an operand.
 #[derive(Debug, Clone)]
 enum Operand {
     Field(String),
@@ -930,7 +930,7 @@ enum Operand {
     Call(&'static Func, Vec<Operand>, Prepared),
     /// Unary minus, so distance functions rank with a sign (`-levenshtein`).
     Neg(Box<Operand>),
-    /// Arithmetic, for `rank` (§6g): `similarity(self, candidate) - 0.01 * gap`.
+    /// Arithmetic, for `rank`: `similarity(self, candidate) - 0.01 * gap`.
     Arith(Box<Operand>, ArithOp, Box<Operand>),
     /// CEL map literal: `{key: value, …}`.
     Map(Vec<(Operand, Operand)>),
@@ -948,8 +948,8 @@ enum Expr {
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
     Cmp(Operand, Op, Operand),
-    /// `"rust" in tags`, and — with a field on the left — `candidate in earlier`
-    /// (§6g name membership: is this row in that relation's finished list).
+    /// `"rust" in tags`, and, with a field on the left, `candidate in earlier`
+    /// (is this row in that relation's finished list).
     In(Operand, Operand),
 }
 
@@ -977,15 +977,15 @@ pub struct Func {
     eval: fn(&Prepared, &[Value], &dyn Ctx) -> Value,
 }
 
-/// The out-of-band data the score functions read (§6g slice 2). `self` and
+/// The out-of-band data the score functions read. `self` and
 /// `candidate` reach a function as their URLs (a `Str` argument); the ctx
 /// turns a URL into a vector, a date, whatever the function needs. Kept a
-/// trait so the language crate stays free of the embedding machinery — the
+/// trait so the language crate stays free of the embedding machinery, the
 /// engine supplies the real implementation at build time, and view filters,
 /// which call no score function, pass `NoCtx`.
 pub trait Ctx {
     /// Cosine similarity of two rows' body embeddings, by URL. `None` when
-    /// either row has no vector — the pair simply does not rank.
+    /// either row has no vector, the pair simply does not rank.
     fn similarity(&self, _a: &str, _b: &str) -> Option<f64> {
         None
     }
@@ -996,14 +996,14 @@ pub trait Ctx {
     }
 }
 
-/// The context for an expression that calls no score function — every view
+/// The context for an expression that calls no score function, every view
 /// filter, and every relation still on the built-in embedding order.
 pub struct NoCtx;
 impl Ctx for NoCtx {}
 
 /// The two URL arguments a row-pair score function receives, or `None` if
 /// either is not a string (which the type checker forbids, so this only
-/// guards against a bug). A `None` result — here or from the ctx — makes the
+/// guards against a bug). A `None` result, here or from the ctx, makes the
 /// pair unrankable rather than a crash, the same "missing input drops the
 /// candidate" the filters already have.
 fn url_pair(args: &[Value]) -> Option<(&str, &str)> {
@@ -1013,7 +1013,7 @@ fn url_pair(args: &[Value]) -> Option<(&str, &str)> {
     }
 }
 
-/// The first argument as a string, `None` if absent or not a `Str` — the
+/// The first argument as a string, `None` if absent or not a `Str`, the
 /// shape every single-string constructor shares.
 fn str_arg(args: &[Value]) -> Option<&str> {
     match args.first() {
@@ -1050,8 +1050,8 @@ fn eval_year_gap(_: &Prepared, args: &[Value], ctx: &dyn Ctx) -> Value {
         .map_or(Value::Null, Value::Double)
 }
 
-/// Edit distance between two strings — pure, no ctx. Wears a minus sign in a
-/// `rank` (`-levenshtein(...)`) because bigger always wins (§6g).
+/// Edit distance between two strings, pure, no ctx. Wears a minus sign in a
+/// `rank` (`-levenshtein(...)`) because bigger always wins.
 fn eval_levenshtein(_: &Prepared, args: &[Value], _: &dyn Ctx) -> Value {
     url_pair(args).map_or(Value::Null, |(a, b)| Value::Int(levenshtein(a, b) as i64))
 }
@@ -1258,7 +1258,7 @@ fn path_under(p: &str, base: &str) -> bool {
 }
 
 impl Func {
-    /// A function with no parse-time preparation and no rest args — every
+    /// A function with no parse-time preparation and no rest args, every
     /// entry below except `under`/`glob`, which carry their own `eval`/`prepare`.
     const fn simple(
         name: &'static str,
@@ -1327,11 +1327,11 @@ const FUNCS: &[Func] = &[
             _ => Value::Bool(false),
         },
     },
-    // The §6g score functions. `self` and `candidate` reach them as their
+    // The score functions. `self` and `candidate` reach them as their
     // URLs (Str), which the ctx resolves to a vector or a date. Registered
-    // in the one shared table (§5f): a view filter *could* name them, but its
+    // in the one shared table: a view filter *could* name them, but its
     // single-row schema has no `self`/`candidate`, so the argument would not
-    // resolve — the language is one, the environment gates the reach.
+    // resolve, the language is one, the environment gates the reach.
     Func::simple(
         "embedding_similarity",
         &[Type::Str, Type::Str],
@@ -1350,7 +1350,7 @@ const FUNCS: &[Func] = &[
         Type::Int,
         eval_levenshtein,
     ),
-    // §5f field derivers: wrappers on Content. Compose for both budgets
+    // field derivers: wrappers on Content. Compose for both budgets
     // (`truncate_chars(truncate_blocks(content, 4), 700)`) rather than a
     // map-literal options bag. Facts ride on the value (`truncated`).
     // HTML-only; coerce with as_html first when the source is markdown.
@@ -1366,7 +1366,7 @@ const FUNCS: &[Func] = &[
         Type::Content,
         eval_truncate_chars,
     ),
-    // §6e heading ToC: max level is positional (3 ≡ today's h2–h3 window);
+    // heading ToC: max level is positional (3 ≡ today's h2-h3 window);
     // min stays 2 so the page title is never an entry. HTML only.
     Func::simple(
         "outline",
@@ -1374,7 +1374,7 @@ const FUNCS: &[Func] = &[
         Type::Outline,
         eval_outline,
     ),
-    // Content constructors and kind coercion (§5f).
+    // Content constructors and kind coercion.
     Func::simple("html", &[Type::Str], Type::Content, eval_html),
     Func::simple("markdown", &[Type::Str], Type::Content, eval_markdown),
     Func::simple("text", &[Type::Str], Type::Content, eval_text_ctor),
@@ -1476,7 +1476,7 @@ fn lex(src: &str) -> Result<Vec<Tok>> {
                 i += 1;
             }
             // Always an operator token; a negative literal is unary minus over
-            // a number, folded by the parser. Context-free is the point — the
+            // a number, folded by the parser. Context-free is the point, the
             // lexer never has to guess whether `-` continues an operand.
             '-' => {
                 out.push(Tok::Minus);
@@ -1630,7 +1630,7 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Result<Expr> {
         // A boolean group: `(draft || hidden)`. Distinct from a parenthesized
-        // *arithmetic* operand `(a + b)`, which parse_atom handles — the two
+        // *arithmetic* operand `(a + b)`, which parse_atom handles, the two
         // never collide because this branch only fires at the boolean level.
         if self.eat(&Tok::LParen) {
             let e = self.parse_or()?;
@@ -1639,7 +1639,7 @@ impl Parser {
             }
             // A leading `(` is a boolean group; a parenthesised *arithmetic*
             // operand on the left of a comparison (`(a + b) > c`) is valid CEL
-            // this evaluator does not parse yet — name the shape rather than
+            // this evaluator does not parse yet, name the shape rather than
             // let it fall through to a misleading "trailing tokens".
             if matches!(self.peek(), Some(Tok::Cmp(_)) | Some(Tok::In)) {
                 bail!(
@@ -1668,7 +1668,7 @@ impl Parser {
         }
         // Everything else is an operand, then optionally a comparison or a
         // membership test. A bare operand standing alone is a truthiness test
-        // (`!draft`, `description`) — but only a field or call can be one; a
+        // (`!draft`, `description`), but only a field or call can be one; a
         // lone literal is the `"rust"` -without-`in` mistake.
         let left = self.parse_arith()?;
         match self.peek().cloned() {
@@ -1695,7 +1695,7 @@ impl Parser {
     }
 
     /// Arithmetic, lowest precedence first: `+`/`-`, then `*`, then unary
-    /// minus, then an atom. Present for `rank` (§6g); a boolean filter reaches
+    /// minus, then an atom. Present for `rank`; a boolean filter reaches
     /// it too, so `year >= 2020` runs `2020` through here as a bare atom.
     fn parse_arith(&mut self) -> Result<Operand> {
         let mut lhs = self.parse_mul()?;
@@ -1729,7 +1729,7 @@ impl Parser {
     }
 
     /// The leaf of an operand: a parenthesized arithmetic group, a call, a
-    /// field, a literal, or a map — then optional `[index]` suffixes.
+    /// field, a literal, or a map, then optional `[index]` suffixes.
     fn parse_atom(&mut self) -> Result<Operand> {
         let mut base = match self.next() {
             Some(Tok::LParen) => {
@@ -1833,9 +1833,9 @@ impl Parser {
 }
 
 /// Edit distance. Registered as a CEL function (`-levenshtein(a, b)` ranks
-/// relations, §6g) and used by every "did you mean" this engine offers —
+/// relations) and used by every "did you mean" this engine offers,
 /// unknown field, unknown function, and now an unknown link query key that
-/// looks like an axis. `pub` so that stays ONE implementation.
+/// looks like an axis. `pub` so that stays one implementation.
 pub fn levenshtein(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let mut prev: Vec<usize> = (0..=b.len()).collect();
@@ -1939,7 +1939,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             }
             Ok(func.returns)
         }
-        // Arithmetic is numbers only, and Int mixed with Double is Double —
+        // Arithmetic is numbers only, and Int mixed with Double is Double,
         // the one promotion, so `candidate.date` (dropped) never quietly
         // stringifies into a score. A non-number is the error a rank typo
         // makes: `rank = "title"`.
@@ -1953,7 +1953,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
         Operand::Arith(a, op, b) => {
             let (at, bt) = (operand_type(a, schema)?, operand_type(b, schema)?);
             // `+` also concatenates strings, as CEL's does. The head needs it
-            // (§4e: `site.url + url` is a canonical URL) and nothing else in
+            // and nothing else in
             // the language wanted it, which is why it arrived late.
             if at.scalar() == Type::Str && bt.scalar() == Type::Str && *op == ArithOp::Add {
                 return Ok(Type::Str);
@@ -2018,7 +2018,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
     }
 }
 
-/// The two sides of a comparison must be the same kind — both numbers (Int
+/// The two sides of a comparison must be the same kind, both numbers (Int
 /// and Double mix), or the identical scalar type. A list on either side is
 /// the `in`-not-`==` mistake; ordering a bool is meaningless.
 fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
@@ -2050,12 +2050,11 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
     check_domain(r, rt, op, l)
 }
 
-/// A closed-domain column compared against a literal outside its domain
-///.
+/// A closed-domain column compared against a literal outside its domain.
 ///
 /// This is the same knife `resolve` takes to an unknown FIELD, one level down:
-/// `kind == "posts"` type-checks perfectly — a string column against a string
-/// literal — and then matches nothing, for as long as the config lives. The
+/// `kind == "posts"` type-checks perfectly, a string column against a string
+/// literal, and then matches nothing, for as long as the config lives. The
 /// domain is what turns "false forever" into a load error, and it can only be
 /// declared by a column whose values the engine enumerates.
 ///
@@ -2063,8 +2062,8 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
 /// compares two columns, and neither one is a value.
 ///
 /// The tail says what the constant is, and it is **not always `false`**
-/// (batch review I-A): `kind != "posts"` is the same mistake — the
-/// author meant to exclude something, and excluded nothing — but it can only
+/// (batch review I-A): `kind != "posts"` is the same mistake, the
+/// author meant to exclude something, and excluded nothing, but it can only
 /// ever be TRUE, and a message that said "false" would send its reader looking
 /// for a predicate that never fires when theirs always does. An ordering
 /// comparison against an out-of-domain value is not constant at all (`kind >
@@ -2115,7 +2114,7 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
                 bail!("`in` needs a list on the right, but `{r}` is {rt}");
             }
             // A string in a list (`"rust" in tags`) or a row in a relation's
-            // finished list (`candidate in earlier`) — both spelled the same,
+            // finished list (`candidate in earlier`), both spelled the same,
             // because a row reaches the environment as its URL (a Str).
             let lt = operand_type(l, schema)?;
             if lt.scalar() != Type::Str {
@@ -2182,7 +2181,7 @@ impl Filter {
     }
 }
 
-/// A `rank` expression (§6g): a number per (self, candidate) pair, bigger
+/// A `rank` expression: a number per (self, candidate) pair, bigger
 /// wins. Parsed and type-checked exactly like a filter, but the whole
 /// expression must be numeric rather than boolean.
 #[derive(Debug, Clone)]
@@ -2209,13 +2208,13 @@ impl Rank {
     }
 
     /// The score, or `None` when an input was missing (an undated row in
-    /// `year_gap`, a row with no vector) — an unrankable pair, dropped before
+    /// `year_gap`, a row with no vector), an unrankable pair, dropped before
     /// the window rather than sorted to an arbitrary end.
     pub fn eval(&self, row: &impl Row, ctx: &dyn Ctx) -> Option<f64> {
         operand_value(&self.op, row, ctx).as_f64()
     }
 
-    /// Every field name the rank reads — same purpose as `Filter`'s.
+    /// Every field name the rank reads, same purpose as `Filter`'s.
     pub fn referenced_fields(&self) -> Vec<String> {
         let mut out = Vec::new();
         collect_fields_operand(&self.op, &mut out);
@@ -2223,26 +2222,22 @@ impl Rank {
     }
 }
 
-/// A `text` expression: a string per row, for the places where the answer is a
-/// STRING rather than a yes/no or a score — `[html.head.meta]` (§4e) is the
-/// first, and the reason this exists.
+/// A `text` expression: a string per row, for places where the answer is a
+/// string rather than a yes/no or a score. `[html.head.meta]` is why this
+/// exists.
 ///
-/// Two shapes, and the first is why a conditional lives here at all:
+/// Two shapes:
 ///
 /// ```text
-/// noindex ? "noindex,follow" : ""     # CEL's own conditional
-/// description                         # a bare operand
+/// noindex ? "noindex,follow" : ""     # CEL conditional
+/// description                         # bare operand
 /// ```
 ///
-/// §5d's no-control-flow rule governs TEMPLATES — a fragment wanting an `if`
-/// means a missing fact. This is the expression surface, which is exactly
-/// where a conditional is legitimate, and "which string does this meta take"
-/// has no fact-shaped spelling. Spelled as CEL's `a ? b : c` rather than an
-/// `if_else()` function so §5f's "grammatically valid CEL" contract costs
-/// nothing to keep.
+/// Templates forbid control flow, so a fragment wanting `if` means a missing
+/// fact. Expressions are where conditionals belong. Spelled as CEL's
+/// `a ? b : c` so the "valid CEL" contract stays free.
 ///
-/// An empty result means **absent** — the same rule as §5e's "an empty part
-/// deletes its element", one layer up: an empty meta value emits no tag.
+/// An empty result means absent: an empty meta value emits no tag.
 #[derive(Debug, Clone)]
 pub struct Text {
     cond: Option<Expr>,
@@ -2307,7 +2302,7 @@ impl Text {
         })
     }
 
-    /// The string, or `""` when the value is Null — an absent field says
+    /// The string, or `""` when the value is Null, an absent field says
     /// nothing rather than printing "null".
     pub fn eval(&self, row: &impl Row) -> String {
         let op = match (&self.cond, &self.otherwise) {
@@ -2343,7 +2338,7 @@ impl Text {
     }
 }
 
-/// A computed-field expression (§5f / §6d): an operand over an environment
+/// A computed-field expression: an operand over an environment
 /// that binds `content`. Return type is checked at parse (`Content` or
 /// `Outline`).
 #[derive(Debug, Clone)]
@@ -2354,8 +2349,8 @@ pub struct FieldExpr {
 
 impl FieldExpr {
     /// Parse and infer the return type from the row schema. The type is a
-    /// property of the expression, not of the field's name — which is what
-    /// lets `[schema.fields]` carry any name the site cares to compute (§5f).
+    /// property of the expression, not of the field's name, which is what
+    /// lets `[schema.fields]` carry any name the site cares to compute.
     pub fn infer(src: &str, schema: &Schema) -> Result<Self> {
         let toks = lex(src)?;
         if toks.is_empty() {
@@ -2371,8 +2366,8 @@ impl FieldExpr {
     }
 
     /// Parse, then require the inferred type to be `want`. For the engine's
-    /// own fixed-type field uses — a card `summary` is content, a widget
-    /// argument is a string — where the surrounding code knows the shape it
+    /// own fixed-type field uses, a card `summary` is content, a widget
+    /// argument is a string, where the surrounding code knows the shape it
     /// needs. The open `[schema.fields]` bag uses [`infer`] instead.
     pub fn parse(src: &str, schema: &Schema, want: Type) -> Result<Self> {
         let e = Self::infer(src, schema)?;
@@ -2719,7 +2714,7 @@ mod tests {
         assert!(!ok(r#"glob(path, "photos/**")"#).eval(&r));
     }
 
-    /// The pattern compiles once, at parse time, so it must be a literal —
+    /// The pattern compiles once, at parse time, so it must be a literal,
     /// and a bad one is a load error rather than a filter that matches
     /// nothing at every row it touches.
     #[test]
@@ -2744,9 +2739,9 @@ mod tests {
         );
     }
 
-    /// `glob` is typed like every other registered function (§5f), which is
+    /// `glob` is typed like every other registered function, which is
     /// what a view's retired `match` key bought by dissolving into `where`
-    ///: the path scope is now checked by the same pass, against
+    /// The path scope is now checked by the same pass, against
     /// the same vocabulary, and both ways of getting it wrong say so.
     #[test]
     fn glob_is_typed_like_any_other_function() {
@@ -2757,7 +2752,7 @@ mod tests {
             e.contains("`glob` argument 1 is string, but `year` is int"),
             "{e}"
         );
-        // Wrong NAME: the field resolver answers with the knowns, so an
+        // Wrong name: the field resolver answers with the knowns, so an
         // object view's narrow vocabulary is legible at the point of failure.
         let e = err(r#"glob(paht, "recipes/**")"#);
         assert!(e.contains("unknown field `paht`"), "{e}");
@@ -2900,7 +2895,7 @@ mod tests {
     /// real column at the right type and then matches nothing forever.
     ///
     /// Mutation: delete either `check_domain` call in `check_cmp` and the
-    /// first assertion fails — the expression parses, and `Filter::eval`
+    /// first assertion fails, the expression parses, and `Filter::eval`
     /// returns false for every row a route pool could ever hold.
     #[test]
     fn a_value_outside_a_closed_domain_is_an_error_with_the_knowns() {
@@ -2918,8 +2913,8 @@ mod tests {
     /// The tail names the constant the comparison became, and which constant
     /// that is depends on the OPERATOR (batch review I-A).
     ///
-    /// `kind != "posts"` is the same authoring mistake as `kind == "posts"` —
-    /// an exclusion that excludes nothing — but it is true forever, not false
+    /// `kind != "posts"` is the same authoring mistake as `kind == "posts"`,
+    /// an exclusion that excludes nothing, but it is true forever, not false
     /// forever, and the old message said "false" for both. A reader who trusts
     /// it goes looking for a predicate that never fires when theirs always
     /// does, which is the opposite end of the same haystack. Ordering gets
@@ -2939,7 +2934,7 @@ mod tests {
         let ne = e(r#"kind != "posts""#);
         assert!(ne.contains("can only ever be true"), "{ne}");
         assert!(!ne.contains("can only ever be false"), "{ne}");
-        // The hint rides along whatever the operator is — it is about the
+        // The hint rides along whatever the operator is, it is about the
         // literal, not about the comparison.
         assert!(ne.contains("did you mean `post`"), "{ne}");
         let gt = e(r#"kind > "posts""#);
@@ -2954,8 +2949,8 @@ mod tests {
     }
 
     /// The domain buys the check and nothing else. Every value IN it parses,
-    /// an open string column is untouched, and comparing two columns — where
-    /// neither side is a value — is not something a domain can rule on.
+    /// an open string column is untouched, and comparing two columns, where
+    /// neither side is a value, is not something a domain can rule on.
     #[test]
     fn a_closed_domain_is_otherwise_an_ordinary_string_column() {
         ok(r#"kind == "post""#);
@@ -2987,7 +2982,7 @@ mod tests {
         assert!(e("draft draft").contains("trailing tokens"));
     }
 
-    // ---- §4e: text expressions, for the places the answer is a string ----
+    // text expressions, for the places the answer is a string
 
     /// CEL's own conditional, which is the whole reason `Text` exists: the
     /// engine stopped knowing that a robots meta says "noindex".
@@ -3007,13 +3002,13 @@ mod tests {
     fn a_bare_operand_is_a_text_expression() {
         let t = Text::parse("title", &schema()).unwrap();
         assert_eq!(t.eval(&TestRow::default()), "Hello");
-        // An absent value says nothing rather than printing "null" — which is
+        // An absent value says nothing rather than printing "null", which is
         // what makes "empty means the tag is not emitted" total.
         let t = Text::parse("description", &schema()).unwrap();
         assert_eq!(t.eval(&TestRow::default()), "");
     }
 
-    /// Type-checked at load like everything else (§5f).
+    /// Type-checked at load like everything else.
     #[test]
     fn a_text_expression_is_checked_at_load() {
         let e = |s: &str| Text::parse(s, &schema()).unwrap_err().to_string();
@@ -3024,8 +3019,8 @@ mod tests {
         assert!(e("").contains("cannot be empty"));
     }
 
-    /// String `+` concatenates, as CEL's does. The head needed it (§4e:
-    /// `site.url + url`) and nothing else in the language had.
+    /// String `+` concatenates, as CEL's does. The head needed it
+    /// (`site.url + url`) and nothing else in the language had.
     #[test]
     fn plus_concatenates_strings() {
         let t = Text::parse(r#"title + "!" + path"#, &schema()).unwrap();
@@ -3055,9 +3050,9 @@ mod tests {
         assert!(Filter::always().eval(&r));
     }
 
-    // ---- §6g: arithmetic, rank, name membership, the two-row environment ----
+    // arithmetic, rank, name membership, the two-row environment
 
-    /// A two-row environment (§6g): `self.*`/`candidate.*` are ordinary
+    /// A two-row environment: `self.*`/`candidate.*` are ordinary
     /// schema keys (the lexer already treats `.` as part of an identifier),
     /// plus `candidate` as the row's URL and each relation name as a list.
     struct PairRow {
@@ -3091,7 +3086,7 @@ mod tests {
         s
     }
 
-    /// A ctx that knows one similarity and one year-gap, keyed loosely — just
+    /// A ctx that knows one similarity and one year-gap, keyed loosely, just
     /// enough to prove the plumbing carries data into a score function.
     struct FakeCtx;
     impl Ctx for FakeCtx {
@@ -3131,7 +3126,7 @@ mod tests {
             },
         );
         // `candidate == candidate` similarity is None in FakeCtx, so the pair
-        // is unrankable — the whole expression is None, not a partial score.
+        // is unrankable, the whole expression is None, not a partial score.
         assert_eq!(rk.unwrap().eval(&r, &FakeCtx), None);
 
         // A distinct pair ranks: 0.8 - 0.01*3 = 0.77.
@@ -3158,13 +3153,13 @@ mod tests {
                 Value::Str(if n == "a" { "kitten" } else { "sitting" }.into())
             }
         }
-        // edit distance kitten→sitting is 3, negated so nearer ranks higher.
+        // edit distance kitten->sitting is 3, negated so nearer ranks higher.
         assert_eq!(rk.eval(&R, &NoCtx), Some(-3.0));
     }
 
     #[test]
     fn name_membership_is_str_in_list() {
-        // `candidate in earlier` — the row's URL against a relation's list.
+        // `candidate in earlier`, the row's URL against a relation's list.
         let f = Filter::parse("!(candidate in earlier)", &pair_schema()).unwrap();
         let shown = PairRow {
             self_year: 0,
@@ -3182,7 +3177,7 @@ mod tests {
 
     #[test]
     fn comparison_between_two_fields() {
-        // `candidate.year < self.year` — the earlier/later shape, no literal.
+        // `candidate.year < self.year`, the earlier/later shape, no literal.
         let f = Filter::parse("candidate.year < self.year", &pair_schema()).unwrap();
         assert!(f.eval(&PairRow {
             self_year: 2020,
@@ -3242,7 +3237,7 @@ mod tests {
 
     #[test]
     fn search_similarity_is_no_longer_registered() {
-        // Unwired until it has an implementation — a config naming it is a
+        // Unwired until it has an implementation, a config naming it is a
         // load error, not a silently empty group.
         let mut s = Schema::new();
         s.insert("self.url", Type::Str);
@@ -3263,7 +3258,7 @@ mod tests {
                 Value::Int(2)
             }
         }
-        // 2 + 2*2 = 6, not 8 — `*` binds tighter.
+        // 2 + 2*2 = 6, not 8, `*` binds tighter.
         assert_eq!(
             Rank::parse("x + x * x", &s).unwrap().eval(&R, &NoCtx),
             Some(6.0)

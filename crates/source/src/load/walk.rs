@@ -376,7 +376,7 @@ pub(crate) fn read_front_matter(path: &Path) -> Result<(store::FrontMatter, usiz
         store::FrontMatter::default()
     } else {
         match fmt {
-            // A `+++` block is TOML — the same deserialization a sidecar uses.
+            // A `+++` block is TOML, the same deserialization a sidecar uses.
             Some(store::FmFmt::Toml) => toml::from_str(block)
                 .with_context(|| format!("front matter of {}", path.display()))?,
             _ => serde_yaml_ng::from_str(block)
@@ -386,7 +386,7 @@ pub(crate) fn read_front_matter(path: &Path) -> Result<(store::FrontMatter, usiz
     Ok((fm, body.len()))
 }
 
-/// Image fields name rows (§5b × §6a); runs after `insert_rows`.
+/// Image fields name rows; runs after `insert_rows`.
 pub(crate) fn resolve_image_fields(db: &SiteDb, schemas: &Schemas) -> Result<()> {
     for row in db.rows.iter() {
         let dir = row.rel.parent().unwrap_or(Path::new("")).to_path_buf();

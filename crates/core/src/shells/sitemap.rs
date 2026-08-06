@@ -27,12 +27,12 @@ pub fn xml(entries: &[(String, Option<String>)]) -> String {
 
 /// Emit every `shell = "sitemap"` fold into `out_map`.
 ///
-/// The fold (§5) counted its matches at load; here we read them back. `lastmod`
+/// The fold counted its matches at load; here we read them back. `lastmod`
 /// is emitted only for dated rows, from the content date. jekyll-sitemap also
-/// stamps static files with their file *mtime* — but that is checkout-time
+/// stamps static files with their file *mtime*, but that is checkout-time
 /// noise (every clone differs) and works against the indexing goal this whole
-/// project exists for, so it is deliberately dropped — the URL *set* is
-/// unaffected. (DESIGN §4a is the related draft/hidden concern.)
+/// project exists for, so it is deliberately dropped, the URL *set* is
+/// unaffected.
 pub(crate) fn emit(
     cfg: &Config,
     db: &SiteDb,

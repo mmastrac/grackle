@@ -1,9 +1,9 @@
 //! `grackle config --effective`: merged config with merge-recorded provenance
-//!. Unit of provenance is the atom (Law 2).
+//! Unit of provenance is the atom (Law 2).
 
 use std::collections::BTreeMap;
 
-/// Writer that supplied a value (§2).
+/// Writer that supplied a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Prov {
     /// Selected profile overlay.
@@ -29,7 +29,7 @@ impl Prov {
 
     fn gloss(self) -> &'static str {
         match self {
-            Prov::Profile => "the profile's overlay, merged over everything below (§4a)",
+            Prov::Profile => "the profile's overlay, merged over everything below",
             Prov::Site => "the site's file; the base had nothing there",
             Prov::SiteOverBase => "the site's file, shadowing a value the base had",
             Prov::Base => "inherited untouched — the site never wrote it",

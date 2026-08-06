@@ -1,11 +1,11 @@
-//! Section trees (§6e, the path axis): a `.section` marker roots a subtree
+//! Section trees: a `.section` marker roots a subtree
 //! unit, and every rendered row beneath it carries the section's page tree
-//! with itself marked current — the downward walk that complements the
+//! with itself marked current, the downward walk that complements the
 //! breadcrumbs' upward one.
 //!
 //! Labels come from page titles; an index-less directory is an unlinked
-//! label (q27's semantic, shipped here). Ordering is declared (`order:`
-//! front matter), else lexical by label — the §5-audit rule that
+//! label. Ordering is declared (`order:`
+//! front matter), else lexical by label, the -audit rule that
 //! lexical-by-luck is not a contract, made explicit per node.
 
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ use grackle_model::Heading;
 
 pub use grackle_model::OutlineNode as Node;
 
-/// The nearest section root governing `rel`, if any — the same
+/// The nearest section root governing `rel`, if any, the same
 /// nearest-wins ascent as markers, buckets and slot fills.
 pub fn nearest<'a>(sections: &'a [PathBuf], rel: &Path) -> Option<&'a Path> {
     sections
@@ -79,8 +79,8 @@ pub fn section_tree(db: &SiteDb, root: &Path, pairing_keep: Option<(&str, &str)>
     let mut top = Dir::default();
     let mut root_index: Option<Node> = None;
 
-    // §6f: a section tree keeps the pairing-axis canonical like every other
-    // derived set — a twin shares its original's logical rel and would
+    // A section tree keeps the pairing-axis canonical like every other
+    // derived set, a twin shares its original's logical rel and would
     // otherwise collide with it node-for-node.
     for p in db.rows.iter().filter(|p| {
         p.rendered
@@ -133,9 +133,9 @@ pub fn section_tree(db: &SiteDb, root: &Path, pairing_keep: Option<(&str, &str)>
     out
 }
 
-/// §6e's heading axis: the same recursive shape, from the document's own
-/// headings. Nesting is by level, and a jump (h2 → h4) nests under the
-/// nearest shallower entry. The depth window is production policy — §6d's
+/// heading axis: the same recursive shape, from the document's own
+/// headings. Nesting is by level, and a jump (h2 -> h4) nests under the
+/// nearest shallower entry. The depth window is production policy,
 /// lesson stands: never ship levels a stylesheet hides.
 pub fn heading_tree(hs: &[Heading], min: u8, max: u8) -> Vec<Node> {
     let db_hs: Vec<grackle_db::Heading> = hs
@@ -162,7 +162,7 @@ fn db_to_node(n: grackle_db::OutlineNode) -> Node {
 }
 
 /// The tree as `outline_entry` part maps, with the row's own entry marked
-/// `current` — the literal `aria-current` value, the pagination trick.
+/// `current`, the literal `aria-current` value, the pagination trick.
 pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
     nodes
         .iter()
@@ -185,7 +185,7 @@ pub fn to_parts(nodes: &[Node], current_url: &str) -> Vec<PartMap> {
 }
 
 #[cfg(test)]
-// Section-tree nesting moved to a fixture test (§7d): seven `Row`
+// Section-tree nesting moved to a fixture test: seven `Row`
 // literals became seven files, which is what the feature is about. See
 // `crates/core/tests/fixtures/section-tree`.
 mod tests {
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(t[0].children[1].url.as_deref(), Some("#a2"));
         assert!(t[1].children.is_empty());
 
-        // A jump (h2 → h4) nests under the nearest shallower entry, and the
+        // A jump (h2 -> h4) nests under the nearest shallower entry, and the
         // depth window drops what production policy says to drop.
         let jump: Vec<Heading> = [(2, "x", "X"), (4, "deep", "Deep"), (3, "y", "Y")]
             .iter()

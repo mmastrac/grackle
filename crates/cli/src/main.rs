@@ -12,7 +12,7 @@ use std::path::PathBuf;
 struct Cli {
     #[arg(long, default_value = "grackle.toml", global = true)]
     config: PathBuf,
-    /// Build profile (§4a). Absent means the default projection — the
+    /// Build profile. Absent means the default projection, the
     /// config exactly as written, which is what publishing uses. `serve`
     /// defaults to `dev` instead.
     #[arg(long, global = true)]
@@ -26,17 +26,17 @@ enum Cmd {
     /// Query the content database.
     #[command(subcommand)]
     Query(Query),
-    /// Everything known about one URL — `query explain` under the name the
-    /// docs teach it by (DESIGN.md §0, TODO-1.0.md).
+    /// Everything known about one URL, `query explain` under the name the
+    /// docs teach it by.
     Explain { url: String },
     /// Show the config the engine actually runs, with per-key provenance.
     ///
-    /// `--effective` is the name DESIGN.md §4d gives it and the only thing
+    /// `--effective` is the name gives it and the only thing
     /// this subcommand does today, so the bare command prints the same thing;
     /// the flag exists so the documented spelling works.
     Config {
         /// Print the merged config: the site's file over the base's, with
-        /// where each value came from (§4d).
+        /// where each value came from.
         #[arg(long)]
         effective: bool,
     },
@@ -59,7 +59,7 @@ enum Cmd {
         #[arg(long, default_value_t = 8080)]
         port: u16,
     },
-    /// Check the URL set against a reference build (§4 parity).
+    /// Check the URL set against a reference build.
     Urls {
         /// Reference site directory: `_site-prod`, or a tree rsynced from prod.
         #[arg(long)]
@@ -67,7 +67,7 @@ enum Cmd {
         /// How many URLs to list per category.
         #[arg(long, default_value_t = 20)]
         limit: usize,
-        /// URL prefixes exempt from parity (q12: derived assets). The
+        /// URL prefixes exempt from parity. The
         /// configured static dir is always exempt; pass a reference build's
         /// legacy scheme too, e.g. --exempt /_thumbs/
         #[arg(long)]
@@ -113,13 +113,13 @@ enum Query {
         /// List field to dump (e.g. `tags`). Absent = every indexed list field.
         field: Option<String>,
     },
-    /// Search the TF-IDF index the site ships (§6b) — same code the browser runs.
+    /// Search the TF-IDF index the site ships, same code the browser runs.
     Search {
         query: Vec<String>,
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
-    /// Posts most similar to a URL, by embedding cosine (§6b).
+    /// Posts most similar to a URL, by embedding cosine.
     Similar {
         url: String,
         #[arg(long, default_value_t = 8)]
@@ -129,8 +129,7 @@ enum Query {
     Archives,
     /// Everything known about one URL.
     Explain { url: String },
-    /// The graph edges one output stands on, and the work of pulling it
-    ///.
+    /// The graph edges one output stands on, and the work of pulling it.
     Pull { url: String },
 }
 
@@ -204,7 +203,7 @@ fn main() -> Result<()> {
             exempt,
         } => {
             let mut prefixes = exempt;
-            // q12: our own derived output is exempt by construction. The
+            // our own derived output is exempt by construction. The
             // prefix is thumbs.rs's constant.
             prefixes.push("/static/".to_string());
             let (out_map, _) = build::render_site(&cfg, &mut db)?;
@@ -238,7 +237,7 @@ struct Node {
     kids: BTreeMap<String, Node>,
     /// Set when a route terminates here.
     leaf: Option<(model::RouteKind, Option<String>, Option<usize>)>,
-    /// The route ends in `/` — it is served as a directory. Tracked separately
+    /// The route ends in `/`, it is served as a directory. Tracked separately
     /// because a childless node would otherwise render without its slash.
     dir_url: bool,
 }
@@ -260,10 +259,10 @@ fn count(n: &Node) -> usize {
 /// `kind` line `grackle explain <url>` prints for an output.
 ///
 /// **Kept real, deliberately.** The facts pass deleted the ROW branch's hardcoded
-/// `kind post` because a row has no kind; this is the ROUTE branch, where the
+/// `kind post` because a row has no kind; this is the route branch, where the
 /// value is a live column a site's `where` can name (grack.com's search filter
 /// does). A debug surface that prints a column the query language still has is
-/// not a fossil — it is the surface. The day the column goes, this line and
+/// not a fossil, it is the surface. The day the column goes, this line and
 /// `query urls --kind` go with it, together.
 fn tag(kind: model::RouteKind, view: &Option<String>, rows: Option<usize>) -> String {
     let base = match (kind, view) {
@@ -331,7 +330,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
             let shared: Vec<_> = db.by_slug.iter().filter(|(_, v)| v.len() > 1).collect();
             println!("rows            {}", db.rows.len());
             println!("  dated         {}", dated);
-            // One line per declared bool/list the site actually uses (§4e).
+            // One line per declared bool/list the site actually uses.
             for (name, ty) in &db.declared {
                 let n = match ty {
                     filter::Type::Bool => db.rows.iter().filter(|r| r.flag(name)).count(),
@@ -377,7 +376,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 db.stats.markers, db.stats.markers_ms
             );
             // Beside the marker census and for its reason: a
-            // declaration family whose whole effect lands on OTHER files
+            // declaration family whose whole effect lands on other files
             // leaves no trace in a build's file list, so the count is the only
             // way to ask "is this mechanism in use here".
             println!(
@@ -417,7 +416,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
         Query::Posts { has, year, limit } => {
             let has = has.as_deref().map(parse_has).transpose()?;
             let mut n = 0;
-            // Newest first, default locale — the table carries no ordering
+            // Newest first, default locale, the table carries no ordering
             // index of its own.
             let mut ix: Vec<usize> = (0..db.rows.len())
                 .filter(|&i| match cfg.pairing_axis() {
@@ -458,7 +457,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
         }
         Query::Search { query, limit } => {
             // The CLI runs no render pass, so the raw markdown stands in for
-            // the rendered body — a smoke query over the same projection.
+            // the rendered body, a smoke query over the same projection.
             let docs =
                 build::search_docs(cfg, db, |p| store::read_body(&p.path).unwrap_or_default());
             let (index, _) = grackle_search_core::build_index(&docs);
@@ -471,7 +470,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
         }
         Query::Similar { url, limit } => {
             let loaded = embed::fresh(db, cfg, &cfg.root().join("_cache/embeddings"))?;
-            // The raw embedding order (no recency shaping) — the diagnostic
+            // The raw embedding order (no recency shaping), the diagnostic
             // that shows what `embedding_similarity` sees before a relation's
             // `where`/`rank` narrows it.
             let policy = embed::RankPolicy {
@@ -581,8 +580,8 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 println!("newer       {}", url_of(newer));
                 println!("older       {}", url_of(older));
                 // The other two input-side join fields. `alternates` is
-                // this row's other FORMS (q53's axis); `viewed_by` is the
-                // outputs that ARRANGE it — which is why a citation of this
+                // this row's other forms; `viewed_by` is the
+                // outputs that ARRANGE it, which is why a citation of this
                 // row appears in neither (that is `linked_from`).
                 print!("{}", debug::join_list("alternates", &r.alternates));
                 print!("{}", debug::join_list("viewed_by", &r.viewed_by));
@@ -600,7 +599,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 println!("key         {k}");
             }
             // The join, from the output side. This branch answers
-            // for the routes NO row claims — a listing, an archive, a fold —
+            // for the routes NO row claims, a listing, an archive, a fold,
             // which is exactly where "what fed this" has no other answer.
             // Planning edges only: the citation half is added by the render
             // pass, and `explain` runs none.
@@ -609,7 +608,7 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
         // The graph, from the standpoint of one output. `explain`
         // answers "what is this"; this answers "what does it stand on, and in
         // what order would a pull do the work". Planning edges only, for
-        // `explain`'s reason — the citation half is added by the render pass,
+        // `explain`'s reason, the citation half is added by the render pass,
         // and the CLI runs none.
         Query::Pull { url } => {
             let Some(r) = db.routes.iter().find(|r| r.url == url) else {

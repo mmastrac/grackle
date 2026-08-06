@@ -1,32 +1,31 @@
 //! **Renditions**: the engine's one transform, its
-//! content-addressed cache, and the `/static/` addresses it publishes at
-//! (DESIGN.md §6b). Replaces `thumbnail.rb`.
+//! content-addressed cache, and the `/static/` addresses it publishes at.
+//! Replaces `thumbnail.rb`.
 //!
 //! A rendition is another output of the same input, made to a **demand**: the
 //! citing edge (`{% image cover.png width=256 %}`) carries the ask, this pass
 //! runs the transform for each distinct ask, and an image's rendition set is
 //! the union of its consumers' asks. There is no rendition config surface,
-//! which is §9's q7 answered by what got built: no parameterized shell, no
-//! transform stage upstream of `raw` — the demand is edge-carried and the
+//! which is answered by what got built: no parameterized shell, no
+//! transform stage upstream of `raw`, the demand is edge-carried and the
 //! output carries what it was made with ([`Rendition`], on `Route.rendition`).
 //!
-//! §6b splits the two jobs `thumbnail.rb` conflated:
+//! This splits the two jobs `thumbnail.rb` conflated:
 //!
-//!   * a **build cache** — `_cache/thumbs/{hash}.{ext}`, gitignored, never
-//!     shipped, keyed by content so it is self-invalidating and safe to delete;
-//!   * a **published location** — `/static/{hash}.{ext}`, where the extension
-//!     travels with the URL (no sniffing, no `.htaccess`) and the content hash
-//!     makes `Cache-Control: immutable` correct by construction.
+//!  * a **build cache**, `_cache/thumbs/{hash}.{ext}`, gitignored, never
+//!  shipped, keyed by content so it is self-invalidating and safe to delete;
+//!  * a **published location**, `/static/{hash}.{ext}`, where the extension
+//!  travels with the URL (no sniffing, no `.htaccess`) and the content hash
+//!  makes `Cache-Control: immutable` correct by construction.
 //!
 //! **The hashing law, and where it is spent**. The address hashes
 //! the *input bytes plus the transform parameters, never the output bytes*, so
-//! it can be named at planning — before the transform runs, which is what lets
-//! a page embed a rendition's URL without waiting for its content. This module
-//! no longer spells that out for itself: it calls `strong::digest`/`strong::at`,
-//! the same mint strong addresses go through. The arithmetic is
-//! unchanged, which is why every published thumbnail address is unchanged.
+//! it can be named at planning, before the transform runs, which is what lets
+//! a page embed a rendition's URL without waiting for its content. Digests
+//! go through `strong::digest`/`strong::at`, the same mint strong addresses
+//! use, so thumbnail addresses share that arithmetic.
 //!
-//! Derived assets are exempt from URL parity (§11.12), so this scheme is free
+//! Derived assets are exempt from URL parity, so this scheme is free
 //! to diverge from `_thumbs/{md5}`. The *transform* still matches the plugin:
 //! strip metadata, fit within the ask's box (shrink only), ship the smallest of
 //! {original, PNG, JPEG}.
@@ -47,7 +46,7 @@ pub type Renditions = HashMap<Ask, Thumb>;
 /// The engine's default rendition of one source, when this build made it.
 ///
 /// The lookup every affordance that places a picture *without writing an ask*
-/// goes through — heroes, cards, gallery members. `{% image %}` does not use
+/// goes through, heroes, cards, gallery members. `{% image %}` does not use
 /// it: a tag carries its own ask, which is the whole point.
 pub fn default_of<'a>(r: &'a Renditions, src: &str) -> Option<&'a Thumb> {
     r.get(&Ask::thumb(src))
@@ -58,24 +57,24 @@ pub fn default_of<'a>(r: &'a Renditions, src: &str) -> Option<&'a Thumb> {
 pub struct Thumb {
     /// Absolute path in the build cache (`_cache/thumbs/{hash}.{ext}`).
     pub cache_path: PathBuf,
-    /// The published address — `/static/{hash}.{ext}`, no baseurl. This is the
+    /// The published address, `/static/{hash}.{ext}`, no baseurl. This is the
     /// output's URL and the key it lands at, the same way `Row.url` carries no
     /// baseurl either, by recorded decision.
     pub address: String,
-    /// Published URL, baseurl applied — what a citation actually writes.
+    /// Published URL, baseurl applied, what a citation actually writes.
     pub url: String,
-    /// Pixel dimensions of the published variant (q26's dimension facts) —
+    /// Pixel dimensions of the published variant,
     /// a header read, not a decode, so warm builds stay warm. None when the
     /// bytes passed through undecodable.
     pub dims: Option<(u32, u32)>,
-    /// The parameters this output was made with — the value that lands on
+    /// The parameters this output was made with, the value that lands on
     /// `Route.rendition` and lets a pull reproduce it.
     pub rendition: Rendition,
 }
 
 /// Run (or reuse cached) every demanded rendition, in parallel.
 ///
-/// `asks` are as written in the citing edge — a root-relative path and the
+/// `asks` are as written in the citing edge, a root-relative path and the
 /// rendition it asked for. The map is keyed by that same pair so the renderer
 /// can look its own ask up. Asks that agree on both halves collapse to one
 /// entry, and asks whose *bytes* and parameters agree collapse to one cache
@@ -97,8 +96,8 @@ pub fn generate(
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             // An extensionless entry is its own hash: the contest's answer for
-            // an input with no extension to normalize. It used to be indexed as
-            // nothing at all, so it never warmed.
+            // an input with no extension to normalize, and the warm-cache key
+            // when there is no `.ext` to strip.
             let hash = name.split_once('.').map(|(h, _)| h).unwrap_or(&name);
             existing.insert(hash.to_string(), name.clone());
         }
@@ -132,11 +131,9 @@ fn one(
     let bytes = std::fs::read(&source_path)
         .with_context(|| format!("{{% image %}} source not found: {}", source_path.display()))?;
 
-    // **The hashing law**: the key is the source bytes plus the
-    // ask's parameters, and never the bytes this transform is about to
-    // produce. A changed image, or a different ask, is simply a different key
-    // — so cache entries are never stale (§6b) and the address is nameable
-    // before the recipe runs. One mint, shared with strong addresses.
+    // Hash key: source bytes plus ask parameters, never the transform
+    // output. A changed image or ask is a different key, so the address is
+    // nameable before the recipe runs. Same mint as strong addresses.
     let variant = rendition.variant();
     let hash = grackle_source::strong::digest(&bytes, &variant);
 
@@ -154,7 +151,7 @@ fn one(
     // Warm hit: the recipe already ran for these exact bytes and this exact
     // ask. The cached filename carries the extension the contest picked, which
     // is the one part of the address the law cannot supply (see the module
-    // doc) — so it is read back rather than recomputed.
+    // doc), so it is read back rather than recomputed.
     if let Some(fname) = existing.get(&hash) {
         let ext = fname.split_once('.').map(|(_, e)| e).unwrap_or_default();
         return Ok(make(ext, cache_dir.join(fname)));
@@ -179,7 +176,7 @@ fn one(
     Ok(make(&ext, cache_path))
 }
 
-/// **The transform**, as a pure function of its inputs and its parameters —
+/// **The transform**, as a pure function of its inputs and its parameters,
 /// which is the shape the hashing law needs it to have, and the shape that
 /// lets a pull reproduce a rendition from `Route.inputs` + `Route.rendition`
 /// alone.
@@ -191,7 +188,7 @@ fn one(
 /// verbatim (re-encoding a handful of tiny legacy files risks losing
 /// animation), and the JPEG variant is skipped for images with an alpha
 /// channel (a smaller-but-flattened JPEG must never win over a transparent
-/// PNG — a size-only contest would otherwise silently drop transparency).
+/// PNG, a size-only contest would otherwise silently drop transparency).
 /// Anything that fails to decode is also passed through unchanged.
 ///
 /// The returned extension is the contest's answer, and so the one part of a
@@ -294,11 +291,11 @@ mod tests {
     }
 
     /// **The ask reaches the transform**. A width-only ask fits the width and leaves the height to the
-    /// aspect ratio — which is what makes two asks two different outputs
+    /// aspect ratio, which is what makes two asks two different outputs
     /// rather than two names for one.
     ///
     /// Mutation, red and restored: ignore `r` in `render` and use
-    /// `Rendition::THUMB`'s box → the 256 ask produces a 640-wide image.
+    /// `Rendition::THUMB`'s box -> the 256 ask produces a 640-wide image.
     #[test]
     fn a_width_ask_fits_the_width_and_leaves_the_height() {
         let (out, _) = render(&png_bytes(800, 800), "png", Rendition::width(256)).unwrap();
@@ -344,17 +341,17 @@ mod tests {
 
     /// **The hashing law, pinned at the mint**: a rendition's
     /// address hashes the INPUT bytes plus the parameters, never the bytes the
-    /// transform produced — so it is nameable at planning, before the recipe
+    /// transform produced, so it is nameable at planning, before the recipe
     /// has run.
     ///
     /// Asserted the only way that is a measurement rather than a restatement:
     /// compute the address from the input alone, then run the transform and
-    /// show that its output — different bytes, different length — did not
+    /// show that its output, different bytes, different length, did not
     /// change the digest.
     ///
     /// This states the law where the transform is; the mint that has to OBEY
-    /// it is `one`, and that is pinned one level up — mutation, red and
-    /// restored: hash the transform's output instead of `bytes` in `one` →
+    /// it is `one`, and that is pinned one level up, mutation, red and
+    /// restored: hash the transform's output instead of `bytes` in `one` ->
     /// `io_renditions::a_rendition_address_is_computable_before_the_transform_runs`
     /// fails, from a fixture that never runs the transform at all.
     #[test]
