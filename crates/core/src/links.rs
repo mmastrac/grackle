@@ -788,7 +788,7 @@ fn view_link(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Route, RouteKind};
+    use crate::model::Route;
 
     /// Every case below is about an authored LINK, so the form is bound once
     /// here rather than repeated at thirty call sites. The embed form has its
@@ -912,7 +912,7 @@ mod tests {
             "/fr/blog/tags/meta/",
             "/blog/tags/rust/",
         ] {
-            db.routes.push(Route::new(url.to_string(), RouteKind::View));
+            db.routes.push(Route::new(url.to_string()));
         }
         let space = LinkSpace::new(&cfg, &db, Path::new("."));
         let go = |locale: &str, href: &str| {
@@ -939,7 +939,7 @@ mod tests {
 mod axis_tests {
     use super::tests::resolve;
     use super::*;
-    use crate::model::{Route, RouteKind};
+    use crate::model::Route;
     use grackle_model::AxisMember;
 
     /// A site with one axis, `look = [plain, fancy]`, and a `hub` view on a
@@ -969,7 +969,7 @@ mod axis_tests {
             let cfg = cfg_with(spell);
             let mut db = SiteDb::default();
             for url in ["/all/", "/fancy/all/"] {
-                db.routes.push(Route::new(url.to_string(), RouteKind::View));
+                db.routes.push(Route::new(url.to_string()));
             }
             let space = LinkSpace::new(&cfg, &db, Path::new("."));
             let go = |href: &str| {
@@ -1018,7 +1018,7 @@ mod axis_tests {
                 field: "look".into(),
                 canonical,
             }],
-            ..Route::new(url.to_string(), RouteKind::Page)
+            ..Route::new(url.to_string())
         };
         db.routes.push(member("plain", true, "/note/"));
         db.routes.push(member("fancy", false, "/fancy/note/"));
@@ -1042,7 +1042,7 @@ mod axis_tests {
         db.routes.push(Route {
             row: Some(flat),
             source: Some(PathBuf::from("flat.md")),
-            ..Route::new("/flat/".to_string(), RouteKind::Page)
+            ..Route::new("/flat/".to_string())
         });
 
         // on demand: the axis IS spent, but nothing has materialized a
@@ -1187,7 +1187,7 @@ mod axis_tests {
                             canonical: flavor == "sweet",
                         },
                     ],
-                    ..Route::new(format!("/{look}/{flavor}/page/"), RouteKind::Page)
+                    ..Route::new(format!("/{look}/{flavor}/page/"))
                 });
             }
         }

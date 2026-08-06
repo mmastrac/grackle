@@ -4,8 +4,8 @@
 //! marker defaults, schema validation and rung 0 like every other row, and what
 //! survives of "object" is a fact about the file, the objects scopes' globs,
 //! I7a's rule-claimed membership, read by the loader as **the extension fact**.
-//! Three things key off it and nothing else does: `by_name`, the header read
-//! that fills `width`/`height`, and `RouteKind::Object`.
+//! Two things key off it and nothing else does: `by_name`, and the header
+//! read that fills `width`/`height`.
 //!
 //! Built sites rather than loaded ones wherever the claim is about what a
 //! reader DOES with the index: the listing pass asks `by_name` whether a

@@ -7,7 +7,7 @@ use crate::config::{Config, Query, View};
 use crate::schema::Schemas;
 use grackle_db::filter;
 use grackle_db::template;
-use grackle_model::{route_schema, row_schema, AxisMember, Route, RouteKind, SiteDb, ViewRows};
+use grackle_model::{route_schema, row_schema, AxisMember, Route, SiteDb, ViewRows};
 
 /// One `group_by` key: sort component, display (`Route.key`), and template params.
 #[derive(Clone, Debug)]
@@ -590,7 +590,7 @@ fn build_view(
                             page: Some(n),
                             params: cell.params.clone(),
                             members: page,
-                            ..Route::new(url, RouteKind::View)
+                            ..Route::new(url)
                         });
                     }
                 }
@@ -613,7 +613,7 @@ fn build_view(
                         rows: Some(members.len()),
                         params: cell.params.clone(),
                         members,
-                        ..Route::new(pick(&page1, None)?, RouteKind::View)
+                        ..Route::new(pick(&page1, None)?)
                     });
                 }
             }
@@ -651,7 +651,7 @@ pub(crate) fn build_pool_folds(cfg: &Config, db: &mut SiteDb) -> Result<()> {
         db.routes.push(Route {
             view: Some(name.clone()),
             fields: view_fields(v, &route_schema)?,
-            ..Route::new(tmpl.to_string(), RouteKind::View)
+            ..Route::new(tmpl.to_string())
         });
     }
     Ok(())

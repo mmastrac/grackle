@@ -89,11 +89,7 @@ enum Query {
     /// Row counts, index sizes, and load timing.
     Stats,
     /// Every routable URL, one per line.
-    Urls {
-        /// post | page | static | object | view
-        #[arg(long)]
-        kind: Option<String>,
-    },
+    Urls,
     /// List posts, newest first.
     Posts {
         /// Keep rows whose list field contains a value (`field=value`).
@@ -235,8 +231,9 @@ fn main() -> Result<()> {
 #[derive(Default)]
 struct Node {
     kids: BTreeMap<String, Node>,
-    /// Set when a route terminates here.
-    leaf: Option<(model::RouteKind, Option<String>, Option<usize>)>,
+    /// Set when a route terminates here: the view that minted it (if any)
+    /// and its member count.
+    leaf: Option<(Option<String>, Option<usize>)>,
     /// The route ends in `/`, it is served as a directory. Tracked separately
     /// because a childless node would otherwise render without its slash.
     dir_url: bool,
@@ -247,7 +244,7 @@ fn insert(root: &mut Node, url: &str, r: &model::Route) {
     for seg in url.split('/').filter(|s| !s.is_empty()) {
         cur = cur.kids.entry(seg.to_string()).or_default();
     }
-    cur.leaf = Some((r.kind, r.view.clone(), r.rows));
+    cur.leaf = Some((r.view.clone(), r.rows));
     cur.dir_url = url.ends_with('/');
 }
 
@@ -255,24 +252,15 @@ fn count(n: &Node) -> usize {
     n.leaf.is_some() as usize + n.kids.values().map(count).sum::<usize>()
 }
 
-/// The `[kind]` annotation `grackle routes` hangs off a trie node, and the
-/// `kind` line `grackle explain <url>` prints for an output.
-///
-/// **Kept real, deliberately.** The facts pass deleted the ROW branch's hardcoded
-/// `kind post` because a row has no kind; this is the route branch, where the
-/// value is a live column a site's `where` can name (grack.com's search filter
-/// does). A debug surface that prints a column the query language still has is
-/// not a fossil, it is the surface. The day the column goes, this line and
-/// `query urls --kind` go with it, together.
-fn tag(kind: model::RouteKind, view: &Option<String>, rows: Option<usize>) -> String {
-    let base = match (kind, view) {
-        (model::RouteKind::View, Some(v)) => format!("view {v}"),
-        (kind, _) => kind.as_str().to_string(),
-    };
-    match rows {
-        Some(n) => format!("{base}, {n} rows"),
-        None => base,
-    }
+/// The `[view …]` annotation `grackle routes` hangs off a trie node. Row
+/// routes carry none: the URL and its source say what an output is; a route
+/// has no kind to print.
+fn tag(view: &Option<String>, rows: Option<usize>) -> Option<String> {
+    let v = view.as_deref()?;
+    Some(match rows {
+        Some(n) => format!("view {v}, {n} rows"),
+        None => format!("view {v}"),
+    })
 }
 
 fn render(n: &Node, prefix: &str, depth: usize, max: usize, out: &mut String) {
@@ -286,7 +274,7 @@ fn render(n: &Node, prefix: &str, depth: usize, max: usize, out: &mut String) {
             format!("{name}/")
         };
         let ann = match &kid.leaf {
-            Some((k, v, r)) => format!("  [{}]", tag(*k, v, *r)),
+            Some((v, r)) => tag(v, *r).map(|t| format!("  [{t}]")).unwrap_or_default(),
             None => String::new(),
         };
 
@@ -384,32 +372,14 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 db.stats.sidecars
             );
             println!("routes          {}", db.routes.len());
-            let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
-            for r in &db.routes {
-                let k = match r.kind {
-                    model::RouteKind::View => {
-                        format!("view:{}", r.view.clone().unwrap_or_default())
-                    }
-                    other => other.as_str().to_string(),
-                };
-                *kinds.entry(k).or_default() += 1;
-            }
-            for (k, n) in &kinds {
-                println!("  {k:<20} {n}");
-            }
             println!("timing");
             println!("  read+parse    {:.1}ms", db.stats.read_ms);
             println!("  index         {:.1}ms", db.stats.index_ms);
             println!("  views+routes  {:.1}ms", db.stats.views_ms);
             println!("  total         {:.1}ms", total_ms);
         }
-        Query::Urls { kind } => {
+        Query::Urls => {
             for r in &db.routes {
-                if let Some(k) = &kind {
-                    if r.kind.as_str() != k {
-                        continue;
-                    }
-                }
                 println!("{}", r.url);
             }
         }
@@ -591,7 +561,12 @@ fn run_query(q: Query, cfg: &config::Config, db: &model::SiteDb, total_ms: f64) 
                 anyhow::bail!("no row routes to {url}");
             };
             println!("url         {}", r.url);
-            println!("kind        {}", tag(r.kind, &r.view, r.rows));
+            if let Some(v) = &r.view {
+                match r.rows {
+                    Some(n) => println!("view        {v} ({n} rows)"),
+                    None => println!("view        {v}"),
+                }
+            }
             if let Some(s) = &r.source {
                 println!("source      {}", s.display());
             }

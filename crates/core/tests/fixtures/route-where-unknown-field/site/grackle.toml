@@ -1,0 +1,13 @@
+# A route `where` naming a field the output pool does not carry is a load
+# error listing the knowns, not a filter that matches nothing for as long as
+# the config lives. `kind` is the fossil column this pool used to have; a
+# config still asking for it gets the same knife as any typo.
+[site]
+url = "https://example.com"
+title = "A Fixture"
+author = "Tester"
+
+[routes.search]
+path = "/search.bin"
+shell = "search"
+where = 'kind == "posts"'

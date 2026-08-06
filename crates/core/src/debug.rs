@@ -79,7 +79,6 @@ struct Row {
 #[derive(Serialize)]
 struct Route {
     url: String,
-    kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -246,7 +245,6 @@ pub fn payload(cfg: &Config, db: &SiteDb) -> Result<Vec<u8>> {
         .iter()
         .map(|r| Route {
             url: r.url.clone(),
-            kind: r.kind.as_str(),
             source: r.source.as_ref().map(|p| {
                 p.strip_prefix(&cfg.root)
                     .unwrap_or(p)
@@ -448,9 +446,9 @@ pub fn capped_list(name: &str, lines: &[String]) -> String {
 /// so its silence is indistinguishable from "no such key". Hence `-` for an
 /// unresolved `theme` or `slot`.
 ///
-/// `shell` is printed one block up, by `row_facts`, it is there because it is
-/// one of the three facts that replaced `kind`, not because it belongs
-/// to a different family. The skip below covers the cascade list.
+/// `shell` is printed one block up, by `row_facts`, beside `front_mattered`
+/// and the output URL, not because it belongs to a different family. The
+/// skip below covers the cascade list.
 pub fn row_fields(r: &crate::model::Row) -> String {
     let slot = match r.fields.get("slot") {
         Some(grackle_db::Value::Str(s)) => s.as_str(),

@@ -1454,10 +1454,10 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
     ));
     let rows = c.view_filter_schema("published");
     assert!(rows.contains_key("title") && rows.contains_key("hidden"));
-    assert!(!rows.contains_key("kind"), "a row has no route kind");
+    assert!(!rows.contains_key("rows"), "a row has no member count");
 
     let routes = c.view_filter_schema("sitemap");
-    assert!(routes.contains_key("kind") && routes.contains_key("hidden"));
+    assert!(routes.contains_key("rows") && routes.contains_key("hidden"));
     assert!(!routes.contains_key("title"), "a route has no title");
 
     // A gallery reads the one row schema: the image columns (`image.width`)

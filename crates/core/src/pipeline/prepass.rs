@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::markdown::Doc;
-use crate::model::{Ask, Route, RouteKind, SiteDb};
+use crate::model::{Ask, Route, SiteDb};
 use crate::passes::preview::{is_absolute_url, view_base_collection};
 use crate::pipeline::bodies::row_body_html;
 use crate::pipeline::postpass::cited_urls_cited;
@@ -243,11 +243,9 @@ pub(crate) fn thumbs_pass(
         );
     }
     for r in &db.routes {
-        if r.kind == RouteKind::Page {
-            let in_bodies = r
-                .row
-                .as_ref()
-                .is_some_and(|k| db.rows.get(k).is_some_and(|p| cfg.body_held(p)));
+        let row = r.row.as_ref().and_then(|k| db.rows.get(k));
+        if row.is_some_and(|p| p.rendered) {
+            let in_bodies = row.is_some_and(|p| cfg.body_held(p));
             if !in_bodies {
                 if let Some(src) = &r.source {
                     if let Ok(text) = std::fs::read_to_string(src) {

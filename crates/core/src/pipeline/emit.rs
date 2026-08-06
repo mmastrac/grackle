@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::assemble::chain;
 use crate::config::Config;
 use crate::markdown::Doc;
-use crate::model::{Route, RouteKind, SiteDb};
+use crate::model::{Route, SiteDb};
 use crate::parts;
 use crate::passes::preview;
 use crate::pipeline::prepass;
@@ -386,186 +386,157 @@ pub(crate) fn run(
     // per page, the tree is shared with the landing pass, only `current`
     // moves.
     //
-    // **The dispatch that survives `kind`**. Half of it is
-    // respellable in facts and half is not, and taking the half would cost
-    // more than it buys:
-    //
-    // - `Static | Object` vs `Page` IS the rendering law's output. Measured on
-    //  all six corpus trees: every `Static` and every `Object` route's row is
-    //  `rendered false`, every `Page` route's row is `rendered true`. So this
-    //  `match` could ask `p.rendered` instead of naming three variants.
-    // - `Post` vs `Page` is NOT expressible. Posts render above, from their
-    //  own body store; "this row is in a posts scope" is a fact about the
-    //  CONFIG, and a row carries the scope's name and not its role (the join's
-    //  ruling, one store over). So the `_ => {}` arm would have to stay a
-    //  `kind` test whatever happens to the other two.
-    //
-    // A `match` that dispatches on which pass owns an output is what this enum
-    // IS; respelling two of its five arms and leaving a `kind == Post` guard
-    // above them makes one construct into three and reads worse. Declined,
-    // with the measurement recorded rather than the option forgotten.
+    // The dispatch is the rendering law's own output: a route naming a view
+    // was emitted above, a row that does not render is a byte copy, and a
+    // rendered row is a page.
     for r in &db.routes {
-        match r.kind {
-            RouteKind::Static | RouteKind::Object => {
-                let Some(src) = &r.source else { continue };
-                let bytes =
-                    std::fs::read(src).with_context(|| format!("reading {}", src.display()))?;
-                out_map.insert(r.url.clone(), bytes);
-                stats.copied += 1;
-            }
-            RouteKind::Page => {
-                // Already emitted from the in-memory body store above.
-                if r.row.as_ref().is_some_and(|k| bodies.contains_key(k)) {
-                    continue;
-                }
-                let Some(src) = &r.source else { continue };
-                let row = r.row.as_ref().and_then(|k| db.rows.get(k));
-                let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
-
-                // Bodies were rendered in the prepass (so the link graph
-                // could scan them); scss and unknown-construct pages were
-                // recorded there too.
-                let Some(pb) = page_bodies.get(&r.url) else {
-                    continue;
-                };
-                if pb.skipped {
-                    stats.skipped.push(r.url.clone());
-                    continue;
-                }
-                let frag = &pb.frag;
-                let pairing_keep = cfg
-                    .pairing_axis()
-                    .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
-                let section = row
-                    .map(|p| section_parts(db, &mut section_trees, &p.rel, &r.url, pairing_keep))
-                    .unwrap_or_default();
-
-                // Theme per row; axis theme beats the row's.
-                let (theme_name, subtheme) =
-                    preview::resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref()));
-                let row_thm = themes.get(theme_name)?;
-                let row_css = css_urls.of(&cfg.site.baseurl, theme_name);
-                let lang = row.map(|p| cfg.pairing_member(p)).unwrap_or_default();
-                let lang = lang.as_str();
-                let site = site.with_title(cfg.site_title(lang));
-                // Metas read the ROW when present; sourceless routes use the route.
-                let mut head = match row {
-                    Some(p) => render::head_for(&title, &p.url, &site, metas, p),
-                    None => render::head_for(&title, &r.url, &site, metas, r),
-                };
-                head.meta.extend(prepass::head_fold_links(
-                    metas,
-                    &site,
-                    &title,
-                    &chrome_facts,
-                    db,
-                ));
-                if let Some(doc) = &pb.doc {
-                    head.injected = doc.heads.clone();
-                }
-                // The output picks its map shell. `raw` is the
-                // transparent one, the body IS the output, so an imported
-                // document can carry front matter (title, tags, hidden)
-                // without being nested inside a second `<html>`.
-                // an axis member over `shell` is the md twin's shape, the
-                // same row serialized two ways, at two URLs. The member's value
-                // beats the row's own for the same reason a member's theme
-                // does: the member IS the alternative form.
-                //
-                let shell =
-                    preview::axis_field(r, "shell").or(row.and_then(|p| p.shell.as_deref()));
-                if shell == Some("raw") {
-                    out_map.insert(r.url.clone(), frag.clone().into_bytes());
-                    stats.pages += 1;
-                    continue;
-                }
-                let tier = match shell {
-                    Some("light_html") => Theme::Light,
-                    _ => Theme::Default,
-                };
-                let attr_row: &dyn crate::filter::Row = match row {
-                    Some(p) => p,
-                    None => r,
-                };
-                let (html_attrs, body_attrs) = (
-                    render::eval_attrs(&attrs.html, cfg, attr_row, &site, &title, &r.url),
-                    render::eval_attrs(&attrs.body, cfg, attr_row, &site, &title, &r.url),
-                );
-                let html = match tier {
-                    Theme::Light => {
-                        chain::light_page(&head, &html_attrs, &body_attrs, profile, &r.axis, frag)
-                    }
-                    Theme::Default => {
-                        let groups = parts::relation_groups(
-                            cfg,
-                            db,
-                            row_thm.schemas(),
-                            &resolve_asset,
-                            rel_groups.get(&r.url).cloned().unwrap_or_default(),
-                        )?;
-                        let mut head = head;
-                        head.alternates = prepass::head_alternates(
-                            metas,
-                            &site,
-                            &title,
-                            cfg,
-                            db,
-                            r,
-                            &cfg.media_types,
-                        );
-                        let mut doc = parts::document_tree(
-                            cfg,
-                            lang,
-                            &crate::trails::home_url(cfg, db, lang),
-                            &title,
-                            &r.url,
-                            &crate::trails::ancestors(cfg, db, &r.url),
-                            section,
-                            groups,
-                            frag,
-                        );
-                        if let Some(p) = row {
-                            doc.set_scope(parts::scope_chain(&p.rel));
-                        }
-                        let dir = src.parent().unwrap_or(root);
-                        chain::document_page(
-                            chain::Page {
-                                theme: row_thm,
-                                head_html: render::head_html(
-                                    &head,
-                                    &row_css,
-                                    &cfg.html.head.include,
-                                ),
-                                site_title: site.title,
-                                source_dir: dir,
-                                lang,
-                                html_attrs,
-                                body_attrs,
-                                resolve_link: &preview::fill_link_resolver(cfg, linkspace, lang),
-                                subtheme: subtheme.as_deref(),
-                                profile,
-                                axis: &r.axis,
-                                axes: preview::axes_part(cfg, db, r),
-                                chrome: preview::chrome_input(cfg, &chrome_facts, lang),
-                            },
-                            cfg,
-                            row,
-                            doc,
-                            frag,
-                            &resolve_asset,
-                            parts::FillOpts {
-                                blocks: pb.doc.as_ref().map(|d| d.blocks.as_slice()),
-                                thumbs: Some(thumbs),
-                                ..Default::default()
-                            },
-                        )?
-                    }
-                };
-                out_map.insert(r.url.clone(), html.into_bytes());
-                stats.pages += 1;
-            }
-            _ => {}
+        if r.view.is_some() {
+            continue;
         }
+        let row = r.row.as_ref().and_then(|k| db.rows.get(k));
+        if !row.is_some_and(|p| p.rendered) {
+            let Some(src) = &r.source else { continue };
+            let bytes = std::fs::read(src).with_context(|| format!("reading {}", src.display()))?;
+            out_map.insert(r.url.clone(), bytes);
+            stats.copied += 1;
+            continue;
+        }
+        // Already emitted from the in-memory body store above.
+        if r.row.as_ref().is_some_and(|k| bodies.contains_key(k)) {
+            continue;
+        }
+        let Some(src) = &r.source else { continue };
+        let title = row.and_then(|p| p.title.clone()).unwrap_or_default();
+
+        // Bodies were rendered in the prepass (so the link graph
+        // could scan them); scss and unknown-construct pages were
+        // recorded there too.
+        let Some(pb) = page_bodies.get(&r.url) else {
+            continue;
+        };
+        if pb.skipped {
+            stats.skipped.push(r.url.clone());
+            continue;
+        }
+        let frag = &pb.frag;
+        let pairing_keep = cfg
+            .pairing_axis()
+            .map(|(_, a)| (a.field.as_str(), a.canonical().unwrap_or("")));
+        let section = row
+            .map(|p| section_parts(db, &mut section_trees, &p.rel, &r.url, pairing_keep))
+            .unwrap_or_default();
+
+        // Theme per row; axis theme beats the row's.
+        let (theme_name, subtheme) =
+            preview::resolve_theme(themes, r, row.and_then(|p| p.theme.as_deref()));
+        let row_thm = themes.get(theme_name)?;
+        let row_css = css_urls.of(&cfg.site.baseurl, theme_name);
+        let lang = row.map(|p| cfg.pairing_member(p)).unwrap_or_default();
+        let lang = lang.as_str();
+        let site = site.with_title(cfg.site_title(lang));
+        // Metas read the ROW when present; sourceless routes use the route.
+        let mut head = match row {
+            Some(p) => render::head_for(&title, &p.url, &site, metas, p),
+            None => render::head_for(&title, &r.url, &site, metas, r),
+        };
+        head.meta.extend(prepass::head_fold_links(
+            metas,
+            &site,
+            &title,
+            &chrome_facts,
+            db,
+        ));
+        if let Some(doc) = &pb.doc {
+            head.injected = doc.heads.clone();
+        }
+        // The output picks its map shell. `raw` is the
+        // transparent one, the body IS the output, so an imported
+        // document can carry front matter (title, tags, hidden)
+        // without being nested inside a second `<html>`.
+        // an axis member over `shell` is the md twin's shape, the
+        // same row serialized two ways, at two URLs. The member's value
+        // beats the row's own for the same reason a member's theme
+        // does: the member IS the alternative form.
+        //
+        let shell = preview::axis_field(r, "shell").or(row.and_then(|p| p.shell.as_deref()));
+        if shell == Some("raw") {
+            out_map.insert(r.url.clone(), frag.clone().into_bytes());
+            stats.pages += 1;
+            continue;
+        }
+        let tier = match shell {
+            Some("light_html") => Theme::Light,
+            _ => Theme::Default,
+        };
+        let attr_row: &dyn crate::filter::Row = match row {
+            Some(p) => p,
+            None => r,
+        };
+        let (html_attrs, body_attrs) = (
+            render::eval_attrs(&attrs.html, cfg, attr_row, &site, &title, &r.url),
+            render::eval_attrs(&attrs.body, cfg, attr_row, &site, &title, &r.url),
+        );
+        let html = match tier {
+            Theme::Light => {
+                chain::light_page(&head, &html_attrs, &body_attrs, profile, &r.axis, frag)
+            }
+            Theme::Default => {
+                let groups = parts::relation_groups(
+                    cfg,
+                    db,
+                    row_thm.schemas(),
+                    &resolve_asset,
+                    rel_groups.get(&r.url).cloned().unwrap_or_default(),
+                )?;
+                let mut head = head;
+                head.alternates =
+                    prepass::head_alternates(metas, &site, &title, cfg, db, r, &cfg.media_types);
+                let mut doc = parts::document_tree(
+                    cfg,
+                    lang,
+                    &crate::trails::home_url(cfg, db, lang),
+                    &title,
+                    &r.url,
+                    &crate::trails::ancestors(cfg, db, &r.url),
+                    section,
+                    groups,
+                    frag,
+                );
+                if let Some(p) = row {
+                    doc.set_scope(parts::scope_chain(&p.rel));
+                }
+                let dir = src.parent().unwrap_or(root);
+                chain::document_page(
+                    chain::Page {
+                        theme: row_thm,
+                        head_html: render::head_html(&head, &row_css, &cfg.html.head.include),
+                        site_title: site.title,
+                        source_dir: dir,
+                        lang,
+                        html_attrs,
+                        body_attrs,
+                        resolve_link: &preview::fill_link_resolver(cfg, linkspace, lang),
+                        subtheme: subtheme.as_deref(),
+                        profile,
+                        axis: &r.axis,
+                        axes: preview::axes_part(cfg, db, r),
+                        chrome: preview::chrome_input(cfg, &chrome_facts, lang),
+                    },
+                    cfg,
+                    row,
+                    doc,
+                    frag,
+                    &resolve_asset,
+                    parts::FillOpts {
+                        blocks: pb.doc.as_ref().map(|d| d.blocks.as_slice()),
+                        thumbs: Some(thumbs),
+                        ..Default::default()
+                    },
+                )?
+            }
+        };
+        out_map.insert(r.url.clone(), html.into_bytes());
+        stats.pages += 1;
     }
 
     Ok(())

@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use grackle_db::template;
-use grackle_model::{AxisMember, Route, RouteKind, Row, SiteDb};
+use grackle_model::{AxisMember, Route, Row, SiteDb};
 
 use crate::config::{Collection, Config};
 use crate::filename;
@@ -800,13 +800,6 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         .iter()
         .filter(|p| !p.claimed && !p.on_demand && p.strong_url.is_none())
     {
-        let kind = if pictures.contains(&p.key) {
-            RouteKind::Object
-        } else if p.rendered {
-            RouteKind::Page
-        } else {
-            RouteKind::Static
-        };
         let one = |url: String, axis: Vec<AxisMember>| {
             let mut fields = {
                 let mut f = p.fields.clone();
@@ -827,7 +820,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
                 axis,
                 front_mattered: p.front_mattered,
                 collection: Some(p.collection.clone()),
-                ..Route::new(url, kind)
+                ..Route::new(url)
             }
         };
         let axes: &[grackle_model::RowAxis] = if p.rendered { &p.axis } else { &[] };
@@ -1061,14 +1054,12 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     for r in &db.routes {
         if let Some(prev) = seen.insert(&r.url, r) {
             collisions.push(format!(
-                "  {}\n    {:?} {}\n    {:?} {}",
+                "  {}\n    {}\n    {}",
                 r.url,
-                prev.kind,
                 prev.source
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| format!("view {:?}", prev.view)),
-                r.kind,
                 r.source
                     .as_ref()
                     .map(|p| p.display().to_string())

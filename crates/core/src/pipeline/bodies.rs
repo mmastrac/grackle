@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::markdown::Doc;
-use crate::model::{RouteKind, Row, SiteDb};
+use crate::model::{Row, SiteDb};
 use crate::passes::preview::resolve_theme;
 use crate::pipeline::types::PageBody;
 use crate::render::Site;
@@ -110,7 +110,13 @@ pub(crate) fn render_page_bodies(
 ) -> Result<HashMap<String, PageBody>> {
     let mut out = HashMap::new();
     for r in &db.routes {
-        if r.kind != RouteKind::Page {
+        // Only rendered rows have a page body; folds and byte copies do not.
+        if !r
+            .row
+            .as_ref()
+            .and_then(|k| db.rows.get(k))
+            .is_some_and(|p| p.rendered)
+        {
             continue;
         }
         // Non-tree documents already live in the row body store.

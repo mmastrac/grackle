@@ -1,6 +1,6 @@
 //! One published URL.
 
-use crate::{AxisMember, Key, Rendition, RouteKind};
+use crate::{AxisMember, Key, Rendition};
 use grackle_db::{filter, Keyed};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -15,7 +15,6 @@ pub struct Route {
     /// Hash address when this output is the embed-policy store entry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strong_url: Option<String>,
-    pub kind: RouteKind,
     /// Whether the source row carried front matter. False for view routes.
     pub front_mattered: bool,
     /// Source row's collection; absent on view routes.
@@ -71,13 +70,12 @@ impl Keyed for Route {
 }
 
 impl Route {
-    /// Minimal route: URL and kind.
-    pub fn new(url: String, kind: RouteKind) -> Route {
+    /// Minimal route: just the URL.
+    pub fn new(url: String) -> Route {
         Route {
             id: Key::new(&url),
             url,
             strong_url: None,
-            kind,
             front_mattered: false,
             collection: None,
             row: None,
@@ -119,7 +117,6 @@ impl filter::Row for Route {
     fn field(&self, name: &str) -> filter::Value {
         use filter::Value as V;
         match name {
-            "kind" => V::Str(self.kind.as_str().to_string()),
             "front_mattered" => V::Bool(self.front_mattered),
             "collection" => match &self.collection {
                 Some(c) => V::Str(c.clone()),

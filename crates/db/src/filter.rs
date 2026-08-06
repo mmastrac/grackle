@@ -48,16 +48,6 @@ pub enum Type {
     /// Matches any typed value. Only used as a function parameter (e.g.
     /// `to_json`); never a schema column.
     Any,
-    /// A string column whose values are a **closed set**, the column is
-    /// backed by a Rust enum, so the engine knows every value it can ever
-    /// hold. Behaves as [`Type::Str`] in every rule of the language; the
-    /// domain buys one thing, and it is the point: comparing the
-    /// column to a string outside the set is a load error naming the knowns,
-    /// rather than a filter that matches nothing forever.
-    ///
-    /// `kind == "posts"`, plural, one letter off, silently empty, is the
-    /// failure this variant exists to make unwritable.
-    Enum(&'static [&'static str]),
 }
 
 impl Type {
@@ -65,27 +55,6 @@ impl Type {
     /// them, promoting Int to Double.
     fn is_numeric(self) -> bool {
         matches!(self, Type::Int | Type::Double)
-    }
-
-    /// The type as every other rule of the language sees it. An enum column is
-    /// a string; nothing about ordering, concatenation, `in` or comparison
-    /// changes because a column happens to know its values.
-    ///
-    /// Every type comparison in the checker goes through this, so a new
-    /// domain-carrying variant can never accidentally fail a type match.
-    fn scalar(self) -> Type {
-        match self {
-            Type::Enum(_) => Type::Str,
-            t => t,
-        }
-    }
-
-    /// The closed value set, for the columns that have one.
-    fn domain(self) -> Option<&'static [&'static str]> {
-        match self {
-            Type::Enum(vs) => Some(vs),
-            _ => None,
-        }
     }
 }
 
@@ -95,10 +64,7 @@ impl fmt::Display for Type {
             Type::Bool => "bool",
             Type::Int => "int",
             Type::Double => "double",
-            // An enum column IS a string as far as any message about types is
-            // concerned, its domain is reported by the domain error, which
-            // says something the type error cannot.
-            Type::Str | Type::Enum(_) => "string",
+            Type::Str => "string",
             Type::List => "list",
             Type::Content => "content",
             Type::Outline => "outline",
@@ -1917,7 +1883,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
         Operand::Call(func, args, _) => {
             for (i, (arg, want)) in args.iter().zip(func.params).enumerate() {
                 let got = operand_type(arg, schema)?;
-                if *want != Type::Any && got.scalar() != want.scalar() {
+                if *want != Type::Any && got != *want {
                     bail!(
                         "`{}` argument {} is {want}, but `{arg}` is {got}",
                         func.name,
@@ -1928,7 +1894,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             if let Some(want) = func.rest {
                 for (i, arg) in args.iter().enumerate().skip(func.params.len()) {
                     let got = operand_type(arg, schema)?;
-                    if want != Type::Any && got.scalar() != want.scalar() {
+                    if want != Type::Any && got != want {
                         bail!(
                             "`{}` argument {} is {want}, but `{arg}` is {got}",
                             func.name,
@@ -1955,7 +1921,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             // `+` also concatenates strings, as CEL's does. The head needs it
             // and nothing else in
             // the language wanted it, which is why it arrived late.
-            if at.scalar() == Type::Str && bt.scalar() == Type::Str && *op == ArithOp::Add {
+            if at == Type::Str && bt == Type::Str && *op == ArithOp::Add {
                 return Ok(Type::Str);
             }
             for (side, t) in [(a, at), (b, bt)] {
@@ -1973,7 +1939,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             let mut seen_keys = Vec::new();
             for (k, v) in entries {
                 let kt = operand_type(k, schema)?;
-                match kt.scalar() {
+                match kt {
                     Type::Int | Type::Bool | Type::Str => {}
                     _ => bail!("map keys must be int, bool, or string, but `{k}` is {kt}"),
                 }
@@ -1992,11 +1958,11 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
         }
         Operand::Index(base, idx) => {
             let bt = operand_type(base, schema)?;
-            if bt.scalar() != Type::List {
+            if bt != Type::List {
                 bail!("`{base}` is {bt}, but only a list can be indexed");
             }
             let it = operand_type(idx, schema)?;
-            if it.scalar() != Type::Int {
+            if it != Type::Int {
                 bail!("list index `{idx}` is {it}, but must be int");
             }
             // Element type is not tracked (string lists and Content lists
@@ -2007,7 +1973,7 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
             check(cond, schema)?;
             let tt = operand_type(then, schema)?;
             let et = operand_type(otherwise, schema)?;
-            match (tt.scalar(), et.scalar()) {
+            match (tt, et) {
                 (Type::Any, t) | (t, Type::Any) => Ok(t),
                 (a, b) if a == b => Ok(tt),
                 _ => bail!(
@@ -2023,15 +1989,11 @@ fn operand_type(o: &Operand, schema: &Schema) -> Result<Type> {
 /// the `in`-not-`==` mistake; ordering a bool is meaningless.
 fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
     let (lt, rt) = (operand_type(l, schema)?, operand_type(r, schema)?);
-    if lt.scalar() == Type::List || rt.scalar() == Type::List {
-        let (list, other) = if lt.scalar() == Type::List {
-            (l, r)
-        } else {
-            (r, l)
-        };
+    if lt == Type::List || rt == Type::List {
+        let (list, other) = if lt == Type::List { (l, r) } else { (r, l) };
         bail!("`{list}` is a list; use `{other} in {list}` instead of a comparison");
     }
-    let ok = lt.scalar() == rt.scalar() || (lt.is_numeric() && rt.is_numeric());
+    let ok = lt == rt || (lt.is_numeric() && rt.is_numeric());
     if !ok {
         // Keep the original single-literal wording when the right side is a
         // literal, which is what the corpus and the tests write.
@@ -2040,62 +2002,10 @@ fn check_cmp(l: &Operand, op: Op, r: &Operand, schema: &Schema) -> Result<()> {
         }
         bail!("`{l}` is {lt}, but `{r}` is {rt} — a comparison needs matching types");
     }
-    if op.is_ordering() && lt.scalar() == Type::Bool {
+    if op.is_ordering() && lt == Type::Bool {
         bail!("`{l}` is bool; ordering comparisons are not meaningful");
     }
-    // Both orders, because `"post" == kind` says exactly what `kind == "post"`
-    // says and a checker that only knows one of them is a checker a config can
-    // step around.
-    check_domain(l, lt, op, r)?;
-    check_domain(r, rt, op, l)
-}
-
-/// A closed-domain column compared against a literal outside its domain.
-///
-/// This is the same knife `resolve` takes to an unknown FIELD, one level down:
-/// `kind == "posts"` type-checks perfectly, a string column against a string
-/// literal, and then matches nothing, for as long as the config lives. The
-/// domain is what turns "false forever" into a load error, and it can only be
-/// declared by a column whose values the engine enumerates.
-///
-/// Non-literal right-hand sides are not checked and cannot be: `kind == view`
-/// compares two columns, and neither one is a value.
-///
-/// The tail says what the constant is, and it is **not always `false`**
-/// (batch review I-A): `kind != "posts"` is the same mistake, the
-/// author meant to exclude something, and excluded nothing, but it can only
-/// ever be TRUE, and a message that said "false" would send its reader looking
-/// for a predicate that never fires when theirs always does. An ordering
-/// comparison against an out-of-domain value is not constant at all (`kind >
-/// "pages"` splits the domain), so it gets the honest neutral sentence rather
-/// than an invented one; it is still an error, because the literal is still a
-/// value the column can never hold.
-fn check_domain(col: &Operand, col_ty: Type, op: Op, other: &Operand) -> Result<()> {
-    let Some(domain) = col_ty.domain() else {
-        return Ok(());
-    };
-    let Operand::Lit(Lit::Str(v)) = other else {
-        return Ok(());
-    };
-    if domain.contains(&v.as_str()) {
-        return Ok(());
-    }
-    let hint = domain
-        .iter()
-        .map(|k| (levenshtein(v, k), *k))
-        .filter(|(d, _)| *d <= 2)
-        .min_by_key(|(d, _)| *d)
-        .map(|(_, k)| format!(" (did you mean `{k}`?)"))
-        .unwrap_or_default();
-    let tail = match op {
-        Op::Eq => "the comparison can only ever be false",
-        Op::Ne => "the comparison can only ever be true",
-        _ => "the comparison orders against a value the column never holds",
-    };
-    bail!(
-        "`{col}` is never {v:?}{hint} — {tail}\n  {col} is one of: {}",
-        domain.join(", ")
-    )
+    Ok(())
 }
 
 fn check(e: &Expr, schema: &Schema) -> Result<()> {
@@ -2110,14 +2020,14 @@ fn check(e: &Expr, schema: &Schema) -> Result<()> {
         Expr::Cmp(l, op, r) => check_cmp(l, *op, r, schema),
         Expr::In(l, r) => {
             let rt = operand_type(r, schema)?;
-            if rt.scalar() != Type::List {
+            if rt != Type::List {
                 bail!("`in` needs a list on the right, but `{r}` is {rt}");
             }
             // A string in a list (`"rust" in tags`) or a row in a relation's
             // finished list (`candidate in earlier`), both spelled the same,
             // because a row reaches the environment as its URL (a Str).
             let lt = operand_type(l, schema)?;
-            if lt.scalar() != Type::Str {
+            if lt != Type::Str {
                 bail!("`in` needs a string on the left, but `{l}` is {lt}");
             }
             Ok(())
@@ -2274,7 +2184,7 @@ impl Text {
                 check(&cond, schema)?;
                 for op in [&then, &otherwise] {
                     let t = operand_type(op, schema)?;
-                    if t.scalar() != Type::Str && t.scalar() != Type::Any {
+                    if t != Type::Str && t != Type::Any {
                         bail!("a conditional's branches must be strings, but `{op}` is {t}");
                     }
                 }
@@ -2292,7 +2202,7 @@ impl Text {
             bail!("trailing tokens after a complete expression");
         }
         let t = operand_type(&then, schema)?;
-        if t.scalar() != Type::Str && t.scalar() != Type::Any {
+        if t != Type::Str && t != Type::Any {
             bail!("a text expression must be a string, but `{then}` is {t}");
         }
         Ok(Text {
@@ -2361,7 +2271,7 @@ impl FieldExpr {
         if p.pos != p.toks.len() {
             bail!("trailing tokens after a complete expression");
         }
-        let returns = operand_type(&op, schema)?.scalar();
+        let returns = operand_type(&op, schema)?;
         Ok(FieldExpr { op, returns })
     }
 
@@ -2371,7 +2281,7 @@ impl FieldExpr {
     /// needs. The open `[schema.fields]` bag uses [`infer`] instead.
     pub fn parse(src: &str, schema: &Schema, want: Type) -> Result<Self> {
         let e = Self::infer(src, schema)?;
-        if e.returns != Type::Any && e.returns != want.scalar() {
+        if e.returns != Type::Any && e.returns != want {
             bail!(
                 "a field expression must be {want}, but `{}` is {}",
                 e.op,
@@ -2652,9 +2562,6 @@ mod tests {
         s.insert("description", Type::Str);
         s.insert("tags", Type::List);
         s.insert("path", Type::Str);
-        // A closed-domain column beside an open one, so every assertion about
-        // the domain has a `title` to compare itself against.
-        s.insert("kind", Type::Enum(&["post", "page", "view"]));
         s
     }
 
@@ -2758,7 +2665,7 @@ mod tests {
         assert!(e.contains("unknown field `paht`"), "{e}");
         assert!(e.contains("did you mean `path`"), "{e}");
         assert!(
-            e.contains("known fields: description, draft, hidden, kind, path, tags, title, year"),
+            e.contains("known fields: description, draft, hidden, path, tags, title, year"),
             "{e}"
         );
     }
@@ -2889,77 +2796,6 @@ mod tests {
         assert!(e.contains("unknown field `drafts`"), "{e}");
         assert!(e.contains("did you mean `draft`"), "{e}");
         assert!(e.contains("known fields:"), "{e}");
-    }
-
-    /// The same knife one level down: `kind == "posts"` names a
-    /// real column at the right type and then matches nothing forever.
-    ///
-    /// Mutation: delete either `check_domain` call in `check_cmp` and the
-    /// first assertion fails, the expression parses, and `Filter::eval`
-    /// returns false for every row a route pool could ever hold.
-    #[test]
-    fn a_value_outside_a_closed_domain_is_an_error_with_the_knowns() {
-        let e = |s: &str| Filter::parse(s, &schema()).unwrap_err().to_string();
-        let msg = e(r#"kind == "posts""#);
-        assert!(msg.contains(r#"`kind` is never "posts""#), "{msg}");
-        assert!(msg.contains("did you mean `post`"), "{msg}");
-        assert!(msg.contains("kind is one of: post, page, view"), "{msg}");
-        // Both orders, and every operator: a domain is a fact about the
-        // column, not about which side of the `==` it was written on.
-        assert!(e(r#""posts" == kind"#).contains("is never \"posts\""));
-        assert!(e(r#"kind != "pages""#).contains("is never \"pages\""));
-    }
-
-    /// The tail names the constant the comparison became, and which constant
-    /// that is depends on the OPERATOR (batch review I-A).
-    ///
-    /// `kind != "posts"` is the same authoring mistake as `kind == "posts"`,
-    /// an exclusion that excludes nothing, but it is true forever, not false
-    /// forever, and the old message said "false" for both. A reader who trusts
-    /// it goes looking for a predicate that never fires when theirs always
-    /// does, which is the opposite end of the same haystack. Ordering gets
-    /// neither word: `kind > "pages"` against a value outside the domain is
-    /// not constant at all, so the sentence says what IS true.
-    ///
-    /// Mutation: collapse the `match op` back to a single "false" arm and the
-    /// `!=` and ordering assertions fail.
-    #[test]
-    fn the_constant_the_message_names_follows_the_operator() {
-        let e = |s: &str| Filter::parse(s, &schema()).unwrap_err().to_string();
-        assert!(
-            e(r#"kind == "posts""#).contains("can only ever be false"),
-            "{}",
-            e(r#"kind == "posts""#)
-        );
-        let ne = e(r#"kind != "posts""#);
-        assert!(ne.contains("can only ever be true"), "{ne}");
-        assert!(!ne.contains("can only ever be false"), "{ne}");
-        // The hint rides along whatever the operator is, it is about the
-        // literal, not about the comparison.
-        assert!(ne.contains("did you mean `post`"), "{ne}");
-        let gt = e(r#"kind > "posts""#);
-        assert!(gt.contains("never holds"), "{gt}");
-        assert!(!gt.contains("can only ever be"), "{gt}");
-        // Both orders, still: the domain is a fact about the column.
-        assert!(
-            e(r#""posts" != kind"#).contains("can only ever be true"),
-            "{}",
-            e(r#""posts" != kind"#)
-        );
-    }
-
-    /// The domain buys the check and nothing else. Every value IN it parses,
-    /// an open string column is untouched, and comparing two columns, where
-    /// neither side is a value, is not something a domain can rule on.
-    #[test]
-    fn a_closed_domain_is_otherwise_an_ordinary_string_column() {
-        ok(r#"kind == "post""#);
-        ok(r#"kind == "view" || kind == "page""#);
-        ok(r#"kind == title"#);
-        ok(r#"kind + "!" == "post!""#);
-        // The control: `title` has no domain, so an arbitrary literal is the
-        // author's business.
-        ok(r#"title == "posts""#);
     }
 
     #[test]

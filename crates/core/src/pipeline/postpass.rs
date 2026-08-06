@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::markdown::Doc;
-use crate::model::{Route, RouteKind, SiteDb};
+use crate::model::{Route, SiteDb};
 use crate::pipeline::types::{PageBody, SiteOutput, Stats};
 
 /// Rung 0: minting an
@@ -191,7 +191,7 @@ pub(crate) fn join_renditions(
             strong_url: Some(address.clone()),
             inputs: inputs.clone(),
             rendition: Some(*rendition),
-            ..Route::new(address.clone(), RouteKind::Object)
+            ..Route::new(address.clone())
         };
         apply_forced(&mut route, &forced);
         db.routes.push(route);
@@ -352,7 +352,7 @@ pub(crate) fn materialize_referenced(
                     strong_url: strong,
                     // The content edge, minted with the output it points at.
                     inputs: vec![key.clone()],
-                    ..Route::new(at.clone(), RouteKind::Object)
+                    ..Route::new(at.clone())
                 };
                 apply_forced(&mut route, &forced); // see `forced_fields`
                                                    // The pull model made literal: a lazily-published

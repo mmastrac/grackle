@@ -35,9 +35,7 @@ fn site(who: &str) -> PathBuf {
              [routes.identity]\npath = \"/identity.xml\"\n\
              shell = \"sitemap\"\nwhere = \"front_mattered\"\n\n\
              [routes.bytes]\npath = \"/bytes.xml\"\n\
-             shell = \"sitemap\"\nwhere = \"!front_mattered\"\n\n\
-             [routes.old_spelling]\npath = \"/old-spelling.xml\"\n\
-             shell = \"sitemap\"\nwhere = 'kind == \"page\"'\n",
+             shell = \"sitemap\"\nwhere = \"!front_mattered\"\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
@@ -78,34 +76,5 @@ fn front_mattered_is_identity_not_parsing() {
     assert!(
         bytes.contains(&"/blog/".to_string()),
         "a view route has no source file, so it carried nothing: {bytes:?}"
-    );
-}
-
-/// Why identity and `kind == "page"` part company on the blockless post.
-///
-/// `kind == "page"` selects every rendered document; `front_mattered` selects
-/// identity. They part company on a `.md` the scope parsed with no block.
-#[test]
-fn kind_page_and_front_mattered_part_company_on_the_blockless_post() {
-    let dir = site("spelling");
-    let by_kind = urls(&dir, "/old-spelling.xml");
-    let by_identity = urls(&dir, "/identity.xml");
-    assert_eq!(
-        by_kind,
-        [
-            "/about/",
-            "/blog/2020/01/01/hello/",
-            "/blog/2020/01/02/bare/"
-        ],
-        "kind selects every rendered document"
-    );
-    let only_kind: Vec<_> = by_kind
-        .iter()
-        .filter(|u| !by_identity.contains(u))
-        .collect();
-    assert_eq!(only_kind, ["/blog/2020/01/02/bare/"]);
-    assert!(
-        by_identity.iter().all(|u| by_kind.contains(u)),
-        "identity is a subset of rendered documents, never the other way"
     );
 }

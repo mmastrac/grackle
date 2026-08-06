@@ -175,11 +175,6 @@ Unowned or deliberately not taken when IO closed. Priority call before build.
 
 - [ ] **`robots_txt` emission** — fold shell over output facts; exact emission
       spec still open. *(IO.md §9 q3)*
-- [ ] **`kind` / search config migration** — needs scope-membership expressibility
-      on the output pool first, then Matt's migration decision. *(IO.md §3 / I13)*
-- [ ] **Scope-membership expressibility on the output pool** — the column (or
-      shell respelling of search) that unlocks deleting `kind`. *(IO.md I13)*
-- [ ] **Sitemap's honest respelling** — still filters via the old shape. *(IO.md §3)*
 - [ ] **Rendition-address extension** — parameterized image outputs beyond the
       citation-site demand I12 shipped. *(IO.md I12)*
 - [ ] **Claimed-row rendition scan** — behaviour change under a byte gate.

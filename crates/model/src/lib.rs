@@ -40,7 +40,6 @@ pub use site_db::SiteDb;
 pub use view_rows::ViewRows;
 
 use chrono::NaiveDate;
-use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// How a citation points at a resource.
@@ -93,30 +92,6 @@ pub enum Demand {
     Content,
     /// Needs planning facts only (url, shell, fields). Does not order work.
     Facts,
-}
-
-/// Kind of published route. Also the closed domain of the `kind` filter column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RouteKind {
-    Page,
-    Static,
-    Object,
-    View,
-}
-
-impl RouteKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RouteKind::Page => "page",
-            RouteKind::Static => "static",
-            RouteKind::Object => "object",
-            RouteKind::View => "view",
-        }
-    }
-
-    /// Values the `kind` column may hold.
-    pub const NAMES: &'static [&'static str] = &["page", "static", "object", "view"];
 }
 
 /// Where a relation draws candidates from.
@@ -181,7 +156,6 @@ pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
 pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     use filter::Type::*;
     let mut s = filter::Schema::new();
-    s.insert("kind", Enum(RouteKind::NAMES));
     s.insert("front_mattered", Bool);
     s.insert("collection", Str);
     s.insert("view", Str);
@@ -309,38 +283,16 @@ mod route_stem_tests {
         let f = Filter::parse("stem != \"index\"", &route_schema(&filter::Schema::new())).unwrap();
         let index_page = Route {
             source: Some(PathBuf::from("recipes/index.md")),
-            ..Route::new("/recipes/".into(), RouteKind::Page)
+            ..Route::new("/recipes/".into())
         };
         let content_page = Route {
             source: Some(PathBuf::from("recipes/carbonara.md")),
-            ..Route::new("/recipes/carbonara/".into(), RouteKind::Page)
+            ..Route::new("/recipes/carbonara/".into())
         };
-        let view_route = Route::new("/blog/".into(), RouteKind::View);
+        let view_route = Route::new("/blog/".into());
         assert!(!f.eval(&index_page));
         assert!(f.eval(&content_page));
         assert!(f.eval(&view_route));
-    }
-
-    /// `NAMES` must stay in lockstep with the enum variants.
-    #[test]
-    fn every_variant_is_in_the_kind_domain() {
-        let all = [
-            RouteKind::Page,
-            RouteKind::Static,
-            RouteKind::Object,
-            RouteKind::View,
-        ];
-        for k in all {
-            match k {
-                RouteKind::Page | RouteKind::Static | RouteKind::Object | RouteKind::View => {}
-            }
-            assert!(
-                RouteKind::NAMES.contains(&k.as_str()),
-                "{} is a kind the domain does not know",
-                k.as_str()
-            );
-        }
-        assert_eq!(RouteKind::NAMES.len(), all.len(), "and nothing extra");
     }
 
     #[test]
@@ -348,11 +300,11 @@ mod route_stem_tests {
         let f = Filter::parse("front_mattered", &route_schema(&filter::Schema::new())).unwrap();
         let doc = Route {
             front_mattered: true,
-            ..Route::new("/recipes/carbonara/".into(), RouteKind::Page)
+            ..Route::new("/recipes/carbonara/".into())
         };
         assert!(f.eval(&doc));
-        assert!(!f.eval(&Route::new("/blog/".into(), RouteKind::View)));
-        assert!(!f.eval(&Route::new("/logo.png".into(), RouteKind::Object)));
+        assert!(!f.eval(&Route::new("/blog/".into())));
+        assert!(!f.eval(&Route::new("/logo.png".into())));
     }
 }
 
