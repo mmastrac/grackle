@@ -49,9 +49,9 @@ of the code — check them before acting.
 The row-face / listing-as-concat model is built. What remains:
 
 - [ ] **Fold `light_html` into the chain** — today it stays a separate map-shell
-      path; THEME.md §4 names the gap.
+      path; THEME.md §1 names the gap.
 - [ ] **Collapse `variant` / `layout` to one face key** — both name the member
-      face; keep both only while corpora need the override. (THEME.md §7)
+      face; keep both only while corpora need the override. (THEME.md §2)
 
 ## Chrome parts (themes/DESIGN.md §10)
 

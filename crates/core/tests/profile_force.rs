@@ -11,9 +11,6 @@
 //! because the failure this guards is a rendered one: a listing page that does
 //! not say `noindex` while every document under it does, in a projection whose
 //! whole purpose is to stay out of search indexes.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -146,7 +143,7 @@ fn build_pools(dir: &Path, profile: Option<&str>) -> (String, String) {
 /// One law, both pools: a `where` that reads a forced field selects by the
 /// forced value, whether it ranges over rows or over routes.
 ///
-/// The route half is the one nothing guarded before R6, and the ordering it
+/// The route half was previously unguarded, and the ordering it
 /// depends on is subtle enough to deserve a test: `force_route_fields` runs
 /// while the route list is complete, and `resolve_pool_folds`, the engine's
 /// *only* `db.routes.select`, runs at the end of `load`, so the route pool

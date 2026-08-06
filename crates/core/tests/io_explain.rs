@@ -14,7 +14,7 @@
 //! interpolates — it would pass against an engine that never gave a byte copy
 //! the `raw` shell.
 //!
-//! The second test covers the block below it, `row_fields` (IR3): the cascade
+//! The second test covers the block below it, `row_fields`: the cascade
 //! keys are named fields on `Row` *and* declared columns in `Row.fields`, so
 //! `explain` printed `layout` twice for every row that resolved one. The
 //! loader earns its place there for the same reason — whether a value reaches
@@ -31,9 +31,6 @@
 //! printed pair. The sidecar half is pinned in `io_sidecar.rs`, beside the
 //! mechanism it is about; what these two rows hold is the other half, which is
 //! that identity written IN the file still says so.
-//!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
 
@@ -41,15 +38,15 @@ mod support;
 
 /// Four rows, chosen so that no two agree on the whole block.
 ///
-/// The first two are IR2's pair, and every fact differs across them: a dated
+/// The first two are a pair, and every fact differs across them: a dated
 /// post the posts scope claims (identity in the file, the html shell) and a
 /// `.txt` the tree rule copies verbatim (no identity, the raw shell).
 ///
 /// The post carries all three of the cascade keys `row_fields` names, and one
-/// declared field that is not a cascade key (`minutes`), so IR3's skip is
+/// declared field that is not a cascade key (`minutes`), so the skip is
 /// pinned as "skip these four names" rather than "skip the dump".
 ///
-/// The other two are IR7's, one per clause of the rendering law, and both are
+/// The other two are one per clause of the rendering law, and both are
 /// corpus shapes rather than invented ones:
 ///
 /// - **The degenerate row.** A blockless `.md` under `_posts/`, which the base's
@@ -147,7 +144,7 @@ fn explain_reads_the_row_rather_than_a_literal() {
 /// and the row is indistinguishable from one no rule mentioned); print
 /// `strong_url` unconditionally (the post's block grows a line that says
 /// nothing); print the slot and drop the reason (the pair stops being
-/// readable, which is the shape I8 argued about one field over).
+/// readable).
 #[test]
 fn explain_prints_the_second_address_slot_and_the_reason_for_the_dash() {
     let dir = site("strong");
@@ -185,14 +182,14 @@ fn explain_prints_the_second_address_slot_and_the_reason_for_the_dash() {
 /// facts it reads, because the derivation is what a reader of `explain` cannot
 /// do in their head from a row they are already confused about.
 ///
-/// Four rows and no two alike. The two IR2 chose (`true`/`true` and
+/// Four rows and no two alike. The first two (`true`/`true` and
 /// `false`/`false`) agree with both halves of the law and so witness nothing on
 /// their own; the two below are each the sole witness against one wrong
 /// implementation:
 ///
 /// - the **degenerate** row reads `front_mattered false / rendered true` — the
 ///   pair that teaches the law, and the row that fails an engine printing
-///   `r.front_mattered` under a `rendered` label (the pre-I7c tree loader's
+///   `r.front_mattered` under a `rendered` label (the tree loader's old
 ///   answer);
 /// - the **pane** reads `shell raw / rendered true` — the row that fails "the
 ///   shell decides", which is the law that byte-copies a front-mattered file

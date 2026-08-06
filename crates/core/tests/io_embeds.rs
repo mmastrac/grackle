@@ -20,9 +20,6 @@
 //! Built sites throughout: every claim above is about what the finished output
 //! contains or about a fact the render pass writes, and the two the load
 //! alone can answer say so where they are asserted.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::Graph;
 use grackle_core::model::{Key, SiteDb};
@@ -60,7 +57,7 @@ fn addr(bytes: &[u8]) -> String {
 /// `extends = "none"`, so the two objects rules below are the whole policy
 /// this site has: the first ROUTES (`pics/**`, the bookmarkable assets, what
 /// grack.com's own config does for its whole corpus), the second DECLINES
-/// (`**/*.png`, what the base config ships since I11). The address question
+/// (`**/*.png`, what the base config ships). The address question
 /// is answered once, by the first rule that answers it, which is why a
 /// `pics/` image never reaches the second rule.
 const SITE: &str = r#"
@@ -361,8 +358,8 @@ fn untransformed_twins_share_one_address_and_one_entry() {
     );
 }
 
-/// **A strong citation is an `inputs` edge**, review I-D's design catch, and
-/// the reason this item had to touch citation resolution at all.
+/// **A strong citation is an `inputs` edge** — the reason citation resolution
+/// had to change at all.
 ///
 /// `db.by_url` holds canonical row URLs only, so a `/static/{hash}` citation
 /// resolves to NOTHING there: the embedding page's `inputs` would silently
@@ -505,7 +502,7 @@ fn the_policy_off_or_narrowed_is_a_load_error_naming_the_asset() {
 /// `route` and `embed` are two answers to one question and they are not
 /// layers: a routed output wins, so a fallback beneath it can never be
 /// reached, and a reader cannot tell which of the two lines is the mistake.
-/// `on_demand` beside `embed` is the I7b dead-key family, it defers a route
+/// `on_demand` beside `embed` is a dead-key family, it defers a route
 /// this rule does not mint.
 ///
 /// Both are asked in `Config::from_toml`, so no walk and no file can change
@@ -515,7 +512,7 @@ fn the_policy_off_or_narrowed_is_a_load_error_naming_the_asset() {
 /// Mutations, each red and each restored: delete either bail (the config loads
 /// and the rule's second key configures nothing); narrow the check to
 /// non-inherited rules (both halves still pass, and a base that grew the
-/// mistake would ship it, the IR9 argument, one key over).
+/// mistake would ship it, one key over).
 #[test]
 fn a_rule_may_not_declare_two_addresses() {
     let both = SITE.replace(

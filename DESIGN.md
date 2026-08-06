@@ -607,30 +607,9 @@ entry nothing shadows is a new definition, held to the same rules as any other
 **Presentation costs no engine code.** The root shell stamps `data-profile`,
 so a dev banner is a theme CSS rule on `[data-profile="dev"]`.
 
-### What the corpus actually holds
-
-The site holds 14 dated posts in `_hidden/` that no build version references, 4 undated drafts in `_drafts/` moved there 2026-07-19, and no posts with `hidden:` set (one page row does: `demos/pane.html`).
-
 ### Flags reach the row, the route and the head
 
-`draft` and `hidden` carry onto every `Route`, exposed in `route_schema()`, so views filter them. `noindex` reaches the head. Both cascade from markers and rules as any default does (§4b). Before 2026-07-19 pages carried none of this; `demos/mindstorms/index.html` declared `noindex: true` but shipped without the robots meta tag.
-
-### The sitemap leak, and why route-level flags exist
-
-Worth keeping because it explains why the flags live on routes. Probed by
-adding two posts dated newer than anything real — one draft, one hidden — the
-flagged rows landed **in the sitemap** even though `published`, `latest` and
-`/blog/` correctly excluded them. A section titled "add no public URLs" was
-emitting the most public URL there is.
-
-This was **grackle's divergence, not Jekyll's**: `publish.sh` builds drafts as
-a *separate site*, so Jekyll's main sitemap never saw them. Routing drafts into
-the main build created the exposure. The fix was the route-level flag plus the
-sitemap's own filter. Given this project began with "I'm having trouble with
-Google crawling this site", it was precisely the wrong failure mode to ship.
-
-Profiles are the general answer the probe pointed at: a profile overrides an
-existing query's `where`, so selection stays the view's job.
+`draft` and `hidden` carry onto every `Route`, exposed in `route_schema()`, so views filter them. `noindex` reaches the head. Both cascade from markers and rules as any default does (§4b). Route-level flags exist because a routed row is routed whatever its flags say — every fold (sitemap, feed, listing) must restate them rather than trust that a row's own flags kept it out.
 
 ## 4b. Marker files: defaults declared by the tree
 
@@ -757,8 +736,9 @@ Tracked content files are excluded by the dot/underscore skip and `exclude`;
 There is one walk now, and `_posts` has to come out of it, so the skip asks the
 declared scope sources first: a directory a scope named as its `source` is
 content by that declaration, and every other `_dir` stays out for free. The
-skip is otherwise untouched — this is the amendment that let §9b's "six
-underscore directories need explicit excludes" obstacle go unpaid.
+skip is otherwise untouched — a declared `source` is what lets `_posts`/`_drafts`
+be walked without needing an explicit `exclude` for every other underscore
+directory.
 
 **A tree `exclude` that names a scope's `source` is a load error.** It is the
 one contradiction the merge creates: `exclude` says "not content" and `source`
@@ -820,11 +800,6 @@ them configures nothing, and says so at the line that wrote it *(IO.md I7b —
 `NotContent` is compiled from the tree collection's lists and nothing else
 reads the other kinds' copies)*.
 
-### Where `.gitignore` actually earns its keep
-
-The marker scan, which structurally cannot use the dot/underscore skip (markers
-are dotfiles under `_posts`), depends entirely on `.gitignore` for performance,
-achieving a 35× difference: ~205ms to ~6ms over ~1500 files.
 ## 4d. The base config: `extends`, and the empty file
 
 `crates/source/assets/base.toml` is compiled in with `include_str!`, exactly as
@@ -1029,13 +1004,7 @@ What remains is one spelling, narrow and named above: a view's
 `noindex = true` copied onto its routes as an ordinary schema field. That too
 is schema, not engine vocabulary — the same name rows and profiles force.
 
-| where | what | verdict |
-|---|---|---|
-| `relations.rs` | the engine composing `"!candidate.draft && !candidate.hidden"` onto a defaulted pool | **deleted** |
-| `load.rs` | `Cascaded`, a struct of **seven named fields**, the only keys a marker could set | **three**, then none — the three left (theme, shell, slot) are what the engine still READS by name, and MERGE.md C1 declares them in the base's `[schema]` so they cascade typed like everything else. `Cascaded` survives as the typed read. `toc` joined the flag family. |
-| `model/lib.rs` | `Row.draft/hidden/noindex`, `Route.draft/hidden`, both schemas | **deleted** — declared fields, carried in `Row.fields` and `Route.fields` |
-| `debug.rs`, `main.rs` | the inspector and `explain` printing three named bools | **deleted** — both print declared fields now |
-| `render.rs`, `build.rs`, `passes/listing.rs` | `noindex` → `<meta name="robots">` | **`[html.head.meta]`** — the one invention, below |
+The flag family is declared vocabulary throughout the engine now — `extends = "none"` genuinely removes it, and every former call site (relation defaults, the marker cascade, `Row`/`Route`, the inspector, the head) reads it as an ordinary declared field rather than a hardcoded one.
 
 ### Every row is governed
 
@@ -1043,12 +1012,6 @@ is schema, not engine vocabulary — the same name rows and profiles force.
 governs this path, so tolerate any front matter." That tolerance is gone:
 resolve returns a map, possibly empty, and an undeclared front-matter key is a
 load error naming the knowns wherever it appears.
-
-It cost exactly one line across every site in this repo: `hide_sidebar: true`
-in grack.com's `index.html`, a Jekyll-era key that nothing had read since the
-port and that the tolerance had been hiding. That is the whole argument for the
-rule — the failure it produces is a dead key named out loud, and the failure it
-replaces is a live key silently ignored.
 
 Two consequences worth stating:
 
@@ -1097,22 +1060,7 @@ So it went as one: `Row` lost the three, `Route` lost its two and gained
 site's vocabulary (`db.declared`) because a consumer that wants to parse a
 filter needs the site's names rather than the engine's.
 
-**Two defects fell out of the audit; both are fixed.** `.schema.toml` fields
-were nameable in `order_by`, `group_by` and a relation's `rank` but **not in a
-view's `where`** — declare a bool, set it, group by it, sort by it, then get
-`unknown field` from your own filter. `Schemas::row_filter_schema` is the one
-definition now, and `where` is its third consumer rather than its exception.
-
-The sharper one: **a marker or rule default could not set a declared field at
-all**, because `cascade()` read the names out of a Rust struct — so `[markers]
-".archived" = { archived = true }` did nothing, silently. `CASCADE_KEYS` went
-to four (`theme`, `shell`, `layout`, `toc`) and then to three (`theme`,
-`shell`, `slot`) with `toc` in the flag family: MERGE.md C1 declares those in
-the base's `[schema]` too, so *every* key a marker or a rule sets goes through
-`schema::apply_defaults` — a declared field or a load error naming the knowns,
-front matter still the nearer writer, a type mismatch also an error. **§4b's
-mechanisms work for any field a site invents**, which is what the flag move
-was for.
+Two rules fell out of the audit that fixed it: **declared fields are filterable in `where`** — `Schemas::row_filter_schema` is the one definition, shared by `order_by`, `group_by`, a relation's `rank`, and `where` alike. And **markers and rule defaults can set declared fields** — every key a marker or a rule sets goes through `schema::apply_defaults`, a declared field or a load error naming the knowns, front matter still the nearer writer.
 
 Being engine vocabulary turned out to be a statement about who *reads* a field,
 not about who types it: the engine still reads all four off a row by name, and
@@ -1120,35 +1068,14 @@ a declaration is simply how their cascade gets typed. Their types are the
 engine's — declaring one at another type is a load error, since the value would
 be typed one way and read the other.
 
-**And they became filterable in the same move, `shell` included** *(measured
-for IO.md I1, which set out to expose it and found it exposed)*. A declared
+**And they became filterable in the same move, `shell` included.** A declared
 field is a column, the four are declared, and their values live in `fields` as
 well as on the row's named field — so `where = 'shell == "light_html"'` selects
 on a row and, through `Route.fields`, on the routes a fold reads.
 
-I1 recorded two things the column did not yet answer, and **IO.md I2 closed
-both** *(2026-07-27)*:
-
-- the row column held a value **only where someone wrote it** — absent meant
-  html by an engine default, so `shell == "html"` matched the rows that said
-  so and no others. The base's rules now declare the field (§5g), so it
-  materializes through this same typed cascade and the answer is total for
-  every row a rule governs. Two shapes still answered Null after I2 — an
-  objects-collection row (which took no rule default at all, the loader
-  building it from `Default::default()`) and a row whose only governing rule
-  declares no shell — which is why the sitemap's `dir || ext == "html"` did
-  **not** become `shell == "html"` there: the sets were not the same set.
-  **IO.md I7e closed the first shape** *(2026-07-27)*: there is one row
-  constructor, the base's objects rule declares `raw` like every other rule,
-  and the column is total on all five corpus sites (grack.com: 838 Null → 0,
-  1025 `raw` / 370 `html` / 1 `light_html`). The sitemap migration is
-  *possible* now and was deliberately **not taken** — it is a live artifact and
-  a byte change, Matt's call, per IO.md §3's shipped/pending marker;
-- a *view* route's serialization (`shell = "atom"`) was not in the column at
-  all — it was the route's declaration, not a row field. A view route now mints
-  the column when it is created, so a feed answers `atom`, a sitemap answers
-  `sitemap`, and a listing that declared nothing answers `html`: the
-  serialization it left through, which is what IO.md §3 says the fact is.
+**The shell column is total over rows**: every rule declares the field, and a
+view route mints it too (`atom`, `sitemap`, or `html` for a listing that
+declared nothing) — so `shell == …` answers for any row or route, never Null.
 
 ### The head is config: `[html.head.meta]`
 
@@ -1196,14 +1123,7 @@ Three notes on the shape:
 - **The drafts profile keeps working**, and no longer by overwriting anything:
   `[profiles.drafts.force] noindex = true` writes the FIELD at rung 0 — above
   front matter, on every row and every route — and the `robots` declaration
-  evaluates it, unchanged, wherever it was declared (MERGE.md E1). The key it
-  replaced (`[profiles.drafts] noindex = true`) overwrote `[html.head.meta]
-  robots` with the constant `"noindex,follow"`, which meant a site that wrote
-  its own expression silently lost it; that whole apparatus — the override,
-  its warning, and `Config::site_robots` — is gone, because forcing a field
-  the site already declares needs no vocabulary of its own. Byte-identical
-  output on grack.com under `--profile drafts` across the change: the clobber's
-  constant and `noindex ? "noindex,follow" : ""` are the same 552 tags.
+  evaluates it, unchanged, wherever it was declared.
 
 Verified by mutation: deleting `[html.head.meta]` from `base.toml` drops every
 `<meta name="robots">` on grack.com from its usual set to zero, and the site is
@@ -1268,38 +1188,12 @@ environment would have silently dropped it.
 the stylesheet link (per-row theme resolution, not a row fact), the hreflang
 list, and JSON-LD.
 
-**The favicon block is gone.** `FAVICONS` was four lines of grack.com compiled
-into the engine — two `<link rel>` and two `<meta name>` — and every site
-emitted them, which `examples/minimal` made impossible to ignore: an empty
-config file produced a page advertising another site's icons and calling itself
-`grack.com`. The two metas moved into grack.com's own `[html.head.meta]`,
-where they always belonged and where they now sit beside the base's four (a
-live demonstration of the registry rule: the site's entries JOIN the base's
-rather than replacing the table).
-
-The two `<link>`s were **deleted, not moved**: they carry `sizes` and `type`,
-and at the time `[html.head.link]` was a rel→href map. That residue is closed:
-a link entry may be a table (`{ href = '…', sizes = '"180x180"' }`) rather than
-a bare expression, so apple-touch-style icons are ordinary declarations again.
-Basic favicon linking was restored earlier via `site.icon`.
-
-**The `light_html` tier keeps `[html.head.meta]` and drops the rest.** The line is
-the element, not a list of blessed names: a `<meta name>` is a fact about the
-document, while Open Graph and a canonical link are apparatus for describing it
-to other systems. Cost: the tier's head grew by two tags (`author`, `viewport`).
+**No engine-owned head constants.** Icons ride `[html.head.link]` (a link entry may be a table — `{ href = '…', sizes = '"180x180"' }` — for apple-touch-style icons, not just a bare expression) plus `site.icon` for basic favicon linking; no site's values are compiled into the engine. `light_html` keeps `[html.head.meta]` and drops the rest — the line is the element, not a list of blessed names: a `<meta name>` is a fact about the document, while Open Graph and a canonical link are apparatus for describing it to other systems.
 
 #### What the fold found
 
 Moving the head to expressions fixed multiple defects at once: an expression reads the row rather than a hardcoded constructor default. q51 gave pages dates and typed fields; the head had never been told.
 
-### And the inspector stopped naming them too
-
-`debug.rs` carried three named bools in its row shape and `query explain`
-printed two. Both now render whatever the site declared: the inspector folds
-them into the `fields` list it already had for pages, and `query stats` prints
-one count per declared `bool` that any row carries. A site's own flags were
-invisible in both before — `archived` would have been a field nothing reported
-on, which is the same defect one layer out.
 ## 5. Views (the generators, declaratively)
 
 Everything Jekyll plugins generated becomes a declared, incrementally maintained view over a table:
@@ -1357,86 +1251,21 @@ view blog_index: filter "!drafts"
 
 Type errors are caught the same way, with the fix in the message.
 
-### Audited against `/code` and `/writing` (and the mindstorms gallery)
+### Curated indexes vs. generated views
 
-**Curated indexes are content, not views.** `code/index.md` is hand-authored, hand-ordered, with foreign keys reaching across tables. It must *stay* authored — a content-first system keeps "a human chose this list" distinct from "a query derived it", and the model already does: it is a `document`.
-
-**The gallery is a restructure the tree already knows how to express.** Positionally restructured, a tree encodes it and the view is ordinary config:
-
-```toml
-[routes.mindstorms]
-from     = "objects"
-where    = 'glob(path, "demos/mindstorms/**")'
-group_by = "dir"
-variant  = "gallery"
-path     = "/demos/mindstorms/{key}/"
-```
-
-**Three gaps this audit found** — objects need schema, scoping needs a path predicate, and `order_by` must dispatch to row ordering. All **built** 2026-07.
-
-The scope arrived as its own `match` key and stopped being one (MERGE.md G2, 2026-07-27): it always compiled to `glob(path, …)` and always conjoined with `where`, so it was a clause of the predicate wearing a second spelling. `glob(field, pattern) -> bool` is a registered §5f function, which is what makes this work on an *object* view too — `path` is a column of the narrow object vocabulary, so the expression type-checks there while `where = "draft"` on the same gallery stays the load error §5b wants. `match` now means one thing in the whole config: a rule's glob over files.
-
-Still open: URL-parity for restructured trees (q28).
+Curated indexes are content, not views — a content-first system keeps "a human chose this list" distinct from "a query derived it". A rule's `match` compiles to `glob(path, …)` conjoined with `where`: one meaning, not two keys. `glob(field, pattern) -> bool` is a registered §5f filter function, which is what lets `path` type-check in an object view's `where` too.
 
 ## 5a. Presentation, from first principles
 
 > Superseded in the build by §5e, which carries the model as shipped. What stays here is the layer cut §5e rests on.
 
-Four layers, each changing for its own reason and at its own rate:
+Four layers, each changing for its own reason: **schema** (what fields a row *has*, typed) / **rendering** (body markdown → semantic HTML fragment) / **physical layout** (arranging rows + fields into `main`) / **visual theme** (the shell around `main` — chrome, `<head>`, CSS).
 
-| Layer | Owns | Changes when |
-|---|---|---|
-| **Schema** | what fields a row *has*, typed | the content model changes |
-| **Rendering** | body markdown → semantic HTML fragment | an author writes |
-| **Physical layout** | arranging rows + fields into `main` | the information architecture changes |
-| **Visual theme** | the shell around `main` — chrome, `<head>`, CSS | the design changes |
+Per-collection fields fall into three kinds, and the distinction *is* the layer boundary: **content field** (read by layout — `title`, `date`, `tags`), **render directive** (read by the renderer — `toc: true`, `style:`), **layout hint** (read by the layout — `wide`).
 
-### Layout kinds: there are three
+A class is a **contract**, never a CSS implementation detail: `{% image right %}` emits `class="image image--right"`; the theme decides what that means.
 
-Not "what this site has" — what a site of this shape *needs*:
-
-| Kind | Input | What it was in Jekyll |
-|---|---|---|
-| **document** | one row, full content + relations | `post.html`, `page.html` |
-| **listing** | N rows, summarised | `tag_index`, `monthly_archive`, `blog/index` |
-| **feed** | N rows, serialised | `atom.xml`, `sitemap.xml` |
-| **raw** | one row, content *is* `main` | the 6 pages using `layout: default` |
-
-**Layout kind follows from what a row *is***: a post or page → `document`; a view with `group_by`/`paginate` → `listing`; a feed/sitemap view → `feed`; a row that opts out → `raw`.
-
-### `<head>` is computed, then selected
-
-The schema yields typed **head facts** — `title`, `description`, `canonical`, `robots`, `og`, `jsonld` — and each tier renders the subset it wants. A row with a `date` yields `og:type=article` + `BlogPosting`; one without yields `website`. That's a *fact about the row*, not a branch in a template, and it deletes all five of the old shell's if-chains.
-
-### Theme is per row; layout kind is inferred
-
-**Theme is chosen per row** (unusual, but it is what this site does): `theme:` in front matter or a rule default (§5b), rather than a site-wide setting. Per-row is the *mechanism*; it was never the whole answer. `[site] theme = "name[:tokens]"` is the bottom of the same cascade — front matter → nearest marker (§4b) → rule default → site → the `default` directory → the base theme — so it adds a rung rather than a mechanism. A site-wide dark mode is one config line; a row that names its own theme states its own tokens. (The residue of that word on both rows and views is q33.)
-
-**A view may name one too** *(built 2026-07-25)*. A route over a query had no way to say what it wore: an unclaimed listing took the theme its members *agreed* on (`unanimous_theme`), a claimed landing took its claimed row's, and both make the look a property of the CONTENT. The consequence is only visible when you want one query under two looks — the only way to get it was two copies of the rows, which is exactly what `theme-preview/` was doing with six.
-
-`[routes.x] theme = "ledger:dark"` makes it a property of the route, and the cascade gains a rung at the top of the view side: **view → member unanimity (listings) or the claimed row (landings) → `[site] theme`**. The view wins because unanimity is an *inference* and a declaration is not. Tokens ride along exactly as a row's do, and an unknown name is a load error listing the knowns — checked against the theme registry, which is the only thing that knows what exists, and the same reason `[site] theme` is checked there.
-
-What it does **not** solve is the reason the six copies exist: a post at `/vanilla/notes/one/` and the same post at `/ledger/notes/one/` are one row at two URLs, and a row has one route. That is the axis (q53), and this is the half of it that does not need one.
-
-### Schema drives rendering, not just display
-
-Per-collection fields fall into three kinds, and the distinction *is* the layer boundary:
-
-| Kind | Read by | Example |
-|---|---|---|
-| **content field** | layout | `title`, `date`, `tags` |
-| **render directive** | the renderer | `toc: true`, `style:` (§6c) |
-| **layout hint** | the layout | `wide` |
-
-One declaration then drives filters, `<head>` generation, layout requirements and validation — so "layout `document` requires `date`, but collection `pages` has no `date` field" becomes a load-time error like every other constraint (§4). §5b's `.schema.toml` is where that declaration ended up living.
-
-### The renderer emits hooks, and that is not a layering violation
-
-`{% image right foo.png %}` is the author saying "this floats right". The renderer emits `class="image image--right"`; the theme decides what that means. The rule is that a class is a **contract**, never a CSS implementation detail.
-
-### What this cost: chrome parity
-
-Redesigning layouts changes the chrome HTML, so `diff` cannot verify it. That was affordable and the budget was spent once, on §5e: **bodies verified by machine** (327/327 post content regions byte-identical across the cut), **chrome verified by eye**.
+Verification split along the same cut: bodies verified by machine, chrome verified by eye.
 
 ## 5b. Tree overlays: styles, slots and schema declared by position
 
@@ -1601,36 +1430,11 @@ Two deliberate refusals, both the same line drawn in §6d against exposing block
 
 ### One materializer: grouping and pagination over every base *(built 2026-07-25)*
 
-Grouping was one operation over *some* bases. `build_object_view` was a second materializer, and it refused `group_by` and `paginate` with a message that admitted the shape of the problem — *"not supported yet"*. It differed from the row path in exactly three things, and every one is a **parameter**, not control flow:
-
-| | row bases | objects |
-|---|---|---|
-| expression vocabulary | `row_filter_schema()` — built-ins plus declared fields | `object_schema()` — narrow, no front matter |
-| membership | `base_filter(kind)`: OR over every collection of that kind | `collection == <this one>` |
-| eligibility | `rendered && !claimed && locale` | none — an object is bytes |
-
-So they became one `build_view` taking a `Base { schema, membership, parsed }`, and grouping, pagination, subdivision and routeless embedding stopped being row privileges. *All the jpegs at one route, the pngs at another* is now `group_by = "ext"`, because `ext` was always a column of the narrow vocabulary.
-
-**The tell that this was a merge and not a feature**: `check_group_chain` already carried a `Kind::Objects` arm validating group specs against `object_schema()`, reachable only from a branch the dispatch never sent objects to. Grouping validation for objects had been written and could not run. It runs now, and the narrow vocabulary it guards is preserved — `where = "draft"` on a gallery is still a load error naming the object columns, which is the strictness §3 chose on purpose.
-
-**And `paginate` under `group_by` was silently ignored.** The grouped branch returned before the paginated one was read, so a grouped view that asked to paginate got one route per group and no complaint. A grouped view now paginates **inside each partition**: the partition says which rows, pagination says how many to a page. This is not q30 — that is pagination × *subdivision*, where a pageable parent and its subdivided children share a URL namespace, and `config.query` still refuses to compose over a paginated route, so a grouped-and-paginated view stays a leaf.
-
-Two defects surfaced downstream, both visible only to a route that is grouped *and* paginated, and both fixed by deleting a re-render. `pagination_parts` honoured q32 ("page URLs come from the owning view, not a literal copy in the producer") by re-rendering the view's route templates with `{n}` — which cannot fill `{key}`, and whose page count was taken over *every* page of the view rather than the group's, so a three-page partition would have offered three pages to every group beside it. It reads the view's already-materialized sibling pages instead: same rule, one fewer way to be wrong, and a materialized URL already wears its group key, its record slug (`{key}` is slugged in the URL and not in the params, so the two could disagree) and its locale prefix.
-
-One new load error, because the silence it replaces had two shapes: a paginated view declaring a single `path` used to either collide page 2 onto page 1's URL or — with `path` rather than `paths` — emit **no routes at all**, a view that asked to paginate and produced nothing.
-
-Measured: grack.com, field-notes, minimal, raw and theme-preview all render **byte-identical** across the change, the feed's wall-clock `<updated>` excepted. Two fixtures hold the new capability (`object-grouping`, `paginate-one-path`), each mutation-checked when written — per-group pagination fails when the group comparison is dropped, and the page-2 route disappears when `paginate` is un-read.
+One `build_view` takes a `Base { schema, membership, parsed }` and serves rows and objects alike: grouping, pagination, subdivision and routeless embedding are uniform parameters, not per-kind control flow. A grouped view paginates **inside each partition** — the partition says which rows, pagination says how many to a page.
 
 ### `from` scopes to what it names, and unions are written out *(built 2026-07-25)*
 
-The other half of the merge above, and a behaviour change rather than a deletion. The two materializers had disagreed about what `from = "<a collection>"` meant:
-
-| base | ranged over |
-|---|---|
-| an objects collection | **that** collection |
-| a posts or tree collection | **every** collection of that kind |
-
-So `from = "notes"` meant the whole posts table, and §4's "several collections, one table" — `_posts` and `_drafts` as two sources of one corpus — was a thing the *engine* kept and the config could not say. Now `from` scopes to the collections it names, for every base, and the union is spelled:
+`from` scopes to the collections it names, for every base — an objects `from` means just that one collection, a posts or tree `from` no longer silently means every collection of that kind. A union of sources is spelled out loud:
 
 ```toml
 [sets.published]
@@ -1638,13 +1442,7 @@ from  = ["posts", "drafts"]     # two sources, one corpus, said out loud
 where = "!draft && !hidden"
 ```
 
-Membership stops being a per-kind rule and becomes one clause — *the row's collection is one of these* — which is what collapses the last of the objects/rows asymmetry: what remains is the vocabulary and whether the rows are parsed.
-
-A union may name only **collections**, and they must **share a kind**. Unioning two sets is a general query operation this does not attempt (the error says to compose over the set with a `where` instead), and unioning across kinds would ask one `where` to type-check against two vocabularies and one materializer to decide whether the rows are parsed. Both are load errors naming the members.
-
-**What caught the change is worth recording, because it is the failure this spelling exists to prevent.** The `crumb-trails` fixture has two posts collections and a `published` set that named one of them; under scoping its `_drafts` rows silently left every listing. On grack.com the same defect was invisible in the default projection — the `!draft` predicate already excluded those rows — and appeared only under `--profile drafts`, which relaxes the predicate to surface them: 561 pages became 560 and every paginated listing shifted. A URL-set check could not see it, because a draft is routed either way; only a full render under the second profile could. **Parity has two profiles on this site, and one of them is the only place the interesting rows exist.**
-
-`theme-preview` was the beneficiary. Its six per-theme sets each restated `collection == "…"` beside their own `from`, which §4d had read as redundancy and was not — the restatement was the only thing scoping a set to its own theme. They are now one union naming the corpus and six two-line sets narrowing it by a path glob, which conjoins along `from`: one declaration of the predicate, the sort and the summary truncation where there were six. (The glob was the `match` key then and is a `glob(path, …)` clause of `where` now — same conjunction, one key fewer; MERGE.md G2.)
+A union may name only **collections**, and they must **share a kind** — unioning two sets, or unioning across kinds, is a load error naming the members.
 
 ### Subdivision: `from` a grouped route refines its partition *(built 2026-07)*
 
@@ -1986,10 +1784,13 @@ shell. Views declare `shell = "atom" | "sitemap" | "search"` (built —
 this retired q33's template-filename match), and the HTML shell got the
 treatment the idea deserved:
 
-*(**One axis, singular** — IO.md I2, 2026-07-27. Rows and views share this
-one, split by arity into map and fold families rather than by who declares
-them; the row-side vocabulary is `raw`/`html`/`light_html`. See "One axis,
-two families" at the end of this section for the merge and what it bought.)*
+*(**One axis, singular**, 2026-07-27. Rows and views share one
+shell axis, split by arity rather than by who declares them: a **map** shell
+(`raw`/`html`/`light_html`) consumes one output and emits one file per
+output; a **fold** shell (`atom`/`sitemap`/`search`, script shells) consumes
+a collection of outputs and emits one artifact. The arity is a checked
+contract in both directions — a row taking a fold shell, or a view taking a
+map shell, is a load error naming the mismatch.)*
 
 ### The root HTML shell: themes inherit, never write, the skeleton
 
@@ -2026,9 +1827,14 @@ where = 'front_mattered && !draft && !hidden'
 
 The rows that pass the route-schema filter are the searchable set,
 serialized as the postcard index. Posts contribute date and tags; pages
-contribute their rendered body. Other route kinds are silently unsearchable. The example searches notes AND recipes/books/manual (18 docs, 5 KB); the main site declares `kind == "post"` and its index is **byte-identical** through the view path. The js/wasm consumers are emitted only when a search view exists; a site without one ships zero search bytes.
+contribute their rendered body; byte copies and folds are silently
+unsearchable. grack.com's own filter is scope membership —
+`(collection == "posts" || collection == "drafts") && !draft && !hidden` —
+because its searchable set is the blog corpus, not everything with
+identity. The js/wasm consumers are emitted only when a search view
+exists; a site without one ships zero search bytes.
 
-*(IO.md I1, 2026-07-27.)* That `where` read `(kind == "post" || kind == "page")` until the fact it meant had a name. Two table tags OR'd together were one question — "is this a document" — asked in the vocabulary of the tables the question outlived; the example sites and `theme-preview` say `front_mattered` now, and their indexes are byte-identical. **grack.com's did not move**: on that site the clause means "the blog corpus", which is scope membership rather than identity, and the output side has no column for scope until the join lands (IO.md I9).
+grack.com's search route filters `(collection == "posts" || collection == "drafts") && !draft && !hidden` — scope membership on the output pool, not document identity (§5's front-mattered passage explains the distinction).
 
 ### Script shells: the experimental bench *(Matt, 2026-07 — yes, the pun; built)*
 
@@ -2070,7 +1876,7 @@ listing).
 
 A row declares `shell:` and picks its own wrapper: **`raw`** (body IS output — no skeleton, no theme), **`light_html`** (engine skeleton, canonical parts, no theme chrome) or **`html`** (the theme). Closed vocabulary, checked at load.
 
-**The spellings changed with the axis**, and the old ones are hard cutoffs: `none` → **`raw`**, `light` → **`light_html`**. They were never a vocabulary of their own — see "One axis, two families" below — and they are the *map* family of the one shell axis, which is why they now read like the other members of it. The corpus migrated in the same commit (`demos/pane.html`; grack.com's `demos/mindstorms/index.html`, which reached the light tier through the legacy `layout: light` and now says `shell: light_html`).
+**The spellings changed with the axis**, and the old ones are hard cutoffs: `none` → **`raw`**, `light` → **`light_html`**. They were never a vocabulary of their own — they are the *map* family of the one shell axis (§5g's opener), which is why they now read like the other members of it. The corpus migrated in the same commit (`demos/pane.html`; grack.com's `demos/mindstorms/index.html`, which reached the light tier through the legacy `layout: light` and now says `shell: light_html`).
 
 `raw` adds a capability: an imported artifact can now carry front matter *and* emit itself verbatim. Before, front matter nested the whole document inside a second `<html>`. The example's `demos/pane.html` is the occupant — 521 bytes of its own document with a `title` the database sees. Pair with `hidden: true` to keep it linkable but out of the sitemap.
 
@@ -2106,69 +1912,11 @@ its bytes. Nothing about the pipeline moved — the two were already one arm of
 
 **One correction:** `light_html` is not "the null theme" — it bypasses the theme registry; there is no `themes/light/` directory. (This is why the rename is `light_html` rather than `light`: the name now says what it *is*, the html shell with no theme root merged, instead of naming a rung.)
 
-### Why exactly these tiers *(2026-07-19)*
-
-**Two bits, and one incoherent corner.** The real choice is two independent
-questions — does the row have **database identity** (front matter present — a
-block, or since IO.md I8 a sidecar — so: schema, content rules, link graph),
-and does the **engine construct its document** (`shell`). That 2×2 has only three corners: no-identity ×
-engine-builds is *incoherent*, because building a document means computing a
-`<head>`, a head is computed from schema, and schema is what identity *means*.
-There would be nothing to wrap. It is also mechanically unreachable. So the
-2×2 collapses to a three-state chain, and the chain is a **result rather than a
-modelling choice**: identity is a *precondition* for the other bit.
-
-*(The incoherent-corner argument above is **history as of 2026-07-27**, and IO.md records the amendment: Matt softened identity from a precondition to a preference. An identity-less file a rule sends through a rendering shell becomes a **degenerate row** — a warning and a slug-implied title, not an error — which **landed at IO.md I7c**, as the law in §4's "The gate is a fact". Arity stayed hard; identity did not. The 2×2's fourth corner is reachable after all, and what makes it coherent is that a title can be implied where a `<head>` cannot be invented — and "mechanically unreachable" was the claim that aged worst: the corner was one rule default away the whole time. **IO.md I8 then split the first bit itself**: identity is a block *or* a sidecar, and only the block says anything about the file's bytes — so the identity × engine-does-not-build corner gained its most useful occupant, a governed image, and the engine-builds side gained a refusal, because a picture with a document shell is the description page IO.md §4a defers.)*
+### Why exactly these tiers
 
 **The guarantee ladder**: each tier is what the engine *promises* about bytes — **object** (nothing, yours); **`raw`** (content rules ran, validity is your promise); **`light_html`** (valid document, minimal facts); **`html`** (valid document, full computed head, theme). A theme cannot lower a guarantee it did not make.
 
-**The escape hatch, and its tripwire.** q16 established the discipline: an
-escape hatch per layer, with a tripwire on how often it is taken. grackle has
-one per layer — raw HTML through markdown, the null theme under the binder,
-`{% %}` widgets under the no-template-language rule, `render.unsafe_` under the
-AST — and **`shell: raw` is the shell layer's**. So: *if a meaningful share of
-rows need `raw` for authored documents, the vocabulary is wrong and the engine
-is failing to build documents people actually want.* Measured 2026-07-19: 1 row
-of the example's 21 and 0 of the main site's 227. Re-read that ratio each time
-an imported artifact lands, not the shell list. (Since IO.md I2 the base's
-catch-all declares `raw` for every byte copy on the site, so a *count* of `raw`
-rows is now dominated by static files and no longer measures the escape hatch —
-the number to re-read is `raw` on rows that carry front matter.)
-
-### One axis, two families *(was "one word, two axes", named 2026-07-19; the wall came down in IO.md I2, 2026-07-27)*
-
-**The finding, as it stood:** `shell` named two unrelated things — row `shell:`
-(`none | light | html`, the wrapper tier) and view `shell =` (`atom | sitemap |
-search` plus `[shells]` script shells, the outermost serialization). The value
-domains were disjoint, neither validator accepted the other's words, and they
-were read in disjoint passes, so no row ever met a view's shell as a shell. It
-was filed as a naming collision that could not drift, costing only the sentence
-a reader spends deciding which is meant.
-
-**The correction:** they were never two axes. A shell is a function from
-content to final bytes, and what separates the two lists is **arity**, not
-subject matter:
-
-| family | consumes | members | emits |
-|---|---|---|---|
-| **map shells** | one output | `raw`, `html`, `light_html` | one file per output |
-| **fold shells** | a collection of outputs | `atom`, `sitemap`, `search`, script shells | one artifact |
-
-So the "tier ladder" was the document-shaped family of the one axis, and the
-wall between the two vocabularies was artificial. One vocabulary now, one
-validator (`shell.rs`), and the arity is a **checked contract in both
-directions**: a row (or a per-member route — one row serialized several ways is
-still one output each) takes a map shell, and `shell: atom` on a row is a load
-error naming what atom eats; a view takes a fold, and `shell = "html"` on a
-view is an *arity* error rather than an unknown word, which is a sentence the
-old pair of checkers could not say. A `[shells.*]` script shell may not take a
-built-in's name — it would be a command nothing could reach.
-
-What the merge bought beyond tidiness: `shell` is one **column**. A row answers
-which wrapper it left through and a view route answers which serialization it
-left through, in the same word, so `shell == "atom"` finds the feed and
-`shell == "html"` finds the documents and the listings together (§4e). That is
-IO.md §3's "facts replace `kind`" arriving one fact at a time.
+**The escape hatch, and its tripwire.** grackle has one per layer — raw HTML through markdown, the null theme under the binder, `{% %}` widgets under the no-template-language rule, `render.unsafe_` under the AST — and **`shell: raw` is the shell layer's**. If a meaningful share of front-mattered rows need `raw` for authored documents, the vocabulary is wrong and the engine is failing to build documents people actually want.
 
 ## 5h. Landings: a view owns the URL, a row may own the words *(q45, Matt's shape; built 2026-07)*
 
@@ -2506,7 +2254,7 @@ Worked examples against the real tree:
 
 ⚠️ **Specced, not built** *(measured 2026-07-21; parked and the key deleted 2026-07-27 — see the banner at the top of this section)*. This describes a design; the code does not implement name bubbling. `thumbs::one` joins the filename to the site root; a bare name resolves to `root/burrs.jpg`, misses, and fails with `{% image %} source not found`. `[[collections]] bucket` is gone (MERGE.md F1): it was parsed and read by nothing but D1's load-time warning saying so, and the warning went with it — `deny_unknown_fields` names the offending line instead, which is the better error. `by_name` is **kept**: it is built every load and read by `query stats`, which is where the collision measurements above come from. All 194 corpus invocations pass a path, so the unbuilt branch has never been reached.
 
-An earlier version of this section claimed "bare names work for posts today, with no restructuring and no bucket configuration at all". They do not. This is the same class of drift as §9b Round 3's *declared-and-ignored* `layout` names — a third instance found in one week, after `grackle diff`'s URL-parity claim and the heading anchors story. The tour's own worked example was aspirational for the same reason, and F1 corrected it: §0 step 1 now writes the path form.
+An earlier version of this section claimed "bare names work for posts today, with no restructuring and no bucket configuration at all". They do not — the same class of drift as a declared-and-ignored config key: stated intent read back as fact. The tour's own worked example was aspirational for the same reason, and F1 corrected it: §0 step 1 now writes the path form.
 
 ### `{% image %}` vs `<img>`/`<iframe>` (and `<style>`)
 
@@ -2620,13 +2368,13 @@ Derived assets are exempt from URL parity (q12), and the `/static/{hash}` scheme
 
 **Built**, with implementation details (stale-while-revalidate, vector hashing, L2-normalization, brute-force ranking) proven in the serve log.
 
-Vectors cached content-addressed (`_cache/embeddings/{hash}.vec`, 1.5 KB each), model beside them (`_cache/models/`, downloaded once). A post never matches itself — its own vector is the perfect cosine, pinned by a test rather than left incidental. Measured: warm build 1.5s total.
+Vectors cached content-addressed (`_cache/embeddings/{hash}.vec`, 1.5 KB each), model beside them (`_cache/models/`, downloaded once). A post never matches itself — its own vector is the perfect cosine, pinned by a test rather than left incidental.
 
 **"Related" is RELATIONS, not a list.** A post relates to others along multiple axes — embedding similarity, earlier, later — and pivots along each. The part model carries `relations: Stream("relation")`, each relation = `{axis, label, items: Stream("neighbor")}`. The axis rides into markup as `data-axis` for per-axis styling; an axis with nothing to say contributes no group. *(Since the q53 split these groups are RELATIONS, declared per collection — §6g, where `data-axis` is renamed `data-relation`.)*
 
-This retired **Jekyll's LSI**: a dominant chunk of the 90-second build, recomputed from scratch every time with no content-addressed cache. LSI's related-posts were mediocre and `diff` cannot judge relatedness, so embeddings are deliberately *better* than equivalent, at no parity cost.
+This retired **Jekyll's LSI**: a dominant chunk of the build, recomputed from scratch every time with no content-addressed cache. LSI's related-posts were mediocre and `diff` cannot judge relatedness, so embeddings are deliberately *better* than equivalent, at no parity cost.
 
-⚠️ **The embedded body is RAW MARKDOWN, so link syntax is semantic signal.** Rewriting 56 links to file-relative form changed no rendered href at all, but reshuffled `Related` on **37 of 327 posts**, because `{{ site.baseurl }}{% post_url … %}` and `../2010/….md` are different text. Related-posts are a function of markdown *syntax*, not of prose. Until the fix (embed rendered plain text) lands, do not read "Related changed" as evidence that a refactor changed meaning.
+**The embedded body is RAW MARKDOWN, so link syntax is semantic signal**, not prose — a link-spelling change can reshuffle `Related` with no rendered-href change at all. Until the fix (embed rendered plain text) lands, do not read "Related changed" as evidence that a refactor changed meaning; the title/tags-in-embedding caveat is tracked in `TODO-1.0.md`'s known gaps.
 
 ### TF-IDF search index — the searcher is the same code, compiled to wasm *(built 2026-07)*
 
@@ -2681,10 +2429,6 @@ Two wrong altitudes were corrected: the cut rule started as engine code — poli
 **Stage B, partly built (2026-07-21).** The **rewrite stage exists, narrowly** (`rewrite.rs`, lol_html): `a[href]` resolution for rows whose source *is* HTML — `.html` page bodies, `.html` slot fills, raw-HTML landings — the one job the AST pass cannot do. It is deliberately not the rule table below: q26's dimensions became the fourth at expansion time, and neither site wants an authored rule, so the selector language waits for its second consumer. Still deferred: the **notes stream**, which needs its consumer — sidenotes want a third grid column (q18).
 
 One asymmetry the narrow stage carries: a raw-HTML body has `{% view %}` expanded INTO it, so the rewriter meets engine-derived URLs beside authored ones and cannot tell them apart. A URL already naming a materialized route is left alone rather than answered with strict's "link the source instead"; a page with no embed gets strict whole.
-
-### Blocks, and the 93% that justified them
-
-The justification is measured: the site used to truncate summaries in CSS, so `/blog/` shipped complete post bodies and hid most with `display:none` — **93% of the page (131,071 of 140,884 bytes)**. With blocks the summary never emits blocks 3..n. **Result: `/blog/` 160 KB → 15.7 KB, `/blog/tags/rust/` 180 KB → 11.3 KB (93.8% smaller)**, and CSS truncation rules are deleted.
 
 ### Blocks
 
@@ -3029,23 +2773,10 @@ Each declared relation with a nonempty list emits one `relation` group — `{rel
 Both `build` and `serve` use one render path: `build::render_site` produces `URL → bytes` in memory.
 
 - **`grackle build`** — AOT materialization: render the map, write to disk.
-- **`grackle serve`** — 🟡 **built (v1).** Resident render map via raw `hyper`. A `notify` watcher rebuilds on content change (~0.3s) and bumps version; injected script polls and reloads. Snapshot lives in `keepcalm` RCU cell: reads are lock-free, writer swaps whole snapshot with no blocking (verified: 20 concurrent reads through rebuild, all 200). **v1 re-renders everything** (still sub-second) and polls rather than streaming — the fanout consumer is `TODO-1.0.md`.
-
-  **What IO.md I10 changed here is the story, not the code.** IO.md §1 says
-  build is "pull every output" and serve is "pull *this* one", and since I10
-  the pull is a real function over a real graph (§5j): `Graph::pull(output)`
-  hands back the ordered work, and it is tested standalone. What serve does
-  with it is nothing, deliberately — the entry point has no caller, so the
-  documented next step is precise rather than aspirational: **walk backwards
-  from the changed input** (`Graph::fanout`) instead of re-rendering the map,
-  and **materialize on request** (`Graph::pull`) instead of at startup, at
-  which point on-demand rendering stops being a mode and becomes an output
-  whose content stage nobody forced yet. Rewriting serve's architecture was
-  explicitly out of I10's scope; what it owed was the graph the rewrite will
-  stand on, and a serve section that says which half is which.
+- **`grackle serve`** — 🟡 **built (v1).** Resident render map via raw `hyper`. A `notify` watcher rebuilds on content change and bumps version; injected script polls and reloads. Snapshot lives in a `keepcalm` RCU cell: reads are lock-free, writer swaps the whole snapshot with no blocking. **v1 re-renders everything** and polls rather than streaming; walking backwards from a changed input (`Graph::fanout`, §5j) instead of re-rendering the map, and materializing on request (`Graph::pull`) instead of at startup, is the pending consumer in `TODO-1.0.md`.
 - **`grackle query`** — REPL/CLI over live DB (`urls`, `posts where tag=rust limit 5`, `explain <url>`, `pull <url>` — §5j's edge list and work order). Doubles as migration validator.
 - **`grackle urls --against _site-prod`** — URL-set parity. A **missing** URL exits non-zero; an **extra** is reported only. Derived assets exempt per q12.
-- **`grackle diff` (retired 2026-08-03)** — a body-only comrak-vs-kramdown oracle from the Jekyll era. It anchored on `<article class="post">` markup the site stopped emitting when it adopted the `data-slot`/`data-kind` vocabulary, so it silently extracted empty reference bodies and reported 100% differ. Jekyll is gone and `_site-prod` is now a grackle-shaped published tree rsynced from the server, so the meaningful oracle is **whole-page byte parity** (`diff -rq _site _site-prod`, what `publish.sh` leans on) — not a body-only re-render. §8a's lesson stands; the instrument that taught it does not.
+- **`grackle diff`** — retired 2026-08-03. `grackle urls` gates the URL set, and whole-page byte parity (`diff -rq _site _site-prod`) replaced it as the meaningful oracle once `_site-prod` became a grackle-shaped published tree rather than a Jekyll reference build.
 
 ## 7a. The example site: the falsifier for site-independence *(started 2026-07)*
 
@@ -3062,11 +2793,7 @@ Two rules keep it honest:
 
 ## 7b. The backtest: 36 real sites against the model *(surveyed 2026-07)*
 
-35/36 sites fetched. Every blog-shaped site backtests cleanly; collections + routes + views + part maps cover them without strain. Two reported misses were false — they reflect under-communication in the model card, not gaps in the model.
-
-### The headline: the core model holds
-
-Blog sites demonstrably fit the model; feature parity is established.
+35/36 sites backtest cleanly against the model — collections + routes + views + part maps cover them without strain, and the paywall/comments/ratings cluster is a confirmed non-goal (entitlements are an edge/CDN concern; user-generated content is an external embed).
 
 ### The gap clusters, and the questions they opened
 
@@ -3079,10 +2806,6 @@ Blog sites demonstrably fit the model; feature parity is established.
 | **Client-side faceted filtering** | recipe sites, digital gardens (diet × cuisine × season) | q42 |
 | **Media beyond image** | sive.rs interviews, podcast sites, fasterthanli.me, macwright's CDN | q43 |
 | **Per-row scoped assets** | ciechanowski's per-article JS/CSS pairs | §5b |
-
-### The confirmed non-goal, sized
-
-**Memberships, paywalls, comments, ratings** — the dynamic-server non-goal (ch. 33) — is the single biggest cluster, measured: most *monetized* sites add these atop the static core. The design keeps the line: entitlements are edge/CDN concern; user-generated content is external embed.
 
 ## 7c. The inspector: the database explaining itself *(built 2026-07-19)*
 
@@ -3101,11 +2824,9 @@ The gutter draws current selection's correspondence with up/down arrows for scro
 
 ## 7d. Fixture tests: a directory in, a directory out *(built 2026-07-25)*
 
-🟡 **built 2026-07-25.** An audit found ~17 tests hand-building what the loader produces. A test testing a *site* belongs in a fixture; a test testing a *function* does not.
+A test testing a *site* belongs in a fixture; a test testing a *function* does not.
 
 `crates/core/tests/fixtures/<name>/` is `site/` (real `grackle.toml` + content) and either `out/` (expected tree, in git) or `expected-error` (substring on load failure). One `#[test]` walks all and collects every problem before panicking. `UPDATE_EXPECT=1` re-blesses.
-
-**One finding:** a fixture's `crumb-trails` revealed a real route behaviour — a post from a collection declaring NO `trail` still gets a year crumb, because every `kind = "posts"` collection feeds one table and the archive claims it.
 
 ## 8. Known-inexact from day one (accepted, iterate later)
 
@@ -3122,73 +2843,19 @@ comrak injects `<a class="anchor">` inside every heading. **226 of them across 4
 
 ## 8a. The markdown gap, and what measuring it taught
 
-The kramdown→comrak gap is a **90.0% usable** (92.2% if smartypants matched) ceiling, **parser-side**.
+The kramdown→comrak gap is a **~90% usable** ceiling over 230 posts, **parser-side** — every residual diff is parse-stage (quoting, list wrapping, raw-HTML auto-close), with zero heading, footnote, or image diffs.
 
-Posts both liquid-free and untouched since reference build: 20 identical, 187 equivalent, 23 differ. Residue: `10 inline/prose · 5 list · 4 link · 3 table · 1 code block`. Every one is **parse-stage**:
+Three measurement rules earned here: a reference build is an input, and inputs have versions — rebuild from *current* config before quoting any number derived from it. Agreement is not evidence unless it can disagree. Read deltas, not tallies.
 
-- `Windows '95` vs `'95` — kramdown rendering decade abbreviation with opening quote, comrak with apostrophe (comrak typographically right).
-- `<li>text</li>` vs `<li><p>text</p></li>` — kramdown per-item, CommonMark per-list.
-- Raw HTML in prose: `<solution>` auto-closed by kramdown, left open by comrak.
+Two SCSS quirks worth keeping: `grass` rejects nested `@import` that libsass accepts — resolved by expanding `@import` textually before handing grass the flattened source; `grass` and `sassc` agree in practice.
 
-Zero heading, zero footnote, zero image diffs. The 90/92% ceiling is **parser ceiling**; if chased, fork comrak's parser, not formatter.
-
-### The reference build lied by 17 points
-
-The original headline was **90.7%** against `_site-prod` built before Rouge was enabled. The reference emitted bare `<pre><code>` — exactly what comrak emitted. Rebuilt against *current* config, "usable" fell to **72.6%** with rouge on. Our output never changed; only the yardstick did.
-
-### Three measurement rules
-
-1. **A reference build is an input, and inputs have versions.** Rebuild from *current* config before quoting any number derived from it.
-2. **Agreement is not evidence unless it can disagree.** A test that cannot fail is not measuring.
-3. **Read deltas, not tallies.** `classify_cause` is a heuristic and over-attributes.
-
-### Retiring the body oracle
-
-The body diff is **no longer a cutover gate** (2026-07-21, Matt's call). `grackle urls` gates the URL set; everything else is verified by eye.
-
-The reference is a wasting asset (48 of 327 posts edited for migration work), the harness hides real differences (diff::normalize strips comrak anchors structurally, so 90% is computed with the difference removed), and the remaining gap is parser ceiling (~92%) already decided against (§9a).
-
-What survives: `diff` as an *investigative* tool. What ends: treating its matrix as the gate.
-
-### The 97-post blind spot *(open — q21)*
-
-Related and still true: **`_site-prod` can no longer be regenerated** (§5c) — `{% view %}` is not Liquid, so Jekyll fails the whole build and refreshing the reference needs `git stash push index.html` first (q22). Losing the ability to refresh the reference is exactly the capability that caught the 17-point lie.
-
-### Two SCSS findings worth keeping
-
-- **`grass` rejects nested `@import` that libsass accepts.** `_sass/_post.scss` has `pre > code { @import "rouge"; }`; grass errors. Fixed by resolving `@import` textually before handing grass flattened source.
-- **grass and sassc agree**: 2232 selectors vs live build's 2231 — one formatting difference, not semantic.
+**Still open:** the 97-post blind spot (q21), and `_site-prod` can no longer be regenerated (q22) — `{% view %}` is not Liquid, so Jekyll fails the whole build. That loss of a refreshable reference is the live methodological risk.
 
 ## 9. Crate layout *(as built; the original sketch is in git history)*
 
 A cargo workspace of six members under `crates/`. The split is one dependency direction; **`grackle-db` depends on nothing in the workspace.**
 
 `model -> db`. `source -> model, db`. `grackle -> all`. Nothing points back.
-
-### Module map *(2026-07-29)*
-
-The crate DAG held; gravity wells inside `source` and the engine were split along
-the pipeline stages §0 names. The engine package is now `grackle-core`
-(`crates/core`); the `grackle` binary lives in `crates/cli` and calls into it.
-Body markup has a thin seam at `markup::scan` (tag/var walk + widgets) with
-engine handlers remaining in `tags`.
-
-```
-file → row → query → doc → parts → slots → CSS → URL
-```
-
-| Crate | Modules (functional) |
-|---|---|
-| **grackle-db** | Generic storage: `filter`, `table`, `key`, `view` |
-| **grackle-model** | Domain `Row` / `Route` / `SiteDb`, `graph`, `rendition` |
-| **grackle-source** | `config/{types,merge,validate,effective}` · `load/{walk,join}` · `store` · `views` · `schema` · … |
-| **grackle-core** | `pipeline/*` · `passes/*` · `assemble/*` · `markup/{scan}` · `links` · … |
-| **grackle** (cli) | Binary only — clap + calls into `grackle-core` |
-| **search-core / search-wasm** | TF-IDF index (unchanged side strip) |
-
-`render_site` in `pipeline/mod.rs` is thin glue: prepass → bodies → emit → search/css → citations. Listing helpers live in `passes/preview` so passes do not reach upward into the pipeline.
-
-In the engine crate, `crate::model` is `grackle-model` (historically aliased `db`). `crate::filter` is `grackle-db`'s filter language. Do not confuse them.
 
 ### Layered vocabulary
 
@@ -3226,105 +2893,17 @@ The bar for a new dependency: taken for a measured reason, and recorded here onl
 
 Everything we want is reachable without owning comrak's renderer: mutate the AST per node type, use escape hatches for the parts we control. The tripwire: if the escape-hatch list ever exceeds ~⅓ of node types, we have written the renderer accidentally and badly, and should write it deliberately.
 
-### Neither code-block adapter fits (measured)
-
-The obvious adapters don't fire where they matter: `CodefenceRendererAdapter` only fires with non-empty info strings (corpus is indented, not fenced); `SyntaxHighlighterAdapter` fires but comrak hardcodes the closing tags.
-
 ### What §6d's blocks change here
 
 `lol_html` shrinks: img/iframe, `<style>`, and code shape happen at the node before HTML exists — no re-parse, no selector matching. `lol_html` drops back to user-authored `.rewrite.toml` rules over rendered output.
 
 ## 9b. Seams audit: is responsibility still split right?
 
-Taken after refactoring, with the whole codebase freshly re-read. Verdict: **the load-bearing boundaries hold, and the leaks that exist are all one disease.**
+Verdict, taken after refactoring with the whole codebase freshly re-read: **the load-bearing boundaries hold, and the leaks that exist are all one disease.** The predictor: **everything declared is load-checked** (filters, fragments, fields, widgets, slots), so a responsibility placed in config stays there.
 
-### What holds
+The one recurring disease is §5c's: *the config declared what the renderer ignored*. One instance remains — **three definitions of "not content"** (q34), now two: `slots.rs` and `serve.rs` still carry private skip lists that can drift from `exclude`, while the tree/declaration/marker walks share one compiled `store::NotContent`.
 
-The pipeline's layer per module is real: config declares, the model DB resolves and constrains, `views` materializes, `parts` produce, binder + theme arrange, CSS does geometry, `pipeline` orchestrates, `serve` hosts. Recent features entered without bending anything — relations arrived as one more producer push, and summaries arrived as a config field.
-
-The predictor of this health: **everything declared is load-checked** (filters, fragments, fields, widgets, slots), so a responsibility placed in config stays there.
-
-### The one recurring disease
-
-§5c named it: *the config declared what the renderer ignored*. Three more pockets have closed — producers hardcoding routes config owns, the feed pass selecting its view by string match, and the sitemap predicate evaluated three times. One remains:
-
-- **Three definitions of "not content"** (→ q34), now two. §4c's three layers are one compiled value (`store::NotContent`, MERGE.md R1/R2) that the tree walk, the `.schema.toml`/`.section` walk and the marker walk all read, so the vocabulary leak that gave a host site an embedded site's field declarations is closed. `slots.rs` and `serve.rs` still carry private skip lists that can silently drift from `exclude`, and adopting the shared value costs `slots.rs` an isolation it currently gets for free (MERGE.md A6) — so the remainder is a decision, not a port.
-
-### Accepted asymmetries, named so they don't read as leaks
-
-- The CLI's `query search` indexes raw markdown where build indexes rendered HTML (documented at `search_docs`).
-- `render.rs` has become "head facts + escaping + XML serializations"; if stage B touches the feed, the serializations can move out.
-- `post_trail` is still single-posts-table; a second posts collection remains future work.
-- `default` survives as the conventional theme name, and search assets live in the default theme.
-
-### Round 2 *(2026-07-18, after landings, records, links and i18n)*
-
-Boundaries held under load; example config shrank while gaining features. Key finding: the landing pass and bare passes both re-shaped rows separately — unified them via `row_preview`/`object_preview`.
-
-### Round 3 *(2026-07-21, after the crate split)*
-
-The split itself was the audit: boundaries you have to declare to Cargo are ones you cannot half-hold. Lessons: awkward dependencies are mislabelled layers; `pub` in libraries silences dead-code detection; declared-and-ignored keys are invisible until deleted; test fixtures need identity meaning.
-
-### Since, and what is left *(2026-07-21)*
-
-Three merges unified distinctions that were never real: two row flows became one; base table became a filter; last positional assumptions deleted. *(**Loader collection choice** and **objects dispatch** are closed — settled record below. What remains of the endgame is a consumer, not a structure: `serve` walking the fanout, in `TODO-1.0.md`.)*
-
-### Surveys/audits worth re-running
-
-The live list is `TODO-1.0.md` (Surveys and audits). Do not grow a second copy
-here.
-
-### Settled: the single-tree endgame
-
-Recorded rather than quietly deleted, because the entries outlived the work.
-
-- **The objects dispatch** closed in two halves. The VIEW half went when
-  `build_object_view` became three parameters on one materializer (§5c's *One
-  materializer*): `group_by` and `paginate` work over objects and the
-  `object-grouping` fixture proves it. The LOAD half went at **IO.md I7e**: the
-  object row constructor is the row constructor, and `object_ix` keys off the
-  extension fact (§3). What remains is not a dispatch — it is the two facts an
-  object still differs by, both parameters a caller passes: the narrow
-  `object_schema` vocabulary, and `rendered: false`.
-- **The single tree** (§3's endgame: one table, views as partitions). **The walk
-  half is built** — IO.md I7d: `read_posts` and `store::load_dir` are gone,
-  `store::walk_tree` is the one walk, and membership is first-rule-wins over
-  one ordered sequence of scopes (§3). Both measured obstacles are settled
-  rather than outstanding: the `.`/`_` skip **survives**, and the "six
-  underscore directories need explicit excludes" cost was **amended, not paid**
-  — a declared `source` punches through the skip, so `_posts` and `_drafts`
-  are walked because a scope named them and `_tools`/`_hidden`/`_includes`
-  stay out because nothing did, with no `exclude` line anywhere. *(The third
-  obstacle — `filename_formats` per-collection where it wants to be per-rule —
-  went at IO.md I6; §4's Route tokens: one supplier carries it, and the
-  collection key survives as the default its rules inherit.)* **The table half
-  is built too, as of IO.md I7e**: there is one row constructor — an image
-  takes rule defaults, marker defaults, schema validation and rung 0 like
-  every other row — and the three key lists are keyed off facts rather than
-  off origins (§3's table). **And the JOIN is built, as of IO.md I9** (§5i):
-  `output`/`alternates` on the input side, `viewed_by` and `inputs` on the two
-  sides of membership — so "views as partitions" is a query on the half that
-  may be queried (`output`, `alternates`) and a column on the half that may
-  not (arrangement is what membership produces, so selection may not read it).
-  **And the GRAPH is built, as of IO.md I10** (§5j): the same columns read as
-  nodes and edges, one graph with two edge kinds, cycles refused at load.
-  **And the ADDRESS model is built, as of IO.md I11** (§5k): an output has two
-  slots, a rule decides which one it fills, and the citation's form decides
-  which one it takes — which is the point at which the base stopped minting a
-  URL for every image on every site that inherited it. **And the last table
-  tag is as gone as it can be, as of IO.md I13** (§5b's *The column SURVIVES*):
-  every `kind == View` test in the engine now reads the `view` column, and
-  what is left of the enum is a config-visible column with two live filters on
-  grack.com and one internal dispatch — post-vs-page — that no fact on an
-  output can express. The remaining *consumer* is `serve` walking the fanout
-  (`TODO-1.0.md`).
-
-## 10. Phasing (each phase has a checkable exit)
-
-| Phase | Deliverable | State |
-|---|---|---|
-| **5** | **exactness iteration** | **exit criterion changed, 2026-07-21** (Matt): **URL parity by machine, the rest by eye.** `grackle urls` gates the URL set — protecting 20 years of inbound links — and body diff stops being a gate. |
-| 7 | §6d blocks | 🟡 **stage A** — one parse, summary as a computed field, `data-truncated`. Stage B: notes stream + sidenotes (q18) and the rewrite stage |
+Live surveys and audits belong in `TODO-1.0.md`, not here.
 
 ## 11. Open questions (to iterate on)
 

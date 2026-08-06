@@ -15,9 +15,6 @@
 //!
 //! No corpus site uses a sidecar, so parity is free and every guard here is the
 //! capability's only evidence.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::SiteDb;
 use grackle_db::Value;
@@ -443,18 +440,18 @@ fn editing_a_sidecar_moves_the_rows_version() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **The description page is refused, and no item owns it**.
+/// **The description page is refused, not deferred**.
 ///
 /// An image with a sidecar CAN wear an html output in the model, that is the
 /// object's description page, and it needs an output whose content is not the
 /// row's bytes, which the engine does not have. So the shape is refused where
 /// the author wrote it, for both spellings of identity.
 ///
-/// I8 wrote this as "one line to delete when I11/I12 lands". Both landed and
-/// neither built it (I11 gave an input a second ADDRESS, I12 derived BYTES; a
-/// description page is an output rendered from a row's FIELDS), and I13,
-/// the last item of the ledger, corrected the pointer rather than inheriting
-/// it. The refusal is not an interim.
+/// This was once marked as "one line to delete" once renditions landed.
+/// They landed and neither built it (strong addressing gave an input a
+/// second ADDRESS, the transform derived BYTES; a description page is an
+/// output rendered from a row's FIELDS), and a later pass corrected the
+/// pointer rather than inheriting it. The refusal is not an interim.
 ///
 /// Mutation: delete the check and the load dies on `stream did not contain
 /// valid UTF-8`, the render path reading the PNG as a document body, naming a

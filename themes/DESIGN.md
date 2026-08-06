@@ -1,12 +1,8 @@
 # Themes: distribution, inheritance, and the floor
 
-**Status: the base theme landed 2026-07-24; this file is the plan for making
-themes installable, derivable, and safe to update — plus the `vanilla` theme
-(built, in this directory) that anchors the "every site renders reasonably
-with every theme" guarantee. It is self-contained: everything it assumes from
-`../DESIGN.md` (§5a, §5b, §5e) is restated in §0. Pending *work* lives in
-`../TODO-1.0.md` (theme ladder, chrome parts); this file is the spec those
-checkboxes point at.
+This file is self-contained: everything it assumes from `../DESIGN.md` (§5a,
+§5b, §5e) is restated in §0. Pending work lives in `../TODO-1.0.md` (theme
+ladder, chrome parts); this file is the spec those checkboxes point at.
 
 The pain being designed away: in most SSGs a theme is a submodule, a fork, or
 a hand-copied directory, and the moment you touch one file you can never
@@ -20,17 +16,16 @@ mechanical path back down (`theme derive`, §4).
 - **Themes are partial**: any kind a theme declines to arrange falls through to
   canonical (generic semantic markup: `data-kind`, `data-slot`, flags as
   `data-<fact>` attributes). Already an inheritance mechanism with one parent.
-- **The chrome file is `root.html`**, binding the part kind `root` (IO.md §6,
-  landed 2026-07-27 — it was `shell.html`/`shell` until then). It may be a
-  bare fragment, which is the body chrome and what every theme here writes;
+- **The chrome file is `root.html`**, binding the part kind `root`. It may be
+  a bare fragment, which is the body chrome and what every theme here writes;
   or document-shaped, with a `<head>` **fenced to `<style>`** and a `<body>`;
   or head-only, inheriting the base's chrome. The engine writes `<html>` and
   computes the head in every case — so writing your own `<html>` or doctype
-  is a load error rather than a wrapper the engine unwraps for you (IO.md
-  IR4), and so is prose left beside the `<head>` and `<body>`. A fenced `<style>` **leaves through the
-  CSS** (IO.md I5, landed 2026-07-27): compiled as SCSS into the theme layer
-  of the theme's sheet, after `theme.scss`. No page carries an inline
-  `<style>`; every page carries one stylesheet link.
+  is a load error rather than a wrapper the engine unwraps for you, and so is
+  prose left beside the `<head>` and `<body>`. A fenced `<style>` **leaves
+  through the CSS**: compiled as SCSS into the theme layer of the theme's
+  sheet, after `theme.scss`. No page carries an inline `<style>`; every page
+  carries one stylesheet link.
 - **Variant misses degrade**: a row asking for `listing--cards` without that
   fragment falls back to `listing`, then canonical. Row variants are requests.
 - **Subthemes**: `theme: "ledger:dark:wide"` renders through `ledger` with
@@ -40,9 +35,9 @@ mechanical path back down (`theme derive`, §4).
 - **Token contract**: shared `--bg`, `--size`, `--space`, etc.; all gallery
   themes written entirely in `var(--…)`.
 - **`theme.toml`** is the per-theme config §3 specs — `extends` and
-  `[subthemes]`. The `[subthemes]` half is **built** (2026-08-05): tokens
-  validate at load and the scheme pair feeds §10's control. `extends` /
-  `contract` are refused as unbuilt until the chain lands.
+  `[subthemes]`. The `[subthemes]` half is **built**: tokens validate at
+  load and the scheme pair feeds §10's control. `extends` / `contract` are
+  refused as unbuilt until the chain lands.
 - **Chrome parts** (§10): capability widgets — `axes` (built), `search`,
   `feed`, `scheme`, `profile_notice` — fill on the root part map from
   declared facts and delete by the empty-part rule when the fact is absent.
@@ -79,8 +74,8 @@ Each rung below 1 that is still unbuilt has a checkbox in `TODO-1.0.md`.
 
 ## 3. Inheritance: `extends`
 
-`theme.toml` — the `[subthemes]` half built 2026-08-05, the `extends` half
-still spec — carries:
+`theme.toml` — the `[subthemes]` half built, the `extends` half still
+spec — carries:
 
 ```toml
 name        = "mytheme"          # optional; directory name is identity
@@ -318,71 +313,49 @@ they have nobody else to ask. So writing your first `theme.scss` costs you the
 code panel and the blockquote rule, whose absence is legible, rather than the
 heading hierarchy, whose absence would be alarming.
 
-## 8. Configuration *(built 2026-07-25)*
+### Authoring rules
 
-`[site] theme = "name[:tokens]"` in `grackle.toml` is the root of the per-row
-cascade (front matter → rule defaults → site default), replacing the
-`default`-directory magic as the *primary* mechanism; the directory name
-stays honored as a fallback so existing sites don't move. `theme add` then
-never needs a rename, and `theme list` can mark the site default.
+- **Breakpoints are Sass variables, not custom properties** — a media
+  query's condition resolves before custom-property substitution.
+- **Rule 2 deletes an empty part's element, not a wrapper the fragment
+  invented** — a fragment that groups parts in its own wrapper pays for the
+  emptiness check itself.
+- **A flat fragment plus CSS Grid can create empty rows** — floats out of a
+  padding inset express "beside"; grid expresses "table".
+- **A placeholder link is a conditional**: `<a>` with no `href` is how the
+  engine says "current page" or "nowhere to go" — style `a:not([href])`,
+  don't reinvent the check.
+- **`aria-current` and `data-relation` are engine-stamped, never
+  authored** — style them, don't reinvent them.
+- **Flags are attributes, not content** — `data-truncated`, `data-tree` on
+  the fragment root, not a template conditional.
 
-**As built**, it is one rewrite rather than a new resolution path.
-`Themes::resolve(row_spec)` spends the key in the single place the five render
-paths all pass through: a row that named nothing becomes a row that named the
-site's theme, and everything downstream — `get`, `css_of`, the stylesheet pass
-— sees a name it already knew how to handle. Absent, `resolve` returns `None`
-and every byte is what it was, which is what let this land under URL parity.
+## 8. Configuration
 
-Three consequences worth stating, each of which is a decision:
+`[site] theme = "name[:tokens]"` in `grackle.toml` roots the per-row cascade
+(front matter → rule defaults → site default); the `default` directory name
+is honored as a fallback so existing sites don't move.
+`Themes::resolve(row_spec)` fills the key in the one place all five render
+paths already pass through: a row that names nothing renders as if it
+named the site's theme.
 
-- **The site default is a full spec, so its tokens apply.**
-  `theme = "ledger:dark"` is a one-line site-wide dark mode — rung 2 reached
-  from rung 0, with no `themes/` edit. A row that names its *own* theme states
-  its own tokens; the site's do not follow it, because a subtheme is a dress
-  and the row changed clothes.
-- **A listing wears it too.** `unanimous_theme` (§5h) still wins when a
-  listing's members agree, and their tokens still do not lift; a listing they
-  do not claim now takes the site's spec, tokens included, exactly as a
-  themeless row does. Before this it took the default theme with no tokens.
-- **`default` is spellable with no `themes/` directory**, because `default`
-  *is* the base theme (§7). So `theme = "default"` is a legal way to say "the
-  floor, explicitly", and only some other name with nothing behind it is a
-  load error — listing the knowns, at load, rather than on the first themeless
-  page to render.
+Three consequences: the site default is a full spec, so its tokens apply
+(`theme = "ledger:dark"` is a one-line site-wide dark mode) — unless a row
+names its own theme, whose tokens do not inherit the site's; a listing
+wears it too, unless `unanimous_theme` (§5h) already resolved one from its
+members; and `default` is spellable with no `themes/` directory, since
+`default` *is* the base theme (§7) — any other unknown name is a load error.
 
-**One honest edge.** `/css/main.css` is the `default` theme's sheet, and it is
-still emitted when `[site] theme` names another theme — referenced by nothing
-unless a row says `theme: default`. Naming sheets after the theme that renders
-them would fix it, except that `default` → `main.css` exists for URL parity
-with the reference build; the real answer is emitting only the sheets a build
-actually referenced, which is a pass this change did not want to invent.
+One honest edge: `/css/main.css`, the `default` theme's sheet, still emits
+even when `[site] theme` names another theme, referenced by nothing unless
+a row says `theme: default`. The real fix — emitting only the sheets a
+build actually referenced — is a pass this design does not invent.
 
-## 9. Rejected
+## 10. Chrome parts: a widget is a fact's chrome
 
-- **Submodules / gems / Hugo modules** — the update-fear machine this design
-  exists to replace. Vendor + lock.
-- **Theme-level config schemas** (`theme.params`): a second config language.
-  Knobs that can be CSS custom properties are tokens (rungs 1–2); a knob
-  that can't is a fragment (rung 3).
-- **Three-way merge on update** — git's job; refuse-and-derive keeps the
-  model legible.
-- **Runtime chain-walking for fragments** — merged at load instead; render
-  paths stay untouched and infallible.
-- **A widget/plugin registry (push)** — a "search plugin" that pushes a
-  route and a button. Three strikes: presentation minting a URL runs the
-  pipeline backwards (producers take URLs, never construct them); the
-  searchable set is a query, and a plugin re-wraps it as a setting; and a
-  pushed route has an owner nobody can name on update. The route is the
-  plugin — §10.
-
-
-## 10. Chrome parts: a widget is a fact's chrome *(specced 2026-08-05; fill rules + `[subthemes]` built 2026-08-05, rest in TODO-1.0.md "Chrome parts")*
-
-The scar this section closes: search shipped as a hand-pasted `<button>` —
-present in six of nine gallery roots, correct in five, and silently gone on a
-switch to the other three. The language picker never had the problem: `axes`
-is an engine part with an inline fragment default, and a theme writes one
-empty element. This section makes that the rule, and names the model.
+Fill rules and `[subthemes]` are built; the rest is tracked in
+`TODO-1.0.md` ("Chrome parts"). The pull model replaced hand-pasted
+per-theme search buttons that drifted per root.
 
 **A widget is a fact's chrome. You install the fact; the chrome follows.**
 There is no registration step, because the declaration that creates the fact
@@ -418,17 +391,18 @@ gone site-wide. **Disabling is upstream, at the fact** — never a
 presentation flag beside it — so config stays the single source of truth
 and `explain` never has to see through a half-state.
 
-### Primitives: a theme styles three things, not N widgets *(built 2026-08-05, `expando` CSS deferred until a fragment uses it)*
+### Primitives: a theme styles three things, not N widgets
 
 Default fragments are built from a closed set of chrome primitives, stamped
 as structure: `data-chrome="button"`, `"dropdown"` (the `<details>` shape
 `axes` already uses), `"expando"` (icon that becomes a field, via
-`:focus-within`). A `_chrome.scss` engine partial ships the structural
-floor on the reset tier and the decorated look on the skin tier — the
-`_type.scss`/`_skin.scss` split, one row over. A theme that styles the
-three primitives has styled every widget, including the ones that do not
-exist yet. Primitives are to chrome what tokens are to color: the contract
-that makes a widget look native under a theme that never heard of it.
+`:focus-within`; its CSS is deferred until a fragment uses it). A
+`_chrome.scss` engine partial ships the structural floor on the reset tier
+and the decorated look on the skin tier — the `_type.scss`/`_skin.scss`
+split, one row over. A theme that styles the three primitives has styled
+every widget, including the ones that do not exist yet. Primitives are to
+chrome what tokens are to color: the contract that makes a widget look
+native under a theme that never heard of it.
 
 ### The cluster: `chrome.html`
 
@@ -446,11 +420,10 @@ widget set:
 The inline body IS `chrome.html` (THEME.md's inline-default rule,
 unchanged); shipping the file shadows it. The name is `chrome`, not
 `widgets`, on purpose: `[widgets]` in config already means markdown body
-expansions, and one word does not get two engine meanings. *(Built
-2026-08-05: the base root and every gallery root place the cluster; the
-wrapper is `display: contents` in the base sheet, so a header's flex or
-grid sees the same children whether a root places the cluster or the
-slots individually.)*
+expansions, and one word does not get two engine meanings. The base root
+and every gallery root place the cluster; the wrapper is `display:
+contents` in the base sheet, so a header's flex or grid sees the same
+children whether a root places the cluster or the slots individually.
 
 **Forward compatibility is the point, not tidiness.** A theme that places
 the cluster opted into the *category*: when the engine grows a widget, it
@@ -465,7 +438,7 @@ Reordering has a ladder:
   **first writer per part** (the precedence law's existing clause): an
   individually-placed slot wins and the cluster's copy of that part
   empties. Nothing renders twice.
-- **Site-level, and positional** *(built 2026-08-05)*: `.slots/chrome.html`
+- **Site-level, and positional**: `.slots/chrome.html`
   shadows the `chrome` fragment across every loaded theme, beating a
   theme's own `chrome.html` — the tree-overlay rung of the precedence law
   applied to a fragment-bearing slot. It reorders, drops, or **mints** —
@@ -485,7 +458,7 @@ in the base root like the frame itself.
 
 ### Derived surfaces
 
-- **Head** *(built 2026-08-06)*: the expand form gains a second pool —
+- **Head**: the expand form gains a second pool —
   `{ from = "shell.atom", rel = '"alternate"', type =
   '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }`
   expands over fold routes wearing that shell, every member in route order

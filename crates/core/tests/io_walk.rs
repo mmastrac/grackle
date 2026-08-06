@@ -19,9 +19,6 @@
 //! exists would pass against an engine that emitted the file anyway, which is
 //! precisely the failure mode of dropping scope-owns-source (the rows become
 //! on-demand objects, and only a build materializes them).
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +35,7 @@ fn config(scopes: &str) -> String {
     )
 }
 
-/// The posts scope, spelled the way I7d makes every posts scope spell itself:
+/// The posts scope, spelled the way every posts scope now spells itself:
 /// the rule names the extensions, because a scope owns its source and what its
 /// rules do not claim is not content at all.
 const POSTS: &str = "[[collections]]\n\
@@ -292,8 +289,7 @@ fn a_declared_source_punches_through_the_underscore_skip_and_nothing_else_does()
 ///
 /// `examples/minimal` is this site, and it is the reason the control matters:
 /// the punch-through must be driven by a declaration and not by the shape of
-/// a name, or every `_dir` on every site would become content the day I7d
-/// landed.
+/// a name, or every `_dir` on every site would become content.
 #[test]
 fn a_site_with_no_source_walks_exactly_as_it_did() {
     let dir = site(
@@ -322,7 +318,7 @@ fn a_site_with_no_source_walks_exactly_as_it_did() {
 /// The contradiction the one walk creates, refused rather than suffered: a
 /// site whose tree `exclude` names a scope's `source`.
 ///
-/// Before I7d the two governed different walks, so the line was harmless, the
+/// The two once governed different walks, so the line was harmless, the
 /// underscore skip kept `_posts` out of the tree anyway, and three fixtures
 /// carried it as belt-and-braces. With one walk it empties the scope, and
 /// nothing would have said so.

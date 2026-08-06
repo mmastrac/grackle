@@ -1,6 +1,6 @@
 //! The graph.
 //!
-//! Not a new fact in the database: I9's join gave every output the two columns
+//! Not a new fact in the database: a join gave every output the two columns
 //! that name what it stands on (`inputs`, `route_members`), and this is those
 //! columns read as nodes and edges. So what these tests hold is not "the graph
 //! is correct", that would be re-asserting the join, but the four claims the
@@ -19,9 +19,6 @@
 //! Built sites where the claim needs bytes (the citation edge exists only
 //! after the write pass; the minted output only after the pull), loaded sites
 //! elsewhere.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::{Demand, Graph, Node};
 use grackle_core::model::Key;
@@ -149,7 +146,7 @@ fn needs(g: &Graph, n: &Node) -> Vec<(&'static str, String)> {
 
 // ---------------------------------------------------------------------------
 
-/// **One graph, two edge kinds**, I9's flag 5, decided and asserted.
+/// **One graph, two edge kinds**, decided and asserted.
 ///
 /// The two columns name keys in different stores, and the reason they are one
 /// graph rather than two is visible here: `/all.xml` carries BOTH kinds at
@@ -246,8 +243,7 @@ fn one_graph_holds_both_edge_kinds() {
 /// exactly what the fold's own content edges named. So the non-recursion is
 /// the label's MEANING rather than an observable behaviour, and where the
 /// label does earn its keep is the next test: at the cycle check, where the
-/// same self-edge is a legal site or a refused one depending on it. I9 kept
-/// the unfenced-scanner call the same way, for the same reason.
+/// same self-edge is a legal site or a refused one depending on it.
 #[test]
 fn the_pull_orders_dependencies_before_dependents() {
     let db = load(&site("pull"));
@@ -294,9 +290,9 @@ fn the_pull_orders_dependencies_before_dependents() {
 /// output, and an input has no incoming edge, so the content subgraph is
 /// bipartite and has no cycle to find. The detector itself is exercised where
 /// a cycle can actually be built, `graph.rs`'s unit tests, which hand it an
-/// output->output content edge by hand. **Nothing on the ledger introduced one**:
-/// a strong address hashes an INPUT's bytes (I11), and so does a rendition's
-/// transform (I12), while the page that EMBEDS a rendition reads only its
+/// output->output content edge by hand. **Nothing introduced one**:
+/// a strong address hashes an INPUT's bytes, and so does a rendition's
+/// transform, while the page that EMBEDS a rendition reads only its
 /// address, which the hashing law makes a planning fact, so that edge is
 /// `Facts`. Both measured; `graph.rs` carries the argument and
 /// `io_renditions.rs` asserts the predicate over a whole built site.
@@ -401,10 +397,10 @@ fn the_pull_publishes_a_cited_input_and_only_a_cited_one() {
     );
 }
 
-/// **The rung-0 seam, closed** (review I-C's amendment to this item).
+/// **The rung-0 seam, closed**.
 ///
-/// E1 recorded that `force_route_fields` cannot reach a route minted after the
-/// load returns, and left it stated. With the graph the shape has a name:
+/// `force_route_fields` cannot reach a route minted after the
+/// load returns. With the graph the shape has a name:
 /// minting an output is a graph event, so rung 0 belongs at every seam that
 /// mints one rather than at the one pass that happened to run first. The typed
 /// values are computed once at load (`SiteDb::forced_fields`) and applied at
@@ -413,9 +409,9 @@ fn the_pull_publishes_a_cited_input_and_only_a_cited_one() {
 /// Byte-inert today, and that is stated rather than hidden: these routes are
 /// byte publishes with no head, minted below every reader of a route field. It
 /// is closed now because the hole grows every time an output is minted at a
-/// new seam. I11 added a SHAPE to this seam rather than a seam, its strong
-/// mint sits inside the same loop, under the same `forced_fields`, which is
-/// the cheapest way there is to stay inside the law.
+/// new seam. Strong addressing added a SHAPE to this seam rather than a seam,
+/// its strong mint sits inside the same loop, under the same `forced_fields`,
+/// which is the cheapest way there is to stay inside the law.
 ///
 /// Mutations, each red and each restored: delete the `forced` loop in
 /// `materialize_referenced` (the minted route carries nothing while every

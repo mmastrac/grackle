@@ -8,13 +8,10 @@
 //! filter reads it; a unit test on any one of those passes against an engine
 //! where the next one never happened.
 //!
-//! I1 measured the two gaps this closes, on a site exactly like this one:
-//! `shell == "html"` selected **0** rows (absent is Null and Null matches
-//! nothing) and `shell == "atom"` selected **0** routes (a view's
-//! serialization was a declaration, not a field). Both probes are below.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
+//! Two gaps close here, on a site exactly like this one: `shell == "html"`
+//! selected **0** rows (absent is Null and Null matches nothing) and
+//! `shell == "atom"` selected **0** routes (a view's serialization was a
+//! declaration, not a field). Both probes are below.
 
 use std::path::PathBuf;
 
@@ -36,8 +33,8 @@ use support::sitemap_urls as urls;
 /// - the base's own feed and blog listing, which answer `atom` and `html`
 ///  without either being written anywhere.
 ///
-/// The site declares where its images land and nothing else about them (I11:
-/// the base routes none), which sharpens the census below rather than blunting
+/// The site declares where its images land and nothing else about them (the
+/// base routes none), which sharpens the census below rather than blunting
 /// it, the ADDRESS comes from the site's rule and the shell still comes from
 /// the base's, because rule defaults accumulate from every matching rule while
 /// the address is decided once by the first that answers.
@@ -74,9 +71,9 @@ fn site(who: &str) -> PathBuf {
 
 /// `shell == "html"` selects the documents AND the listings, and nothing else.
 ///
-/// The listings are the half I1 could not reach at all: `/`, `/blog/` and the
-/// probe routes are view routes with no source file, and before I2 they
-/// answered Null to every shell question. A view that declares no fold IS the
+/// The listings are the half that could not be reached at all: `/`, `/blog/`
+/// and the probe routes are view routes with no source file, and before this
+/// they answered Null to every shell question. A view that declares no fold IS the
 /// HTML shell, so it says so.
 ///
 /// Mutations, each restored:
@@ -92,7 +89,7 @@ fn site(who: &str) -> PathBuf {
 /// The probe routes are absent from their own answer, and that is the column
 /// being honest rather than a filter someone wrote: each probe is a
 /// `shell = "sitemap"` fold, so it leaves through the sitemap shell and says
-/// so. Before I2 nothing about a route could tell you that.
+/// so. Before this, nothing about a route could tell you that.
 #[test]
 fn the_html_shell_selects_documents_and_listings() {
     let dir = site("html");
@@ -127,7 +124,7 @@ fn the_raw_shell_is_the_byte_copies_static_indexes_included() {
     );
 }
 
-/// The second gap I1 measured, closed: a view route answers the serialization
+/// The second gap, closed: a view route answers the serialization
 /// it leaves through, so the feed is findable by what it IS rather than by the
 /// name someone gave the route.
 ///
@@ -141,8 +138,8 @@ fn a_feed_route_answers_atom() {
     assert_eq!(urls(&dir, "/atom-probe.xml"), ["/atom.xml"]);
 }
 
-/// **The census, and I2's remainder closed**. I2 recorded that an
-/// objects-collection row "never takes a rule default at all": the loader built
+/// **The census, and the remaining gap closed**. An objects-collection row
+/// "never takes a rule default at all": the loader built
 /// it from `Default::default()`, so no cascade ran over it and a `defaults =
 /// { shell = … }` on the base's objects rule would have been read by nobody,
 /// every image on every site answered Null, 838 of them on grack.com.
@@ -173,7 +170,7 @@ fn a_former_object_row_answers_the_shell_its_rule_declares() {
         "nothing on this site resolves no shell at all: {null:?}"
     );
     // An all-outputs fold answers the column too, its route carried no
-    // fields AT ALL before I2, so without its `view_fields` call the four
+    // fields AT ALL before this, so without its `view_fields` call the four
     // probes would be sitting in the null set above.
     for probe in ["/html.xml", "/raw.xml", "/atom-probe.xml", "/null.xml"] {
         assert!(

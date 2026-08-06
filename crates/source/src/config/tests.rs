@@ -1,5 +1,3 @@
-// (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-// retired IO.md / MERGE.md build ledgers; git history holds their text.)
 use super::*;
 use crate::shape::{Law, Shape};
 
@@ -322,7 +320,7 @@ fn an_unknown_layout_name_is_accepted_at_config_time() {
 ///
 /// The controls are the point of the item: a route's theme is the shape
 /// this key exists for (its name is checked against the registry once the
-/// themes are loaded, C2), and `layout`/`variant` on a set are LIVE, since
+/// themes are loaded), and `layout`/`variant` on a set are LIVE, since
 /// `{% view %}` dispatches on the one and renders through the other.
 #[test]
 fn a_set_may_not_declare_a_theme() {
@@ -843,9 +841,6 @@ fn serde_keys<T: serde::de::DeserializeOwned>() -> Vec<String> {
 /// or skipped field would otherwise leave a key no shape claims, silently,
 /// and `law_of` would hand it back whole.
 ///
-/// (A2 wrote this against the law table; B2 points it at the description,
-/// which is now the only place a key can be named.)
-///
 /// The description is in TOML's name space, so `collections` (renamed from
 /// `declared_collections`) must appear and `noindex`, `dir`, `views`,
 /// `#[serde(skip)]` every one, must not. Only the structs the merge
@@ -874,7 +869,7 @@ fn the_shape_covers_the_config_surface() {
 }
 
 /// annotation is the one thing here that is not derived, and there
-/// are exactly two of it. B1 shipped a `KNOWN_EXCEPTIONS` list beside the
+/// are exactly two of it. A `KNOWN_EXCEPTIONS` list shipped beside the
 /// hand tables, one entry, `[markers]`, which Settled and
 /// `MarkerDef` retired, and this is what replaces it now that the tables
 /// are gone: with the law read off the shape, the only way to write a law
@@ -918,12 +913,12 @@ fn table_as_depths_fall_out_of_the_types() {
     // `[site]`: a struct under an engine-chosen name, all scalars.
     assert_eq!(law("site"), Law::Descend(1));
     // `[axes.*]`: a map whose value is a definition, `Axis` is a struct
-    // under the axis's own name, so the descent stops above it. A3 fixed
-    // this by hand; here it is a consequence of `BTreeMap<String, Axis>`.
+    // under the axis's own name, so the descent stops above it. This used to
+    // be fixed by hand; here it is a consequence of `BTreeMap<String, Axis>`.
     assert_eq!(law("axes"), Law::Descend(1));
     // `[links]`: `LinksCfg` is a struct under an ENGINE-chosen name, so
-    // it descends per field however many fields it grows. A3 could only
-    // state this with a hypothetical second key; now the type states it.
+    // it descends per field however many fields it grows. This could once
+    // only be stated with a hypothetical second key; now the type states it.
     assert_eq!(law("links"), Law::Descend(1));
     // `[schema]`: `toml::Table`, a map of values the merge does not type.
     assert_eq!(law("schema"), Law::Descend(1));
@@ -1062,7 +1057,7 @@ fn a_nested_struct_ends_at_one_depth() {
 }
 
 /// The tripwire, fired, the mutation check for a guard that nothing in
-/// the config can trip today (batch review 2, finding 1).
+/// the config can trip today.
 ///
 /// `[i18n]` is the table most likely to grow the field: a `LocalizedStr`
 /// beside `strings`, a site-wide `title`, say, reads as depth 0 under a
@@ -1325,7 +1320,7 @@ fn the_old_profile_spellings_name_the_new_ones() {
         assert!(e.contains("[profiles.drafts.force]"), "{e}");
         assert!(e.contains("noindex = true"), "the new spelling: {e}");
     }
-    // E2's: `url` was the profile's own key and is the site's key now.
+    // The other migration: `url` was the profile's own key and is the site's key now.
     // Serde says nothing here, the body is a partial config, so an
     // unknown top-level key is the fence's to explain, and `url` is live
     // in example.
@@ -1335,7 +1330,7 @@ fn the_old_profile_spellings_name_the_new_ones() {
     assert!(e.contains("url = "), "the new spelling: {e}");
 }
 
-/// The site every R7 test below leans on: it declares `url` and lets the
+/// The site every test below leans on: it declares `url` and lets the
 /// base supply `title` and `author`, which is the ordinary shape (a site
 /// need not restate what `extends` already said) and the shape that breaks
 /// a re-parse of the site's text alone.
@@ -1351,7 +1346,7 @@ const BASE_LEANING: &str = "root = \".\"\n[site]\nurl = \"u\"\n";
 /// whole cost.
 ///
 /// Mutation check: drop the `message()` comparison (re-parse's error
-/// whenever it errors, the pre-R7 `?`) and this reports `missing field
+/// whenever it errors, the earlier `?`) and this reports `missing field
 /// title` at line 2 instead.
 #[test]
 fn a_re_parse_that_changes_the_subject_does_not_speak() {
@@ -1372,7 +1367,7 @@ fn a_re_parse_that_changes_the_subject_does_not_speak() {
     );
 }
 
-/// The other half of R7, and B3's original intent: when the re-parse DOES
+/// The other half: when the re-parse DOES
 /// reproduce the failure, its error is the one worth having, because it
 /// carries the line and column that deserializing a merged `toml::Value`
 /// threw away.
@@ -1435,7 +1430,7 @@ fn a_profile_filter_may_mix_builtins_and_declared_fields() {
     assert_eq!(c.views["published"].filter_profile.as_deref(), Some("p"));
 }
 
-/// The other half of C6a: WHICH vocabulary is the patched view's own, and
+/// The other half of the same question: WHICH vocabulary is the patched view's own, and
 /// the three genuinely differ. `kind` is a route column no row has;
 /// `title` is a row column no route has; and `dir` is a `Str` on a row and
 /// a `Bool` on a route, so "the union of all three", which is what a
@@ -1487,7 +1482,7 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
     .expect("an all-outputs fold reads routes");
 }
 
-/// The deferral C6a's fix rests on, at the unit level: a name this early
+/// The deferral this fix rests on, at the unit level: a name this early
 /// vocabulary does not have is NOT rejected here, because a positional
 /// `.schema.toml` declares fields the tree walk has not read yet and
 /// refusing them would make a profile's `where` stricter than the `where`
@@ -1509,7 +1504,7 @@ fn an_unknown_name_in_a_profile_filter_is_deferred_not_rejected() {
 
 /// The projection is a config that `validate` has never seen,
 /// so it is validated, and `check_profile_filters` is what makes that
-/// required, since it is keyed off the provenance E2 records as the
+/// required, since it is keyed off the provenance recorded as the
 /// overlay is merged.
 ///
 /// Mutation-checked by deleting the `filter_profile` loop in
@@ -1535,7 +1530,7 @@ fn a_profile_filter_that_does_not_type_check_is_caught_at_load() {
 
 /// What the retired placement checks were guarding is now
 /// said by the ordinary rules, because the overlay produces an ordinary
-/// config. C6c refused `[profiles.p.sets.blog_index]` because `blog_index`
+/// config. The retired placement check refused `[profiles.p.sets.blog_index]` because `blog_index`
 /// is a route; today that entry ADDS a `[sets]` definition of that name,
 /// which collides in the one namespace `merge_queries` folds the two
 /// sections into, the same error a site writing it twice would get, and
@@ -1674,11 +1669,11 @@ fn checking_every_profile_leaves_the_correct_ones_alone() {
 /// A `[routes]` entry whose `default_content` offer was DECLINED loses its
 /// path, and what that leaves is not a set. The section an entry was
 /// declared under is recorded rather than re-derived for exactly this
-/// case: `is_materialized()` would call this view a set, and C7b's error
+/// case: `is_materialized()` would call this view a set, and the error
 /// tells the author to "declare your own [sets.home]" over an entry that
 /// lives under `[routes]`.
 ///
-/// (C6c's placement check was the other reader and is retired with E2,
+/// (The placement check that used to read this is retired now;
 /// `whose_from` is what keeps `declared_set` live. Mutation check: derive
 /// it from `is_materialized()` in `merge_queries` and this fails.)
 #[test]
@@ -1702,7 +1697,7 @@ fn a_declined_default_content_route_is_still_a_route() {
 
 /// The whole point of the shape: the profile writes the
 /// FIELD, and the site's own `robots` expression is left exactly as its
-/// author wrote it. C6d's key overwrote `[html.head.meta] robots` with the
+/// author wrote it. The old key overwrote `[html.head.meta] robots` with the
 /// constant `"noindex,follow"` on every page of the projection, which is
 /// why it needed a warning to be honest; there is nothing left to warn
 /// about, and the two configs below, one inheriting the base's
@@ -2103,7 +2098,7 @@ fn an_archive_route_may_spend_an_axis() {
     );
 }
 
-// ------------------------------------------- `config --effective` (B3)
+// ------------------------------------------- `config --effective`
 
 /// The effective config of a site whose text is `site`, with the preamble
 /// stripped so an assertion is about the config and not about the prose.
@@ -2321,7 +2316,7 @@ fn a_quoted_key_stays_quoted_in_a_table_header() {
 /// distinction the old "unknown shell" message could not make because the
 /// two vocabularies never met.
 ///
-/// Mutation check: replace `shell::check_view`'s body with the pre-I2
+/// Mutation check: replace `shell::check_view`'s body with the old
 /// membership test (`is_fold(name) || registered.contains(&name)` alone,
 /// erroring with "unknown shell") and the map half fails on the message
 /// while the control still passes.
@@ -2364,7 +2359,7 @@ fn a_map_shell_on_a_view_is_an_arity_error() {
 ///
 /// This is the one path a shell reaches `build.rs` on without passing
 /// through a row's cascade, which is why it needs a check of its own:
-/// before I2 the axis fixture's `light` was never validated anywhere, and
+/// before this check the axis fixture's `light` was never validated anywhere, and
 /// a value outside the vocabulary rendered the fallback tier in silence.
 ///
 /// Mutation check: delete the `a.field == "shell"` loop in `check` and both

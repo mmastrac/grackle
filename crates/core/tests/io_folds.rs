@@ -17,9 +17,6 @@
 //! `force_route_fields` already runs above `resolve_pool_folds`, so both
 //! pools see forced fields, and `profile_force.rs` guards it in both
 //! directions.
-//!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::PathBuf;
 
@@ -115,7 +112,7 @@ fn a_fold_with_no_from_reads_every_output() {
 ///
 /// At today's fidelity a fold over a set consumes the set's ROWS directly,
 /// which is "those inputs' outputs" said in the only vocabulary that exists
-/// yet; the join makes the selection output-mediated at **I9**. What this
+/// yet; a join could later make the selection output-mediated. What this
 /// pins is the half that must not change either way: the feed's entries are
 /// the query's members, so the route pool's sourceless artifacts — the
 /// sitemap, the feed itself — can never appear in it.
@@ -132,11 +129,11 @@ fn a_fold_over_a_set_still_reads_that_set() {
     }
 }
 
-/// **A script shell has to say what it eats** (IR1(a)).
+/// **A script shell has to say what it eats.**
 ///
-/// I3 let every registered `[shells.*]` name be `from`-less on the grounds
-/// that a script shell is a fold by arity. Arity was the right reading and the
-/// wrong conclusion, and batch review I-A proved it live: the engine's folds
+/// Every registered `[shells.*]` name used to be allowed to go `from`-less on
+/// the grounds that a script shell is a fold by arity. Arity was the right
+/// reading and the wrong conclusion: the engine's folds
 /// read the route pool *themselves* (`resolve_pool_folds` fills
 /// `route_members`), while `build.rs`'s script pass reads `r.members` — the
 /// ROW projection, which a pool fold never fills. So a `from`-less script

@@ -661,3 +661,68 @@ None. All three sections carry load-bearing design arguments, rules, and honest 
 - q50 opening "Matt's case" and detailed explanation of nested HTML problem — criterion 4: narrative (kept core operations and open questions)
 - q51 opening "the table merge is built; this is the remainder" and "Matt's shape" preambles — criterion 3: settled context (kept remainder)
 - q53 opening "Matt, 2026-07-20; the locale half built 2026-07-25" date context — criterion 4: dated ledger (kept the mechanical definitions and open questions)
+
+# The 2026-08-06 pass
+
+Second compression pass, driven by the 1.0 direction: code is the primary
+design documentation; one home per concept; no doc references in code. Same
+rules as above — one line per removal, measured numbers survive as numbers.
+
+| file | before | after | |
+|---|---|---|---|
+| `DESIGN.md` | 3547 | 3126 | −12% |
+| `themes/DESIGN.md` | 533 | 506 | −5% |
+| `THEME.md` | 146 | 118 | −19% |
+
+Also this pass: `ZOLA-PORTING.md` moved to `manual/` (a completed porting
+guide is manual raw material, not design); the 17 io_* test headers and
+`config/tests.rs` lost their retired-ledger citations (~160 across code);
+the themes/README.md authoring rules preserved above (lines 39–121) were
+re-homed into `themes/DESIGN.md` §7's Authoring rules — the one block here
+that was a live contract rather than a record.
+
+## DESIGN.md
+
+- §4a corpus counts (14 dated posts in `_hidden/`, 4 undated drafts moved 2026-07-19, one `hidden:` page) — measurement
+- §4a sitemap-leak bug story (two probe posts; Jekyll `publish.sh` divergence) — history
+- §4b/§4c repeated gitignore marker-scan figure (35×, ~205ms → ~6ms over ~1500 files) — duplicate (kept once, §4b)
+- §4e five-call-sites disposition table (relations.rs/load.rs/model/debug.rs/render.rs) — history, now one sentence
+- §4e `hide_sidebar` dead-key anecdote — history
+- §4e CASCADE_KEYS 7→4→3 history — history
+- §4e shell-column totality counts (838 Null → 0; 1025 raw / 370 html / 1 light_html) — measurement
+- §4e 552-tag `--profile drafts` byte-identical verification; old noindex-clobbering mechanism — measurement/history
+- §5 favicon FAVICONS-constant removal story (examples/minimal exposure) — history
+- §5 code/writing/Mindstorms audit narrative + example config — history (laws kept: curated indexes stay documents; match compiles to glob ∧ where)
+- §5 inspector-stopped-naming-bools fix narrative — superseded (visible in debug.rs)
+- §5a layout-kinds table, computed-head section, theme-per-row section, chrome-parity narrative — duplicate/superseded by §4e/§5e (four-layer cut, field kinds, class-as-contract kept)
+- §5c `check_group_chain` dead-arm discovery; crumb-trails drafts scar (561 → 560 pages under `--profile drafts`); theme-preview six-sets collapse — history/measurement
+- §5g "one axis, two families" naming-collision narrative — superseded (law lives in the §5g opener)
+- §5g two-bits tier argument and its degenerate-row correction; raw measured at 1/21 example rows, 0/227 main-site rows — superseded/measurement
+- §5g search-shell `kind == "post"` rename narrative — superseded (kind deleted 2026-08-05/06; filter is `collection ==`)
+- §6b warm embeddings build 1.5s; Related reshuffle on 37/327 posts after link normalization — measurement (caveat lives in TODO known-gaps)
+- §6d CSS-truncation waste: 93% dead bytes (131,071 of 140,884); `/blog/` 160 KB → 15.7 KB; `/blog/tags/rust/` 180 KB → 11.3 KB — measurement
+- §7 notify rebuild ~0.3s; keepcalm 20-concurrent-reads verification; `Graph::pull` story; `grackle diff` retirement story (`<article class="post">` anchor rot) — measurement/history
+- §7b backtest method narration (35/36 fetched, two false misses); paywall-cluster sizing — history/measurement (gap table and verdict kept)
+- §7d fixture-audit narration (~17 hand-built tests replaced); crumb-trails `kind = "posts"` finding — history, stale vocabulary
+- §8a markdown-gap counts (20 identical / 187 equivalent / 23 differ of 230; 90.7% → 72.6% → 90.0%, 92.2% smartypants); body-oracle retirement narrative (48/327 edited; normalize anchor-stripping); grass/sassc 2232 vs 2231 selectors — measurement (three rules and q21/q22 kept)
+- §9 module map table — duplicate (Cargo.toml/crate tree; vocabulary and ordering laws kept)
+- §9a renderer-adapter measured finding (Codefence/SyntaxHighlighter, neither fires) — measurement
+- §9b audit-round narrations; accepted-asymmetries list — history (verdict + q34 kept)
+- §9b single-tree endgame retrospective ("two live filters + one internal dispatch survive") — superseded (kind column, Enum domain, and the dispatch fully deleted 2026-08-05/06)
+- §10 phasing table — superseded (TODO-1.0.md carries pending work)
+
+## THEME.md
+
+- "Status: built (2026-07-28)" banner + byte-exactness sentence — history
+- §4 Shell + slot table — duplicate (restated Law and the chain; the one unique fact folded into §1)
+- §6 chrome-parts detail — duplicate (themes/DESIGN.md §10 is the home; a 3-line pointer remains)
+- §7 Replaces migration table (kind collapse, layout→faces, data-slot main→content) — history (completed rename ledger)
+
+## themes/DESIGN.md
+
+- Header status banner (base theme landed 2026-07-24 …) — history
+- §0 retired-ledger citations and landed-dates on the `root.html` bullet — history
+- Dated built/spec stamps throughout §0/§3/§10 (2026-08-05/06) — history (behavior now present tense)
+- §8 Configuration "as built" narration (~38 → ~19 lines) — history (mechanism, three consequences, open edge kept)
+- §9 Rejected alternatives (submodules/gems/Hugo modules; theme.params; three-way merge; runtime chain-walking; widget registry) — history
+- §10 hand-pasted-search-button scar (correct in 5 of 9 roots, SEARCH_VER 404s) — history, one sentence remains

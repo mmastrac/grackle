@@ -1,8 +1,6 @@
 # Theme: one recursive content chain, and layout as a row face
 
-**Status: built (2026-07-28).** Assembly lives in `crates/core/src/assemble/`.
-Pending work for this design lives only in `TODO-1.0.md`. Byte-exactness is
-not required.
+Assembly lives in `crates/core/src/assemble/`. Pending work is `TODO-1.0.md`'s.
 
 ## Law
 
@@ -25,7 +23,9 @@ root_shell (engine)              doctype/<html>/<head>/<body>
 ```
 
 `slot: root` skips the row furniture rung (ex-`layout: default`).
-`shell: light_html` stays a separate map-shell path for now.
+`shell: light_html` stays a separate map-shell path for now. Row
+front-matter `layout:` is gone; view `layout` / face vocabulary remains
+for aggregates and embeds.
 
 ## 2. One kind: `row`, many faces
 
@@ -74,17 +74,7 @@ A materialized view is a synthetic row:
 
 Fold shells (`atom` / `sitemap` / `search` / script) stay serializations.
 
-## 4. Shell + slot (unchanged from v1)
-
-- `shell: raw` — bytes out
-- `shell: html` + absent slot — full chain through `row.html`
-- `shell: html` + `slot: root` — body fills theme `content` (ex-`layout: default`)
-- `shell: light_html` — unchanged map shell
-
-Row front-matter `layout:` is gone. View `layout` / face vocabulary remains
-for aggregates and embeds.
-
-## 5. Schemas
+## 4. Schemas
 
 Engine part vocabulary is **derived** at theme load from base + theme
 fragments plus declared field schemas (`[schema]` / theme `.schema.toml`).
@@ -121,26 +111,8 @@ inline defaults harvested from the base parent, unless it also ships the
 child file or redefines the child inline under the new parent (later inline
 wins over earlier; a file always wins over an inline).
 
-## 6. Chrome parts *(specced 2026-08-05; themes/DESIGN.md §10)*
+## 5. Chrome parts
 
-The root part map carries capability parts — `axes` (built), `search`,
-`feed`, `scheme`, `profile_notice` — each filled from a declared fact (a
-route wearing a fold shell, an axis with members, a theme declaring both
-schemes) and deleted by the empty-part rule when the fact is absent. The
-base root groups them in a `chrome` cluster slot with an inline default
-(`chrome.html` when shipped as a file); **first writer per part** when a
-root also places one individually. Default fragments are built from the
-chrome primitives (`data-chrome="button" | "dropdown" | "expando"`).
-Fill table, stand-down law and checks: themes/DESIGN.md §10.
-
-## 7. Replaces
-
-| today | becomes |
-|---|---|
-| `document` / `summary` / `link` kinds | `row` + faces |
-| `listing` / `link_list` kinds + templates | concat of row faces; furniture on wrapper `row` |
-| `layout = "card"` / `"link"` / … | member face of that name (`row--{face}`) |
-| `variant` | overrides `layout` as the member face |
-| `listing--gallery.html` etc. | `row--gallery.html` (member face) |
-| site `[[parts]]` | theme `.schema.toml` |
-| `data-slot="main"` | `data-slot="content"` |
+The five chrome parts (`axes`, `search`, `feed`, `scheme`,
+`profile_notice`) and the `chrome` cluster live in themes/DESIGN.md §10;
+first writer per part resolves collisions.

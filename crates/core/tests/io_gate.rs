@@ -17,9 +17,6 @@
 //! Built sites rather than loaded ones: what the law decides is what comes out
 //! of the build, and a test that asked the loader for `rendered` would pass
 //! against an engine that emitted the wrong bytes anyway.
-//!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -32,7 +29,7 @@ const HEAD: &str = "extends = \"none\"\n\
      [[collections]]\nsource = \".\"\n";
 
 /// Write a site and hand back its directory. Per-test directories, because
-/// tests that share one temp tree and each clear it race (IR3).
+/// tests that share one temp tree and each clear it race.
 fn site(who: &str, config: &str, files: &[(&str, &str)]) -> PathBuf {
     let mut all: Vec<(&str, &str)> = vec![("grackle.toml", config)];
     all.extend_from_slice(files);

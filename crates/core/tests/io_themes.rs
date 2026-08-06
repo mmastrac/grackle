@@ -13,9 +13,6 @@
 //! exists would pass against an engine that emitted the file anyway. The
 //! declaration half is the other way round, a declaration publishes nothing,
 //! and its whole effect is a name in the loaded site's vocabulary.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -48,7 +45,7 @@ const CONFIG: &str = "extends = \"none\"\n\
 
 const CATCH_ALL: &str = "\n  [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{path}\"\n";
 
-/// The same shape for the DECLARATION walks (IR6): a theme carrying every
+/// The same shape for the DECLARATION walks: a theme carrying every
 /// positional declaration the engine knows how to read, and its exact twin one
 /// directory over as the control. The twin is what makes the assertion about
 /// position, `pages/mine/` declares the same way in the same words.
@@ -76,7 +73,7 @@ fn declaration_files() -> Vec<(&'static str, &'static str)> {
 
 /// Write a site and hand back its directory. Per-test directories: two tests
 /// sharing one temp tree that each clear it at both ends is a race, and they
-/// run in parallel (IR3).
+/// run in parallel.
 fn site(who: &str, config: &str) -> PathBuf {
     site_of(who, config, files())
 }
@@ -116,7 +113,7 @@ fn declarations(dir: &Path) -> (Vec<String>, Vec<String>, usize) {
 /// theme sources, and the twin one directory over proves the walk would
 /// otherwise, byte for byte.
 ///
-/// This is the review I-B probe shape returned as a guard. Mutation: delete the
+/// Mutation: delete the
 /// `under_themes` filter in `walk_site` and `/themes/mine/root.html`
 /// and `/themes/mine/theme.scss` join the published set, the theme's chrome
 /// fragment served as a page, and its stylesheet source served beside the
@@ -198,13 +195,13 @@ fn the_tree_collections_exclude_still_works() {
 // ---------------------------------------------------------------------------
 // The declaration walks.
 //
-// I7b's rule was content-only, and deliberately so: the marker walk and the
+// The positional rule was content-only, and deliberately so: the marker walk and the
 // `.schema.toml`/`.section` vocabulary walk kept descending `themes/`. A
 // declaration is the one thing a directory can put into a site without owning
 // a row of it, `Schemas::declared` flattens every rung into one site-wide
 // field list, so a theme shipping a `.schema.toml` type-checks names into its
 // host's `where` clauses. That is the `cover` leak again, at the directory
-// I7b had just called build input.
+// already called build input above.
 //
 // The end-to-end proof is the `theme-schema` fixture (a host `where` naming
 // the theme's field, and a broken declaration at the `themes/` boundary that
@@ -246,7 +243,7 @@ fn a_themes_declarations_are_not_the_sites() {
     assert!(sections.contains(&"pages/mine".to_string()), "{sections:?}");
 
     // The marker half is inert in OUTPUT, a marker governs the directory it
-    // sits in, and no row under `themes/` is content (I7b), so there is no
+    // sits in, and no row under `themes/` is content, so there is no
     // page whose bytes could move. It is not unmeasurable, though, which is
     // where this differs from the markers note: the census counts
     // what the walk found, and it must count the control alone.
@@ -256,7 +253,7 @@ fn a_themes_declarations_are_not_the_sites() {
 }
 
 /// **The hatch is the same key, uniformly.** `include` has first say over the
-/// positional rule for content (I7b), and it keeps it for declarations: a site
+/// positional rule for content, and it keeps it for declarations: a site
 /// that `include`s something under `themes/` gets its declarations back too.
 ///
 /// Whether a site MEANS that is the site author's business, the value of one

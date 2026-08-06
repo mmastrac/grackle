@@ -3,7 +3,7 @@
 //! There is one row constructor now. A former-object row takes rule defaults,
 //! marker defaults, schema validation and rung 0 like every other row, and what
 //! survives of "object" is a fact about the file, the objects scopes' globs,
-//! I7a's rule-claimed membership, read by the loader as **the extension fact**.
+//! rule-claimed membership, read by the loader as **the extension fact**.
 //! Two things key off it and nothing else does: `by_name`, and the header
 //! read that fills `width`/`height`.
 //!
@@ -11,9 +11,6 @@
 //! reader DOES with the index: the listing pass asks `by_name` whether a
 //! member is a picture, and a test that asked the database the same question
 //! would pass against an engine whose gallery had stopped showing pictures.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -162,7 +159,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
 /// `query stats` reports 0 marker files on all five sites, so no image on any
 /// of them sits under one.
 ///
-/// The fixture declares its own objects route since I11, the base routes no
+/// The fixture declares its own objects route, because the base routes no
 /// image now, and the assertion is about a marker reaching a row,
 /// not about where the row lands, so the site says where in one line the way
 /// every corpus site with images does.
@@ -227,7 +224,7 @@ fn a_marker_reaches_a_former_object_row() {
 ///
 /// Both halves are here because the claim is about the rule, not the site: the
 /// `.md` beside it declares `{stem}.{axis:locale}` and IS the French edition,
-/// at the prefixed URL. The fixture routes its own images (I11: the base no
+/// at the prefixed URL. The fixture routes its own images (the base no
 /// longer does), because "the image keeps the name it was given" is a claim
 /// about an address and an unrouted asset has none to keep.
 ///
@@ -292,13 +289,13 @@ fn an_image_is_not_a_translation_of_itself() {
 // ---------------------------------------------------------------------------
 // The corner closes.
 //
-// I7e stated it at the code rather than guarding it: "an objects rule gated
-// `front_matter = true` would be claimed by whichever scope came next while
-// still being indexed as a picture". I7a and I7d's flag 5 had said the same
-// thing before it. All three leaned on a premise I8 retired, an object is
-// never peeked, so the gate could never pass, and I8's sidecars are identity
-// a `.png` can have. The gate reads identity (`apply_rules(…, has_identity)`),
-// so the corner is reachable, and it is refused where the author wrote it.
+// This was once documented at the code rather than guarded: "an objects rule
+// gated `front_matter = true` would be claimed by whichever scope came next
+// while still being indexed as a picture". That leaned on a premise since
+// retired, that an object is never peeked, so the gate could never pass —
+// but sidecars are identity a `.png` can have. The gate reads identity
+// (`apply_rules(…, has_identity)`), so the corner is reachable, and it is
+// refused where the author wrote it.
 
 /// What `Config::load` said, flattened.
 fn config_err(dir: &Path) -> String {
@@ -329,7 +326,7 @@ fn config_err(dir: &Path) -> String {
 /// …and in BOTH runs `query stats` reports **objects 2, distinct names 2**,
 /// because the extension fact never asked about identity. A row that `explain`
 /// calls `collection entries` while the objects index counts it a picture is
-/// the disagreement I7e stated and this refuses.
+/// the disagreement this refuses.
 ///
 /// Two narrowings are checked too: widening the check to every kind kills the
 /// control below, and narrowing it to `Some(true)` kills the second half of

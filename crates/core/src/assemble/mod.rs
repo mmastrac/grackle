@@ -1,4 +1,4 @@
-//! DOM assembly: part maps, binders, themes, and the render chain (THEME.md).
+//! DOM assembly: part maps, binders, themes, and the render chain.
 //!
 //! Producers fill typed parts; fragments place them; `chain` decides which
 //! rung of root → document → content a row enters at.

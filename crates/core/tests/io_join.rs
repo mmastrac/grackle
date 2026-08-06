@@ -12,9 +12,6 @@
 //! `&mut SiteDb`, so a test can ask the database what the render pass wrote
 //! into it, which is the only way to see a fact that is decided after every
 //! filter has run.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::filter::{Filter, Row as _, Value};
 use grackle_core::model::SiteDb;
@@ -124,7 +121,7 @@ title = "Things"
 
 /// The shapes site, per test: two tests read it and each removes its tree at
 /// both ends, which is a race when they share one directory and run in
-/// parallel (IR3's fixture note, one file over).
+/// parallel (the same fixture-race note applies one file over).
 fn shapes_site(who: &str) -> PathBuf {
     site(
         who,

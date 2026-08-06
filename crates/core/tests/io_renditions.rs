@@ -28,9 +28,6 @@
 //!
 //! Built sites throughout, because a rendition exists only because a citation
 //! asked for it and citations live in finished bytes.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::graph::{Demand, Graph, Node};
 use grackle_core::model::{Key, Rendition, SiteDb};
@@ -180,8 +177,8 @@ fn renditions(db: &SiteDb) -> Vec<(String, Vec<String>, Rendition)> {
 /// **A rendition is an output of its input, carrying its parameters**, and the
 /// two together are the reproduction recipe.
 ///
-/// The parameters live on the OUTPUT rather than on the edge, review I-D's
-/// question, and `rendition.rs`'s module doc carries the argument: a
+/// The parameters live on the OUTPUT rather than on the edge, and
+/// `rendition.rs`'s module doc carries the argument: a
 /// rendition's address hashes the inputs plus the parameters, so every edge
 /// arriving at one rendition output carries the same ones by construction, and
 /// a slot on the edge would be N copies of one value with nothing keeping them
@@ -359,11 +356,12 @@ fn a_rendition_address_is_computable_before_the_transform_runs() {
 }
 
 /// **The edge-direction answer, measured**, the question `graph.rs` and
-/// `io_graph.rs` both handed to this item.
+/// `io_graph.rs` both raise.
 ///
-/// I10 armed a cycle detector on the theory that renditions would bring the
-/// first output->output CONTENT edge, and I11 confirmed it had not brought one
-/// yet. **I12 does not bring one either, and the reason is the hashing law.**
+/// A cycle detector was armed on the theory that renditions would bring the
+/// first output->output CONTENT edge, and that turned out not to have
+/// happened yet. **Renditions do not bring one either, and the reason is the
+/// hashing law.**
 /// A rendition's transform reads the INPUT's bytes, never the original
 /// output's, so its content edge runs input -> output like every other one.
 /// And the citing page reads the rendition's *URL*, which the hashing law makes
@@ -430,18 +428,18 @@ fn the_citing_edge_demands_facts_and_the_content_subgraph_stays_bipartite() {
 }
 
 /// **The demand edge drives invalidation**, and this is the guard
-/// that says so with bytes, I10's consistency guard, on the shape renditions
+/// that says so with bytes, on the shape renditions
 /// introduce.
 ///
 /// A LISTING shows each post's hero as a thumbnail and links the POST, not the
 /// image: the rendition address is its only reference to that image. Before
-/// this item, `/static/{hash}` resolved to nothing in either address index, so
+/// this, `/static/{hash}` resolved to nothing in either address index, so
 /// the listing's `inputs` lost the image entirely, and editing the image moves
 /// the listing's bytes (a new address goes in the `<img src>`) while the graph
 /// says it could not have. That is the stale page the graph exists to prevent,
-/// and it is a real defect this item closes rather than a hypothetical.
+/// and it is a real defect closed here rather than a hypothetical.
 ///
-/// Asserted the way I10 asserted it: edit one input, rebuild the world, and
+/// Asserted the same way: edit one input, rebuild the world, and
 /// every output whose bytes moved must lie inside that input's fanout.
 ///
 /// Mutation, red and restored: drop `r.inputs.extend(content)` from
@@ -498,11 +496,12 @@ fn an_output_that_only_shows_a_rendition_still_depends_on_the_image() {
 /// **Rung 0 reaches the third minting seam** (so every seam that mints one applies the
 /// profile's forced fields).
 ///
-/// I10 closed this at `materialize_referenced` and said the hole grows once per
-/// minting seam; I11 added a shape to that seam rather than a seam. I12 adds
-/// the seam, and the law is why that cost one loop instead of a rediscovery.
+/// This was closed once at `materialize_referenced`, where the hole grows once
+/// per minting seam; a strong-addressing pass added a shape to that seam
+/// rather than a seam. Renditions add the seam, and the law is why that cost
+/// one loop instead of a rediscovery.
 ///
-/// Byte-inert today, exactly as it was at I10, a rendition is a byte publish
+/// Byte-inert today, exactly as it always was, a rendition is a byte publish
 /// with no head, and asserted so that the next seam finds the law already
 /// applied rather than already broken.
 ///

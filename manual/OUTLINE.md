@@ -458,8 +458,9 @@ the binary.
 - **Recolour without touching a theme**: a site-owned root `.style.scss`
   setting `:root { --accent: … }` sits in a layer above theme CSS, and
   because the token names are a cross-theme contract it survives theme
-  *switches*, not just updates. Cheapest real customization there is. ★
-  (`.style.scss` overlays themselves are still specced — ch. 27.)
+  *switches*, not just updates. Cheapest real customization there is.
+  (Per-subtree `.style.scss` is built too — scoped to the row's
+  `data-scope` chain; ch. 28's decision table.)
 - Dogfood/tooling callout: `examples/theme-preview/` is a site of structurally
   identical content under each gallery theme, so `/ledger/blog/` and
   `/miroir/blog/` are the same rows in the same shapes — compare in two
@@ -1049,9 +1050,12 @@ than the tags they use.
 - ★ Entirely specced: a `<style>` block in the body, SCSS, compiled,
   cached, hoisted, auto-scoped, `style_scope: false` to opt out.
 - Where CSS belongs, decision table: one row → per-post `<style>`; a
-  subtree → `.style.scss` ★; the whole site → theme.
-- Gotcha to document now because the failure is invisible: **scoped SCSS
-  cannot declare `:root` custom properties**.
+  subtree → `.style.scss` (built: compiles inside `[data-scope~="dir"]`,
+  outermost first; every rendered row stamps its scope chain); the whole
+  site → theme.
+- The invisible-failure gotcha is now a loud one: **scoped SCSS cannot
+  declare `:root` custom properties** — a stylesheet error `serve` reports
+  live and a publishing build refuses.
 
 ### 29. Relations: every neighbour list is a query
 **Rewritten — this landed built 2026-07-23 (q52/q53), and it's the moment
@@ -1369,7 +1373,6 @@ rather than memorize it.
 
 ### 36. What isn't real yet
 - The ledger, in one table (sourced from `TODO-1.0.md`, master):
-  **subtree/positional `.style.scss`** (the *root* one is built, ch. 13),
   **`.slots/` typed fills**, **authored `.rewrite.toml` rules**, **the
   notes/footnote stream + sidenotes**, **per-post `<style>`**, **the `md`
   shell**, **board kind**, **serve v2** (incremental invalidation; the

@@ -8,9 +8,6 @@
 //!
 //! Rendering is not needed and not done: routing is settled at load, which is
 //! also what makes the failure cases *load errors* rather than 404s.
-//!
-//! (Bare item ids, `I5`, `IR4`, `C6a`, `E2`, …, name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use std::path::{Path, PathBuf};
 
@@ -57,7 +54,7 @@ fn url_of(routes: &[(String, String)], rel: &str) -> String {
 /// (`_posts/rust/hello.md` -> `/rust/hello/`) while dated rows of the same
 /// collection still route by filename.
 ///
-/// Before I6 the two suppliers were disjoint and this site did not load:
+/// Previously the two suppliers were disjoint and this site did not load:
 /// *"template `/{dir}/{stem}/` references unknown token {dir}"*, measured
 /// against the HEAD binary. Nothing about the file was wrong; the posts loader
 /// simply had no path tokens to give.
@@ -260,8 +257,8 @@ fn a_token_nothing_supplies_lists_what_a_route_may_spend() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **A posts collection may declare no extractor at all**, which is the
-/// pre-I6 refusal (*"kind=posts but no file"*) retired: the
+/// **A posts collection may declare no extractor at all**, which retires the
+/// old refusal (*"kind=posts but no file"*): the
 /// requirement was never about the collection, it was about whether a
 /// template spends a date, and that is asked per row now.
 #[test]

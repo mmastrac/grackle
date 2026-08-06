@@ -11,9 +11,6 @@
 //! same file as a tree row gets a byte copy at an eager URL. A test that asked
 //! the loader "is this an object" would pass against an engine that then
 //! published the file anyway.
-//!
-//! (Bare item ids — `I5`, `IR4`, `C6a`, `E2`, … — name entries in the
-//! retired IO.md / MERGE.md build ledgers; git history holds their text.)
 
 use grackle_core::model::{Row, SiteDb};
 use std::path::{Path, PathBuf};
@@ -88,7 +85,7 @@ fn case_config(glob: &str) -> String {
 /// case-insensitive one, and it is an image on a published page of a live
 /// site.
 ///
-/// Before I7a, membership lowercased the extension before comparing, so case
+/// Previously, membership lowercased the extension before comparing, so case
 /// never reached the decision. Moving the decision into a glob hands it to
 /// globset, which is case-SENSITIVE by default — so rule globs compile
 /// `case_insensitive(true)`, and this is what that buys.
