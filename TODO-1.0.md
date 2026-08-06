@@ -61,105 +61,18 @@ search shipping as a hand-pasted button (correct in 5 of 9 gallery roots,
 silently absent after a switch to the other 3, and 404ing in both example
 sites via the `SEARCH_VER` path coupling).
 
-- [x] **Part fill rules** *(2026-08-05)* — `search`/`feed` fill from a
-      materialized route wearing that fold shell (first wins, warning on
-      two); `scheme` from the resolved theme's `[subthemes]` covering both
-      schemes, standing down when any cascade rung forces a scheme token.
-      `theme.toml` parses (`[subthemes]` with per-token scheme semantics;
-      `extends`/`contract` refuse as unbuilt), spec tokens validate against
-      the declaration wherever theme names already did, and the five
-      two-scheme gallery themes plus the base declare. Remaining halves
-      below.
 - [ ] **`profile_notice` part** — fills from a non-default active profile
       (serve only); the root already stamps `data-profile`, this is its
       legible face.
-- [x] **Base fragments + root** *(2026-08-05, as direct slots)* —
-      `search_button` / `feed_link` / `scheme_button` inline defaults in the
-      base root with `data-chrome` primitives stamped, `feed` slot in the
-      footer, scheme boot script first in `<body>` when the control is
-      offered.
-- [x] **The `chrome` cluster** *(2026-08-05)* — one `data-slot="chrome"`
-      cluster slot wraps axes + search + scheme; a themed root places one
-      line and gains every future widget, and every gallery root (plus
-      field-notes' fork) now does. **First writer per part**: a slot the
-      root places directly wins and the cluster's copy empties. The wrapper
-      is `display: contents` in the base sheet, so header layout sees the
-      same children either way.
-- [x] **`_chrome.scss` primitives + skip link** *(2026-08-05)* — the
-      structural tier ships always (button reset, floating dropdown panel,
-      the cluster's `display: contents`, the skip link's focus reveal); the
-      decorated look rides `_skin.scss`, so tokens-only themes and
-      themeless sites get presentable widgets and styled themes outrank it
-      by layer. Every root — base and gallery — leads with
-      `<a data-chrome="skip" href="#content" data-slot="skip">`, label from
-      `@skip`, `id="content"` on main. `expando` stays a stamped name with
-      no CSS until a fragment uses it: rules for markup that does not
-      exist would be speculation.
-- [x] **Head expand over fold shells** *(2026-08-06)* — `{ from =
-      "shell.atom", rel = … }` pools the materialized routes wearing that
-      fold shell (every member, where the chrome part links only the first);
-      an explicit `rel` frees the key to be a name; base.toml gained the
-      feed-discoverability link entry. `require = true` upgrades an absent
-      pool source (no route wears the shell; an undeclared axis) from
-      stand-down to a refusal — load-time for the axis half, build-time for
-      the shell half.
-- [x] **`search.js` URL derivation** *(2026-08-05)* — the loader fetches the
-      bin at the search route's own path, substituted at emission, with the
-      format version as a cache-busting query (`?v1`) so a format bump still
-      busts caches without dictating the URL. Kills the `SEARCH_VER`
-      hand-matching and the live 404 in field-notes and theme-preview; both
-      fetch URLs carry `baseurl`. Two search routes warn and the first wins.
-- [x] **Scheme boot script** *(2026-08-05, with the fill rules)* — inline
-      applier (`localStorage["grackle:scheme"]`), scheme-family tokens
-      only, emitted only when the control is offered. First in `<body>`
-      rather than the head: it runs before any content paints, and the
-      engine's computed head stays script-free. Cycle auto → light → dark
-      lives in the button's own onclick.
 - [ ] **Capability-without-slot warning** — a live capability whose resolved
       theme places neither its slot nor the cluster is a load warning naming
       the theme and the slot.
-- [x] **`.slots/chrome.html` shadows the cluster fragment, positionally**
-      *(2026-08-05)* — reorders, drops, or MINTS chrome across every loaded
-      theme (literal author markup beside the engine holes); beats a
-      theme's own `chrome.html`. Positional like every other fill: a
-      subtree's file answers beneath it, nearest wins, listings resolve
-      from the root. Markdown and locale-suffixed spellings are load
-      errors, because each would silently not apply. Mechanism: each file
-      registers as a variant of the `chrome` kind and the cluster map asks
-      for its face — the row-variant idea one level down.
-- [x] **`serve` was blind to `.slots/` inside the grackle tree** *(fixed
-      2026-08-05)* — the watcher's grackle-tree filter had no `.slots/`
-      exception, so the example sites' fills (and the cluster override)
-      never hot-reloaded; file creation was innocent. Same scar as
-      `.style.scss` (§5b), same fix: one more presentation exception.
-      Verified live: fill edits, override creation, and override removal
-      all rebuild, and a two-block copyright edit fails the arity rule
-      loudly instead of silently keeping the old page.
-- [x] **Gallery sweep** *(2026-08-05)* — every themed root (plus
-      field-notes' recipes fork) places `search`/`scheme` slots in the
-      header and a `feed` slot in the footer; the nine pasted buttons are
-      deleted, almanac's duplicate overlay CSS with them (its missing
-      `type="button"` died by deletion). Theme CSS retargeted
-      `.search-button` to `[data-chrome~="button"]`, so both header
-      controls share each theme's treatment. Direct slots for now; the
-      `chrome` cluster above collapses them to one line when it lands.
-- [x] **`[i18n.strings]`** *(2026-08-05)* — `feed`, `scheme_auto`,
-      `scheme_light`, `scheme_dark`; mirrored in `examples/raw`, declared in
-      `theme-preview`.
 
 ## The theme ladder and distribution
 
 Rung 0 (`[site] theme`) and rung 1 (root `.style.scss`) are built.
 Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
 
-- [x] **Positional `.style.scss`** *(2026-08-06)* — §5b's other half: a file
-      per subtree compiles inside `[data-scope~="dir"]` into the overlay
-      layer, outermost first then lexical, so a deeper subtree wins by source
-      order. Every rendered row (documents, listing faces, relation cards,
-      canonical fallback) stamps `data-scope` with its source-path chain. The
-      `:root`-in-a-scoped-block constraint landed as a stylesheet error:
-      `serve` reports it live, a publishing build refuses. Verified live:
-      creating, erroring and deleting a subtree sheet all hot-reload. (§5b)
 - [ ] **`theme.toml` and `extends` chains** — rung 3. `theme.rs` now parses
       `theme.toml` (`[subthemes]`, 2026-08-05) and *refuses* `extends` /
       `contract` as unbuilt, so the file exists and inheritance does not.
@@ -202,13 +115,6 @@ Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
       does `theme.toml` list". Re-decide before building. (§0, §5a, §4e)
 - [ ] **Forced-colors mode** — claimed from spec for vanilla and the gallery,
       never tested.
-- [x] **Subtheme token validation** *(built 2026-08-05)* — `[subthemes]` in
-      `theme.toml` declares the token vocabulary; specs validate against it
-      at load (site theme, theme-axis values, view themes, row themes). A
-      theme with no manifest declares nothing and keeps accepting any token;
-      the gallery's declaring six are covered, `kitty`/`almanac`/`vanilla`
-      and user themes without manifests remain grandfathered. *(MERGE.md §7
-      q13)*
 
 ## Policy
 
@@ -224,29 +130,9 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
 - [ ] **Authored `.rewrite.toml` rules** — the full rule table with selectors and
       wrapping. Stage A shipped the narrow HTML-source-link rewrite; the general
       form waits for a second consumer. (§6d)
-- [x] **Variable-length head entries** — `Head.alternates` is a list of
-      `Alternate { href, hreflang?, media_type? }` (2026-07), and declared
-      `[html.head.link]` accepts the same table form (`{ href, sizes?, type?,
-      … }` — every value a CEL text expression). The favicon half of the old
-      "link table form" motivation was already restored via `site.icon`. (§4e)
-- [x] **Expression-form derivers** — `summary` /
-      `truncate_chars(truncate_blocks(content, n), m)`, `toc` /
-      `outline(content, max)`, `hero`, and `lede` /
-      `filter_blocks(content, "p")[0]` are built over `Content` blocks (§5f).
-      q23 closed with them: `fields.hero` fills a Url part; no separate group
-      hero.
 - [ ] **Parenthesised expressions in rank** — `(a + b) > c` is valid CEL but
       unsupported; the error suggests lifting it into a rank term. **Not q13**
       (that is embedding model pinning) — this carries no number. (§6g)
-- [x] **Localized group keys** — closed by enum records (`[records.<field>.<id>]`
-      `name` as `LocalizedStr`; `{key}` / pills / trails render through
-      `record_name` at the route's locale). The honest edge was stale after
-      2cb805d; q40 remains the row-field half. (§6f)
-- [x] **The rest of i18n's locale-free surface** — `site.title` is a
-      `LocalizedStr`; search overlay strings come from `[i18n.strings]`
-      (`search` / `search_placeholder` / `search_empty`) and are baked into
-      `/search.js` per locale. Date labels use `@medium_date` /
-      `@months[{month}]`. (§6f)
 - [ ] **Embedded views follow their embedding page's locale** — specced,
       pending. (§6f, §5h)
 - [ ] **Orphaned translation warning** — `index.fr.md` with no French rows should
@@ -255,10 +141,6 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
       landing's content route never reaches the searchable set. (§5h)
 - [ ] **Explicit `parent =`** — for the edge where URL nesting lies about parent
       structure. Unneeded so far; named so the absence is deliberate. (§5h)
-- [x] **Scoped SCSS cannot declare `:root` custom properties** *(2026-08-06,
-      with positional `.style.scss`)* — a `:root` in a subtree sheet is a
-      stylesheet error naming the file and pointing at the root sheet;
-      `serve` reports it immediately, a publishing build refuses. (§5b)
 - [ ] **The md shell** — markdown serialization of part maps; forcing consumer
       is `/llms.txt` (today a script-shell experiment). (§5g)
 - [ ] **Home and the manual lift to landings** — home is still the queryless
