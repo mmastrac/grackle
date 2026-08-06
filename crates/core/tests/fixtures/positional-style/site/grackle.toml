@@ -1,0 +1,8 @@
+# Positional `.style.scss`: the root file is the unscoped rung-1 overlay;
+# a subtree's compiles inside `[data-scope~="dir"]`, and every rendered row
+# carries its scope chain. Order in the sheet is outermost first, then
+# lexical, so the deeper file wins at equal specificity.
+[site]
+url = "https://example.com"
+title = "A Fixture"
+author = "Tester"

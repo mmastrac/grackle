@@ -66,10 +66,9 @@ pub(crate) fn css_pass(
         (false, false) => (None, true),
     };
 
-    // The full cascade order declares, not just the two layers used
-    // today. `overlay` and `post`
-    // are unbuilt, declaring them now is free and makes this
-    // statement the authority on the order, so whoever builds them slots
+    // The full cascade order declares, not just the layers used today.
+    // `post` (per-post CSS) is unbuilt; declaring it now is free and makes
+    // this statement the authority on the order, so whoever builds it slots
     // in rather than discovering that an undeclared layer sorts last by
     // accident. `reset` is the base's own reset partial, which currently
     // ships inside `base`.
@@ -167,33 +166,70 @@ pub(crate) fn css_pass(
     Ok(css.into_bytes())
 }
 
-/// The site's own stylesheet: `.style.scss` at the root, compiled once and
-/// handed to every theme's sheet.
+/// The site's own stylesheets: every `.style.scss` in the tree, compiled once
+/// and handed to every theme's sheet.
 ///
-/// The cheapest real customization there is, and the one the ladder promised
-/// and could not deliver: `:root { --accent: … }` in a file the site owns,
-/// landing in the `overlay` layer above theme CSS. Because the token names are
-/// a cross-theme contract, an override written here survives switching themes,
-/// not just updating one, which is what makes this a rung below "derive a
-/// theme" rather than a worse way to do it.
+/// The root file is rung 1 of the ladder, the cheapest real customization
+/// there is: `:root { --accent: … }` in a file the site owns, landing in the
+/// `overlay` layer above theme CSS. Because the token names are a cross-theme
+/// contract, an override written here survives switching themes, not just
+/// updating one, which is what makes this a rung below "derive a theme"
+/// rather than a worse way to do it.
 ///
-/// Positional `.style.scss`
-/// is NOT this. It needs every rendered row to carry its scope
-/// chain, and nothing emits one yet.
-pub(crate) fn site_overlay(root: &Path, stats: &mut Stats) -> Option<String> {
-    let src = root.join(".style.scss");
-    let text = std::fs::read_to_string(&src).ok()?;
-    // Unscoped, so `:root` works here, which is the point of the root file and
-    // exactly what warns is impossible in a scoped one, where a `:root`
-    // block would be nested inside a selector and silently never apply.
-    match grass::from_string(text, &grass::Options::default().load_path(root)) {
-        Ok(css) => Some(css),
-        Err(e) => {
-            eprintln!("scss: {}: {e}", src.display());
-            stats.css_errors.push(format!("{}: {e}", src.display()));
-            None
+/// A subtree's file compiles inside `[data-scope~="dir"]` — scoping is
+/// mandatory because listings mix subtrees, and every rendered row carries
+/// its scope chain. `style_dirs` arrives outermost first, then lexical, so
+/// at equal specificity (an attribute selector weighs the same as a class)
+/// a deeper subtree wins by source order.
+pub(crate) fn site_overlay(
+    root: &Path,
+    style_dirs: &[std::path::PathBuf],
+    stats: &mut Stats,
+) -> Option<String> {
+    let mut out = String::new();
+    for dir in style_dirs {
+        let src = root.join(dir).join(".style.scss");
+        let text = match std::fs::read_to_string(&src) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let scope = dir.to_string_lossy().replace('\\', "/");
+        // The root file stays unscoped, so `:root` works there — the point of
+        // rung 1. A subtree's is wrapped in its scope selector; SCSS nesting
+        // does the scoping.
+        let scss = if scope.is_empty() {
+            text
+        } else {
+            format!("[data-scope~=\"{scope}\"] {{\n{text}\n}}")
+        };
+        match grass::from_string(scss, &grass::Options::default().load_path(root.join(dir))) {
+            Ok(css) => {
+                // `:root` in a scoped sheet compiles to `[data-scope~=…] :root`,
+                // which matches nothing, ever — an invisible failure, so it is
+                // a loud one instead. Site-wide custom properties belong in
+                // the root file.
+                if !scope.is_empty() && css.contains(":root") {
+                    let e = format!(
+                        "{}: `:root` inside a scoped .style.scss never applies \
+                         — the block is nested under its scope selector. \
+                         Site-wide custom properties belong in the root \
+                         .style.scss",
+                        src.display()
+                    );
+                    eprintln!("scss: {e}");
+                    stats.css_errors.push(e);
+                    continue;
+                }
+                out.push_str(strip_charset(&css).trim_end());
+                out.push('\n');
+            }
+            Err(e) => {
+                eprintln!("scss: {}: {e}", src.display());
+                stats.css_errors.push(format!("{}: {e}", src.display()));
+            }
         }
     }
+    (!out.is_empty()).then_some(out)
 }
 
 /// Resolve `@import "name"` textually against `_sass/_name.scss`, recursively.
@@ -353,5 +389,47 @@ mod css_pass_tests {
             themed.contains("overflow-x: auto"),
             "and so does a theme that imports no typography"
         );
+    }
+
+    /// Positional sheets: the root file stays unscoped, a subtree's compiles
+    /// inside its scope selector, outermost first so the deeper file wins by
+    /// source order. A scoped `:root` is a recorded stylesheet error and its
+    /// block is dropped — the invisible failure made loud, and a publishing
+    /// build refuses on it.
+    #[test]
+    fn positional_style_scopes_and_refuses_scoped_root() {
+        use std::path::PathBuf;
+        let dir = std::env::temp_dir().join("grackle-css-positional");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("code/legacy")).unwrap();
+        std::fs::write(dir.join(".style.scss"), ":root { --accent: red; }").unwrap();
+        std::fs::write(dir.join("code/.style.scss"), ".gh { color: blue; }").unwrap();
+        std::fs::write(dir.join("code/legacy/.style.scss"), ".gh { color: green; }").unwrap();
+        let dirs: Vec<PathBuf> = vec!["".into(), "code".into(), "code/legacy".into()];
+
+        let mut stats = Stats::default();
+        let css = site_overlay(&dir, &dirs, &mut stats).unwrap();
+        assert!(stats.css_errors.is_empty(), "{:?}", stats.css_errors);
+        assert!(css.contains(":root"), "{css}");
+        // grass unquotes a plain attribute value and keeps quotes for one
+        // carrying a slash; both spellings match the emitted data-scope.
+        assert!(css.contains("[data-scope~=code] .gh"), "{css}");
+        assert!(css.contains("[data-scope~=\"code/legacy\"] .gh"), "{css}");
+        assert!(
+            css.find("~=code]").unwrap() < css.find("~=\"code/legacy\"]").unwrap(),
+            "outermost first: {css}"
+        );
+
+        std::fs::write(dir.join("code/.style.scss"), ":root { --x: 1; }").unwrap();
+        let mut stats = Stats::default();
+        let css = site_overlay(&dir, &dirs, &mut stats).unwrap_or_default();
+        assert_eq!(stats.css_errors.len(), 1, "{:?}", stats.css_errors);
+        assert!(
+            stats.css_errors[0].contains("never applies"),
+            "{:?}",
+            stats.css_errors
+        );
+        assert!(!css.contains("--x"), "the dead block must not ship: {css}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,0 +1,71 @@
+<!doctype html>
+<html data-kind="root" lang="en">
+<head>
+	<title>Home</title>
+	<meta name="author" content="Tester">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta property="og:title" content="Home">
+	<meta property="og:type" content="website">
+	<meta property="og:url" content="https://example.com/">
+	<link rel="canonical" href="https://example.com/">
+	<link rel="alternate" href="https://example.com/atom.xml" title="A Fixture" type="application/atom+xml">
+	<meta charset="utf-8">
+	<link href='/css/main.css' rel='stylesheet' type='text/css'>
+</head>
+<body>
+<script>try{var s=localStorage.getItem('grackle:scheme');if(s=='dark'||s=='light'){var h=document.documentElement,t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});t.push(s);h.setAttribute('data-subtheme',t.join(' '))}}catch(e){}</script>
+<a data-chrome="skip" href="#content" data-slot="skip">Skip to content</a>
+<header data-frame>
+	<a href="/" data-slot="site_title">A Fixture</a>
+	
+	<div data-slot="chrome">
+		
+		
+		<span data-slot="scheme">
+			<button data-chrome="button" type="button" aria-label="Colors: auto" data-l-auto="Colors: auto" data-l-light="Colors: light" data-l-dark="Colors: dark" onclick="(function(b){try{var o=['auto','light','dark'],h=document.documentElement,c=localStorage.getItem('grackle:scheme')||'auto',n=o[(o.indexOf(c)+1)%3];n=='auto'?localStorage.removeItem('grackle:scheme'):localStorage.setItem('grackle:scheme',n);var t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});if(n!='auto')t.push(n);h.setAttribute('data-subtheme',t.join(' '));b.setAttribute('aria-label',b.getAttribute('data-l-'+n))}catch(e){}})(this)" data-kind="scheme_button">
+				<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"></path><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle></svg>
+			</button>
+		</span>
+	</div>
+</header>
+<main data-frame id="content" data-slot="content"><article data-kind="row">
+	<nav aria-label="Breadcrumbs" data-slot="crumbs">
+		<span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
+	
+		<span data-kind="crumb"><a data-slot="label">Home</a></span>
+	</nav>
+	<header>
+		<h1 data-slot="title">Home</h1>
+		
+	</header>
+	
+	
+	
+	
+	<div data-slot="content"><article data-kind="row" data-scope="_posts _posts/deep">
+	<h2><a href="/blog/2026/01/02/deeper/" data-slot="title">Deeper</a></h2>
+	<p><time datetime="2026-01-02" data-slot="date_pretty">2 January 2026</time> </p>
+	
+	<div data-slot="content"><p>A post one directory down: scope chain <code class="language-text highlighter-rouge">_posts _posts/deep</code>.</p>
+</div>
+</article>
+<article data-kind="row" data-scope="_posts">
+	<h2><a href="/blog/2026/01/01/hello/" data-slot="title">Hello</a></h2>
+	<p><time datetime="2026-01-01" data-slot="date_pretty">1 January 2026</time> </p>
+	
+	<div data-slot="content"><p>A post at the collection root: scope chain <code class="language-text highlighter-rouge">_posts</code>.</p>
+</div>
+</article>
+</div>
+	
+	
+</article>
+</main>
+<footer data-frame>
+	
+	<p data-slot="feed">
+		<a data-chrome="button" href="/atom.xml" data-slot="label" data-kind="feed_link">Feed</a>
+	</p>
+</footer>
+</body>
+</html>

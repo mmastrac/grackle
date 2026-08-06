@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+	<feed xmlns="http://www.w3.org/2005/Atom">
+	<title><![CDATA[A Fixture]]></title>
+	<link href="https://example.com/atom.xml" rel="self"/>
+	<link href="https://example.com/"/>
+	<updated>2026-01-02T00:00:00+00:00</updated>
+	<id>https://example.com/</id>
+	<author>
+		<name><![CDATA[Tester]]></name>
+	</author>
+	<generator uri="http://jekyllrb.com/">Jekyll</generator>
+	<entry>
+		<title type="html"><![CDATA[Deeper]]></title>
+		<link href="https://example.com/blog/2026/01/02/deeper/"/>
+		<updated>2026-01-02T00:00:00+00:00</updated>
+		<id>https://example.com/blog/2026/01/02/deeper</id>
+		<content type="html"><![CDATA[<p>A post one directory down: scope chain <code class="language-text highlighter-rouge">_posts _posts/deep</code>.</p>
+]]></content>
+	</entry>
+	<entry>
+		<title type="html"><![CDATA[Hello]]></title>
+		<link href="https://example.com/blog/2026/01/01/hello/"/>
+		<updated>2026-01-01T00:00:00+00:00</updated>
+		<id>https://example.com/blog/2026/01/01/hello</id>
+		<content type="html"><![CDATA[<p>A post at the collection root: scope chain <code class="language-text highlighter-rouge">_posts</code>.</p>
+]]></content>
+	</entry>
+</feed>

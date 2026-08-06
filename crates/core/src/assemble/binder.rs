@@ -732,6 +732,9 @@ impl Fragments {
         }
         if root {
             let _ = write!(out, " data-kind=\"{}\"", m.kind);
+            if !m.scope().is_empty() {
+                let _ = write!(out, " data-scope=\"{}\"", esc(m.scope()));
+            }
             for (name, p) in m.iter() {
                 if matches!(p, Part::Flag(true)) {
                     let _ = write!(out, " data-{name}");

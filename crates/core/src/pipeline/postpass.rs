@@ -576,6 +576,7 @@ mod cited_url_tests {
 /// returned [`CssUrls`] carries the theme-to-URL map for the render passes.
 pub(crate) fn stylesheets(
     cfg: &Config,
+    db: &SiteDb,
     themes: &crate::theme::Themes,
     root: &Path,
     theme_dir: &Path,
@@ -583,7 +584,7 @@ pub(crate) fn stylesheets(
     stats: &mut Stats,
 ) -> Result<crate::assets::CssUrls> {
     let addressing = crate::assets::Addressing::parse(&cfg.assets.addressing)?;
-    let overlay = crate::shells::css::site_overlay(root, stats);
+    let overlay = crate::shells::css::site_overlay(root, &db.style_dirs, stats);
     let mut urls = crate::assets::CssUrls::default();
 
     // The default theme's dir is passed in. The rest live under themes/<name>.

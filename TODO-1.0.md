@@ -152,11 +152,14 @@ sites via the `SEARCH_VER` path coupling).
 Rung 0 (`[site] theme`) and rung 1 (root `.style.scss`) are built.
 Everything below is `themes/DESIGN.md` §3–§5, specced and unbuilt.
 
-- [ ] **Positional `.style.scss`** — §5b's other half: a file per subtree,
-      scoped to `[data-scope~="dir"]`. Needs every rendered row to emit its scope
-      chain, which nothing does yet, and carries the `:root`-in-a-scoped-block
-      constraint below. Separable from the root file, which is the rung the
-      ladder actually promised. (§5b)
+- [x] **Positional `.style.scss`** *(2026-08-06)* — §5b's other half: a file
+      per subtree compiles inside `[data-scope~="dir"]` into the overlay
+      layer, outermost first then lexical, so a deeper subtree wins by source
+      order. Every rendered row (documents, listing faces, relation cards,
+      canonical fallback) stamps `data-scope` with its source-path chain. The
+      `:root`-in-a-scoped-block constraint landed as a stylesheet error:
+      `serve` reports it live, a publishing build refuses. Verified live:
+      creating, erroring and deleting a subtree sheet all hot-reload. (§5b)
 - [ ] **`theme.toml` and `extends` chains** — rung 3. `theme.rs` now parses
       `theme.toml` (`[subthemes]`, 2026-08-05) and *refuses* `extends` /
       `contract` as unbuilt, so the file exists and inheritance does not.
@@ -252,10 +255,10 @@ Everything here is specced somewhere and owned by nobody. *(all from doc prose)*
       landing's content route never reaches the searchable set. (§5h)
 - [ ] **Explicit `parent =`** — for the edge where URL nesting lies about parent
       structure. Unneeded so far; named so the absence is deliberate. (§5h)
-- [ ] **Scoped SCSS cannot declare `:root` custom properties** — they would be
-      scoped to the selector and silently not apply. Needs a documented
-      constraint or a load-time error, because the failure is invisible. Rides
-      with the `.style.scss` decision. (§5b)
+- [x] **Scoped SCSS cannot declare `:root` custom properties** *(2026-08-06,
+      with positional `.style.scss`)* — a `:root` in a subtree sheet is a
+      stylesheet error naming the file and pointing at the root sheet;
+      `serve` reports it immediately, a publishing build refuses. (§5b)
 - [ ] **The md shell** — markdown serialization of part maps; forcing consumer
       is `/llms.txt` (today a script-shell experiment). (§5g)
 - [ ] **Home and the manual lift to landings** — home is still the queryless

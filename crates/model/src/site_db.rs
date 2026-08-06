@@ -44,6 +44,10 @@ pub struct SiteDb {
     pub views: BTreeMap<String, ViewRows>,
     /// Directories marked with `.section`.
     pub sections: Vec<PathBuf>,
+    /// Directories carrying a `.style.scss`, outermost first then lexical —
+    /// the compile order of the scoped overlay blocks. Root ("") is the
+    /// unscoped rung-1 sheet.
+    pub style_dirs: Vec<PathBuf>,
     /// Prev/next sequence per collection.
     #[serde(skip)]
     pub adjacency: BTreeMap<String, Vec<Key>>,

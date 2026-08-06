@@ -716,6 +716,8 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         let Some(dir) = rel.parent() else { continue };
         if entry.file_name() == ".section" {
             db.sections.push(dir.to_path_buf());
+        } else if entry.file_name() == ".style.scss" {
+            db.style_dirs.push(dir.to_path_buf());
         } else if entry.file_name() == ".schema.toml" {
             let text = std::fs::read_to_string(entry.path())
                 .with_context(|| format!("reading {}", entry.path().display()))?;
@@ -726,6 +728,10 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
     db.stats.sidecars = sidecars.found;
     db.sections.sort();
+    // Outermost first, then lexical: the scoped overlay compile order, so a
+    // deeper subtree's rules win by source order at equal specificity.
+    db.style_dirs
+        .sort_by(|a, b| (a.components().count(), a).cmp(&(b.components().count(), b)));
     db.declared = schemas.declared_schema();
 
     let t = std::time::Instant::now();

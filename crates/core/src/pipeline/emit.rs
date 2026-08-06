@@ -315,7 +315,7 @@ pub(crate) fn run(
             &resolve_asset,
             rel_groups.get(&r.url).cloned().unwrap_or_default(),
         )?;
-        let doc = parts::document_tree(
+        let mut doc = parts::document_tree(
             cfg,
             loc,
             &crate::trails::home_url(cfg, db, loc),
@@ -326,6 +326,7 @@ pub(crate) fn run(
             groups,
             &frag,
         );
+        doc.set_scope(parts::scope_chain(&row.rel));
         let site = site.with_title(cfg.site_title(loc));
         let mut head = render::head_for(&title, &r.url, &site, metas, r);
         head.meta.extend(prepass::head_fold_links(
@@ -512,7 +513,7 @@ pub(crate) fn run(
                             r,
                             &cfg.media_types,
                         );
-                        let doc = parts::document_tree(
+                        let mut doc = parts::document_tree(
                             cfg,
                             lang,
                             &crate::trails::home_url(cfg, db, lang),
@@ -523,6 +524,9 @@ pub(crate) fn run(
                             groups,
                             frag,
                         );
+                        if let Some(p) = row {
+                            doc.set_scope(parts::scope_chain(&p.rel));
+                        }
                         let dir = src.parent().unwrap_or(root);
                         chain::document_page(
                             chain::Page {

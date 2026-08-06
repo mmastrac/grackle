@@ -33,6 +33,10 @@ pub struct PartMap {
     /// positional `.slots/chrome.html` override resolves for the page;
     /// wins over the hole's `data-fragment`, falls through when absent.
     face: Option<String>,
+    /// The row's scope chain (`"code code/legacy"`), stamped `data-scope` on
+    /// the rendered root so positional `.style.scss` rules reach it. Empty
+    /// for maps that are not rows, and for rows at the site root.
+    scope: String,
 }
 
 impl PartMap {
@@ -42,6 +46,7 @@ impl PartMap {
             kind,
             parts: Vec::new(),
             face: None,
+            scope: String::new(),
         }
     }
 
@@ -51,6 +56,14 @@ impl PartMap {
 
     pub fn face(&self) -> Option<&str> {
         self.face.as_deref()
+    }
+
+    pub fn set_scope(&mut self, chain: String) {
+        self.scope = chain;
+    }
+
+    pub fn scope(&self) -> &str {
+        &self.scope
     }
 
     pub fn set(&mut self, name: &'static str, part: Part) {
@@ -92,6 +105,7 @@ impl PartMap {
             kind,
             parts: Vec::new(),
             face: None,
+            scope: String::new(),
         }
     }
 
@@ -439,6 +453,26 @@ pub fn part_type(kind: &str, name: &str) -> Option<PartType> {
         .map(|(_, t)| *t)
 }
 
+/// The scope chain of a source path: every ancestor directory of the file,
+/// outermost first, space-joined (`"code code/legacy"`), so
+/// `[data-scope~="dir"]` matches a row through any of its ancestors. Empty
+/// for a file at the site root.
+pub fn scope_chain(rel: &std::path::Path) -> String {
+    let mut out = String::new();
+    let mut prefix = String::new();
+    for c in rel.parent().into_iter().flat_map(|p| p.components()) {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(&c.as_os_str().to_string_lossy());
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&prefix);
+    }
+    out
+}
+
 /// Null theme: schema order, generic markup from part types.
 pub fn canonical(m: &PartMap) -> String {
     let mut out = String::new();
@@ -529,6 +563,9 @@ pub(crate) fn populate(schemas: &Schemas, kind: &str, depth: usize) -> PartMap {
 fn canonical_into(m: &PartMap, out: &mut String) {
     use std::fmt::Write as _;
     let _ = write!(out, "<section data-kind=\"{}\"", m.kind);
+    if !m.scope.is_empty() {
+        let _ = write!(out, " data-scope=\"{}\"", crate::render::esc(&m.scope));
+    }
     for (n, p) in m.iter() {
         if matches!(p, Part::Flag(true)) {
             let _ = write!(out, " data-{n}");
@@ -769,7 +806,7 @@ pub fn document(
     trail: Vec<(String, Option<String>)>,
     relation_groups: Vec<PartMap>,
 ) -> PartMap {
-    row(
+    let mut m = row(
         p.title.clone().unwrap_or_default(),
         p.url.clone(),
         false,
@@ -777,7 +814,9 @@ pub fn document(
         Vec::new(),
         content,
         relation_groups,
-    )
+    );
+    m.set_scope(scope_chain(&p.rel));
+    m
 }
 
 /// Home -> ancestors -> title (inert tail).
@@ -912,6 +951,7 @@ pub fn from_row(
     opts: FillOpts<'_>,
 ) -> anyhow::Result<PartMap> {
     let mut m = present(p);
+    m.set_scope(scope_chain(&row.rel));
     fill_from_fields(cfg, &mut m, row, schemas, resolve_asset, opts)?;
     Ok(m)
 }
