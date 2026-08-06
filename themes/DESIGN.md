@@ -111,7 +111,7 @@ css(theme) = css(parent)                                  # empty for a root
            + compile(root.html's head <style>)            # if present
 ```
 
-The last line is built (IO.md I5); the chain above it is not. **A member's
+The last line is built; the chain above it is not. **A member's
 own CSS is two files in a fixed order** — the general sheet, then what
 `root.html` says about the theme's own frame — and that order is the same
 reason the chain is ordered child-last: the more specific statement of intent
@@ -154,8 +154,7 @@ from any chain member may select `[data-subtheme~="…"]`).
 > `@layer theme.<member>`. Worth building this way from the first commit: the
 > failure it prevents is silent and only shows up in someone else's theme.
 >
-> **A member's CSS is one sub-layer, both halves of it** (IO.md §6's
-> multi-theme scoping paragraph, written at I5). `theme.scss` and the root
+> **A member's CSS is one sub-layer, both halves of it**. `theme.scss` and the root
 > head `<style>` are ordered against each other by source position *inside*
 > `theme.<member>`, not by layers of their own — so a child shadows its
 > parent by layer and states its own two files in order, and the two
@@ -169,7 +168,7 @@ from any chain member may select `[data-subtheme~="…"]`).
 > between chain members. Layers order rules but do not stop them matching, so
 > the merged case also wants the stamped root attribute (`data-theme`, beside
 > `data-subtheme`) as the scope. Both are emitter-side and inert while the
-> sheets stay chunked per theme — IO.md §6 has the argument.
+> sheets stay chunked per theme.
 
 ### `[subthemes]`: declared tokens, declared schemes
 

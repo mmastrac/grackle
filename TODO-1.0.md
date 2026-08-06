@@ -1,12 +1,13 @@
 # grackle 1.0 — the list
 
-The release checklist. MERGE.md and IO.md's ledgers are closed; their
-remaining Matt-only calls live here. This file is the **only** pending task
+The release checklist. The MERGE and IO build ledgers are closed and
+retired to git history (`git show 58d574e:grackle/IO.md`, `…/MERGE.md`);
+their remaining Matt-only calls live here. This file is the **only** pending task
 list. `DESIGN.md` §11 is the authority for open *design* questions — where a
 question has 1.0 exposure it gets one line here and a pointer, never a copy.
 `THEME.md` and `themes/DESIGN.md` are specs the checkboxes below point at;
-they carry no second list. `GRAVEYARD.md` holds the compressed prose the
-design docs gave up.
+they carry no second list. The compressed prose the design docs gave up is
+retired to git history (`git show 2efc521:grackle/GRAVEYARD.md`).
 
 Ordering is rough priority within each group, not across groups. Items
 marked *(from doc prose)* were harvested from documentation, not read out
@@ -30,8 +31,8 @@ of the code — check them before acting.
       document. `git show dc96d5d^:grackle/DESIGN.md` and its `themes/` sibling
       hold the pre-compression text.
 
-- [ ] **A site-declared fold over every output** *(absent `from` under a fold
-      shell — IO.md I3)* — a routed row is routed whatever its flags say, so
+- [ ] **A site-declared fold over every output** *(absent `from` under a
+      fold shell)* — a routed row is routed whatever its flags say, so
       every such route must restate `!draft && !hidden`. `View::inherited`
       already records whose route a view is, so the validator can refuse a
       site-declared one whose `where` omits the flags while the base's own
@@ -167,35 +168,34 @@ design question without a release consequence and is not listed here.
 - [ ] **q34 — three "not content" lists.** `slots.rs` and `serve.rs` carry
       private skip lists that can drift from `exclude`. Silent when it happens.
 - [ ] **q14 — `<style>` auto-scoping default.** A decision, not a build; cheap to
-      settle and it blocks per-post CSS. *(MERGE.md §7 q4 is the layering half.)*
+      settle and it blocks per-post CSS. *(The retired MERGE ledger's q4 is the layering half.)*
 
 ## IO leftovers (Matt's calls)
 
 Unowned or deliberately not taken when IO closed. Priority call before build.
 
 - [ ] **`robots_txt` emission** — fold shell over output facts; exact emission
-      spec still open. *(IO.md §9 q3)*
-- [ ] **Rendition-address extension** — parameterized image outputs beyond the
-      citation-site demand I12 shipped. *(IO.md I12)*
+      spec still open.
+- [ ] **Rendition-address extension** — parameterized image outputs beyond
+      the citation-site demand already shipped.
 - [ ] **Claimed-row rendition scan** — behaviour change under a byte gate.
-      *(IO.md I13)*
-- [ ] **Eager srcset** — *(IO.md I12)*
-- [ ] **Description-page shape** — second output whose content is not the bytes;
-      no item owns it. *(IO.md I8→I13, DESIGN.md)*
+- [ ] **Eager srcset** — parked with the rendition work above.
+- [ ] **Description-page shape** — second output whose content is not the
+      bytes; no item owns it.
 
 ## MERGE leftovers (Matt's calls)
 
-Not work until decided. Full text stays in MERGE.md §7.
+Not work until decided. The retired MERGE ledger's §7 holds the full text.
 
 - [ ] **Variant validation policy** — silent degradation for row requests across
       themes, but a view `variant` naming a fragment no loaded theme provides is
-      probably a typo. Warning? Error? *(MERGE.md §7 q2)*
+      probably a typo. Warning? Error?
 - [ ] **Vocabulary pass remainder** — `shell`/`tier`/`frame`, `kind`, row
       `layout`, `[[parts]]` spelling, `template`, tree `source`. Every rename
-      touches documented surface. *(MERGE.md §7 q6)*
+      touches documented surface.
 - [ ] **`--effective` struct-level defaults** — nested defaults invisible when
       neither base nor site writes the table. Grow `--effective`, or a future
-      `config --projected`? *(MERGE.md §7 q11)*
+      `config --projected`?
 
 ## Known gaps: document, don't fix
 
@@ -217,7 +217,7 @@ the manual (ch. 35 or the relevant chapter), not a commit. *(from doc prose)*
       part. (§5e)
 - [ ] **Bare-name resolution is parked** — all 194 site invocations use paths,
       so §6a's bubble-and-bucket branch never had production coverage; it is
-      specced-and-parked and the `bucket` key is deleted (MERGE.md F1). §0's
+      specced-and-parked and the `bucket` key is deleted. §0's
       tour now writes the path form. Reintroduction trigger: page bundles
       (§5b). (§6a)
 - [ ] **Embedding text includes title and tags** — retitling re-embeds, so
