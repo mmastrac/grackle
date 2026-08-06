@@ -125,6 +125,9 @@ icon = 'site.icon'
 # Locale twins as hreflang alternates (self included). See base.toml.
 # `from = "axis.<name>"` expands over any declared axis's include-self pool.
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
+# Feed discoverability: one link per materialized route wearing the atom
+# fold shell; the explicit `rel` frees the key to be a name. See base.toml.
+feed = { from = "shell.atom", rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
 
 # Extension → media type. See base.toml.
 [media_types]

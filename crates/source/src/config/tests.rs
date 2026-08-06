@@ -440,7 +440,6 @@ fn the_flag_family_is_queryable_on_pages() {
         .expect("!draft && !hidden should type-check against a page");
 }
 
-
 /// The site's rules go first, which is the whole mechanism:
 /// first-writer-wins then hands the route to the site and lets the base's
 /// catch-all fill whatever is left. Mutation-checked by reversing the

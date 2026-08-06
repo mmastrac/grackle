@@ -95,9 +95,14 @@ sites via the `SEARCH_VER` path coupling).
       `@skip`, `id="content"` on main. `expando` stays a stamped name with
       no CSS until a fragment uses it: rules for markup that does not
       exist would be speculation.
-- [ ] **Head expand over fold shells** — `{ from = "shell.atom", rel = … }`
-      pool; an explicit `rel` frees the key to be a name; base.toml gains the
-      feed-discoverability link entry.
+- [x] **Head expand over fold shells** *(2026-08-06)* — `{ from =
+      "shell.atom", rel = … }` pools the materialized routes wearing that
+      fold shell (every member, where the chrome part links only the first);
+      an explicit `rel` frees the key to be a name; base.toml gained the
+      feed-discoverability link entry. `require = true` upgrades an absent
+      pool source (no route wears the shell; an undeclared axis) from
+      stand-down to a refusal — load-time for the axis half, build-time for
+      the shell half.
 - [x] **`search.js` URL derivation** *(2026-08-05)* — the loader fetches the
       bin at the search route's own path, substituted at emission, with the
       format version as a cache-busting query (`?v1`) so a format bump still

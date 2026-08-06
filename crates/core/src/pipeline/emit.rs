@@ -46,6 +46,7 @@ pub(crate) fn run(
     };
     // Chrome-part facts, computed once per build.
     let chrome_facts = preview::ChromeFacts::of(cfg, db);
+    prepass::check_required_expands(metas, &chrome_facts)?;
     // ---- row documents held in `bodies` -> theme fragments -> shell
     //
     // Body-held routes take the document path; tree pages re-read into
@@ -71,6 +72,13 @@ pub(crate) fn run(
             // whole difference between an alternative form and a duplicate
             // page. For a row on no axis this is the route's own URL anyway.
             head.meta = render::eval_metas(metas, p, &site, &head.title, &p.url);
+            head.meta.extend(prepass::head_fold_links(
+                metas,
+                &site,
+                &head.title,
+                &chrome_facts,
+                db,
+            ));
             head.injected = bodies[&p.key].heads.clone();
             let trail = crate::trails::post_trail(cfg, db, p);
             let whole = bodies[&p.key].whole.as_str();
@@ -319,7 +327,14 @@ pub(crate) fn run(
             &frag,
         );
         let site = site.with_title(cfg.site_title(loc));
-        let head = render::head_for(&title, &r.url, &site, metas, r);
+        let mut head = render::head_for(&title, &r.url, &site, metas, r);
+        head.meta.extend(prepass::head_fold_links(
+            metas,
+            &site,
+            &title,
+            &chrome_facts,
+            db,
+        ));
         let dir = src.parent().unwrap_or(root);
         let (html_attrs, body_attrs) = (
             render::eval_attrs(&attrs.html, cfg, row, &site, &title, &r.url),
@@ -437,6 +452,13 @@ pub(crate) fn run(
                     Some(p) => render::head_for(&title, &p.url, &site, metas, p),
                     None => render::head_for(&title, &r.url, &site, metas, r),
                 };
+                head.meta.extend(prepass::head_fold_links(
+                    metas,
+                    &site,
+                    &title,
+                    &chrome_facts,
+                    db,
+                ));
                 if let Some(doc) = &pb.doc {
                     head.injected = doc.heads.clone();
                 }

@@ -97,8 +97,12 @@ store = ["title", "date"]
 #
 # A value may also be an *expand*: `{ from = "…", attr = 'expr', … }` emits
 # one tag per member of a candidate pool (`from` is the same word a relation
-# spells). That is how a variable-length list — `rel="alternate" hreflang` ×
-# n — folds into the same tables (§4e residue).
+# spells): `axis.<name>` pools a declared axis's include-self members;
+# `shell.<fold>` pools the materialized routes wearing that fold shell. That
+# is how a variable-length list — `rel="alternate" hreflang` × n — folds into
+# the same tables (§4e residue). An absent pool source stands the entry down,
+# which is what lets this file inherit everywhere; `require = true` upgrades
+# that absence to a refusal.
 #
 # Three tables because there are three head elements, not three mechanisms:
 #   [html.head.meta]      <meta name="K" content="V">
@@ -161,6 +165,14 @@ icon = 'site.icon'
 # `from = "axis.<name>"` expands over any declared axis's include-self pool;
 # a monolingual page yields one member and emits nothing.
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
+# Feed discoverability: one link per materialized route wearing the atom
+# fold shell — the head twin of the footer's `feed` chrome part (that one
+# links only the first; discoverability lists them all). The explicit `rel`
+# frees the key to be a name, `alternate` above being spent on hreflang.
+# No atom route ⇒ empty pool ⇒ no tag, which is what lets every site
+# inherit this line; a site that must not ship without its feed adds
+# `require = true`.
+feed = { from = "shell.atom", rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
 
 # Schema.org BlogPosting for dated rows. Nested tables are JSON objects;
 # string leaves are the same CEL surface as the meta tables. Empty `@type`

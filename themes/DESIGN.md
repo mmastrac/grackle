@@ -485,11 +485,17 @@ in the base root like the frame itself.
 
 ### Derived surfaces
 
-- **Head**: the expand form gains a second pool — `{ from = "shell.atom",
-  rel = '"alternate"', type = '"application/atom+xml"', title =
-  'site.title', href = 'site.url + url' }` expands over fold routes wearing
-  that shell. An explicit `rel` frees the key to be a name, because
-  `alternate` is already spent on hreflang.
+- **Head** *(built 2026-08-06)*: the expand form gains a second pool —
+  `{ from = "shell.atom", rel = '"alternate"', type =
+  '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }`
+  expands over fold routes wearing that shell, every member in route order
+  (discoverability lists all feeds, where the chrome part links only the
+  first). An explicit `rel` frees the key to be a name, because `alternate`
+  is already spent on hreflang. An absent pool source stands the entry down —
+  the base inherits its feed line everywhere — and `require = true` upgrades
+  absence to a refusal: at load for an undeclared axis, at build for a shell
+  no route wears. The fold vocabulary is closed, so `shell.<typo>` is a load
+  error rather than an empty pool.
 - **`search.js` fetches the index at the path the search route declared** —
   substituted at emission, never matched by hand. This deletes the
   `SEARCH_VER`-coupling class of 404 (both example sites ship it today) and

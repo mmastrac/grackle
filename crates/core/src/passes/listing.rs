@@ -68,7 +68,10 @@ impl Pass for Listing {
             &title, &r.url, trail, intro, content, pagination,
         ));
         let site = ctx.site.with_title(cfg.site_title(loc.as_str()));
-        let head = render::head_for(&title, &r.url, &site, ctx.metas, r);
+        let mut head = render::head_for(&title, &r.url, &site, ctx.metas, r);
+        head.meta.extend(crate::pipeline::prepass::head_fold_links(
+            ctx.metas, &site, &title, ctx.chrome, ctx.db,
+        ));
         let resolve = fill_link_resolver(cfg, ctx.linkspace, loc.as_str());
         let html_attrs = render::eval_attrs(&ctx.attrs.html, cfg, r, &site, &title, &r.url);
         let body_attrs = render::eval_attrs(&ctx.attrs.body, cfg, r, &site, &title, &r.url);

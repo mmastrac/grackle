@@ -1083,8 +1083,14 @@ impl PartialEq<String> for HeadEntry {
 /// One tag per member of `from`; attrs are CEL.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HeadExpand {
-    /// Candidate pool (relation / `axis.*`), same word as RelationCfg::from.
+    /// Candidate pool (`axis.*` / `shell.*`), same word as RelationCfg::from.
     pub from: String,
+    /// The pool's source must exist: a `shell.*` expand fails the build when
+    /// no route wears the shell; an `axis.*` expand fails load when the axis
+    /// is undeclared. Default false: an absent source empties the pool and
+    /// the entry stands down, which is what lets the base config inherit.
+    #[serde(default)]
+    pub require: bool,
     #[serde(flatten)]
     pub attrs: BTreeMap<String, String>,
 }

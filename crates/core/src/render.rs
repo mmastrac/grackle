@@ -149,8 +149,19 @@ pub enum Decl {
         tag: Tag,
         key: String,
         from: String,
+        /// The pool's source must exist once routes materialize.
+        require: bool,
         attrs: Vec<(String, crate::filter::Text)>,
     },
+}
+
+/// The table a declared tag was spelled in, for error messages.
+pub fn table_name(tag: Tag) -> &'static str {
+    match tag {
+        Tag::Meta => "[html.head.meta]",
+        Tag::Property => "[html.head.property]",
+        Tag::Link => "[html.head.link]",
+    }
 }
 
 /// The primary attribute a table-form entry must carry, by element.
@@ -245,6 +256,14 @@ fn with_site(mut s: crate::filter::Schema) -> crate::filter::Schema {
     s
 }
 
+/// Every fold-shell name a `shell.*` expand may pool over: the built-ins
+/// plus this site's registered script shells.
+fn fold_names(cfg: &Config) -> String {
+    let mut names: Vec<&str> = crate::shell::FOLD.to_vec();
+    names.extend(cfg.shells.keys().map(String::as_str));
+    names.join(", ")
+}
+
 pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<Metas> {
     use crate::config::HeadEntry;
     let mut env = grackle_model::row_schema();
@@ -281,6 +300,38 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                         exp.attrs.contains_key("href"),
                         "{whose} {key}: an expand needs an href expression"
                     );
+                    if let Some(shell) = exp.from.strip_prefix("shell.") {
+                        // The fold vocabulary is closed, so a name outside it
+                        // is a typo, never an empty pool.
+                        anyhow::ensure!(
+                            !crate::shell::is_map(shell),
+                            "{whose} {key}: from = \"shell.{shell}\" names a map \
+                             shell — a map shell wraps one output per row, so \
+                             there is no pool. Expand pools are fold routes: {}",
+                            fold_names(cfg),
+                        );
+                        anyhow::ensure!(
+                            crate::shell::is_fold(shell) || cfg.shells.contains_key(shell),
+                            "{whose} {key}: from = \"shell.{shell}\" is not a \
+                             fold shell — the pool is routes wearing one of: {}",
+                            fold_names(cfg),
+                        );
+                    } else if let Some(axis) = exp.from.strip_prefix("axis.") {
+                        // An undeclared axis is an empty pool, not an error —
+                        // the base hreflang entry inherits into axis-less
+                        // sites. `require` upgrades absence to a refusal.
+                        anyhow::ensure!(
+                            !exp.require || cfg.axes.contains_key(axis),
+                            "{whose} {key}: require = true but no [axes.{axis}] \
+                             is declared — declare the axis or drop require"
+                        );
+                    } else {
+                        anyhow::bail!(
+                            "{whose} {key}: from = {:?} — an expand pool is \
+                             spelled `axis.<name>` or `shell.<fold>`",
+                            exp.from
+                        );
+                    }
                     let mut attrs = Vec::new();
                     for (attr, src) in &exp.attrs {
                         let expr = crate::filter::Text::parse(src, &env)
@@ -291,6 +342,7 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                         tag,
                         key: key.clone(),
                         from: exp.from.clone(),
+                        require: exp.require,
                         attrs,
                     });
                 }
@@ -563,6 +615,77 @@ pub fn eval_expands<'a>(
                 href,
                 hreflang,
                 media_type,
+            });
+        }
+    }
+    out
+}
+
+/// Evaluate `from = "shell.<fold>"` expands: one tag per materialized route
+/// wearing that fold shell, every member in route order (discoverability
+/// lists all feeds, where the chrome part links only the first).
+///
+/// On a link entry an explicit `rel` attribute is the emitted rel, freeing
+/// the key to be a name; without one the key is the rel, like every other
+/// link entry. An explicit rel that evaluates empty deletes the tag, the
+/// empty-part rule again; so does an empty primary attribute (href).
+pub fn eval_fold_expands<'a>(
+    metas: &Metas,
+    site: &Site,
+    title: &str,
+    mut pool_for: impl FnMut(&str) -> Vec<(&'a dyn crate::filter::Row, &'a str)>,
+) -> Vec<MetaItem> {
+    let mut out = Vec::new();
+    for d in &metas.tags {
+        let Decl::Expand {
+            tag,
+            key,
+            from,
+            attrs,
+            ..
+        } = d
+        else {
+            continue;
+        };
+        let Some(shell) = from.strip_prefix("shell.") else {
+            continue;
+        };
+        let primary = primary_attr(*tag);
+        for (row, url) in pool_for(shell) {
+            let env = HeadRow {
+                row,
+                site,
+                title,
+                url,
+            };
+            let mut rel = None;
+            let mut value = String::new();
+            let mut extra = Vec::new();
+            for (attr, expr) in attrs {
+                let v = expr.eval(&env);
+                if *tag == Tag::Link && attr == "rel" {
+                    rel = Some(v);
+                } else if v.is_empty() {
+                    continue;
+                } else if attr == primary {
+                    value = v;
+                } else {
+                    extra.push((attr.clone(), v));
+                }
+            }
+            if value.is_empty() {
+                continue;
+            }
+            let key = match rel {
+                Some(r) if r.is_empty() => continue,
+                Some(r) => r,
+                None => key.clone(),
+            };
+            out.push(MetaItem {
+                tag: *tag,
+                key,
+                value,
+                attrs: extra,
             });
         }
     }
@@ -987,6 +1110,90 @@ mod meta_tests {
             }]
         })
         .is_empty());
+    }
+
+    /// A fold pool emits every member — one feed, one link, unlike the axis
+    /// pool's monolingual stand-down — and the explicit `rel` is the emitted
+    /// rel, freeing the key to be a name.
+    #[test]
+    fn a_fold_expand_emits_per_route_and_rel_frees_the_key() {
+        let c = Config::from_toml(
+            "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+             [html.head.link]\n\
+             feed = { from = \"shell.atom\", rel = '\"alternate\"', type = '\"application/atom+xml\"', title = 'site.title', href = 'site.url + url' }\n",
+        )
+        .unwrap();
+        let m = compile_metas(&c, &declared()).unwrap();
+        let r = grackle_model::Row::default();
+        let items = eval_fold_expands(&m, &site(), "Hello", |shell| {
+            assert_eq!(shell, "atom");
+            vec![(&r as &dyn crate::filter::Row, "/atom.xml")]
+        });
+        assert_eq!(items.len(), 1, "{items:?}");
+        assert_eq!(items[0].tag, Tag::Link);
+        assert_eq!(items[0].key, "alternate", "rel beats the key");
+        assert_eq!(items[0].value, "https://e.com/atom.xml");
+        let attrs: std::collections::BTreeMap<_, _> = items[0].attrs.iter().cloned().collect();
+        assert_eq!(attrs.get("title").map(String::as_str), Some("T"));
+        assert_eq!(
+            attrs.get("type").map(String::as_str),
+            Some("application/atom+xml")
+        );
+        // Two feeds, two links — discoverability lists them all.
+        let both = eval_fold_expands(&m, &site(), "Hello", |_| {
+            vec![
+                (&r as &dyn crate::filter::Row, "/atom.xml"),
+                (&r as &dyn crate::filter::Row, "/notes/atom.xml"),
+            ]
+        });
+        assert_eq!(both.len(), 2, "{both:?}");
+        // No feed route: the pool is empty and the entry stands down.
+        assert!(eval_fold_expands(&m, &site(), "Hello", |_| vec![]).is_empty());
+    }
+
+    /// The fold vocabulary is closed, so a bad pool name refuses at load:
+    /// a typo, a map shell (one output per row, no pool), or neither spelling.
+    #[test]
+    fn a_fold_expand_pool_must_name_a_fold_shell() {
+        for (entry, expect) in [
+            ("shell.bogus", "atom, sitemap, search"),
+            ("shell.html", "map shell"),
+            ("posts", "`axis.<name>` or `shell.<fold>`"),
+        ] {
+            let c = Config::from_toml(&format!(
+                "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
+                 [html.head.link]\nfeed = {{ from = \"{entry}\", href = 'site.url + url' }}\n"
+            ))
+            .unwrap();
+            let e = format!("{:#}", compile_metas(&c, &declared()).unwrap_err());
+            assert!(e.contains("[html.head.link] feed"), "{e}");
+            assert!(e.contains(expect), "{e}");
+        }
+    }
+
+    /// `require = true` upgrades an absent pool source to a refusal; the
+    /// axis half refuses at load, when the axis is undeclared.
+    #[test]
+    fn require_on_an_undeclared_axis_refuses_at_load() {
+        let head = "[html.head.link]\n\
+             alternate = { from = \"axis.locale\", require = true, href = 'site.url + url' }\n";
+        let c = Config::from_toml(&format!(
+            "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n{head}"
+        ))
+        .unwrap();
+        let e = format!("{:#}", compile_metas(&c, &declared()).unwrap_err());
+        assert!(e.contains("require = true"), "{e}");
+        assert!(e.contains("[axes.locale]"), "{e}");
+
+        // Without require, the same undeclared axis is an empty pool, not an
+        // error — the base hreflang entry inherits into axis-less sites.
+        let head = "[html.head.link]\n\
+             alternate = { from = \"axis.locale\", href = 'site.url + url' }\n";
+        let c = Config::from_toml(&format!(
+            "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n{head}"
+        ))
+        .unwrap();
+        assert!(compile_metas(&c, &declared()).is_ok());
     }
 
     #[test]

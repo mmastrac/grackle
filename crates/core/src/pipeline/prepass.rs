@@ -80,6 +80,53 @@ pub(crate) fn head_alternates<'a>(
     alternates
 }
 
+/// Declared `shell.*` expand tags for one page: one per fold route wearing
+/// the named shell, evaluated in this page's env (the locale-resolved site
+/// title travels with `site`). Appended to the page's metas wherever a
+/// computed head is built.
+pub(crate) fn head_fold_links(
+    metas: &crate::render::Metas,
+    site: &crate::render::Site,
+    title: &str,
+    facts: &crate::passes::preview::ChromeFacts,
+    db: &SiteDb,
+) -> Vec<crate::render::MetaItem> {
+    crate::render::eval_fold_expands(metas, site, title, |shell| facts.fold_pool(db, shell))
+}
+
+/// `require = true` on a `shell.*` expand: once routes materialize the pool
+/// must be non-empty, so a site that demands its feed link fails loudly
+/// instead of shipping heads without it. The axis half (an undeclared axis)
+/// refuses at load, in `compile_metas`.
+pub(crate) fn check_required_expands(
+    metas: &crate::render::Metas,
+    facts: &crate::passes::preview::ChromeFacts,
+) -> Result<()> {
+    for d in &metas.tags {
+        let crate::render::Decl::Expand {
+            tag,
+            key,
+            from,
+            require,
+            ..
+        } = d
+        else {
+            continue;
+        };
+        let Some(shell) = from.strip_prefix("shell.") else {
+            continue;
+        };
+        if *require && facts.fold_is_empty(shell) {
+            anyhow::bail!(
+                "{} {key}: require = true but no materialized route wears \
+                 shell = \"{shell}\" — declare the route or drop require",
+                crate::render::table_name(*tag),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The media type a member URL advertises as a `rel="alternate"` `type`, or
 /// `None` for an ordinary HTML page (a restyle names no type, it is the same
 /// representation). Keyed off the URL's extension against `[media_types]`.

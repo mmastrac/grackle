@@ -12,19 +12,24 @@ use crate::parts;
 use crate::pipeline::types::PageBody;
 use crate::theme;
 
-/// The site-global facts the chrome parts fill from: which capability
-/// routes materialized. Computed once per build.
+/// The site-global facts the chrome parts and the head's `shell.*` expands
+/// fill from: which capability routes materialized. Computed once per build.
 pub struct ChromeFacts {
     /// A `shell = "search"` route exists.
     search: bool,
     /// The first `shell = "atom"` route's URL, in route order.
     feed_url: Option<String>,
+    /// Route keys per fold-shell name, in route order — the pools a
+    /// `{ from = "shell.<fold>" }` head expand iterates.
+    folds: std::collections::HashMap<String, Vec<grackle_model::Key>>,
 }
 
 impl ChromeFacts {
     pub(crate) fn of(cfg: &Config, db: &SiteDb) -> ChromeFacts {
         let mut search = false;
         let mut feed_url = None;
+        let mut folds: std::collections::HashMap<String, Vec<grackle_model::Key>> =
+            Default::default();
         for r in &db.routes {
             let Some(v) = r.view.as_ref().and_then(|v| cfg.views.get(v)) else {
                 continue;
@@ -44,8 +49,40 @@ impl ChromeFacts {
                 }
                 _ => {}
             }
+            if let Some(s) = v.shell.as_deref() {
+                if !crate::shell::is_map(s) {
+                    folds
+                        .entry(s.to_string())
+                        .or_default()
+                        .push(grackle_db::Keyed::key(r).clone());
+                }
+            }
         }
-        ChromeFacts { search, feed_url }
+        ChromeFacts {
+            search,
+            feed_url,
+            folds,
+        }
+    }
+
+    /// The expand pool for `from = "shell.<name>"`: every materialized route
+    /// wearing that fold shell, in route order.
+    pub(crate) fn fold_pool<'a>(
+        &self,
+        db: &'a SiteDb,
+        shell: &str,
+    ) -> Vec<(&'a dyn crate::filter::Row, &'a str)> {
+        self.folds
+            .get(shell)
+            .into_iter()
+            .flatten()
+            .filter_map(|k| db.routes.get(k))
+            .map(|r| (r as &dyn crate::filter::Row, r.url.as_str()))
+            .collect()
+    }
+
+    pub(crate) fn fold_is_empty(&self, shell: &str) -> bool {
+        self.folds.get(shell).is_none_or(|v| v.is_empty())
     }
 }
 
