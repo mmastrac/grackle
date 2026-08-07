@@ -5,13 +5,13 @@
 //!
 //! Resolution, per markdown link destination:
 //! - `view:name` / `view:name/key…` -> the view's route template rendered
-//!  with the keys (tag slugs applied), locale-aware, verified against the
-//!  materialized route set, a typo'd key errors LISTING the keys.
+//!   with the keys (tag slugs applied), locale-aware, verified against the
+//!   materialized route set, a typo'd key errors LISTING the keys.
 //! - a source path (relative to the linking file, or root-relative) -> the
-//!  row's URL. Unknown source = error with a closest-match suggestion.
+//!   row's URL. Unknown source = error with a closest-match suggestion.
 //! - a raw internal URL: `loose` leaves it (the legacy-corpus posture);
-//!  `strict` errors, suggesting the correct source/`view:` form.
-//!  External schemes, fragments and mailto pass through untouched.
+//!   `strict` errors, suggesting the correct source/`view:` form.
+//!   External schemes, fragments and mailto pass through untouched.
 
 use anyhow::{bail, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};

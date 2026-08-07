@@ -197,7 +197,7 @@ pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec
             "{}: fills slot {slot:?}, which no loaded theme's root places{hint} — \
              slots the tree may fill: {}",
             file.display(),
-            crate::util::join_or_none(&known)
+            crate::util::join_or_none(known)
         ));
     }
     out

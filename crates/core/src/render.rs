@@ -114,6 +114,7 @@ pub struct Metas {
 
 /// One node of a compiled JSON-LD tree.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // `Text` is the CEL payload; boxing it would cost a hop on every node.
 pub enum JsonLdNode {
     Expr(crate::filter::Text),
     Object(std::collections::BTreeMap<String, JsonLdNode>),
@@ -548,7 +549,7 @@ fn eval_jsonld_node(node: &JsonLdNode, env: &impl crate::filter::Row) -> Option<
     match node {
         JsonLdNode::Expr(expr) => {
             let s = expr.eval(env);
-            (!s.is_empty()).then(|| serde_json::Value::String(s))
+            (!s.is_empty()).then_some(serde_json::Value::String(s))
         }
         JsonLdNode::Object(map) => eval_jsonld_object(map, env).map(serde_json::Value::Object),
     }

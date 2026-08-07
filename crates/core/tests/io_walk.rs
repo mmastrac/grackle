@@ -6,13 +6,13 @@
 //! per law plus the controls a narrowing owes:
 //!
 //! - **the most-specific-source ordering**, scopes are asked deepest source
-//!  first, sourceless scopes above the root, so `_posts` beats the tree
-//!  whatever order the config declared them in;
+//!   first, sourceless scopes above the root, so `_posts` beats the tree
+//!   whatever order the config declared them in;
 //! - **a scope owns its source**, a file under a scope's source that no rule
-//!  of that scope claims is not content, so an image beside a draft never
-//!  reaches the objects catch-all or the tree's passthrough;
+//!   of that scope claims is not content, so an image beside a draft never
+//!   reaches the objects catch-all or the tree's passthrough;
 //! - **the punch-through**, the dot/underscore skip survives, and a declared
-//!  `source` is admitted through it while every undeclared `_dir` stays out.
+//!   `source` is admitted through it while every undeclared `_dir` stays out.
 //!
 //! Built sites rather than loaded ones, throughout. What these laws decide is
 //! what the site PUBLISHES, and a test that asked the loader whether a row

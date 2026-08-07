@@ -55,13 +55,13 @@ fn selected(dir: &Path, route: &str) -> Vec<String> {
 /// them is a different consumer's whole answer:
 ///
 /// - `by_name` is what `grackle query stats` reports distinct and ambiguous
-/// names from, the measurement collision argument rests on, which is
-///  why the fixture carries two `shot.png`s in different directories;
+///   names from, the measurement collision argument rests on, which is
+///   why the fixture carries two `shot.png`s in different directories;
 /// - `by_name` is also what the listing pass asks per member (`ctx.objects`),
-///  and an object member previews as a PICTURE while a row member previews as
-///  prose, so the gallery is where losing the index shows;
+///   and an object member previews as a PICTURE while a row member previews as
+///   prose, so the gallery is where losing the index shows;
 /// - `width`/`height` come from a header read the loader only performs on the
-///  rows this fact names.
+///   rows this fact names.
 ///
 /// Mutation: send former-object rows to `pages` instead (`(_, true) =>
 /// objects.push(row)` -> `pages.push(row)`), the index empties, `by_name` goes

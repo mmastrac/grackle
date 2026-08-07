@@ -13,10 +13,10 @@
 //! This splits the two jobs `thumbnail.rb` conflated:
 //!
 //!  * a **build cache**, `_cache/thumbs/{hash}.{ext}`, gitignored, never
-//!  shipped, keyed by content so it is self-invalidating and safe to delete;
+//!    shipped, keyed by content so it is self-invalidating and safe to delete;
 //!  * a **published location**, `/static/{hash}.{ext}`, where the extension
-//!  travels with the URL (no sniffing, no `.htaccess`) and the content hash
-//!  makes `Cache-Control: immutable` correct by construction.
+//!    travels with the URL (no sniffing, no `.htaccess`) and the content hash
+//!    makes `Cache-Control: immutable` correct by construction.
 //!
 //! **The hashing law, and where it is spent**. The address hashes
 //! the *input bytes plus the transform parameters, never the output bytes*, so

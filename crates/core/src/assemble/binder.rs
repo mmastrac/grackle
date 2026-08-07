@@ -257,7 +257,7 @@ impl Fragments {
 /// Walk a node tree: stream/map holes with element children become named
 /// fragments when `NAME` is not already file-backed. A later inline replaces
 /// an earlier one (theme overlay over base); a real file always wins.
-fn extract_inline_nodes(nodes: &mut Vec<Node>, frags: &mut Fragments, parent_file: &str) {
+fn extract_inline_nodes(nodes: &mut [Node], frags: &mut Fragments, parent_file: &str) {
     for n in nodes.iter_mut() {
         let Node::Element(el) = n else { continue };
         let Some(fname) = el.fragment.clone() else {

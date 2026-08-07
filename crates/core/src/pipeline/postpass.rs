@@ -131,17 +131,17 @@ pub(crate) fn strip_view_markers(out: &mut SiteOutput) {
 /// Two halves, and the pair is the whole model:
 ///
 /// 1. **A rendition is an output of its input.** One `Route` per distinct
-///  address, carrying `inputs`, the rows whose bytes fed the transform,
-///  and `rendition`, the parameters it was made with. That pair is the
-///  reproduction recipe: read those bytes, run `thumbs::render` with those
-///  parameters, get these bytes back. The edge runs **input -> output**,
-///  because the transform reads the INPUT's bytes and never the original
-///  output's; see `graph.rs` for what that answers.
+///    address, carrying `inputs`, the rows whose bytes fed the transform,
+///    and `rendition`, the parameters it was made with. That pair is the
+///    reproduction recipe: read those bytes, run `thumbs::render` with those
+///    parameters, get these bytes back. The edge runs **input -> output**,
+///    because the transform reads the INPUT's bytes and never the original
+///    output's; see `graph.rs` for what that answers.
 /// 2. **The citing edge names it.** An output whose finished bytes embed a
-///  rendition address gains a FACTS edge to it (`route_members`), it read
-///  the rendition's *url*, which the hashing law makes knowable at planning,
-///  and not its content, plus the CONTENT edges to the rows behind it,
-///  because those bytes are what its address is a function of.
+///    rendition address gains a FACTS edge to it (`route_members`), it read
+///    the rendition's *url*, which the hashing law makes knowable at planning,
+///    and not its content, plus the CONTENT edges to the rows behind it,
+///    because those bytes are what its address is a function of.
 ///
 /// The second half's content edges are required where an affordance shows
 /// a rendition and links nothing else: a LISTING with a hero picture cites only
@@ -487,6 +487,78 @@ pub(crate) fn cited_urls(text: &str, base_url: &str, site_url: &str) -> Vec<Stri
     out
 }
 
+#[allow(clippy::too_many_arguments)]
+/// Search index and CSS compilation.
+/// Compile every theme's stylesheet and resolve the URL each is linked at, per
+/// `[assets] addressing`. Runs ahead of `emit`: in `hashed` mode a sheet's URL
+/// is a function of its compiled bytes, so the pages that link it must render
+/// knowing the resolved URL. The bytes land in `out_map` at that URL, and the
+/// returned [`CssUrls`] carries the theme-to-URL map for the render passes.
+pub(crate) fn stylesheets(
+    cfg: &Config,
+    db: &SiteDb,
+    themes: &crate::theme::Themes,
+    root: &Path,
+    theme_dir: &Path,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) -> Result<crate::assets::CssUrls> {
+    let addressing = crate::assets::Addressing::parse(&cfg.assets.addressing)?;
+    let overlay = crate::shells::css::site_overlay(root, &db.style_dirs, stats);
+    let mut urls = crate::assets::CssUrls::default();
+
+    // The default theme's dir is passed in. The rest live under themes/<name>.
+    let mut targets: Vec<(Option<&str>, std::path::PathBuf)> =
+        vec![(None, theme_dir.to_path_buf())];
+    for name in themes.names().filter(|n| *n != "default") {
+        targets.push((Some(name), root.join("themes").join(name)));
+    }
+    for (theme, dir) in targets {
+        let head_style = themes.get(theme)?.head_style();
+        let bytes = crate::shells::css::css_pass(&dir, head_style, overlay.as_deref(), stats)?;
+        let stable = crate::theme::css_url(&cfg.site.baseurl, theme);
+        let url = addressing.css_url(&cfg.site.baseurl, &stable, &bytes);
+        out_map.insert(url.clone(), bytes);
+        urls.insert(theme, url);
+    }
+    Ok(urls)
+}
+
+/// The search index shell and the link warnings drained after render.
+pub(crate) fn search(
+    cfg: &Config,
+    db: &SiteDb,
+    bodies: &HashMap<&grackle_db::Key, Doc>,
+    page_bodies: &HashMap<String, PageBody>,
+    linkspace: &crate::links::LinkSpace,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) -> Result<Vec<String>> {
+    crate::shells::search::search_pass(cfg, db, bodies, page_bodies, out_map, stats)?;
+    let mut warnings = Vec::new();
+    for w in linkspace.take_warnings() {
+        eprintln!("grackle: {w}");
+        warnings.push(w);
+    }
+    Ok(warnings)
+}
+
+/// Citations, on-demand publish, rendition joins, strip splice markers.
+pub(crate) fn citations(
+    cfg: &Config,
+    db: &mut SiteDb,
+    thumbs: &crate::thumbs::Renditions,
+    out_map: &mut SiteOutput,
+    stats: &mut Stats,
+) -> Result<()> {
+    let mut cited = citation_map(out_map, &cfg.site.url);
+    stats.on_demand = materialize_referenced(db, out_map, &cfg.site.url, &mut cited)?;
+    join_citations(db, &cited);
+    join_renditions(db, thumbs, &cited);
+    strip_view_markers(out_map);
+    Ok(())
+}
+
 #[cfg(test)]
 mod cited_url_tests {
     use super::{cited_urls, cited_urls_cited};
@@ -565,76 +637,4 @@ mod cited_url_tests {
             "external citations must not be treated as ours: {refs:?}"
         );
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-/// Search index and CSS compilation.
-/// Compile every theme's stylesheet and resolve the URL each is linked at, per
-/// `[assets] addressing`. Runs ahead of `emit`: in `hashed` mode a sheet's URL
-/// is a function of its compiled bytes, so the pages that link it must render
-/// knowing the resolved URL. The bytes land in `out_map` at that URL, and the
-/// returned [`CssUrls`] carries the theme-to-URL map for the render passes.
-pub(crate) fn stylesheets(
-    cfg: &Config,
-    db: &SiteDb,
-    themes: &crate::theme::Themes,
-    root: &Path,
-    theme_dir: &Path,
-    out_map: &mut SiteOutput,
-    stats: &mut Stats,
-) -> Result<crate::assets::CssUrls> {
-    let addressing = crate::assets::Addressing::parse(&cfg.assets.addressing)?;
-    let overlay = crate::shells::css::site_overlay(root, &db.style_dirs, stats);
-    let mut urls = crate::assets::CssUrls::default();
-
-    // The default theme's dir is passed in. The rest live under themes/<name>.
-    let mut targets: Vec<(Option<&str>, std::path::PathBuf)> =
-        vec![(None, theme_dir.to_path_buf())];
-    for name in themes.names().filter(|n| *n != "default") {
-        targets.push((Some(name), root.join("themes").join(name)));
-    }
-    for (theme, dir) in targets {
-        let head_style = themes.get(theme)?.head_style();
-        let bytes = crate::shells::css::css_pass(&dir, head_style, overlay.as_deref(), stats)?;
-        let stable = crate::theme::css_url(&cfg.site.baseurl, theme);
-        let url = addressing.css_url(&cfg.site.baseurl, &stable, &bytes);
-        out_map.insert(url.clone(), bytes);
-        urls.insert(theme, url);
-    }
-    Ok(urls)
-}
-
-/// The search index shell and the link warnings drained after render.
-pub(crate) fn search(
-    cfg: &Config,
-    db: &SiteDb,
-    bodies: &HashMap<&grackle_db::Key, Doc>,
-    page_bodies: &HashMap<String, PageBody>,
-    linkspace: &crate::links::LinkSpace,
-    out_map: &mut SiteOutput,
-    stats: &mut Stats,
-) -> Result<Vec<String>> {
-    crate::shells::search::search_pass(cfg, db, bodies, page_bodies, out_map, stats)?;
-    let mut warnings = Vec::new();
-    for w in linkspace.take_warnings() {
-        eprintln!("grackle: {w}");
-        warnings.push(w);
-    }
-    Ok(warnings)
-}
-
-/// Citations, on-demand publish, rendition joins, strip splice markers.
-pub(crate) fn citations(
-    cfg: &Config,
-    db: &mut SiteDb,
-    thumbs: &crate::thumbs::Renditions,
-    out_map: &mut SiteOutput,
-    stats: &mut Stats,
-) -> Result<()> {
-    let mut cited = citation_map(out_map, &cfg.site.url);
-    stats.on_demand = materialize_referenced(db, out_map, &cfg.site.url, &mut cited)?;
-    join_citations(db, &cited);
-    join_renditions(db, thumbs, &cited);
-    strip_view_markers(out_map);
-    Ok(())
 }

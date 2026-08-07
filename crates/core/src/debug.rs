@@ -5,12 +5,12 @@
 //! person diagnosing it needs to see it, which means two differences:
 //!
 //! 1. It carries what `export` skips. Route `members` and the row flags are
-//!  `#[serde(skip)]` there, and they are exactly what answers "what picks
-//!  this up" and "why is this missing".
+//!    `#[serde(skip)]` there, and they are exactly what answers "what picks
+//!    this up" and "why is this missing".
 //! 2. Members are emitted as **URLs, not indices**. An index is only
-//!  meaningful next to the table it indexes; a URL joins to everything the
-//!  inspector already has, so the client needs no lookup tables and no
-//!  knowledge of which table a view ranges over.
+//!    meaningful next to the table it indexes; a URL joins to everything the
+//!    inspector already has, so the client needs no lookup tables and no
+//!    knowledge of which table a view ranges over.
 //!
 //! Serve-only: nothing here is emitted into a build.
 

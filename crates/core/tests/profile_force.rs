@@ -63,10 +63,10 @@ const ROBOTS: &str = r#"<meta name="robots" content="noindex,follow">"#;
 /// Mutation-checked in both directions, each restored:
 ///
 /// - delete the `schema::force` calls in `load.rs` (the row half) and the
-///  document assertion fails, the post's own `noindex: false` stands and it
-///  ships indexable inside a noindexed projection;
+///   document assertion fails, the post's own `noindex: false` stands and it
+///   ships indexable inside a noindexed projection;
 /// - delete the `force_route_fields` call (the route half) and the listing
-///  assertion fails, with `/blog/` carrying no robots meta at all.
+///   assertion fails, with `/blog/` carrying no robots meta at all.
 #[test]
 fn a_forced_field_reaches_documents_and_listings() {
     let dir = site("both");
@@ -152,10 +152,10 @@ fn build_pools(dir: &Path, profile: Option<&str>) -> (String, String) {
 /// Mutation-checked in both directions, each restored:
 ///
 /// - move the `force_route_fields` call in `load.rs::load` below the
-///  `resolve_pool_folds` call and `/pool-probe.xml` lists all three URLs
-///  under the profile, the route pool reads unforced routes;
+///   `resolve_pool_folds` call and `/pool-probe.xml` lists all three URLs
+///   under the profile, the route pool reads unforced routes;
 /// - delete the `schema::force` calls (the row half) and `/row-probe/` links
-///  the post under the profile, the row pool reads unforced rows.
+///   the post under the profile, the row pool reads unforced rows.
 #[test]
 fn a_forced_field_is_read_by_both_pools_filters() {
     let dir = pools_site("under");

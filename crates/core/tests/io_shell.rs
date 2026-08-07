@@ -23,15 +23,15 @@ use support::sitemap_urls as urls;
 /// that make `shell` answerable ship in `base.toml` rather than in Rust.
 ///
 /// - a post, and a post with no block (the caret draft's shape), the posts
-///  rule declares `html` for both;
+///   rule declares `html` for both;
 /// - a front-mattered page, and a front-mattered `index.md`, the second is
-///  the interesting one: the index rule wins its route and declares no shell,
-///  so its `html` comes from the front-matter rule matching alongside;
+///   the interesting one: the index rule wins its route and declares no shell,
+///   so its `html` comes from the front-matter rule matching alongside;
 /// - a static `.html`, a static `index.html` and a `.txt`, the catch-all
-///  declares `raw`, and the static index proves the index rule was right to
-///  stay silent (half the files it routes are byte copies);
+///   declares `raw`, and the static index proves the index rule was right to
+///   stay silent (half the files it routes are byte copies);
 /// - the base's own feed and blog listing, which answer `atom` and `html`
-///  without either being written anywhere.
+///   without either being written anywhere.
 ///
 /// The site declares where its images land and nothing else about them (the
 /// base routes none), which sharpens the census below rather than blunting
@@ -79,10 +79,10 @@ fn site(who: &str) -> PathBuf {
 /// Mutations, each restored:
 ///
 /// - delete `defaults = { shell = "html" }` from the base's front-matter rule
-///  and `/about/` and `/guide/` leave the set, loudly, since they are still
-///  *rendered* as HTML documents (the `_` arm in `build.rs` catches them),
-///  which is the point: the fact goes quiet while the bytes do not move. They
-///  land in `!shell` instead, which the fourth probe pins.
+///   and `/about/` and `/guide/` leave the set, loudly, since they are still
+///   *rendered* as HTML documents (the `_` arm in `build.rs` catches them),
+///   which is the point: the fact goes quiet while the bytes do not move. They
+///   land in `!shell` instead, which the fourth probe pins.
 /// - delete it from the posts rule and both posts leave.
 /// - delete the `shell` line from `view_fields` and `/` and `/blog/` leave.
 ///

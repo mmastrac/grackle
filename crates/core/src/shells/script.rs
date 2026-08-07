@@ -20,6 +20,7 @@ use crate::render::{self, Site};
 /// The JSON schema is TEMP (stamped "grackle-shell/0"); it gets versioned the
 /// day anything beyond an experiment depends on it. A shell that earns keeping
 /// gets promoted to a built-in.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit(
     cfg: &Config,
     db: &SiteDb,

@@ -184,7 +184,7 @@ pub fn post_trail(cfg: &Config, db: &SiteDb, p: &Row) -> Vec<(String, Option<Str
             if let (Some(tm), Some(rt)) = (crumb_tmpl(v), v.route.as_deref()) {
                 if let (Ok(label), Ok(url)) = (
                     cfg.render_localized(tm, loc, &get),
-                    crate::template::render(rt, &get),
+                    crate::template::render(rt, get),
                 ) {
                     t.push((label, Some(url)));
                     chained = true;

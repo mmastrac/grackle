@@ -203,9 +203,9 @@ impl PartType {
     }
 }
 
-/// Derived part vocabulary for a build.
-static SCHEMAS: std::sync::OnceLock<Vec<(String, Vec<(String, PartType)>)>> =
-    std::sync::OnceLock::new();
+/// Derived part vocabulary for a build: each kind's name and its ordered parts.
+type KindSchemas = Vec<(String, Vec<(String, PartType)>)>;
+static SCHEMAS: std::sync::OnceLock<KindSchemas> = std::sync::OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct Schemas {

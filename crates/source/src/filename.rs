@@ -187,11 +187,14 @@ fn fill_logical(template: &str, captures: &BTreeMap<String, String>) -> String {
     out
 }
 
+/// A field's year/month/day capture slices, before assembly.
+type DateParts<'a> = (Option<&'a str>, Option<&'a str>, Option<&'a str>);
+
 /// `(field, "YYYY-MM-DD")` per field with a year capture; missing month/day = `01`.
 pub fn dates_from_captures(
     captures: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, String>> {
-    let mut parts: BTreeMap<String, (Option<&str>, Option<&str>, Option<&str>)> = BTreeMap::new();
+    let mut parts: BTreeMap<String, DateParts<'_>> = BTreeMap::new();
     for (key, raw) in captures {
         let Some((field, part)) = key.split_once('.') else {
             continue;

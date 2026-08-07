@@ -22,9 +22,9 @@ fn expand_table_refs(cfg: &Config, text: &str, member: &str) -> String {
     while let Some(at) = rest.find('@') {
         out.push_str(&rest[..at]);
         let after = &rest[at + 1..];
-        if after.starts_with('@') {
+        if let Some(stripped) = after.strip_prefix('@') {
             out.push('@');
-            rest = &after[1..];
+            rest = stripped;
             continue;
         }
         if let Some((name, index)) = parse_table_ref(&rest[at..]) {

@@ -516,6 +516,7 @@ pub(crate) fn asset_url(baseurl: &str, s: &str) -> String {
 /// A content row as a listing member: prose when it has a body. `content` is
 /// the body already truncated by the view's `summary` field, or `None`
 /// where the caller shows no prose. Picture comes from computed `fields.hero`.
+#[allow(clippy::too_many_arguments)]
 fn content_row(
     cfg: &Config,
     schemas: &crate::parts::Schemas,

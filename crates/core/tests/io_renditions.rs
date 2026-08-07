@@ -11,20 +11,20 @@
 //! So these tests hold five claims:
 //!
 //! 1. **A rendition is an output with a content edge from its input**, and it
-//!  carries the parameters it was made with, `inputs` + `rendition` is the
-//!  reproduction recipe;
+//!    carries the parameters it was made with, `inputs` + `rendition` is the
+//!    reproduction recipe;
 //! 2. **the citing edge carries the ask**: `{% image … width=N %}` is where the
-//!  parameters are written, and two pages asking differently of one image get
-//!  two outputs (the demand union);
+//!    parameters are written, and two pages asking differently of one image get
+//!    two outputs (the demand union);
 //! 3. **the hashing law holds at the mint**: the address is a function of the
-//!  input bytes and the parameters, so it is nameable at planning, which is
-//!  exactly why a page can embed it without waiting for the transform;
+//!    input bytes and the parameters, so it is nameable at planning, which is
+//!    exactly why a page can embed it without waiting for the transform;
 //! 4. **the edge runs input -> output**, measured: the transform reads the
-//!  INPUT's bytes, so renditions do not introduce the output->output content
-//!  edge the cycle detector is waiting for;
+//!    INPUT's bytes, so renditions do not introduce the output->output content
+//!    edge the cycle detector is waiting for;
 //! 5. **the demand edge is not a decoration**: an affordance that shows a
-//!  rendition and links nothing else still puts the image in the citing
-//!  output's `inputs`, or an edit to that image would ship a stale page.
+//!    rendition and links nothing else still puts the image in the citing
+//!    output's `inputs`, or an edit to that image would ship a stale page.
 //!
 //! Built sites throughout, because a rendition exists only because a citation
 //! asked for it and citations live in finished bytes.
@@ -57,8 +57,8 @@ fn png_bytes(w: u32, h: u32, salt: u8) -> Vec<u8> {
 ///
 /// - `wide.png`, cited by two posts at two different widths (the demand union);
 /// - `cover.png`, an image-typed schema field, a HERO, which a listing shows
-///  as a thumbnail and links nothing else, so its rendition address is the
-///  listing's only reference to it;
+///   as a thumbnail and links nothing else, so its rendition address is the
+///   listing's only reference to it;
 /// - `lonely.png`, which nothing cites at all (the pull is the collector).
 ///
 /// `extends = "none"` on purpose, like `io_graph.rs`: one test builds the site
@@ -191,13 +191,13 @@ fn renditions(db: &SiteDb) -> Vec<(String, Vec<String>, Rendition)> {
 /// Mutations, each red and each restored:
 ///
 /// - drop `rendition: Some(*rendition)` from the route `join_renditions` mints
-///  -> the output is in the graph and nothing in the database says what it is a
-///  transform OF, so the reproduction below has no parameters to spend and the
-///  `expect` fires: the pull cannot rebuild the variant;
+///   -> the output is in the graph and nothing in the database says what it is a
+///   transform OF, so the reproduction below has no parameters to spend and the
+///   `expect` fires: the pull cannot rebuild the variant;
 /// - drop `inputs: inputs.clone()` -> the rendition stands on nothing, so there
-///  is no bytes to reproduce it from and `fanout` loses it (the last test);
+///   is no bytes to reproduce it from and `fanout` loses it (the last test);
 /// - drop the `join_renditions` call in `render_site` -> the artifacts publish
-///  and no output row exists for them at all.
+///   and no output row exists for them at all.
 #[test]
 fn a_rendition_is_an_output_of_its_input_with_the_parameters_it_was_made_with() {
     let dir = site("recipe");
@@ -249,10 +249,10 @@ fn a_rendition_is_an_output_of_its_input_with_the_parameters_it_was_made_with() 
 /// Mutations, each red and each restored:
 ///
 /// - key the rendition map by `src` alone instead of by the whole ask (drop
-///  `t.rendition` from `Ask`) -> one image is one output whatever anyone asked,
-///  and the two widths collapse;
+///   `t.rendition` from `Ask`) -> one image is one output whatever anyone asked,
+///   and the two widths collapse;
 /// - ignore the parsed ask in `tags::image_tag` (always `Rendition::THUMB`) ->
-///  two demands become one, and `{% image %}` publishes a size nobody wrote.
+///   two demands become one, and `{% image %}` publishes a size nobody wrote.
 #[test]
 fn two_pages_asking_different_widths_are_two_outputs_of_one_input() {
     let (out_map, db) = built(&site("union"), None);
@@ -379,10 +379,10 @@ fn a_rendition_address_is_computable_before_the_transform_runs() {
 /// Mutations, each red and each restored:
 ///
 /// - push the citing edge into `inputs` instead of `route_members` in
-///  `join_renditions`' second half -> the demand becomes a content edge, the
-///  `Facts` assertion fails, and the bipartite scan below finds the edge;
+///   `join_renditions`' second half -> the demand becomes a content edge, the
+///   `Facts` assertion fails, and the bipartite scan below finds the edge;
 /// - drop the `route_members` half entirely -> the citing page names no
-///  rendition at all and the demand is invisible in the graph.
+///   rendition at all and the demand is invisible in the graph.
 #[test]
 fn the_citing_edge_demands_facts_and_the_content_subgraph_stays_bipartite() {
     let (_, db) = built(&site("direction"), None);

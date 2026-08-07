@@ -47,12 +47,12 @@ const DEFAULT_LANG: &str = "text";
 /// comrak's two relevant adapters can do this job:
 ///
 ///  * `CodefenceRendererAdapter` is a map keyed by language and only fires
-///  when the info string is non-empty (html.rs:513). Our corpus is 88%
-///  *indented* code blocks, whose info is "", only 7 posts use fences at
-///  all, so it would never fire where it matters.
+///    when the info string is non-empty (html.rs:513). Our corpus is 88%
+///    *indented* code blocks, whose info is "", only 7 posts use fences at
+///    all, so it would never fire where it matters.
 ///  * `SyntaxHighlighterAdapter` does fire for empty info and could open the
-///  two wrapper divs, but comrak then hardcodes `</code></pre>`
-///  (html.rs:566) with no hook to close them.
+///    two wrapper divs, but comrak then hardcodes `</code></pre>`
+///    (html.rs:566) with no hook to close them.
 ///
 /// A block with a real language gets token spans from `crate::highlight`, the
 /// four classes the theme colours (`k`/`s`/`c1`/`n`), not Rouge's full Pygments

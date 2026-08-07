@@ -775,7 +775,7 @@ mod tests {
             // Depth 0 leaves items unset so this test measures the relation
             // fragment itself, not every row part the face declines.
             let depth = if kind == "relation" { 0 } else { 2 };
-            let full = crate::parts::populate(&schemas, kind, depth);
+            let full = crate::parts::populate(schemas, kind, depth);
             let out = thm.fragments.render(&full);
             // Exemptions hold at every depth: nested rows reuse the same
             // part names, so a summary's exempt parts are exempt inside it too.

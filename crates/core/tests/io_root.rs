@@ -3,48 +3,48 @@
 //! Five claims, and the first is the one the migration rests on:
 //!
 //! 1. **A body-only root is the old chrome fragment, byte for byte.** The
-//!  `<body>` wrapper is accepted but not required, a file with neither
-//!  wrapper IS the body, which is what made `shell.html` -> `root.html` a
-//!  rename across nine themes and nothing else. The corpus parity run is
-//!  this claim at scale; the test here is the claim stated small, on both
-//!  spellings of the same chrome.
+//!    `<body>` wrapper is accepted but not required, a file with neither
+//!    wrapper IS the body, which is what made `shell.html` -> `root.html` a
+//!    rename across nine themes and nothing else. The corpus parity run is
+//!    this claim at scale; the test here is the claim stated small, on both
+//!    spellings of the same chrome.
 //! 2. **The head fence.** A theme root's `<head>` may hold `<style>` and
-//!  nothing else, because the engine computes the head, title, charset,
-//!  canonical, the `[html.head.*]` tables, hreflang, the one stylesheet
-//!  link. A theme's `<title>` would be shadowed on every page, silently,
-//!  and a theme's second stylesheet `<link>` would break the one-artifact
-//!  rule the CSS assembly is built on. So it is a load error naming the
-//!  file and the element, rather than a tag that quietly does nothing.
+//!    nothing else, because the engine computes the head, title, charset,
+//!    canonical, the `[html.head.*]` tables, hreflang, the one stylesheet
+//!    link. A theme's `<title>` would be shadowed on every page, silently,
+//!    and a theme's second stylesheet `<link>` would break the one-artifact
+//!    rule the CSS assembly is built on. So it is a load error naming the
+//!    file and the element, rather than a tag that quietly does nothing.
 //! 3. **A head `<style>` is CSS, so it goes where the CSS goes.** The
-//!  fence lets a theme root declare presentation; the assembly is what
-//!  makes that declaration mean something. The style is compiled into the
-//!  theme layer of the theme's own sheet, after `theme.scss`, so the file
-//!  that states the theme's frame outranks the general sheet, and the page
-//!  keeps exactly one stylesheet link and no inline `<style>` at all. It was
-//!  once emitted inline in the computed head as a declared interim; this is
-//!  the byte that moved.
+//!    fence lets a theme root declare presentation; the assembly is what
+//!    makes that declaration mean something. The style is compiled into the
+//!    theme layer of the theme's own sheet, after `theme.scss`, so the file
+//!    that states the theme's frame outranks the general sheet, and the page
+//!    keeps exactly one stylesheet link and no inline `<style>` at all. It was
+//!    once emitted inline in the computed head as a declared interim; this is
+//!    the byte that moved.
 //! 4. **`shell.html` is gone, and says so.** The chrome part kind renamed
-//!  `shell` -> `root`, so a stale `shell.html` was never going to be
-//!  *silent*, `Fragments::load` rejects a fragment naming no kind. What
-//!  it would have been is MISLEADING: "fragment names no layout kind
-//!  `shell`" sends its reader hunting for a kind when the fix is a rename.
-//! That is the one case precedent allows a targeted sentence for.
+//!    `shell` -> `root`, so a stale `shell.html` was never going to be
+//!    *silent*, `Fragments::load` rejects a fragment naming no kind. What
+//!    it would have been is MISLEADING: "fragment names no layout kind
+//!    `shell`" sends its reader hunting for a kind when the fix is a rename.
+//!    That is the one case precedent allows a targeted sentence for.
 //! 5. **The wrapper mistake is refused.** A theme root that carries a
-//!  top-level `<html>`, or a doctype, is a page skeleton pasted into a
-//!  file that is not a page, and it is the one authoring mistake claim 2
-//!  could not catch: inside an `<html>` the head and the body are invisible
-//!  to the split, so the file reads as a *fragment* and the theme's
-//!  `<title>` and metas ship inside `<body>` on every page, fence and all.
-//!  Refusing it is what makes claims 1 and 2 hold together rather than each
-//!  holding on its own. Authored words beside the two halves are the same
-//!  bargain one size down: silently dropped before, named now.
+//!    top-level `<html>`, or a doctype, is a page skeleton pasted into a
+//!    file that is not a page, and it is the one authoring mistake claim 2
+//!    could not catch: inside an `<html>` the head and the body are invisible
+//!    to the split, so the file reads as a *fragment* and the theme's
+//!    `<title>` and metas ship inside `<body>` on every page, fence and all.
+//!    Refusing it is what makes claims 1 and 2 hold together rather than each
+//!    holding on its own. Authored words beside the two halves are the same
+//!    bargain one size down: silently dropped before, named now.
 //! 6. **A theme's CSS is one thing to the orphaned-tokens check.**
-//!  Giving the head style its own compile pass (claim 3) gave it its own
-//!  import list, and the "`_tokens.scss` that nothing imports" warning was
-//!  reading only `theme.scss`'s, so a theme whose head imported the
-//!  tokens was told nothing did. The three-way test below is that shape,
-//!  the older tokens-only shape it shares a cause with, and the one real
-//!  case the warning was written for.
+//!    Giving the head style its own compile pass (claim 3) gave it its own
+//!    import list, and the "`_tokens.scss` that nothing imports" warning was
+//!    reading only `theme.scss`'s, so a theme whose head imported the
+//!    tokens was told nothing did. The three-way test below is that shape,
+//!    the older tokens-only shape it shares a cause with, and the one real
+//!    case the warning was written for.
 //!
 //! A site rather than a unit test, for `io_shell.rs`'s reason: what these
 //! assert is what a PAGE comes out as, and the head half in particular is
@@ -362,14 +362,14 @@ fn a_head_style_is_scss_and_a_broken_one_refuses_to_publish() {
 /// every source the theme has:
 ///
 /// - **Tokens-only** (`_tokens.scss`, no `theme.scss`): the partial IS the
-///  compiled sheet, so nothing imports it and nothing can. The advice was
-///  unfollowable too, it names a `theme.scss` the theme does not have.
-///  Pre-existing, and as old as the warning.
+///   compiled sheet, so nothing imports it and nothing can. The advice was
+///   unfollowable too, it names a `theme.scss` the theme does not have.
+///   Pre-existing, and as old as the warning.
 /// - **The head imports them**: `root.html`'s `<style>` says
-///  `@import "tokens";` and `theme.scss` does not. The tokens are read, on
-///  every page, and the check looked at the wrong list.
+///   `@import "tokens";` and `theme.scss` does not. The tokens are read, on
+///   every page, and the check looked at the wrong list.
 /// - **The real one**: a `theme.scss` beside a `_tokens.scss` that nothing in
-///  the theme pulls in, a dead palette, which is what the warning is for.
+///   the theme pulls in, a dead palette, which is what the warning is for.
 ///
 /// Mutation, one per false shape, each red on its own: pool only
 /// `theme.scss`'s imports (drop the head pass's `imported.append`) and the

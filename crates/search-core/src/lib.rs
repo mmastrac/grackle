@@ -2,9 +2,9 @@
 //! tokenizing, stemming, index building and ranking, used by both ends:
 //!
 //! - `grackle build` calls `build_index` and ships the result as
-//!  `/search.bin` (postcard);
+//!   `/search.bin` (postcard);
 //! - the same code compiled to WebAssembly (`search-wasm`) loads those bytes
-//!  in the browser and answers queries as the user types.
+//!   in the browser and answers queries as the user types.
 //!
 //! Symmetry by construction: the query goes through the exact `stem()` the
 //! index was built with, because it is not a port, it is the same compiled

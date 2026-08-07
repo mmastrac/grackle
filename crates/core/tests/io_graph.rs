@@ -7,14 +7,14 @@
 //! *reading* makes:
 //!
 //! 1. **one graph, two edge kinds**: a fold's edges are BOTH, and a listing's
-//!  are one, and the labels say which stage each demands;
+//!    are one, and the labels say which stage each demands;
 //! 2. **the pull orders**: dependencies before dependents, the output last;
 //! 3. **the cycle tripwire is armed and cannot fire**, because a pool fold
-//!  selecting its own route is a real corpus shape and a legal one, which is
-//!  true only while the two edge kinds are told apart;
+//!    selecting its own route is a real corpus shape and a legal one, which is
+//!    true only while the two edge kinds are told apart;
 //! 4. **`materialize_referenced` is a pull along the edges**: a citation is an
-//!  edge, and the output it mints is a node like any other, rung 0
-//!  included.
+//!    edge, and the output it mints is a node like any other, rung 0
+//!    included.
 //!
 //! Built sites where the claim needs bytes (the citation edge exists only
 //! after the write pass; the minted output only after the pull), loaded sites
@@ -163,8 +163,8 @@ fn needs(g: &Graph, n: &Node) -> Vec<(&'static str, String)> {
 /// Mutations, each red and each restored:
 ///
 /// - drop the `route_members` loop from `graph::Graph::of` -> the fold's facts
-///  edges vanish and the two-kinds assertion fails, while every content edge
-///  still stands (the "two graphs" reading, seen);
+///   edges vanish and the two-kinds assertion fails, while every content edge
+///   still stands (the "two graphs" reading, seen);
 /// - drop the `inputs` loop -> every content edge goes, and with it the pull.
 #[test]
 fn one_graph_holds_both_edge_kinds() {
@@ -300,19 +300,19 @@ fn the_pull_orders_dependencies_before_dependents() {
 /// Mutations, each red and each restored:
 ///
 /// - label `route_members` as `Demand::Content` in `Graph::of` -> this site
-///  stops loading with *dependency cycle: output /all.xml -> output /all.xml*,
-///  which is the single measurement that decides the edge-kind split. (The
-///  real corpus does NOT tell them apart: grack.com's sitemap says
-///  `dir || ext == "html"`, so it excludes its own `.xml` route. A from-less
-///  fold is what makes the loop, and `io_folds.rs`'s three tests go red on
-///  the same mutation for the same reason.)
+///   stops loading with *dependency cycle: output /all.xml -> output /all.xml*,
+///   which is the single measurement that decides the edge-kind split. (The
+///   real corpus does NOT tell them apart: grack.com's sitemap says
+///   `dir || ext == "html"`, so it excludes its own `.xml` route. A from-less
+///   fold is what makes the loop, and `io_folds.rs`'s three tests go red on
+///   the same mutation for the same reason.)
 /// - delete `check_graph`'s call in `load` alone -> nothing goes red, because
-///  nothing can build a cycle today; delete it TOGETHER with the mislabel
-///  above and the site loads clean, publishing a fold that is its own content
-///  dependency. That pair is the call site's mutation: the check is what
-///  turns a mislabelled edge from a silent build into a load error, and the
-///  detector's own guards are mutated where a cycle can be built at all
-///  (`graph.rs`'s unit tests).
+///   nothing can build a cycle today; delete it TOGETHER with the mislabel
+///   above and the site loads clean, publishing a fold that is its own content
+///   dependency. That pair is the call site's mutation: the check is what
+///   turns a mislabelled edge from a silent build into a load error, and the
+///   detector's own guards are mutated where a cycle can be built at all
+///   (`graph.rs`'s unit tests).
 #[test]
 fn a_pool_fold_that_selects_itself_is_not_a_cycle() {
     let dir = site("cycle");
@@ -356,15 +356,15 @@ fn a_pool_fold_that_selects_itself_is_not_a_cycle() {
 /// Mutations, each red and each restored:
 ///
 /// - seed `frontier` with an empty vector instead of `cited` -> the edge is
-///  dropped and the cited asset is not published, while the citing page still
-///  ships with a link to nothing (a dropped edge, seen from the output side);
+///   dropped and the cited asset is not published, while the citing page still
+///   ships with a link to nothing (a dropped edge, seen from the output side);
 /// - drop the `row.output.is_some()` half of the guard -> the asset is cited
-///  from two finished documents, so it is minted TWICE: two outputs at one
-///  URL, and the graph shows the doubled edge (measured, not predicted, the
-///  old private `pending` map answered this question by removal, and the
-///  `output` column answers it by being set);
+///   from two finished documents, so it is minted TWICE: two outputs at one
+///   URL, and the graph shows the doubled edge (measured, not predicted, the
+///   old private `pending` map answered this question by removal, and the
+///   `output` column answers it by being set);
 /// - drop the minted route's `inputs: vec![key]` -> the asset publishes with no
-///  content edge, so its own output stands on nothing and `fanout` loses it.
+///   content edge, so its own output stands on nothing and `fanout` loses it.
 #[test]
 fn the_pull_publishes_a_cited_input_and_only_a_cited_one() {
     let dir = site("materialize");
@@ -464,11 +464,11 @@ fn an_output_minted_by_the_pull_sees_rung_zero() {
 /// Mutations, each red and each restored:
 ///
 /// - drop the `if let Some(k) = &r.row` term in `load::join_arrangement` ->
-///  `/a/` leaves the fanout while its own bytes move: the stale page, caught;
+///   `/a/` leaves the fanout while its own bytes move: the stale page, caught;
 /// - drop the `for rk in &r.route_members` term -> `/search.bin` leaves, and it
-///  is the output that proves the term, because a search index is BINARY: it
-///  cites nothing, so the citation half of the closure cannot cover for the
-///  arrangement half the way it does for a listing.
+///   is the output that proves the term, because a search index is BINARY: it
+///   cites nothing, so the citation half of the closure cannot cover for the
+///   arrangement half the way it does for a listing.
 ///
 /// And one mutation that is NOT red, measured rather than predicted: dropping
 /// `ins.extend(r.members…)` leaves this test green, because a listing LINKS

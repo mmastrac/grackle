@@ -5,17 +5,17 @@
 //! citation's form.**
 //!
 //!  1. a rule may decline to route (`embed = true`), and the policy then gives
-//!  its rows a content address under `/static/`, which publishes when
-//!  something embeds it and never otherwise;
+//!     its rows a content address under `/static/`, which publishes when
+//!     something embeds it and never otherwise;
 //!  2. an authored link to such a row is a load error with the fix spelled,
-//!  because a hash address is not a link's to make;
+//!     because a hash address is not a link's to make;
 //!  3. `[embeds]` off, or narrowed past a row, turns the decline into a
-//!  config with no answer, a load error naming the asset;
+//!     config with no answer, a load error naming the asset;
 //!  4. the address is the input bytes plus the transform parameters and
-//!  nothing else, so untransformed twins share one address, one store entry
-//!  and one output with two inputs;
+//!     nothing else, so untransformed twins share one address, one store entry
+//!     and one output with two inputs;
 //!  5. a `/static/` citation resolves back to its input, so the pull publishes
-//!  it and the embedding page's `inputs` holds the edge.
+//!     it and the embedding page's `inputs` holds the edge.
 //!
 //! Built sites throughout: every claim above is about what the finished output
 //! contains or about a fact the render pass writes, and the two the load
@@ -202,11 +202,11 @@ fn text(out: &grackle_core::build::SiteOutput, url: &str) -> String {
 /// Mutations, each red and each restored:
 ///
 /// - delete the `strong_url` arm from `materialize_referenced`'s `at` match ->
-///  the address resolves and the bytes never publish (the 404);
+///   the address resolves and the bytes never publish (the 404);
 /// - make `links::resolve`'s embed branch return `Ok(None)` always -> the page
-///  ships `src="/assets/kite.png"`, which no route answers;
+///   ships `src="/assets/kite.png"`, which no route answers;
 /// - drop `strong_url` from `by_strong` (index nothing) -> both of the above at
-///  once, since the citation resolves to no input at all.
+///   once, since the citation resolves to no input at all.
 #[test]
 fn the_policy_addresses_an_embedded_asset_no_rule_routed() {
     let dir = site("default");
@@ -415,11 +415,11 @@ fn a_strong_citation_produces_the_inputs_edge() {
 /// Mutations, each red and each restored:
 ///
 /// - delete the `source_to_strong` branch from `links::resolve`'s candidate
-///  loop -> the link falls through to strict mode's generic "matches no source
-///  file or route", which names the file and not the decision;
+///   loop -> the link falls through to strict mode's generic "matches no source
+///   file or route", which names the file and not the decision;
 /// - answer it with the strong address instead of failing -> the site builds
-///  and ships a hash URL in prose, which is the outcome the refusal exists to
-///  prevent.
+///   and ships a hash URL in prose, which is the outcome the refusal exists to
+///   prevent.
 #[test]
 fn an_authored_link_to_an_unrouted_asset_is_refused() {
     let dir = site("link");

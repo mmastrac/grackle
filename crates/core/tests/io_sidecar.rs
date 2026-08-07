@@ -65,11 +65,11 @@ fn row<'a>(db: &'a SiteDb, rel: &str) -> &'a grackle_core::model::Row {
 ///
 /// - **identity**, `front_mattered` true, from a file the image cannot hold;
 /// - **not parsed**, `rendered` false, `body_bytes` 0, and the published bytes
-///  are the PNG, byte for byte;
+///   are the PNG, byte for byte;
 /// - **governed**, a declared field validates and lands on the row, and the
-///  title the sidecar wrote is the row's title;
+///   title the sidecar wrote is the row's title;
 /// - **still a picture**, the extension fact is untouched, so the header read
-///  still fills 2×3 and the objects index still holds it.
+///   still fills 2×3 and the objects index still holds it.
 ///
 /// The two controls are in the same site: a sidecar-LESS image (identity false,
 /// same bytes at the same URL) and an ordinary block-identity page. Neither may

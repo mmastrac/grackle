@@ -1247,8 +1247,8 @@ pub fn table_ref_names(text: &str) -> Vec<&str> {
     let mut rest = text;
     while let Some(at) = rest.find('@') {
         let after = &rest[at + 1..];
-        if after.starts_with('@') {
-            rest = &after[1..];
+        if let Some(stripped) = after.strip_prefix('@') {
+            rest = stripped;
             continue;
         }
         if let Some((name, index)) = parse_table_ref(&rest[at..]) {
