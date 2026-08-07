@@ -755,9 +755,7 @@ fn a_trail_over_nothing_grouped_is_a_load_error() {
 #[test]
 fn a_trail_level_that_lands_nowhere_is_a_load_error() {
     let e = cfg_err(
-        &TRAIL_CHAIN
-            .replace("[views.yearly_archive]", "[views.yearly_archive]")
-            .replace("path = \"/blog/{year}/\"\n", ""),
+        &TRAIL_CHAIN.replace("path = \"/blog/{year}/\"\n", ""),
     );
     assert!(e.contains("lands at no single `path`"), "{e}");
     assert!(e.contains("yearly_archive > monthly_archive"), "{e}");
