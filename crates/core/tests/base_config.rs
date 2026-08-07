@@ -134,7 +134,6 @@ fn extends_none_inherits_nothing() {
 fn every_sites_effective_config_parses_back() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for rel in [
-        "grackle.toml", // grack.com itself
         "examples/theme-preview/grackle.toml",
         "examples/minimal/grackle.toml",
         "examples/raw/grackle.toml",
@@ -345,8 +344,8 @@ fn the_uninheriting_sites_effective_config_is_entirely_its_own() {
 /// as a projection again, which is the whole finding.
 #[test]
 fn an_unknown_profile_is_named_in_the_effective_preamble() {
-    // grack.com is the only site in the repo that declares a profile.
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../grackle.toml");
+    // field-notes declares a `drafts` profile.
+    let path = examples().join("field-notes/grackle.toml");
     let printed = grackle_source::config::Config::effective(&path, Some("nosuch")).unwrap();
     assert!(
         printed.contains("\"nosuch\" names no profile"),
@@ -372,16 +371,15 @@ fn an_unknown_profile_is_named_in_the_effective_preamble() {
     assert!(!ok.contains("names no profile"));
 }
 
-/// `--effective --profile NAME` prints the PROJECTED config, and
-/// the overlay is one more writer in the same traced merge, so a key the
-/// profile wrote reads `# profile NAME` exactly as a key the site wrote reads
-/// `# site`. B3's design, carried to a fourth rung: there is no second
-/// traversal and no after-the-fact diff, so the provenance cannot disagree with
-/// the projection the build ran.
+/// `--effective --profile NAME` prints the projected config, and the overlay
+/// is one more writer in the same traced merge, so a key the profile wrote
+/// reads `# profile NAME` exactly as a key the site wrote reads `# site`. There
+/// is no second traversal and no after-the-fact diff, so the provenance cannot
+/// disagree with the projection the build ran.
 ///
-/// It also shows the LAW. `[sets.published]` is a definition, so the comment
-/// sits on the header and none of its keys carry one, you never inherit half
-/// of one, which is why grack.com's drafts profile restates the set in full.
+/// A set is a definition, so the comment sits on the header and none of its
+/// keys carry one: you never inherit half of one, which is why the drafts
+/// profile restates `published` in full.
 ///
 /// Mutation check: delete the `project` call in `effective_toml` and the
 /// profile's `where` is missing from the output entirely; give the overlay pass
@@ -389,7 +387,7 @@ fn an_unknown_profile_is_named_in_the_effective_preamble() {
 /// the profile did not write is re-labelled `base`, erasing the merge below.
 #[test]
 fn the_effective_config_shows_the_projection() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../grackle.toml");
+    let path = examples().join("field-notes/grackle.toml");
     let plain = grackle_source::config::Config::effective(&path, None).unwrap();
     let drafts = grackle_source::config::Config::effective(&path, Some("drafts")).unwrap();
     assert!(!plain.contains("# profile"), "no profile, no such class");
@@ -403,11 +401,19 @@ fn the_effective_config_shows_the_projection() {
         .find(|l| l.starts_with("[sets.published]"))
         .expect("the projected set");
     assert!(line.contains("# profile drafts, whole"), "{line}");
+    // The set's own keys, scoped to its block: a definition's keys carry no
+    // provenance comment, only its header does.
+    let block: Vec<&str> = drafts
+        .lines()
+        .skip_while(|l| !l.starts_with("[sets.published]"))
+        .skip(1)
+        .take_while(|l| !l.starts_with('['))
+        .collect();
     for key in ["from = ", "order_by = "] {
-        let line = drafts
-            .lines()
+        let line = block
+            .iter()
             .find(|l| l.trim_start().starts_with(key))
-            .expect(key);
+            .unwrap_or_else(|| panic!("{key} in [sets.published]"));
         assert!(
             !line.contains('#'),
             "a definition's keys say nothing: {line}"

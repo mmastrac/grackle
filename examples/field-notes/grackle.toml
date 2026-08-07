@@ -220,6 +220,19 @@ limit = 1
 layout = "card"
 variant = "card"
 
+# ------------------------------------------------------------- profiles
+#
+# A profile is a projection of the same database: a `drafts` build shows the
+# notes a normal build hides. A set is taken whole, so the profile restates
+# `published` rather than editing one clause of it.
+[profiles.drafts.sets.published]
+from = "notes"
+where = "!hidden"
+order_by = "-date"
+
+  [profiles.drafts.sets.published.fields]
+  summary = 'truncate_chars(truncate_blocks(content, 3), 500)'
+
 # ---------------------------------------------------------------- routes
 #
 # Every URL this site emits from a query. `path` is what makes it a route.

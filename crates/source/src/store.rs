@@ -138,6 +138,31 @@ impl NotContent {
         NotContent { exclude, include }
     }
 
+    /// Keeps everything: no `exclude`, no `include`. For `extends = "none"`
+    /// callers with no tree collection, and tests that walk a bare tree.
+    pub fn none() -> NotContent {
+        NotContent {
+            exclude: globset::GlobSet::empty(),
+            include: globset::GlobSet::empty(),
+        }
+    }
+
+    /// Compile a not-content layer from `exclude`/`include` glob strings.
+    /// The construction `Config::not_content` and cross-crate walk tests share.
+    pub fn from_globs(exclude: &[&str], include: &[&str]) -> Result<NotContent> {
+        fn set(pats: &[&str]) -> Result<globset::GlobSet> {
+            let mut b = globset::GlobSetBuilder::new();
+            for p in pats {
+                b.add(globset::Glob::new(p).with_context(|| format!("bad glob {p:?}"))?);
+            }
+            Ok(b.build()?)
+        }
+        Ok(NotContent {
+            exclude: set(exclude)?,
+            include: set(include)?,
+        })
+    }
+
     pub fn included(&self, rel: &Path) -> bool {
         self.include.is_match(rel)
     }
@@ -147,7 +172,8 @@ impl NotContent {
         self.include.is_match(rel) || self.include.is_match(rel.join(""))
     }
 
-    fn keeps(&self, rel: &Path) -> bool {
+    /// A file is kept unless `exclude` names it and `include` does not.
+    pub fn keeps(&self, rel: &Path) -> bool {
         rel.as_os_str().is_empty() || self.include.is_match(rel) || !self.exclude.is_match(rel)
     }
 
@@ -249,14 +275,7 @@ mod tests {
     use super::*;
 
     fn not_content(exclude: &[&str], include: &[&str]) -> NotContent {
-        fn set(pats: &[&str]) -> globset::GlobSet {
-            let mut b = globset::GlobSetBuilder::new();
-            for p in pats {
-                b.add(globset::Glob::new(p).unwrap());
-            }
-            b.build().unwrap()
-        }
-        NotContent::new(set(exclude), set(include))
+        NotContent::from_globs(exclude, include).unwrap()
     }
 
     #[test]

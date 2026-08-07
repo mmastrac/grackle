@@ -112,6 +112,7 @@ pub fn render_site(cfg: &Config, db: &mut SiteDb) -> Result<(SiteOutput, Stats)>
         &root,
         &fields,
         cfg.site.theme.as_deref(),
+        &cfg.not_content()?,
     )
     .context("loading themes")?;
     prepass::check_theme_names(cfg, db, &themes)?;

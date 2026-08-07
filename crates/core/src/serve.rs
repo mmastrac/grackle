@@ -42,6 +42,7 @@ use tokio::net::TcpListener;
 
 use crate::build::{self, SiteOutput};
 use crate::config::Config;
+use grackle_source::store::NotContent;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A rendered snapshot plus a version the browser polls to know when to reload.
@@ -84,7 +85,9 @@ pub fn serve(config_path: &Path, port: u16, profile: Option<&str>) -> Result<()>
     );
     let shared: Shared = SharedMut::new_rcu(snap);
 
-    let root = Config::load(config_path)?.root();
+    let cfg = Config::load(config_path)?;
+    let root = cfg.root();
+    let not_content = cfg.not_content()?;
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -95,6 +98,7 @@ pub fn serve(config_path: &Path, port: u16, profile: Option<&str>) -> Result<()>
         let _watcher = spawn_watcher(
             config_path.to_path_buf(),
             root.clone(),
+            not_content,
             profile.map(str::to_string),
             shared.clone(),
             tx.clone(),
@@ -276,19 +280,25 @@ fn embed_in_background(
 fn spawn_watcher(
     config_path: PathBuf,
     root: PathBuf,
+    not_content: NotContent,
     profile: Option<String>,
     shared: Shared,
     tx: tokio::sync::mpsc::UnboundedSender<()>,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<()>,
 ) -> Result<notify::RecommendedWatcher> {
     let watch_tx = tx.clone();
+    let content_root = root.clone();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(ev) = res else { return };
         // Access events are noise; react to create/modify/remove/rename only.
         if matches!(ev.kind, EventKind::Access(_)) {
             return;
         }
-        if ev.paths.iter().any(|p| is_content(p)) {
+        if ev
+            .paths
+            .iter()
+            .any(|p| is_content(&content_root, &not_content, p))
+        {
             let _ = watch_tx.send(());
         }
     })
@@ -352,43 +362,27 @@ fn spawn_watcher(
     Ok(watcher)
 }
 
-/// Whether a changed path is site content worth rebuilding for. Excludes build
-/// artifacts and VCS, critically `_cache/`, which a rebuild writes thumbnails
-/// into (watching it would loop), and typical editor temp files.
-fn is_content(p: &Path) -> bool {
-    const IGNORE: &[&str] = &[
-        "/_cache",
-        "/.git",
-        "/grackle/target",
-        "/_site",
-        "/node_modules",
-        "/_log",
-    ];
+/// Whether a changed path is content worth rebuilding for. Prunes what the
+/// site's `exclude` calls not-content — the same `NotContent` the render walk
+/// reads, so watcher and build agree. That includes `_cache/`, which a rebuild
+/// writes thumbnails into: watching it would loop. VCS and editor scratch are
+/// the watcher's own to know — `.git` is pruned by the walk's `is_git_dir`, not
+/// by `exclude`, and a `.swp` is never a tree file. A path outside the root (a
+/// watched theme symlink target, the dev base) has no `exclude` to answer to.
+fn is_content(root: &Path, not: &NotContent, p: &Path) -> bool {
     let s = p.to_string_lossy();
-    if IGNORE.iter().any(|d| s.contains(d)) {
-        return false;
-    }
-    // grackle's own tree is not site content, except grackle.toml (the config
-    // a running server reloads on), a site's own `.style.scss`,
-    // anything under a `themes/` or `.slots/` directory, and the engine's own
-    // `assets/base/` when a dev build serves it from source.
-    // Every exception is presentation, never engine source: without the first
-    // exclusion, editing grackle's Rust or design.md would pointlessly rebuild
-    // the whole site; without the exceptions, a gallery living inside the
-    // grackle tree, its slot fills, and the floor itself could not hot-reload.
-    // `.slots/` earned its line the way `.style.scss` did, an example site's
-    // fills (and its `chrome.html` cluster override) were invisible to the
-    // watcher, and a fill you cannot iterate on is half a feature.
-    if s.contains("/grackle/")
-        && !s.ends_with("grackle.toml")
-        && !s.ends_with(".style.scss")
-        && !s.contains("/themes/")
-        && !s.contains("/.slots/")
-        && !s.contains("/assets/base/")
+    if s.contains("/.git")
+        || s.ends_with('~')
+        || s.ends_with(".swp")
+        || s.ends_with(".tmp")
+        || s.contains("/.#")
     {
         return false;
     }
-    !(s.ends_with('~') || s.ends_with(".swp") || s.ends_with(".tmp") || s.contains("/.#"))
+    match p.strip_prefix(root) {
+        Ok(rel) => not.keeps(rel),
+        Err(_) => true,
+    }
 }
 
 fn content_type(path: &str) -> &'static str {

@@ -270,6 +270,15 @@ name = "objects"
 # `index.html` takes `raw` from the third.
 [[collections]]
 source = "."
+# Not content on any site: dependency directories and grackle's own build
+# cache. One list governs the content walk, the `.slots/` scan, and the serve
+# watcher. `_cache/` also falls to the dot/underscore skip in the tree walks,
+# but naming it here is what lets the watcher prune it.
+exclude = [
+  "**/node_modules",
+  "**/vendor",
+  "_cache/**",
+]
 
   [[collections.rules]]
   match = "**/index.{html,md}"

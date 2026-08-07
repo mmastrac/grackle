@@ -11,6 +11,7 @@
 //! elements (`<div>`, `<footer>`, …) take any number of blocks verbatim.
 
 use anyhow::{bail, Context, Result};
+use grackle_source::store::{NotContent, THEMES};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -71,13 +72,13 @@ pub struct SlotFills {
 }
 
 impl SlotFills {
-    /// Scan the site tree for `.slots/` directories. The walk skips
-    /// underscore- and dot-prefixed directories (except `.slots` itself) and
-    /// the usual build/VCS artifacts, fills are content, but they live in
-    /// dot-directories precisely so the route walk never sees them.
-    pub fn load(root: &Path) -> Result<SlotFills> {
+    /// Scan the tree for `.slots/` directories, pruning what the site's
+    /// `exclude` and the dot/underscore convention call not-content — the same
+    /// `NotContent` the content walk reads. Fills are content but live in
+    /// dot-directories, so the route walk never sees them.
+    pub fn load(root: &Path, not: &NotContent) -> Result<SlotFills> {
         let mut fills = SlotFills::default();
-        walk(root, &mut fills)?;
+        walk(root, root, not, &mut fills)?;
         Ok(fills)
     }
 
@@ -202,23 +203,7 @@ pub fn unknown_stems(fills: &SlotFills, known: &[&str], locales: &[&str]) -> Vec
     out
 }
 
-fn walk(dir: &Path, fills: &mut SlotFills) -> Result<()> {
-    const SKIP: &[&str] = &[
-        "node_modules",
-        "vendor",
-        "docker",
-        "scripts",
-        "CHANGES",
-        // Site root may be the parent repo (skip the engine tree) or the
-        // grackle workspace itself (skip crates, fixtures live there).
-        "grackle",
-        "crates",
-        "themes",
-        "_site",
-        "_cache",
-        "_log",
-        "target",
-    ];
+fn walk(root: &Path, dir: &Path, not: &NotContent, fills: &mut SlotFills) -> Result<()> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(());
     };
@@ -232,10 +217,20 @@ fn walk(dir: &Path, fills: &mut SlotFills) -> Result<()> {
             load_dir(dir, &p, fills)?;
             continue;
         }
-        if name.starts_with('.') || name.starts_with('_') || SKIP.contains(&name.as_str()) {
+        // Skip dot/underscore directories (Jekyll convention), except `.slots`
+        // above. Site-root `themes/` is engine vocabulary; everything else the
+        // site's `exclude` may prune. The clauses `store::walk_tree` applies.
+        if name.starts_with('.') || name.starts_with('_') {
             continue;
         }
-        walk(&p, fills)?;
+        let rel = p.strip_prefix(root).unwrap_or(&p);
+        if rel == Path::new(THEMES) && !not.included_dir(rel) {
+            continue;
+        }
+        if !not.keeps_dir(rel) {
+            continue;
+        }
+        walk(root, &p, not, fills)?;
     }
     Ok(())
 }
@@ -443,7 +438,7 @@ mod tests {
                 (".slots/nav.html", "<p><a href=\"/\">home</a></p>"),
             ],
         );
-        let e = SlotFills::load(&dir)
+        let e = SlotFills::load(&dir, &NotContent::none())
             .expect_err("one stem, two pipelines, one directory: nothing ranks them")
             .to_string();
         let _ = std::fs::remove_dir_all(&dir);
@@ -468,7 +463,8 @@ mod tests {
                 (".slots/nav.fr.md", "français"),
             ],
         );
-        let fills = SlotFills::load(&dir).expect("nav.md beside nav.fr.md is the designed shape");
+        let fills = SlotFills::load(&dir, &NotContent::none())
+            .expect("nav.md beside nav.fr.md is the designed shape");
         assert_eq!(
             fills.resolve(&dir, &dir, "nav", "fr").map(|f| &f.raw[..]),
             Some("français")
@@ -492,7 +488,8 @@ mod tests {
                 (".slots/copyrite.md", "© 1998, misspelt"),
             ],
         );
-        let fills = SlotFills::load(&dir).expect("both stems load; only one is read");
+        let fills =
+            SlotFills::load(&dir, &NotContent::none()).expect("both stems load; only one is read");
         let w = unknown_stems(&fills, &["copyright", "nav"], &["en"]);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(w.len(), 1, "only the misspelt one is dead: {w:?}");
@@ -509,7 +506,7 @@ mod tests {
     #[test]
     fn a_case_variant_of_a_known_slot_says_so() {
         let dir = tree("case-variant", &[(".slots/Nav.md", "[home](/)")]);
-        let fills = SlotFills::load(&dir).expect("a stem is a stem");
+        let fills = SlotFills::load(&dir, &NotContent::none()).expect("a stem is a stem");
         let w = unknown_stems(&fills, &["copyright", "nav"], &["en"]);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(w.len(), 1, "{w:?}");
@@ -530,7 +527,7 @@ mod tests {
                 (".slots/nav.frr.md", "typo"),
             ],
         );
-        let fills = SlotFills::load(&dir).expect("locale suffixes are stems");
+        let fills = SlotFills::load(&dir, &NotContent::none()).expect("locale suffixes are stems");
         let w = unknown_stems(&fills, &["nav"], &["en", "fr"]);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(w.len(), 1, "only the undeclared locale is dead: {w:?}");
@@ -548,7 +545,8 @@ mod tests {
                 ("blog/.slots/nav.md", "blog nav"),
             ],
         );
-        let fills = SlotFills::load(&dir).expect("different levels are ranked by nearness");
+        let fills = SlotFills::load(&dir, &NotContent::none())
+            .expect("different levels are ranked by nearness");
         assert_eq!(
             fills
                 .resolve(&dir, &dir.join("blog"), "nav", "en")
@@ -558,6 +556,31 @@ mod tests {
         assert_eq!(
             fills.resolve(&dir, &dir, "nav", "en").map(|f| &f.raw[..]),
             Some("site nav")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The `.slots/` scan prunes what the site's `exclude` calls not-content,
+    /// so it cannot drift from the content walk. Delete the `keeps_dir` clause
+    /// in `walk` and the excluded fill loads and shadows the root's.
+    #[test]
+    fn an_excluded_directory_is_not_scanned_for_fills() {
+        let dir = tree(
+            "excluded-fill",
+            &[
+                (".slots/nav.md", "site nav"),
+                ("vendor/.slots/nav.md", "vendored nav"),
+            ],
+        );
+        let not = NotContent::from_globs(&["**/vendor"], &[]).unwrap();
+        let fills = SlotFills::load(&dir, &not).expect("the site tree loads");
+        // The root fill is found; the one under `vendor/` never entered the walk.
+        assert_eq!(
+            fills
+                .resolve(&dir, &dir.join("vendor"), "nav", "en")
+                .map(|f| &f.raw[..]),
+            Some("site nav"),
+            "an excluded directory's fill must not shadow the root's"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -581,7 +604,7 @@ mod tests {
                 "<span data-slot=\"search\" data-fragment=\"search_button\"></span>",
             )
             .unwrap();
-            let fills = SlotFills::load(&dir).expect("fills load");
+            let fills = SlotFills::load(&dir, &NotContent::none()).expect("fills load");
             let got = super::check_chrome_fills(&fills, &dir);
             let _ = std::fs::remove_dir_all(&dir);
             match legal {

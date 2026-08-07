@@ -437,6 +437,17 @@ name = "objects"
 
 [[collections]]
 source = "."
+# Not content on any site: dependency directories and grackle's own build
+# cache. `exclude` on the tree collection is the one list every walk reads —
+# the content walk, the `.slots/` scan, the serve watcher. `**/` prunes nested
+# copies. `_cache/` also falls to the dot/underscore skip in the tree walks,
+# but naming it here is what stops the watcher looping on the thumbnails a
+# rebuild writes into it.
+exclude = [
+  "**/node_modules",
+  "**/vendor",
+  "_cache/**",
+]
 
   [[collections.rules]]
   match = "**/index.{html,md}"

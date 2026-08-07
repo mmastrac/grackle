@@ -396,6 +396,21 @@ fn build_globset(pats: &[String]) -> Result<GlobSet> {
     Ok(b.build()?)
 }
 
+impl Config {
+    /// The declared not-content layer: `exclude`/`include` from the tree
+    /// collection. Every walk prunes through this one value — content,
+    /// declarations, the `.slots/` scan, the serve watcher — so a site's
+    /// `exclude` governs them alike.
+    pub fn not_content(&self) -> Result<store::NotContent> {
+        let tree = self.collections.values().find(|c| c.is_tree());
+        let empty: &[String] = &[];
+        Ok(store::NotContent::new(
+            build_globset(tree.map_or(empty, |c| &c.exclude))?,
+            build_globset(tree.map_or(empty, |c| &c.include))?,
+        ))
+    }
+}
+
 fn path_tokens(rel: &Path, k: &str) -> Option<String> {
     let path = rel.to_string_lossy().to_string();
     match k {
@@ -681,13 +696,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let mut db = SiteDb::default();
     let root = cfg.root();
 
-    // Tree collection supplies shared `exclude`/`include` for every walk.
-    let tree_c = cfg.collections.values().find(|c| c.is_tree());
-    let empty: &[String] = &[];
-    let not_content = store::NotContent::new(
-        build_globset(tree_c.map_or(empty, |c| &c.exclude))?,
-        build_globset(tree_c.map_or(empty, |c| &c.include))?,
-    );
+    let not_content = cfg.not_content()?;
 
     let t_m = std::time::Instant::now();
     let markers = Markers::scan(&root, &cfg.markers, cfg.gitignore, &not_content)?;

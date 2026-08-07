@@ -1412,10 +1412,16 @@ mod tests {
     /// carries may vanish (fragments cannot put a dropped part back).
     #[test]
     fn null_theme_is_complete_over_every_real_row() {
-        let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
-            .expect("grackle.toml loads");
+        let cfg = crate::config::Config::load(
+            &crate::workspace_root().join("examples/field-notes/grackle.toml"),
+        )
+        .expect("grackle.toml loads");
         let db = grackle_source::load(&cfg).expect("site db loads");
-        assert!(db.rows.len() > 300, "real corpus expected");
+        assert!(
+            db.rows.len() > 30,
+            "the field-notes corpus: got {}",
+            db.rows.len()
+        );
 
         for p in db.rows.iter().filter(|p| cfg.body_held(p)) {
             let trail = vec![
@@ -1571,8 +1577,10 @@ mod schema_asset_tests {
     #[test]
     fn fill_from_fields_reads_columns_and_date_pretty() {
         use grackle_db::Value as V;
-        let cfg = crate::config::Config::load(&crate::workspace_root().join("grackle.toml"))
-            .expect("grackle.toml loads");
+        let cfg = crate::config::Config::load(
+            &crate::workspace_root().join("examples/field-notes/grackle.toml"),
+        )
+        .expect("grackle.toml loads");
         let mut row = Row {
             title: Some("Hello".into()),
             url: "/hello/".into(),

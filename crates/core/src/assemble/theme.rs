@@ -24,6 +24,7 @@ use super::binder::{self, Fragments};
 use super::parts::{Part, PartMap, PartType, Schemas};
 use crate::base;
 use crate::slots::SlotFills;
+use grackle_source::store::NotContent;
 
 pub struct Theme {
     pub fragments: Fragments,
@@ -209,6 +210,7 @@ impl Themes {
         site_root: &Path,
         fields: &[(String, grackle_source::schema::FieldType)],
         site_theme: Option<&str>,
+        not: &NotContent,
     ) -> Result<Themes> {
         let mut map = std::collections::BTreeMap::new();
         if let Ok(rd) = std::fs::read_dir(themes_dir) {
@@ -218,7 +220,7 @@ impl Themes {
                 // convention `_posts` and `_includes` already use, room for
                 // a site to keep working files beside its themes.
                 if e.path().is_dir() && !name.starts_with('_') {
-                    map.insert(name, Theme::load(&e.path(), site_root, fields)?);
+                    map.insert(name, Theme::load(&e.path(), site_root, fields, not)?);
                 }
             }
         }
@@ -241,7 +243,7 @@ impl Themes {
         };
         let themes = Themes {
             map,
-            null: Theme::null(site_root, fields)?,
+            null: Theme::null(site_root, fields, not)?,
             site_name,
             site_sub,
         };
@@ -348,6 +350,7 @@ impl Theme {
     pub fn null(
         site_root: &Path,
         fields: &[(String, grackle_source::schema::FieldType)],
+        not: &NotContent,
     ) -> Result<Theme> {
         let manifest = Manifest::parse(base::manifest(), "the base theme", None)?;
         Theme::from_sources(
@@ -357,6 +360,7 @@ impl Theme {
             None,
             "the base theme",
             manifest,
+            not,
         )
     }
 
@@ -364,6 +368,7 @@ impl Theme {
         theme_dir: &Path,
         site_root: &Path,
         fields: &[(String, grackle_source::schema::FieldType)],
+        not: &NotContent,
     ) -> Result<Theme> {
         if theme_dir.join("shell.html").exists() && !theme_dir.join("root.html").exists() {
             anyhow::bail!(
@@ -383,7 +388,15 @@ impl Theme {
             }
             Err(_) => Manifest::default(),
         };
-        Theme::from_sources(own, site_root, fields, Some(theme_dir), &what, manifest)
+        Theme::from_sources(
+            own,
+            site_root,
+            fields,
+            Some(theme_dir),
+            &what,
+            manifest,
+            not,
+        )
     }
 
     pub fn schemas(&self) -> &Schemas {
@@ -397,6 +410,7 @@ impl Theme {
         theme_dir: Option<&Path>,
         what: &str,
         manifest: Manifest,
+        not: &NotContent,
     ) -> Result<Theme> {
         let mut style = String::new();
         if let Some(i) = own.iter().position(|(n, _, _)| n == "root") {
@@ -428,7 +442,7 @@ impl Theme {
         // (literal markup may sit beside the engine holes). Positional like
         // every other fill: each registers as a variant of the `chrome` kind,
         // and `page` resolves the nearest one up the source path.
-        let fills = SlotFills::load(site_root)?;
+        let fills = SlotFills::load(site_root, not)?;
         let mut chrome_overrides = std::collections::BTreeMap::new();
         for (i, (owner, file, src)) in fills.chrome_sources().into_iter().enumerate() {
             let name = format!("chrome--{i}");
@@ -637,7 +651,7 @@ impl Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::{split_spec, Theme, Themes};
+    use super::{split_spec, NotContent, Theme, Themes};
     use crate::parts::first_dropped;
     use std::path::{Path, PathBuf};
 
@@ -662,11 +676,18 @@ mod tests {
         let root = crate::workspace_root();
         let fields: &[(String, grackle_source::schema::FieldType)] = &[];
 
-        let none = Themes::load_all(&gallery(), &root, fields, None).unwrap();
+        let none = Themes::load_all(&gallery(), &root, fields, None, &no_tree_fills()).unwrap();
         assert_eq!(none.resolve(None), (None, None));
         assert_eq!(none.site_default(), (None, None));
 
-        let site = Themes::load_all(&gallery(), &root, fields, Some("ledger:dark")).unwrap();
+        let site = Themes::load_all(
+            &gallery(),
+            &root,
+            fields,
+            Some("ledger:dark"),
+            &no_tree_fills(),
+        )
+        .unwrap();
         assert_eq!(site.resolve(None), (Some("ledger"), Some("dark".into())));
         assert!(std::ptr::eq(
             site.get(site.resolve(None).0).unwrap(),
@@ -678,17 +699,18 @@ mod tests {
             (Some("terminal"), Some("wide".into()))
         );
 
-        let err = Themes::load_all(&gallery(), &root, fields, Some("legder"))
+        let err = Themes::load_all(&gallery(), &root, fields, Some("legder"), &no_tree_fills())
             .map(|_| ())
             .expect_err("misspelled site theme")
             .to_string();
         assert!(err.contains("legder") && err.contains("ledger"), "{err}");
 
         let empty = root.join("themes-that-do-not-exist");
-        let base = Themes::load_all(&empty, &root, fields, Some("default")).unwrap();
+        let base =
+            Themes::load_all(&empty, &root, fields, Some("default"), &no_tree_fills()).unwrap();
         assert_eq!(base.resolve(None), (Some("default"), None));
         base.get(Some("default")).expect("base answers");
-        let err = Themes::load_all(&empty, &root, fields, Some("ledger"))
+        let err = Themes::load_all(&empty, &root, fields, Some("ledger"), &no_tree_fills())
             .map(|_| ())
             .expect_err("no directory")
             .to_string();
@@ -697,6 +719,13 @@ mod tests {
 
     fn gallery() -> PathBuf {
         crate::workspace_root().join("themes")
+    }
+
+    /// A site root whose tree yields no `.slots/` fills: these base and gallery
+    /// tests exercise theme fragments, and the repo root would drag in the
+    /// fixture trees under `crates/`.
+    fn no_tree_fills() -> NotContent {
+        NotContent::from_globs(&["**"], &[]).unwrap()
     }
 
     fn theme_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
@@ -735,7 +764,7 @@ mod tests {
             ),
         ];
 
-        let thm = Theme::null(&crate::workspace_root(), &[]).expect("base loads");
+        let thm = Theme::null(&crate::workspace_root(), &[], &no_tree_fills()).expect("base loads");
         let schemas = thm.schemas();
         for kind in schemas.kind_names() {
             // `root` is filled by `Theme::page`, not by a kind renderer.
@@ -773,7 +802,8 @@ mod tests {
     #[test]
     fn every_gallery_theme_keeps_a_rows_name() {
         let root = crate::workspace_root();
-        let themes = Themes::load_all(&gallery(), &root, &[], None).expect("gallery loads");
+        let themes = Themes::load_all(&gallery(), &root, &[], None, &no_tree_fills())
+            .expect("gallery loads");
         let schemas = themes.get(None).unwrap().schemas();
         let names: Vec<String> = themes.names().map(str::to_string).collect();
         assert!(names.len() >= 6, "expected the gallery, found {names:?}");
@@ -819,7 +849,8 @@ mod tests {
     /// prose fill set on one part.
     #[test]
     fn the_identity_slots_are_the_html_ones_the_engine_does_not_fill() {
-        let base = Theme::null(&crate::workspace_root(), &[]).expect("base loads");
+        let base =
+            Theme::null(&crate::workspace_root(), &[], &no_tree_fills()).expect("base loads");
         let slots: Vec<&str> = base.identity_slots().collect();
         assert_eq!(
             slots,
@@ -871,8 +902,8 @@ mod tests {
         for stem in ["nav", "copyright", "copyrite"] {
             std::fs::write(dir.join(".slots").join(format!("{stem}.md")), "words").unwrap();
         }
-        let themes =
-            Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("two roots load");
+        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None, &NotContent::none())
+            .expect("two roots load");
         assert_eq!(
             themes.identity_slots(),
             ["nav"],
@@ -992,7 +1023,8 @@ mod tests {
                 .unwrap();
             }
         }
-        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("load");
+        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None, &NotContent::none())
+            .expect("load");
         themes.check_spec("declared:dark").expect("declared token");
         themes
             .check_spec("grandfathered:anything")
@@ -1004,10 +1036,16 @@ mod tests {
         assert!(err.contains("drak") && err.contains("dark"), "{err}");
 
         // The same check guards `[site] theme` at load.
-        let err = Themes::load_all(&dir.join("themes"), &dir, &[], Some("declared:drak"))
-            .map(|_| ())
-            .expect_err("site spec validates")
-            .to_string();
+        let err = Themes::load_all(
+            &dir.join("themes"),
+            &dir,
+            &[],
+            Some("declared:drak"),
+            &NotContent::none(),
+        )
+        .map(|_| ())
+        .expect_err("site spec validates")
+        .to_string();
         assert!(err.contains("drak"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1018,7 +1056,7 @@ mod tests {
     #[test]
     fn chrome_parts_fill_from_facts_and_stand_down() {
         let root = crate::workspace_root();
-        let thm = Theme::null(&root, &[]).expect("base loads");
+        let thm = Theme::null(&root, &[], &no_tree_fills()).expect("base loads");
         let no_link = |_: crate::links::Cite, _: &Path, _: &str| Ok(None);
         let page = |subtheme: Option<&str>, chrome: &super::ChromeInput| {
             thm.page(
@@ -1096,7 +1134,8 @@ mod tests {
             "[subthemes]\ndark = { scheme = \"dark\" }\nlight = { scheme = \"light\" }\n",
         )
         .unwrap();
-        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None).expect("loads");
+        let themes = Themes::load_all(&dir.join("themes"), &dir, &[], None, &NotContent::none())
+            .expect("loads");
         let thm = themes.get(Some("split")).unwrap();
         let html = render_chrome_page(thm, &dir, &dir, None, &full_chrome());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1131,7 +1170,8 @@ mod tests {
              <span data-slot=\"search\" data-fragment=\"search_button\"></span>",
         )
         .unwrap();
-        let thm = Theme::null(&dir, &[]).expect("base loads with the override");
+        let thm =
+            Theme::null(&dir, &[], &NotContent::none()).expect("base loads with the override");
         let html = render_chrome_page(&thm, &dir, &dir, None, &full_chrome());
         let _ = std::fs::remove_dir_all(&dir);
         assert!(html.contains("Elsewhere"), "author chrome renders:\n{html}");
@@ -1162,7 +1202,7 @@ mod tests {
             "<i>DOCSMARK</i><span data-slot=\"scheme\" data-fragment=\"scheme_button\"></span>",
         )
         .unwrap();
-        let thm = Theme::null(&dir, &[]).expect("base loads");
+        let thm = Theme::null(&dir, &[], &NotContent::none()).expect("base loads");
 
         let at_root = render_chrome_page(&thm, &dir, &dir, None, &full_chrome());
         assert!(
@@ -1192,7 +1232,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".slots")).unwrap();
         std::fs::write(dir.join(".slots/chrome.html"), "<b>ELSEMARK</b>").unwrap();
-        let thm = Theme::null(&dir, &[]).expect("base loads");
+        let thm = Theme::null(&dir, &[], &NotContent::none()).expect("base loads");
         // No facts, and a forced scheme stands the control down: the cluster
         // map is empty, and only the resolved override keeps it rendering.
         let html = render_chrome_page(

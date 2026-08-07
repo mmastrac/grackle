@@ -364,22 +364,19 @@ mod block_tests {
         assert!(!truncated);
     }
 
-    /// Every post's block concatenation matches its whole render (a summary
+    /// Every note's block concatenation matches its whole render (a summary
     /// is a literal prefix), except footnote posts where comrak relocates
     /// definitions at parse time.
     #[test]
     fn concat_equals_whole_over_corpus() {
-        let root = crate::workspace_root().join("..");
+        let root = crate::workspace_root().join("examples/field-notes");
         let mut n = 0;
         let mut mismatched: Vec<String> = Vec::new();
-        for e in walkdir::WalkDir::new(root.join("_posts"))
-            .into_iter()
-            .flatten()
-        {
-            if !e.file_type().is_file() {
+        for e in walkdir::WalkDir::new(&root).into_iter().flatten() {
+            if !e.file_type().is_file() || e.path().extension().is_none_or(|x| x != "md") {
                 continue;
             }
-            if e.path().extension().is_none_or(|x| x != "md") {
+            if e.path().components().any(|c| c.as_os_str() == "themes") {
                 continue;
             }
             let text = std::fs::read_to_string(e.path()).unwrap();
@@ -391,11 +388,10 @@ mod block_tests {
                 mismatched.push(e.path().file_name().unwrap().to_string_lossy().into());
             }
         }
-        assert!(n > 300, "corpus not found ({n} posts)");
-        assert_eq!(
-            mismatched,
-            vec!["2026-06-11-life-before-main.md".to_string()],
-            "the footnote post is the only tolerated concat mismatch"
+        assert!(n >= 25, "the field-notes corpus ({n} notes)");
+        assert!(
+            mismatched.is_empty(),
+            "block concat should equal the whole render: {mismatched:?}"
         );
     }
 }
