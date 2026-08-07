@@ -72,18 +72,20 @@ long_date = "@months[{month}] {day}, {year}"
 11 = "Nov"
 12 = "Dec"
 [[collections]]
+name = "entries"
 source = "."
-exclude = ["embedded/**"]
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"
 
 # No `from`: a fold shell reads every output, which is what
 # puts this `where` in the ROUTE vocabulary — the environment `cover` used to
 # leak into.
-[routes.covered]
+[views.covered]
 path = "/covered.xml"
 shell = "sitemap"
 where = 'cover != ""'
+
+[files]
+exclude = ["embedded/**"]

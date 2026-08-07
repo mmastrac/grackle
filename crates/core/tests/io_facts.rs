@@ -32,10 +32,13 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-             [routes.identity]\npath = \"/identity.xml\"\n\
+             [views.identity]\npath = \"/identity.xml\"\n\
              shell = \"sitemap\"\nwhere = \"front_mattered\"\n\n\
-             [routes.bytes]\npath = \"/bytes.xml\"\n\
-             shell = \"sitemap\"\nwhere = \"!front_mattered\"\n",
+             [views.bytes]\npath = \"/bytes.xml\"\n\
+             shell = \"sitemap\"\nwhere = \"!front_mattered\"\n\n\
+             [[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
+             [[collections.rules]]\n  match = \"{legacy.html,notes.txt}\"\n  \
+             route = \"/{path}\"\n  defaults = { shell = \"raw\" }\n",
         ),
         (
             "_posts/2020-01-01-hello.md",

@@ -81,18 +81,18 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 # at `/<key>/` on its own — the same URL its group's view route claims — but the
 # claim withholds that standalone route, so there is no collision.
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "*/index.md"
-  front_matter = true
+  match = { pattern = "*/index.md", front_matter = true }
   route = "/{dir}/"
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
-[routes.topics]
+[views.topics]
 path = "/{group:key}/"
 from = "posts"
 where = "!draft && !hidden"

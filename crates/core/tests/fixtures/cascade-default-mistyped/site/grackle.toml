@@ -66,10 +66,10 @@ shell = { type = "string" }
 toc = { type = "bool" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"
   defaults = { toc = "true" }

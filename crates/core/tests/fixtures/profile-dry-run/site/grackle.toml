@@ -8,7 +8,7 @@
 # so this site built happily and the mistake below first spoke on the day
 # someone ran `--profile staging`.
 #
-# `publised` is the misspelling: the base's `[sets.published]` is the query
+# `publised` is the misspelling: the base's `[views.published]` is the query
 # every listing, archive and feed reads, and relaxing it is what a drafts-
 # shaped profile is for. What makes it an error is no longer a name check —
 # a profile is a config OVERLAY, so naming an unknown view simply ADDS a
@@ -19,7 +19,7 @@
 # is a listing that never says what it lists.
 #
 # That is the whole-shadow law showing its teeth, too: had the name been
-# right, this entry would still have REPLACED `[sets.published]` entire
+# right, this entry would still have REPLACED `[views.published]` entire
 # rather than patching its `where`, which is why a profile that relaxes one
 # clause restates the definition (see grack.com's `drafts`).
 
@@ -29,6 +29,7 @@ title = "Profile Typo"
 author = "Tester"
 
 [[collections]]
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
@@ -37,5 +38,5 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   [profiles.staging.force]
   noindex = true
 
-  [profiles.staging.sets.publised]
+  [profiles.staging.views.publised]
   where = "!hidden"

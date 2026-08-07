@@ -14,12 +14,12 @@ title = "Unknown Theme, By Default"
 author = "Tester"
 
 [[collections]]
+name = "entries"
 source = "."
 
   # Site rules prepend (Law 1 in list form), so this wins for `.md` over the
   # base's own page rule and hands every page a theme that does not exist.
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"
   defaults = { theme = "nosuch" }

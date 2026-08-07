@@ -40,8 +40,9 @@ fn files() -> Vec<(&'static str, &'static str)> {
 }
 
 const CONFIG: &str = "extends = \"none\"\n\
-     [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-     [[collections]]\nsource = \".\"\n";
+     [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n";
+
+const TREE: &str = "[[collections]]\nname = \"entries\"\nsource = \".\"\n";
 
 const CATCH_ALL: &str = "\n  [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{path}\"\n";
 
@@ -120,7 +121,7 @@ fn declarations(dir: &Path) -> (Vec<String>, Vec<String>, usize) {
 /// compiled sheet the engine already publishes at `/css/mine.css`.
 #[test]
 fn a_site_root_themes_directory_is_not_content() {
-    let dir = site("not-content", &format!("{CONFIG}{CATCH_ALL}"));
+    let dir = site("not-content", &format!("{CONFIG}{TREE}{CATCH_ALL}"));
     let urls = published(&dir);
 
     assert!(
@@ -157,7 +158,7 @@ fn a_site_root_themes_directory_is_not_content() {
 fn include_is_the_escape_hatch_over_the_position_rule() {
     let dir = site(
         "include",
-        &format!("{CONFIG}include = [\"themes/**\"]\n{CATCH_ALL}"),
+        &format!("{CONFIG}[files]\ninclude = [\"themes/**\"]\n{TREE}{CATCH_ALL}"),
     );
     let urls = published(&dir);
 
@@ -179,7 +180,7 @@ fn include_is_the_escape_hatch_over_the_position_rule() {
 fn the_tree_collections_exclude_still_works() {
     let dir = site(
         "tree-exclude",
-        &format!("{CONFIG}exclude = [\"pages/**\"]\n{CATCH_ALL}"),
+        &format!("{CONFIG}[files]\nexclude = [\"pages/**\"]\n{TREE}{CATCH_ALL}"),
     );
     let urls = published(&dir);
 
@@ -226,7 +227,7 @@ const MARKERS: &str =
 fn a_themes_declarations_are_not_the_sites() {
     let dir = site_of(
         "declarations",
-        &format!("{CONFIG}{MARKERS}{CATCH_ALL}"),
+        &format!("{CONFIG}{TREE}{MARKERS}{CATCH_ALL}"),
         declaration_files(),
     );
     let (declared, sections, markers) = declarations(&dir);
@@ -269,7 +270,7 @@ fn a_themes_declarations_are_not_the_sites() {
 fn include_is_the_escape_hatch_for_declarations_too() {
     let dir = site_of(
         "declarations-include",
-        &format!("{CONFIG}include = [\"themes/**\"]\n{MARKERS}{CATCH_ALL}"),
+        &format!("{CONFIG}[files]\ninclude = [\"themes/**\"]\n{TREE}{MARKERS}{CATCH_ALL}"),
         declaration_files(),
     );
     let (declared, sections, markers) = declarations(&dir);

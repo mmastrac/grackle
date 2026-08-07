@@ -26,7 +26,7 @@ const HEAD: &str = "extends = \"none\"\n\
      [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
      [schema]\nshell = { type = \"string\" }\n\n\
      [html.head.property]\n\"og:title\" = 'title'\n\n\
-     [[collections]]\nsource = \".\"\n";
+     [[collections]]\nname = \"entries\"\nsource = \".\"\n";
 
 /// Write a site and hand back its directory. Per-test directories, because
 /// tests that share one temp tree and each clear it race.

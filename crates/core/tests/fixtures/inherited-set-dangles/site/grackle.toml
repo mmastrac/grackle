@@ -1,7 +1,7 @@
 # An INHERITED view's `from` naming a collection this site renamed away
 #.
 #
-# Views are a registry keyed by NAME, so the base's `[sets.published]`
+# Views are a registry keyed by NAME, so the base's `[views.published]`
 # survives whatever a site does. Collections key on `source`,
 # so `name = "notes"` here does not add a collection — it renames the base's
 # `_posts` one, and the name `posts` stops existing. The base's
@@ -13,7 +13,7 @@
 # halves are what the message has to fix: `published` carries the `from`, and
 # it came from the base.
 #
-# The fix a reader should reach for is one line — `[sets.published] from =
+# The fix a reader should reach for is one line — `[views.published] from =
 # "notes"` — which is exactly what `examples/field-notes` writes.
 
 [site]

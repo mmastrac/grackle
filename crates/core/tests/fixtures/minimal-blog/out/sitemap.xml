@@ -17,4 +17,7 @@
 <loc>https://example.com/blog/2026/02/01/second/</loc>
 <lastmod>2026-02-01T00:00:00+00:00</lastmod>
 </url>
+<url>
+<loc>https://example.com/blog/tags/meta/</loc>
+</url>
 </urlset>

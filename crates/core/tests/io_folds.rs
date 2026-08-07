@@ -34,9 +34,12 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-             [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n\n\
-             [routes.documents]\npath = \"/documents.xml\"\n\
-             shell = \"sitemap\"\nwhere = 'shell == \"html\"'\n",
+             [views.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n\n\
+             [views.documents]\npath = \"/documents.xml\"\n\
+             shell = \"sitemap\"\nwhere = 'shell == \"html\"'\n\n\
+             [[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
+             [[collections.rules]]\n  match = \"notes.txt\"\n  \
+             route = \"/{path}\"\n  defaults = { shell = \"raw\" }\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
@@ -74,7 +77,7 @@ fn locs(out: &grackle_core::build::SiteOutput, route: &str) -> Vec<String> {
 /// - make `View::reads_all_outputs` return `false`: `build_pool_folds` mints
 ///   nothing and `/all.xml` does not exist at all — the panic in `text` names
 ///   the routes that do;
-/// - make it return `true` unconditionally: the base's own `[routes.blog_index]`
+/// - make it return `true` unconditionally: the base's own `[views.blog_index]`
 ///   becomes a listing with no pool and the load fails on it, which is the
 ///   guard below firing on the engine instead of on a site.
 #[test]
@@ -107,7 +110,7 @@ fn a_fold_with_no_from_reads_every_output() {
 }
 
 /// **The feed is not a fold over the pool, and it did not move.** `from`
-/// naming a set selects that set's rows — `[routes.feed] from = "published"`
+/// naming a set selects that set's rows — `[views.feed] from = "published"`
 /// keeps meaning what it means.
 ///
 /// At today's fidelity a fold over a set consumes the set's ROWS directly,
@@ -153,7 +156,7 @@ fn a_script_shell_with_no_from_is_a_load_error() {
         &cfg,
         format!(
             "{base}\n[shells.echo]\ncommand = \"cat\"\n\n\
-             [routes.probe]\npath = \"/probe.json\"\nshell = \"echo\"\n"
+             [views.probe]\npath = \"/probe.json\"\nshell = \"echo\"\n"
         ),
     )
     .unwrap();
@@ -176,7 +179,7 @@ fn a_script_shell_with_no_from_is_a_load_error() {
 /// engine's own folds are still legal without one.
 ///
 /// `examples/field-notes` is the live user (`[shells.llms]` +
-/// `[routes.llms] from = "published"`), and it must keep building; this is
+/// `[views.llms] from = "published"`), and it must keep building; this is
 /// the same shape in a test the item can mutate. `cat` is the identity
 /// shell, so the payload the engine wrote is the artifact it published and
 /// the assertion can read it directly.
@@ -189,7 +192,7 @@ fn a_script_shell_with_a_from_still_eats_its_rows() {
         &cfg,
         format!(
             "{base}\n[shells.echo]\ncommand = \"cat\"\n\n\
-             [routes.probe]\npath = \"/probe.json\"\nfrom = \"posts\"\n\
+             [views.probe]\npath = \"/probe.json\"\nfrom = \"posts\"\n\
              shell = \"echo\"\n"
         ),
     )
@@ -224,7 +227,7 @@ fn absent_from_without_a_fold_is_a_load_error() {
     let base = std::fs::read_to_string(&cfg).expect("the fixture wrote it");
     std::fs::write(
         &cfg,
-        format!("{base}\n[routes.orphan]\npath = \"/orphan/\"\nlayout = \"card\"\n"),
+        format!("{base}\n[views.orphan]\npath = \"/orphan/\"\nlayout = \"card\"\n"),
     )
     .unwrap();
     let e = format!(
@@ -261,8 +264,8 @@ fn the_star_spelling_is_gone() {
     std::fs::write(
         &cfg,
         base.replace(
-            "[routes.all]\npath = \"/all.xml\"\n",
-            "[routes.all]\npath = \"/all.xml\"\nfrom = \"*\"\n",
+            "[views.all]\npath = \"/all.xml\"\n",
+            "[views.all]\npath = \"/all.xml\"\nfrom = \"*\"\n",
         ),
     )
     .unwrap();

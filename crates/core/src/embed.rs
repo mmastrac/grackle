@@ -319,7 +319,7 @@ mod tests {
     fn embed_cfg() -> crate::config::Config {
         crate::config::Config::from_toml(
             "extends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource=\"_posts\"\n\
+             [[collections]]\nname=\"posts\"\nsource=\"_posts\"\n\
              [[collections.rules]]\nmatch=\"**\"\nroute=\"/{slug}/\"\n\
              [schema.embeddings]\n\
              string = \"title: {title} tags: {tags} body: {body}\"\n",

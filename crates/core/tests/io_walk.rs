@@ -63,8 +63,9 @@ const OBJECTS: &str = "[[collections]]\n\
 
 /// The tree: the root scope, catch-all last.
 const TREE: &str = "[[collections]]\n\
+     name = \"entries\"\n\
      source = \".\"\n\n  \
-     [[collections.rules]]\n  match = \"**/*.{html,md}\"\n  front_matter = true\n  \
+     [[collections.rules]]\n  match = { pattern = \"**/*.{html,md}\", front_matter = true }\n  \
      route = \"/{dir}/{stem}/\"\n  defaults = { shell = \"html\" }\n\n  \
      [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{path}\"\n  \
      defaults = { shell = \"raw\" }\n\n";
@@ -330,8 +331,8 @@ fn a_source_the_tree_excludes_is_a_load_error() {
     let dir = site(
         "excluded",
         &config(&format!(
-            "{POSTS}{OBJECTS}[[collections]]\nsource = \".\"\n\
-             exclude = [\"_posts/**\"]\n\n  \
+            "[files]\nexclude = [\"_posts/**\"]\n\n\
+             {POSTS}{OBJECTS}[[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
              [[collections.rules]]\n  match = \"**/*\"\n  route = \"/{{path}}\"\n  \
              defaults = {{ shell = \"raw\" }}\n\n"
         )),

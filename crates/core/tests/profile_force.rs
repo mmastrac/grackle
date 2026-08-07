@@ -101,7 +101,7 @@ fn without_the_profile_the_row_keeps_its_own_answer() {
 
 /// The same force, read by two *filters* instead of by two head expressions.
 ///
-/// `row_probe` filters the ROW pool (`from = "published"`, so its clause
+/// `row_probe` filters the ROW pool (`from = "posts"`, so its clause
 /// conjoins along the `from` chain); `pool_probe` filters the route pool (no
 /// `from` at all under a fold shell, the sitemap's own shape). Both ask `!noindex`, and under a
 /// profile that forces `noindex = true` both must come out empty: a profile
@@ -113,9 +113,9 @@ fn pools_site(who: &str) -> PathBuf {
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
              [profiles.drafts.force]\nnoindex = true\n\n\
-             [routes.row_probe]\npath = \"/row-probe/\"\nfrom = \"published\"\n\
+             [views.row_probe]\npath = \"/row-probe/\"\nfrom = \"posts\"\n\
              where = \"!noindex\"\nlayout = \"card\"\ntitle = \"Row probe\"\n\n\
-             [routes.pool_probe]\npath = \"/pool-probe.xml\"\n\
+             [views.pool_probe]\npath = \"/pool-probe.xml\"\n\
              shell = \"sitemap\"\nwhere = '!noindex && (dir || ext == \"html\")'\n",
         ),
         (

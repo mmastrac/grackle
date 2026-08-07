@@ -39,7 +39,7 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   match = "**/*.{md,markdown}"
   route = "/blog/{slug}/"
 
-[routes.hub]
+[views.hub]
 from = "posts"
 layout = "card"
 axis = "look"

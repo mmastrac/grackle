@@ -45,7 +45,11 @@ const CONFIG: &str = "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauth
                       \n[schema]\nalt = { type = \"string\" }\ncover = { type = \"image\" }\n\
                       \n[[collections]]\nname = \"objects\"\n\
                       [[collections.rules]]\n\
-                      match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n";
+                      match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\
+                      defaults = { shell = \"raw\" }\n\n\
+                      [[collections]]\nname = \"pages\"\nsource = \".\"\n\n  \
+                      [[collections.rules]]\n  match = \"{netlify.toml,unnamed.html}\"\n  \
+                      route = \"/{path}\"\n  defaults = { shell = \"raw\" }\n";
 
 fn site(whose: &str, files: &[(&str, &[u8])]) -> PathBuf {
     support::site("io-sidecar", whose, files)
@@ -167,7 +171,7 @@ fn a_sidecar_gives_an_image_identity_without_parsing_it() {
     );
     assert_eq!(
         grackle_core::debug::row_facts(about),
-        "collection  entries\nrule        **/*.{html,md}\nshell       html\n\
+        "collection  pages\nrule        **/*.{html,md}\nshell       html\n\
          front_mattered true (block)\nrendered    true\noutput      /about/\n",
     );
 
@@ -320,7 +324,7 @@ fn a_sidecard_row_earns_no_degeneracy_warning() {
         &[
             (
                 "grackle.toml",
-                format!("{CONFIG}\n[[collections]]\nsource = \".\"\n\n  \
+                format!("{CONFIG}\n[[collections]]\nname = \"pages\"\nsource = \".\"\n\n  \
                          [[collections.rules]]\n  match = \"**/*.html\"\n  route = \"/{{stem}}/\"\n  \
                          defaults = {{ shell = \"html\" }}\n")
                 .as_bytes(),
@@ -508,8 +512,8 @@ fn a_content_exclude_does_not_unspeak_a_sidecar() {
             (
                 "grackle.toml",
                 format!(
-                    "{CONFIG}\n[[collections]]\nsource = \".\"\n\
-                     exclude = [\"*.toml\"]\n"
+                    "{CONFIG}\n[files]\nexclude = [\"*.toml\"]\n\n\
+                     [[collections]]\nname = \"pages\"\nsource = \".\"\n"
                 )
                 .as_bytes(),
             ),

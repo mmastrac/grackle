@@ -149,6 +149,12 @@ pub fn neighbors_in(seq: &[Key], of: &Key) -> (Option<Key>, Option<Key>) {
     )
 }
 
+/// False only when the engine-read `queryable` column says so; rows and
+/// routes alike.
+pub fn queryable(fields: &std::collections::BTreeMap<String, filter::Value>) -> bool {
+    fields.get("queryable") != Some(&filter::Value::Bool(false))
+}
+
 /// Filter fields available on a route.
 ///
 /// Omits `noindex` and `inputs`: those cannot be filled correctly when fold
@@ -162,6 +168,10 @@ pub fn route_schema(declared: &filter::Schema) -> filter::Schema {
     s.insert("url", Str);
     s.insert("ext", Str);
     s.insert("dir", Bool);
+    // Every route knows its serialization; stamped at mint, engine-owned.
+    s.insert("shell", Str);
+    // Derived from the URL through [media_types]; directories are HTML.
+    s.insert("media_type", Str);
     for (k, t) in declared {
         s.insert(k, *t);
     }

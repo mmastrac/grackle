@@ -28,7 +28,7 @@ pub(crate) fn walk_site(
         if !not_content.keeps_dir(src) {
             bail!(
                 "collection {}: `source = {:?}` declares that directory to be \
-                 content, and the tree's `exclude` takes it back out of the \
+                 content, and `[files]` exclude takes it back out of the \
                  walk — so this scope would load nothing. There is one walk \
                  now: a declared source is content, and the dot/underscore \
                  skip already keeps it out of the tree. Delete the `exclude` \
@@ -38,7 +38,7 @@ pub(crate) fn walk_site(
             );
         }
     }
-    let files = store::walk_tree(&root, not_content, cfg.gitignore, &sources)?;
+    let files = store::walk_tree(&root, not_content, cfg.files.gitignore(), &sources)?;
 
     // View templates are not independently routable; the view owns their routes.
     let templates: Vec<PathBuf> = cfg
@@ -83,6 +83,28 @@ pub(crate) fn walk_site(
     let mut rows: Vec<Row> = Vec::new();
     let mut pictures: Vec<PathBuf> = Vec::new();
 
+    // `queryable` is engine-read: computed here, before any pool exists.
+    // The authored value wins; the `[schema.fields]` expression fills.
+    let queryable_filter = match cfg.schema.fields.get("queryable").and_then(|f| f.as_expr()) {
+        Some(src) => {
+            let mut env = grackle_model::row_schema();
+            for (k, t) in &schemas.declared_schema() {
+                env.insert(k, *t);
+            }
+            Some(
+                grackle_db::filter::Filter::parse(src, &env)
+                    .with_context(|| format!("[schema.fields] queryable: {src:?}"))?,
+            )
+        }
+        None => None,
+    };
+
+    // Field selectors read authored facts, so front matter is read before
+    // rules run — only when some active rule selects on fields.
+    let any_selectors = scopes
+        .iter()
+        .any(|s| s.rules.iter().any(|r| !r.fields.is_empty()));
+
     for f in files {
         let object_shaped = is_obj(&f.rel);
         if object_shaped {
@@ -103,6 +125,36 @@ pub(crate) fn walk_site(
         }
         let has_identity = f.has_front_matter || sidecar.is_some();
 
+        // Authored facts for rule selectors: markers, then sidecar, then
+        // the file's own block — nearest writer wins.
+        let marker_defaults = markers.defaults_for(&f.rel);
+        let early_fm = match any_selectors && f.has_front_matter {
+            true => Some(read_front_matter(&f.path)?),
+            false => None,
+        };
+        let facts: std::collections::BTreeMap<String, toml::Value> = {
+            let mut m: std::collections::BTreeMap<String, toml::Value> =
+                std::collections::BTreeMap::new();
+            for (k, v) in &marker_defaults {
+                m.insert(k.clone(), v.clone());
+            }
+            if let Some(sc) = sidecar {
+                for (k, v) in &sc.front.extra {
+                    if let Some(t) = yaml_scalar_to_toml(v) {
+                        m.insert(k.clone(), t);
+                    }
+                }
+            }
+            if let Some((fm, _)) = &early_fm {
+                for (k, v) in &fm.extra {
+                    if let Some(t) = yaml_scalar_to_toml(v) {
+                        m.insert(k.clone(), t);
+                    }
+                }
+            }
+            m
+        };
+
         let mut claim: Option<(&Scope, Routing, PathBuf)> = None;
         // Owning scope asked and passed: not content; only co-owners below may continue.
         let mut owner_passed: Option<&Path> = None;
@@ -116,7 +168,7 @@ pub(crate) fn walk_site(
                 continue;
             };
             s.offered.set(s.offered.get() + 1);
-            let r = apply_rules(&s.rules, &s.formats, &scope_rel, has_identity);
+            let r = apply_rules(&s.rules, &s.formats, &scope_rel, has_identity, &facts);
             if r.claimed.is_some() {
                 claim = Some((s, r, scope_rel));
                 break;
@@ -131,6 +183,12 @@ pub(crate) fn walk_site(
             }
             bail!("no rule supplies a route for {}", f.path.display());
         };
+        if !routing.published {
+            // Claimed, and the address answer is "nowhere": the row exists
+            // in no build product at all.
+            scope.found.set(scope.found.get() + 1);
+            continue;
+        }
         let extracted = filename::extract(routing.formats, &path_key(&scope_rel));
         let pairing = cfg.pairing_axis();
         let pairing_default = pairing
@@ -152,7 +210,6 @@ pub(crate) fn walk_site(
         scope.found.set(scope.found.get() + 1);
         check_on_demand_cover(&logical_rel, &routing)?;
         let on_demand = routing.on_demand;
-        let marker_defaults = markers.defaults_for(&f.rel);
         let defaults = merged_defaults(&marker_defaults, routing.defaults);
 
         // `file_stem()` on `logical` returns `v1` for `v1.2-release.md`.
@@ -165,10 +222,11 @@ pub(crate) fn walk_site(
             .and_then(|c| c.get("slug").cloned())
             .unwrap_or_else(|| stem.clone());
 
-        let (fm, mut body_bytes) = match (f.has_front_matter, sidecar) {
-            (true, _) => read_front_matter(&f.path)?,
-            (false, Some(sc)) => (sc.front.clone(), 0),
-            (false, None) => Default::default(),
+        let (fm, mut body_bytes) = match (early_fm, f.has_front_matter, sidecar) {
+            (Some(early), _, _) => early,
+            (None, true, _) => read_front_matter(&f.path)?,
+            (None, false, Some(sc)) => (sc.front.clone(), 0),
+            (None, false, None) => Default::default(),
         };
         let parent = logical_root.parent().unwrap_or(Path::new("")).to_path_buf();
         let schema = schemas.resolve(scope.name, &parent);
@@ -289,7 +347,7 @@ pub(crate) fn walk_site(
                 claims[logical.as_str()]
             );
         }
-        let row = Row {
+        let mut row = Row {
             axis: row_axes(cfg, &route_templates, routing.formats),
             route_templates,
             width: None,
@@ -343,6 +401,12 @@ pub(crate) fn walk_site(
             alternates: Vec::new(),
             viewed_by: Vec::new(),
         };
+        if let Some(fl) = &queryable_filter {
+            if !row.fields.contains_key("queryable") && !fl.eval(&row) {
+                row.fields
+                    .insert("queryable".to_string(), grackle_db::Value::Bool(false));
+            }
+        }
         rows.push(row);
     }
 
@@ -416,4 +480,19 @@ pub(crate) fn resolve_image_fields(db: &SiteDb, schemas: &Schemas) -> Result<()>
         }
     }
     Ok(())
+}
+
+/// YAML scalar -> TOML value for selector comparison; non-scalars never
+/// match a selector.
+fn yaml_scalar_to_toml(v: &serde_yaml_ng::Value) -> Option<toml::Value> {
+    use serde_yaml_ng::Value as Y;
+    match v {
+        Y::Bool(b) => Some(toml::Value::Boolean(*b)),
+        Y::String(s) => Some(toml::Value::String(s.clone())),
+        Y::Number(n) => n
+            .as_i64()
+            .map(toml::Value::Integer)
+            .or_else(|| n.as_f64().map(toml::Value::Float)),
+        _ => None,
+    }
 }

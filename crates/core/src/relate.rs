@@ -347,7 +347,7 @@ impl<'a> Engine<'a> {
     /// list; a derived name is this row's own graph/tree neighbours (already
     /// in `names`).
     fn pool_rows(&self, rel: &Relation, names: &HashMap<String, Vec<String>>) -> Vec<&Row> {
-        match &rel.pool {
+        let rows: Vec<&Row> = match &rel.pool {
             Pool::Set(name) => self
                 .db
                 .views
@@ -369,7 +369,11 @@ impl<'a> Engine<'a> {
                 .get(name)
                 .map(|urls| urls.iter().filter_map(|u| self.db.row_by_url(u)).collect())
                 .unwrap_or_default(),
-        }
+        };
+        // An unqueryable row is a candidate for nothing.
+        rows.into_iter()
+            .filter(|r| crate::model::queryable(&r.fields))
+            .collect()
     }
 
     /// Resolve a relation's label for the row's i18n member. A `Key` reads the

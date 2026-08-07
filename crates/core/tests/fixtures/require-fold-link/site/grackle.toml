@@ -1,7 +1,7 @@
 # `require = true` on a shell expand: once routes materialize the pool must
 # be non-empty, so a site that demands its feed link fails loudly instead of
 # shipping heads without it. `extends = "none"` because the base declares
-# `[routes.feed]`, which would satisfy the requirement.
+# `[views.feed]`, which would satisfy the requirement.
 extends = "none"
 
 [site]
@@ -13,6 +13,7 @@ author = "Tester"
 date = { type = "date" }
 
 [[collections]]
+name = "posts"
 source = "_posts"
 
 [[collections.rules]]
@@ -20,4 +21,4 @@ match = "**"
 route = "/blog/{year}/{month:02}/{slug}/"
 
 [html.head.link]
-feed = { from = "shell.atom", require = true, rel = '"alternate"', type = '"application/atom+xml"', href = 'site.url + url' }
+feed = { where = "shell == 'atom'", require = true, rel = '"alternate"', type = '"application/atom+xml"', href = 'site.url + url' }

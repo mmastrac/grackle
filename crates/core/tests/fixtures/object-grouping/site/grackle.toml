@@ -49,6 +49,7 @@ name = "objects"
 # walk.
 # Without this the site loads zero rows and says nothing about it.
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
@@ -59,7 +60,7 @@ source = "."
 # case — all the jpegs at one route, the pngs at another — a `group_by` rather
 # than a hand-written route per extension. `order_by` is declared: lexical by
 # luck is not a contract.
-[routes.by_ext]
+[views.by_ext]
 paths = ["/media/{key}/", "/media/{key}/page/{n}/"]
 from = "objects"
 group_by = "ext"

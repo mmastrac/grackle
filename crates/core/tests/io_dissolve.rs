@@ -85,7 +85,7 @@ fn the_objects_index_keys_off_the_extension_fact() {
                   [[collections.rules]]\nmatch = \"gallery/**/*.png\"\nroute = \"/{path}\"\n\n\
                   [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
                   [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{path}\"\n\n\
-                  [routes.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
+                  [views.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
                   order_by = \"path\"\nlayout = \"card\"\ntitle = \"Photos\"\n",
             ),
             ("gallery/a/shot.png", PNG),
@@ -179,10 +179,10 @@ fn a_marker_reaches_a_former_object_row() {
                   [[collections]]\nname = \"objects\"\n\
                   [[collections.rules]]\n\
                   match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
-                  [routes.hidden_probe]\npath = \"/hidden.xml\"\n\
-                  shell = \"sitemap\"\nwhere = 'hidden'\n",
+                  [views.hidden_probe]\npath = \"/hidden.xml\"\n\
+                  shell = \"sitemap\"\nwhere = 'noindex'\n",
             ),
-            ("gallery/.hidden", b""),
+            ("gallery/.noindex", b""),
             ("gallery/private.png", PNG),
             ("gallery/notes.md", b"---\ntitle: Notes\n---\n\nProse.\n"),
             ("public.png", PNG),
@@ -211,7 +211,7 @@ fn a_marker_reaches_a_former_object_row() {
         .find(|o| o.rel.to_string_lossy() == "gallery/private.png")
         .expect("the image is a row");
     assert_eq!(
-        img.fields.get("hidden"),
+        img.fields.get("noindex"),
         Some(&grackle_core::filter::Value::Bool(true)),
         "the row carries the declared field the marker set"
     );
@@ -243,13 +243,16 @@ fn an_image_is_not_a_translation_of_itself() {
                   [[collections]]\nname = \"objects\"\n\
                   [[collections.rules]]\n\
                   match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\n\
-                  [[collections]]\nsource = \".\"\n\
+                  [[collections]]\nname = \"entries\"\nsource = \".\"\n\
                   file = [\"{stem}.{axis:locale}\", \"{stem}\"]\n\n\
                   [[collections.rules]]\n\
-                  match = \"**/*.{html,md}\"\nfront_matter = true\n\
+                  match = { pattern = \"**/*.{html,md}\", front_matter = true }\n\
                   route = [\"/{axis:locale}/{dir}/{stem}/\", \"/{dir}/{stem}/\"]\n\n\
                   [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n\
-                  [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
+                  [views.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n\n\
+                  [[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
+                  [[collections.rules]]\n  match = \"notes.md\"\n  route = \"/{path}\"\n  \
+                  defaults = { shell = \"raw\" }\n",
             ),
             ("gallery/photo.fr.png", PNG),
             ("gallery/notes.md", b"---\ntitle: Notes\n---\n\nEnglish.\n"),
@@ -344,8 +347,9 @@ fn an_objects_rule_may_not_declare_front_matter() {
                          [site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
                          [schema]\nshell = {{ type = \"string\" }}\n\n\
                          [[collections]]\nname = \"objects\"\n\n  \
-                         [[collections.rules]]\n  match = \"**/*.png\"\n  \
-                         front_matter = {want}\n  route = \"/pics/{{stem}}/\"\n  \
+                         [[collections.rules]]\n  \
+                         match = {{ pattern = \"**/*.png\", front_matter = {want} }}\n  \
+                         route = \"/pics/{{stem}}/\"\n  \
                          defaults = {{ shell = \"raw\" }}\n\n\
                          [[collections]]\nname = \"entries\"\n\
                          source = \".\"\n\n  \
@@ -389,12 +393,15 @@ fn the_front_matter_gate_still_works_where_a_scope_parses() {
             (
                 "grackle.toml",
                 b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-                  [[collections]]\nsource = \"_posts\"\n\n  \
-                  [[collections.rules]]\n  match = \"**/*.md\"\n  front_matter = true\n  \
+                  [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\n  \
+                  [[collections.rules]]\n  match = { pattern = \"**/*.md\", front_matter = true }\n  \
                   route = \"/blog/{slug}/\"\n  defaults = { shell = \"html\" }\n\n  \
                   [[collections.rules]]\n  match = \"**/*.md\"\n  route = \"/raw/{stem}\"\n  \
                   defaults = { shell = \"raw\" }\n\n\
-                  [routes.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n",
+                  [views.all]\npath = \"/all.xml\"\nshell = \"sitemap\"\n\n\
+                  [[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
+                  [[collections.rules]]\n  match = \"notes.md\"\n  route = \"/{path}\"\n  \
+                  defaults = { shell = \"raw\" }\n",
             ),
             ("about.md", b"---\ntitle: About\n---\n\nProse.\n"),
             ("notes.md", b"Just bytes.\n"),

@@ -41,12 +41,12 @@ values = ["en", "fr"]
 field = "lang"
 
 [[collections]]
+name = "entries"
 source = "."
 file = ["{axis:lang}/{stem}", "{stem}"]
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = ["/{axis:lang}/{dir}/{stem}/", "/{dir}/{stem}/"]
 
   [[collections.rules]]

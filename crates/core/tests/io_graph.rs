@@ -67,11 +67,11 @@ name = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 
@@ -81,7 +81,7 @@ source = "."
   defaults = { shell = "raw" }
 
 # A listing: its edges are its MEMBERS, rows every one of them.
-[routes.list]
+[views.list]
 path = "/list/"
 from = "entries"
 where = 'shell == "html"'
@@ -90,13 +90,13 @@ title = "List"
 
 # A fold over the output pool with no `where`: it selects every route,
 # its own included. Both edge kinds meet here.
-[routes.all]
+[views.all]
 path = "/all.xml"
 shell = "sitemap"
 
 # A fold that reads member CONTENT, and publishes BINARY — so it is the one
 # output whose dependence on a row cannot also arrive as a citation.
-[routes.search]
+[views.search]
 path = "/search.bin"
 shell = "search"
 where = 'shell == "html"'

@@ -145,15 +145,25 @@ pub enum Decl {
         key: String,
         attrs: Vec<(String, crate::filter::Text)>,
     },
-    /// One tag per member of `from`; attributes are CEL text expressions.
+    /// One tag per member of the pool; attributes are CEL text expressions.
     Expand {
         tag: Tag,
         key: String,
-        from: String,
+        pool: ExpandPool,
         /// The pool's source must exist once routes materialize.
         require: bool,
         attrs: Vec<(String, crate::filter::Text)>,
     },
+}
+
+/// An expand's pool: `from = "axis.<name>"` is relational to the page;
+/// `where = "<predicate>"` is the materialized routes matching, in route
+/// order.
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // `Filter` is the compiled payload; boxing costs a hop per expand.
+pub enum ExpandPool {
+    Axis(String),
+    Where(crate::filter::Filter),
 }
 
 /// The table a declared tag was spelled in, for error messages.
@@ -257,14 +267,6 @@ fn with_site(mut s: crate::filter::Schema) -> crate::filter::Schema {
     s
 }
 
-/// Every fold-shell name a `shell.*` expand may pool over: the built-ins
-/// plus this site's registered script shells.
-fn fold_names(cfg: &Config) -> String {
-    let mut names: Vec<&str> = crate::shell::FOLD.to_vec();
-    names.extend(cfg.shells.keys().map(String::as_str));
-    names.join(", ")
-}
-
 pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<Metas> {
     use crate::config::HeadEntry;
     let mut env = grackle_model::row_schema();
@@ -272,6 +274,7 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
         env.insert(k, *t);
     }
     let env = with_site(env);
+    let route_env = grackle_model::route_schema(declared);
     let mut tags = Vec::new();
     let h = &cfg.html.head;
     let tables = [
@@ -301,38 +304,41 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                         exp.attrs.contains_key("href"),
                         "{whose} {key}: an expand needs an href expression"
                     );
-                    if let Some(shell) = exp.from.strip_prefix("shell.") {
-                        // The fold vocabulary is closed, so a name outside it
-                        // is a typo, never an empty pool.
-                        anyhow::ensure!(
-                            !crate::shell::is_map(shell),
-                            "{whose} {key}: from = \"shell.{shell}\" names a map \
-                             shell — a map shell wraps one output per row, so \
-                             there is no pool. Expand pools are fold routes: {}",
-                            fold_names(cfg),
-                        );
-                        anyhow::ensure!(
-                            crate::shell::is_fold(shell) || cfg.shells.contains_key(shell),
-                            "{whose} {key}: from = \"shell.{shell}\" is not a \
-                             fold shell — the pool is routes wearing one of: {}",
-                            fold_names(cfg),
-                        );
-                    } else if let Some(axis) = exp.from.strip_prefix("axis.") {
-                        // An undeclared axis is an empty pool, not an error —
-                        // the base hreflang entry inherits into axis-less
-                        // sites. `require` upgrades absence to a refusal.
-                        anyhow::ensure!(
-                            !exp.require || cfg.axes.contains_key(axis),
-                            "{whose} {key}: require = true but no [axes.{axis}] \
-                             is declared — declare the axis or drop require"
-                        );
-                    } else {
-                        anyhow::bail!(
-                            "{whose} {key}: from = {:?} — an expand pool is \
-                             spelled `axis.<name>` or `shell.<fold>`",
-                            exp.from
-                        );
-                    }
+                    let pool = match (&exp.from, &exp.filter) {
+                        (Some(_), Some(_)) => anyhow::bail!(
+                            "{whose} {key}: an expand pools by `from` or by \
+                             `where`, not both — `from` is relational to the \
+                             page, `where` selects materialized routes."
+                        ),
+                        (None, None) => anyhow::bail!(
+                            "{whose} {key}: an expand needs a pool — \
+                             `from = \"axis.<name>\"` or `where = \"<predicate>\"`."
+                        ),
+                        (Some(from), None) => {
+                            let Some(axis) = from.strip_prefix("axis.") else {
+                                anyhow::bail!(
+                                    "{whose} {key}: from = {from:?} — a named \
+                                     pool is spelled `axis.<name>`; a pool of \
+                                     routes is a `where = \"<predicate>\"` \
+                                     (e.g. `shell == 'atom'`)."
+                                );
+                            };
+                            // An undeclared axis is an empty pool, not an
+                            // error — the base hreflang entry inherits into
+                            // axis-less sites. `require` upgrades absence to
+                            // a refusal.
+                            anyhow::ensure!(
+                                !exp.require || cfg.axes.contains_key(axis),
+                                "{whose} {key}: require = true but no [axes.{axis}] \
+                                 is declared — declare the axis or drop require"
+                            );
+                            ExpandPool::Axis(axis.to_string())
+                        }
+                        (None, Some(src)) => ExpandPool::Where(
+                            crate::filter::Filter::parse(src, &route_env)
+                                .with_context(|| format!("{whose} {key}.where"))?,
+                        ),
+                    };
                     let mut attrs = Vec::new();
                     for (attr, src) in &exp.attrs {
                         let expr = crate::filter::Text::parse(src, &env)
@@ -342,7 +348,7 @@ pub fn compile_metas(cfg: &Config, declared: &crate::filter::Schema) -> Result<M
                     tags.push(Decl::Expand {
                         tag,
                         key: key.clone(),
-                        from: exp.from.clone(),
+                        pool,
                         require: exp.require,
                         attrs,
                     });
@@ -568,13 +574,13 @@ pub fn eval_expands<'a>(
 ) -> Vec<Alternate> {
     let mut out = Vec::new();
     for d in &metas.tags {
-        let Decl::Expand { from, attrs, .. } = d else {
+        let Decl::Expand { pool, attrs, .. } = d else {
             continue;
         };
-        let Some(axis_name) = from.strip_prefix("axis.") else {
+        let ExpandPool::Axis(axis_name) = pool else {
             continue;
         };
-        let Some(axis) = cfg.axes.get(axis_name) else {
+        let Some(axis) = cfg.axes.get(axis_name.as_str()) else {
             continue;
         };
         let field = axis.field.as_str();
@@ -622,9 +628,9 @@ pub fn eval_expands<'a>(
     out
 }
 
-/// Evaluate `from = "shell.<fold>"` expands: one tag per materialized route
-/// wearing that fold shell, every member in route order (discoverability
-/// lists all feeds, where the chrome part links only the first).
+/// Evaluate `where` expands: one tag per materialized route the predicate
+/// selects, every member in route order (discoverability lists all feeds,
+/// where the chrome part links only the first).
 ///
 /// On a link entry an explicit `rel` attribute is the emitted rel, freeing
 /// the key to be a name; without one the key is the rel, like every other
@@ -634,25 +640,25 @@ pub fn eval_fold_expands<'a>(
     metas: &Metas,
     site: &Site,
     title: &str,
-    mut pool_for: impl FnMut(&str) -> Vec<(&'a dyn crate::filter::Row, &'a str)>,
+    mut pool_for: impl FnMut(&crate::filter::Filter) -> Vec<(&'a dyn crate::filter::Row, &'a str)>,
 ) -> Vec<MetaItem> {
     let mut out = Vec::new();
     for d in &metas.tags {
         let Decl::Expand {
             tag,
             key,
-            from,
+            pool,
             attrs,
             ..
         } = d
         else {
             continue;
         };
-        let Some(shell) = from.strip_prefix("shell.") else {
+        let ExpandPool::Where(filter) = pool else {
             continue;
         };
         let primary = primary_attr(*tag);
-        for (row, url) in pool_for(shell) {
+        for (row, url) in pool_for(filter) {
             let env = HeadRow {
                 row,
                 site,
@@ -954,6 +960,7 @@ mod meta_tests {
     fn declared() -> crate::filter::Schema {
         let mut s = crate::filter::Schema::new();
         s.insert("noindex", crate::filter::Type::Bool);
+        s.insert("shell", crate::filter::Type::Str);
         s
     }
 
@@ -1121,13 +1128,12 @@ mod meta_tests {
         let c = Config::from_toml(
             "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [html.head.link]\n\
-             feed = { from = \"shell.atom\", rel = '\"alternate\"', type = '\"application/atom+xml\"', title = 'site.title', href = 'site.url + url' }\n",
+             feed = { where = \"shell == 'atom'\", rel = '\"alternate\"', type = '\"application/atom+xml\"', title = 'site.title', href = 'site.url + url' }\n",
         )
         .unwrap();
         let m = compile_metas(&c, &declared()).unwrap();
         let r = grackle_model::Row::default();
-        let items = eval_fold_expands(&m, &site(), "Hello", |shell| {
-            assert_eq!(shell, "atom");
+        let items = eval_fold_expands(&m, &site(), "Hello", |_filter| {
             vec![(&r as &dyn crate::filter::Row, "/atom.xml")]
         });
         assert_eq!(items.len(), 1, "{items:?}");
@@ -1152,23 +1158,29 @@ mod meta_tests {
         assert!(eval_fold_expands(&m, &site(), "Hello", |_| vec![]).is_empty());
     }
 
-    /// The fold vocabulary is closed, so a bad pool name refuses at load:
-    /// a typo, a map shell (one output per row, no pool), or neither spelling.
+    /// `from` names the one relational pool (`axis.*`); everything else is a
+    /// `where` predicate. The retired `shell.*` spelling refuses with the
+    /// predicate form named, and both-or-neither refuses too.
     #[test]
-    fn a_fold_expand_pool_must_name_a_fold_shell() {
+    fn an_expand_pool_is_axis_or_where() {
         for (entry, expect) in [
-            ("shell.bogus", "atom, sitemap, search"),
-            ("shell.html", "map shell"),
-            ("posts", "`axis.<name>` or `shell.<fold>`"),
+            ("from = \"shell.atom\", ", "`where = \"<predicate>\"`"),
+            (
+                "from = \"posts\", ",
+                "a named pool is spelled `axis.<name>`",
+            ),
+            ("from = \"axis.locale\", where = \"!noindex\", ", "not both"),
+            // A from/where-less table is a plain multi-attr entry.
         ] {
             let c = Config::from_toml(&format!(
                 "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-                 [html.head.link]\nfeed = {{ from = \"{entry}\", href = 'site.url + url' }}\n"
+                 [axes.locale]\nvalues = [\"en\"]\nfield = \"locale\"\n\
+                 [html.head.link]\nfeed = {{ {entry}href = 'site.url + url' }}\n"
             ))
             .unwrap();
             let e = format!("{:#}", compile_metas(&c, &declared()).unwrap_err());
             assert!(e.contains("[html.head.link] feed"), "{e}");
-            assert!(e.contains(expect), "{e}");
+            assert!(e.contains(expect), "{entry} -> {e}");
         }
     }
 

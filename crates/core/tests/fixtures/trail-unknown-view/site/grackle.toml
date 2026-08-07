@@ -12,17 +12,18 @@ title = "A Trail To Nowhere"
 author = "Tester"
 
 [[collections]]
+name = "posts"
 source = "_posts"
 trail = "montly_archive"
 
-[routes.yearly_archive]
+[views.yearly_archive]
 path = "/blog/{year}/"
 from = "published"
 group_by = "date.year"
 layout = "card"
 title = "{year}"
 
-[routes.monthly_archive]
+[views.monthly_archive]
 path = "/blog/{year}/{month:02}/"
 from = "yearly_archive"
 group_by = "date.month"

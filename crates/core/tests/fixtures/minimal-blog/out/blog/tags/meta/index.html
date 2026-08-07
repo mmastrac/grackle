@@ -1,13 +1,15 @@
 <!doctype html>
 <html data-kind="root" lang="en">
 <head>
-	<title>Hello TOML</title>
+	<title>Tagged “meta”</title>
 	<meta name="author" content="Tester">
+	<meta name="robots" content="noindex,follow">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta property="og:title" content="Hello TOML">
+	<meta property="og:title" content="Tagged “meta”">
 	<meta property="og:type" content="website">
-	<meta property="og:url" content="https://example.test/recipe/">
-	<link rel="canonical" href="https://example.test/recipe/">
+	<meta property="og:url" content="https://example.com/blog/tags/meta/">
+	<link rel="canonical" href="https://example.com/blog/tags/meta/">
+	<link rel="alternate" href="https://example.com/atom.xml" title="A Fixture" type="application/atom+xml">
 	<meta charset="utf-8">
 	<link href='/css/main.css' rel='stylesheet' type='text/css'>
 </head>
@@ -15,7 +17,7 @@
 <script>try{var s=localStorage.getItem('grackle:scheme');if(s=='dark'||s=='light'){var h=document.documentElement,t=(h.getAttribute('data-subtheme')||'').split(' ').filter(function(x){return x&&x!='dark'&&x!='light'});t.push(s);h.setAttribute('data-subtheme',t.join(' '))}}catch(e){}</script>
 <a data-chrome="skip" href="#content" data-slot="skip">Skip to content</a>
 <header data-frame>
-	<a href="/" data-slot="site_title">FM Test</a>
+	<a href="/" data-slot="site_title">A Fixture</a>
 	
 	<div data-slot="chrome">
 		
@@ -27,33 +29,41 @@
 		</span>
 	</div>
 </header>
-<main data-frame id="content" data-slot="content"><article data-kind="row" data-scope="recipe" data-tree>
+<main data-frame id="content" data-slot="content"><article data-kind="row">
 	<nav aria-label="Breadcrumbs" data-slot="crumbs">
 		<span data-kind="crumb"><a href="/" data-slot="label">Home</a></span>
 	
-		<span data-kind="crumb"><a data-slot="label">Hello TOML</a></span>
+		<span data-kind="crumb"><a href="/blog/" data-slot="label">Blog</a></span>
+	
+		<span data-kind="crumb"><a data-slot="label">meta</a></span>
 	</nav>
 	<header>
-		<h1 data-slot="title">Hello TOML</h1>
-		<p data-slot="tags">
-			<a href="/blog/tags/meta/" data-slot="name" data-kind="tag">meta</a>
-		</p>
+		<h1 data-slot="title">Tagged “meta”</h1>
+		
 	</header>
-	<aside class="doc-hero"><img src="/static/a35ba3874a47d43a64eb1dd07f2fabea.png" alt="Hello TOML"></aside>
 	
 	
 	
-	<div data-slot="content"><h1 id="hello">Hello<a href="#hello" aria-label="Link to heading 'Hello'" data-heading-content="Hello" class="anchor"></a></h1>
-<p>A markdown image, which the document’s hero is derived from:</p>
-<p><img src="/static/a35ba3874a47d43a64eb1dd07f2fabea.png" alt="a cat" /></p>
-<p>A raw HTML block whose <code class="language-text highlighter-rouge">&lt;img&gt;</code> must also resolve:</p>
-<figure>
-  <img src="/static/a35ba3874a47d43a64eb1dd07f2fabea.png" alt="raw cat">
-</figure>
+	
+	<div data-slot="content"><article data-kind="row" data-scope="_posts">
+	<h2><a href="/blog/2026/01/01/hello/" data-slot="title">Hello</a></h2>
+	<p><time datetime="2026-01-01" data-slot="date_pretty">1 January 2026</time> <span data-slot="tags">
+			<a href="/blog/tags/meta/" data-slot="name" data-kind="tag">meta</a>
+		</span></p>
+	
+	<div data-slot="content"><p>The first post. Dated, so the head calls it an article.</p>
+</div>
+</article>
 </div>
 	
 	
 </article>
 </main>
+<footer data-frame>
+	
+	<p data-slot="feed">
+		<a data-chrome="button" href="/atom.xml" data-slot="label" data-kind="feed_link">Feed</a>
+	</p>
+</footer>
 </body>
 </html>

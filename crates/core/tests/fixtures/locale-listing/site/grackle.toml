@@ -51,7 +51,7 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}.{axis:locale}", "{date.year}
   match = "**/*.{md,markdown}"
   route = ["/{axis:locale}/blog/{slug}/", "/blog/{slug}/"]
 
-[routes.blog]
+[views.blog]
 paths = ["/{axis:locale}/blog/", "/blog/"]
 from = "posts"
 layout = "card"

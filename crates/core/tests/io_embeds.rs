@@ -84,11 +84,11 @@ name = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.{md,html}"
-  front_matter = true
+  match = { pattern = "**/*.{md,html}", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 
@@ -97,7 +97,7 @@ source = "."
   route = "/{path}"
   defaults = { shell = "raw" }
 
-[routes.all]
+[views.all]
 path = "/all.xml"
 shell = "sitemap"
 "#;
@@ -470,15 +470,15 @@ fn an_authored_link_to_an_unrouted_asset_is_refused() {
 /// nothing rather than everything (every site with an embed rule dies).
 #[test]
 fn the_policy_off_or_narrowed_is_a_load_error_naming_the_asset() {
-    let off = SITE.replace("[routes.all]", "[embeds]\nenabled = false\n\n[routes.all]");
+    let off = SITE.replace("[views.all]", "[embeds]\nenabled = false\n\n[views.all]");
     let e = load_err(&site_with("off", &off));
     assert!(e.contains("assets/kite.png"), "it names the asset: {e}");
     assert!(e.contains("enabled = false"), "and the key: {e}");
     assert!(e.contains("reached by nothing"), "and the consequence: {e}");
 
     let narrow = SITE.replace(
-        "[routes.all]",
-        "[embeds]\nmatch = \"gallery/**\"\n\n[routes.all]",
+        "[views.all]",
+        "[embeds]\nmatch = \"gallery/**\"\n\n[views.all]",
     );
     let e = load_err(&site_with("narrow", &narrow));
     assert!(e.contains("assets/kite.png"), "it names the asset: {e}");
@@ -489,8 +489,8 @@ fn the_policy_off_or_narrowed_is_a_load_error_naming_the_asset() {
 
     // The control: a subset that admits it is not a refusal.
     let wide = SITE.replace(
-        "[routes.all]",
-        "[embeds]\nmatch = [\"assets/**\", \"gallery/**\"]\n\n[routes.all]",
+        "[views.all]",
+        "[embeds]\nmatch = [\"assets/**\", \"gallery/**\"]\n\n[views.all]",
     );
     let (out, _) = built(&site_with("wide", &wide));
     assert!(out.contains_key(&addr(&png_variant(1))));
@@ -520,8 +520,10 @@ fn a_rule_may_not_declare_two_addresses() {
         "  match = \"**/*.png\"\n  route = \"/x/{path}\"\n  embed = true",
     );
     let e = load_err(&site_with("both", &both));
-    assert!(e.contains("both `route`"), "the diagnosis: {e}");
-    assert!(e.contains("could never be reached"), "and the reason: {e}");
+    assert!(
+        e.contains("the address question has one"),
+        "the diagnosis: {e}"
+    );
 
     let defer = SITE.replace(
         "  match = \"**/*.png\"\n  embed = true",
@@ -608,8 +610,9 @@ fn a_rule_that_declares_no_address_at_all_still_fails() {
         "  match = \"**/*\"\n  defaults = { shell = \"raw\" }",
     );
     let e = load_err(&site_with("silent", &silent));
+    // The address law refuses at parse.
     assert!(
-        e.contains("no rule supplies a route"),
-        "the pre-existing refusal, untouched: {e}"
+        e.contains("answers no address question"),
+        "the refusal: {e}"
     );
 }

@@ -43,26 +43,23 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
+name = "entries"
 source = "."
-exclude = ["themes/**"]
 
   # The rule that SPENDS an axis is the rule that opts its rows in (q53 step
   # 2). `look.md` lands under a theme segment; `tiers.md` under a
   # serialization one; the catch-all below spends neither, so anything else
   # publishes once.
   [[collections.rules]]
-  match = "look.md"
-  front_matter = true
+  match = { pattern = "look.md", front_matter = true }
   route = "/{theme}/look/"
 
   [[collections.rules]]
-  match = "tiers.md"
-  front_matter = true
+  match = { pattern = "tiers.md", front_matter = true }
   route = "/tiers/{serialization}.html"
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
 
   [[collections.rules]]
@@ -88,7 +85,7 @@ field = "shell"
 # per member, and the path spends the axis with a `{theme}` segment — the route
 # decides where the axis lands, because that is where the rest of the URL is
 # decided. Before this a gallery of N themes needed N copies of every landing.
-[routes.looks]
+[views.looks]
 path = "/{theme}/all/"
 from = "entries"
 where = "!draft && !hidden"
@@ -96,7 +93,7 @@ layout = "card"
 axis = "theme"
 title = "All"
 
-[routes.sitemap]
+[views.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
 
@@ -127,3 +124,6 @@ shell = "sitemap"
 10 = "Oct"
 11 = "Nov"
 12 = "Dec"
+
+[files]
+exclude = ["themes/**"]

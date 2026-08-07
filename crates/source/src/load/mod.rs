@@ -25,6 +25,11 @@ struct CompiledRule<'a> {
     matcher: GlobMatcher,
     route: &'a [String],
     front_matter: Option<bool>,
+    /// Equality selectors over authored facts.
+    fields: &'a BTreeMap<String, toml::Value>,
+    partial: bool,
+    /// `Some(false)`: the address answer is "nowhere".
+    publish: Option<bool>,
     on_demand: bool,
     embed: bool,
     pattern: &'a str,
@@ -37,9 +42,11 @@ struct CompiledRule<'a> {
 fn compile_rules<'a>(
     c: &'a Collection,
     axes: &filename::AxisValues<'_>,
+    profile: Option<&str>,
 ) -> Result<Vec<CompiledRule<'a>>> {
     c.rules
         .iter()
+        .filter(|r| r.active(profile))
         .map(|r| {
             Ok(CompiledRule {
                 // Case-insensitive: a glob names a kind of file; shift key is not part of kind.
@@ -50,6 +57,9 @@ fn compile_rules<'a>(
                     .compile_matcher(),
                 route: &r.route,
                 front_matter: r.front_matter,
+                fields: &r.fields,
+                partial: r.partial,
+                publish: r.publish,
                 on_demand: r.on_demand.unwrap_or(false),
                 embed: r.embed.unwrap_or(false),
                 pattern: r.pattern.as_str(),
@@ -134,6 +144,8 @@ fn degenerate_warning(rel: &Path, shell: &str, title: &str) -> String {
 
 struct Routing<'a> {
     claimed: Option<&'a str>,
+    /// False when the winning address answer is `publish = false`.
+    published: bool,
     templates: &'a [String],
     pattern: &'a str,
     formats: &'a [filename::FilePattern],
@@ -143,14 +155,16 @@ struct Routing<'a> {
     defaults: BTreeMap<&'a str, &'a toml::Value>,
 }
 
-/// First rule wins membership; first-writer-wins per default key.
+/// First non-partial rule wins membership; first-writer-wins per default key.
 fn apply_rules<'a>(
     rules: &'a [CompiledRule<'a>],
     collection_formats: &'a [filename::FilePattern],
     rel: &Path,
     has_front_matter: bool,
+    facts: &BTreeMap<String, toml::Value>,
 ) -> Routing<'a> {
     let mut claimed: Option<&str> = None;
+    let mut published = true;
     let mut templates: &[String] = &[];
     let mut pattern: &str = "";
     let mut formats: Option<&[filename::FilePattern]> = None;
@@ -167,6 +181,10 @@ fn apply_rules<'a>(
                 continue;
             }
         }
+        // Authored-fact selectors; an absent field matches no value.
+        if !rule.fields.iter().all(|(k, v)| facts.get(k) == Some(v)) {
+            continue;
+        }
         // Globs see logical path: strip spent file axes first.
         let rule_formats = if rule.formats.is_empty() {
             collection_formats
@@ -182,19 +200,27 @@ fn apply_rules<'a>(
         }
         // Shadowed rules still govern; keeps them out of `dead_rules`.
         rule.governed.set(true);
-        claimed.get_or_insert(rule.pattern);
+        if !rule.partial {
+            claimed.get_or_insert(rule.pattern);
+        }
         if rule.on_demand && !rule.route.is_empty() {
             on_demand_cover.push(rule.pattern);
         }
-        if !addressed && !rule.route.is_empty() {
-            templates = rule.route;
-            pattern = rule.pattern;
-            on_demand = rule.on_demand;
-            addressed = true;
-        } else if !addressed && rule.embed {
-            embed = true;
-            pattern = rule.pattern;
-            addressed = true;
+        if !addressed && !rule.partial {
+            if !rule.route.is_empty() {
+                templates = rule.route;
+                pattern = rule.pattern;
+                on_demand = rule.on_demand;
+                addressed = true;
+            } else if rule.embed {
+                embed = true;
+                pattern = rule.pattern;
+                addressed = true;
+            } else if rule.publish == Some(false) {
+                published = false;
+                pattern = rule.pattern;
+                addressed = true;
+            }
         }
         // `file` first-writer is independent of which rule won the route.
         if formats.is_none() && !rule.formats.is_empty() {
@@ -206,6 +232,7 @@ fn apply_rules<'a>(
     }
     Routing {
         claimed,
+        published,
         templates,
         pattern,
         formats: formats.unwrap_or(collection_formats),
@@ -308,6 +335,27 @@ fn cascade(fields: &schema::Fields, whose: &Path) -> Result<Cascaded> {
     })
 }
 
+/// `media_type` is a derived route column: a directory URL is an HTML page;
+/// a file URL answers by extension through `[media_types]` (`html`/`htm`
+/// built in). Unknown extensions stay unanswered (Null).
+fn stamp_media_types(cfg: &Config, db: &mut SiteDb) {
+    for r in db.routes.iter_mut() {
+        let mt = if r.url.ends_with('/') {
+            Some("text/html".to_string())
+        } else {
+            match r.url.rsplit('/').next().and_then(|f| f.rsplit_once('.')) {
+                Some((_, "html")) | Some((_, "htm")) => Some("text/html".to_string()),
+                Some((_, ext)) => cfg.media_types.get(ext).cloned(),
+                None => None,
+            }
+        };
+        if let Some(mt) = mt {
+            r.fields
+                .insert("media_type".to_string(), grackle_db::Value::Str(mt));
+        }
+    }
+}
+
 /// Profile forced fields on every route; view routes have no row.
 /// After all routes exist, before `resolve_pool_folds` filters them.
 fn force_route_fields(cfg: &Config, db: &mut SiteDb, schemas: &Schemas) -> Result<()> {
@@ -388,25 +436,24 @@ pub fn select_path(templates: &[String], coords: &[Coord]) -> Result<String> {
     Ok(tidy(url))
 }
 
-fn build_globset(pats: &[String]) -> Result<GlobSet> {
+fn build_globset<S: AsRef<str>>(pats: &[S]) -> Result<GlobSet> {
     let mut b = GlobSetBuilder::new();
     for p in pats {
+        let p = p.as_ref();
         b.add(Glob::new(p).with_context(|| format!("bad glob {p:?}"))?);
     }
     Ok(b.build()?)
 }
 
 impl Config {
-    /// The declared not-content layer: `exclude`/`include` from the tree
-    /// collection. Every walk prunes through this one value — content,
-    /// declarations, the `.slots/` scan, the serve watcher — so a site's
-    /// `exclude` governs them alike.
+    /// The declared not-content layer: `[files]`. Every walk prunes through
+    /// this one value — content, declarations, the `.slots/` scan, the serve
+    /// watcher — so a site's `exclude` governs them alike.
     pub fn not_content(&self) -> Result<store::NotContent> {
-        let tree = self.collections.values().find(|c| c.is_tree());
-        let empty: &[String] = &[];
+        self.files.check()?;
         Ok(store::NotContent::new(
-            build_globset(tree.map_or(empty, |c| &c.exclude))?,
-            build_globset(tree.map_or(empty, |c| &c.include))?,
+            build_globset(&self.files.exclude_globs())?,
+            build_globset(&self.files.include)?,
         ))
     }
 }
@@ -611,7 +658,7 @@ fn scopes(cfg: &Config) -> Result<Vec<Scope<'_>>> {
         out.push(Scope {
             name,
             source,
-            rules: compile_rules(c, &axes)?,
+            rules: compile_rules(c, &axes, cfg.profile.as_deref())?,
             formats: compile_formats(&c.file, &axes)?,
             found: Cell::new(0),
             offered: Cell::new(0),
@@ -699,7 +746,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     let not_content = cfg.not_content()?;
 
     let t_m = std::time::Instant::now();
-    let markers = Markers::scan(&root, &cfg.markers, cfg.gitignore, &not_content)?;
+    let markers = Markers::scan(&root, &cfg.markers, cfg.files.gitignore(), &not_content)?;
     db.stats.markers_ms = t_m.elapsed().as_secs_f64() * 1000.0;
     db.stats.markers = markers.found;
 
@@ -714,7 +761,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
     // Sidecars on declaration walk: `exclude` is dirs-only, so `*.toml` cannot silence them.
     let mut sidecars = Sidecars::default();
-    let b = store::walker_declarations(&root, &not_content, cfg.gitignore);
+    let b = store::walker_declarations(&root, &not_content, cfg.files.gitignore());
     for entry in b.build().filter_map(|e| e.ok()) {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
@@ -812,6 +859,11 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
         let one = |url: String, axis: Vec<AxisMember>| {
             let mut fields = {
                 let mut f = p.fields.clone();
+                // The route knows its serialization: the row's shell, which
+                // a shell-axis member then overrides.
+                if let Some(sh) = &p.shell {
+                    f.insert("shell".to_string(), grackle_db::Value::Str(sh.clone()));
+                }
                 for m in axis.iter().filter(|m| m.field == "shell") {
                     f.insert("shell".to_string(), grackle_db::Value::Str(m.value.clone()));
                 }
@@ -1116,6 +1168,7 @@ pub fn load(cfg: &Config) -> Result<SiteDb> {
     }
 
     db.routes.sort_by(|a, b| a.url.cmp(&b.url));
+    stamp_media_types(cfg, &mut db);
     crate::views::resolve_pool_folds(cfg, &mut db, &schemas)?;
     join::join_arrangement(cfg, &mut db);
     join::check_graph(&db)?;
@@ -1450,8 +1503,7 @@ source = "."
   route = "/pics/{path}"
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
 "#,
                 ),
@@ -1561,13 +1613,13 @@ name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
 
-  # Never wins the route — the rule above claims it first — but it fills a
-  # default, which is governing.
+  # Never wins the route — it is partial — but it fills a default, which
+  # is governing.
   [[collections.rules]]
+  partial = true
   match = "**/*.md"
   defaults = { hidden = true }
 "#,
@@ -1763,14 +1815,13 @@ name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = {{ pattern = "**/*.md", front_matter = true }}
   route = "/{{stem}}/"
 
-[sets.published]
+[views.published]
 from = "entries"
 
-[profiles.p.sets.published]
+[profiles.p.views.published]
 from = "entries"
 where = "{filter}"
 "#
@@ -1822,7 +1873,7 @@ where = "{filter}"
     ///
     /// Mutation check: delete the `q.patched` note in `declared_filter` and the
     /// error becomes `view published: filter "!cvoer"`, true, and no help at
-    /// all to someone reading a `[sets.published]` that says nothing of the
+    /// all to someone reading a `[views.published]` that says nothing of the
     /// kind.
     #[test]
     fn a_profile_where_naming_nothing_still_fails_the_load() {

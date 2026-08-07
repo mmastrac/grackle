@@ -46,7 +46,7 @@ pub fn search_docs(
 /// search view exists, fetched only when a theme's trigger is clicked.
 ///
 /// **The bin URL is the route's own, derived at emission**, the author
-/// declares `[routes.search] path` and `search.js` fetches exactly that,
+/// declares `[views.search] path` and `search.js` fetches exactly that,
 /// so the two cannot disagree. The format firebreak rides a query instead
 /// of the path: the fetch URL carries `?{SEARCH_VER}`, so a format bump
 /// busts every cache without dictating the site's URL. The wasm is

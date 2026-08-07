@@ -43,17 +43,21 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
-             [routes.html_probe]\npath = \"/html.xml\"\n\
+             [views.html_probe]\npath = \"/html.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"html\"'\n\n\
-             [routes.raw_probe]\npath = \"/raw.xml\"\n\
+             [views.raw_probe]\npath = \"/raw.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"raw\"'\n\n\
-             [routes.atom_probe]\npath = \"/atom-probe.xml\"\n\
+             [views.atom_probe]\npath = \"/atom-probe.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"atom\"'\n\n\
-             [routes.null_probe]\npath = \"/null.xml\"\n\
+             [views.null_probe]\npath = \"/null.xml\"\n\
              shell = \"sitemap\"\nwhere = '!shell'\n\n\
              [[collections]]\nname = \"objects\"\n\
              [[collections.rules]]\n\
-             match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n",
+             match = \"**/*.{png,jpg,jpeg,gif,webp,svg}\"\nroute = \"/{path}\"\n\
+             defaults = { shell = \"raw\" }\n\n\
+             [[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
+             [[collections.rules]]\n  match = \"{legacy.html,notes.txt}\"\n  \
+             route = \"/{path}\"\n  defaults = { shell = \"raw\" }\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
@@ -203,12 +207,12 @@ fn an_axis_member_answers_its_own_shell() {
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
              [axes.serialization]\nvalues = [\"light_html\", \"html\"]\nfield = \"shell\"\n\n\
-             [[collections]]\nsource = \".\"\n\n\
-             [[collections.rules]]\nmatch = \"tiers.md\"\nfront_matter = true\n\
+             [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
+             [[collections.rules]]\nmatch = { pattern = \"tiers.md\", front_matter = true }\n\
              route = \"/tiers/{serialization}/\"\n\n\
-             [routes.html_probe]\npath = \"/html.xml\"\n\
+             [views.html_probe]\npath = \"/html.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"html\"'\n\n\
-             [routes.light_probe]\npath = \"/light.xml\"\n\
+             [views.light_probe]\npath = \"/light.xml\"\n\
              shell = \"sitemap\"\nwhere = 'shell == \"light_html\"'\n",
         ),
         ("tiers.md", "---\ntitle: Tiers\n---\n\nProse.\n"),

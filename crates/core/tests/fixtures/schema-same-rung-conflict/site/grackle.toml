@@ -62,9 +62,9 @@ long_date = "@months[{month}] {day}, {year}"
 11 = "Nov"
 12 = "Dec"
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"

@@ -160,7 +160,7 @@ impl Config {
                 "no collections declared — nothing would be built. A site \
                  needs at least one `[[collections]]` saying where its \
                  content lives, e.g.\n\n  \
-                 [[collections]]\n    source = \"_posts\"\n\n  \
+                 [[collections]]\n    name = \"posts\"\n    source = \"_posts\"\n\n  \
                    [[collections.rules]]\n  match = \"**\"\n  \
                  route = \"/blog/{{year}}/{{month:02}}/{{slug}}/\""
             );
@@ -204,31 +204,29 @@ impl Config {
                 };
                 crate::schema::typed(ty, field, val, &format!("view {vname}"))?;
             }
-            // Sets never land; theme on a set is dead.
-            if v.declared_set && v.theme.is_some() {
+            // A view with no path never lands; theme on it is dead.
+            if v.declared_query_only && v.theme.is_some() {
                 anyhow::bail!(
-                    "[sets.{vname}] declares a theme, and nothing could ever \
-                     wear it. A set never lands, so there is no page for a \
-                     theme to dress; embedded with {{% view {vname} %}} it \
-                     wears the embedding page's theme. Theme belongs on a \
-                     route — move it to the [routes.*] entry that lands this \
-                     query, or drop it."
+                    "[views.{vname}] declares a theme but no `path`, so \
+                     nothing could ever wear it. A view without a path never \
+                     lands; embedded with {{% view {vname} %}} it wears the \
+                     embedding page's theme. Give the view a `path`, or drop \
+                     the theme."
                 );
             }
-            // Fold shells need a route.
-            if v.declared_set {
+            // Fold shells need a landing.
+            if v.declared_query_only {
                 if let Some(s) = v
                     .shell
                     .as_deref()
                     .filter(|s| crate::shell::is_fold(s) || self.shells.contains_key(*s))
                 {
                     anyhow::bail!(
-                        "[sets.{vname}] wears shell = {s:?}, and a set never \
-                         lands. A fold shell serializes its query into ONE \
+                        "[views.{vname}] wears shell = {s:?} but declares no \
+                         `path`. A fold shell serializes its query into ONE \
                          artifact, and an artifact needs an address to be \
-                         written at — so a fold belongs on a route: move it to \
-                         `[routes.{vname}]` with a `path`, or drop the shell \
-                         and let the set stay a query."
+                         written at — give the view a `path`, or drop the \
+                         shell and let it stay a query."
                     );
                 }
             }
@@ -237,6 +235,15 @@ impl Config {
             }
         }
         for (fname, f) in &cfg.schema.fields {
+            // `queryable` is a bool column, spelled as a predicate.
+            if fname == "queryable" {
+                let src = f.as_expr().with_context(|| {
+                    "[schema.fields]: queryable must be a predicate expression".to_string()
+                })?;
+                grackle_db::filter::Filter::parse(src, &self.field_expr_schema())
+                    .map_err(|e| anyhow::anyhow!("[schema.fields]: queryable: {e}"))?;
+                continue;
+            }
             self.check_computed_field(fname, f, "[schema.fields]")?;
         }
         // archives

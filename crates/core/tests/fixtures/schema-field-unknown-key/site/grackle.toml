@@ -64,9 +64,9 @@ long_date = "@months[{month}] {day}, {year}"
 summary = { type = "string", required = true }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*"
-  front_matter = true
+  match = { pattern = "**/*", front_matter = true }
   route = "/{path}"

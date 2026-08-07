@@ -127,7 +127,7 @@ icon = 'site.icon'
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
 # Feed discoverability: one link per materialized route wearing the atom
 # fold shell; the explicit `rel` frees the key to be a name. See base.toml.
-feed = { from = "shell.atom", rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
+feed = { where = "shell == 'atom'", rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
 
 # Extension → media type. See base.toml.
 [media_types]
@@ -160,6 +160,7 @@ related = "Related"
 later = "Later post"
 earlier = "Earlier post"
 linked_from = "Linked from"
+tagged = "Tagged “{key}”"
 translations = "Translations"
 page = "Page {n}"
 # Search overlay strings; `search` also labels the chrome search button.
@@ -210,7 +211,19 @@ long_date = "@months[{month}] {day}, {year}"
 ".hidden" = { hidden = true }
 ".noindex" = { noindex = true }
 
+# Not content on any site: dependency directories and grackle's own build
+# cache. One list governs the content walk, the `.slots/` scan, and the serve
+# watcher. `_cache/` also falls to the dot/underscore skip in the tree walks,
+# but naming it here is what lets the watcher prune it.
+[files]
+exclude = [
+  "**/node_modules",
+  "**/vendor",
+  "_cache/**",
+]
+
 [[collections]]
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
@@ -269,24 +282,14 @@ name = "objects"
 # front-mattered `index.md` takes `html` from the second rule, a static
 # `index.html` takes `raw` from the third.
 [[collections]]
+name = "pages"
 source = "."
-# Not content on any site: dependency directories and grackle's own build
-# cache. One list governs the content walk, the `.slots/` scan, and the serve
-# watcher. `_cache/` also falls to the dot/underscore skip in the tree walks,
-# but naming it here is what lets the watcher prune it.
-exclude = [
-  "**/node_modules",
-  "**/vendor",
-  "_cache/**",
-]
-
   [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
 
   [[collections.rules]]
-  match = "**/*.{html,md}"
-  front_matter = true
+  match = { pattern = "**/*.{html,md}", front_matter = true }
   route = "/{dir}/{stem}/"
   defaults = { shell = "html" }
 
@@ -299,12 +302,12 @@ exclude = [
   from = "linked_from"
   where = "!(candidate in ancestors)"
 
-[sets.published]
+[views.published]
 from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
 
-[routes.home]
+[views.home]
 path = "/"
 from = "published"
 limit = 10
@@ -312,20 +315,30 @@ layout = "card"
 default_content = "index.{md,html}"
 title = "@home"
 
-[routes.blog_index]
+# Tag index. If tags are not used, no tag views are generated.
+[views.tag_index]
+path = "/blog/tags/{key}/"
+from = "published"
+group_by = "tags"
+layout = "card"
+noindex = true
+title = "@tagged"
+crumb = "{key}"
+
+[views.blog_index]
 paths = ["/blog/", "/blog/page/{n}/"]
 from = "published"
 paginate = 10
 layout = "card"
 title = "@blog"
 
-[routes.feed]
+[views.feed]
 path = "/atom.xml"
 from = "published"
 limit = 20
 shell = "atom"
 
-[routes.sitemap]
+[views.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

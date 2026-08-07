@@ -61,13 +61,12 @@ long_date = "@months[{month}] {day}, {year}"
 11 = "Nov"
 12 = "Dec"
 [[collections]]
+name = "entries"
 source = "."
-exclude = ["themes/**"]
 
   # The rule that spends the axis is the rule that opts its rows in.
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{theme}/{stem}/"
 
   [[collections.rules]]
@@ -79,3 +78,6 @@ exclude = ["themes/**"]
 [axes.theme]
 values = ["loud", "nosuch"]
 field = "theme"
+
+[files]
+exclude = ["themes/**"]

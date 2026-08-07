@@ -43,13 +43,13 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
 # No `order_by`: path order, NOT newest-first. A posts collection asks for
 # dates rather than assuming them.
-[routes.by_path]
+[views.by_path]
 path = "/by-path/"
 from = "notes"
 layout = "card"
 title = "By path"
 
-[routes.by_date_desc]
+[views.by_date_desc]
 path = "/by-date-desc/"
 from = "notes"
 order_by = "-date"
@@ -59,7 +59,7 @@ title = "By date, newest first"
 # `path` is the last key, always — so `b` and `c`, which declare no `order`
 # and tie at Null, fall through to their filenames rather than to whatever
 # the tree walk happened to yield.
-[routes.by_order]
+[views.by_order]
 path = "/by-order/"
 from = "notes"
 order_by = "order"

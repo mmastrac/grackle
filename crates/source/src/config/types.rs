@@ -16,9 +16,9 @@ pub struct Config {
     pub extends: String,
     #[serde(default = "default_root")]
     pub root: PathBuf,
-    /// Honour .gitignore when walking (default true); see store::walker.
-    #[serde(default = "default_true")]
-    pub gitignore: bool,
+    /// Not-content declarations; the one list every walk prunes through.
+    #[serde(default)]
+    pub files: FilesCfg,
     /// Metadata providers overlaid on every row, each under its own accessor
     /// namespace (`["git"]` -> `.git.*`). Empty means no overlay, no cost.
     #[serde(default)]
@@ -27,19 +27,17 @@ pub struct Config {
     /// Keyed by table name; built at load from `declared_collections`.
     #[serde(skip)]
     pub collections: BTreeMap<String, Collection>,
-    /// Array of collections: table name from source dir (`_posts` -> `posts`);
-    /// `name =` overrides; `.` falls back to `entries`.
+    /// Array of collections; every entry names itself (`name =`), possibly
+    /// via the base entry it pairs with by source.
     #[serde(default, rename = "collections")]
     pub(crate) declared_collections: Vec<Collection>,
-    /// Sets + routes folded; one namespace with collections via `from`.
+    /// Declared queries, one namespace with collections via `from`.
+    /// A view with a `path` lands; without one it is query-only.
     #[serde(skip)]
     pub views: BTreeMap<String, View>,
-    /// Queries with no `path`.
-    #[serde(default)]
-    pub(crate) sets: BTreeMap<String, View>,
-    /// Queries that land at a URL.
-    #[serde(default)]
-    pub(crate) routes: BTreeMap<String, View>,
+    /// `[views]` as written; folded into `views` at load.
+    #[serde(default, rename = "views")]
+    pub(crate) declared_views: BTreeMap<String, View>,
     /// Alternative forms of a row; sole exception to one-row-one-route.
     #[serde(default)]
     pub axes: BTreeMap<String, Axis>,
@@ -113,6 +111,8 @@ impl ProfileCfg {
 /// one on raw TOML); must not drift.
 pub(crate) fn split_profile(pname: &str, body: &toml::Table) -> Result<(toml::Table, toml::Table)> {
     let mut overlay = body.clone();
+    // Human-readable label; lifted like `force`.
+    overlay.remove("description");
     let force = match overlay.remove(FORCE) {
         None => toml::Table::new(),
         Some(toml::Value::Table(t)) => t,
@@ -139,12 +139,11 @@ fn every_config_key_has_a_law(c: Config) {
     let Config {
         extends: _,
         root: _,
-        gitignore: _,
+        files: _,
         metadata: _,
         site: _,
         declared_collections: _,
-        sets: _,
-        routes: _,
+        declared_views: _,
         axes: _,
         markers: _,
         html: _,
@@ -174,7 +173,7 @@ impl Shaped for Config {
         Shape::Struct(vec![
             field("extends", |c: &Config| &c.extends),
             field("root", |c: &Config| &c.root),
-            field("gitignore", |c: &Config| &c.gitignore),
+            field("files", |c: &Config| &c.files),
             field("metadata", |c: &Config| &c.metadata),
             field("site", |c: &Config| &c.site),
             // TOML name (serde rename); Law::Collections: identity is physical.
@@ -183,8 +182,7 @@ impl Shaped for Config {
                 |c: &Config| &c.declared_collections,
                 Law::Collections,
             ),
-            field("sets", |c: &Config| &c.sets),
-            field("routes", |c: &Config| &c.routes),
+            field("views", |c: &Config| &c.declared_views),
             field("axes", |c: &Config| &c.axes),
             field("markers", |c: &Config| &c.markers),
             field("html", |c: &Config| &c.html),
@@ -206,8 +204,7 @@ impl Shaped for Config {
 pub(crate) const PROJECTABLE: &[&str] = &[
     "site",
     "html",
-    "sets",
-    "routes",
+    "views",
     "i18n",
     "records",
     "widgets",
@@ -228,7 +225,7 @@ pub(crate) const NOT_PROJECTABLE: &[&str] = &[
     "schema",
     "markers",
     "root",
-    "gitignore",
+    "files",
     "metadata",
     "extends",
     "links",
@@ -237,7 +234,7 @@ pub(crate) const NOT_PROJECTABLE: &[&str] = &[
 
 /// Fence one top-level profile key. `force` passes: rung 0, lifted by [`split_profile`].
 pub(crate) fn fence(pname: &str, key: &str) -> Result<()> {
-    if key == FORCE || PROJECTABLE.contains(&key) {
+    if key == FORCE || key == "description" || PROJECTABLE.contains(&key) {
         return Ok(());
     }
     let projectable = PROJECTABLE.join(", ");
@@ -289,8 +286,7 @@ impl Shaped for Collection {
             field("name", |c: &Collection| &c.name),
             field("source", |c: &Collection| &c.source),
             field("file", |c: &Collection| &c.file),
-            field("exclude", |c: &Collection| &c.exclude),
-            field("include", |c: &Collection| &c.include),
+            field("order_by", |c: &Collection| &c.order_by),
             // Site rules first: Law 1 as list order.
             annotated("rules", |c: &Collection| &c.rules, Law::Prepend),
             field("trail", |c: &Collection| &c.trail),
@@ -359,6 +355,16 @@ impl Shaped for EmbedsCfg {
             field("enabled", |e: &EmbedsCfg| &e.enabled),
             // TOML name `match`, not Rust's `patterns`.
             field("match", |e: &EmbedsCfg| &e.patterns),
+        ])
+    }
+}
+
+impl Shaped for FilesCfg {
+    fn shape() -> Shape {
+        Shape::Struct(vec![
+            // Site entries join the base's: the walk honours the union.
+            annotated("exclude", |f: &FilesCfg| &f.exclude, Law::Prepend),
+            annotated("include", |f: &FilesCfg| &f.include, Law::Prepend),
         ])
     }
 }
@@ -471,7 +477,6 @@ pub(crate) fn engine_defaults() -> Vec<(&'static str, toml::Value)> {
     vec![
         ("extends", default_extends().into()),
         ("root", default_root().display().to_string().into()),
-        ("gitignore", default_true().into()),
     ]
 }
 
@@ -526,12 +531,12 @@ pub(crate) fn project(
         fence(name, key)?;
     }
     let (overlay, force) = split_profile(name, body)?;
-    // Before `merge_queries` folds sets/routes into one namespace.
-    let patched: Vec<String> = ["sets", "routes"]
-        .iter()
-        .filter_map(|k| overlay.get(*k)?.as_table())
-        .flat_map(|tbl| tbl.keys().cloned())
-        .collect();
+    // Before `merge_queries` folds `[views]` into the load-time namespace.
+    let patched: Vec<String> = overlay
+        .get("views")
+        .and_then(|v| v.as_table())
+        .map(|tbl| tbl.keys().cloned().collect())
+        .unwrap_or_default();
     t.layer(Prov::Profile);
     let projected = merge_table(
         merged,
@@ -737,7 +742,12 @@ fn merge_collection_list(
                 .position(|bc| collection_key(bc).as_deref() == Some(k.as_str()))
         }) {
             Some(i) => {
-                paired[i] = true;
+                // `i >= paired.len()` pairs with an entry an earlier SITE
+                // element pushed — merge the same way; `paired` tracks only
+                // base entries for the provenance pass below.
+                if let Some(p) = paired.get_mut(i) {
+                    *p = true;
+                }
                 out[i] = merge_collection(out[i].clone(), sc.clone(), path, t);
             }
             None => {
@@ -828,6 +838,56 @@ impl<'de> Deserialize<'de> for WidgetDef {
             },
             Raw::Full { template, head } => WidgetDef { template, head },
         })
+    }
+}
+
+/// Not-content declarations: the one list every walk prunes through —
+/// content, declarations, the `.slots/` scan, the serve watcher.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilesCfg {
+    /// Globs, plus `@` authorities: `"@.gitignore"` prunes whatever the
+    /// repo's gitignore ignores.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Re-admit paths `exclude` or the dot/underscore skip took out.
+    #[serde(default)]
+    pub include: Vec<String>,
+}
+
+impl FilesCfg {
+    /// `exclude` with `@` authorities lifted out.
+    pub fn exclude_globs(&self) -> Vec<&str> {
+        self.exclude
+            .iter()
+            .map(String::as_str)
+            .filter(|e| !e.starts_with('@'))
+            .collect()
+    }
+
+    /// Honour the repo's gitignore when walking.
+    pub fn gitignore(&self) -> bool {
+        self.exclude.iter().any(|e| e == "@.gitignore")
+    }
+
+    /// `@` names an authority, and there is exactly one.
+    pub fn check(&self) -> Result<()> {
+        for e in self.exclude.iter().filter(|e| e.starts_with('@')) {
+            if e != "@.gitignore" {
+                anyhow::bail!(
+                    "[files] exclude entry {e:?}: `@` references an exclusion \
+                     authority, and the only one is \"@.gitignore\". A glob \
+                     does not start with `@`."
+                );
+            }
+        }
+        if let Some(e) = self.include.iter().find(|e| e.starts_with('@')) {
+            anyhow::bail!(
+                "[files] include entry {e:?}: `@` authorities exclude; \
+                 include takes globs only."
+            );
+        }
+        Ok(())
     }
 }
 
@@ -988,7 +1048,7 @@ pub struct SchemaBag {
     #[serde(default)]
     pub search: SearchSchema,
     /// `[schema.fields]`: computed columns on every row, the document
-    /// level home for `hero`/`outline`/…, a set's `[sets.*.fields]` adds to
+    /// level home for `hero`/`outline`/…, a set's `[views.*.fields]` adds to
     /// these for its own rows.
     #[serde(default)]
     pub fields: BTreeMap<String, Field>,
@@ -1044,13 +1104,34 @@ pub struct AttrCfg {
 
 /// Head entry: CEL expr, multi-attr table, or expand over a pool.
 /// Table-spelled atom under Descend(3).
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum HeadEntry {
     Expr(String),
     Expand(HeadExpand),
-    /// Multi-attr table; after Expand so `from` stays an expand.
+    /// Multi-attr table; `from`/`where` is what makes a table an expand.
     Attrs(BTreeMap<String, String>),
+}
+
+impl<'de> serde::Deserialize<'de> for HeadEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let v = toml::Value::deserialize(d)?;
+        match v {
+            toml::Value::String(s) => Ok(HeadEntry::Expr(s)),
+            toml::Value::Table(t) if t.contains_key("from") || t.contains_key("where") => {
+                HeadExpand::deserialize(toml::Value::Table(t))
+                    .map(HeadEntry::Expand)
+                    .map_err(D::Error::custom)
+            }
+            toml::Value::Table(t) => BTreeMap::<String, String>::deserialize(toml::Value::Table(t))
+                .map(HeadEntry::Attrs)
+                .map_err(D::Error::custom),
+            other => Err(D::Error::custom(format!(
+                "a head entry is an expression string or a table, not {}",
+                other.type_str()
+            ))),
+        }
+    }
 }
 
 impl HeadEntry {
@@ -1080,13 +1161,18 @@ impl PartialEq<String> for HeadEntry {
     }
 }
 
-/// One tag per member of `from`; attrs are CEL.
+/// One tag per member of a pool; attrs are CEL.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HeadExpand {
-    /// Candidate pool (`axis.*` / `shell.*`), same word as RelationCfg::from.
-    pub from: String,
-    /// The pool's source must exist: a `shell.*` expand fails the build when
-    /// no route wears the shell; an `axis.*` expand fails load when the axis
+    /// Named pool relational to the page (`axis.<name>`), same word as
+    /// RelationCfg::from. Exactly one of `from`/`where`.
+    pub from: Option<String>,
+    /// Predicate pool: materialized routes matching, in route order — the
+    /// view vocabulary's `where`, over the route schema.
+    #[serde(rename = "where")]
+    pub filter: Option<String>,
+    /// The pool's source must exist: a `where` expand fails the build when
+    /// no route matches; an `axis.*` expand fails load when the axis
     /// is undeclared. Default false: an absent source empties the pool and
     /// the entry stands down, which is what lets the base config inherit.
     #[serde(default)]
@@ -1340,13 +1426,9 @@ pub struct Collection {
     /// Default stem extractors for this collection's rules.
     #[serde(default)]
     pub file: Vec<String>,
-    /// Not-content globs; read from the tree collection only.
-    /// Govern the whole walk; excluding an owned `source` is refused.
-    #[serde(default)]
-    pub exclude: Vec<String>,
-    /// Re-admit paths; same tree-only restriction as `exclude`.
-    #[serde(default)]
-    pub include: Vec<String>,
+    /// Default order for every view reading this collection; a view's own
+    /// `order_by` is nearer and wins.
+    pub order_by: Option<String>,
     #[serde(default)]
     pub rules: Vec<Rule>,
     /// View whose subdivision chain forms row trails.
@@ -1399,30 +1481,153 @@ pub struct RelationCfg {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawRule")]
 pub struct Rule {
-    #[serde(rename = "match")]
+    /// The `match` glob; `**/*` when the match names only selectors.
     pub pattern: String,
     /// Landing template(s); list form for default-axis fallthrough.
-    #[serde(default, deserialize_with = "one_or_many_string")]
     pub route: Vec<String>,
     /// Gate on front-matter presence (page vs static copy).
     pub front_matter: Option<bool>,
+    /// Equality selectors over authored facts (front matter, sidecar,
+    /// markers); rule-supplied values never participate, keeping
+    /// supply/select acyclic.
+    pub fields: BTreeMap<String, toml::Value>,
+    /// Active only under these profiles (empty = all).
+    pub only: Vec<String>,
+    /// Inert under these profiles.
+    pub unless: Vec<String>,
+    /// Contributes without claiming; may not answer the address question.
+    pub partial: bool,
+    /// `false`: claims, and the row materializes nowhere — an address answer.
+    pub publish: Option<bool>,
     /// Emit a Route only when something references the row.
-    #[serde(default)]
     pub on_demand: Option<bool>,
     /// No canonical URL; embed policy addresses via `/static/`.
-    /// Mutually exclusive with `route` and `on_demand`.
-    #[serde(default)]
     pub embed: Option<bool>,
     /// Stem extractors; absent => [`Collection::file`].
-    #[serde(default)]
     pub file: Vec<String>,
-    #[serde(default)]
     pub defaults: BTreeMap<String, toml::Value>,
     /// From base; only site-written rules warn when dead.
-    #[serde(skip)]
     pub inherited: bool,
+}
+
+impl Rule {
+    /// Active under `profile` (`None` = the default build).
+    pub fn active(&self, profile: Option<&str>) -> bool {
+        let is = |names: &[String]| profile.is_some_and(|p| names.iter().any(|n| n == p));
+        (self.only.is_empty() || is(&self.only)) && !is(&self.unless)
+    }
+}
+
+/// `match`: every gate a row must pass for the rule to claim it. The bare
+/// string is the glob; the table adds selectors, and any key that is not
+/// `pattern`/`front_matter` is an authored-field equality selector.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum MatchDecl {
+    Glob(String),
+    Gates(MatchGates),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MatchGates {
+    #[serde(default)]
+    pattern: Option<String>,
+    #[serde(default)]
+    front_matter: Option<bool>,
+    #[serde(flatten)]
+    fields: BTreeMap<String, toml::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRule {
+    #[serde(rename = "match")]
+    matcher: MatchDecl,
+    #[serde(default, deserialize_with = "one_or_many_string")]
+    route: Vec<String>,
+    #[serde(default, deserialize_with = "one_or_many_string")]
+    only: Vec<String>,
+    #[serde(default, deserialize_with = "one_or_many_string")]
+    unless: Vec<String>,
+    #[serde(default)]
+    partial: bool,
+    #[serde(default)]
+    publish: Option<bool>,
+    #[serde(default)]
+    on_demand: Option<bool>,
+    #[serde(default)]
+    embed: Option<bool>,
+    #[serde(default)]
+    file: Vec<String>,
+    #[serde(default)]
+    defaults: BTreeMap<String, toml::Value>,
+}
+
+impl std::convert::TryFrom<RawRule> for Rule {
+    type Error = String;
+
+    fn try_from(r: RawRule) -> Result<Rule, String> {
+        let (pattern, front_matter, fields) = match r.matcher {
+            MatchDecl::Glob(p) => (p, None, BTreeMap::new()),
+            MatchDecl::Gates(g) => (
+                g.pattern.unwrap_or_else(|| "**/*".to_string()),
+                g.front_matter,
+                g.fields,
+            ),
+        };
+        // The address-answer law: a rule answers the address question with
+        // exactly one of route / embed / publish = false and claims, or
+        // answers nothing and declares itself partial.
+        let answers = [
+            (!r.route.is_empty(), "route"),
+            (r.embed == Some(true), "embed = true"),
+            (r.publish == Some(false), "publish = false"),
+        ];
+        let given: Vec<&str> = answers
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, n)| *n)
+            .collect();
+        if r.partial && !given.is_empty() {
+            return Err(format!(
+                "rule `match = {pattern:?}`: partial = true, but {} answers the                  address question — a partial contributes and never claims.                  Drop `partial`, or drop the answer.",
+                given.join(" and ")
+            ));
+        }
+        if !r.partial && given.is_empty() {
+            return Err(format!(
+                "rule `match = {pattern:?}` answers no address question — give                  it a `route`, `embed = true`, or `publish = false`, or mark                  it `partial = true` if it only contributes defaults."
+            ));
+        }
+        if given.len() > 1 {
+            return Err(format!(
+                "rule `match = {pattern:?}`: {} — the address question has one                  answer per rule.",
+                given.join(" and ")
+            ));
+        }
+        if r.publish == Some(true) {
+            return Err(format!(
+                "rule `match = {pattern:?}`: publish = true is the default;                  only `publish = false` is declared."
+            ));
+        }
+        Ok(Rule {
+            pattern,
+            front_matter,
+            fields,
+            only: r.only,
+            unless: r.unless,
+            partial: r.partial,
+            publish: r.publish,
+            route: r.route,
+            on_demand: r.on_demand,
+            embed: r.embed,
+            file: r.file,
+            defaults: r.defaults,
+            inherited: false,
+        })
+    }
 }
 
 /// Alternative forms of one row: values + field; routes spend the axis.
@@ -1539,10 +1744,10 @@ pub struct View {
     /// From base; inherited empty routes do not materialize.
     #[serde(skip)]
     pub inherited: bool,
-    /// Declared under `[sets]` (true) vs `[routes]`; not derived from path
-    /// (default_content may clear path).
+    /// Declared with no `path`. Recorded at fold time, not re-derived:
+    /// `default_content` may stand a declared path down later.
     #[serde(skip)]
-    pub declared_set: bool,
+    pub declared_query_only: bool,
     /// Profile that wrote this view's filter.
     #[serde(skip)]
     pub filter_profile: Option<String>,

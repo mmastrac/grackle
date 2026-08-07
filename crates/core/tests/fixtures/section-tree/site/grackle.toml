@@ -39,6 +39,7 @@ short_date = "{day} @months_short[{month}] {year}"
 medium_date = "{day} @months[{month}] {year}"
 long_date = "@months[{month}] {day}, {year}"
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
@@ -46,8 +47,7 @@ source = "."
   route = "/{dir}/"
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"
 
 [i18n.tables.months]

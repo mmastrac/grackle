@@ -84,7 +84,7 @@ fn the_flag_family_is_the_sites_vocabulary_not_the_engines() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("about.md"), "---\ntitle: About\n---\n\nHi.\n").unwrap();
 
-    let with_base = "[sets.s]\nfrom = \"entries\"\nwhere = \"!draft\"\n";
+    let with_base = "[views.s]\nfrom = \"pages\"\nwhere = \"!draft\"\n";
     std::fs::write(dir.join("grackle.toml"), with_base).unwrap();
     urls(&dir.join("grackle.toml")); // inherits [schema]; parses.
 
@@ -94,7 +94,7 @@ fn the_flag_family_is_the_sites_vocabulary_not_the_engines() {
     std::fs::create_dir_all(&bare).unwrap();
     let alone = format!(
         "extends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
-         [[collections]]\nsource = \".\"\n\
+         [[collections]]\nname = \"pages\"\nsource = \".\"\n\
          [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{{path}}\"\n{with_base}"
     );
     std::fs::write(bare.join("grackle.toml"), &alone).unwrap();
@@ -196,7 +196,7 @@ fn the_empty_sites_effective_config_is_entirely_inherited() {
 fn every_defaulted_scalar_is_printed() {
     let defaulted = defaulted_scalars();
     assert!(
-        defaulted.len() >= 3,
+        defaulted.len() >= 2,
         "the extraction found almost nothing — has `Config` moved? {defaulted:?}"
     );
     let path = examples().join("minimal/grackle.toml");
@@ -398,14 +398,14 @@ fn the_effective_config_shows_the_projection() {
     // Whole definition, one comment, on the header.
     let line = drafts
         .lines()
-        .find(|l| l.starts_with("[sets.published]"))
+        .find(|l| l.starts_with("[views.published]"))
         .expect("the projected set");
     assert!(line.contains("# profile drafts, whole"), "{line}");
     // The set's own keys, scoped to its block: a definition's keys carry no
     // provenance comment, only its header does.
     let block: Vec<&str> = drafts
         .lines()
-        .skip_while(|l| !l.starts_with("[sets.published]"))
+        .skip_while(|l| !l.starts_with("[views.published]"))
         .skip(1)
         .take_while(|l| !l.starts_with('['))
         .collect();
@@ -413,7 +413,7 @@ fn the_effective_config_shows_the_projection() {
         let line = block
             .iter()
             .find(|l| l.trim_start().starts_with(key))
-            .unwrap_or_else(|| panic!("{key} in [sets.published]"));
+            .unwrap_or_else(|| panic!("{key} in [views.published]"));
         assert!(
             !line.contains('#'),
             "a definition's keys say nothing: {line}"

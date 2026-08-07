@@ -1,4 +1,4 @@
-# The satisfied half of `require = true`: the base declares `[routes.feed]`
+# The satisfied half of `require = true`: the base declares `[views.feed]`
 # with the atom shell, so the required pool is non-empty and the build
 # proceeds — the guard refuses only genuine absence.
 [site]
@@ -7,4 +7,4 @@ title = "A Fixture"
 author = "Tester"
 
 [html.head.link]
-feed = { from = "shell.atom", require = true, rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
+feed = { where = "shell == 'atom'", require = true, rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }

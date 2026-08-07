@@ -19,15 +19,19 @@ fn site(who: &str) -> PathBuf {
         (
             "grackle.toml",
             b"[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\n\
+              [[collections]]\nname = \"posts\"\nsource = \"_posts\"\narchives = { tags = \"tags\" }\n\n\
               [[collections]]\nname = \"objects\"\n\n  \
               [[collections.rules]]\n  match = \"**/*.png\"\n  route = \"/{path}\"\n\n\
-              [routes.tags]\npath = \"/tags/{group:key}/\"\nfrom = \"posts\"\n\
+              [views.tags]\npath = \"/tags/{group:key}/\"\nfrom = \"posts\"\n\
               group_by = \"tags\"\nlayout = \"card\"\n\n\
-              [routes.paged]\npaths = [\"/journal/\", \"/journal/page/{n}/\"]\n\
+              [views.paged]\npaths = [\"/journal/\", \"/journal/page/{n}/\"]\n\
               from = \"posts\"\nlayout = \"card\"\npaginate = 1\n\n\
-              [routes.everything]\npath = \"/everything.xml\"\nshell = \"sitemap\"\n\n\
-              [routes.blog_corpus]\npath = \"/blog-corpus.xml\"\nshell = \"sitemap\"\n\
-              where = 'collection == \"posts\"'\n",
+              [views.everything]\npath = \"/everything.xml\"\nshell = \"sitemap\"\n\n\
+              [views.blog_corpus]\npath = \"/blog-corpus.xml\"\nshell = \"sitemap\"\n\
+              where = 'collection == \"posts\"'\n\n\
+              [[collections]]\nname = \"entries\"\nsource = \".\"\n\n  \
+              [[collections.rules]]\n  match = \"notes.txt\"\n  \
+              route = \"/{path}\"\n  defaults = { shell = \"raw\" }\n",
         ),
         (
             "_posts/2020-01-01-hello.md",

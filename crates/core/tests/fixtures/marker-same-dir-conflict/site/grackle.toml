@@ -67,9 +67,9 @@ draft = { type = "bool" }
 ".published" = { draft = false }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"

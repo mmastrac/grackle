@@ -181,7 +181,7 @@ mod tests {
     /// The base.toml posts-collection neighbour defaults, for tests that need
     /// them without merging the full base config.
     ///
-    /// Relation tables MUST come before `[sets.…]`: TOML attaches
+    /// Relation tables MUST come before `[views.…]`: TOML attaches
     /// `[collections.relations.*]` to the last `[[collections]]` only while
     /// that array entry is still open.
     const POSTS_DEFAULTS: &str = r#"
@@ -207,7 +207,7 @@ limit = 4
 from = "linked_from"
 where = "!(candidate in ancestors)"
 
-[sets.published]
+[views.published]
 from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
@@ -215,7 +215,7 @@ order_by = "-date"
 
     /// Compile relations for a single posts collection with `extra` config
     /// appended (relation blocks, sets). Runs `build_views` first so a declared
-    /// `[sets.published]` resolves as a pool.
+    /// `[views.published]` resolves as a pool.
     fn compile(extra: &str) -> Result<Vec<Relation>> {
         let toml = format!(
             "root=\".\"\nextends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
@@ -268,16 +268,16 @@ order_by = "-date"
         }
         assert_eq!(
             posts["earlier"].from.as_deref(),
-            Some("published"),
-            "base writes from explicitly"
+            None,
+            "absent `from` = this collection, whatever a site names it"
         );
-        let tree = &cfg.collections["entries"].relations;
+        let tree = &cfg.collections["pages"].relations;
         assert!(
             tree.contains_key("linked_from") && tree.len() == 1,
             "tree gets only linked_from: {tree:?}"
         );
         assert!(
-            cfg.collections["objects"].relations.is_empty(),
+            cfg.collections["images"].relations.is_empty(),
             "objects stay relation-free"
         );
     }
@@ -345,7 +345,7 @@ limit = 2
 from = "linked_from"
 where = "!(candidate in ancestors)"
 
-[sets.published]
+[views.published]
 from = "posts"
 where = "!draft && !hidden"
 "#;
@@ -389,7 +389,7 @@ where = "!draft && !hidden"
     fn a_relation_over_a_set_reads_only_what_it_declared() {
         let rels = compile(
             "[collections.relations.x]\nwhere=\"candidate.date.year == 2026\"\n\
-             [sets.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n",
+             [views.published]\nfrom=\"posts\"\nwhere=\"!draft && !hidden\"\n",
         )
         .unwrap();
         let refs = relation(&rels, "x").filter.referenced_fields();

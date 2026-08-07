@@ -65,7 +65,10 @@ fn site(whose: &str) -> PathBuf {
         (
             "grackle.toml",
             "[site]\nurl = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n\
-             \n[schema]\nminutes = { type = \"int\" }\n",
+             \n[schema]\nminutes = { type = \"int\" }\n\n\
+             [[collections]]\nname = \"pages\"\nsource = \".\"\n\n  \
+             [[collections.rules]]\n  match = \"notes.txt\"\n  \
+             route = \"/{path}\"\n  defaults = { shell = \"raw\" }\n",
         ),
         (
             "_posts/2020-01-01-hello.md",
@@ -116,7 +119,7 @@ fn explain_reads_the_row_rather_than_a_literal() {
     );
     assert_eq!(
         facts("/notes.txt"),
-        "collection  entries\nrule        **/*\nshell       raw\nfront_mattered false\n\
+        "collection  pages\nrule        notes.txt\nshell       raw\nfront_mattered false\n\
          rendered    false\noutput      /notes.txt\n",
         "a byte copy disagrees with the post in all four: a different scope, a \
          different rule of it, a different shell, no identity — and it used to \
@@ -225,7 +228,7 @@ fn explain_prints_the_rendering_law_beside_the_facts_it_reads() {
     );
     assert_eq!(
         facts("/demos/pane/"),
-        "collection  entries\nrule        **/*.{html,md}\nshell       raw\n\
+        "collection  pages\nrule        **/*.{html,md}\nshell       raw\n\
          front_mattered true (block)\nrendered    true\noutput      /demos/pane/\n",
         "the pane: identity plus the transparent shell renders, and `raw` then \
          emits the result verbatim — the law's first clause, and the row a \

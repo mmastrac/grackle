@@ -433,6 +433,8 @@ fn build_view(
     let rows_for = |axis_value: &str| -> Vec<grackle_db::Key> {
         let eligible: Vec<grackle_db::Key> = rows
             .iter()
+            // Unqueryable rows are in no pool, ever.
+            .filter(|p| grackle_model::queryable(&p.fields))
             .filter(|p| {
                 !parsed
                     || (p.rendered
@@ -674,13 +676,14 @@ pub(crate) fn resolve_pool_folds(cfg: &Config, db: &mut SiteDb, schemas: &Schema
             None => filter::Filter::always(),
         };
         let members = db.routes.select(&pred);
-        // all-outputs folds see the canonical axis member only.
+        // all-outputs folds see the canonical axis member only — and never
+        // an unqueryable route.
         let members: Vec<grackle_db::Key> = members
             .into_iter()
             .filter(|k| {
-                db.routes
-                    .get(k)
-                    .is_none_or(|r| r.axis.iter().all(|a| a.canonical))
+                db.routes.get(k).is_none_or(|r| {
+                    r.axis.iter().all(|a| a.canonical) && grackle_model::queryable(&r.fields)
+                })
             })
             .collect();
         let Some(at) = db
@@ -714,7 +717,7 @@ mod object_view_tests {
     /// Object views scope with `glob(path, ...)`.
     #[test]
     fn an_object_view_scopes_itself_with_a_path_glob() {
-        let c = cfg("[routes.g]\nfrom = \"objects\"\n\
+        let c = cfg("[views.g]\nfrom = \"objects\"\n\
              where = 'glob(path, \"photos/**\")'\n\
              order_by = \"name\"\npath = \"/p/\"\nlayout = \"card\"\n");
         build_views(&c, &mut SiteDb::default(), &Schemas::new(row_schema()))
@@ -759,7 +762,7 @@ mod posts_order_tests {
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"notes\"\nsource = \"_posts\"\n\
              file = [\"{{date.year}}-{{date.month}}-{{date.day}}-{{slug}}\"]\n\
-             [routes.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"card\"\n{clauses}"
+             [views.g]\nfrom = \"notes\"\npath = \"/g/\"\nlayout = \"card\"\n{clauses}"
         );
         Config::from_toml(&src).expect("test config parses")
     }
@@ -784,7 +787,7 @@ mod posts_order_tests {
             )
             .unwrap();
 
-        let clauses = "[sets.s]\nfrom = \"notes\"\nwhere = \"!archived\"\n";
+        let clauses = "[views.s]\nfrom = \"notes\"\nwhere = \"!archived\"\n";
         build_views(&cfg(clauses), &mut db(), &schemas)
             .expect("a declared field is nameable in `where`");
 

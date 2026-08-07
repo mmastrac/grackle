@@ -46,12 +46,12 @@ values = ["plain", "fancy"]
 field = "look"
 
 [[collections]]
+name = "entries"
 source = "."
 file = ["{stem}.{axis:locale}", "{stem}"]
 
   [[collections.rules]]
-  match = "note*.md"
-  front_matter = true
+  match = { pattern = "note*.md", front_matter = true }
   route = ["/{axis:locale}/{look}/note/", "/{look}/note/"]
 
   [[collections.rules]]

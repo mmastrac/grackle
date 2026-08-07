@@ -1211,6 +1211,8 @@ fn computed_field_exprs<'a>(
     let schema = cfg.field_expr_schema();
     named
         .into_iter()
+        // `queryable` is engine-consumed at load (a predicate, not a part).
+        .filter(|(n, _)| *n != "queryable")
         .filter_map(|(n, f)| Some((n, f.as_expr()?)))
         .filter_map(|(n, src)| {
             let expr = grackle_db::FieldExpr::infer(src, &schema)

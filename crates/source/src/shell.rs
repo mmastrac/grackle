@@ -58,7 +58,7 @@ pub fn check_row(name: &str, whose: &Path) -> Result<()> {
     if is_fold(name) {
         bail!(
             "{}: shell = \"{name}\" is a fold shell — it eats {} and emits one \
-             artifact, so it belongs on a view (`[routes.<name>] shell = \
+             artifact, so it belongs on a view (`[views.<name>] shell = \
              \"{name}\"`). A row is ONE output and takes a map shell: {}",
             whose.display(),
             eats(name),

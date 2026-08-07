@@ -147,16 +147,18 @@ values = [
 ]
 field = "theme"
 
-[[collections]]
-source = "."
+[files]
 exclude = ["themes/**"]
+
+[[collections]]
+name = "entries"
+source = "."
 
   # The gallery's own landing publishes ONCE, at the root: it is the index of
   # the eight, not one of them. A rule that does not spend the axis opts its
   # rows out, which is the whole opt-in mechanism (q53 step 2).
   [[collections.rules]]
-  match = "index.md"
-  front_matter = true
+  match = { pattern = "index.md", front_matter = true }
   route = "/"
 
   # Everything else spends `{theme}`, so every row below lands eight times.
@@ -172,8 +174,7 @@ exclude = ["themes/**"]
   route = "/{theme}/{dir}/"
 
   [[collections.rules]]
-  match = "**/*.{html,md}"
-  front_matter = true
+  match = { pattern = "**/*.{html,md}", front_matter = true }
   route = "/{theme}/{dir}/{stem}/"
   defaults = { shell = "html" }
 
@@ -225,18 +226,18 @@ name = "objects"
 
 # ------------------------------------------------------------------- sets
 
-[sets.published]
+[views.published]
 from = "posts"
 where = '!draft && !hidden'
 order_by = "-date"
 
-  [sets.published.fields]
+  [views.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 1), 180)'
 
 # Path scoping is a clause of the predicate, not a key of its own: `glob` is
 # a registered filter function (§5f), so the subtree narrowing conjoins along
 # `from` with everything else the chain says.
-[sets.shelf]
+[views.shelf]
 from = "entries"
 where = 'glob(path, "shelf/**") && !draft && !hidden'
 order_by = "-date"
@@ -253,7 +254,7 @@ order_by = "-date"
 # The per-theme copies of each landing's prose are gone with the per-theme
 # declarations.
 
-[routes.blog_index]
+[views.blog_index]
 paths = ["/{theme}/blog/", "/{theme}/blog/page/{n}/"]
 from = "published"
 paginate = 2
@@ -262,7 +263,7 @@ axis = "theme"
 content = "blog/index.md"
 title = "Blog"
 
-[routes.shelf_index]
+[views.shelf_index]
 path = "/{theme}/shelf/"
 from = "shelf"
 layout = "card"
@@ -271,7 +272,7 @@ axis = "theme"
 content = "shelf/index.md"
 title = "Shelf"
 
-[routes.wall_index]
+[views.wall_index]
 path = "/{theme}/wall/"
 from = "objects"
 # The object vocabulary is file facts only, and `path` is one of them — so
@@ -286,12 +287,12 @@ title = "Wall"
 
 # `front_mattered` is what `kind == "post" || kind == "page"` always meant
 #: the documents, as opposed to byte copies and minted listings.
-[routes.search]
+[views.search]
 path = "/search.bin"
 shell = "search"
 where = 'front_mattered && !draft && !hidden && stem != "index"'
 
-[routes.sitemap]
+[views.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

@@ -41,17 +41,17 @@ name = "objects"
   route = "/{path}"
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{dir}/{stem}/"
 
 # `order_by` is declared: lexical-by-luck is not a contract. The path scope is
 # a `where` clause — `path` is a column of the OBJECT schema, so
 # the narrow vocabulary type-checks it and still refuses `draft`.
-[routes.gallery]
+[views.gallery]
 path = "/photos/"
 from = "objects"
 where = 'glob(path, "photos/**")'

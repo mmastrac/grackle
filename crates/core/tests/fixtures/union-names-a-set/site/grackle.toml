@@ -55,6 +55,7 @@ long_date = "@months[{month}] {day}, {year}"
 date = { type = "date" }
 
 [[collections]]
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
@@ -63,17 +64,18 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   route = "/blog/{slug}/"
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
-[routes.everything]
+[views.everything]
 path = "/all/"
 from = ["posts", "recent"]
 layout = "card"
 
-[sets.recent]
+[views.recent]
 from = "posts"
 limit = 3

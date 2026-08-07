@@ -88,6 +88,7 @@ name = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   # A blockless `.md` sent through a document shell is a DEGENERATE row:
@@ -98,8 +99,7 @@ source = "."
   defaults = { shell = "html" }
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 
@@ -110,7 +110,7 @@ source = "."
 
 # the landing owns the URL, and `landing.md` loses its own route — the
 # `!output` shape the join makes sayable.
-[routes.things]
+[views.things]
 path = "/things/"
 from = "entries"
 where = 'glob(path, "notes/*.md")'
@@ -292,17 +292,16 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   defaults = { shell = "html" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "*/index.md"
-  front_matter = true
+  match = { pattern = "*/index.md", front_matter = true }
   route = "/{dir}/"
   defaults = { shell = "html" }
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 
@@ -313,7 +312,7 @@ source = "."
 
 # A TEMPLATED claim: one route per group, each embedding its own body, and the
 # claim is only settled once the group keys exist.
-[routes.topics]
+[views.topics]
 path = "/{group:key}/"
 from = "posts"
 group_by = "topic"
@@ -322,7 +321,7 @@ content = "{group:key}/index.md"
 title = "{group:key}"
 
 # A LITERAL claim: settled at load, the route never minted.
-[routes.everything]
+[views.everything]
 path = "/everything/"
 from = "posts"
 layout = "card"
@@ -332,7 +331,7 @@ title = "Everything"
 # The column read by a VIEW, which is the whole reason `output` is built at
 # route-minting time rather than with the other two join fields: a filter that
 # runs before the fact exists selects nothing, forever, silently.
-[routes.landed]
+[views.landed]
 path = "/landed/"
 from = "entries"
 where = "output"
@@ -456,11 +455,11 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   defaults = { shell = "html" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 
@@ -469,7 +468,7 @@ source = "."
   route = "/{path}"
   defaults = { shell = "raw" }
 
-[routes.blog]
+[views.blog]
 path = "/blog/"
 from = "posts"
 layout = "card"
@@ -605,25 +604,25 @@ author = "Tester"
 shell = { type = "string" }
 theme = { type = "string" }
 
-[[collections]]
-source = "."
+[files]
 exclude = ["themes/**"]
 
+[[collections]]
+name = "entries"
+source = "."
+
   [[collections.rules]]
-  match = "look.md"
-  front_matter = true
+  match = { pattern = "look.md", front_matter = true }
   route = "/{theme}/look/"
   defaults = { shell = "html" }
 
   [[collections.rules]]
-  match = "tiers.md"
-  front_matter = true
+  match = { pattern = "tiers.md", front_matter = true }
   route = "/tiers/{serialization}.html"
   defaults = { shell = "html" }
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 

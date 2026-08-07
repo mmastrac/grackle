@@ -42,25 +42,24 @@ values = ["plain", "fancy"]
 field = "look"
 
 [[collections]]
+name = "entries"
 source = "."
 
   # A path LIST (§6f, the default-axis case): the shortest template that still
   # spends every non-canonical axis wins, so `plain` lands at `/note/`.
   [[collections.rules]]
-  match = "note.md"
-  front_matter = true
+  match = { pattern = "note.md", front_matter = true }
   route = ["/{axis:look}/note/", "/note/"]
 
   [[collections.rules]]
-  match = "index.md"
-  front_matter = true
+  match = { pattern = "index.md", front_matter = true }
   route = "/"
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
-[routes.hub]
+[views.hub]
 from = "entries"
 layout = "card"
 axis = "look"

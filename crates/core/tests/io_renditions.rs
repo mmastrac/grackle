@@ -85,11 +85,11 @@ name = "objects"
   defaults = { shell = "raw" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
-  match = "**/*.md"
-  front_matter = true
+  match = { pattern = "**/*.md", front_matter = true }
   route = "/{stem}/"
   defaults = { shell = "html" }
 
@@ -101,14 +101,14 @@ source = "."
 # The shape that matters: a card that IS its picture. Its `<a>` links the ROW
 # and its `<img>` names the rendition, so `/` cites the cover image through its
 # rendition address and through nothing else.
-[sets.featured]
+[views.featured]
 from = "entries"
 where = 'glob(path, "small.md")'
 limit = 1
 layout = "card"
 variant = "figure"
 
-  [sets.featured.fields]
+  [views.featured.fields]
   hero = 'cover'
 
 [profiles.hide]

@@ -80,46 +80,55 @@ pub(crate) fn head_alternates<'a>(
     alternates
 }
 
-/// Declared `shell.*` expand tags for one page: one per fold route wearing
-/// the named shell, evaluated in this page's env (the locale-resolved site
+/// Declared `where` expand tags for one page: one per materialized route the
+/// predicate selects, evaluated in this page's env (the locale-resolved site
 /// title travels with `site`). Appended to the page's metas wherever a
 /// computed head is built.
 pub(crate) fn head_fold_links(
     metas: &crate::render::Metas,
     site: &crate::render::Site,
     title: &str,
-    facts: &crate::passes::preview::ChromeFacts,
     db: &SiteDb,
 ) -> Vec<crate::render::MetaItem> {
-    crate::render::eval_fold_expands(metas, site, title, |shell| facts.fold_pool(db, shell))
+    crate::render::eval_fold_expands(metas, site, title, |filter| where_pool(db, filter))
 }
 
-/// `require = true` on a `shell.*` expand: once routes materialize the pool
+/// The routes a `where` expand selects, in route order.
+fn where_pool<'a>(
+    db: &'a SiteDb,
+    filter: &crate::filter::Filter,
+) -> Vec<(&'a dyn crate::filter::Row, &'a str)> {
+    db.routes
+        .iter()
+        .filter(|r| crate::model::queryable(&r.fields))
+        .filter(|r| filter.eval(*r))
+        .map(|r| (r as &dyn crate::filter::Row, r.url.as_str()))
+        .collect()
+}
+
+/// `require = true` on a `where` expand: once routes materialize the pool
 /// must be non-empty, so a site that demands its feed link fails loudly
 /// instead of shipping heads without it. The axis half (an undeclared axis)
 /// refuses at load, in `compile_metas`.
-pub(crate) fn check_required_expands(
-    metas: &crate::render::Metas,
-    facts: &crate::passes::preview::ChromeFacts,
-) -> Result<()> {
+pub(crate) fn check_required_expands(metas: &crate::render::Metas, db: &SiteDb) -> Result<()> {
     for d in &metas.tags {
         let crate::render::Decl::Expand {
             tag,
             key,
-            from,
+            pool,
             require,
             ..
         } = d
         else {
             continue;
         };
-        let Some(shell) = from.strip_prefix("shell.") else {
+        let crate::render::ExpandPool::Where(filter) = pool else {
             continue;
         };
-        if *require && facts.fold_is_empty(shell) {
+        if *require && where_pool(db, filter).is_empty() {
             anyhow::bail!(
-                "{} {key}: require = true but no materialized route wears \
-                 shell = \"{shell}\" — declare the route or drop require",
+                "{} {key}: require = true but no materialized route matches \
+                 its `where` pool — declare the route or drop require",
                 crate::render::table_name(*tag),
             );
         }
@@ -307,6 +316,10 @@ pub(crate) fn backlinks_map(
     // map differs by origin, posts hold their body, pages are re-read.
     let mut sources: Vec<(&str, String, Option<chrono::NaiveDate>, &str)> = Vec::new();
     for p in &db.rows {
+        // An unqueryable row appears in nobody's backlink box.
+        if !crate::model::queryable(&p.fields) {
+            continue;
+        }
         if let Some(html) = row_body_html(p, bodies, page_bodies) {
             sources.push((
                 p.url.as_str(),

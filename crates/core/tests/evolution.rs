@@ -427,7 +427,7 @@ fn config_evolution() {
         "a filter over an unknown field fails to load",
         append(
             "grackle.toml",
-            "[sets.x]\nfrom = \"posts\"\nwhere = \"!bogus\"\n",
+            "[views.x]\nfrom = \"posts\"\nwhere = \"!bogus\"\n",
         ),
         "unknown field `bogus`",
     );

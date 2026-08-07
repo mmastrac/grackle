@@ -61,6 +61,7 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
@@ -69,13 +70,14 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   route = "/blog/{year}/{slug}/"
 
 [[collections]]
+name = "entries"
 source = "."
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
-[routes.blog_index]
+[views.blog_index]
 path = "/blog/"
 from = "posts"
 paginate = 1

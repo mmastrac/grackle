@@ -18,6 +18,12 @@ author = "Example Author"
 # site can put ingredients in a table without editing the gallery.
 theme = "almanac"
 
+# `shells/**` is build tooling, not content: a script shell's source is
+# input to the build, and without this the engine routed it as a static
+# page and served llms.py to the public. Joins the base's own excludes.
+[files]
+exclude = ["themes/**", "shells/**"]
+
 # ---------------------------------------------------------------- posts
 
 # Named "notes", NOT "blog" — §7a contradiction #1, resolved: views now
@@ -69,17 +75,14 @@ name = "objects"
 # ---------------------------------------------------------------- pages
 
 [[collections]]
+name = "pages"
 source = "."
-# `shells/**` is build tooling, not content (§4c): a script shell's source
-# is input to the build, and without this the engine routed it as a static
-# page and served llms.py to the public. `*.toml` used to be here for the
-# config file itself; the engine excludes that by identity now.
-exclude = ["themes/**", "shells/**"]
 file = ["{stem}.{axis:locale}", "{stem}"]
 
   # Theme is chosen per row (§5a); a rule default restyles a subtree —
   # the recipes section deliberately looks nothing like the rest.
   [[collections.rules]]
+  partial = true
   match = "recipes/**"
   defaults = { theme = "recipes" }
 
@@ -88,8 +91,7 @@ file = ["{stem}.{axis:locale}", "{stem}"]
   route = ["/{axis:locale}/{dir}/", "/{dir}/"]
 
   [[collections.rules]]
-  match = "**/*.{html,md}"
-  front_matter = true
+  match = { pattern = "**/*.{html,md}", front_matter = true }
   route = ["/{axis:locale}/{dir}/{stem}/", "/{dir}/{stem}/"]
 
   [[collections.rules]]
@@ -173,17 +175,26 @@ intro = { en = "Flour, patience, and a hot oven.", fr = "De la farine, de la pat
 #
 # Queries that never land. `from` names a collection, a set, or a route.
 
-[sets.published]
+# Restated over the inherited entry: this site renamed `posts`.
+[views.home]
+path = "/"
+from = "published"
+limit = 10
+layout = "card"
+default_content = "index.{md,html}"
+title = "@home"
+
+[views.published]
 from = "notes"
 where = "!draft && !hidden"
 # Newest first. The engine orders by path unless a set says otherwise —
 # a tree is a list of files, and dates are a thing posts have.
 order_by = "-date"
 
-  [sets.published.fields]
+  [views.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 3), 500)'
 
-[sets.latest]
+[views.latest]
 from = "published"
 limit = 3
 layout = "link"
@@ -199,22 +210,22 @@ layout = "link"
 # Path scoping is a clause like any other: `glob(path, …)` is a registered
 # function (§5f), so the subtree narrowing rides the same conjunction and is
 # type-checked by the same pass. There is no `match` key on a view.
-[sets.recipes]
-from = "entries"
+[views.recipes]
+from = "pages"
 where = 'glob(path, "recipes/**") && !draft && !hidden'
 order_by = "title"
 
-[sets.books]
-from = "entries"
+[views.books]
+from = "pages"
 where = 'glob(path, "books/**") && !draft && !hidden'
 order_by = "-date"
 
-[sets.latest_recipes]
+[views.latest_recipes]
 from = "recipes"
 limit = 3
 layout = "link"
 
-[sets.book_of_the_month]
+[views.book_of_the_month]
 from = "books"
 limit = 1
 layout = "card"
@@ -225,19 +236,19 @@ variant = "card"
 # A profile is a projection of the same database: a `drafts` build shows the
 # notes a normal build hides. A set is taken whole, so the profile restates
 # `published` rather than editing one clause of it.
-[profiles.drafts.sets.published]
+[profiles.drafts.views.published]
 from = "notes"
 where = "!hidden"
 order_by = "-date"
 
-  [profiles.drafts.sets.published.fields]
+  [profiles.drafts.views.published.fields]
   summary = 'truncate_chars(truncate_blocks(content, 3), 500)'
 
 # ---------------------------------------------------------------- routes
 #
 # Every URL this site emits from a query. `path` is what makes it a route.
 
-[routes.blog_index]
+[views.blog_index]
 paths = [
   "/{axis:locale}/blog/",
   "/blog/",
@@ -249,7 +260,7 @@ paginate = 5
 layout = "card"
 title = { en = "Notes", fr = "Carnet" }
 
-[routes.tag_index]
+[views.tag_index]
 paths = ["/{axis:locale}/blog/tags/{key}/", "/blog/tags/{key}/"]
 from = "published"
 group_by = "tags"
@@ -266,7 +277,7 @@ noindex = true
 title = "@tagged"
 crumb = "{key}"
 
-[routes.feed]
+[views.feed]
 paths = ["/{axis:locale}/atom.xml", "/atom.xml"]
 from = "published"
 limit = 20
@@ -283,7 +294,7 @@ shell = "atom"
 [shells.llms]
 command = "python3 shells/llms.py"
 
-[routes.llms]
+[views.llms]
 paths = ["/{axis:locale}/llms.txt", "/llms.txt"]
 from = "published"
 shell = "llms"
@@ -298,7 +309,7 @@ shell = "llms"
 #: a document the author gave identity to, as opposed to bytes
 # copied verbatim or a listing the engine minted.
 
-[routes.search]
+[views.search]
 path = "/search.bin"
 shell = "search"
 where = 'front_mattered && !draft && !hidden && stem != "index"'
@@ -309,7 +320,7 @@ where = 'front_mattered && !draft && !hidden && stem != "index"'
 # `draft` — `order_by` is declared (lexical-by-luck is not a contract), and
 # the route replaces what was a hand-written index page.
 
-[routes.gallery]
+[views.gallery]
 path = "/photos/"
 from = "objects"
 where = 'glob(path, "photos/**")'
@@ -324,7 +335,7 @@ title = "Photos"
 # face (q24/q36) — /books/ and /blog/ are both listings, wearing
 # different fragments.
 
-[routes.books_index]
+[views.books_index]
 paths = ["/{axis:locale}/books/", "/books/"]
 from = "books"
 layout = "card"
@@ -343,7 +354,7 @@ intro = { en = "One book a month, argued with, shelved beside the [notes](view:b
 # prose. Claiming retired the stem != "index" filters below: a claimed
 # row leaves every query structurally.
 
-[routes.recipes_index]
+[views.recipes_index]
 paths = ["/{axis:locale}/recipes/", "/recipes/"]
 from = "recipes"
 layout = "card"
@@ -358,7 +369,7 @@ title = { en = "Recipes", fr = "Recettes" }
 # falls out of the q45 landing chain, no declaration. {key} renders the
 # course record's localized name; the URL wears its slug.
 
-[routes.recipes_by_course]
+[views.recipes_by_course]
 paths = ["/{axis:locale}/recipes/courses/{key}/", "/recipes/courses/{key}/"]
 from = "recipes"
 group_by = "course"
@@ -370,7 +381,7 @@ crumb = "{key}"
 # Routeless, embedded on the homepage: the same query language, composed
 # across tables — posts (latest), pages (recipes, the current book).
 
-[routes.sitemap]
+[views.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
 where = '!draft && !hidden && (dir || ext == "html")'

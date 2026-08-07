@@ -4,7 +4,7 @@
 #
 # `page.md` spends both `{palette}` and `{flavor}`, so it lands at 2×2 = 4 URLs,
 # one per member-tuple — §4's "a row renders at one route" is broken only along
-# axes, and two of them compose rather than collide. `[routes.grid]` does the
+# axes, and two of them compose rather than collide. `[views.grid]` does the
 # same for a VIEW: `axis = ["palette", "flavor"]` materializes it at the product.
 #
 # `palette` and `flavor` are both presentational fields — no render path
@@ -42,13 +42,13 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
+name = "entries"
 source = "."
 
   # The rule that spends the axes opts the row in (q53 step 2). This one names
   # both placeholders, so its rows sit on both axes.
   [[collections.rules]]
-  match = "page.md"
-  front_matter = true
+  match = { pattern = "page.md", front_matter = true }
   route = "/{palette}/{flavor}/page/"
 
   [[collections.rules]]
@@ -67,7 +67,7 @@ field = "flavor"
 
 # A VIEW across both axes: 4 listing URLs, the product of the two. The path
 # spends each axis with its own segment, the same way the row's rule does.
-[routes.grid]
+[views.grid]
 path = "/{palette}/{flavor}/all/"
 from = "entries"
 where = "!draft && !hidden"
@@ -75,7 +75,7 @@ layout = "card"
 axis = ["palette", "flavor"]
 title = "All"
 
-[routes.sitemap]
+[views.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
 

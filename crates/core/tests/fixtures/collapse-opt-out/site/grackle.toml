@@ -6,5 +6,8 @@ author = "Tester"
 theme = "framed"
 
 [[collections]]
+name = "entries"
 source = "."
+
+[files]
 exclude = ["themes/**"]

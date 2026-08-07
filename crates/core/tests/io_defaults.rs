@@ -18,9 +18,9 @@ const HEAD: &str = "extends = \"none\"\n\
      shell = { type = \"string\" }\n\
      description = { type = \"string\", default = \"fallback blurb\" }\n\n\
      [html.head.meta]\ndescription = 'description'\n\n\
-     [[collections]]\nsource = \".\"\n\n\
+     [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
      [[collections.rules]]\n\
-     match = \"**/*\"\nfront_matter = true\nroute = \"/{path}\"\n\
+     match = { pattern = \"**/*\", front_matter = true }\nroute = \"/{path}\"\n\
      defaults = { shell = \"html\" }\n";
 
 fn site(who: &str, files: &[(&str, &str)]) -> PathBuf {

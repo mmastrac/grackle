@@ -187,7 +187,7 @@ fn one_extension_leaving_the_glob_empties_the_gallery() {
              [[collections.rules]]\nmatch = \"gallery/**/*.{exts}\"\nroute = \"/{{path}}\"\n\n\
              [[collections]]\nname = \"entries\"\nsource = \".\"\n\n\
              [[collections.rules]]\nmatch = \"**/*\"\nroute = \"/{{path}}\"\n\n\
-             [routes.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
+             [views.gallery]\npath = \"/photos/\"\nfrom = \"objects\"\n\
              order_by = \"name\"\nlayout = \"card\"\ntitle = \"Photos\"\n"
         )
     };

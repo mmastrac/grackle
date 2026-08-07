@@ -23,6 +23,7 @@ title = "Fenced"
 author = "Tester"
 
 [[collections]]
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 

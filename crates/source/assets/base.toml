@@ -1,10 +1,6 @@
-# The base config — compiled into the binary (DESIGN.md §4d).
+# The base config — compiled into the binary.
 #
 # Every `grackle.toml` inherits this unless it says `extends = "none"`.
-# A site can forget to copy a file; it cannot forget the binary. This is the
-# base THEME's argument (themes/DESIGN.md) applied one layer down, and it uses
-# no new mechanism: a site's collection rules PREPEND to the ones below, and
-# §4's "first writer wins, per key" does the rest.
 #
 # Two rules govern what may live here.
 #
@@ -15,71 +11,43 @@
 #      that URL would be a bug on any site. `/atom.xml` and `/sitemap.xml`
 #      qualify. Tag pages do not — plenty of sites never tag. `/search.*` does
 #      not — it is a real payload.
-#
-# `examples/raw` is this file spelled out under `extends = "none"`, and a test
-# holds the two to the same URL set — so the printed version cannot drift from
-# the compiled one.
 
 [site]
-# Placeholders. A real site overrides all three; they exist so that an EMPTY
-# grackle.toml is a valid one, which is what `examples/minimal` measures.
+# Placeholders.
 url = "http://localhost:8080"
 title = "A grackle site"
 author = ""
 
-# The flag family (§4e). Ordinary declared bool fields — the engine's row
-# type names none of them, and `extends = "none"` genuinely leaves a site
-# without them, at which point `where = "!draft"` is a load error naming the
-# knowns rather than a filter that quietly matches everything.
-#
-# They live in `[schema]` rather than on a collection because they are
-# properties of a ROW, not of a directory or a source: a page can be hidden
-# exactly as a post can. `toc` opts a document into its heading outline (§6e).
+# Global schema for all rows.
 [schema]
 draft = { type = "bool" }
 hidden = { type = "bool" }
 noindex = { type = "bool" }
 toc = { type = "bool" }
-# Declared so front matter uses the ordinary list path (sequence or
-# whitespace-separated string). Base mints no tag routes.
 tags = { type = "list" }
-# Optional blurb for meta / previews. Ordinary string, not an engine column.
+# Optional blurb for meta / previews.
 description = { type = "string" }
-# Content date (`YYYY-MM-DD`). Ordinary declared field; engine type `date`
-# validates the form. Filled from front matter or `{date.year|month|day}` in a
-# collection's `file` pattern.
+# Content date (`YYYY-MM-DD`).
 date = { type = "date" }
-# Optional hero sources (§5f `fields.hero`). Image-typed so they resolve to
-# rows and get thumbnailed; the default hero expression prefers `cover`, then
-# `image`, then the first body `<img>`.
+# Optional hero sources.
 cover = { type = "image" }
 image = { type = "image" }
+# Optional locale.
+locale = { type = "string" }
 
-# Fields the engine still reads off a row BY NAME — which theme renders it
-# (§5a), which shell wraps it (§5g), which slot cuts the render chain, and
-# which locale the row is (§6f). Declared here so a marker or a rule setting
-# one goes through `schema::apply_defaults` like every other key.
-# Their types are the engine's: restating a line below is fine; declaring one
-# at another type is a load error. A site that declines the base declares
-# whatever its rows and rules actually use.
+# Fields the engine still reads off a row BY NAME.
 theme = { type = "string" }
 shell = { type = "string" }
 slot = { type = "string" }
-# Stamped at load when `[axes.*]` declares the pairing axis (default when no
-# file pattern matched). Shares its name with `[axes.locale] field` in the
-# usual spelling; a site that renames the axis declares that field instead.
-locale = { type = "string" }
+# ★ Engine-read: routed, but in no query — no pool, fold, or backlink index.
+queryable = { type = "bool" }
 
-# Computed columns every row carries (§5f): filled on a document render and,
-# via `fields_for`, on a listing's cards. A set's `[sets.*.fields]` adds its
-# own; sites redeclare this table whole to change it (registry shadowing, §4d).
-#
-#   hero:    cover, then image, then the first body <img>.
-#   outline: the heading tree when `toc` is set, else an empty one (depth 0
-#            spans no levels) — which collapses the outline slot (§5e).
+# Computed columns.
 [schema.fields]
 hero = 'cover ? cover : image ? image : images(content)[0]'
 outline = 'toc ? outline(content, 3) : outline(content, 0)'
+# ★ `hidden` is the authored word; `queryable` is what the engine reads.
+queryable = '!hidden'
 
 [schema.embeddings]
 string = "title: {title} tags: {tags} body: {body}"
@@ -88,56 +56,25 @@ string = "title: {title} tags: {tags} body: {body}"
 index = ["title", "tags", "body"]
 store = ["title", "date"]
 
-# What the engine puts in the head, declared rather than compiled in (§4e).
-#
-# Each value is a §5f text expression over the row — or, for a listing, over
-# its route — plus `site.url` / `site.title` / `site.author`. An EMPTY result
-# emits no tag, which is §5e's "an empty part deletes its element" one layer
-# up, and is how every conditional here is spelled.
-#
-# A value may also be an *expand*: `{ from = "…", attr = 'expr', … }` emits
-# one tag per member of a candidate pool (`from` is the same word a relation
-# spells): `axis.<name>` pools a declared axis's include-self members;
-# `shell.<fold>` pools the materialized routes wearing that fold shell. That
-# is how a variable-length list — `rel="alternate" hreflang` × n — folds into
-# the same tables (§4e residue). An absent pool source stands the entry down,
-# which is what lets this file inherit everywhere; `require = true` upgrades
-# that absence to a refusal.
-#
-# Three tables because there are three head elements, not three mechanisms:
-#   [html.head.meta]      <meta name="K" content="V">
-#   [html.head.property]  <meta property="K" content="V">   (Open Graph)
-#   [html.head.link]      <link rel="K" href="V">
-# Plus a structured document, not a content attribute:
-#   [html.head.jsonld]    <script type="application/ld+json">
-# Plus attribute maps on the skeleton (§4e):
-#   [html.html.attribute] <html K="V">
-#   [html.body.attribute] <body K="V">
-#
-# Extension → media type lives at the top level (`[media_types]`), not under
-# `[html]`: it is URL vocabulary, not head-tag vocabulary.
-#
-# `noindex ? …` is CEL's own conditional, which is why it is spelled with `?`
-# rather than an `if_else()` the engine would have to register. §5d's
-# no-control-flow rule governs TEMPLATES; this is the expression surface, and
-# "which string does this meta take" has no fact-shaped spelling.
+# What the engine puts in the head. Text expressions over the row/listing route.
+# Expansions use "from", one per member of the pool.
 
-# Attributes on the skeleton elements (§4e): same expression surface as the
-# head tables. Empty omits. `lang` is the document language — the pairing-
-# axis field in the usual spelling; a site that renames the axis restates
-# the expression (`lang = 'lang'`).
+# Attributes on <html>
 [html.html.attribute]
 lang = 'locale'
 
-# [html.body.attribute] is available for `<body …>` stamps; the base leaves
-# the body bare.
+# Attributes on <body>
+[html.body.attribute]
+# (nothing)
 
+# <meta name="K" content="V">
 [html.head.meta]
 description = 'description'
 author = 'site.author'
 viewport = '"width=device-width, initial-scale=1"'
 robots = 'noindex ? "noindex,follow" : ""'
 
+# <meta property="K" content="V">
 [html.head.property]
 "og:title" = 'title'
 "og:description" = 'description'
@@ -149,34 +86,21 @@ robots = 'noindex ? "noindex,follow" : ""'
 "article:published_time" = 'date ? date + "T00:00:00+00:00" : ""'
 "article:author" = 'date ? site.author : ""'
 
+# <link rel="K" href="V">
 [html.head.link]
 canonical = 'site.url + url'
-# Drop a `favicon.{svg,png,ico,webp,gif}` at the site root and it is linked.
-# `site.icon` is the first of those URLs the tree fills, so an icon that lives
-# elsewhere is pinned by an ordinary named object route (§4) rather than by a
-# key here. No file ⇒ empty ⇒ no tag, which is why this is safe to inherit.
+# Drop a `favicon.{svg,png,ico,webp,gif}` at the site root and it gets linked.
 icon = 'site.icon'
-# The legacy spelling, and the reason it is a LINE rather than engine code:
-# `rel="shortcut icon"` is what browsers old enough to want it will read, the
-# duplicate href is the whole point, and a site that has stopped caring
-# deletes this line. Declaring it costs nothing on a site with no icon.
+# Legacy rel="shortcut icon"
 "shortcut icon" = 'site.icon'
-# Locale twins as hreflang alternates (self included, as the spec asks).
-# `from = "axis.<name>"` expands over any declared axis's include-self pool;
-# a monolingual page yields one member and emits nothing.
+# Locale twins as hreflang alternates (self included per spec).
+# TODO: If only one locale, don't emit this.
 alternate = { from = "axis.locale", hreflang = 'locale', href = 'site.url + url' }
-# Feed discoverability: one link per materialized route wearing the atom
-# fold shell — the head twin of the footer's `feed` chrome part (that one
-# links only the first; discoverability lists them all). The explicit `rel`
-# frees the key to be a name, `alternate` above being spent on hreflang.
-# No atom route ⇒ empty pool ⇒ no tag, which is what lets every site
-# inherit this line; a site that must not ship without its feed adds
-# `require = true`.
-feed = { from = "shell.atom", rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
+# Feed discoverability: all atom routes.
+feed = { where = "shell == 'atom'", rel = '"alternate"', type = '"application/atom+xml"', title = 'site.title', href = 'site.url + url' }
 
-# Schema.org BlogPosting for dated rows. Nested tables are JSON objects;
-# string leaves are the same CEL surface as the meta tables. Empty `@type`
-# (no date) ⇒ no script.
+# Schema.org BlogPosting for dated rows.
+# <script type="application/ld+json">
 [html.head.jsonld]
 "@context" = '"https://schema.org"'
 "@type" = 'date ? "BlogPosting" : ""'
@@ -224,20 +148,16 @@ bin = "application/octet-stream"
 mp4 = "video/mp4"
 avif = "image/avif"
 
-# Monolingual pairing axis. Sites that want translations redeclare with a
-# fuller `values` list; `[i18n] axis` points here until a site renames it.
+# Monolingual locale.
 [axes.locale]
 values = ["en"]
 field = "locale"
 
-# Which declared axis drives pairing, the switcher, and single-locale indexes.
-# Sites that rename the axis (`[axes.lang]`) set this to match.
+# i18n strings follow the locale axis.
 [i18n]
 axis = "locale"
 
-# Display vocabulary the engine looks up by name (§6f). Override per key or
-# per pairing-axis member; a site with `extends = "none"` that still wants
-# these strings declares them itself.
+# Display vocabulary.
 [i18n.strings]
 home = "Home"
 blog = "Blog"
@@ -248,20 +168,22 @@ earlier = "Earlier post"
 linked_from = "Linked from"
 translations = "Translations"
 page = "Page {n}"
-# Search overlay (§6b / §6f): injected into /search.js per locale member.
-# `search` also labels the chrome search button (themes/DESIGN.md).
+tagged = "Tagged “{key}”"
+
+# Search overlay.
 search = "Search"
 search_placeholder = "Search posts…"
 search_empty = "No posts match."
-# Chrome parts (themes/DESIGN.md): the feed link, the scheme control, and
+
+# Chrome parts: the feed link, the scheme control, and
 # the skip link.
 feed = "Feed"
 scheme_auto = "Colors: auto"
 scheme_light = "Colors: light"
 scheme_dark = "Colors: dark"
 skip = "Skip to content"
-# Date display templates (§6f): looked up by name (`medium_date`, …), then
-# expanded with `{year}`/`{month}`/`{day}` and `@months[…]` / `@months_short[…]`.
+
+# Date display templates.
 short_date = "{day} @months_short[{month}] {year}"
 medium_date = "{day} @months[{month}] {year}"
 long_date = "@months[{month}] {day}, {year}"
@@ -297,59 +219,56 @@ long_date = "@months[{month}] {day}, {year}"
 11 = "Nov"
 12 = "Dec"
 
-# §4b: the config says what a marker means, the tree says where. These three
-# names were conventions every site restated; nothing was built in before.
+# Marker files: if present, set the corresponding flag.
 [markers]
 ".draft" = { draft = true }
 ".hidden" = { hidden = true }
 ".noindex" = { noindex = true }
 
-# ---------------------------------------------------------------- posts
-#
-# A missing `_posts/` is not an error — the collection contributes no rows and
-# the views over it come out empty, so a site with no blog pays nothing for
-# this entry.
-#
-# The rule's glob names the EXTENSIONS this scope claims, which is I7a's move
-# one scope over: the posts loader's own walk took `["md",
-# "markdown"]` as an argument, and now the one rule that says where a post
-# lands is also what says a post is markdown. It matters because **a scope owns
-# its source**: what no rule of this scope claims is not content at all, so an
-# image beside a draft stays invisible rather than falling through to the tree.
 
+# Posts: dated posts, rendered in a /blog/ URL space.
 [[collections]]
+name = "posts"
 source = "_posts"
 # The extractor's default for this collection's rules (§4): a rule
 # may name its own `file`, and a rule routing by path tokens alone
 # (`/{dir}/{stem}/`) needs none at all.
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
+# Posts are a timeline
+order_by = "-date"
+
+  # For --profile drafts, we want to show the draft posts at /blog/drafts/{slug}/ (drafts don't
+  # always have a date to publish to)
+  # For --profile dev, we want to show the draft posts in the timeline.
+  # Otherwise, they are not published.
+  [[collections.rules]]
+  match = { draft = true }
+  only = "drafts"
+  route = "/blog/drafts/{slug}/"
+  defaults = { queryable = false }
+
+  [[collections.rules]]
+  match = { draft = true }
+  unless = ["dev", "drafts"]
+  publish = false
 
   [[collections.rules]]
   match = "**/*.{md,markdown}"
   route = "/blog/{year}/{month:02}/{day:02}/{slug}/"
   defaults = { shell = "html" }
 
-  # Neighbour lists (§6g). Declared here rather than minted in Rust — the same
-  # move as `[sets.published]` for draft/hidden. A site that declines the base
-  # (`extends = "none"`) gets none; overriding is per NAME.
-  #
-  # Date ordinals (not `candidate.date < self.date`) because the filter sees
-  # year/month/day as ints; `from = "published"` is explicit so the engine
-  # never looks up that set by magic.
+  # Neighbour lists.
   [collections.relations.earlier]
-  from = "published"
   where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day < self.date.year * 10000 + self.date.month * 100 + self.date.day"
   rank = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day"
   limit = 1
 
   [collections.relations.later]
-  from = "published"
   where = "candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day > self.date.year * 10000 + self.date.month * 100 + self.date.day"
   rank = "-(candidate.date.year * 10000 + candidate.date.month * 100 + candidate.date.day)"
   limit = 1
 
   [collections.relations.related]
-  from = "published"
   where = "!(candidate in earlier) && !(candidate in later) && !(candidate in links_to)"
   rank = "embedding_similarity(self, candidate)"
   limit = 4
@@ -358,164 +277,116 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   from = "linked_from"
   where = "!(candidate in ancestors)"
 
-# ---------------------------------------------------------------- objects
-#
-# Images only. Every other extension stays a tree row and ships verbatim at its
-# own path, which is the same bytes at the same URL — the difference an objects
-# collection makes is the `by_name` index (§6a, parked) and header-read
-# dimensions, and neither means anything for a `.zip`.
-#
-# The extension list IS the rule's glob: membership in this scope
-# is what its rules claim, in the one mechanism that also says where a claimed
-# row lands. Globs compile case-insensitively, so `.PNG` is a `png`.
-#
-# The shell is declared here like every other rule's. It reached nobody until I7e — an object row was
-# built from `Default::default()`, so no cascade ran over it and its `shell`
-# was Null — and now that there is one row constructor it is the line that says
-# an image leaves through the transparent shell, which is what it always did.
-#
-# `embed = true` and NOT `route = "/{path}"`, which is rule 2
-# above at its strictest: the base used to mint a public URL for every image on
-# every site that inherited it, at a path the author never wrote down and could
-# not have declined without an `extends = "none"`. Now it mints none. An
-# `<img>` reaches these rows at their content address under `/static/`, an
-# authored link to one is a load error naming the fix, and an image nothing
-# cites ships nowhere at all.
-#
-# A site that wants literal asset paths writes ONE rule saying so, above this
-# one — `route = "/{path}"`, which is the line that used to be here — and every
-# corpus site with images already does (`examples/field-notes`, `examples/theme-preview`
-# and grack.com each declare their own objects rule; that is why this change
-# moves no byte anywhere). First-writer-wins does the rest: the address
-# question is answered once, by the first rule that answers it either way, so
-# a site's route silences this line without deleting it.
-
+# Images
 [[collections]]
-name = "objects"
+name = "images"
 
-  # The one image the base routes, and it is rule 2's own exception: a site
-  # icon is fetched by URL with nothing on the page pointing at it in any way
-  # a reference scan can see, so it cannot be reference-driven — and
-  # `[html.head.link] icon` above LINKS `site.icon`, which is the first of
-  # `/favicon.{svg,png,ico,webp,gif}` a row occupies (§4d, build.rs's
-  # `ICON_URLS`). Leave this to the embed policy and every base-inheriting site
-  # ships a `<link rel="icon">` pointing at nothing, which is a bug on any
-  # site.
-  #
-  # The four extensions are the intersection of that list with the glob below:
-  # `.ico` is not an image this scope claims, so it stays an ordinary tree byte
-  # copy at its literal path, exactly as it did before this rule existed.
+  # The one image the base routes
   [[collections.rules]]
-  match = "favicon.{svg,png,webp,gif}"
+  match = "favicon.{svg,png,webp,gif,ico}"
   route = "/{path}"
   defaults = { shell = "raw" }
 
+  # Images don't have a route - they'll get a content-addressed URL by default.
+  # Note that an embed-only rule is weaker than a routed rule.
   [[collections.rules]]
   match = "**/*.{png,jpg,jpeg,gif,webp,svg}"
   embed = true
   defaults = { shell = "raw" }
 
-# ---------------------------------------------------------------- pages
-#
-# Front matter is what the rules below select on: with it, a page at a pretty
-# URL; without it, bytes at the literal path, invisible to every query.
-#
-# It is a fact and not a branch, though — whether a row is a DOCUMENT is
-# `front_mattered || shell ∈ {html, light_html}`, so the second
-# clause is what these rules spend. Point a rule with no front-matter gate at a
-# blockless file, default it `shell = "html"`, and it renders as a degenerate
-# row: a warning, a title implied from its slug, and a page. Nothing here does
-# that; the base routes identity-less files `raw`, which is the normal case.
-#
-# Front matter also decides the SHELL, and the two rules below say so rather than leaving
-# it to a fallback in the renderer. A rule's defaults apply wherever the rule MATCHES, not only where
-# it wins the route — so the index rule needs no shell of its own: a
-# front-mattered `index.md` takes `html` from the second rule and a static
-# `index.html` takes `raw` from the third, each by the same front-matter gate
-# that decides everything else about it. That is also why the index rule may
-# not simply declare `html`: half the files it routes are byte copies.
-
-[[collections]]
-source = "."
-# Not content on any site: dependency directories and grackle's own build
-# cache. `exclude` on the tree collection is the one list every walk reads —
-# the content walk, the `.slots/` scan, the serve watcher. `**/` prunes nested
-# copies. `_cache/` also falls to the dot/underscore skip in the tree walks,
-# but naming it here is what stops the watcher looping on the thumbnails a
-# rebuild writes into it.
+[files]
 exclude = [
   "**/node_modules",
   "**/vendor",
   "_cache/**",
+  "@.gitignore",
 ]
+
+# Pages: generally undated posts, rendered in their tree position.
+[[collections]]
+name = "pages"
+source = "."
+
+  # For --profile drafts or --profile dev, we want to show the draft pages in-place
+  # In --profile drafts they are unqueryable and only appear at their real URLs (they do not
+  # appear in sitemap/feeds/search/etc.)
+  [[collections.rules]]
+  match = { draft = true }
+  unless = ["dev", "drafts"]
+  publish = false
+
+  [[collections.rules]]
+  partial = true
+  match = { draft = true }
+  only = "drafts"
+  defaults = { queryable = false, noindex = true }
 
   [[collections.rules]]
   match = "**/index.{html,md}"
   route = "/{dir}/"
 
   [[collections.rules]]
-  match = "**/*.{html,md}"
-  front_matter = true
+  match = { pattern = "**/*.{html,md}", front_matter = true }
   route = "/{dir}/{stem}/"
   defaults = { shell = "html" }
 
+  # A document file without identity ships as bytes.
   [[collections.rules]]
-  match = "**/*"
-  route = "/{path}"
+  partial = true
+  match = "**/*.{html,md}"
   defaults = { shell = "raw" }
 
-  # Citations only — earlier/later/related are date-and-embedding ideas a
-  # page has no answer for (§6g). Same spelling as on posts.
   [collections.relations.linked_from]
   from = "linked_from"
   where = "!(candidate in ancestors)"
 
-# ------------------------------------------------------------------ sets
-
-# The published set, named once so that every consumer below cannot drift apart
-# about what "a post list" means. This is the entry a site overrides most often
-# and the reason `[sets]` exists at all.
-[sets.published]
-from = "posts"
-where = "!draft && !hidden"
-order_by = "-date"
-
-# ---------------------------------------------------------------- routes
-
-# `/` is the one URL every site has an opinion about, so the base does not
-# decide it — it offers both answers and lets the tree pick. With an
-# `index.md`, that row claims the route and owns the page (§5h mode B, and it
-# can place `{% view home %}` to pull the posts back in). Without one, `/` is
-# the ten newest posts. Neither outcome had to be declared by the site, and
-# neither is a guess: both are written here.
-[routes.home]
+# Define a home view by default. If `index.md` or `index.html` exists, that becomes
+# the content. If not, the content is purely generated from the standard theme template.
+[views.home]
 path = "/"
-from = "published"
+from = "posts"
 limit = 10
 layout = "card"
 default_content = "index.{md,html}"
 title = "@home"
 
-# The archive, always paginated and always complete — so a claimed `/` that
-# shows prose instead of posts never makes the corpus unreachable.
-[routes.blog_index]
+# The paginated blog index.
+[views.blog_index]
 paths = ["/blog/", "/blog/page/{n}/"]
-from = "published"
+from = "posts"
 paginate = 10
 layout = "card"
 title = "@blog"
 
-[routes.feed]
+# Tag index. If no tags are present, no tag views are generated.
+[views.tag_index]
+path = "/blog/tags/{key}/" # to get untagged posts: ["/blog/untagged/", "/blog/tags/{key}/"]
+from = "posts"
+group_by = "tags"
+layout = "card"
+noindex = true
+title = "@tagged"
+crumb = "{key}"
+
+[views.feed]
 path = "/atom.xml"
-from = "published"
+from = "posts"
 limit = 20
 shell = "atom"
 
-# No `from`: a FOLD shell with no pool named reads every output,
-# which at this stage is the route set. It ranges over ROUTES, and a routed
-# row is routed whatever its flags say — hence the restated predicate. Any
-# such route a site adds needs the same one (DESIGN.md §5c).
-[routes.sitemap]
+# Reads every published route.
+[views.sitemap]
 path = "/sitemap.xml"
 shell = "sitemap"
-where = '!draft && !hidden && (dir || ext == "html")'
+where = 'media_type == "text/html"'
+
+# Publishes draft posts at /drafts/{slug}/, draft pages in-place.
+[profiles.drafts]
+description = "Publish draft posts and pages as unlisted URLs on a live site"
+
+# Adds noindex to all pages
+[profiles.staging]
+description = "Mark the site as staging making it unlisted from search engines"
+
+  [profiles.staging.force]
+  noindex = true

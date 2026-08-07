@@ -176,11 +176,11 @@ impl Config {
         let value: toml::Value = toml::from_str(text)?;
         let inherits_base = Config::extends_of(&value)?;
         // Site-declared view names, before merge blurs base vs site.
-        let mut declared: Vec<String> = ["sets", "routes"]
-            .iter()
-            .filter_map(|k| value.get(k)?.as_table())
-            .flat_map(|t| t.keys().cloned())
-            .collect();
+        let mut declared: Vec<String> = value
+            .get("views")
+            .and_then(|v| v.as_table())
+            .map(|t| t.keys().cloned().collect())
+            .unwrap_or_default();
         // Site rule counts per collection (prepend: first n are site's).
         let site_rules: BTreeMap<String, usize> = value
             .get("collections")
@@ -477,27 +477,24 @@ impl Config {
         }
     }
 
-    /// Table name: `name`, else source basename (strip `_`); `.` => `entries`.
+    /// Every collection names itself: the name is its identity in the
+    /// `from` namespace, and storage does not imply it.
     fn table_name(c: &Collection) -> Result<String> {
         if let Some(n) = &c.name {
             return Ok(n.clone());
         }
-        let Some(src) = c.source.as_deref() else {
-            anyhow::bail!(
+        match c.source.as_deref() {
+            Some(src) => anyhow::bail!(
+                "collection `source = {src:?}` declares no `name`. The name \
+                 is the collection's identity in the query namespace — what \
+                 `from` resolves — and the source directory is only its \
+                 storage. Add `name = \"...\"`."
+            ),
+            None => anyhow::bail!(
                 "a collection with no `source` (objects are matched by \
-                 extension, not by directory) has no directory to name it — \
-                 give it a `name`."
-            );
-        };
-        let base = Path::new(src)
-            .file_name()
-            .map(|s| s.to_string_lossy().trim_start_matches('_').to_string())
-            .unwrap_or_default();
-        Ok(if base.is_empty() {
-            "entries".to_string()
-        } else {
-            base
-        })
+                 extension, not by directory) declares no `name` — add one."
+            ),
+        }
     }
 
     /// Key collections by resolved table name (`from` namespace).
@@ -517,19 +514,12 @@ impl Config {
         Ok(())
     }
 
-    /// Fold sets/routes into `views`; one namespace with collections.
+    /// Fold `[views]` into the load-time namespace shared with collections.
+    /// Whether a view lands is its `path`, recorded here before
+    /// `resolve_default_content` can stand a path down.
     fn merge_queries(&mut self) -> Result<()> {
-        let sets = std::mem::take(&mut self.sets);
-        let routes = std::mem::take(&mut self.routes);
-        for (name, v) in &sets {
-            if v.route.is_some() || !v.routes.is_empty() {
-                anyhow::bail!(
-                    "[sets.{name}] declares a path. A set is a query that \
-                     never lands — move it to [routes.{name}]."
-                );
-            }
-        }
-        for (name, v) in sets.iter().chain(&routes) {
+        let declared = std::mem::take(&mut self.declared_views);
+        for (name, v) in &declared {
             if v.content.is_some() && v.default_content.is_some() {
                 anyhow::bail!(
                     "view {name}: declares both content and default_content — \
@@ -538,29 +528,15 @@ impl Config {
                 );
             }
         }
-        for (name, v) in &routes {
-            if v.route.is_none() && v.routes.is_empty() {
-                anyhow::bail!(
-                    "[routes.{name}] declares no `path`. A route is a query \
-                     that lands — give it one, or move it to [sets.{name}]."
-                );
-            }
-        }
-        let owned = sets
-            .into_iter()
-            .map(|(n, v)| (n, v, true))
-            .chain(routes.into_iter().map(|(n, v)| (n, v, false)));
-        for (name, mut v, declared_set) in owned {
-            v.declared_set = declared_set;
+        for (name, mut v) in declared {
+            v.declared_query_only = !v.is_materialized();
             if self.collections.contains_key(&name) {
                 anyhow::bail!(
-                    "{name:?} names both a collection and a set/route. `from` \
+                    "{name:?} names both a collection and a view. `from` \
                      resolves against one namespace, so the name must be unique."
                 );
             }
-            if self.views.insert(name.clone(), v).is_some() {
-                anyhow::bail!("{name:?} is declared as both a set and a route.");
-            }
+            self.views.insert(name.clone(), v);
         }
         Ok(())
     }
@@ -661,6 +637,15 @@ impl Config {
                 self.check_base(cur, name, from)?;
                 filters.reverse();
                 patched.reverse();
+                // The chain's base: a collection's declared order is the
+                // farthest writer; any view in the chain is nearer and won
+                // above.
+                let order_by = order_by.or_else(|| {
+                    from.names()
+                        .iter()
+                        .filter_map(|n| self.collections.get(n).and_then(|c| c.order_by.clone()))
+                        .next()
+                });
                 return Ok(Query {
                     base: from.names().to_vec(),
                     filters,
@@ -723,8 +708,8 @@ impl Config {
                 );
             }
             anyhow::bail!(
-                "{carrier}: `from = {}` is neither a collection, a set nor a route \
-                 (collections: {}; sets and routes: {}){}",
+                "{carrier}: `from = {}` is neither a collection nor a view \
+                 (collections: {}; views: {}){}",
                 from.display(),
                 self.collections
                     .keys()
@@ -756,12 +741,11 @@ impl Config {
             return note;
         };
         if v.inherited {
-            let table = if v.declared_set { "sets" } else { "routes" };
             note.push_str(&format!(
                 "\n {carrier:?} is inherited from the base config — it is not in your \
                  grackle.toml, and its `from` names a collection the BASE declares. A site \
                  that renames or drops that collection has to say what {carrier:?} means to \
-                 it: declare your own [{table}.{carrier}] over the inherited one, or keep a \
+                 it: declare your own [views.{carrier}] over the inherited one, or keep a \
                  collection under the name it asks for."
             ));
         }

@@ -35,6 +35,7 @@ draft = { type = "bool" }
 hidden = { type = "bool" }
 
 [[collections]]
+name = "posts"
 source = "_posts"
 file = ["{date.year}-{date.month}-{date.day}-{slug}"]
 
@@ -43,20 +44,20 @@ file = ["{date.year}-{date.month}-{date.day}-{slug}"]
   route = "/notes/{slug}/"
 
 [[collections]]
+name = "entries"
 source = "."
-exclude = ["themes/**"]
 
   [[collections.rules]]
   match = "**/*"
   route = "/{path}"
 
-[sets.published]
+[views.published]
 from = "posts"
 where = "!draft && !hidden"
 order_by = "-date"
 
 # No theme named: the members agree on nothing, so this is the site default.
-[routes.plain]
+[views.plain]
 path = "/plain/"
 from = "published"
 layout = "card"
@@ -64,7 +65,7 @@ title = "Plain"
 
 # The same rows, wearing a theme the route chose. Subtheme tokens ride along
 # exactly as a row's do.
-[routes.loud]
+[views.loud]
 path = "/loud/"
 from = "published"
 layout = "card"
@@ -98,3 +99,6 @@ title = "Loud"
 10 = "Oct"
 11 = "Nov"
 12 = "Dec"
+
+[files]
+exclude = ["themes/**"]

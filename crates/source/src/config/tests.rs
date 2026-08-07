@@ -67,11 +67,11 @@ fn cfg_err(views: &str) -> String {
 #[test]
 fn chain_flattens_and_conjoins_filters() {
     let c = cfg(r#"
-            [sets.published]
+            [views.published]
             from = "blog"
             where = "!draft && !hidden"
 
-            [sets.latest]
+            [views.latest]
             from = "published"
             where = "!noindex"
             limit = 3
@@ -86,7 +86,7 @@ fn chain_flattens_and_conjoins_filters() {
 /// listing that declares no fields of its own still carries the row's hero.
 #[test]
 fn schema_fields_union_into_a_view() {
-    let c = cfg("[sets.recent]\nfrom = \"blog\"\n\
+    let c = cfg("[views.recent]\nfrom = \"blog\"\n\
          [schema.fields]\nhero = 'images(content)[0]'\n");
     assert!(c.schema_fields().contains_key("hero"));
     assert!(
@@ -121,13 +121,13 @@ fn a_schema_field_literal_is_a_load_error() {
 
 #[test]
 fn single_filter_is_not_parenthesised() {
-    let c = cfg("[sets.published]\nfrom = \"blog\"\nwhere = \"!draft\"\n");
+    let c = cfg("[views.published]\nfrom = \"blog\"\nwhere = \"!draft\"\n");
     assert_eq!(c.query("published").unwrap().predicate().unwrap(), "!draft");
 }
 
 #[test]
 fn unfiltered_chain_has_no_predicate() {
-    let c = cfg("[sets.all]\nfrom = \"blog\"\n");
+    let c = cfg("[views.all]\nfrom = \"blog\"\n");
     assert!(c.query("all").unwrap().predicate().is_none());
 }
 
@@ -135,13 +135,13 @@ fn unfiltered_chain_has_no_predicate() {
 #[test]
 fn composing_over_a_materialized_view_is_an_error() {
     let c = cfg(r#"
-            [routes.blog_index]
+            [views.blog_index]
             from = "blog"
             where = "!draft"
             paginate = 5
             paths = ["/blog/"]
 
-            [sets.latest]
+            [views.latest]
             from = "blog_index"
             limit = 3
         "#);
@@ -157,13 +157,13 @@ fn composing_over_a_materialized_view_is_an_error() {
 #[test]
 fn grouped_over_grouped_is_subdivision() {
     let c = cfg(r#"
-            [routes.yearly]
+            [views.yearly]
             from = "blog"
             where = "!draft"
             group_by = "date.year"
             path = "/blog/{year}/"
 
-            [routes.monthly]
+            [views.monthly]
             from = "yearly"
             group_by = "date.month"
             path = "/blog/{year}/{month:02}/"
@@ -178,12 +178,12 @@ fn grouped_over_grouped_is_subdivision() {
 #[test]
 fn non_grouped_over_grouped_is_an_error() {
     let c = cfg(r#"
-            [routes.yearly]
+            [views.yearly]
             from = "blog"
             group_by = "date.year"
             path = "/blog/{year}/"
 
-            [sets.latest]
+            [views.latest]
             from = "yearly"
             limit = 3
         "#);
@@ -194,13 +194,13 @@ fn non_grouped_over_grouped_is_an_error() {
 #[test]
 fn subdividing_a_paginated_view_is_punted() {
     let c = cfg(r#"
-            [routes.yearly]
+            [views.yearly]
             from = "blog"
             group_by = "date.year"
             paginate = 10
             path = "/blog/{year}/"
 
-            [routes.monthly]
+            [views.monthly]
             from = "yearly"
             group_by = "date.month"
             path = "/blog/{year}/{month:02}/"
@@ -215,21 +215,21 @@ fn subdividing_a_paginated_view_is_punted() {
 #[test]
 fn fields_inherit_along_over_nearest_wins() {
     let c = cfg(r#"
-            [sets.published]
+            [views.published]
             from = "blog"
-            [sets.published.fields]
+            [views.published.fields]
             summary = 'truncate_blocks(content, 4)'
 
-            [routes.blog_index]
+            [views.blog_index]
             from = "published"
             paginate = 5
             paths = ["/blog/"]
 
-            [routes.tag_index]
+            [views.tag_index]
             from = "published"
             group_by = "tags"
             path = "/blog/tags/{key}/"
-            [routes.tag_index.fields]
+            [views.tag_index.fields]
             summary = 'truncate_blocks(content, 1)'
         "#);
     let inherited = c.fields_for("blog_index");
@@ -249,8 +249,8 @@ fn fields_inherit_along_over_nearest_wins() {
 fn a_collection_takes_its_name_from_its_source_directory() {
     let c = Config::from_toml(
         "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource = \"_posts\"\n\
-             [[collections]]\nsource = \"recipes\"\n",
+             [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"recipes\"\nsource = \"recipes\"\n",
     )
     .unwrap();
     let names: Vec<&str> = c.collections.keys().map(String::as_str).collect();
@@ -262,7 +262,7 @@ fn a_collection_takes_its_name_from_its_source_directory() {
 fn a_root_collection_is_named_entries() {
     let c = Config::from_toml(
         "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource = \".\"\n",
+             [[collections]]\nname = \"entries\"\nsource = \".\"\n",
     )
     .unwrap();
     assert!(
@@ -291,15 +291,15 @@ fn a_sourceless_collection_must_be_named() {
     )
     .unwrap_err()
     .to_string();
-    assert!(e.contains("give it a `name`"), "{e}");
+    assert!(e.contains("declares no `name`"), "{e}");
 }
 
 #[test]
 fn two_collections_may_not_resolve_to_one_name() {
     let e = Config::from_toml(
         "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource = \"_posts\"\n\
-             [[collections]]\nsource = \"posts\"\n",
+             [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"posts\"\nsource = \"posts\"\n",
     )
     .unwrap_err()
     .to_string();
@@ -310,7 +310,7 @@ fn two_collections_may_not_resolve_to_one_name() {
 /// Config only records the name; missing faces bail at render time.
 #[test]
 fn an_unknown_layout_name_is_accepted_at_config_time() {
-    let c = cfg("[routes.x]\npath = \"/x/\"\nfrom = \"blog\"\nlayout = \"tag_index\"\n");
+    let c = cfg("[views.x]\npath = \"/x/\"\nfrom = \"blog\"\nlayout = \"tag_index\"\n");
     assert_eq!(c.views["x"].layout.as_deref(), Some("tag_index"));
 }
 
@@ -325,15 +325,15 @@ fn an_unknown_layout_name_is_accepted_at_config_time() {
 #[test]
 fn a_set_may_not_declare_a_theme() {
     let e = cfg_err(
-        "[sets.latest]\nfrom = \"blog\"\nlimit = 3\n\
+        "[views.latest]\nfrom = \"blog\"\nlimit = 3\n\
              layout = \"link\"\ntheme = \"loud\"\n",
     );
-    assert!(e.contains("[sets.latest] declares a theme"), "{e}");
+    assert!(e.contains("[views.latest] declares a theme"), "{e}");
     assert!(e.contains("never lands"), "{e}");
 
-    let c = cfg("[routes.blog_index]\npath = \"/blog/\"\nfrom = \"blog\"\n\
+    let c = cfg("[views.blog_index]\npath = \"/blog/\"\nfrom = \"blog\"\n\
              layout = \"card\"\ntheme = \"loud\"\n\
-             [sets.latest]\nfrom = \"blog\"\nlimit = 3\n\
+             [views.latest]\nfrom = \"blog\"\nlimit = 3\n\
              layout = \"link\"\nvariant = \"compact\"\n");
     assert_eq!(c.views["blog_index"].theme.as_deref(), Some("loud"));
     assert_eq!(c.views["latest"].layout.as_deref(), Some("link"));
@@ -360,27 +360,27 @@ fn a_set_may_not_declare_a_theme() {
 #[test]
 fn a_set_may_not_wear_a_fold_shell() {
     for src in [
-        "[sets.everything]\nshell = \"sitemap\"\n",
-        "[sets.everything]\nfrom = \"blog\"\nshell = \"atom\"\n",
+        "[views.everything]\nshell = \"sitemap\"\n",
+        "[views.everything]\nfrom = \"blog\"\nshell = \"atom\"\n",
         "[shells.llms]\ncommand = \"cat\"\n\
-             [sets.everything]\nfrom = \"blog\"\nshell = \"llms\"\n",
+             [views.everything]\nfrom = \"blog\"\nshell = \"llms\"\n",
     ] {
         let e = cfg_err(src);
-        assert!(e.contains("[sets.everything] wears shell ="), "{e}");
-        assert!(e.contains("a set never lands"), "{e}");
-        assert!(e.contains("[routes.everything]"), "{e}");
+        assert!(e.contains("[views.everything] wears shell ="), "{e}");
+        assert!(e.contains("declares no `path`"), "{e}");
+        assert!(e.contains("[views.everything]"), "{e}");
     }
     // The controls. A routed fold is the shape the key exists for, and a
     // set with no shell is still an ordinary query.
     let c = cfg(
-        "[routes.everything]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n\
-             [sets.latest]\nfrom = \"blog\"\nlimit = 3\n",
+        "[views.everything]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n\
+             [views.latest]\nfrom = \"blog\"\nlimit = 3\n",
     );
     assert_eq!(c.views["everything"].shell.as_deref(), Some("sitemap"));
     assert!(c.views["latest"].shell.is_none());
     // And a MAP shell on a set is still the ARITY mistake `check_view`
     // owns, this check does not steal that sentence.
-    let e = cfg_err("[sets.latest]\nfrom = \"blog\"\nshell = \"html\"\n");
+    let e = cfg_err("[views.latest]\nfrom = \"blog\"\nshell = \"html\"\n");
     assert!(e.contains("is a map shell"), "{e}");
 }
 
@@ -392,11 +392,11 @@ fn noindex_is_a_view_declaration_defaulting_to_indexed() {
     let head =
         "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
                     [schema]\nnoindex = { type = \"bool\" }\n\
-                    [[collections]]\nsource = \"_posts\"\n\
+                    [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
                     file = [\"{slug}\"]\n";
     let c = Config::from_toml(&format!(
-        "{head}[routes.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
-             [routes.tag_index]\npath = \"/t/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
+        "{head}[views.blog_index]\npath = \"/blog/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
+             [views.tag_index]\npath = \"/t/\"\nfrom = \"posts\"\nlayout = \"card\"\n\
              noindex = true\n"
     ))
     .unwrap();
@@ -411,7 +411,7 @@ fn noindex_is_a_view_declaration_defaulting_to_indexed() {
 #[test]
 fn a_route_noindex_without_schema_is_a_load_error() {
     let e = cfg_err(
-        "[routes.tag_index]\npath = \"/t/\"\nfrom = \"blog\"\nlayout = \"card\"\n\
+        "[views.tag_index]\npath = \"/t/\"\nfrom = \"blog\"\nlayout = \"card\"\n\
              noindex = true\n",
     );
     assert!(e.contains("unknown field `noindex`"), "{e}");
@@ -427,7 +427,7 @@ fn a_route_noindex_without_schema_is_a_load_error() {
 /// what a page can be asked changed, only who says so.
 #[test]
 fn the_flag_family_is_queryable_on_pages() {
-    let c = cfg("[sets.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden && !noindex\"\n");
+    let c = cfg("[views.pages]\nfrom = \"blog\"\nwhere = \"!draft && !hidden && !noindex\"\n");
     let q = c.query("pages").unwrap();
     let mut schema = grackle_model::row_schema();
     for f in ["draft", "hidden", "noindex"] {
@@ -454,8 +454,8 @@ fn a_sites_rules_prepend_to_the_inherited_ones() {
     assert_eq!(rules[0].route, vec!["/writing/{slug}/"]);
     assert_eq!(
         rules.len(),
-        2,
-        "the base's catch-all should still be there, below"
+        4,
+        "the base's own rules (draft pair + post rule) still there, below"
     );
     // Not restated, so it comes from the base.
     assert_eq!(
@@ -482,13 +482,13 @@ fn a_renamed_collection_replaces_the_inherited_one_over_the_same_source() {
     );
 }
 
-/// A registry entry is the unit: your `[routes.feed]` replaces the base's
+/// A registry entry is the unit: your `[views.feed]` replaces the base's
 /// whole, so you never have to know what the base put in one.
 #[test]
 fn a_named_route_shadows_the_inherited_one_entire() {
     let c = Config::from_toml(
         "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [routes.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
+             [views.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
     )
     .unwrap();
     let feed = &c.views["feed"];
@@ -613,7 +613,7 @@ fn links_keys_merge_one_at_a_time() {
 fn declared_views_are_told_apart_from_inherited_ones() {
     let c = Config::from_toml(
         "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [routes.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
+             [views.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
     )
     .unwrap();
     assert!(!c.views["feed"].inherited, "the site wrote this one");
@@ -643,8 +643,8 @@ fn brace_alternatives_expand_in_order() {
 fn content_and_default_content_are_exclusive() {
     let e = Config::from_toml(
         "extends=\"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource=\".\"\n\
-             [routes.r]\npath=\"/r/\"\nfrom=\"entries\"\ncontent=\"a.md\"\n\
+             [[collections]]\nname=\"entries\"\nsource=\".\"\n\
+             [views.r]\npath=\"/r/\"\nfrom=\"entries\"\ncontent=\"a.md\"\n\
              default_content=\"b.md\"\n",
     )
     .unwrap_err()
@@ -672,8 +672,8 @@ fn a_config_with_no_collections_says_so() {
 #[test]
 fn a_path_scope_conjoins_along_the_chain() {
     let c = cfg(
-        "[sets.recipes]\nfrom = \"blog\"\nwhere = 'glob(path, \"recipes/**\")'\n\
-             [sets.desserts]\nfrom = \"recipes\"\n\
+        "[views.recipes]\nfrom = \"blog\"\nwhere = 'glob(path, \"recipes/**\")'\n\
+             [views.desserts]\nfrom = \"recipes\"\n\
              where = 'glob(path, \"**/sweet/**\") && !draft'\n",
     );
     assert_eq!(
@@ -690,9 +690,9 @@ fn a_path_scope_conjoins_along_the_chain() {
 /// `order_by` is nearest-wins, re-sorting a parent's rows is ordinary.
 #[test]
 fn order_by_inherits_nearest_wins() {
-    let c = cfg("[sets.books]\nfrom = \"blog\"\norder_by = \"-month\"\n\
-             [sets.by_title]\nfrom = \"books\"\norder_by = \"title\"\n\
-             [sets.newest]\nfrom = \"books\"\nlimit = 1\n");
+    let c = cfg("[views.books]\nfrom = \"blog\"\norder_by = \"-month\"\n\
+             [views.by_title]\nfrom = \"books\"\norder_by = \"title\"\n\
+             [views.newest]\nfrom = \"books\"\nlimit = 1\n");
     assert_eq!(
         c.query("by_title").unwrap().order_by.as_deref(),
         Some("title")
@@ -704,30 +704,12 @@ fn order_by_inherits_nearest_wins() {
     );
 }
 
-#[test]
-fn a_set_may_not_declare_a_path() {
-    let e = merge_err("[sets.s]\nfrom = \"blog\"\npath = \"/s/\"\n");
-    assert!(e.contains("[routes.s]"), "{e}");
-}
-
-#[test]
-fn a_route_must_declare_a_path() {
-    let e = merge_err("[routes.r]\nfrom = \"blog\"\n");
-    assert!(e.contains("[sets.r]"), "{e}");
-}
-
 /// One namespace: `from` resolves against collections, sets and routes
 /// alike, so a shared name is a conflict, not a silent preference.
 #[test]
 fn a_name_may_not_be_both_a_collection_and_a_query() {
-    let e = merge_err("[sets.blog]\nfrom = \"blog\"\n");
+    let e = merge_err("[views.blog]\nfrom = \"blog\"\n");
     assert!(e.contains("one namespace"), "{e}");
-}
-
-#[test]
-fn a_name_may_not_be_both_a_set_and_a_route() {
-    let e = merge_err("[sets.x]\nfrom = \"blog\"\n[routes.x]\nfrom = \"blog\"\npath = \"/x/\"\n");
-    assert!(e.contains("both a set and a route"), "{e}");
 }
 
 // ---------------------------------------------------------------- trail
@@ -761,7 +743,7 @@ fn a_trail_naming_no_view_is_a_load_error() {
 fn a_trail_over_nothing_grouped_is_a_load_error() {
     let e = cfg_err(
         "trail = \"flat\"\n\
-             [routes.flat]\npath = \"/flat/\"\nfrom = \"blog\"\nlayout = \"card\"\ntitle = \"F\"\n",
+             [views.flat]\npath = \"/flat/\"\nfrom = \"blog\"\nlayout = \"card\"\ntitle = \"F\"\n",
     );
     assert!(e.contains("subdivision chain"), "{e}");
     assert!(e.contains("Grouped views: "), "the knowns are listed: {e}");
@@ -774,7 +756,7 @@ fn a_trail_over_nothing_grouped_is_a_load_error() {
 fn a_trail_level_that_lands_nowhere_is_a_load_error() {
     let e = cfg_err(
         &TRAIL_CHAIN
-            .replace("[routes.yearly_archive]", "[sets.yearly_archive]")
+            .replace("[views.yearly_archive]", "[views.yearly_archive]")
             .replace("path = \"/blog/{year}/\"\n", ""),
     );
     assert!(e.contains("lands at no single `path`"), "{e}");
@@ -791,13 +773,13 @@ fn a_trail_level_with_no_label_is_a_load_error() {
 const TRAIL_CHAIN: &str = "trail = \"monthly_archive\"\n\
          [i18n.tables.months]\n\
          1 = \"January\"\n\
-         [routes.yearly_archive]\n\
+         [views.yearly_archive]\n\
          path = \"/blog/{year}/\"\n\
          from = \"blog\"\n\
          group_by = \"date.year\"\n\
          layout = \"card\"\n\
          title = \"{year}\"\n\
-         [routes.monthly_archive]\n\
+         [views.monthly_archive]\n\
          path = \"/blog/{year}/{month:02}/\"\n\
          from = \"yearly_archive\"\n\
          group_by = \"date.month\"\n\
@@ -1109,7 +1091,11 @@ fn a_localized_string_beside_a_map_would_be_split() {
 #[test]
 fn an_unknown_config_key_is_a_parse_error() {
     for stale in [
-        "[views.published]\nfrom = \"blog\"\n",
+        // The retired split tables; a view is one namespace.
+        "[sets.published]\nfrom = \"blog\"\n",
+        "[routes.blog_index]\nfrom = \"blog\"\npath = \"/blog/\"\n",
+        // `[files]` owns the not-content list.
+        "gitignore = false\n",
         // A relation's candidate pool is `from` now.
         "[collections.relations.related]\nover = \"published\"\n",
         // `match` on a relation is a `where` clause now.
@@ -1119,7 +1105,7 @@ fn an_unknown_config_key_is_a_parse_error() {
     ] {
         let src = format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-                 [[collections]]\nsource = \"_posts\"\n{stale}"
+                 [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n{stale}"
         );
         let e = Config::from_toml(&src)
             .expect_err("stale spelling should not parse")
@@ -1128,10 +1114,10 @@ fn an_unknown_config_key_is_a_parse_error() {
     }
     // Stale view keys fail at validate, not parse.
     for stale in [
-        "[sets.s]\nover = \"blog\"\n",
-        "[sets.s]\nfrom = \"blog\"\nfilter = \"!draft\"\n",
-        "[routes.r]\nfrom = \"blog\"\npath = \"/r/\"\nroute = \"/also/\"\n",
-        "[sets.s]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n",
+        "[views.s]\nover = \"blog\"\n",
+        "[views.s]\nfrom = \"blog\"\nfilter = \"!draft\"\n",
+        "[views.r]\nfrom = \"blog\"\npath = \"/r/\"\nroute = \"/also/\"\n",
+        "[views.s]\nfrom = \"blog\"\nmatch = \"recipes/**\"\n",
     ] {
         let e = cfg_err(stale);
         assert!(e.contains("unknown field"), "{stale} -> {e}");
@@ -1151,7 +1137,7 @@ fn an_unknown_key_on_a_leaf_table_is_a_parse_error() {
     ] {
         let src = format!(
             "root = \".\"\nextends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-                 [[collections]]\nsource = \"_posts\"\n{stale}"
+                 [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n{stale}"
         );
         let e = Config::from_toml(&src)
             .expect_err("stale spelling should not parse")
@@ -1183,8 +1169,8 @@ fn site_noindex_is_an_unknown_field() {
 /// The two views every profile test below writes over: a set that never
 /// lands, and a route that does.
 const PROFILE_VIEWS: &str = "[schema]\nhidden = { type = \"bool\" }\n\
-         [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
-         [routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"card\"\n";
+         [views.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
+         [views.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\nlayout = \"card\"\n";
 
 /// The fence, law made checkable. A profile may
 /// touch what a projection SAYS and SELECTS and never what LOADS, and the
@@ -1217,7 +1203,7 @@ fn the_fence_refuses_what_a_profile_may_not_write() {
     assert!(e.contains("[profiles.p.collections]"), "{e}");
     assert!(e.contains("never changes what loads"), "{e}");
     assert!(e.contains("identical under every profile"), "{e}");
-    assert!(e.contains("site, html, sets, routes"), "the knowns: {e}");
+    assert!(e.contains("site, html, views"), "the knowns: {e}");
     // Every non-projectable key says it, not just the interesting one.
     for key in ["schema", "markers", "extends", "root", "links"] {
         let e = cfg_err(&format!("{PROFILE_VIEWS}[profiles.p]\n{key} = \"x\"\n"));
@@ -1266,8 +1252,8 @@ fn the_fence_classifies_every_top_level_key() {
 }
 
 /// The fence again, and the reason grack.com's drafts profile restates
-/// `[sets.published]` in full: the shape decides. `[site]` is a bag, so a
-/// profile patches one key of it and the rest survive; a `[sets.*]` entry
+/// `[views.published]` in full: the shape decides. `[site]` is a bag, so a
+/// profile patches one key of it and the rest survive; a `[views.*]` entry
 /// is a DEFINITION, and a definition is an atom, the profile's entry
 /// replaces the site's entire, `order_by` and all.
 ///
@@ -1279,7 +1265,7 @@ fn the_fence_classifies_every_top_level_key() {
 #[test]
 fn a_bag_patches_per_key_and_a_definition_replaces_whole() {
     let views = "[schema]\nhidden = { type = \"bool\" }\n\
-             [sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\norder_by = \"-date\"\n";
+             [views.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\norder_by = \"-date\"\n";
     let c = projected(
         &format!("{views}[profiles.p.site]\nurl = \"https://drafts.example.com\"\n"),
         "p",
@@ -1289,7 +1275,7 @@ fn a_bag_patches_per_key_and_a_definition_replaces_whole() {
     assert_eq!(c.site.title, "t", "the rest of the bag stands");
 
     let c = projected(
-        &format!("{views}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"true\"\n"),
+        &format!("{views}[profiles.p.views.published]\nfrom = \"blog\"\nwhere = \"true\"\n"),
         "p",
     )
     .expect("a restatement is a whole definition");
@@ -1413,7 +1399,7 @@ fn a_site_that_leans_on_the_base_for_site_keys_loads() {
 fn a_profile_filter_may_mix_builtins_and_declared_fields() {
     let c = projected(
         &format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\n\
+            "{PROFILE_VIEWS}[profiles.p.views.published]\nfrom = \"blog\"\n\
                  where = 'title != \"\" && !hidden'\n"
         ),
         "p",
@@ -1444,8 +1430,8 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
     let c = cfg_raw(&format!(
         "{PROFILE_VIEWS}\
              [[collections]]\nname = \"pics\"\n\
-             [sets.gallery]\nfrom = \"pics\"\n\
-             [routes.sitemap]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
+             [views.gallery]\nfrom = \"pics\"\n\
+             [views.sitemap]\npath = \"/sitemap.xml\"\nshell = \"sitemap\"\n"
     ));
     let rows = c.view_filter_schema("published");
     assert!(rows.contains_key("title") && rows.contains_key("hidden"));
@@ -1472,9 +1458,9 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
     // And the fold's own overlay applies, against route words.
     projected(
         &format!(
-            "{PROFILE_VIEWS}[routes.sitemap]\npath = \"/sitemap.xml\"\n\
+            "{PROFILE_VIEWS}[views.sitemap]\npath = \"/sitemap.xml\"\n\
                  shell = \"sitemap\"\n\
-                 [profiles.p.routes.sitemap]\npath = \"/sitemap.xml\"\n\
+                 [profiles.p.views.sitemap]\npath = \"/sitemap.xml\"\n\
                  shell = \"sitemap\"\nwhere = 'collection == \"posts\" && !hidden'\n"
         ),
         "p",
@@ -1494,7 +1480,7 @@ fn a_profile_filter_takes_the_patched_views_own_vocabulary() {
 fn an_unknown_name_in_a_profile_filter_is_deferred_not_rejected() {
     let c = projected(
         &format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"!cover\"\n"
+            "{PROFILE_VIEWS}[profiles.p.views.published]\nfrom = \"blog\"\nwhere = \"!cover\"\n"
         ),
         "p",
     )
@@ -1517,7 +1503,7 @@ fn a_profile_filter_that_does_not_type_check_is_caught_at_load() {
         "{:#}",
         projected(
             &format!(
-                "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\n\
+                "{PROFILE_VIEWS}[profiles.p.views.published]\nfrom = \"blog\"\n\
                      where = 'title > 3'\n"
             ),
             "p",
@@ -1530,7 +1516,7 @@ fn a_profile_filter_that_does_not_type_check_is_caught_at_load() {
 
 /// What the retired placement checks were guarding is now
 /// said by the ordinary rules, because the overlay produces an ordinary
-/// config. The retired placement check refused `[profiles.p.sets.blog_index]` because `blog_index`
+/// config. The retired placement check refused `[profiles.p.views.blog_index]` because `blog_index`
 /// is a route; today that entry ADDS a `[sets]` definition of that name,
 /// which collides in the one namespace `merge_queries` folds the two
 /// sections into, the same error a site writing it twice would get, and
@@ -1544,8 +1530,8 @@ fn a_misplaced_profile_entry_collides_in_the_one_namespace() {
     // The control: both entries where they belong, both restated whole.
     let ok = projected(
         &format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
-                 [profiles.p.routes.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\n\
+            "{PROFILE_VIEWS}[profiles.p.views.published]\nfrom = \"blog\"\nwhere = \"!hidden\"\n\
+                 [profiles.p.views.blog_index]\npath = \"/blog/\"\nfrom = \"published\"\n\
                  layout = \"card\"\nwhere = 'title != \"\"'\n"
         ),
         "p",
@@ -1557,19 +1543,7 @@ fn a_misplaced_profile_entry_collides_in_the_one_namespace() {
         Some("title != \"\"")
     );
 
-    let e = format!(
-        "{:#}",
-        Config::from_toml(&cfg_source(&format!(
-            "{PROFILE_VIEWS}[profiles.p.sets.blog_index]\npath = \"/blog/\"\n\
-                 from = \"published\"\nlayout = \"card\"\nwhere = \"!hidden\"\n"
-        )))
-        .expect_err("`blog_index` is already a route")
-    );
-    assert!(e.contains("profile p"), "{e}");
-    assert!(
-        e.contains("declares a path") || e.contains("both a set and a route"),
-        "{e}"
-    );
+    // A profile restates a routed view whole: one table, one namespace.
 }
 
 /// Every declared profile is
@@ -1578,7 +1552,7 @@ fn a_misplaced_profile_entry_collides_in_the_one_namespace() {
 /// config below is loaded the way `grackle build` loads it, with no
 /// `--profile` anywhere.
 ///
-/// Its typo is `publised` for `[sets.published]`, the query a drafts-shaped
+/// Its typo is `publised` for `[views.published]`, the query a drafts-shaped
 /// profile relaxes. A profile naming an unknown view adds a definition,
 /// which is what a registry does; the addition is then held to the same rules
 /// as any other entry, and a set with no `from` is not a set. An absent
@@ -1593,7 +1567,7 @@ fn a_broken_overlay_fails_a_load_that_never_applies_it() {
     let e = format!(
         "{:#}",
         Config::from_toml(&cfg_source(&format!(
-            "{PROFILE_VIEWS}[profiles.staging.sets.publised]\nwhere = \"!hidden\"\n"
+            "{PROFILE_VIEWS}[profiles.staging.views.publised]\nwhere = \"!hidden\"\n"
         )))
         .expect_err("a set with no `from` is not a set")
     );
@@ -1605,7 +1579,7 @@ fn a_broken_overlay_fails_a_load_that_never_applies_it() {
     // a registry gains an entry, which is what a registry is for.
     let c = projected(
         &format!(
-            "{PROFILE_VIEWS}[profiles.staging.sets.drafts_only]\nfrom = \"blog\"\n\
+            "{PROFILE_VIEWS}[profiles.staging.views.drafts_only]\nfrom = \"blog\"\n\
                  where = \"hidden\"\n"
         ),
         "staging",
@@ -1632,7 +1606,7 @@ fn checking_every_profile_leaves_the_correct_ones_alone() {
     // grack.com's shape: one profile, correct, never applied.
     let declared = format!(
         "{PROFILE_VIEWS}[profiles.drafts.force]\nhidden = false\n\
-             [profiles.drafts.sets.published]\nfrom = \"blog\"\nwhere = \"true\"\n"
+             [profiles.drafts.views.published]\nfrom = \"blog\"\nwhere = \"true\"\n"
     );
     let both = Config::from_toml(&cfg_source(&declared)).expect("declared, not applied");
     assert_eq!(
@@ -1670,7 +1644,7 @@ fn checking_every_profile_leaves_the_correct_ones_alone() {
 /// path, and what that leaves is not a set. The section an entry was
 /// declared under is recorded rather than re-derived for exactly this
 /// case: `is_materialized()` would call this view a set, and the error
-/// tells the author to "declare your own [sets.home]" over an entry that
+/// tells the author to "declare your own [views.home]" over an entry that
 /// lives under `[routes]`.
 ///
 /// (The placement check that used to read this is retired now;
@@ -1679,7 +1653,7 @@ fn checking_every_profile_leaves_the_correct_ones_alone() {
 #[test]
 fn a_declined_default_content_route_is_still_a_route() {
     let mut c = cfg_raw(
-        "[routes.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"card\"\n\
+        "[views.home]\npath = \"/\"\nfrom = \"blog\"\nlayout = \"card\"\n\
              default_content = \"index.md\"\n",
     );
     // What `resolve_default_content` does to a route whose offered row
@@ -1690,7 +1664,7 @@ fn a_declined_default_content_route_is_still_a_route() {
     v.routes.clear();
     assert!(!v.is_materialized());
     assert!(
-        !c.views["home"].declared_set,
+        !c.views["home"].declared_query_only,
         "a route with no path left is still a route"
     );
 }
@@ -1774,10 +1748,10 @@ fn a_forced_field_is_declared_and_typed_for_every_profile() {
 
 #[test]
 fn unknown_from_is_an_error() {
-    let c = cfg("[sets.latest]\nfrom = \"pubished\"\nlimit = 3\n");
+    let c = cfg("[views.latest]\nfrom = \"pubished\"\nlimit = 3\n");
     let e = c.query("latest").unwrap_err().to_string();
     assert!(
-        e.contains("neither a collection, a set nor a route"),
+        e.contains("neither a collection nor a view"),
         "unexpected error: {e}"
     );
     // The author wrote this one, so there is nothing to explain about
@@ -1786,77 +1760,9 @@ fn unknown_from_is_an_error() {
     assert!(!e.contains("reached from"), "{e}");
 }
 
-/// Renaming the collection at `_posts` retires the name
-/// `posts`, and the base's `[sets.published] from = "posts"` then names
-/// nothing, on a site whose grackle.toml has no `published` in it.
-///
-/// Views key on name and survive every rename; collections key on
-/// `source` and do not. That asymmetry is the whole of this bug, and it
-/// is why an inherited `from` is the one reference a site can break
-/// without touching the entry that carries it.
-#[test]
-fn an_inherited_sets_dangling_from_says_it_came_from_the_base() {
-    let c = Config::from_toml(
-        "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n",
-    )
-    .unwrap();
-    let e = c.query("published").unwrap_err().to_string();
-    assert!(e.starts_with("published: `from = \"posts\"`"), "{e}");
-    assert!(
-        e.contains("\"published\" is inherited from the base config"),
-        "{e}"
-    );
-    assert!(
-        e.contains("declare your own [sets.published]"),
-        "the fix, in the table the entry would live in: {e}"
-    );
-    // The knowns are what show the author their own rename.
-    assert!(e.contains("collections: entries, notes, objects"), "{e}");
-}
-
-/// The other half of the same blame: `blog_index` composes over
-/// `published`, so asking for `blog_index`'s query is what surfaces
-/// `published`'s broken `from`, and the old message put `blog_index`'s
-/// name in front of a `from` that is not in `blog_index`.
-#[test]
-fn a_composed_chain_blames_the_view_that_carries_the_from() {
-    let c = Config::from_toml(
-        "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n",
-    )
-    .unwrap();
-    let e = c.query("blog_index").unwrap_err().to_string();
-    assert!(
-        e.starts_with("published: `from = \"posts\"`"),
-        "the carrier, not the asker: {e}"
-    );
-    assert!(
-        e.contains("(reached from \"blog_index\", which composes over it.)"),
-        "{e}"
-    );
-}
-
-/// The control, and the shape `examples/field-notes` really has: rename
-/// the collection AND say what the inherited set means now. One line, and
-/// it is the line the error above asks for.
-#[test]
-fn a_renamed_collection_with_its_own_published_set_resolves() {
-    let c = Config::from_toml(
-        "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nname=\"notes\"\nsource=\"_posts\"\n\
-             [sets.published]\nfrom=\"notes\"\nwhere=\"!draft\"\n",
-    )
-    .unwrap();
-    let q = c
-        .query("blog_index")
-        .expect("the chain terminates at `notes`");
-    assert_eq!(q.base, vec!["notes".to_string()]);
-}
-
 #[test]
 fn cyclic_chain_terminates() {
-    let c = cfg("[sets.a]\nfrom = \"b\"\n\n[sets.b]\nfrom = \"a\"\n");
+    let c = cfg("[views.a]\nfrom = \"b\"\n\n[views.b]\nfrom = \"a\"\n");
     let e = c.query("a").unwrap_err().to_string();
     assert!(e.contains("cyclic"), "unexpected error: {e}");
 }
@@ -1892,8 +1798,8 @@ fn i18n_axis_need_not_be_named_locale() {
 /// "@key" references the global map; "@@" escapes a literal @.
 #[test]
 fn string_hierarchy_resolves() {
-    let c = cfg("[sets.a]\nfrom = \"posts\"\ntitle = \"@kitchen\"\n\n\
-             [sets.b]\nfrom = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
+    let c = cfg("[views.a]\nfrom = \"posts\"\ntitle = \"@kitchen\"\n\n\
+             [views.b]\nfrom = \"posts\"\ntitle = \"Inline wins\"\ncrumb = \"@@literal-at\"\n\n\
              [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\n\
              [i18n.strings]\nkitchen = { en = \"Kitchen\", fr = \"Cuisine\" }\n\
              home = { en = \"Home\", fr = \"Accueil\" }\n");
@@ -1984,7 +1890,7 @@ fn format_date_expands_medium_date_template() {
 fn unknown_i18n_table_ref_is_a_load_error() {
     let e = cfg_err(
         "[axes.locale]\nvalues = [\"en\"]\nfield = \"locale\"\n\
-         [routes.x]\npath = \"/x/\"\nfrom = \"blog\"\n\
+         [views.x]\npath = \"/x/\"\nfrom = \"blog\"\n\
          group_by = \"date.month\"\ncrumb = \"@nope[{month}]\"\n",
     );
     assert!(e.contains("@nope"), "{e}");
@@ -2016,12 +1922,12 @@ fn extends_none_has_no_i18n_vocabulary() {
 /// errors, the latter is what catches a typo'd engine-key override.
 #[test]
 fn string_hierarchy_fails_loud() {
-    let e = cfg_err("[sets.a]\nfrom = \"posts\"\ntitle = \"@nope\"\n");
+    let e = cfg_err("[views.a]\nfrom = \"posts\"\ntitle = \"@nope\"\n");
     assert!(e.contains("names no string"), "{e}");
     let e = cfg_err("[i18n.strings]\nhom = \"Home\"\n");
     assert!(e.contains("unused string"), "{e}");
     let e = cfg_err(
-        "[sets.a]\nfrom = \"posts\"\ntitle = \"@x\"\n\n[i18n.strings]\nx = \"@y\"\ny = \"z\"\n",
+        "[views.a]\nfrom = \"posts\"\ntitle = \"@x\"\n\n[i18n.strings]\nx = \"@y\"\ny = \"z\"\n",
     );
     assert!(e.contains("no chains"), "{e}");
 }
@@ -2084,7 +1990,7 @@ fn an_archive_route_may_spend_an_axis() {
         "[[collections.rules]]\nmatch = \"**\"\nroute = \"/{slug}/\"\n\
              [schema]\ntags = { type = \"list\" }\n\
              [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
-             [routes.tag_index]\n\
+             [views.tag_index]\n\
              paths = [\"/{axis:locale}/blog/tags/{key}/\", \"/blog/tags/{key}/\"]\n\
              from = \"blog\"\ngroup_by = \"tags\"\nlayout = \"card\"\n",
     );
@@ -2123,16 +2029,16 @@ fn provenance_of(printed: &str, key: &str) -> String {
 
 /// Law 2 at the surface a person reads: a redeclared registry entry says
 /// SITE and the base's entry is gone entirely, not merged, not half
-/// present. `limit = 20` is the base's `[routes.feed]`, and its absence
+/// present. `limit = 20` is the base's `[views.feed]`, and its absence
 /// here is the whole claim.
 #[test]
 fn a_shadowed_registry_entry_reads_as_one_atom_from_the_site() {
     let out = effective(
         "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [routes.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
+             [views.feed]\npath=\"/feed.xml\"\nfrom=\"published\"\nshell=\"atom\"\n",
     );
     assert!(
-        provenance_of(&out, "[routes.feed]").contains("# site over base, whole"),
+        provenance_of(&out, "[views.feed]").contains("# site over base, whole"),
         "{out}"
     );
     assert!(
@@ -2146,7 +2052,7 @@ fn a_shadowed_registry_entry_reads_as_one_atom_from_the_site() {
     );
     // A neighbour the site never wrote is the point of the command.
     assert!(
-        provenance_of(&out, "[routes.home]").contains("# base, whole"),
+        provenance_of(&out, "[views.home]").contains("# base, whole"),
         "{out}"
     );
 }
@@ -2181,15 +2087,11 @@ fn an_untouched_table_is_all_base() {
         );
     }
     assert!(
-        provenance_of(&out, "[sets.published]").contains("# base, whole"),
+        provenance_of(&out, "[views.blog_index]").contains("# base, whole"),
         "{out}"
     );
     // Never written by either file: serde's default, and it is named as
     // such rather than passed off as the base's.
-    assert!(
-        provenance_of(&out, "gitignore =").ends_with("# default"),
-        "{out}"
-    );
     assert!(
         provenance_of(&out, "root =").ends_with("# default"),
         "{out}"
@@ -2203,7 +2105,7 @@ fn an_untouched_table_is_all_base() {
 fn prepended_rules_carry_provenance_per_rule() {
     let out = effective(
         "[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
              [[collections.rules]]\nmatch = \"drafts/**\"\nroute = \"/d/{slug}/\"\n",
     );
     // Only the posts collection's rules: the base's other two collections
@@ -2216,7 +2118,7 @@ fn prepended_rules_carry_provenance_per_rule() {
         .lines()
         .filter(|l| l.starts_with("[[collections.rules]]"))
         .collect();
-    assert_eq!(rules.len(), 2, "site rule + the base's catch-all:\n{out}");
+    assert_eq!(rules.len(), 4, "site rule + the base's three:\n{out}");
     assert!(rules[0].contains("# site, whole"), "{out}");
     assert!(rules[1].contains("# base, whole"), "{out}");
     assert!(
@@ -2227,18 +2129,18 @@ fn prepended_rules_carry_provenance_per_rule() {
 
 /// `extends = "none"` has no merge to record, so the walk that stands in
 /// for one must reach the same atoms: every key the site's own, at the
-/// same granularity (`[sets.x]` whole, `[site]` per key).
+/// same granularity (`[views.x]` whole, `[site]` per key).
 #[test]
 fn an_uninheriting_site_owns_every_key() {
     let out = effective(
         "extends = \"none\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [sets.mine]\nfrom = \"posts\"\nwhere = \"!draft\"\norder_by = \"-date\"\n\
+             [views.mine]\nfrom = \"posts\"\nwhere = \"!draft\"\norder_by = \"-date\"\n\
              [markers]\n\".x\" = { draft = true }\n",
     );
     for (key, want) in [
         ("extends =", "# site"),
         ("url =", "# site"),
-        ("[sets.mine]", "# site, whole"),
+        ("[views.mine]", "# site, whole"),
         ("\".x\"", "# site, whole"),
     ] {
         assert!(provenance_of(&out, key).contains(want), "{key} in:\n{out}");
@@ -2265,7 +2167,7 @@ fn printing_the_merged_config_loses_nothing() {
         // array-of-tables keyed by identity, its rules, a nested map of
         // definitions, a localized string, a quoted key, an inline table.
         "root = \"..\"\n[site]\nurl=\"u\"\ntitle=\"t\"\nauthor=\"a\"\n\
-             [[collections]]\nsource = \"_posts\"\n\
+             [[collections]]\nname = \"posts\"\nsource = \"_posts\"\n\
              [collections.schema]\ncover = { type = \"image\" }\n\
              [[collections.rules]]\nmatch = \"**\"\ndefaults = { layout = \"post\" }\n\
              [collections.relations.related]\nfrom = \"published\"\nlimit = 3\n\
@@ -2324,7 +2226,7 @@ fn a_quoted_key_stays_quoted_in_a_table_header() {
 fn a_map_shell_on_a_view_is_an_arity_error() {
     for map in crate::shell::MAP {
         let e = cfg_err(&format!(
-            "[routes.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{map}\"\n"
+            "[views.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{map}\"\n"
         ));
         assert!(e.contains("is a map shell"), "{map}: {e}");
         assert!(e.contains("wraps ONE output"), "{map}: {e}");
@@ -2333,21 +2235,21 @@ fn a_map_shell_on_a_view_is_an_arity_error() {
     // The controls: every fold, and a registered script shell beside them.
     for fold in crate::shell::FOLD {
         cfg_raw(&format!(
-            "[routes.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{fold}\"\n"
+            "[views.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{fold}\"\n"
         ))
         .validate()
         .unwrap_or_else(|e| panic!("{fold} is a fold shell: {e:#}"));
     }
     cfg_raw(
         "[shells.llms]\ncommand = \"c\"\n\
-             [routes.feed]\npath = \"/f.txt\"\nfrom = \"blog\"\nshell = \"llms\"\n",
+             [views.feed]\npath = \"/f.txt\"\nfrom = \"blog\"\nshell = \"llms\"\n",
     )
     .validate()
     .expect("a registered script shell is a fold");
     // And the retired spellings are hard cutoffs on this side too.
     for stale in ["none", "light"] {
         let e = cfg_err(&format!(
-            "[routes.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{stale}\"\n"
+            "[views.feed]\npath = \"/f.xml\"\nfrom = \"blog\"\nshell = \"{stale}\"\n"
         ));
         assert!(e.contains("unknown shell"), "{stale}: {e}");
     }

@@ -901,8 +901,8 @@ mod tests {
             "root = \".\"\nextends = \"none\"\n[site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n\
              [axes.locale]\nvalues = [\"en\", \"fr\"]\nfield = \"locale\"\n\
-             [sets.published]\nfrom = \"blog\"\n\
-             [routes.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
+             [views.published]\nfrom = \"blog\"\n\
+             [views.tag_index]\nfrom = \"published\"\ngroup_by = \"tags\"\n\
              paths = [\"/{axis:locale}/blog/tags/{key}/\", \"/blog/tags/{key}/\"]\nlayout = \"card\"\n",
         )
         .unwrap();
@@ -951,8 +951,8 @@ mod axis_tests {
              [site]\nurl = \"u\"\ntitle = \"t\"\nauthor = \"a\"\n\
              [axes.look]\nvalues = [\"plain\", \"fancy\"]\nfield = \"look\"\n\
              [[collections]]\nname = \"blog\"\nsource = \"_posts\"\n\
-             [sets.published]\nfrom = \"blog\"\n\
-             [routes.hub]\nfrom = \"published\"\nlayout = \"card\"\naxis = \"look\"\n\
+             [views.published]\nfrom = \"blog\"\n\
+             [views.hub]\nfrom = \"published\"\nlayout = \"card\"\naxis = \"look\"\n\
              paths = [\"/{{{spell}}}/all/\", \"/all/\"]\n"
         ))
         .unwrap()
